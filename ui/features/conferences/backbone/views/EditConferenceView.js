@@ -22,14 +22,14 @@ import {extend} from '@canvas/backbone/utils'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import _ from 'underscore'
-import tz from '@canvas/timezone'
+import * as tz from '@canvas/datetime'
 import DialogBaseView from '@canvas/dialog-base-view'
 import deparam from 'deparam'
 import template from '../../jst/editConferenceForm.handlebars'
 import userSettingOptionsTemplate from '../../jst/userSettingOptions.handlebars'
 import authenticity_token from '@canvas/authenticity-token'
 import numberHelper from '@canvas/i18n/numberHelper'
-import '@canvas/forms/jquery/jquery.instructure_forms'
+import '@canvas/jquery/jquery.instructure_forms'
 
 const I18n = useI18nScope('conferences')
 

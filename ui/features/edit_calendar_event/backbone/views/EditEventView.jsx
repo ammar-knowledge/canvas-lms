@@ -19,12 +19,12 @@
 import $ from 'jquery'
 import _ from 'underscore'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import tz from '@canvas/timezone'
+import * as tz from '@canvas/datetime'
 import moment from 'moment-timezone'
 import Backbone from '@canvas/backbone'
 import React from 'react'
 import ReactDOM from 'react-dom'
-import '@canvas/forms/jquery/jquery.instructure_forms'
+import '@canvas/jquery/jquery.instructure_forms'
 import editCalendarEventFullTemplate from '../../jst/editCalendarEventFull.handlebars'
 import MissingDateDialogView from '@canvas/due-dates/backbone/views/MissingDateDialogView'
 import RichContentEditor from '@canvas/rce/RichContentEditor'
@@ -162,11 +162,13 @@ export default class EditCalendarEventView extends Backbone.View {
             .find('#calendar_event_blackout_date')
             .prop('checked', picked_params[key] === 'true')
         }
-        if(key === 'calendar_event_context_code' && picked_params['course_sections'].length > 0){
+        if (key === 'calendar_event_context_code' && picked_params.course_sections?.length > 0) {
           const active_section_id = picked_params[key].split('_')[2]
           const eventDateKeys = ['start_date', 'start_time', 'end_time']
-          eventDateKeys.forEach((dateKey) => {
-            const $element = this.$el.find(`input[name='child_event_data[${active_section_id}][${dateKey}]']`)
+          eventDateKeys.forEach(dateKey => {
+            const $element = this.$el.find(
+              `input[name='child_event_data[${active_section_id}][${dateKey}]']`
+            )
             $element.val(picked_params[dateKey])
           })
         }
@@ -174,10 +176,13 @@ export default class EditCalendarEventView extends Backbone.View {
           const sections = picked_params[key]
           sections.forEach(section => {
             if (section.event) {
-              ['start_time', 'end_time'].forEach((timeKey) => {
-                const $element = this.$el.find(`input[name='child_event_data[${section.id}][${timeKey}]']`)
-                const value = $element.val();
-                $element.val(value.toUpperCase())
+              const timeKeys = ['start_time', 'end_time']
+              timeKeys.forEach(timeKey => {
+                const $element = this.$el.find(
+                  `input[name='child_event_data[${section.id}][${timeKey}]']`
+                )
+                const newValue = section.event.all_day ? '' : $element.val().toUpperCase()
+                $element.val(newValue)
                 $element.change()
               })
             }
@@ -238,7 +243,7 @@ export default class EditCalendarEventView extends Backbone.View {
   }
 
   showDuplicates(duplicatesEnabled) {
-    if (ENV.FEATURES.calendar_series && this.model.isNew()) {
+    if (this.model.isNew()) {
       this.$el.find('.label_with_checkbox[for="duplicate_event"]').toggle(duplicatesEnabled)
       $('#duplicate_event').prop('checked', false)
       this.enableDuplicateFields(false)
@@ -254,7 +259,7 @@ export default class EditCalendarEventView extends Backbone.View {
   }
 
   renderRecurringEventFrequencyPicker() {
-    if (ENV.FEATURES.calendar_series && !this.model.get('use_section_dates')) {
+    if (!this.model.get('use_section_dates')) {
       const pickerNode = document.getElementById('recurring_event_frequency_picker')
       const start = this.$el.find('[name="start_date"]').val()
       const eventStart = start ? moment.tz(start, 'MMM D, YYYY', ENV.TIMEZONE) : moment('invalid')
@@ -389,49 +394,30 @@ export default class EditCalendarEventView extends Backbone.View {
   }
 
   destroyModel() {
-    if (ENV.FEATURES.calendar_series) {
-      let delModalContainer = document.getElementById('delete_modal_container')
-      if (!delModalContainer) {
-        delModalContainer = document.createElement('div')
-        delModalContainer.id = 'delete_modal_container'
-        document.body.appendChild(delModalContainer)
-      }
-      renderDeleteCalendarEventDialog(delModalContainer, {
-        isOpen: true,
-        onCancel: () => {
-          ReactDOM.unmountComponentAtNode(delModalContainer)
-        },
-        onDeleting: () => {},
-        onDeleted: () => {
-          ReactDOM.unmountComponentAtNode(delModalContainer)
-          this.redirectWithMessage(
-            I18n.t('event_deleted', '%{event_title} deleted successfully', {
-              event_title: this.model.get('title'),
-            })
-          )
-        },
-        delUrl: this.model.url(),
-        isRepeating: !!this.model.get('series_uuid'),
-        isSeriesHead: !!this.model.get('series_head'),
-      })
-    } else {
-      const msg = I18n.t(
-        'confirm_delete_calendar_event',
-        'Are you sure you want to delete this calendar event?'
-      )
-      if (window.confirm(msg)) {
-        return this.$el.disableWhileLoading(
-          this.model.destroy({
-            success: () =>
-              this.redirectWithMessage(
-                I18n.t('event_deleted', '%{event_title} deleted successfully', {
-                  event_title: this.model.get('title'),
-                })
-              ),
+    let delModalContainer = document.getElementById('delete_modal_container')
+    if (!delModalContainer) {
+      delModalContainer = document.createElement('div')
+      delModalContainer.id = 'delete_modal_container'
+      document.body.appendChild(delModalContainer)
+    }
+    renderDeleteCalendarEventDialog(delModalContainer, {
+      isOpen: true,
+      onCancel: () => {
+        ReactDOM.unmountComponentAtNode(delModalContainer)
+      },
+      onDeleting: () => {},
+      onDeleted: () => {
+        ReactDOM.unmountComponentAtNode(delModalContainer)
+        this.redirectWithMessage(
+          I18n.t('event_deleted', '%{event_title} deleted successfully', {
+            event_title: this.model.get('title'),
           })
         )
-      }
-    }
+      },
+      delUrl: this.model.url(),
+      isRepeating: !!this.model.get('series_uuid'),
+      isSeriesHead: !!this.model.get('series_head'),
+    })
   }
 
   // boilerplate that could be replaced with data bindings
@@ -568,7 +554,7 @@ export default class EditCalendarEventView extends Backbone.View {
   async saveEvent(eventData) {
     RichContentEditor.closeRCE(this.$('textarea'))
 
-    if (ENV?.FEATURES?.calendar_series && this.model.get('series_uuid')) {
+    if (this.model.get('series_uuid')) {
       const which = await renderUpdateCalendarEventDialog(this.model.attributes)
       if (which === undefined) return
       this.model.set('which', which)

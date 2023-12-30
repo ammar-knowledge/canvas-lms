@@ -29,7 +29,6 @@ import type {
 import type {
   Attachment,
   AttachmentData,
-  Enrollment,
   GradingPeriod,
   Submission,
   SubmissionComment,
@@ -75,7 +74,6 @@ import {
 } from '@instructure/ui-icons'
 import {Pill} from '@instructure/ui-pill'
 import {
-  styleSubmissionStatusPills,
   determineSubmissionSelection,
   makeSubmissionUpdateRequest,
 } from '../SpeedGraderStatusMenuHelpers'
@@ -86,7 +84,7 @@ import _ from 'underscore'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import natcompare from '@canvas/util/natcompare'
 import qs from 'qs'
-import tz from '@canvas/timezone'
+import * as tz from '@canvas/datetime'
 import userSettings from '@canvas/user-settings'
 import htmlEscape from 'html-escape'
 import rubricAssessment from '@canvas/rubrics/jquery/rubric_assessment'
@@ -99,8 +97,8 @@ import {
   getSelectedAssessment,
   renderSettingsMenu,
   configureRecognition,
-  getStatusPills,
   hideMediaRecorderContainer,
+  isStudentConcluded,
   renderDeleteAttachmentLink,
   renderPostGradesMenu,
   renderStatusMenu,
@@ -129,14 +127,14 @@ import vericiteInfoTemplate from '../jst/_vericiteInfo.handlebars'
 import vericiteScoreTemplate from '@canvas/grading/jst/_vericiteScore.handlebars'
 import 'jqueryui/draggable'
 import '@canvas/jquery/jquery.ajaxJSON' /* getJSON, ajaxJSON */
-import '@canvas/forms/jquery/jquery.instructure_forms' /* ajaxJSONFiles */
+import '@canvas/jquery/jquery.instructure_forms' /* ajaxJSONFiles */
 import '@canvas/doc-previews' /* loadDocPreview */
-import '@canvas/datetime' /* datetimeString */
+import '@canvas/datetime/jquery' /* datetimeString */
 import 'jqueryui/dialog'
 import 'jqueryui/menu'
 import '@canvas/jquery/jquery.instructure_misc_helpers' /* replaceTags */
 import '@canvas/jquery/jquery.instructure_misc_plugins' /* confirmDelete, showIf, hasScrollbar */
-import '@canvas/keycodes'
+import '@canvas/jquery-keycodes'
 import '@canvas/loading-image'
 import '@canvas/util/templateData'
 import '@canvas/media-comments'
@@ -147,7 +145,7 @@ import 'jquery-scroll-to-visible/jquery.scrollTo'
 import 'jquery-selectmenu'
 import '@canvas/jquery/jquery.disableWhileLoading'
 import '@canvas/util/jquery/fixDialogButtons'
-import type {GlobalEnv} from '@canvas/global/env/GlobalEnv'
+import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 import type {EnvGradebookSpeedGrader} from '@canvas/global/env/EnvGradebook'
 import replaceTags from '@canvas/util/replaceTags'
 import type {GradeStatusUnderscore} from '@canvas/grading/accountGradingStatus'
@@ -474,6 +472,7 @@ function mergeStudentsAndSubmission() {
         EG.compareStudentsBy(student => {
           const submittedAt = student && student.submission && student.submission.submitted_at
           if (submittedAt) {
+            // @ts-expect-error
             return +tz.parse(submittedAt)
           } else {
             // puts the unsubmitted assignments at the bottom
@@ -1233,7 +1232,6 @@ function updateSubmissionAndPageEffects(data?: {
       refreshGrades(() => {
         EG.showSubmissionDetails()
         if (availableMountPointForStatusMenu()) {
-          styleSubmissionStatusPills(getStatusPills())
           const mountPoint = availableMountPointForStatusMenu()
           if (!mountPoint) throw new Error('SpeedGrader: mount point for status menu not found')
           renderStatusMenu(statusMenuComponent(submission), mountPoint)
@@ -2452,7 +2450,11 @@ EG = {
       )
     )
 
-    const isConcluded = EG.isStudentConcluded(this.currentStudent[anonymizableId])
+    const isConcluded = isStudentConcluded(
+      window.jsonData.studentMap,
+      this.currentStudent[anonymizableId],
+      ENV.selected_section_id
+    )
     $enrollment_concluded_notice.showIf(isConcluded)
 
     const gradingPeriod = window.jsonData.gradingPeriods[(submissionHolder || {}).grading_period_id]
@@ -2474,23 +2476,11 @@ EG = {
     if (mountPoint) {
       const isInModeration = isModerated && !window.jsonData.grades_published_at
       const shouldRender = isMostRecent && !isClosedForSubmission && !isConcluded && !isInModeration
-      styleSubmissionStatusPills(getStatusPills())
       const component = shouldRender ? statusMenuComponent(this.currentStudent.submission) : null
       renderStatusMenu(component, mountPoint)
     }
 
     EG.showDiscussion()
-  },
-
-  isStudentConcluded(student: string) {
-    if (!window.jsonData.studentMap) {
-      return false
-    }
-
-    return _.some(
-      window.jsonData.studentMap[student].enrollments,
-      (enrollment: Enrollment) => enrollment.workflow_state === 'completed'
-    )
   },
 
   refreshSubmissionsToView() {
@@ -3012,7 +3002,11 @@ EG = {
     // set.  what this is saying is: if I am able to grade this
     // assignment (I am administrator in the course) or if I wrote
     // this comment... and if the student isn't concluded
-    const isConcluded = EG.isStudentConcluded(EG.currentStudent[anonymizableId])
+    const isConcluded = isStudentConcluded(
+      window.jsonData.studentMap,
+      EG.currentStudent[anonymizableId],
+      ENV.selected_section_id
+    )
     const commentIsDeleteableByMe =
       (ENV.RUBRIC_ASSESSMENT.assessment_type === 'grading' ||
         ENV.RUBRIC_ASSESSMENT.assessor_id === comment[anonymizableAuthorId]) &&
@@ -3058,7 +3052,11 @@ EG = {
   addCommentSubmissionHandler(commentElement, comment) {
     const that = this
 
-    const isConcluded = EG.isStudentConcluded(EG.currentStudent[anonymizableId])
+    const isConcluded = isStudentConcluded(
+      window.jsonData.studentMap,
+      EG.currentStudent[anonymizableId],
+      ENV.selected_section_id
+    )
     commentElement
       .find('.submit_comment_button')
       .click(_event => {
@@ -3486,7 +3484,13 @@ EG = {
   // should only be called from the anonymous function attached so
   // #submit_same_score.
   handleGradeSubmit(e, use_existing_score: boolean) {
-    if (EG.isStudentConcluded(EG.currentStudent[anonymizableId])) {
+    if (
+      isStudentConcluded(
+        window.jsonData.studentMap,
+        EG.currentStudent[anonymizableId],
+        ENV.selected_section_id
+      )
+    ) {
       EG.showGrade()
       return
     }

@@ -34,6 +34,7 @@ import type {
   ContentMigrationItem,
   ContentMigrationResponse,
   Migrator,
+  DateShifts,
   onSubmitMigrationFormCallback,
 } from './types'
 import CommonCartridgeImporter from './migrator_forms/common_cartridge'
@@ -46,9 +47,11 @@ const I18n = useI18nScope('content_migrations_redesign')
 type RequestBody = {
   course_id: string
   migration_type: string
-  date_shift_options: boolean
+  date_shift_options: DateShifts
   selective_import: boolean
   settings: {[key: string]: any}
+  daySubCollection?: object
+  errored?: boolean
   pre_attachment?: {
     name: string
     no_redirect: boolean
@@ -95,7 +98,6 @@ export const ContentMigrationsForm = ({
 }) => {
   const [migrators, setMigrators] = useState<any>([])
   const [chosenMigrator, setChosenMigrator] = useState<string | null>(null)
-
   const handleFileProgress = (_: AttachmentProgressResponse) => {}
   // console.log(`${(response.loaded / response.total) * 100}%`)
 
@@ -104,9 +106,10 @@ export const ContentMigrationsForm = ({
   const onSubmitForm: onSubmitMigrationFormCallback = useCallback(
     async (formData, preAttachmentFile) => {
       const courseId = window.ENV.COURSE_ID
-      if (!chosenMigrator || !courseId) {
+      if (!chosenMigrator || !courseId || formData.errored) {
         return
       }
+      delete formData.errored
       const requestBody: RequestBody = {
         course_id: courseId,
         migration_type: chosenMigrator,

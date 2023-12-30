@@ -32,7 +32,7 @@ class AssignmentOverride < ActiveRecord::Base
   attr_writer :for_nonactive_enrollment
 
   belongs_to :root_account, class_name: "Account"
-  belongs_to :assignment, inverse_of: :assignment_overrides
+  belongs_to :assignment, inverse_of: :assignment_overrides, class_name: "AbstractAssignment"
   belongs_to :quiz, class_name: "Quizzes::Quiz", inverse_of: :assignment_overrides
   belongs_to :context_module, inverse_of: :assignment_overrides
   belongs_to :wiki_page, inverse_of: :assignment_overrides
@@ -68,7 +68,7 @@ class AssignmentOverride < ActiveRecord::Base
       when CourseSection
         record.errors.add :set, "not from assignment's course" unless record.set.course_id == record.assignment.context_id
       when Group
-        valid_group_category_id = record.assignment.group_category_id || record.assignment.discussion_topic.try(:group_category_id)
+        valid_group_category_id = record.assignment.effective_group_category_id
         record.errors.add :set, "not from assignment's group category" unless record.set.group_category_id == valid_group_category_id
       when Course
         record.errors.add :set, "not from assignment's course" unless record.set.id == record.assignment.context_id
@@ -354,20 +354,20 @@ class AssignmentOverride < ActiveRecord::Base
   end
 
   def self.override(field)
-    define_method "override_#{field}" do |value|
-      send("#{field}_overridden=", true)
-      send("#{field}=", value)
+    define_method :"override_#{field}" do |value|
+      send(:"#{field}_overridden=", true)
+      send(:"#{field}=", value)
     end
 
-    define_method "clear_#{field}_override" do
-      send("#{field}_overridden=", false)
-      send("#{field}=", nil)
+    define_method :"clear_#{field}_override" do
+      send(:"#{field}_overridden=", false)
+      send(:"#{field}=", nil)
     end
 
     validates "#{field}_overridden", inclusion: { in: [false, true] }
     before_validation do |override|
-      if override.send("#{field}_overridden").nil?
-        override.send("#{field}_overridden=", false)
+      if override.send(:"#{field}_overridden").nil?
+        override.send(:"#{field}_overridden=", false)
       end
       true
     end

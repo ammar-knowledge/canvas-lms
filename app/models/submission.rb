@@ -133,7 +133,7 @@ class Submission < ActiveRecord::Base
   attr_writer :versioned_originality_reports
 
   belongs_to :attachment # this refers to the screenshot of the submission if it is a url submission
-  belongs_to :assignment, inverse_of: :submissions
+  belongs_to :assignment, inverse_of: :submissions, class_name: "AbstractAssignment"
   belongs_to :course, inverse_of: :submissions
   belongs_to :custom_grade_status, inverse_of: :submissions
   has_many :observer_alerts, as: :context, inverse_of: :context, dependent: :destroy
@@ -360,10 +360,10 @@ class Submission < ActiveRecord::Base
   def needs_grading?(was = false)
     suffix = was ? "_before_last_save" : ""
 
-    !send("submission_type#{suffix}").nil? &&
-      (send("workflow_state#{suffix}") == "pending_review" ||
-       (["submitted", "graded"].include?(send("workflow_state#{suffix}")) &&
-        (send("score#{suffix}").nil? || !send("grade_matches_current_submission#{suffix}"))
+    !send(:"submission_type#{suffix}").nil? &&
+      (send(:"workflow_state#{suffix}") == "pending_review" ||
+       (["submitted", "graded"].include?(send(:"workflow_state#{suffix}")) &&
+        (send(:"score#{suffix}").nil? || !send(:"grade_matches_current_submission#{suffix}"))
        )
       )
   end
@@ -3183,10 +3183,10 @@ class Submission < ActiveRecord::Base
     # posting/hiding on a separate copy of the assignment, then reload our copy
     # of the assignment to make sure we pick up any changes to the muted status.
     if posted? && !previously_posted
-      Assignment.find(assignment_id).post_submissions(submission_ids: [id], skip_updating_timestamp: true, skip_muted_changed: true)
+      AbstractAssignment.find(assignment_id).post_submissions(submission_ids: [id], skip_updating_timestamp: true, skip_muted_changed: true)
       assignment.reload
     elsif !posted? && previously_posted
-      Assignment.find(assignment_id).hide_submissions(submission_ids: [id], skip_updating_timestamp: true, skip_muted_changed: true)
+      AbstractAssignment.find(assignment_id).hide_submissions(submission_ids: [id], skip_updating_timestamp: true, skip_muted_changed: true)
       assignment.reload
     end
   end

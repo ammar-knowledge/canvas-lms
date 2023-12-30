@@ -23,7 +23,7 @@ import DialogFormView, {
   isSmallTablet,
   getResponsiveWidth,
 } from '@canvas/forms/backbone/views/DialogFormView'
-import DateValidator from '@canvas/datetime/DateValidator'
+import DateValidator from '@canvas/grading/DateValidator'
 import template from '../../jst/CreateAssignment.handlebars'
 import wrapper from '@canvas/forms/jst/EmptyDialogFormWrapper.handlebars'
 import numberHelper from '@canvas/i18n/numberHelper'
@@ -32,8 +32,8 @@ import round from '@canvas/round'
 import $ from 'jquery'
 import GradingPeriodsAPI from '@canvas/grading/jquery/gradingPeriodsApi'
 import SisValidationHelper from '@canvas/sis/SisValidationHelper'
-import '@canvas/datetime'
-import tz from '@canvas/timezone'
+import '@canvas/datetime/jquery'
+import * as tz from '@canvas/datetime'
 
 const I18n = useI18nScope('CreateAssignmentView')
 

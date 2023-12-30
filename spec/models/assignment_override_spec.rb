@@ -575,15 +575,15 @@ describe AssignmentOverride do
       end
 
       it "sets the override when a override_#{field} is called" do
-        @override.send("override_#{field}", value2)
-        expect(@override.send("#{field}_overridden")).to be true
+        @override.send(:"override_#{field}", value2)
+        expect(@override.send(:"#{field}_overridden")).to be true
         expect(@override.send(field)).to eq value2
       end
 
       it "clears the override when clear_#{field}_override is called" do
-        @override.send("override_#{field}", value2)
-        @override.send("clear_#{field}_override")
-        expect(@override.send("#{field}_overridden")).to be false
+        @override.send(:"override_#{field}", value2)
+        @override.send(:"clear_#{field}_override")
+        expect(@override.send(:"#{field}_overridden")).to be false
         expect(@override.send(field)).to be_nil
       end
     end
@@ -1231,6 +1231,19 @@ describe AssignmentOverride do
     it "sets the root_account_id using assignment" do
       override = assignment_override_model(course: @course)
       expect(override.root_account_id).to eq @assignment.root_account_id
+    end
+  end
+
+  describe "discussion checkpoints" do
+    it "allows creating a group override for a checkpoint" do
+      category = group_category
+      group = category.groups.create!(context: @course)
+      topic = DiscussionTopic.create_graded_topic!(course: @course, title: "graded_topic")
+      topic.update!(group_category: category)
+      topic.create_checkpoints(reply_to_topic_points: 4, reply_to_entry_points: 2)
+      checkpoint = topic.reply_to_topic_checkpoint
+      override = assignment_override_model(assignment: checkpoint, course: @course, set: group)
+      expect(checkpoint.assignment_overrides).to include override
     end
   end
 end

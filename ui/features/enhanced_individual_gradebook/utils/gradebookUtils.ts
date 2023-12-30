@@ -17,15 +17,15 @@
  */
 
 import _ from 'lodash'
-import type {GlobalEnv} from '@canvas/global/env/GlobalEnv'
+import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 import type {
   AssignmentGroupCriteriaMap,
   CamelizedGradingPeriodSet,
   SubmissionGradeCriteria,
-} from '@canvas/grading/grading'
+} from '@canvas/grading/grading.d'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import round from '@canvas/round'
-import tz from '@canvas/timezone'
+import * as tz from '@canvas/datetime'
 import userSettings from '@canvas/user-settings'
 
 import {ApiCallStatus, GradebookSortOrder} from '../types'
@@ -495,6 +495,7 @@ function mapToSortableAssignment(
   gradingPeriodId?: string | null
 ): SortableAssignment {
   // Used sort date logic from screenreader_gradebook_controller.js
+  // @ts-expect-error
   const sortableDueDate = assignment.dueAt ? +tz.parse(assignment.dueAt) / 1000 : Number.MAX_VALUE
   return {
     ...assignment,
