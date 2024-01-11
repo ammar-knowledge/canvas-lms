@@ -27,10 +27,10 @@
 // xsslint safeString.property question_text
 import regradeTemplate from '../jst/regrade.handlebars'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import _ from 'underscore'
+import {find, forEach, keys, difference} from 'lodash'
 import $ from 'jquery'
 import calcCmd from './calcCmd'
-import htmlEscape from 'html-escape'
+import htmlEscape, {raw} from '@instructure/html-escape'
 import numberHelper from '@canvas/i18n/numberHelper'
 import ready from '@instructure/ready'
 import pluralize from '@canvas/util/stringPluralize'
@@ -748,10 +748,10 @@ export const quiz = (window.quiz = {
     $question.find('.blank_id_select').empty()
     if (question.question_type === 'missing_word_question') {
       var $text = $question.find('.question_text')
-      $text.html("<span class='text_before_answers'>" + $.raw(question.question_text) + '</span> ')
+      $text.html("<span class='text_before_answers'>" + raw(question.question_text) + '</span> ')
       $text.append($select)
       $text.append(
-        " <span class='text_after_answers'>" + $.raw(question.text_after_answers) + '</span>'
+        " <span class='text_after_answers'>" + raw(question.text_after_answers) + '</span>'
       )
     } else if (
       question.question_type === 'multiple_dropdowns_question' ||
@@ -2203,9 +2203,9 @@ ready(function () {
         name: quiz_title,
       })
 
-      if (_.keys(overrideErrs).length > 0) {
+      if (keys(overrideErrs).length > 0) {
         valid = false
-        _.each(overrideErrs, err => {
+        forEach(overrideErrs, err => {
           err.showError(err.element, err.message)
         })
       }
@@ -2924,7 +2924,7 @@ ready(function () {
       'true_false_question',
       'multiple_answers_question',
     ]
-    return _.find(regradeTypes, className => $el.hasClass(className))
+    return find(regradeTypes, className => $el.hasClass(className))
   }
 
   function disableRegrade(holder) {
@@ -2970,7 +2970,7 @@ ready(function () {
       const oldAnswers = REGRADE_DATA[questionID]
       const newAnswers = correctAnswerIDs($el)
 
-      return oldAnswers.length == newAnswers.length && !_.difference(oldAnswers, newAnswers).length
+      return oldAnswers.length == newAnswers.length && !difference(oldAnswers, newAnswers).length
     }
   }
 
@@ -3280,7 +3280,7 @@ ready(function () {
     }
 
     const newParams = {}
-    _.each(params, (val, key) => {
+    forEach(params, (val, key) => {
       newParams[key.replace('quiz_group[', 'quiz_groups[][')] = val
     })
 
@@ -4088,7 +4088,7 @@ ready(function () {
         data['quiz_group[question_points]'] = quizGroupQuestionPoints
       }
       const newData = {}
-      _.each(data, (val, key) => {
+      forEach(data, (val, key) => {
         newData[key.replace('quiz_group[', 'quiz_groups[][')] = val
       })
       return newData
@@ -4257,7 +4257,7 @@ ready(function () {
       } else {
         moveWrapper.hide()
       }
-      moveSelect.html($.raw(options.join('')))
+      moveSelect.html(raw(options.join('')))
 
       // trigger building 'place' menu
       moveSelect.change(this.buildPlaceMenu.bind(this))
@@ -4288,7 +4288,7 @@ ready(function () {
           htmlEscape(I18n.t('at_the_bottom', '-- at the bottom --')) +
           '</option>'
       )
-      this.$form.find('#move_select_question').html($.raw(options.join('')))
+      this.$form.find('#move_select_question').html(raw(options.join('')))
     },
 
     itemsInGroup(group) {
@@ -4492,7 +4492,7 @@ ready(function () {
         }
         ui.placeholder.append(
           "<div class='question_placeholder' style='height: " +
-            $.raw(ui.helper.height() - 10) +
+            raw(ui.helper.height() - 10) +
             "px;'>&nbsp;</div>"
         )
       }
@@ -4717,7 +4717,7 @@ ready(function () {
     $('#calc_helper_method_description').text(calcCmd.functionDescription(method))
     const html =
       '<pre>' +
-      $.raw($.map(calcCmd.functionExamples(method), htmlEscape).join('</pre><pre>')) +
+      raw($.map(calcCmd.functionExamples(method), htmlEscape).join('</pre><pre>')) +
       '</pre>'
     $('#calc_helper_method_examples').html(html)
   })

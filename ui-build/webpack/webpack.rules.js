@@ -76,67 +76,59 @@ exports.fonts = {
   use: 'file-loader',
 }
 
-exports.babel = {
-  test: /\.(js|ts|jsx|tsx)$/,
-  include: [
-    resolve(canvasDir, 'ui'),
-    ...globPlugins('app/{jsx,coffeescripts}/'),
-  ],
-  exclude: [/node_modules/],
-  parser: {
-    requireInclude: 'allow',
-  },
-  use: {
-    loader: 'babel-loader',
-    options: {
-      configFile: false,
-      cacheDirectory: process.env.NODE_ENV !== 'production',
-      assumptions: {
-        setPublicClassFields: true,
-      },
-      env: {
-        development: {
-          plugins: ['babel-plugin-typescript-to-proptypes'],
-        },
-        production: {
-          plugins: [
-            [
-              '@babel/plugin-transform-runtime',
-              {
-                helpers: true,
-                corejs: 3,
-                useESModules: true,
-              },
-            ],
-            'transform-react-remove-prop-types',
-            '@babel/plugin-transform-react-inline-elements',
-            '@babel/plugin-transform-react-constant-elements',
-          ],
-        },
-      },
-      presets: [
-        ['@babel/preset-typescript'],
-        [
-          '@babel/preset-env',
-          {
-            useBuiltIns: 'entry',
-            corejs: '3.20',
-            modules: false,
-            // This is needed to fix a Safari < 16 bug
-            // https://github.com/babel/babel/issues/14289
-            // https://bugs.webkit.org/show_bug.cgi?id=236843
-            include: ['@babel/plugin-proposal-class-properties'],
+const browserTargets = {
+  browsers: 'last 2 versions',
+}
+
+exports.swc = [
+  {
+    test: /\.(j|t)s$/,
+    include: [resolve(canvasDir, 'ui'), ...globPlugins('app/{jsx,coffeescripts}/')],
+    exclude: /(node_modules)/,
+    use: {
+      loader: 'swc-loader',
+      options: {
+        sourceMaps: true,
+        jsc: {
+          externalHelpers: true,
+          parser: {
+            syntax: 'typescript',
           },
-        ],
-        ['@babel/preset-react', {useBuiltIns: true}],
-      ],
-      targets: {
-        browsers: 'last 2 versions',
-        esmodules: true,
+          experimental: {
+            plugins: [['swc-plugin-coverage-instrument', {}]],
+          },
+        },
+        env: {
+          targets: browserTargets,
+        },
       },
     },
   },
-}
+  {
+    test: /\.(j|t)sx$/,
+    include: [resolve(canvasDir, 'ui'), ...globPlugins('app/{jsx,coffeescripts}/')],
+    exclude: /(node_modules)/,
+    use: {
+      loader: 'swc-loader',
+      options: {
+        sourceMaps: true,
+        jsc: {
+          externalHelpers: true,
+          parser: {
+            syntax: 'typescript',
+            tsx: true,
+          },
+          experimental: {
+            plugins: [['swc-plugin-coverage-instrument', {}]],
+          },
+        },
+        env: {
+          targets: browserTargets,
+        },
+      },
+    },
+  },
+]
 
 exports.handlebars = {
   test: /\.handlebars$/,

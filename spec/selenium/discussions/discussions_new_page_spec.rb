@@ -926,6 +926,37 @@ describe "discussions" do
         expect(dt.assignment.name).to eq title
       end
 
+      it "creates a discussion topic with selected grading scheme/standard" do
+        grading_standard = course.grading_standards.create!(title: "Win/Lose", data: [["Winner", 0.94], ["Loser", 0]])
+
+        get "/courses/#{course.id}/discussion_topics/new"
+
+        title = "Graded Discussion Topic with letter grade type"
+        message = "replying to topic"
+
+        f("input[placeholder='Topic Title']").send_keys title
+        type_in_tiny("textarea", message)
+
+        force_click('input[type=checkbox][value="graded"]')
+        wait_for_ajaximations
+
+        f("input[data-testid='display-grade-input']").click
+        ffj("span:contains('Letter Grade')").last.click
+        expect(fj("span:contains('Manage All Grading Schemes')").present?).to be_truthy
+
+        ffj("span:contains('Default Canvas Grading Scheme')").last.click
+        fj("option:contains('#{grading_standard.title}')").click
+
+        f("button[data-testid='save-and-publish-button']").click
+        wait_for_ajaximations
+
+        dt = DiscussionTopic.last
+
+        expect(dt.title).to eq title
+        expect(dt.assignment.name).to eq title
+        expect(dt.assignment.grading_standard_id).to eq grading_standard.id
+      end
+
       it "edits a topic with an assignment with sync to sis" do
         @account = @course.root_account
         @account.set_feature_flag! "post_grades", "on"
@@ -978,6 +1009,53 @@ describe "discussions" do
         wait_for_ajaximations
 
         expect(fj("body:contains('Groups can only be part of the actively selected group set.')")).to be_present
+      end
+
+      context "discussion form validations" do
+        it "Post to section validation works correctly" do
+          get "/courses/#{course.id}/discussion_topics/new"
+
+          # Add a title, so that we know that the empty post to field is causing it to not submit
+          title = "Graded Discussion Topic with Peer Reviews"
+          f("input[placeholder='Topic Title']").send_keys title
+
+          fj("button:contains('All Sections')").click
+          # Verify that the error message "A section is required" appears
+          expect(fj("body:contains('A section is required')")).to be_present
+
+          # Verify that you can not submit the form
+          f("button[data-testid='save-and-publish-button']").click
+          wait_for_ajaximations
+          # Verify that no redirect happened
+          expect(driver.current_url).to end_with("/courses/#{course.id}/discussion_topics/new")
+        end
+
+        it "Due Date validations work" do
+          get "/courses/#{course.id}/discussion_topics/new"
+
+          # Add a title, so that we know that the empty post to field is causing it to not submit
+          title = "Graded Discussion Topic with due date"
+          f("input[placeholder='Topic Title']").send_keys title
+
+          force_click('input[type=checkbox][value="graded"]')
+
+          due_at_input = f("input[placeholder='Select Assignment Due Date']")
+          available_from_input = f("input[placeholder='Select Assignment Available From Date']")
+          available_until_input = f("input[placeholder='Select Assignment Available Until Date']")
+
+          set_datetime_input(due_at_input, format_date_for_view(10.days.from_now))
+          set_datetime_input(available_from_input, format_date_for_view(5.days.from_now))
+          set_datetime_input(available_until_input, format_date_for_view(5.days.ago))
+
+          expect(fj("span:contains('Due date must not be after the Available Until date.')")).to be_present
+          expect(ffj("span:contains('Unlock date cannot be after lock date')").count).not_to be 0
+
+          # Verify that you can not submit the form
+          f("button[data-testid='save-and-publish-button']").click
+          wait_for_ajaximations
+          # Verify that no redirect happened
+          expect(driver.current_url).to end_with("/courses/#{course.id}/discussion_topics/new")
+        end
       end
 
       context "assignment overrides" do
@@ -1286,168 +1364,6 @@ describe "discussions" do
           expect(override_titles).to include @group_1.name
           expect(override_titles).to include @group_2.name
           expect(override_titles).to include @group_3.name
-        end
-      end
-    end
-
-    context "editing" do
-      before do
-        user_session(teacher)
-      end
-
-      context "discussion" do
-        before do
-          attachment_model
-          # TODO: Update to cover: graded, group discussions, file attachment, any other options later implemented
-          all_discussion_options_enabled = {
-            title: "value for title",
-            message: "value for message",
-            is_anonymous_author: false,
-            anonymous_state: "full_anonymity",
-            todo_date: "Thu, 12 Oct 2023 15:59:59.000000000 UTC +00:00",
-            allow_rating: true,
-            only_graders_can_rate: true,
-            podcast_enabled: true,
-            podcast_has_student_posts: true,
-            require_initial_post: true,
-            discussion_type: "side_comment",
-            delayed_post_at: "Tue, 10 Oct 2023 16:00:00.000000000 UTC +00:00",
-            lock_at: "Wed, 11 Nov 2023 15:59:59.999999000 UTC +00:00",
-            is_section_specific: false,
-            attachment: @attachment
-          }
-
-          @topic_all_options = course.discussion_topics.create!(all_discussion_options_enabled)
-          @topic_no_options = course.discussion_topics.create!(title: "no options enabled - topic", message: "test")
-        end
-
-        it "displays all selected options correctly" do
-          get "/courses/#{course.id}/discussion_topics/#{@topic_all_options.id}/edit"
-
-          expect(f("input[value='full_anonymity']").selected?).to be_truthy
-          expect(f("input[value='full_anonymity']").attribute("disabled")).to eq "true"
-
-          expect(f("input[value='must-respond-before-viewing-replies']").selected?).to be_truthy
-          expect(f("input[value='enable-podcast-feed']").selected?).to be_truthy
-          expect(f("input[value='include-student-replies-in-podcast-feed']").selected?).to be_truthy
-          expect(f("input[value='allow-liking']").selected?).to be_truthy
-          expect(f("input[value='only-graders-can-like']").selected?).to be_truthy
-          expect(f("input[value='add-to-student-to-do']").selected?).to be_truthy
-
-          # Just checking for a value. Formatting and TZ differences between front-end and back-end
-          # makes an exact comparison too fragile.
-          expect(ff("input[placeholder='Select Date']")[0].attribute("value")).to be_truthy
-          expect(ff("input[placeholder='Select Date']")[1].attribute("value")).to be_truthy
-        end
-
-        it "displays all selected options correctly with group category set" do
-          group_category = course.group_categories.create!(name: "group category 1")
-
-          discussion_with_group_category = {
-            title: "value for title",
-            message: "value for message",
-            group_category_id: group_category.id,
-          }
-
-          group_topic = course.discussion_topics.create!(discussion_with_group_category)
-          group_topic.update!(group_category_id: group_category.id)
-
-          get "/courses/#{course.id}/discussion_topics/#{group_topic.id}/edit"
-
-          expect(f("input[value='group-discussion']").selected?).to be_truthy
-          expect(f("input[placeholder='Select a group category']").attribute("title")).to eq group_category.name
-        end
-
-        it "displays all unselected options correctly" do
-          get "/courses/#{course.id}/discussion_topics/#{@topic_no_options.id}/edit"
-
-          expect(f("input[value='full_anonymity']").selected?).to be_falsey
-          expect(f("input[value='full_anonymity']").attribute("disabled")).to eq "true"
-
-          # There are less checks here because certain options are only visible if their parent input is selected
-          expect(f("input[value='must-respond-before-viewing-replies']").selected?).to be_falsey
-          expect(f("input[value='enable-podcast-feed']").selected?).to be_falsey
-          expect(f("input[value='allow-liking']").selected?).to be_falsey
-          expect(f("input[value='add-to-student-to-do']").selected?).to be_falsey
-
-          # Just checking for a value. Formatting and TZ differences between front-end and back-end
-          # makes an exact comparison too fragile.
-          expect(ff("input[placeholder='Select Date']")[0].attribute("value")).to eq("")
-          expect(ff("input[placeholder='Select Date']")[1].attribute("value")).to eq("")
-        end
-
-        context "usage rights" do
-          before do
-            course.root_account.enable_feature!(:usage_rights_discussion_topics)
-            course.update!(usage_rights_required: true)
-
-            usage_rights = @course.usage_rights.create! use_justification: "creative_commons", legal_copyright: "(C) 2014 XYZ Corp", license: "cc_by_nd"
-            @attachment.usage_rights = usage_rights
-            @attachment.save!
-          end
-
-          it "displays correct usage rights" do
-            get "/courses/#{course.id}/discussion_topics/#{@topic_all_options.id}/edit"
-
-            expect(f("button[data-testid='usage-rights-icon']")).to be_truthy
-            f("button[data-testid='usage-rights-icon']").find_element(css: "svg")
-            # Verify that the correct icon appears
-            expect(f("button[data-testid='usage-rights-icon']").find_element(css: "svg").attribute("name")).to eq "IconFilesCreativeCommons"
-
-            f("button[data-testid='usage-rights-icon']").click
-
-            expect(f("input[data-testid='usage-select']").attribute("value")).to eq "The material is licensed under Creative Commons"
-            expect(f("input[data-testid='cc-license-select']").attribute("value")).to eq "CC Attribution No Derivatives"
-            expect(f("input[data-testid='legal-copyright']").attribute("value")).to eq "(C) 2014 XYZ Corp"
-          end
-        end
-      end
-
-      context "announcement" do
-        before do
-          # TODO: Update to cover: file attachments and any other options later implemented
-          all_announcement_options = {
-            title: "value for title",
-            message: "value for message",
-            delayed_post_at: "Thu, 16 Nov 2023 17:00:00.000000000 UTC +00:00",
-            podcast_enabled: true,
-            podcast_has_student_posts: true,
-            require_initial_post: true,
-            discussion_type: "side_comment",
-            allow_rating: true,
-            only_graders_can_rate: true,
-            locked: false,
-          }
-
-          @announcement_all_options = course.announcements.create!(all_announcement_options)
-          # In this case, locked: true displays itself as an unchecked "allow participants to comment" option
-          @announcement_no_options = course.announcements.create!({ title: "no options", message: "nothing else", locked: true })
-        end
-
-        it "displays all selected options correctly" do
-          get "/courses/#{course.id}/discussion_topics/#{@announcement_all_options.id}/edit"
-
-          expect(f("input[value='enable-delay-posting']").selected?).to be_truthy
-          expect(f("input[value='enable-participants-commenting']").selected?).to be_truthy
-          expect(f("input[value='must-respond-before-viewing-replies']").selected?).to be_truthy
-          expect(f("input[value='allow-liking']").selected?).to be_truthy
-          expect(f("input[value='only-graders-can-like']").selected?).to be_truthy
-          expect(f("input[value='enable-podcast-feed']").selected?).to be_truthy
-          expect(f("input[value='include-student-replies-in-podcast-feed']").selected?).to be_truthy
-
-          # Just checking for a value. Formatting and TZ differences between front-end and back-end
-          # makes an exact comparison too fragile.
-          expect(ff("input[placeholder='Select Date']")[0].attribute("value")).to be_truthy
-        end
-
-        it "displays all unselected options correctly" do
-          get "/courses/#{course.id}/discussion_topics/#{@announcement_no_options.id}/edit"
-
-          expect(f("input[value='enable-delay-posting']").selected?).to be_falsey
-          expect(f("input[value='enable-participants-commenting']").selected?).to be_falsey
-          expect(f("input[value='must-respond-before-viewing-replies']").selected?).to be_falsey
-          expect(f("input[value='allow-liking']").selected?).to be_falsey
-          expect(f("input[value='enable-podcast-feed']").selected?).to be_falsey
         end
       end
     end

@@ -30,6 +30,7 @@ describe('ItemAssignToTray', () => {
     courseId: '1',
     itemName: 'Item Name',
     itemType: 'assignment',
+    iconType: 'assignment',
     itemContentId: '23',
     pointsPossible: '10 pts',
     locale: 'en',
@@ -125,12 +126,12 @@ describe('ItemAssignToTray', () => {
   })
 
   it('renders a quiz', () => {
-    const {getByText} = renderComponent({itemType: 'quiz'})
+    const {getByText} = renderComponent({itemType: 'quiz', iconType: 'quiz'})
     expect(getByText('Quiz | 10 pts')).toBeInTheDocument()
   })
 
   it('renders a new quiz', () => {
-    const {getByText} = renderComponent({itemType: 'lti-quiz'})
+    const {getByText} = renderComponent({itemType: 'lti-quiz', iconType: 'lti-quiz'})
     expect(getByText('Quiz | 10 pts')).toBeInTheDocument()
   })
 

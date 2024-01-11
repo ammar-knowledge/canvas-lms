@@ -18,11 +18,10 @@
 
 import {extend} from '@canvas/backbone/utils'
 import $ from 'jquery'
-import _ from 'underscore'
 import {View} from '@canvas/backbone'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import template from '../../jst/missingDueDateDialog.handlebars'
-import htmlEscape from 'html-escape'
+import htmlEscape from '@instructure/html-escape'
 import 'jqueryui/dialog'
 import '@canvas/util/jquery/fixDialogButtons'
 
@@ -57,17 +56,15 @@ MissingDateDialogView.prototype.render = function () {
   if (this.invalidFields === true) {
     return false
   } else {
-    this.invalidSectionNames = _.map(this.invalidFields, this.labelFn)
+    this.invalidSectionNames = this.invalidFields.map(this.labelFn)
     this.showDialog()
     return this
   }
 }
 
 MissingDateDialogView.prototype.getInvalidFields = function () {
-  const invalidDates = _.select(this.$dateFields, function (date) {
-    return $(date).val() === ''
-  })
-  const sectionNames = _.map(invalidDates, this.labelFn)
+  const invalidDates = this.$dateFields.filter(date => $(date).val() === '')
+  const sectionNames = invalidDates.map(this.labelFn)
   if (sectionNames.length > 0) {
     return [invalidDates, sectionNames]
   } else {

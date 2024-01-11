@@ -25,8 +25,10 @@ const webpackPublicPath = require('./webpackPublicPath')
 //   and remove this dependency
 const {canvasDir} = require('../params')
 
+const isProduction = process.env.NODE_ENV === 'production'
+
 const {
-  babel,
+  swc,
   css,
   emberHandlebars,
   fonts,
@@ -56,8 +58,8 @@ const {
 } = require('./webpack.plugins')
 
 // generates bundles-generated.js with functions that
-// dynamically import each app feature and plugin bundle
-require('./bundles')
+// dynamically import each plugin bundle
+require('./generatePluginBundles')
 
 if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development'
 
@@ -109,7 +111,7 @@ module.exports = {
   optimization: {
     // named: readable ids for better debugging
     // deterministic: smaller ids for better caching
-    moduleIds: process.env.NODE_ENV === 'production' ? 'deterministic' : 'named',
+    moduleIds: isProduction ? 'deterministic' : 'named',
     minimizer: [minimizeCode],
 
     splitChunks: {
@@ -128,7 +130,7 @@ module.exports = {
   },
 
   // In prod build, don't attempt to continue if there are any errors.
-  bail: process.env.NODE_ENV === 'production',
+  bail: isProduction,
 
   // style of source mapping to enhance the debugging process
   devtool: getDevtool(skipSourcemaps),
@@ -139,34 +141,24 @@ module.exports = {
   watchOptions: {ignored: ['**/node_modules/']},
 
   output: {
-    publicPath:
-      process.env.NODE_ENV !== 'production' ? '/dist/webpack-dev/' : '/dist/webpack-production/',
+    publicPath: !isProduction ? '/dist/webpack-dev/' : '/dist/webpack-production/',
     clean: true, // clean /dist folder before each build
     path: join(canvasDir, 'public', webpackPublicPath),
     hashFunction: 'xxhash64',
 
     // Add /* filename */ comments to generated require()s in the output.
-    pathinfo: process.env.NODE_ENV !== 'production',
+    pathinfo: !isProduction,
 
-    // "e" is for "entry" and "c" is for "chunk"
-    filename: '[name]-e-[chunkhash:10].js',
-    chunkFilename: '[name]-c-[chunkhash:10].js',
+    filename: '[name]-entry-[contenthash].js',
+    chunkFilename: '[name]-chunk-[contenthash].js',
   },
 
   parallelism: 5,
 
   resolve: {
-    alias: {
-      // TODO: replace our underscore usage with lodash
-      underscore$: resolve(canvasDir, 'ui/shims/underscore.js'),
-    },
-
     fallback: {
       // Called for by minimatch but as we use it, minimatch  can work without it
       path: false,
-      // for parse-link-header, which requires "querystring" which is a node
-      // module. btw we have at least 3 implementations of "parse-link-header"!
-      querystring: require.resolve('querystring-es3'),
       // several things need stream
       stream: require.resolve('stream-browserify'),
     },
@@ -192,13 +184,13 @@ module.exports = {
     noParse: [require.resolve('jquery'), require.resolve('tinymce')],
 
     rules: [
-      process.env.CRYSTALBALL_MAP === '1' && istanbul,
+      process.env.CRYSTALBALL_MAP === '1' && istanbul, // adds ~20 seconds to build time
       instUIWorkaround,
       webpack5Workaround,
       css,
       images,
       fonts,
-      babel,
+      ...swc,
       handlebars,
       emberHandlebars,
     ].filter(Boolean),
@@ -206,7 +198,7 @@ module.exports = {
 
   plugins: [
     environmentVars,
-    timezoneData,
+    isProduction && timezoneData, // adds 3-4 seconds to build time,
     customSourceFileExtensions,
     webpackHooks,
     controlAccessBetweenModules,

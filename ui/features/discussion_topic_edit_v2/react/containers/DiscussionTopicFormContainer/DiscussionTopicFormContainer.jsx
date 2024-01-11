@@ -122,6 +122,7 @@ export default function DiscussionTopicFormContainer({apolloClient}) {
           todoDate: addToTodo ? todoDate : null,
           podcastEnabled: enablePodcastFeed,
           podcastHasStudentPosts: includeRepliesInFeed,
+          groupCategoryId: groupCategoryId || null,
           locked,
           fileId: attachment?._id,
           removeAttachment: !attachment?._id,
@@ -162,7 +163,9 @@ export default function DiscussionTopicFormContainer({apolloClient}) {
 
     if (discussionTopicId && discussionContextType) {
       try {
-        await saveUsageRights(usageRightData, attachment)
+        if (ENV?.USAGE_RIGHTS_REQUIRED) {
+          await saveUsageRights(usageRightData, attachment)
+        }
       } catch (error) {
         // Handle error on saving usage rights
         setOnFailure(error)
@@ -178,6 +181,12 @@ export default function DiscussionTopicFormContainer({apolloClient}) {
   const [createDiscussionTopic] = useMutation(CREATE_DISCUSSION_TOPIC, {
     onCompleted: completionData => {
       const new_discussion_topic = completionData?.createDiscussionTopic?.discussionTopic
+      const errors = completionData?.createDiscussionTopic?.errors
+
+      if (errors) {
+        setOnFailure(errors.map(error => error.message).join(', '))
+        return
+      }
 
       handleDiscussionTopicMutationCompletion(new_discussion_topic).catch(() => {
         setOnFailure(I18n.t('Error updating file usage rights'))

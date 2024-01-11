@@ -3378,7 +3378,7 @@ class AbstractAssignment < ActiveRecord::Base
   # * AssignmentOverride and
   # * AssignmentOverrideStudent
   def self.suspend_due_date_caching(&)
-    Assignment.suspend_callbacks(:update_cached_due_dates) do
+    AbstractAssignment.suspend_callbacks(:update_cached_due_dates) do
       AssignmentOverride.suspend_callbacks(:update_cached_due_dates) do
         AssignmentOverrideStudent.suspend_callbacks(:update_cached_due_dates, &)
       end
@@ -3387,8 +3387,14 @@ class AbstractAssignment < ActiveRecord::Base
 
   # Suspend callbacks that recalculate grading period grades
   def self.suspend_grading_period_grade_recalculation(&)
-    Assignment.suspend_callbacks(:update_grading_period_grades) do
+    AbstractAssignment.suspend_callbacks(:update_grading_period_grades) do
       AssignmentOverride.suspend_callbacks(:update_grading_period_grades, &)
+    end
+  end
+
+  def self.suspend_due_date_caching_and_score_recalculation(&)
+    suspend_due_date_caching do
+      suspend_grading_period_grade_recalculation(&)
     end
   end
 
@@ -3968,9 +3974,8 @@ class AbstractAssignment < ActiveRecord::Base
     # grading periods that have closed within a somewhat larger interval to
     # avoid "missing" a given period if the periodic job doesn't run for a while.
     now = Time.zone.now
-    look_back = Setting.get("disable_post_to_sis_on_grading_period", "60").to_i
     GradingPeriod.active.joins(:grading_period_group)
-                 .where(close_date: look_back.minutes.ago(now)..now)
+                 .where(close_date: 1.hour.ago(now)..now)
                  .where(grading_period_groups: { root_account: eligible_root_accounts }).find_each do |gp|
       gp.delay(
         singleton: "disable_post_to_sis_on_grading_period_#{gp.global_id}",

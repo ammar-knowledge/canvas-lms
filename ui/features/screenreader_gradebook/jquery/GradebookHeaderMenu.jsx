@@ -26,7 +26,7 @@ import SetDefaultGradeDialog from '@canvas/grading/jquery/SetDefaultGradeDialog'
 import CurveGradesDialog from '@canvas/grading/jquery/CurveGradesDialog'
 import gradebookHeaderMenuTemplate from '../jst/GradebookHeaderMenu.handlebars'
 import re_upload_submissions_form from '@canvas/grading/jst/re_upload_submissions_form.handlebars'
-import _ from 'underscore'
+import {map, filter} from 'lodash'
 import authenticity_token from '@canvas/authenticity-token'
 import MessageStudentsWhoHelper from '@canvas/grading/messageStudentsWhoHelper'
 import React from 'react'
@@ -194,10 +194,10 @@ export default class GradebookHeaderMenu {
   ) {
     let {students} = opts
     const {assignment, messageAttachmentUploadFolderId} = opts
-    students = _.filter(students, student => {
+    students = filter(students, student => {
       return !student.isInactive && !student.isTestStudent
     })
-    students = _.map(students, student => {
+    students = map(students, student => {
       const sub = student[`assignment_${assignment.id}`]
       return {
         excused: sub.excused,

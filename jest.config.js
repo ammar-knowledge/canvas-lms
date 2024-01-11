@@ -25,7 +25,6 @@ module.exports = {
     '\\.svg$': '<rootDir>/jest/imageMock.js',
     'node_modules-version-of-backbone': require.resolve('backbone'),
     'node_modules-version-of-react-modal': require.resolve('react-modal'),
-    underscore$: '<rootDir>/packages/lodash-underscore/index.js',
     '^Backbone$': '<rootDir>/public/javascripts/Backbone.js',
     // jest can't import the icons
     '@instructure/ui-icons/es/svg': '<rootDir>/packages/canvas-rce/src/rce/__tests__/_mockIcons.js',
@@ -38,7 +37,7 @@ module.exports = {
     'crypto-es': '<rootDir>/packages/canvas-rce/src/rce/__mocks__/_mockCryptoEs.ts',
   },
   roots: ['<rootDir>/ui', 'gems/plugins', 'public/javascripts'],
-  moduleDirectories: ['ui/shims', 'public/javascripts', 'node_modules'],
+  moduleDirectories: ['public/javascripts', 'node_modules'],
   reporters: [
     'default',
     [
@@ -101,5 +100,10 @@ module.exports = {
         },
       },
     ],
+  },
+
+  testEnvironmentOptions: {
+    // https://github.com/mswjs/examples/blob/main/examples/with-jest/jest.config.ts#L20
+    customExportConditions: [''],
   },
 }

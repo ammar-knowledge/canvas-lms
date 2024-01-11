@@ -38,6 +38,8 @@ import type {
   RubricAssessment,
   SubmissionOriginalityData,
 } from '@canvas/grading/grading.d'
+import {SpeedGraderResponse} from '../types'
+import type {SpeedGraderResponseType, SpeedGraderStore} from '../types'
 import React from 'react'
 import ReactDOM from 'react-dom'
 import {IconButton} from '@instructure/ui-buttons'
@@ -79,29 +81,29 @@ import {
 } from '../SpeedGraderStatusMenuHelpers'
 import {showFlashError} from '@canvas/alerts/react/FlashAlert'
 import round from '@canvas/round'
-// @ts-expect-error
-import _ from 'underscore'
+import {map, keyBy, values, find, includes, reject, some, isEqual, filter} from 'lodash'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import natcompare from '@canvas/util/natcompare'
 import qs from 'qs'
 import * as tz from '@canvas/datetime'
 import userSettings from '@canvas/user-settings'
-import htmlEscape from 'html-escape'
+import htmlEscape, {raw} from '@instructure/html-escape'
 import rubricAssessment from '@canvas/rubrics/jquery/rubric_assessment'
 import SpeedgraderSelectMenu from './speed_grader_select_menu'
 import SpeedgraderHelpers from './speed_grader_helpers'
 import {
   allowsReassignment,
   anonymousName,
-  teardownHandleStatePopped,
-  getSelectedAssessment,
-  renderSettingsMenu,
   configureRecognition,
+  extractStudentIdFromHash,
+  getSelectedAssessment,
   hideMediaRecorderContainer,
   isStudentConcluded,
   renderDeleteAttachmentLink,
   renderPostGradesMenu,
+  renderSettingsMenu,
   renderStatusMenu,
+  rubricAssessmentToPopulate,
   setupAnonymizableAuthorId,
   setupAnonymizableId,
   setupAnonymizableStudentId,
@@ -109,12 +111,12 @@ import {
   setupAnonymousGraders,
   setupIsAnonymous,
   setupIsModerated,
+  speedGraderJSONErrorFn,
   tearDownAssessmentAuditTray,
+  teardownHandleStatePopped,
   teardownSettingsMenu,
   unexcuseSubmission,
   unmountCommentTextArea,
-  rubricAssessmentToPopulate,
-  speedGraderJSONErrorFn,
 } from './speed_grader.utils'
 import SpeedGraderAlerts from '../react/SpeedGraderAlerts'
 // @ts-expect-error
@@ -149,6 +151,12 @@ import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 import type {EnvGradebookSpeedGrader} from '@canvas/global/env/EnvGradebook'
 import replaceTags from '@canvas/util/replaceTags'
 import type {GradeStatusUnderscore} from '@canvas/grading/accountGradingStatus'
+
+declare global {
+  interface Window {
+    jsonData: SpeedGraderStore
+  }
+}
 
 // @ts-expect-error
 if (!('INST' in window)) window.INST = {}
@@ -416,6 +424,7 @@ function mergeStudentsAndSubmission() {
           window.jsonData.studentSectionIdsMap[student[anonymizableId]]
         )
         student.submission = submission
+        // @ts-expect-error
         student.submission_state = SpeedgraderHelpers.submissionState(student, ENV.grading_role)
         student.index = index
         students.push(student)
@@ -464,7 +473,7 @@ function mergeStudentsAndSubmission() {
     }
   }
 
-  jsonData.studentMap = _.keyBy(jsonData.studentsWithSubmissions, anonymizableId)
+  jsonData.studentMap = keyBy(jsonData.studentsWithSubmissions, anonymizableId)
 
   switch (userSettings.get('eg_sort_by')) {
     case 'submitted_at': {
@@ -494,6 +503,7 @@ function mergeStudentsAndSubmission() {
       jsonData.studentsWithSubmissions.sort(
         EG.compareStudentsBy(
           student =>
+            // @ts-expect-error
             student && states[SpeedgraderHelpers.submissionState(student, ENV.grading_role)]
         )
       )
@@ -530,13 +540,13 @@ function handleStudentOrSectionSelected(
 
 function initDropdown() {
   const hideStudentNames = utils.shouldHideStudentNames()
-  // @ts-expect-error
-  $('#hide_student_names').attr('checked', hideStudentNames)
+  $('#hide_student_names').attr('checked', hideStudentNames ? 'checked' : null)
 
   const optionsArray = window.jsonData.studentsWithSubmissions.map(
     (student: StudentWithSubmission) => {
       const {submission_state, submission} = student
       let {name} = student
+      // @ts-expect-error
       const className = SpeedgraderHelpers.classNameBasedOnStudent({submission_state, submission})
       if (hideStudentNames || isAnonymous) {
         name = anonymousName(student)
@@ -565,19 +575,18 @@ function initDropdown() {
     const $selectmenu_list = $selectmenu?.data('selectmenu').list
     const $menu = $('#section-menu')
 
-    $menu
-      .find('ul')
-      .append(
-        $.raw(
-          $.map(
-            window.jsonData.context.active_course_sections,
-            section =>
-              `<li><a class="section_${section.id}" data-section-id="${
-                section.id
-              }" href="#">${htmlEscape<string>(section.name)}</a></li>`
-          ).join('')
-        )
+    $menu.find('ul').append(
+      // @ts-expect-error
+      raw(
+        $.map(
+          window.jsonData.context.active_course_sections,
+          section =>
+            `<li><a class="section_${section.id}" data-section-id="${
+              section.id
+            }" href="#">${htmlEscape<string>(section.name)}</a></li>`
+        ).join('')
       )
+    )
 
     $menu
       .insertBefore($selectmenu_list)
@@ -1426,7 +1435,10 @@ EG = {
     if (queryParams && queryParams[anonymizableStudentId]) {
       initialStudentId = queryParams[anonymizableStudentId]
     } else if (SpeedgraderHelpers.getLocationHash() !== '') {
-      initialStudentId = extractStudentIdFromHash(SpeedgraderHelpers.getLocationHash())
+      initialStudentId = extractStudentIdFromHash(
+        SpeedgraderHelpers.getLocationHash(),
+        anonymizableStudentId
+      )
     }
     SpeedgraderHelpers.setLocationHash('')
 
@@ -1553,6 +1565,7 @@ EG = {
       studentName = student.name
     }
 
+    // @ts-expect-error
     const submissionStatus = SpeedgraderHelpers.classNameBasedOnStudent(student)
     return `${studentName} - ${submissionStatus.formatted}`
   },
@@ -1611,7 +1624,7 @@ EG = {
     if ($rubricFull.filter(':visible').length) {
       const $unSavedRubric = $('.save_rubric_button').parents('#rubric_holder').find('.rubric')
       const unSavedData = rubricAssessment.assessmentData($unSavedRubric)
-      return !_.isEqual(unSavedData, originalRubric_)
+      return !isEqual(unSavedData, originalRubric_)
     }
     return false
   },
@@ -1657,7 +1670,8 @@ EG = {
 
     // choose the first ungraded student if the requested one doesn't exist
     if (!window.jsonData.studentMap[String(representativeOrStudentId)]) {
-      const ungradedStudent = _(window.jsonData.studentsWithSubmissions).find(
+      const ungradedStudent = find(
+        window.jsonData.studentsWithSubmissions,
         (s: StudentWithSubmission) =>
           s.submission &&
           s.submission.workflow_state !== 'graded' &&
@@ -1699,7 +1713,7 @@ EG = {
     // calling _.values on a large collection could be slow, that's why we're fetching from studentMap first
     this.currentStudent =
       window.jsonData.studentMap[selectMenuValue] ||
-      _.values(window.jsonData.studentsWithSubmissions)[0]
+      values(window.jsonData.studentsWithSubmissions)[0]
 
     useStore.setState({currentStudentId: this.currentStudent[anonymizableId]})
     EG.resetReassignButton()
@@ -1757,7 +1771,8 @@ EG = {
         const {allowed_attempts} = window.jsonData
         maxAttempts =
           allowed_attempts != null && allowed_attempts > 0
-            ? (this.currentStudent.submission.attempt || 1) >= window.jsonData.allowed_attempts
+            ? (this.currentStudent.submission.attempt || 1) >=
+              (window.jsonData.allowed_attempts || 0)
             : false
         submittedAt = new Date(submittedAt)
         let submissionComments = this.currentStudent.submission.submission_comments
@@ -1998,7 +2013,7 @@ EG = {
         $assignment_submission_originality_report_url
       )
       const tooltip = I18n.t('Similarity Score - See detailed report')
-      let reportUrl = replaceTags(urlContainer.attr('href'), {
+      let reportUrl = replaceTags(urlContainer.attr('href') || '', {
         [anonymizableUserId]: submission[anonymizableUserId],
         asset_string: assetString,
       })
@@ -2202,7 +2217,8 @@ EG = {
         count: wordCount,
       })}`
     }
-    $word_count.html($.raw(wordCountHTML))
+    // @ts-expect-error
+    $word_count.html(raw(wordCountHTML))
   },
 
   handleSubmissionSelectionChange() {
@@ -2321,11 +2337,13 @@ EG = {
         (attachment.crocodoc_url || attachment.canvadoc_url) &&
         EG.currentStudent.provisional_crocodoc_urls
       ) {
-        const urlInfo = _.find(
+        const urlInfo = find(
           EG.currentStudent.provisional_crocodoc_urls,
           (url: ProvisionalCrocodocUrl) => url.attachment_id === attachment.id
         )
+        // @ts-expect-error
         attachment.provisional_crocodoc_url = urlInfo.crocodoc_url
+        // @ts-expect-error
         attachment.provisional_canvadoc_url = urlInfo.canvadoc_url
       } else {
         attachment.provisional_crocodoc_url = null
@@ -2413,7 +2431,8 @@ EG = {
 
       renderProgressIcon(attachment)
     })
-    $submission_attachment_viewed_at.html($.raw(studentViewedAtHTML))
+    // @ts-expect-error
+    $submission_attachment_viewed_at.html(raw(studentViewedAtHTML))
 
     $submission_files_container.showIf(
       submission.submission_type === 'online_text_entry' ||
@@ -2438,7 +2457,7 @@ EG = {
     $submission_late_notice.showIf(submission.late)
     $full_width_container.removeClass('with_enrollment_notice')
     $enrollment_inactive_notice.showIf(
-      _.some(
+      some(
         window.jsonData.studentMap[this.currentStudent[anonymizableId]].enrollments,
         (enrollment: {workflow_state: string}) => {
           if (enrollment.workflow_state === 'inactive') {
@@ -2497,7 +2516,7 @@ EG = {
         String($('#submission_to_view').val() || submissionHistory.length - 1),
         10
       )
-      const templateSubmissions = _(submissionHistory).map((o: unknown, i: number) => {
+      const templateSubmissions = map(submissionHistory, (o: unknown, i: number) => {
         // The submission objects nested in the submission_history array
         // can have two different shapes, because the `this.currentStudent.submission`
         // can come from two different API endpoints.
@@ -2561,7 +2580,8 @@ EG = {
         }),
       })
     }
-    $multiple_submissions.html($.raw(innerHTML || ''))
+    // @ts-expect-error
+    $multiple_submissions.html(raw(innerHTML || ''))
     StatusPill.renderPills(ENV.custom_grade_statuses)
   },
 
@@ -2679,8 +2699,8 @@ EG = {
 
   totalStudentCount() {
     if (sectionToShow) {
-      return _.filter(window.jsonData.studentsWithSubmissions, (student: StudentWithSubmission) =>
-        _.includes(student.section_ids, sectionToShow)
+      return filter(window.jsonData.studentsWithSubmissions, (student: StudentWithSubmission) =>
+        includes(student.section_ids, sectionToShow)
       ).length
     } else {
       return window.jsonData.studentsWithSubmissions.length
@@ -2754,7 +2774,8 @@ EG = {
       {frameborder: 0, allowfullscreen: true},
       domElement
     )
-    $iframe_holder.html($.raw(iframe)).show()
+    // @ts-expect-error
+    $iframe_holder.html(raw(iframe)).show()
   },
 
   renderLtiLaunch($div, urlBase, submission) {
@@ -2775,7 +2796,8 @@ EG = {
       allow: iframeAllowances(),
       allowfullscreen: true,
     })
-    $div.html($.raw(iframe)).show()
+    // @ts-expect-error
+    $div.html(raw(iframe)).show()
   },
 
   generateWarningTimings(numHours: number): number[] {
@@ -2903,7 +2925,8 @@ EG = {
       contents = SpeedgraderHelpers.buildIframe(htmlEscape(src), options, domElement)
     }
 
-    return $.raw(contents)
+    // @ts-expect-error
+    return raw(contents)
   },
 
   showRubric({validateEnteredData = true} = {}) {
@@ -3028,7 +3051,7 @@ EG = {
                 that.currentStudent.submission &&
                 that.currentStudent.submission.submission_comments
               ) {
-                updatedComments = _.reject(
+                updatedComments = reject(
                   that.currentStudent.submission.submission_comments,
                   (item: SubmissionComment) => {
                     const submissionComment = item.submission_comment || item
@@ -3069,7 +3092,7 @@ EG = {
           $replacementComment.show()
           commentElement.replaceWith($replacementComment)
 
-          updatedComments = _.map(
+          updatedComments = map(
             that.currentStudent.submission.submission_comments,
             (item: SubmissionComment) => {
               const submissionComment = item.submission_comment || item
@@ -3161,7 +3184,7 @@ EG = {
 
     commentElement
       .find('span.comment')
-      .html($.raw(htmlEscape<string>(comment.comment).replace(/\n/g, '<br />')))
+      .html(raw(htmlEscape<string>(comment.comment).replace(/\n/g, '<br />')))
 
     deleteCommentLinkText = I18n.t('Delete comment: %{commentText}', {commentText: spokenComment})
     commentElement.find('.delete_comment_link .screenreader-only').text(deleteCommentLinkText)
@@ -3515,12 +3538,12 @@ EG = {
       updateSubmissionAndPageEffects()
     }
 
-    if (ENV.assignment_missing_shortcut && grade.toUpperCase() === 'MI') {
+    if (ENV.assignment_missing_shortcut && String(grade).toUpperCase() === 'MI') {
       if (EG.currentStudent.submission.late_policy_status !== 'missing') {
         updateSubmissionAndPageEffects({latePolicyStatus: 'missing'})
       }
       return
-    } else if (grade.toUpperCase() === 'EX') {
+    } else if (String(grade).toUpperCase() === 'EX') {
       formData['submission[excuse]'] = true
     } else if (unexcuseSubmission(grade, EG.currentStudent.submission, window.jsonData)) {
       formData['submission[excuse]'] = false
@@ -3970,6 +3993,7 @@ EG = {
     }
 
     EG.currentStudent.submission_state = SpeedgraderHelpers.submissionState(
+      // @ts-expect-error
       EG.currentStudent,
       ENV.grading_role
     )
@@ -4099,12 +4123,15 @@ function getGradingPeriods() {
 
 function setupSpeedGrader(
   gradingPeriods: GradingPeriod[],
-  speedGraderJsonResponse: {
-    gradingPeriods: GradingPeriod[]
-  }[]
+  speedGraderJsonResponse: SpeedGraderResponseType[]
 ) {
-  const speedGraderJSON = speedGraderJsonResponse[0]
-  speedGraderJSON.gradingPeriods = _.keyBy(gradingPeriods, 'id')
+  if (process.env.NODE_ENV !== 'production') {
+    SpeedGraderResponse.parse(speedGraderJsonResponse[0])
+  }
+
+  const speedGraderJSON = speedGraderJsonResponse[0] as SpeedGraderStore
+
+  speedGraderJSON.gradingPeriods = keyBy(gradingPeriods, 'id')
   window.jsonData = speedGraderJSON
   EG.jsonReady()
   EG.setInitiallyLoadedStudent()
@@ -4192,21 +4219,6 @@ function currentStudentProvisionalGrades() {
   return EG.currentStudent.submission.provisional_grades || []
 }
 
-function extractStudentIdFromHash(hashString: string) {
-  let studentId
-
-  try {
-    // The hash, if present, will be of the form '#{"student_id": "12"}';
-    // remove the first character and parse the rest
-    const hash = JSON.parse(decodeURIComponent(hashString.substr(1)))
-    studentId = hash[anonymizableStudentId].toString()
-  } catch (_error) {
-    studentId = null
-  }
-
-  return studentId
-}
-
 export default {
   setup() {
     setupSelectors()
@@ -4230,6 +4242,7 @@ export default {
     QuizzesNextSpeedGrading.setup(EG, $iframe_holder, registerQuizzesNext, refreshGrades, window)
 
     // fire off the request to get the jsonData
+    // @ts-expect-error
     window.jsonData = {}
     const speedGraderJSONUrl = `${window.location.pathname}.json${window.location.search}`
     const speedGraderJsonDfd = $.ajaxJSON(

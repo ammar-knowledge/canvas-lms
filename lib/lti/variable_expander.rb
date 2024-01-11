@@ -157,9 +157,7 @@ module Lti
                    v
                  end
 
-        if @root_account&.feature_enabled?(:variable_substitution_numeric_to_string) &&
-           @tool.is_a?(ContextExternalTool) && @tool.use_1_3? &&
-           output.is_a?(Numeric)
+        if @tool.is_a?(ContextExternalTool) && @tool.use_1_3? && output.is_a?(Numeric)
           output&.to_s
         else
           output
@@ -316,6 +314,19 @@ module Lti
                          Services::RichContent.env_for[:RICH_CONTENT_APP_HOST]
                        },
                        default_name: "com_instructure_rcs_app_host"
+
+    # Returns true if the User is from student view process
+    #
+    # @example
+    #   ```
+    #  "true"
+    #  "false"
+    #   ```
+    register_expansion "com.instructure.User.student_view",
+                       [],
+                       -> { @current_user.fake_student? || false },
+                       USER_GUARD,
+                       default_name: "com_instructure_user_student_view"
 
     # Returns the RCS Service JWT for the current user
     #
@@ -533,7 +544,7 @@ module Lti
                        -> { Lti::Asset.opaque_identifier_for(@context) },
                        default_name: "context_id"
 
-    # The Canvas global identifer for the launch context
+    # The Canvas global identifier for the launch context
     # @example
     #   ```
     #   10000000000070
@@ -541,6 +552,16 @@ module Lti
     register_expansion "com.instructure.Context.globalId",
                        [],
                        -> { @context&.global_id }
+
+    # The Canvas UUID for the launch context
+    # @example
+    #   ```
+    #   4TVeERS266frWLG5RVK0L8BbSC831mUZHaYpK4KP
+    #   ```
+    register_expansion "com.instructure.Context.uuid",
+                       [],
+                       -> { @context.uuid },
+                       -> { @context&.respond_to?(:uuid) }
 
     # If the context is a Course, returns sourced Id of the context
     # @example

@@ -19,8 +19,20 @@
 import $ from 'jquery'
 import type JQuery from 'jquery'
 import deferPromise from '@instructure/defer-promise'
-import _ from '@instructure/lodash-underscore'
-import {intersection, isEqual, map, pick} from 'lodash'
+import {
+  each,
+  every,
+  filter,
+  flatten,
+  intersection,
+  isEqual,
+  keyBy,
+  map,
+  pick,
+  reduce,
+  reject,
+  some,
+} from 'lodash'
 import * as tz from '@canvas/datetime'
 import React, {Suspense} from 'react'
 import ReactDOM from 'react-dom'
@@ -124,7 +136,7 @@ import GradeDisplayWarningDialog from '../../jquery/GradeDisplayWarningDialog'
 import PostGradesFrameDialog from '../../jquery/PostGradesFrameDialog'
 import NumberCompare from '../../util/NumberCompare'
 import {camelizeProperties} from '@canvas/convert-case'
-import htmlEscape from 'html-escape'
+import htmlEscape from '@instructure/html-escape'
 import * as EnterGradesAsSetting from '../shared/EnterGradesAsSetting'
 import SetDefaultGradeDialogManager from '../shared/SetDefaultGradeDialogManager'
 import AsyncComponents from './AsyncComponents'
@@ -627,7 +639,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
             this.props.reorderCustomColumns(updatedCustomColumnIds).then(() => {
               const colsById: {
                 [columnId: string]: CustomColumn
-              } = _.indexBy(this.gradebookContent.customColumns, (c: CustomColumn) => c.id)
+              } = keyBy(this.gradebookContent.customColumns, (c: CustomColumn) => c.id)
               if (this.gradebookContent.customColumns) {
                 this.gradebookContent.customColumns = updatedCustomColumnIds.map(id => colsById[id])
               }
@@ -808,7 +820,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
   gotChunkOfStudents = (students: Student[]) => {
     this.courseContent.assignmentStudentVisibility = {}
     students.forEach(student => {
-      student.enrollments = _.filter(
+      student.enrollments = filter(
         student.enrollments,
         (e: Enrollment) => e.type === 'StudentEnrollment' || e.type === 'StudentViewEnrollment'
       )
@@ -826,10 +838,10 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
       }
       student.computed_current_score || (student.computed_current_score = 0)
       student.computed_final_score || (student.computed_final_score = 0)
-      student.isConcluded = _.every(student.enrollments, function (e: {enrollment_state: string}) {
+      student.isConcluded = every(student.enrollments, function (e: {enrollment_state: string}) {
         return e.enrollment_state === 'completed'
       })
-      student.isInactive = _.every(student.enrollments, function (e: {enrollment_state: string}) {
+      student.isInactive = every(student.enrollments, function (e: {enrollment_state: string}) {
         return e.enrollment_state === 'inactive'
       })
       student.cssClass = `student_${student.id}`
@@ -910,7 +922,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
 
   updateAssignmentEffectiveDueDates = (assignment: Assignment) => {
     assignment.effectiveDueDates = this.effectiveDueDates[assignment.id] || {}
-    assignment.inClosedGradingPeriod = _.some(
+    assignment.inClosedGradingPeriod = some(
       assignment.effectiveDueDates,
       (date: DueDate) => date.in_closed_grading_period
     )
@@ -1323,7 +1335,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
       student.loaded = true
     }
     this.updateEffectiveDueDatesFromSubmissions(submissions)
-    _.each(this.assignments, (assignment: Assignment) => {
+    each(this.assignments, (assignment: Assignment) => {
       return this.updateAssignmentEffectiveDueDates(assignment)
     })
     changedStudentIds = [...new Set(changedStudentIds)]
@@ -1425,7 +1437,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
     if (!this.isFilteringColumnsByGradingPeriod()) {
       return allSubmissions
     }
-    return _.filter(allSubmissions, (submission: Submission) => {
+    return filter(allSubmissions, (submission: Submission) => {
       const studentPeriodInfo =
         this.effectiveDueDates[submission.assignment_id]?.[submission.user_id]
       return studentPeriodInfo && studentPeriodInfo.grading_period_id === this.gradingPeriodId
@@ -2099,7 +2111,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
 
   renderGradebookSettingsModal = () => {
     const props: GradebookSettingsModalProps = {
-      anonymousAssignmentsPresent: _.some(this.assignments, (assignment: Assignment) => {
+      anonymousAssignmentsPresent: some(this.assignments, (assignment: Assignment) => {
         return assignment.anonymous_grading
       }),
       courseId: this.options.context_id,
@@ -3091,14 +3103,14 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
   // Filtered Content Information Methods
   updateFilteredContentInfo = () => {
     let invalidAssignmentGroups: AssignmentGroup[]
-    this.filteredContentInfo.totalPointsPossible = _.reduce(
+    this.filteredContentInfo.totalPointsPossible = reduce(
       this.assignmentGroups,
       (sum: number, assignmentGroup: AssignmentGroup) =>
         sum + getAssignmentGroupPointsPossible(assignmentGroup),
       0
     )
     if (this.weightedGroups()) {
-      invalidAssignmentGroups = _.filter(this.assignmentGroups, function (ag: AssignmentGroup) {
+      invalidAssignmentGroups = filter(this.assignmentGroups, function (ag: AssignmentGroup) {
         return getAssignmentGroupPointsPossible(ag) === 0
       })
       return (this.filteredContentInfo.invalidAssignmentGroups = invalidAssignmentGroups)
@@ -3707,7 +3719,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
   getSubmissionComments = () => this.gridDisplaySettings.submissionTray.comments
 
   removeSubmissionComment = (commentId: string) => {
-    const comments = _.reject(this.getSubmissionComments(), (c: SerializedComment) => {
+    const comments = reject(this.getSubmissionComments(), (c: SerializedComment) => {
       return c.id === commentId
     })
     return this.updateSubmissionComments(comments)
@@ -3924,7 +3936,7 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
     posted_grade?: string | number | null | undefined
   }) => {
     if (!this.actionStates) throw new Error('actionStates missing')
-    this.actionStates.pendingGradeInfo = _.reject(
+    this.actionStates.pendingGradeInfo = reject(
       this.actionStates.pendingGradeInfo,
       function (info: PendingGradeInfo) {
         return info.userId === submission.userId && info.assignmentId === submission.assignmentId
@@ -4236,16 +4248,16 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
   getSections = () => Object.values(this.sections)
 
   setSections = (sections: Section[]) => {
-    this.sections = _.indexBy(sections, 'id')
+    this.sections = keyBy(sections, 'id')
     this.sections_enabled = sections.length > 1
   }
 
   setStudentGroups = (studentGroupCategories: StudentGroupCategory[]) => {
-    this.studentGroupCategoriesById = _.indexBy(studentGroupCategories, 'id')
-    const studentGroupList: StudentGroup[] = _.flatten(map(studentGroupCategories, 'groups')).map(
+    this.studentGroupCategoriesById = keyBy(studentGroupCategories, 'id')
+    const studentGroupList: StudentGroup[] = flatten(map(studentGroupCategories, 'groups')).map(
       htmlEscape
     )
-    this.studentGroups = _.indexBy(studentGroupList, 'id')
+    this.studentGroups = keyBy(studentGroupList, 'id')
     this.studentGroupsEnabled = studentGroupList.length > 0
   }
 
@@ -5131,6 +5143,9 @@ class Gradebook extends React.Component<GradebookProps, GradebookState> {
                   this.options.custom_grade_statuses_enabled
                     ? this.options.custom_grade_statuses
                     : []
+                }
+                multiselectGradebookFiltersEnabled={
+                  this.options.multiselect_gradebook_filters_enabled
                 }
               />
             )}

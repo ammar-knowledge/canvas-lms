@@ -931,6 +931,11 @@ CanvasRails::Application.routes.draw do
     put "passport/data/projects/duplicate" => "learner_passport#project_duplicate"
     put "passport/data/projects/delete" => "learner_passport#project_delete"
 
+    get "passport/data/pathways" => "learner_passport#pathways_index"
+    put "passport/data/pathways/create" => "learner_passport#pathway_create"
+    post "passport/data/pathways/:pathway_id" => "learner_passport#pathway_update"
+    get "passport/data/pathways/show/:pathway_id" => "learner_passport#pathway_show"
+
     get "passport/data/skills" => "learner_passport#skills_index"
     get "passport/data/reset" => "learner_passport#reset"
 
@@ -2197,6 +2202,7 @@ CanvasRails::Application.routes.draw do
     scope(controller: :outcome_results) do
       get "courses/:course_id/outcome_rollups", action: :rollups, as: "course_outcome_rollups"
       get "courses/:course_id/outcome_results", action: :index, as: "course_outcome_results"
+      post "courses/:course_id/assign_outcome_order", action: :outcome_order, as: "course_outcomes_order"
     end
 
     scope(controller: :outcomes_academic_benchmark_import_api) do
@@ -2768,6 +2774,7 @@ CanvasRails::Application.routes.draw do
       get "register", action: :redirect_to_tool_registration
       get "registrations/uuid/:registration_uuid", action: :registration_by_uuid
       put "registrations/:registration_id/overlay", action: :update_registration_overlay
+      get "registrations/:registration_id/view", action: :registration_view, as: :lti_registration_config
       post "registrations", action: :create
     end
 

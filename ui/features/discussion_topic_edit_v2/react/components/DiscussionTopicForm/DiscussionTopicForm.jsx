@@ -44,13 +44,16 @@ import {
   defaultEveryoneElseOption,
   masteryPathsOption,
 } from '../../util/constants'
-import {nanoid} from 'nanoid'
 import {AttachmentDisplay} from '@canvas/discussions/react/components/AttachmentDisplay/AttachmentDisplay'
 import {responsiveQuerySizes} from '@canvas/discussions/react/utils'
 import {UsageRightsContainer} from '../../containers/usageRights/UsageRightsContainer'
 import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
 
-import {addNewGroupCategoryToCache} from '../../util/utils'
+import {
+  addNewGroupCategoryToCache,
+  buildAssignmentOverrides,
+  buildDefaultAssignmentOverride,
+} from '../../util/utils'
 
 const I18n = useI18nScope('discussion_create')
 
@@ -106,6 +109,7 @@ export default function DiscussionTopicForm({
   const [titleValidationMessages, setTitleValidationMessages] = useState([
     {text: '', type: 'success'},
   ])
+  const [postToValidationMessages, setPostToValidationMessages] = useState([])
 
   const [rceContent, setRceContent] = useState(currentDiscussionTopic?.message || '')
 
@@ -183,15 +187,11 @@ export default function DiscussionTopicForm({
     currentDiscussionTopic?.assignment?.peerReviews?.dueAt || ''
   )
   const [dueDateErrorMessages, setDueDateErrorMessages] = useState([])
-  const [assignedInfoList, setAssignedInfoList] = useState([
-    {
-      dueDateId: nanoid(),
-      assignedList: [defaultEveryoneOption.assetCode],
-      dueDate: '',
-      availableFrom: '',
-      availableUntil: '',
-    },
-  ]) // Initialize with one object with a unique id
+  const [assignedInfoList, setAssignedInfoList] = useState(
+    isEditing
+      ? buildAssignmentOverrides(currentDiscussionTopic?.assignment)
+      : buildDefaultAssignmentOverride()
+  )
 
   const assignmentDueDateContext = {
     assignedInfoList,
@@ -218,6 +218,10 @@ export default function DiscussionTopicForm({
 
   const [postToSis, setPostToSis] = useState(
     !!currentDiscussionTopic?.assignment?.postToSis || false
+  )
+
+  const [gradingSchemeId, setGradingSchemeId] = useState(
+    currentDiscussionTopic?.assignment?.gradingStandard?._id || undefined
   )
 
   const handleSettingUsageRightsData = data => {
@@ -294,6 +298,19 @@ export default function DiscussionTopicForm({
     return false
   }
 
+  const validatePostToSections = () => {
+    // If the PostTo section is not available, no need to validate
+    if (!(!isGraded && !isGroupDiscussion && !isGroupContext)) {
+      return true
+    }
+
+    if (sectionIdsToPostTo.length === 0) {
+      return false
+    } else {
+      return true
+    }
+  }
+
   const validateFormFields = () => {
     let isValid = true
 
@@ -302,6 +319,7 @@ export default function DiscussionTopicForm({
     if (!validateSelectGroup()) isValid = false
     if (!validateAssignToFields()) isValid = false
     if (!validateUsageRights()) isValid = false
+    if (!validatePostToSections()) isValid = false
 
     return isValid
   }
@@ -505,7 +523,6 @@ export default function DiscussionTopicForm({
       assignmentGroupId: assignmentGroup || null,
       peerReviews: preparePeerReviewPayload(),
       assignmentOverrides: prepareAssignmentOverridesPayload(),
-      groupCategoryId: isGroupDiscussion ? groupCategoryId : null,
       dueAt: everyoneOverride.dueDate || null,
       lockAt: everyoneOverride.availableUntil || null,
       unlockAt: everyoneOverride.availableFrom || null,
@@ -513,6 +530,7 @@ export default function DiscussionTopicForm({
         info =>
           info.assignedList.length === 1 && info.assignedList[0] === defaultEveryoneOption.assetCode
       ),
+      gradingStandardId: gradingSchemeId || null,
     }
     // Additional properties for creation of a graded assignment
     if (!isEditing) {
@@ -520,6 +538,7 @@ export default function DiscussionTopicForm({
         ...payload,
         courseId: ENV.context_id,
         name: title,
+        groupCategoryId: isGroupDiscussion ? groupCategoryId : null,
       }
     }
     return payload
@@ -576,6 +595,30 @@ export default function DiscussionTopicForm({
     )
   }
 
+  const handlePostToSelect = value => {
+    if (
+      !sectionIdsToPostTo.includes(allSectionsOption._id) &&
+      value.includes(allSectionsOption._id)
+    ) {
+      setSectionIdsToPostTo([allSectionsOption._id])
+    } else if (
+      sectionIdsToPostTo.includes(allSectionsOption._id) &&
+      value.includes(allSectionsOption._id) &&
+      value.length > 1
+    ) {
+      setSectionIdsToPostTo(value.filter(section_id => section_id !== allSectionsOption._id))
+    } else {
+      setSectionIdsToPostTo(value)
+    }
+
+    // Update Error message if no section is selected
+    if (value.length === 0) {
+      setPostToValidationMessages([{text: 'A section is required', type: 'error'}])
+    } else {
+      setPostToValidationMessages([])
+    }
+  }
+
   return (
     <>
       <FormFieldGroup description="" rowSpacing="small">
@@ -625,28 +668,12 @@ export default function DiscussionTopicForm({
             <CanvasMultiSelect
               data-testid="section-select"
               label={I18n.t('Post to')}
+              messages={postToValidationMessages}
               assistiveText={I18n.t(
                 'Select sections to post to. Type or use arrow keys to navigate. Multiple selections are allowed.'
               )}
               selectedOptionIds={sectionIdsToPostTo}
-              onChange={value => {
-                if (
-                  !sectionIdsToPostTo.includes(allSectionsOption._id) &&
-                  value.includes(allSectionsOption._id)
-                ) {
-                  setSectionIdsToPostTo([allSectionsOption._id])
-                } else if (
-                  sectionIdsToPostTo.includes(allSectionsOption._id) &&
-                  value.includes(allSectionsOption._id) &&
-                  value.length > 1
-                ) {
-                  setSectionIdsToPostTo(
-                    value.filter(section_id => section_id !== allSectionsOption._id)
-                  )
-                } else {
-                  setSectionIdsToPostTo(value)
-                }
-              }}
+              onChange={handlePostToSelect}
               width={inputWidth}
             >
               {[allSectionsOption, ...sections].map(({_id: id, name: label}) => (
@@ -953,6 +980,8 @@ export default function DiscussionTopicForm({
                   setPeerReviewDueDate={setPeerReviewDueDate}
                   postToSis={postToSis}
                   setPostToSis={setPostToSis}
+                  gradingSchemeId={gradingSchemeId}
+                  setGradingSchemeId={setGradingSchemeId}
                 />
               </GradedDiscussionDueDatesContext.Provider>
             </View>

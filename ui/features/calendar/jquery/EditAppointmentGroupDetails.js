@@ -17,10 +17,10 @@
  */
 
 import $ from 'jquery'
-import _ from 'underscore'
 import fcUtil from '@canvas/calendar/jquery/fcUtil'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import htmlEscape from 'html-escape'
+import _, {some} from 'lodash'
+import htmlEscape from '@instructure/html-escape'
 import commonEventFactory from '@canvas/calendar/jquery/CommonEvent/index'
 import TimeBlockList from './TimeBlockList'
 import editAppointmentGroupTemplate from '../jst/editAppointmentGroup.handlebars'
@@ -213,7 +213,7 @@ export default class EditAppointmentGroupDetails {
     const slotLimit = parseInt(input.val(), 10)
     return this.helpIconShowIf(
       checkbox,
-      _.some(this.apptGroup.appointments, a => a.child_events_count > slotLimit)
+      some(this.apptGroup.appointments, a => a.child_events_count > slotLimit)
     )
   }
 
@@ -230,7 +230,7 @@ export default class EditAppointmentGroupDetails {
       })
     return this.helpIconShowIf(
       checkbox,
-      _.some(apptCounts, (count, _userId) => count > apptLimit)
+      some(apptCounts, (count, _userId) => count > apptLimit)
     )
   }
 

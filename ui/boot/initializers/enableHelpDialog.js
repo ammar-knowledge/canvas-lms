@@ -23,8 +23,8 @@
 import {useScope as useI18nScope} from '@canvas/i18n'
 import helpDialogTemplate from './jst/helpDialog.handlebars'
 import $ from 'jquery'
-import _ from 'underscore'
-import htmlEscape from 'html-escape'
+import {find} from 'lodash'
+import htmlEscape, {raw} from '@instructure/html-escape'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
 import 'jqueryui/dialog'
 import '@canvas/jquery/jquery.disableWhileLoading'
@@ -61,7 +61,7 @@ const helpDialog = {
     helpDialog.helpLinksDfd = $.getJSON('/help_links').done(links => {
       // only show the links that are available to the roles of this user
       links = $.grep(links, link =>
-        _.find(
+        find(
           link.available_to,
           role =>
             role === 'user' || (ENV.current_user_roles && ENV.current_user_roles.includes(role))
@@ -188,7 +188,7 @@ const helpDialog = {
           c =>
             `<option
             value='course_${c.id}_admins'
-            ${$.raw(ENV.context_id === c.id ? 'selected' : '')}
+            ${raw(ENV.context_id === c.id ? 'selected' : '')}
           >
             ${htmlEscape(c.name)}
           </option>`
