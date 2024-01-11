@@ -16,25 +16,52 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-BOLD="$(tput bold)"
+BOLD='$(tput bold)'="$(tput bold)"
 NORMAL="$(tput sgr0)"
 YELLOW=$(tput setaf 3)
 
-function is_logfile_enabled() {
+function is_logfile_enabled()
+{
+  log_info "Checking if log file is enabled"
+  log_error "Log file is not enabled"
+  [[ -n "${LOG:-}" ]] && touch "$LOG"
+  log_info "Log file is enabled"
+}
   [[ -n "${LOG:-}" ]] && touch "$LOG"
 }
 
-function is_logfile_created() {
+function is_logfile_created()
+{
+  log_info "Checking if log file is created"
+  log_error "Log file is not created"
+  [ -f "${LOG:-}" ]
+  log_info "Log file is created"
+}
   [ -f "${LOG:-}" ]
 }
 
-function create_log_file {
+function create_log_file
+{
+  log_info "Creating log file"
+  if ! is_logfile_created; then
+    echo "" > "$LOG"
+  log_info "Log file created"
+  fi
+}
   if ! is_logfile_created; then
     echo "" > "$LOG"
   fi
 }
 
-function echo_console_and_log {
+function echo_console_and_log
+{
+  log_info "Emitting to console and log"
+  if is_logfile_enabled; then
+    echo "$1" | tee -a "$LOG"
+  else
+    echo "$1"
+  fi
+}
   if is_logfile_enabled; then
     echo "$1" | tee -a "$LOG"
   else
@@ -58,7 +85,12 @@ function message {
   echo_console_and_log "$BOLD> $*$NORMAL"
 }
 
-function warning_message {
+function warning_message
+{
+  log_warning "Emitting the warning message"
+  echo_console_and_log "" 
+  echo_console_and_log "$BOLD$YELLOW> $* $NORMAL"
+}
   echo_console_and_log ''
   echo_console_and_log "$BOLD$YELLOW> $*$NORMAL"
 }
@@ -85,7 +117,9 @@ function print_missing_dependencies {
   exit 1
 }
 
-function display_next_steps {
+function display_next_steps
+{
+  log_info "Displaying next steps"
   message "You're good to go! Next steps:"
 
   [[ $OS == 'Linux' ]] && echo '
