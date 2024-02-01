@@ -254,7 +254,10 @@ describe Lti::IMS::AuthenticationController do
             content_type: "application/json",
             body: a_string_including("lti_launch_debug_logger")
           ) do |*_args, body:, **_kwargs|
-            log = JSON.parse(body)
+            logs = JSON.parse(body)
+            expect(logs).to be_a(Array)
+            expect(logs.length).to eq(1)
+            log = logs.first
             expect(log["type"]).to eq("lti_launch_debug_logger")
 
             expect(log["id"]).to match(/\A[0-9a-f-]{16,}\z/)
@@ -327,9 +330,9 @@ describe Lti::IMS::AuthenticationController do
         expect(assigns.dig(:launch_parameters, :state)).to eq state
       end
 
-      it "sends the default lti_storage_target" do
+      it "sends the lti_storage_target" do
         subject
-        expect(assigns.dig(:launch_parameters, :lti_storage_target)).to eq Lti::PlatformStorage::DEFAULT_TARGET
+        expect(assigns.dig(:launch_parameters, :lti_storage_target)).to eq Lti::PlatformStorage::FORWARDING_TARGET
       end
 
       it_behaves_like "logs using the lti launch debug logger", min_enabled_level: 3 do
@@ -365,17 +368,6 @@ describe Lti::IMS::AuthenticationController do
         end
 
         it_behaves_like "logs using the lti launch debug logger", min_enabled_level: 3
-      end
-
-      context "when platform storage flag is enabled" do
-        before do
-          Account.site_admin.enable_feature! :lti_platform_storage
-        end
-
-        it "sends the actual lti_storage_target" do
-          subject
-          expect(assigns.dig(:launch_parameters, :lti_storage_target)).to eq Lti::PlatformStorage::FORWARDING_TARGET
-        end
       end
 
       context "when include_storage_target is false" do

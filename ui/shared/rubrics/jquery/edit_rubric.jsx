@@ -78,7 +78,7 @@ const rubricEditing = {
         document.getElementById('add_criterion_container')
       )
       if (focusTarget) {
-        $rubric.find(`"#add_criterion_container ${focusTarget}:visible`).focus()
+        $rubric.find(`#add_criterion_container ${focusTarget}:visible`).focus()
       }
     }, 0)
   },
@@ -1224,7 +1224,8 @@ rubricEditing.init = function () {
         .getTemplateData({textValues: ['id']}).id
       data['rubric_association[purpose]'] = params.rubric_association_purpose
       $rubric_dialog.loadingImage()
-      const url = $rubric_dialog.find('.select_rubric_url').attr('href')
+      const url = window.ENV.context_rubric_associations_url
+      if (!url) throw new Error('Rubric Associations URL is undefined')
       $.ajaxJSON(
         url,
         'POST',
@@ -1313,6 +1314,13 @@ rubricEditing.init = function () {
           // the show screen used for other assignments.
           assignmentPoints = numberHelper.parse(
             $('#edit_assignment_header input[id="assignment_points_possible"]').val()
+          )
+        }
+
+        if (Number.isNaN(assignmentPoints) && ENV['ASSIGNMENT_POINTS_POSSIBLE']) {
+          // For 1.3 external tool assignments, we grab the points from an env variable
+          assignmentPoints = numberHelper.parse(
+            ENV['ASSIGNMENT_POINTS_POSSIBLE']
           )
         }
         const rubricPoints = parseFloat(data.points_possible)

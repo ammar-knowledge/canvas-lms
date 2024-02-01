@@ -490,17 +490,12 @@ class Course < ActiveRecord::Base
     end
   end
 
-  def modules_visible_to(user, array_is_okay: false)
-    if grants_right?(user, :view_unpublished_items)
-      if array_is_okay && association(:context_modules).loaded?
-        context_modules.reject(&:deleted?)
-      else
-        context_modules.not_deleted
-      end
-    elsif array_is_okay && association(:context_modules).loaded?
-      context_modules.select(&:active?)
+  def modules_visible_to(user)
+    scope = grants_right?(user, :view_unpublished_items) ? context_modules.not_deleted : context_modules.active
+    if Account.site_admin.feature_enabled?(:differentiated_modules)
+      DifferentiableAssignment.scope_filter(scope, user, self)
     else
-      context_modules.active
+      scope
     end
   end
 
@@ -1463,7 +1458,6 @@ class Course < ActiveRecord::Base
                             admin_visible_student_enrollments.pluck(:user_id)
                           end
 
-    Rails.logger.debug "GRADES: recomputing scores in course=#{global_id} students=#{visible_student_ids.inspect}"
     Enrollment.recompute_final_score(
       visible_student_ids,
       id,
@@ -3039,7 +3033,8 @@ class Course < ActiveRecord::Base
                                            user,
                                            visibilities,
                                            visibility,
-                                           enrollment_state: opts[:enrollment_state])
+                                           enrollment_state: opts[:enrollment_state],
+                                           exclude_enrollment_state: opts[:exclude_enrollment_state])
   end
 
   def enrollments_visible_to(user, opts = {})
@@ -3050,8 +3045,12 @@ class Course < ActiveRecord::Base
     apply_enrollment_visibilities_internal(enrollment_scope.except(:preload), user, visibilities, visibility)
   end
 
-  def apply_enrollment_visibilities_internal(scope, user, visibilities, visibility, enrollment_state: nil)
-    scope = scope.where(enrollments: { workflow_state: enrollment_state }) if enrollment_state
+  def apply_enrollment_visibilities_internal(scope, user, visibilities, visibility, enrollment_state: nil, exclude_enrollment_state: nil)
+    if enrollment_state
+      scope = scope.where(enrollments: { workflow_state: enrollment_state })
+    elsif exclude_enrollment_state
+      scope = scope.where.not(enrollments: { workflow_state: exclude_enrollment_state })
+    end
     # See also MessageableUsers (same logic used to get users across multiple courses) (should refactor)
     case visibility
     when :full then scope
@@ -3363,7 +3362,7 @@ class Course < ActiveRecord::Base
                      Course.default_tabs
                    end
 
-    if OpenAi.smart_search_available?(root_account)
+    if OpenAi.smart_search_available?(self)
       default_tabs.insert(1,
                           {
                             id: TAB_SEARCH,
@@ -3638,8 +3637,8 @@ class Course < ActiveRecord::Base
     alias_method :"#{setting}?", setting if opts[:boolean]
     if opts[:alias]
       alias_method opts[:alias], setting
-      alias_method :"#{opts[:alias]}=", "#{setting}="
-      alias_method :"#{opts[:alias]}?", "#{setting}?"
+      alias_method :"#{opts[:alias]}=", :"#{setting}="
+      alias_method :"#{opts[:alias]}?", :"#{setting}?"
     end
   end
 

@@ -9923,6 +9923,7 @@ el:
   new_discussion_dae4fae3: "Νέο Θέμα Συζήτησης"
   new_export_3ab758: "Νέα Εξαγωγή"
   new_file_135ae520: "[ Νέο Αρχείο ]"
+  new_group_8d6ad781: "Νέα Ομάδα"
   new_group_set_7241a581: "Νέο Σετ Ομάδων"
   new_module_4e9287e4: "Νέα Ενότητα"
   new_outcome_7fba8c7d: "Νέο Αποτέλεσμα"
@@ -9980,6 +9981,7 @@ el:
   not_available_487d3648: "Δεν διατίθεται"
   not_available_until_next_submission_2175158: "Μη διαθέσιμο έως την επόμενη υποβολή"
   not_completed_d70acea3: "Δεν έχει ολοκληρωθεί"
+  not_deleted_2a7f63ef: "(χωρίς διαγραφή)"
   not_graded_e027c866: "Δεν έχει βαθμολογηθεί"
   not_graded_e78bcd50: "Δεν έχει βαθμολογηθεί"
   not_installed_37a21a76: "Δεν εγκαταστάθηκε"
@@ -10990,6 +10992,7 @@ el:
   points_possible_e57d5613: "Πιθανά μόρια"
   points_possible_must_be_0_or_more_for_selected_gra_f96a04e3: "Τα πιθανά μόρια πρέπει να είναι 0 ή μεγαλύτερα από το 0 για τον επιλεγμένο τύπο βαθμολόγησης"
   points_pts_e5596bf7: "%{points} μόρια"
+  pointspossible_pts_624a6733: "%{pointsPossible} μόρια"
   polling: 
     poll_sessions: 
       errors: 
@@ -14132,6 +14135,7 @@ el:
   student_viewed_document_9065adb8: "Σπουδαστής που πρόβαλε το Έγγραφο"
   students_1b8cd07b: Μαθητές
   students_being_observed_4de3e520: "Σπουδαστές υπό Παρατήρηση"
+  students_have_already_submitted_to_this_discussion_f55db744: "Οι σπουδαστές έχουν ήδη πραγματοποιήσει υποβολές σε αυτή τη συζήτηση, επομένως οι ρυθμίσεις της ομάδας δεν μπορούν να αλλάξουν."
   students_must_complete_all_of_these_requirements_15fa97f7: "Οι σπουδαστές θα πρέπει να ολοκληρώσουν όλες αυτές τις απαιτήσεις"
   students_must_move_through_requirements_in_sequent_2c750874: "Οι σπουδαστές θα πρέπει να μετακινηθούν στις απαιτήσεις διαδοχικά από τη μια στην επόμενη"
   students_who_have_taken_the_quiz_count_69dbbda0: 
@@ -14988,6 +14992,7 @@ el:
   upload_media_ce31135a: "Μεταφόρτωση Αρχείου Πολυμέσων"
   upload_scores_csv_a8416cf: "Μεταφόρτωση Βαθμολογιών (.csv)"
   upload_successful_ca47465f: "Η μεταφόρτωση ήταν επιτυχής"
+  upload_to_d8556041: "Μεταφόρτωση σε"
   uploaded_285a2bfb: Μεταφορτώθηκε
   uploading_19e8a4e7: "Γίνεται φόρτωση..."
   uploading_ee585874: "Γίνεται μεταφόρτωση..."
@@ -15456,6 +15461,7 @@ el:
   welcome_to_your_courses_to_customize_the_list_of_c_22de652e: "<mrk mid=\"6789\" mtype=\"seg\">Καλώς ορίσατε στα μαθήματά σας!</mrk> <mrk mid=\"6790\" mtype=\"seg\">Για παραμετροποίηση της λίστας των μαθημάτων σας, κάντε κλικ στον σύνδεσμο «Όλα τα Μαθήματα» και βάλτε αστερίσκο στα μαθήματα που θέλετε να προβάλετε.</mrk>"
   well_below_mastery_37664bdc: "Αρκετά Κάτω από το Επίπεδο Επιδεξιότητας"
   what_should_the_csv_file_look_like_985a59ac: "Πως πρέπει να είναι το CSV αρχείο;"
+  what_would_you_like_to_do_next_2835397e: "Τι θα θέλατε να κάνετε έπειτα;"
   when_people_visit_the_course_this_is_the_page_they_de94acc2: "<mrk mid=\"4369\" mtype=\"seg\">Όταν επισκέπτεται κάποιος το μάθημα, αυτή είναι η σελίδα που θα βλέπει.</mrk>  <mrk mid=\"4370\" mtype=\"seg\">Μπορείτε να ρυθμίσετε να εμφανίζεται η ροή δραστηριοτήτων, η λίστα των ενοτήτων του μαθήματος, το αναλυτικό πρόγραμμα ή κάποια προσαρμοσμένη σελίδα που θα δημιουργήσετε εσείς.</mrk>  <mrk mid=\"4371\" mtype=\"seg\">Η προεπιλεγμένη ρύθμιση είναι η ροή δραστηριοτήτων.</mrk>"
   where_would_you_like_to_move_title_fabd6e8f: "Πού θα θέλατε να μετακινήσετε το %{title};"
   white_87fa64fd: Λευκό

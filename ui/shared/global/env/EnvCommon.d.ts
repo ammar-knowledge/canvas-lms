@@ -88,7 +88,6 @@ export interface EnvCommon {
   disable_keyboard_shortcuts: boolean
   LTI_LAUNCH_FRAME_ALLOWANCES: string[]
   DEEP_LINKING_POST_MESSAGE_ORIGIN: string
-  DEEP_LINKING_LOGGING: null | unknown
   comment_library_suggestions_enabled: boolean
   INCOMPLETE_REGISTRATION: boolean
   SETTINGS: Record<Setting, boolean>
@@ -201,7 +200,6 @@ export interface EnvCommon {
  */
 export type SiteAdminFeatureId =
   | 'featured_help_links'
-  | 'lti_platform_storage'
   | 'account_level_blackout_dates'
   | 'account_calendar_events'
   | 'instui_nav'

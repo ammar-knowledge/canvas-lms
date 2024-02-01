@@ -4,6 +4,7 @@
 hu: 
   1_item_scores_5512cd03: "1- Elem pontszámok"
   1_item_scores_examplescores_9736236: "1- Elem pontszámok: %{exampleScores}"
+  1_pt_cd3551c8: "1 pont"
   1st_reviewer_3c1d0119: "1. értékelő"
   25th_75th_ile_406a67bf: "25-75 percentilis között"
   25th_75th_percentile_aa4c11f2: "25-75 percentilis között"
@@ -14360,6 +14361,7 @@ hu:
   new_gradebook_297f7e2d: "Új osztálynapló"
   new_gradebook_enables_an_early_release_of_new_grad_76b8bf45: "Az Új osztálynapló lehetővé teszi az új osztálynapló fejlesztéseinek korai kiadását."
   new_gradebook_plagiarism_indicator_8dd22971: "Új osztálynapló plágiumjelző"
+  new_group_8d6ad781: "Új csoport"
   new_group_category_66be9cbd: "Új csoporthalmaz"
   new_group_set_7241a581: "Új csoporthalmaz "
   new_module_4e9287e4: "Új modul"
@@ -14488,6 +14490,7 @@ hu:
   not_available_until_next_submission_2175158: "A következő beadásig nem érhető el"
   not_completed_55fb4c00: Befejezetlen
   not_completed_d70acea3: Befejezetlen
+  not_deleted_2a7f63ef: "(Nem törölt)"
   not_factored_into_grading_455dcf6a: "Nincs beleszámítva az osztályzásba"
   not_graded_e027c866: "Nem értékelt"
   not_graded_e78bcd50: "Nem értékelt"
@@ -15735,6 +15738,7 @@ hu:
   points_pts_e5596bf7: "%{points} pont"
   points_should_be_strictly_decreasing_l_r_18f26f87: "A pontoknak szigorúan csökkenőnek kell lenni: %{l} <= %{r}"
   points_total_pts_5b4cbd77: "%{points} / %{total} pont"
+  pointspossible_pts_624a6733: "%{pointsPossible} pont"
   poland_48_e77cc14d: "Lengyelország (+48)"
   polish_4cf2ecaf: Lengyel
   polling: 
@@ -19381,6 +19385,7 @@ hu:
   students_can_only_participate_in_the_course_betwee_6f8595aa: "A hallgatók csak ezen dátumok között vehetnek részt a kurzusban"
   students_can_see_originality_score_797fe634: "A hallgatók láthatják az eredetiség eredményt"
   students_cannot_view_quiz_responses_after_course_c_88e929ed: "A hallgatók nem tekinthetik meg a kvízválaszokat, miután a kurzus befejeződött/lezárult"
+  students_have_already_submitted_to_this_discussion_f55db744: "A hallgatók már hozzászóltak ehhez a megbeszéléshez, úgyhogy a csoportbeállítások nem módosíthatóak."
   students_have_either_already_taken_or_started_taki_a076336: "Néhány hallgató már kitöltötte, vagy elkezdte kitölteni ezt a kvízt, így vigyázzon a szerkesztésével. Ha jelentősen megváltoztatja valamelyik kvízkérdést, vegye figyelembe azon hallgatók eredményeit, akik a kvíz régi verzióját oldották meg."
   students_must_complete_all_of_these_requirements_15fa97f7: "A hallgatóknak az összes követelményt teljesíteniük kell"
   students_must_move_through_requirements_in_sequent_2c750874: "A hallgatóknak a követelményeket adott sorrendben kell teljesíteniük"
@@ -20576,6 +20581,7 @@ hu:
   upload_not_available_for_this_folder_8f8623c6: "A feltöltés nem érhető el erre a mappára"
   upload_scores_csv_a8416cf: "Pontszámok feltöltése (.csv)"
   upload_successful_ca47465f: "A feltöltés sikeres"
+  upload_to_d8556041: "Feltöltés ide"
   upload_your_outcomes_bceeadbe: "Töltse fel a tanulási eredményeit!"
   uploaded_285a2bfb: Feltöltve
   uploaded_media_bc29db35: "Feltöltött médiafájl"
@@ -21164,6 +21170,7 @@ hu:
   what_does_provisioning_only_mean_eac9a4a1: "Mit jelent a 'csak létesítés'?"
   what_happened_322d8259: "Mi történt?"
   what_should_the_csv_file_look_like_985a59ac: "Hogyan nézzen ki a CSV fájl?"
+  what_would_you_like_to_do_next_2835397e: "Mit szeretne csinálni a következő lépésben?"
   when_people_visit_the_course_this_is_the_page_they_de94acc2: "Amikor a felhasználók belépnek a kurzusba, ezt az oldalt fogják látni. Beállíthatja, hogy a hírfolyamot, a kurzusmoduljait, a tematikát vagy egy testreszabott oldalt mutasson. A hírfolyam az alapértelmezett beállítás."
   when_selected_the_course_is_in_a_read_only_state_o_5aaeb0d: "Ha ki van választva, akkor a kurzus csak olvasható állapotban lesz ezen dátumokon kívül."
   when_selected_the_course_section_is_in_a_read_only_a7571eb2: "Ha ki van választva, akkor a kurzus szakasz csak olvasható állapotban van ezen dátumokon kívül."

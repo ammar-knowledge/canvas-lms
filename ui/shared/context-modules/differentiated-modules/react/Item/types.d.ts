@@ -30,11 +30,22 @@ export interface StudentInfo {
   id: string
   name: string
 }
+
+export interface exportedOverride {
+  short_name?: string
+  id: string
+  course_section_id?: string | null
+  student_id?: string
+  name: string
+  type: string
+}
+
 export interface DateDetailsOverride {
   id?: string
   assignment_id?: number | null
   title?: string
   course_section_id?: string | null
+  course_section_ids?: string[] | null
   students?: StudentInfo[]
   student_ids?: string[]
   due_at: string | null
@@ -42,6 +53,8 @@ export interface DateDetailsOverride {
   lock_at: string | null
   all_day?: boolean
   all_day_date?: string | null
+  context_module_id?: string | null
+  context_module_name?: string | null
 }
 
 export interface ItemAssignToCardSpec {
@@ -54,6 +67,8 @@ export interface ItemAssignToCardSpec {
   lock_at: string | null
   selectedAssigneeIds: string[]
   defaultOptions?: string[]
+  contextModuleId?: string | null
+  contextModuleName?: string | null
 }
 
 export interface DateDetails extends BaseDateDetails {

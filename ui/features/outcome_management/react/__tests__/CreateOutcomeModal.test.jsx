@@ -31,12 +31,16 @@ import {
   createLearningOutcomeMock,
   createOutcomeGroupMocks,
 } from '@canvas/outcomes/mocks/Management'
-import * as FlashAlert from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import injectGlobalAlertContainers from '@canvas/util/react/testing/injectGlobalAlertContainers'
 
 injectGlobalAlertContainers()
 
 jest.useFakeTimers()
+
+jest.mock('@canvas/alerts/react/FlashAlert', () => ({
+  showFlashAlert: jest.fn(() => jest.fn(() => {})),
+}))
 
 describe('CreateOutcomeModal', () => {
   let onCloseHandlerMock
@@ -237,7 +241,6 @@ describe('CreateOutcomeModal', () => {
       })
 
       it('displays flash confirmation with proper message if create request succeeds', async () => {
-        const showFlashAlertSpy = jest.spyOn(FlashAlert, 'showFlashAlert')
         const {getByText, getByLabelText} = render(<CreateOutcomeModal {...defaultProps()} />, {
           mocks: [
             ...smallOutcomeTree(),
@@ -261,7 +264,7 @@ describe('CreateOutcomeModal', () => {
         userEvent.click(getByText('Create'))
         await act(async () => jest.runOnlyPendingTimers())
         await waitFor(() => {
-          expect(showFlashAlertSpy).toHaveBeenCalledWith({
+          expect(showFlashAlert).toHaveBeenCalledWith({
             message: '"Outcome 123" was successfully created.',
             type: 'success',
           })
@@ -269,7 +272,6 @@ describe('CreateOutcomeModal', () => {
       })
 
       it('displays flash error if create request fails', async () => {
-        const showFlashAlertSpy = jest.spyOn(FlashAlert, 'showFlashAlert')
         const {getByText, getByLabelText} = render(<CreateOutcomeModal {...defaultProps()} />, {
           mocks: [
             ...smallOutcomeTree(),
@@ -287,7 +289,7 @@ describe('CreateOutcomeModal', () => {
         fireEvent.change(getByLabelText('Friendly Name'), {target: {value: 'Display name'}})
         userEvent.click(getByText('Create'))
         await waitFor(() => {
-          expect(showFlashAlertSpy).toHaveBeenCalledWith({
+          expect(showFlashAlert).toHaveBeenCalledWith({
             message: 'An error occurred while creating this outcome. Please try again.',
             type: 'error',
           })
@@ -295,7 +297,6 @@ describe('CreateOutcomeModal', () => {
       })
 
       it('displays flash error if create mutation fails', async () => {
-        const showFlashAlertSpy = jest.spyOn(FlashAlert, 'showFlashAlert')
         const {getByText, getByLabelText} = render(<CreateOutcomeModal {...defaultProps()} />, {
           mocks: [
             ...smallOutcomeTree(),
@@ -314,7 +315,7 @@ describe('CreateOutcomeModal', () => {
         userEvent.click(getByText('Create'))
         await act(async () => jest.runOnlyPendingTimers())
         await waitFor(() => {
-          expect(showFlashAlertSpy).toHaveBeenCalledWith({
+          expect(showFlashAlert).toHaveBeenCalledWith({
             message: 'An error occurred while creating this outcome. Please try again.',
             type: 'error',
           })
@@ -322,7 +323,6 @@ describe('CreateOutcomeModal', () => {
       })
 
       it('handles create outcome failure due to friendly description', async () => {
-        const showFlashAlertSpy = jest.spyOn(FlashAlert, 'showFlashAlert')
         const {getByText, getByLabelText} = render(<CreateOutcomeModal {...defaultProps()} />, {
           mocks: [
             ...smallOutcomeTree(),
@@ -347,7 +347,7 @@ describe('CreateOutcomeModal', () => {
         userEvent.click(getByText('Create'))
         await act(async () => jest.runOnlyPendingTimers())
         await waitFor(() => {
-          expect(showFlashAlertSpy).toHaveBeenCalledWith({
+          expect(showFlashAlert).toHaveBeenCalledWith({
             message: 'An error occurred while creating this outcome. Please try again.',
             type: 'error',
           })
@@ -375,7 +375,6 @@ describe('CreateOutcomeModal', () => {
       })
 
       it('does not throw error if friendly description mutation succeeds', async () => {
-        const showFlashAlertSpy = jest.spyOn(FlashAlert, 'showFlashAlert')
         const {getByText, getByLabelText} = render(<CreateOutcomeModal {...defaultProps()} />, {
           mocks: [
             ...smallOutcomeTree(),
@@ -400,7 +399,7 @@ describe('CreateOutcomeModal', () => {
         userEvent.click(getByText('Create'))
         await act(async () => jest.runOnlyPendingTimers())
         await waitFor(() => {
-          expect(showFlashAlertSpy).toHaveBeenCalledWith({
+          expect(showFlashAlert).toHaveBeenCalledWith({
             message: '"Outcome 123" was successfully created.',
             type: 'success',
           })
@@ -439,7 +438,6 @@ describe('CreateOutcomeModal', () => {
       })
 
       it('sets focus on create button after creation of a new group', async () => {
-        jest.spyOn(FlashAlert, 'showFlashAlert')
         const {getByText, getByLabelText, getByTestId} = render(
           <CreateOutcomeModal {...defaultProps()} />,
           {
@@ -473,7 +471,6 @@ describe('CreateOutcomeModal', () => {
         })
 
         it('does not call friendly description mutation when creating outcome', async () => {
-          const showFlashAlertSpy = jest.spyOn(FlashAlert, 'showFlashAlert')
           const {getByText, getByLabelText} = render(<CreateOutcomeModal {...defaultProps()} />, {
             friendlyDescriptionFF: false,
             mocks: [
@@ -493,7 +490,7 @@ describe('CreateOutcomeModal', () => {
           await act(async () => jest.runOnlyPendingTimers())
           // if setFriendlyDescription mutation is called the expectation below will fail
           await waitFor(() => {
-            expect(showFlashAlertSpy).toHaveBeenCalledWith({
+            expect(showFlashAlert).toHaveBeenCalledWith({
               message: '"Outcome 123" was successfully created.',
               type: 'success',
             })
@@ -519,8 +516,8 @@ describe('CreateOutcomeModal', () => {
             expect(getByTestId('outcome-management-ratings')).toBeInTheDocument()
           })
 
+          // OUT-6152 - fix flaky spec
           it.skip('creates outcome with calculation method and proficiency ratings (flaky)', async () => {
-            const showFlashAlertSpy = jest.spyOn(FlashAlert, 'showFlashAlert')
             const {getByText, getByLabelText, getByDisplayValue} = render(
               <CreateOutcomeModal {...defaultProps()} />,
               {
@@ -550,7 +547,7 @@ describe('CreateOutcomeModal', () => {
             userEvent.click(getByText('Create'))
             await act(async () => jest.runOnlyPendingTimers())
             await waitFor(() => {
-              expect(showFlashAlertSpy).toHaveBeenCalledWith({
+              expect(showFlashAlert).toHaveBeenCalledWith({
                 message: '"Outcome 123" was successfully created.',
                 type: 'success',
               })

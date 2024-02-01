@@ -254,9 +254,12 @@ Returns the host of the rich content service for the current region.
 ## com.instructure.User.student_view
 Returns true if the user is launching from student view.
 
-**Availability**: *always*  
+**Availability**: *when launched by a logged in user*  
 **Launch Parameter**: *com_instructure_user_student_view*  
 
+```
+"true"
+"false"
 ```
 ## com.instructure.Observee.sisIds
 returns all observee ids linked to this observer as an String separated by `,`.
@@ -1143,15 +1146,20 @@ It may not hold all the sis info needed in other launch substitutions.
 420000000000042
 ```
 ## Canvas.masqueradingUser.userId
-Returns the 40 character opaque user_id for masquerading user.
-This is the pseudonym the user is actually logged in as.
-It may not hold all the sis info needed in other launch substitutions.
+Returns the opaque user_id for the masquerading user. This is the
+pseudonym the user is actually logged in as. It may not hold all the sis
+info needed in other launch substitutions.
+
+For LTI 1.3 tools, the opaque user IDs are UUIDv4 values (also used in
+the "sub" claim in LTI 1.3 launches), while for other LTI versions, the
+user ID will be the user's 40 character opaque LTI id.
 
 **Availability**: *when the user is being masqueraded*  
 
 
 ```
-"da12345678cb37ba1e522fc7c5ef086b7704eff9"
+ LTI 1.3: "8b9f8327-aa32-fa90-9ea2-2fa8ef79e0f9",
+ All Others: "da12345678cb37ba1e522fc7c5ef086b7704eff9"
 ```
 ## Canvas.xapi.url
 Returns the xapi url for the user.

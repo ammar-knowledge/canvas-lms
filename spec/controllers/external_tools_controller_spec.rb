@@ -364,7 +364,6 @@ describe ExternalToolsController do
 
         before do
           allow(ApplicationController).to receive_messages(test_cluster?: true, test_cluster_name: "beta")
-          Account.site_admin.enable_feature! :dynamic_lti_environment_overrides
 
           tool.course_navigation = { enabled: true }
           tool.settings[:environments] = {
@@ -630,7 +629,6 @@ describe ExternalToolsController do
 
         before do
           allow(ApplicationController).to receive_messages(test_cluster?: true, test_cluster_name: "beta")
-          Account.site_admin.enable_feature! :dynamic_lti_environment_overrides
 
           @tool.settings[:environments] = {
             domain:
@@ -891,7 +889,6 @@ describe ExternalToolsController do
 
         before do
           allow(ApplicationController).to receive_messages(test_cluster?: true, test_cluster_name: "beta")
-          Account.site_admin.enable_feature! :dynamic_lti_environment_overrides
 
           @tool.settings[:environments] = {
             domain:
@@ -1470,22 +1467,9 @@ describe ExternalToolsController do
         Account.site_admin.enable_feature!(:lti_rce_postmessage_support)
       end
 
-      context "with platform storage flag enabled" do
-        before { Account.site_admin.enable_feature!(:lti_platform_storage) }
-
-        it "renders the sibling forwarder frame once" do
-          subject
-          expect(response.body.scan('id="post_message_forwarding').count).to eq 1
-        end
-      end
-
-      context "with platform storage flag disabled" do
-        before { Account.site_admin.disable_feature!(:lti_platform_storage) }
-
-        it "does not render the sibling forwarder frame" do
-          subject
-          expect(response.body.scan('id="post_message_forwarding').count).to eq 0
-        end
+      it "renders the sibling forwarder frame once" do
+        subject
+        expect(response.body.scan('id="post_message_forwarding').count).to eq 1
       end
 
       it "renders the tool launch iframe" do
@@ -2843,7 +2827,6 @@ describe ExternalToolsController do
 
       before do
         allow(ApplicationController).to receive_messages(test_cluster?: true, test_cluster_name: "beta")
-        Account.site_admin.enable_feature! :dynamic_lti_environment_overrides
         user_session(account_admin_user)
 
         tool.settings[:environments] = {

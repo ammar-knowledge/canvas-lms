@@ -19,10 +19,12 @@ require_relative "../common"
 require_relative "../../spec_helper"
 require_relative "page_objects/assignments_index_page"
 require_relative "../helpers/items_assign_to_tray"
+require_relative "../helpers/context_modules_common"
 
-shared_examples_for "selective_release module tray" do |context|
+shared_examples_for "selective_release assign to tray" do |context|
   include AssignmentsIndexPage
   include ItemsAssignToTray
+  include ContextModulesCommon
 
   before do
     case context
@@ -43,6 +45,7 @@ shared_examples_for "selective_release module tray" do |context|
     expect(item_tray_exists?).to be_truthy
     expect(tray_header.text).to eq("test assignment")
     expect(icon_type_exists?("Assignment")).to be true
+    expect(item_type_text.text).to include("25 pts")
   end
 
   it "assigns student and saves assignment" do
@@ -164,11 +167,12 @@ describe "assignments index menu tool placement" do
   include_context "in-process server selenium tests"
   include AssignmentsIndexPage
   include ItemsAssignToTray
+  include ContextModulesCommon
 
   before :once do
-    Account.site_admin.enable_feature! :differentiated_modules
+    differentiated_modules_on
     course_with_teacher(active_all: true)
-    @assignment1 = @course.assignments.create(name: "test assignment")
+    @assignment1 = @course.assignments.create(name: "test assignment", points_possible: 25)
 
     @course.enable_feature! :quizzes_next
     @course.context_external_tools.create!(
@@ -190,7 +194,7 @@ describe "assignments index menu tool placement" do
       user_session(@teacher)
     end
 
-    it_behaves_like "selective_release module tray", :assignment_index
+    include_examples "selective_release assign to tray", :assignment_index
   end
 
   context "assign to tray on course homepage with default assignments index" do
@@ -199,6 +203,6 @@ describe "assignments index menu tool placement" do
       @course.update!(default_view: "assignments")
     end
 
-    it_behaves_like "selective_release module tray", :course_homepage
+    include_examples "selective_release assign to tray", :course_homepage
   end
 end

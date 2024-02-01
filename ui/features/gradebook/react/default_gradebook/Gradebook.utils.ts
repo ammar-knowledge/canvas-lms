@@ -30,6 +30,7 @@ import type {
   ColumnSizeSettings,
   CustomColumn,
   CustomStatusIdString,
+  EnrollmentFilter,
   Filter,
   FilterPreset,
   FilterType,
@@ -607,23 +608,34 @@ export const categorizeFilters = (appliedFilters: Filter[], customStatuses: Grad
     appliedFilters
   ) as SubmissionFilterValue[]
   const customStatusIds = getCustomStatusIdStrings(customStatuses)
-  const filtersNeedingSome: SubmissionFilterValue[] = submissionFilters.filter(filter =>
-    [
-      'dropped',
-      'excused',
-      'extended',
-      'has-submissions',
-      'has-ungraded-submissions',
-      'has-unposted-grades',
-      'late',
-      'missing',
-      'resubmitted',
-      ...customStatusIds,
-    ].includes(filter)
-  )
 
-  const filtersNeedingEvery = submissionFilters.filter(filter =>
-    ['has-no-submissions'].includes(filter)
+  const possibleSomeFilters = [
+    'dropped',
+    'excused',
+    'extended',
+    'has-submissions',
+    'has-ungraded-submissions',
+    'has-unposted-grades',
+    'late',
+    'missing',
+    'resubmitted',
+    ...customStatusIds,
+  ]
+
+  let filtersNeedingEvery: SubmissionFilterValue[] = []
+
+  const {multiselect_gradebook_filters_enabled} = ENV.GRADEBOOK_OPTIONS ?? {}
+
+  if (multiselect_gradebook_filters_enabled) {
+    possibleSomeFilters.push('has-no-submissions')
+  } else {
+    filtersNeedingEvery = submissionFilters.filter(filter =>
+      ['has-no-submissions'].includes(filter)
+    )
+  }
+
+  const filtersNeedingSome: SubmissionFilterValue[] = submissionFilters.filter(filter =>
+    possibleSomeFilters.includes(filter)
   )
 
   return {filtersNeedingSome, filtersNeedingEvery}
@@ -638,7 +650,11 @@ export function filterSubmission(
     return true
   }
   const customStatusIds = getCustomStatusIdStrings(customStatuses)
-  return filters.every(filter => {
+
+  const {multiselect_gradebook_filters_enabled} = ENV.GRADEBOOK_OPTIONS ?? {}
+  const filterOperation = multiselect_gradebook_filters_enabled ? 'some' : 'every'
+
+  return filters[filterOperation](filter => {
     if (filter === 'has-ungraded-submissions') {
       return doesSubmissionNeedGrading(submission)
     } else if (filter === 'has-submissions') {
@@ -710,7 +726,21 @@ export const filterStudentBySubmissionFn = (
   }
 }
 
-export const filterStudentBySectionFn = (appliedFilters: Filter[]) => {
+const getIncludedEnrollmentStates = (enrollmentFilter: EnrollmentFilter) => {
+  const enrollmentStates = ['active', 'invited']
+  if (enrollmentFilter.inactive) {
+    enrollmentStates.push('inactive')
+  }
+  if (enrollmentFilter.concluded) {
+    enrollmentStates.push('completed')
+  }
+  return enrollmentStates
+}
+
+export const filterStudentBySectionFn = (
+  appliedFilters: Filter[],
+  enrollmentFilter: EnrollmentFilter
+) => {
   const sectionFilters = findFilterValuesOfType(
     'section',
     appliedFilters
@@ -720,14 +750,25 @@ export const filterStudentBySectionFn = (appliedFilters: Filter[]) => {
     if (sectionFilters.length === 0) {
       return true
     }
-
-    return student.sections ? student.sections.includes(sectionFilters[0]) : false
+    const {multiselect_gradebook_filters_enabled} = ENV.GRADEBOOK_OPTIONS ?? {}
+    const includedEnrollmentStates = getIncludedEnrollmentStates(enrollmentFilter)
+    const sectionFiltersToApply = multiselect_gradebook_filters_enabled
+      ? sectionFilters
+      : [sectionFilters[0]]
+    const enrollmentStates = student.enrollments
+      .filter(e => sectionFiltersToApply.includes(e.course_section_id as SubmissionFilterValue))
+      .map(enrollment => enrollment.enrollment_state)
+    return student.sections
+      ? enrollmentStates.length > 0 &&
+          _.intersection(enrollmentStates, includedEnrollmentStates).length > 0
+      : false
   }
 }
 
 export const filterAssignmentsBySubmissionsFn = (
   appliedFilters: Filter[],
   submissionStateMap: SubmissionStateMap,
+  searchFilteredStudentIds: string[],
   customStatuses: GradeStatus[]
 ) => {
   const {filtersNeedingSome, filtersNeedingEvery} = categorizeFilters(
@@ -740,7 +781,13 @@ export const filterAssignmentsBySubmissionsFn = (
       return true
     }
 
-    const submissions = submissionStateMap.getSubmissionsByAssignment(assignment.id)
+    let submissions = submissionStateMap.getSubmissionsByAssignment(assignment.id)
+
+    if (searchFilteredStudentIds.length > 0) {
+      submissions = submissions.filter(submission =>
+        searchFilteredStudentIds.includes(submission.user_id)
+      )
+    }
 
     const result = filterSubmissionsByCategorizedFilters(
       filtersNeedingSome,

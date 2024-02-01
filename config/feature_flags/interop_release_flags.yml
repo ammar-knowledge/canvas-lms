@@ -19,14 +19,6 @@ microsoft_group_enrollments_syncing:
     If enabled, syncing course enrollments to Microsoft Groups will be
     available. Account admins may enable this in account settings.
   applies_to: RootAccount
-lti_platform_storage:
-  state: hidden
-  display_name: LTI Platform Storage
-  description: |-
-    Controls the final changes needed to fully conform to the LTI Platform Storage
-    spec, including receiving messages addressed to the correct OIDC Auth
-    URI origin, and the postMessage forwarding proxy frame.
-  applies_to: SiteAdmin
 lti_multiple_assignment_deep_linking:
   state: hidden
   display_name: LTI Multiple Assignment Deep Linking
@@ -122,19 +114,6 @@ lti_dynamic_registration:
   display_name: LTI Dynamic Registration
   description: Enables administrators to register LTI tools with Dynamic Registration
   applies_to: RootAccount
-dynamic_lti_environment_overrides:
-  state: hidden
-  display_name: Dynamic LTI 1.1 Environment-specific override URLs
-  description: |-
-    Replaces the existing 'update_external_tools' beta refresh task (that overwrites
-    all URLs in a tool with beta-specific launch URLs) with a dynamic lookup of the
-    correct launch URL.
-  applies_to: SiteAdmin
-  environments:
-    development:
-      state: allowed_on
-    ci:
-      state: allowed_on
 disable_oembed_retrieve:
   state: hidden
   applies_to: RootAccount
@@ -234,3 +213,15 @@ lti_log_launches:
       state: allowed_on
     ci:
       state: allowed_on
+enhanced_developer_keys_tables:
+  state: hidden
+  applies_to: RootAccount
+  display_name: Sort and Filter Developer Keys Tables
+  description: |-
+    When enabled, allows the tables on the Developer Keys page to be
+    sorted and filtered.
+  environments:
+    development:
+      state: allowed_on
+    ci:
+      state: on

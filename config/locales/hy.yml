@@ -11131,6 +11131,7 @@ hy:
   new_course_role_6a7bb75f: "Դասընթացի նոր դերը"
   new_discussion_dae4fae3: "Նոր քննարկում"
   new_file_135ae520: "[ նոր ֆայլ ]"
+  new_group_8d6ad781: "Նոր խումբ"
   new_group_set_7241a581: "Նոր խմբերի շարք"
   new_module_4e9287e4: "Նոր Մոդուլ"
   new_outcome_7fba8c7d: "Նոր արդյունք"
@@ -11188,6 +11189,7 @@ hy:
   not_available_487d3648: "Հասանելի չէ"
   not_available_until_next_submission_2175158: "Հասանելի չէ մինչև հաջորդ հանձնարարության հանձնումը"
   not_completed_d70acea3: "Ավարտված չէ"
+  not_deleted_2a7f63ef: "(Հեռացված չէ)"
   not_graded_e027c866: "Գնահատված չէ"
   not_installed_37a21a76: "Տեղադրված չէ"
   not_now_97efd947: "Ոչ հիմա"
@@ -12216,6 +12218,7 @@ hy:
   points_points_b6b422e2: "Միավոր.  %{points}"
   points_possible_e57d5613: "Հնարավոր միավորներ"
   points_possible_must_be_0_or_more_for_selected_gra_f96a04e3: "Գնահատման այս ընտրված տեսակի համար հնարավոր միավորները պետք է լինեն 0-ից ոչ պակաս"
+  pointspossible_pts_624a6733: "%{pointsPossible} հնարավոր միավորներ"
   polling: 
     poll_sessions: 
       errors: 
@@ -15859,6 +15862,7 @@ hy:
   student_view_ac9b672f: "Դիտում ունկնդրի կողմից"
   students_1b8cd07b: Ունկնդիրներ
   students_being_observed_4de3e520: "Դիտարկվող ունկնդիրներ"
+  students_have_already_submitted_to_this_discussion_f55db744: "Ունկնդիրներն արդեն այս քննարկման առթիվ ուղարկել են իրենց պատասխանները, ուստի խմբի կարգաբերումները հնարավոր չէ փոխել: "
   students_must_complete_all_of_these_requirements_15fa97f7: "Ունկնդիրը պետք է կատարի բոլոր այս պահանջները"
   students_who_have_taken_the_quiz_count_69dbbda0: 
     one: "Այն ունկնդիրները, ովքեր վերցրել են թեստը՝  (%{count})"
@@ -16737,6 +16741,7 @@ hy:
   upload_files_a228f20f: "Ներբեռնել ֆայլերը"
   upload_scores_csv_a8416cf: "Բեռնել գնահատականները (.csv)"
   upload_successful_ca47465f: "Բեռնվեց հաջողությամբ"
+  upload_to_d8556041: "Ներբեռնել դեպի"
   uploaded_285a2bfb: "Ներբեռնված է"
   uploading_19e8a4e7: Բեռնում
   uploading_ee585874: "Բեռնում է..."
@@ -17259,6 +17264,7 @@ hy:
   welcome_to_your_courses_to_customize_the_list_of_c_22de652e: "Բարի գալուստ ձեր դասընթացներին: Դասընթացների ցուցակը կարգաբերելու համար սեղմեք \"Բոլոր դասընթացները\" հղումը և աստղանիշով նշեք դասընթացները ցուցադրելու համար:"
   well_below_mastery_37664bdc: "Բավական ցածր է անցողիկ միավորներից "
   what_should_the_csv_file_look_like_985a59ac: "Ի՞նչ տեսք պետք է ունենա CSV ֆայլը:"
+  what_would_you_like_to_do_next_2835397e: "Ինչ կցանկանայիք անել հաջորդ քայլում"
   when_people_visit_the_course_this_is_the_page_they_de94acc2: "Երբ մարդիկ այցելում են դասընթացը, նրանք տեսնում են հենց այս էջը: Դուք կարող եք կարգաբերել այն այնպես, որ ցույց տա գործողությունների հոսքը, մոդուլների, ուսումնական ծրագրերի ցուցակը կամ դնել Ձեր կողմից ստեղծված  օգտատիրոջ էջը: Լռելյայն ընդունված տարբերակը ցուցադրում է դասընթացի գործողությունների հոսքը: "
   where_would_you_like_to_move_title_fabd6e8f: "Ու՞ր կցանկանայիք տեղափոխել %{title}:"
   widget: 

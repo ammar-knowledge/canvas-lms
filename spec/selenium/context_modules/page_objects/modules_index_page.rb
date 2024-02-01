@@ -29,6 +29,10 @@ module ModulesIndexPage
     "#context_module_item_#{module_item_id} .module-item-assign-to-link"
   end
 
+  def manage_module_item_indent_selector(module_item_id)
+    "#context_module_item_#{module_item_id} .indent_item_link"
+  end
+
   def module_create_button_selector
     "//button[.//*[contains(text(), 'Create a new Module')]]"
   end
@@ -39,6 +43,10 @@ module ModulesIndexPage
 
   def new_module_link_selector
     ".add_module_link"
+  end
+
+  def no_context_modules_message_selector
+    "#no_context_modules_message"
   end
 
   def pill_message_selector(module_id)
@@ -82,6 +90,10 @@ module ModulesIndexPage
     f(manage_module_item_assign_to_selector(module_item_id))
   end
 
+  def manage_module_item_indent(module_item_id)
+    f(manage_module_item_indent_selector(module_item_id))
+  end
+
   def modules_index_settings_button
     fj("[role=button]:contains('Modules Settings')")
   end
@@ -112,6 +124,10 @@ module ModulesIndexPage
 
   def new_module_link
     f(new_module_link_selector)
+  end
+
+  def no_context_modules_message
+    f(no_context_modules_message_selector)
   end
 
   def pill_message(module_id)
@@ -191,6 +207,10 @@ module ModulesIndexPage
 
   def click_manage_module_item_assign_to(module_item)
     manage_module_item_assign_to(module_item.id).click
+  end
+
+  def click_manage_module_item_indent(module_item)
+    manage_module_item_indent(module_item.id).click
   end
 
   def click_module_create_button

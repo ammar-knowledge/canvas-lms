@@ -47,8 +47,8 @@ const {
   environmentVars,
   excludeMomentLocales,
   failOnWebpackWarnings,
-  getDevtool,
   minimizeCode,
+  provideJQuery,
   readOnlyCache,
   retryChunkLoading,
   setMoreEnvVars,
@@ -63,20 +63,7 @@ require('./generatePluginBundles')
 
 if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development'
 
-// We have a bunch of things (like our selenium jenkins builds) that have
-// historically used the environment variable JS_BUILD_NO_UGLIFY to make their
-// prod webpack builds go faster. But the slowest thing was not actually uglify
-// (aka terser), it is generating the sourcemaps. Now that we added the
-// performance hints and want to fail the build if you accidentally make our
-// bundles larger than a certain size, we need to always uglify to check the
-// after-uglify size of things, but can skip making sourcemaps if you want it to
-// go faster. So this is to allow people to use either environment variable:
-// the technically more correct SKIP_SOURCEMAPS one or the historically used JS_BUILD_NO_UGLIFY one.
-// TODO: only use SKIP_SOURCEMAPS
-//   JS_BUILD_NO_UGLIFY only used in gulp
-const skipSourcemaps = Boolean(
-  process.env.SKIP_SOURCEMAPS || process.env.JS_BUILD_NO_UGLIFY === '1'
-)
+const skipSourcemaps = process.env.SKIP_SOURCEMAPS === '1'
 
 const shouldWriteCache =
   process.env.WRITE_BUILD_CACHE === '1' || process.env.NODE_ENV === 'development'
@@ -125,7 +112,14 @@ module.exports = {
 
       // which chunks will be selected for optimization
       chunks: 'all',
-      cacheGroups: {defaultVendors: false}, // don't split out node_modules and app code in different chunks
+      cacheGroups: {
+        react: {
+          test: /[\\/]node_modules[\\/](react|react-dom)[\\/]/,
+          name: 'react',
+          chunks: 'all',
+        },
+        defaultVendors: false,
+      },
     },
   },
 
@@ -133,9 +127,15 @@ module.exports = {
   bail: isProduction,
 
   // style of source mapping to enhance the debugging process
-  devtool: getDevtool(skipSourcemaps),
+  // https://webpack.js.org/configuration/devtool/
+  devtool: skipSourcemaps
+    ? false
+    : process.env.NODE_ENV === 'production' || process.env.COVERAGE === '1'
+    ? // "Recommended choice for production builds"
+      'source-map'
+    : // "Recommended choice for development builds"
+      'eval-source-map',
 
-  // we don't yet use multiple entry points
   entry: {main: resolve(canvasDir, 'ui/index.ts')},
 
   watchOptions: {ignored: ['**/node_modules/']},
@@ -203,6 +203,7 @@ module.exports = {
     webpackHooks,
     controlAccessBetweenModules,
     setMoreEnvVars,
+    provideJQuery,
     process.env.NODE_ENV !== 'development' && retryChunkLoading,
 
     !shouldWriteCache && readOnlyCache,

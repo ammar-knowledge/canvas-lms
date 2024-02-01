@@ -11725,6 +11725,7 @@ uk:
   new_file_added_for_name_a5ec3156: "Новий файл додано для %{name}"
   new_gradebook_297f7e2d: "Новий Журнал оцінок"
   new_gradebook_enables_an_early_release_of_new_grad_76b8bf45: "Новий Журнал оцінок дозволяє швидко реалізовувати вдосконалення нового журналу."
+  new_group_8d6ad781: "Нова група"
   new_group_category_66be9cbd: "Нова категорія груп"
   new_group_set_7241a581: "Налаштування нової групи"
   new_module_4e9287e4: "Новий модуль"
@@ -11844,6 +11845,7 @@ uk:
   not_available_until_next_submission_2175158: "Не доступно до наступного відправлення"
   not_completed_55fb4c00: "Не Завершено"
   not_completed_d70acea3: "Не завершено "
+  not_deleted_2a7f63ef: "(Не видалено)"
   not_factored_into_grading_455dcf6a: "Не враховані за порядкуванням "
   not_graded_e027c866: "Оцінка відсутня"
   not_graded_e78bcd50: "Не оцінено "
@@ -13019,6 +13021,7 @@ uk:
   points_possible_points_fda3b111: "%{points_possible} балів"
   points_pts_e5596bf7: "%{points} балів"
   points_total_pts_5b4cbd77: "%{points} / %{total} балів"
+  pointspossible_pts_624a6733: "%{pointsPossible} балів"
   poland_48_e77cc14d: "Польща (+48)"
   polling: 
     poll_sessions: 
@@ -16624,6 +16627,7 @@ uk:
   students_being_observed_4de3e520: "Студенти, за якими спостерігають"
   students_can_only_participate_in_the_course_betwee_6f8595aa: "Студенти можуть брати участь  в курсі тільки між цими датами"
   students_cannot_view_quiz_responses_after_course_c_88e929ed: "Студенти не можуть переглядати відповіді на Контрольної роботи після завершення курсу"
+  students_have_already_submitted_to_this_discussion_f55db744: "Студенти вже долучилися до обговорення, тому групові налаштування не можуть бути змінені."
   students_have_either_already_taken_or_started_taki_a076336: "Студенти або вже склали або почали складати цю контрольну роботу, тому будьте обережні щодо її редагування. Якщо вам потрібно змінити будь-які запитання, можливо, вам слід подумати про переоцінку студентів, які склали попередню версію контрольної роботи."
   students_must_complete_all_of_these_requirements_15fa97f7: "Студенти повинні виконати усі зазначені вимоги"
   students_must_move_through_requirements_in_sequent_2c750874: "Студенти повинні переміщатися по вимогах в послідовному порядку"
@@ -17823,6 +17827,7 @@ uk:
   upload_media_ce31135a: "Завантажити медіа контент"
   upload_scores_csv_a8416cf: "Завантажити результати (.csv)"
   upload_successful_ca47465f: "Завантаження виконано успішно"
+  upload_to_d8556041: "Завантажити до"
   uploaded_285a2bfb: Завантажено
   uploading_ee585874: Завантаження...
   uploading_submission_4c8d944b: "Завантаження матеріалу"
@@ -18398,6 +18403,7 @@ uk:
   well_below_mastery_37664bdc: "Суттєво нижча майстерність"
   what_does_provisioning_only_mean_eac9a4a1: "Що означає Provisioning Only?"
   what_should_the_csv_file_look_like_985a59ac: "Як має виглядати файл CSV?"
+  what_would_you_like_to_do_next_2835397e: "Що б ви хотіли робити далі?"
   when_adding_multiple_users_use_a_comma_or_line_bre_67f9c87d: "Під час додавання декількох користувачів використовуйте коми або перехід на наступний рядок для відділення користувачів."
   when_people_visit_the_course_this_is_the_page_they_de94acc2: "Це сторінка, яку побачать люди, коли відвідуватимуть цей курс. Ви можете налаштувати її для показу потоку активності, списку модулів курсу, навчального плану або власної сторінки, яку ви самі створюєте. За замовчуванням - це потік активності курсу."
   when_people_visit_your_course_this_is_the_first_pa_5093ec45: |-

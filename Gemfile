@@ -15,7 +15,7 @@ source "https://rubygems.org/"
 Plugin.uninstall(["bundler_lockfile_extensions"], {}) if Plugin.installed?("bundler_lockfile_extensions")
 
 # vendored until https://github.com/rubygems/rubygems/pull/6957 is merged and released
-plugin "bundler-multilock", "1.2.0", path: "vendor/gems/bundler-multilock"
+plugin "bundler-multilock", "1.2.1", path: "vendor/gems/bundler-multilock"
 # the extra check here is in case `bundle check` or `bundle exec` gets run before `bundle install`,
 # and is also fixed by the same PR
 raise GemNotFound, "bundler-multilock plugin is not installed" if !is_a?(Bundler::Plugin::DSL) && !Plugin.installed?("bundler-multilock")
@@ -31,7 +31,7 @@ if Bundler.default_gemfile == gemfile
     if rails_version == SUPPORTED_RAILS_VERSIONS.first
       lockfile = nil unless include_plugins
     elsif include_plugins
-      parent = "rails#{rails_versions.delete(".")}"
+      parent = "rails#{rails_version.delete(".")}"
     end
 
     active = rails_version == $canvas_rails && !!include_plugins

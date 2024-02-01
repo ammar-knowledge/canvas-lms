@@ -61,8 +61,16 @@ module ItemsAssignToTray
     "[name='Icon#{icon_type}']"
   end
 
+  def inherited_from_selector
+    "#{module_item_edit_tray_selector} [data-testid='context-module-text']"
+  end
+
   def item_type_text_selector
     "[data-testid='item-type-text']"
+  end
+
+  def loading_spinner_selector
+    "[data-testid='module-item-edit-tray'] [title='Loading']"
   end
 
   def module_item_assignee_selector
@@ -142,8 +150,16 @@ module ItemsAssignToTray
     f(icon_type_selector(icon_type))
   end
 
+  def inherited_from
+    ff(inherited_from_selector)
+  end
+
   def item_type_text
     f(item_type_text_selector)
+  end
+
+  def loading_spinner
+    fj(loading_spinner_selector)
   end
 
   def module_item_assign_to_card
@@ -219,5 +235,14 @@ module ItemsAssignToTray
 
   def update_until_time(card_number, until_time)
     replace_content(assign_to_until_time(card_number), until_time, tab_out: true)
+  end
+
+  def wait_for_assign_to_tray_spinner
+    begin
+      keep_trying_until { (element_exists?(loading_spinner_selector) == false) }
+    rescue Selenium::WebDriver::Error::TimeoutError
+      # ignore - sometimes spinner doesn't appear in Chrome
+    end
+    wait_for_ajaximations
   end
 end

@@ -1890,11 +1890,11 @@ describe DiscussionTopic do
       return unless user
 
       if read
-        expect(DiscussionTopic.read_for(user)).to be_include @topic
-        expect(DiscussionTopic.unread_for(user)).not_to be_include @topic
+        expect(DiscussionTopic.read_for(user)).to include @topic
+        expect(DiscussionTopic.unread_for(user)).not_to include @topic
       else
-        expect(DiscussionTopic.read_for(user)).not_to be_include @topic
-        expect(DiscussionTopic.unread_for(user)).to be_include @topic
+        expect(DiscussionTopic.read_for(user)).not_to include @topic
+        expect(DiscussionTopic.unread_for(user)).to include @topic
       end
     end
 
@@ -2765,7 +2765,7 @@ describe DiscussionTopic do
     it "sends a message for a published course" do
       @course.offer!
       topic = @course.discussion_topics.create!(title: "title")
-      expect(topic.messages_sent["New Discussion Topic"].map(&:user)).to be_include(@user)
+      expect(topic.messages_sent["New Discussion Topic"].map(&:user)).to include(@user)
       expect(topic.messages_sent["New Discussion Topic"].first.from_name).to eq @course.name
     end
 
@@ -2783,7 +2783,7 @@ describe DiscussionTopic do
       it "sends a message for a group discussion in a published course" do
         @course.offer!
         topic = @group.discussion_topics.create!(title: "title")
-        expect(topic.messages_sent["New Discussion Topic"].map(&:user)).to be_include(@user)
+        expect(topic.messages_sent["New Discussion Topic"].map(&:user)).to include(@user)
       end
 
       it "does not send a message for a group discussion in an unpublished course" do
@@ -3004,8 +3004,8 @@ describe DiscussionTopic do
 
   describe "checkpoints" do
     before do
+      @course.root_account.enable_feature!(:discussion_checkpoints)
       @topic = DiscussionTopic.create_graded_topic!(course: @course, title: "Discussion Topic Title", user: @teacher)
-      @topic.root_account.enable_feature!(:discussion_checkpoints)
     end
 
     it "not in place in the topic" do

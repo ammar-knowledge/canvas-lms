@@ -22,46 +22,60 @@ class GradingSchemesJsonController < ApplicationController
   JSON_METHODS =
     %i[assessed_assignment? context_name].freeze
   GRADING_SCHEMES_LIMIT = 100
+  USED_LOCATIONS_PER_PAGE = 100
   before_action :require_context
   before_action :require_user
+  before_action :validate_read_permission, only: %i[grouped_list detail_list summary_list show]
+
+  def grouped_list
+    standards = grading_standards_for_context.sorted.limit(GRADING_SCHEMES_LIMIT)
+    render json: {
+      archived: standards.select(&:archived?).map do |grading_standard|
+        GradingSchemesJsonController.to_grading_scheme_json(grading_standard, @current_user)
+      end,
+      active: standards.select(&:active?).map do |grading_standard|
+        GradingSchemesJsonController.to_grading_scheme_json(grading_standard, @current_user)
+      end
+    }
+  end
+
   def detail_list
-    if authorized_action(@context, @current_user, @context.grading_standard_read_permission)
-      grading_standards = GradingStandard.for(@context).sorted.limit(GRADING_SCHEMES_LIMIT)
-      respond_to do |format|
-        format.json do
-          render json: grading_standards.map { |grading_standard|
-            GradingSchemesJsonController.to_grading_scheme_json(grading_standard, @current_user)
-          }
-        end
+    grading_standards = grading_standards_for_context.sorted.limit(GRADING_SCHEMES_LIMIT)
+    respond_to do |format|
+      format.json do
+        render json: grading_standards.map { |grading_standard|
+          GradingSchemesJsonController.to_grading_scheme_json(grading_standard, @current_user)
+        }
       end
     end
   end
 
   def summary_list
-    if authorized_action(@context, @current_user, @context.grading_standard_read_permission)
-      grading_standards = GradingStandard.for(@context).sorted.limit(GRADING_SCHEMES_LIMIT)
-      respond_to do |format|
-        format.json do
-          render json: grading_standards.map { |grading_standard|
-                         GradingSchemesJsonController.to_grading_scheme_summary_json(grading_standard)
-                       }
-        end
+    grading_standards = grading_standards_for_context.sorted.limit(GRADING_SCHEMES_LIMIT)
+    respond_to do |format|
+      format.json do
+        render json: grading_standards.map { |grading_standard|
+          GradingSchemesJsonController.to_grading_scheme_summary_json(grading_standard)
+        }
       end
     end
   end
 
   def show
-    if authorized_action(@context, @current_user, @context.grading_standard_read_permission)
-      grading_standard = GradingStandard.for(@context).find(params[:id])
-      respond_to do |format|
-        format.json { render json: GradingSchemesJsonController.to_grading_scheme_json(grading_standard, @current_user) }
-      end
+    grading_standard = grading_standards_for_context.find(params[:id])
+    respond_to do |format|
+      format.json { render json: GradingSchemesJsonController.to_grading_scheme_json(grading_standard, @current_user) }
     end
   end
 
   def show_default_grading_scheme
     respond_to do |format|
-      format.json { render json: GradingSchemesJsonController.to_grading_scheme_json(GradingSchemesJsonController.default_canvas_grading_standard(@context), @current_user) }
+      format.json do
+        render json: GradingSchemesJsonController.to_grading_scheme_json(
+          GradingSchemesJsonController.default_canvas_grading_standard(@context),
+          @current_user
+        )
+      end
     end
   end
 
@@ -81,7 +95,7 @@ class GradingSchemesJsonController < ApplicationController
   end
 
   def update
-    grading_standard = GradingStandard.for(@context).find(params[:id])
+    grading_standard = grading_standards_for_context.find(params[:id])
     if authorized_action(grading_standard, @current_user, :manage)
       grading_standard.user = @current_user
 
@@ -96,8 +110,51 @@ class GradingSchemesJsonController < ApplicationController
     end
   end
 
+  def used_locations
+    grading_standard = grading_standards_for_context.find(params[:id])
+    return unless authorized_action(grading_standard, @current_user, :manage)
+
+    render json: used_locations_for(grading_standard)
+  end
+
+  def archive
+    grading_standard = grading_standards_for_context.find(params[:id])
+    if authorized_action(grading_standard, @current_user, :manage)
+      respond_to do |format|
+        if grading_standard.archive!
+          track_update_metrics(grading_standard)
+          format.json { render json: GradingSchemesJsonController.to_grading_scheme_json(grading_standard, @current_user) }
+        else
+          if grading_standard.halted_because
+            grading_standard.errors.add(:workflow_state, grading_standard.halted_because)
+          end
+
+          format.json { render json: grading_standard.errors, status: :bad_request }
+        end
+      end
+    end
+  end
+
+  def unarchive
+    grading_standard = GradingStandard.archived.for_context(@context).find(params[:id])
+    if authorized_action(grading_standard, @current_user, :manage)
+      respond_to do |format|
+        if grading_standard.unarchive!
+          track_update_metrics(grading_standard)
+          format.json { render json: GradingSchemesJsonController.to_grading_scheme_json(grading_standard, @current_user) }
+        else
+          if grading_standard.halted_because
+            grading_standard.errors.add(:workflow_state, grading_standard.halted_because)
+          end
+
+          format.json { render json: grading_standard.errors, status: :bad_request }
+        end
+      end
+    end
+  end
+
   def destroy
-    grading_standard = GradingStandard.for(@context).find(params[:id])
+    grading_standard = grading_standards_for_context.find(params[:id])
     if authorized_action(grading_standard, @current_user, :manage)
       respond_to do |format|
         if grading_standard.destroy
@@ -117,11 +174,10 @@ class GradingSchemesJsonController < ApplicationController
   end
 
   def self.to_grading_scheme_json(grading_standard, user)
-    grading_standard.as_json({ methods: JSON_METHODS,
-                               include_root: false }
-                             .merge(only: json_serialized_fields,
-                                    permissions: { user: }))
-                    .tap do |json|
+    grading_standard.as_json(methods: JSON_METHODS,
+                             include_root: false,
+                             only: json_serialized_fields,
+                             permissions: { user: }).tap do |json|
       # because GradingStandard generates the JSON property with a '?' on the end of it,
       # instead of using the JSON convention for boolean properties
       json["assessed_assignment"] = json["assessed_assignment?"]
@@ -133,6 +189,27 @@ class GradingSchemesJsonController < ApplicationController
       # because GradingStandard serializes its data rows to JSON as an array of arrays: [["A", .90], ["B", .80]]
       # instead of our desired format of an array of objects with name/value pairs [{name: "A", value: .90], {name: "B", value: .80}]
       json["data"] = grading_standard["data"].map { |grading_standard_data_row| { name: grading_standard_data_row[0], value: grading_standard_data_row[1] } }
+    end
+  end
+
+  def used_locations_for(grading_standard)
+    scope = grading_standard.assessed_assignments
+                            .joins("INNER JOIN #{Course.quoted_table_name} ON assignments.context_type = 'Course' AND assignments.context_id = courses.id")
+                            .order("courses.name ASC, title ASC")
+
+    used_locations = Api.paginate(
+      scope,
+      self,
+      account_grading_schemes_used_locations_path(
+        account_id: @context.id, id: grading_standard.id
+      ),
+      per_page: USED_LOCATIONS_PER_PAGE
+    )
+
+    used_locations.group_by(&:context).map do |course, assignments|
+      course_json = course.as_json(only: [:id, :name], methods: [:concluded?], include_root: false)
+      course_json[:assignments] = assignments.as_json(only: [:id, :title], include_root: false)
+      course_json
     end
   end
 
@@ -149,7 +226,15 @@ class GradingSchemesJsonController < ApplicationController
   end
 
   def self.json_serialized_fields
-    %w[id title scaling_factor points_based context_type context_id]
+    %w[id title scaling_factor points_based context_type context_id workflow_state]
+  end
+
+  def grading_standards_for_context
+    if params[:assignment_id]
+      @assignment = @context.assignments.find(params[:assignment_id])
+      return GradingStandard.for(@assignment)
+    end
+    GradingStandard.for(@context)
   end
 
   def self.default_canvas_grading_standard(context)
@@ -176,10 +261,19 @@ class GradingSchemesJsonController < ApplicationController
       InstStatsd::Statsd.increment("grading_scheme.update.points_based") if grading_standard.points_based
       InstStatsd::Statsd.increment("grading_scheme.update.percentage_based") unless grading_standard.points_based
     end
+    if grading_standard.changed.include?("workflow_state")
+      InstStatsd::Statsd.increment("grading_scheme.update.workflow_archived") if grading_standard.archived
+      InstStatsd::Statsd.increment("grading_scheme.update.workflow_active") if grading_standard.active
+      InstStatsd::Statsd.increment("grading_scheme.update.workflow_deleted") if grading_standard.deleted
+    end
   end
 
   def track_create_metrics(grading_standard)
     InstStatsd::Statsd.increment("grading_scheme.create.points_based") if grading_standard.points_based
     InstStatsd::Statsd.increment("grading_scheme.create.percentage_based") unless grading_standard.points_based
+  end
+
+  def validate_read_permission
+    authorized_action(@context, @current_user, @context.grading_standard_read_permission)
   end
 end

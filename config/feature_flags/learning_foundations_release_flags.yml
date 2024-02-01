@@ -110,6 +110,20 @@ create_course_subaccount_picker:
     people who can manually create courses to put those courses into any sub-account
     where they have enrollments.
 
+deleted_user_tools:
+  state: hidden
+  applies_to: SiteAdmin
+  display_name: 'Deleted User Tools'
+  description: |-
+    Adds a new page to the admin tools that allows admins to view and manage
+    deleted users. Also allows admins to search for deleted users with a checkbox
+    on the account user page.
+  environments:
+    development:
+      state: allowed_on
+    ci:
+      state: allowed_on
+
 enhanced_course_creation_account_fetching:
   applies_to: SiteAdmin
   state: hidden
@@ -181,12 +195,6 @@ content_migration_asset_map_v2:
   state: hidden
   display_name: Content Migration Asset Map v2
   description: Adds Additional Fields to the Content Migration Asset Map
-  applies_to: SiteAdmin
-
-gem_migration_links:
-  state: hidden
-  display_name: Course Import HTML Using Gem
-  description: Use gem during course import to update Canvas resource links
   applies_to: SiteAdmin
 
 instui_for_import_page:

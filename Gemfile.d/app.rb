@@ -20,7 +20,8 @@
 # NOTE: Indented gems are meant to indicate optional dependencies of parent gems
 
 gem "bootsnap", "~> 1.16", require: false
-gem "rails", "~> 7.0.4"
+gem "rails", ($canvas_rails == "7.1") ? "~> 7.1.3" : "~> 7.0.4"
+  gem "rack", "~> 3.0" if $canvas_rails == "7.1" # needed to force Rack 3 due to a confluence of dependencies involving pact
 gem "switchman", "~> 3.5"
 gem "guardrail", "~> 3.0"
 gem "switchman-inst-jobs", "~> 4.0"
@@ -42,7 +43,7 @@ gem "bigdecimal", "~> 3.1"
 gem "browser", "~> 5.3", require: false
 gem "business_time", "0.13.0"
 gem "canvas_connect", "0.3.16"
-gem "canvas_link_migrator", "~> 1.0.2"
+gem "canvas_link_migrator", "~> 1.0.3"
 gem "canvas_webex", "0.18.2"
 gem "crocodoc-ruby", "0.0.1", require: false
 gem "code_ownership", "~> 1.33"
@@ -53,7 +54,7 @@ gem "gepub", "1.0.15"
 gem "apollo-federation", "~> 3.8"
 gem "graphql", "~> 1.12.7"
 gem "graphql-batch", "~> 0.5"
-gem "highline", "~> 2.0", require: false
+gem "highline", "~> 3.0", require: false
 gem "httparty", "~> 0.21"
 gem "i18nliner", "~> 0.2.4"
 gem "icalendar", "~> 2.9", require: false
@@ -82,7 +83,7 @@ gem "oj", "~> 3.16"
 gem "outrigger", "~> 3.0"
 gem "parallel", "~> 1.23", require: false
 gem "pdf-reader", "~> 2.11"
-gem "pg_query", "~> 4.2", require: false
+gem "pg_query", "~> 5.1", require: false
 gem "prawn-emoji", "~> 5.3", require: false
 gem "prawn-rails", "~> 1.4"
   gem "matrix", "0.4.2" # Used to be a default gem but is no more, but prawn depends on it implicitly

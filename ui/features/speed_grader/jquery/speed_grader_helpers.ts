@@ -23,6 +23,12 @@ import {useScope as useI18nScope} from '@canvas/i18n'
 import '@canvas/datetime/jquery'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
 import replaceTags from '@canvas/util/replaceTags'
+import type {
+  HistoricalSubmission,
+  StudentWithSubmission,
+  Submission,
+  SubmissionState,
+} from './speed_grader.d'
 
 const I18n = useI18nScope('speed_grader_helpers')
 
@@ -79,11 +85,7 @@ const speedGraderHelpers = {
 
   determineGradeToSubmit(
     use_existing_score: boolean,
-    student: {
-      submission: {
-        score: number | null
-      }
-    },
+    student: StudentWithSubmission,
     grade: JQuery
   ) {
     if (use_existing_score) {
@@ -92,7 +94,7 @@ const speedGraderHelpers = {
     return String(grade.val())
   },
 
-  iframePreviewVersion(submission: any) {
+  iframePreviewVersion(submission: Submission) {
     // check if the submission object is valid
     if (submission == null) {
       return ''
@@ -111,7 +113,7 @@ const speedGraderHelpers = {
     return select + version
   },
 
-  resourceLinkLookupUuidParam(submission: any) {
+  resourceLinkLookupUuidParam(submission: HistoricalSubmission) {
     const resourceLinkLookupUuid = submission.resource_link_lookup_uuid
 
     if (resourceLinkLookupUuid) {
@@ -146,13 +148,14 @@ const speedGraderHelpers = {
     })
   },
 
-  classNameBasedOnStudent(student: {
-    submission_state: string
-    submission: {
-      submitted_at: string
-    }
+  classNameBasedOnStudent({
+    submission_state,
+    submission,
+  }: {
+    submission: Submission
+    submission_state: SubmissionState
   }) {
-    const raw = student.submission_state
+    const raw = submission_state
     let formatted
     switch (raw) {
       case 'graded':
@@ -167,30 +170,14 @@ const speedGraderHelpers = {
         break
       case 'resubmitted':
         formatted = I18n.t('graded_then_resubmitted', 'graded, then resubmitted (%{when})', {
-          when: $.datetimeString(student.submission.submitted_at),
+          when: $.datetimeString(submission.submitted_at),
         })
         break
     }
     return {raw, formatted}
   },
 
-  submissionState(
-    student: {
-      needs_provisional_grade: boolean
-      submission: {
-        workflow_state: string
-        grade: string
-        provisional_grade_id: null | string
-        excused: boolean
-        grade_matches_current_submission: string
-        final_provisional_grade: {
-          grade: string
-        }
-        submitted_at: string
-      }
-    },
-    grading_role: string
-  ) {
+  submissionState(student: StudentWithSubmission, grading_role: string) {
     const submission = student.submission
     if (
       submission &&
@@ -232,7 +219,10 @@ const speedGraderHelpers = {
     })
   },
 
-  plagiarismResubmitUrl(submission: any, anonymizableUserId: string) {
+  plagiarismResubmitUrl(
+    submission: HistoricalSubmission,
+    anonymizableUserId: 'anonymous_id' | 'user_id'
+  ) {
     return replaceTags($('#assignment_submission_resubmit_to_turnitin_url').attr('href') || '', {
       [anonymizableUserId]: submission[anonymizableUserId],
     })

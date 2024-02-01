@@ -292,6 +292,10 @@ class User < ActiveRecord::Base
     PageView.for_user(self, options)
   end
 
+  def self.clean_name(name, replacement)
+    name.downcase.gsub(replacement, "")
+  end
+
   scope :of_account, ->(account) { joins(:user_account_associations).where(user_account_associations: { account_id: account }).shard(account.shard) }
   scope :recently_logged_in, lambda {
     eager_load(:pseudonyms)
@@ -307,15 +311,20 @@ class User < ActiveRecord::Base
       where("enrollments.limit_privileges_to_course_section IS NULL OR enrollments.limit_privileges_to_course_section<>? OR enrollments.course_section_id IN (?)", true, sections)
     end
   }
-  scope :name_like, lambda { |name, search_pseudonyms: true|
+  scope :name_like, lambda { |name, source = ""|
     next none if name.strip.empty?
 
     scopes = []
     all.primary_shard.activate do
       base_scope = except(:select, :order, :group, :having)
-      scopes << base_scope.where(wildcard("users.name", name))
-      scopes << base_scope.where(wildcard("users.short_name", name))
-      if search_pseudonyms
+      case source
+      when "peer_review"
+        cleaned_name = clean_name(name, /[\s,]+/)
+        scopes << base_scope.where(wildcard("REPLACE(REPLACE(users.sortable_name, ',', ''), ' ', '')", cleaned_name))
+        scopes << base_scope.where(wildcard("REPLACE(users.name, ' ', '')", cleaned_name))
+      else
+        scopes << base_scope.where(wildcard("users.name", name))
+        scopes << base_scope.where(wildcard("users.short_name", name))
         scopes << base_scope.joins(:pseudonyms).where(wildcard("pseudonyms.sis_user_id", name)).where(pseudonyms: { workflow_state: "active" })
         scopes << base_scope.joins(:pseudonyms).where(wildcard("pseudonyms.unique_id", name)).where(pseudonyms: { workflow_state: "active" })
       end
@@ -1483,9 +1492,11 @@ class User < ActiveRecord::Base
   end
 
   def allows_user_to_remove_from_account?(account, other_user)
-    Pseudonym.new(account:, user: self).grants_right?(other_user, :delete) &&
-      (Pseudonym.new(account:, user: self).grants_right?(other_user, :manage_sis) ||
-       !account.pseudonyms.active.where(user_id: self).where.not(sis_user_id: nil).exists?)
+    check_pseudonym = pseudonym
+    check_pseudonym ||= Pseudonym.new(account:, user: self) if associated_accounts.exists?
+    check_pseudonym&.grants_right?(other_user, :delete) &&
+      (check_pseudonym&.grants_right?(other_user, :manage_sis) ||
+       account.pseudonyms.active.where(user_id: other_user).where.not(sis_user_id: nil).none?)
   end
 
   def self.infer_id(obj)
@@ -2804,9 +2815,10 @@ class User < ActiveRecord::Base
     end
   end
 
-  def root_admin_for?(root_account)
+  def root_admin_for?(root_account, cached_account_users: nil)
     root_ids = [root_account.id, Account.site_admin.id]
-    account_users.any? { |au| root_ids.include?(au.account_id) }
+    aus = cached_account_users || account_users.active
+    aus.any? { |au| root_ids.include?(au.account_id) }
   end
 
   def eportfolios_enabled?
@@ -3366,8 +3378,8 @@ class User < ActiveRecord::Base
     end
     roles << "student" if enrollment_types.intersect?(%w[StudentEnrollment StudentViewEnrollment])
     roles << "fake_student" if fake_student?
-    roles << "teacher" if enrollment_types.intersect?(%w[TeacherEnrollment TaEnrollment DesignerEnrollment])
     roles << "observer" if enrollment_types.intersect?(%w[ObserverEnrollment])
+    roles << "teacher" if enrollment_types.intersect?(%w[TeacherEnrollment TaEnrollment DesignerEnrollment])
     account_users = GuardRail.activate(:secondary) do
       root_account.cached_all_account_users_for(self)
     end
@@ -3378,7 +3390,7 @@ class User < ActiveRecord::Base
 
     if account_users.any?
       roles << "admin"
-      roles << "root_admin" if root_admin_for?(root_account)
+      roles << "root_admin" if root_admin_for?(root_account, cached_account_users: account_users)
       roles << "consortium_admin" if account_users.any? { |au| au.shard != root_account.shard }
     end
     roles

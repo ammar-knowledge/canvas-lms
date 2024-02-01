@@ -51,17 +51,19 @@ module Lti
       # domain in the authentication requests rather than keeping
       # track of institution-specific domain.
       def authorize_redirect
-        if Setting.get("interop_8200_session_token_redirect", nil) == "true" ||
-           Setting.get("interop_8200_session_token_redirect/#{canvas_domain}", nil) == "true"
-          csp_frame_ancestors << canvas_domain
-          render template: "shared/html_redirect",
-                 layout: false,
-                 formats: :html,
-                 locals: {
-                   url: authorize_redirect_url
-                 }
-        else
-          redirect_to authorize_redirect_url
+        Utils::InstStatsdUtils::Timing.track "lti.authorize_redirect" do
+          if Setting.get("interop_8200_session_token_redirect", nil) == "true" ||
+             Setting.get("interop_8200_session_token_redirect/#{canvas_domain}", nil) == "true"
+            csp_frame_ancestors << canvas_domain
+            render template: "shared/html_redirect",
+                   layout: false,
+                   formats: :html,
+                   locals: {
+                     url: authorize_redirect_url
+                   }
+          else
+            redirect_to authorize_redirect_url
+          end
         end
       end
 
@@ -83,23 +85,25 @@ module Lti
       # For more details on how the cached ID token is generated,
       # please refer to the inline documentation of "app/models/lti/lti_advantage_adapter.rb"
       def authorize
-        validate_oidc_params!
-        validate_current_user!
-        validate_client_id!
-        validate_launch_eligibility!
-        set_extra_csp_frame_ancestor! unless @oidc_error
+        Utils::InstStatsdUtils::Timing.track "lti.authorize" do
+          validate_oidc_params!
+          validate_current_user!
+          validate_client_id!
+          validate_launch_eligibility!
+          set_extra_csp_frame_ancestor! unless @oidc_error
 
-        render(
-          "lti/ims/authentication/authorize",
-          formats: :html,
-          layout: "borderless_lti",
-          locals: {
-            redirect_uri:,
-            parameters: @oidc_error || launch_parameters
-          }
-        )
+          render(
+            "lti/ims/authentication/authorize",
+            formats: :html,
+            layout: "borderless_lti",
+            locals: {
+              redirect_uri:,
+              parameters: @oidc_error || launch_parameters
+            }
+          )
 
-        report_lti_launch_debug_logger_metrics!
+          report_lti_launch_debug_logger_metrics!
+        end
       rescue RequestError, ActiveRecord::RecordNotFound => e
         report_lti_launch_debug_logger_metrics!(e)
         raise
@@ -168,7 +172,7 @@ module Lti
         debug_trace_metrics = (@decoded_jwt && Lti::LaunchDebugLogger.decode_debug_trace(@decoded_jwt["debug_trace"])) || {}
         orig_timestamp = debug_trace_metrics&.dig("time")&.then { Time.parse _1 }
 
-        metrics = {
+        metrics = [{
           id: SecureRandom.uuid,
           type: "lti_launch_debug_logger",
 
@@ -188,7 +192,7 @@ module Lti
 
           **debug_trace_metrics.transform_keys { |orig_key| "init_#{orig_key}" } || {},
           **lti_launch_debug_logger_sessionless_source_metrics(debug_trace_metrics["path"]) || {}
-        }.compact
+        }.compact]
 
         CanvasHttp.put(metrics_endpoint, {}, body: metrics.to_json, content_type: "application/json")
       rescue => e
@@ -288,7 +292,7 @@ module Lti
       def lti_storage_target
         return nil unless decoded_jwt["include_storage_target"]
 
-        Lti::PlatformStorage.lti_storage_target
+        Lti::PlatformStorage::FORWARDING_TARGET
       end
 
       def id_token

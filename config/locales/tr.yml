@@ -4,6 +4,7 @@
 tr: 
   1_item_scores_5512cd03: "1- Öğe puanları"
   1_item_scores_examplescores_9736236: "1- Öğe  Puanları: %{exampleScores}"
+  1_pt_cd3551c8: "1 puan"
   1_user_found_76399771: "1 kullanıcı bulundu."
   1st_reviewer_3c1d0119: "1. Gözden Geçiren"
   25th_75th_ile_406a67bf: "25.-75. %ile"
@@ -13260,6 +13261,7 @@ tr:
   new_gradebook_297f7e2d: "Yeni Not Defteri"
   new_gradebook_enables_an_early_release_of_new_grad_76b8bf45: "Yeni Not Defteri sayesinde yeni Not Defteri geliştirmelerinin erken sürümleri etkinleştirilir."
   new_gradebook_plagiarism_indicator_8dd22971: "Yeni Not Defteri İntihal Göstergesi"
+  new_group_8d6ad781: "Yeni Grup"
   new_group_set_7241a581: "Yeni Grup Seti"
   new_module_4e9287e4: "Yeni Modül"
   new_outcome_7fba8c7d: "Yeni Öğrenme Çıktısı"
@@ -13345,6 +13347,7 @@ tr:
   not_available_487d3648: "Mevcut değil"
   not_available_until_next_submission_2175158: "Bir sonraki gönderime kadar kullanılamaz"
   not_completed_d70acea3: Tamamlanmadı
+  not_deleted_2a7f63ef: (Silinmedi)
   not_graded_e027c866: Notlandırılmamış
   not_graded_e78bcd50: Notlandırılmamış
   not_installed_37a21a76: "Yüklü Değil"
@@ -18398,6 +18401,7 @@ tr:
   students_can_only_participate_in_the_course_betwee_6f8595aa: "Öğrenciler derse yalnızca bu tarihler arasında katılabilirler"
   students_can_see_originality_score_797fe634: "Öğrenciler özgünlük puanlarını görebilir"
   students_cannot_view_quiz_responses_after_course_c_88e929ed: "Ders sonladırıldıktan sonra öğrenciler kısa sınava verdikleri cevapları göremezler"
+  students_have_already_submitted_to_this_discussion_f55db744: "Öğrenciler bu tartışmaya gönderimde bulundular, bu yüzden grup ayarları değiştirilemez."
   students_have_either_already_taken_or_started_taki_a076336: "Öğrenciler zaten bu kısa sınavı aldılar yada yapmaya başladılar, bu yüzden düzenlerken dikkat etmelisiniz. Eğer kısa sınav soruları üzerinde belirgin değişiklikler yapacaksanız, bu kısa sınavın eski versiyonunu yapan öğrencilerin tekrardan değerlendirilmesini göz önünde bulundurmalısınız."
   students_must_complete_all_of_these_requirements_15fa97f7: "Öğrenciler bu gereksinimlerin tamamını yerine getirmeli"
   students_must_move_through_requirements_in_sequent_2c750874: "Öğrenciler gerekli öğeleri sıra ile takip etmeli "
@@ -19349,6 +19353,7 @@ tr:
   upload_media_ce31135a: "Ortama Yükle"
   upload_scores_csv_a8416cf: "Notları Yükle (.csv)"
   upload_successful_ca47465f: "Yükleme başarılı"
+  upload_to_d8556041: "Yüklenecek yer"
   upload_your_outcomes_bceeadbe: "Öğrenme Çıktılarınızı Aktarın!"
   uploaded_285a2bfb: Yüklendi
   uploaded_media_bc29db35: "Yüklenmiş Medya Dosyası"
@@ -19915,6 +19920,7 @@ tr:
   well_below_mastery_37664bdc: "Yeterliğin Epey Altında"
   what_are_self_sign_up_groups_af1f002a: "Kendi Kendine Üye Ol Grupları Nedir?"
   what_should_the_csv_file_look_like_985a59ac: "CSV dosyası nasıl olmalı?"
+  what_would_you_like_to_do_next_2835397e: "Bir sonraki adımda ne yapmak istersiniz?"
   when_adding_multiple_users_use_a_comma_or_line_bre_67f9c87d: "Çoklu kullanıcı eklerken kullanıcıları ayırmak için aralarına virgül koyun ya da her birini yeni satıra ekleyin"
   when_people_visit_the_course_this_is_the_page_they_de94acc2: "İnsnalar dersi ziyaret ettiğinde bu sayfayı görecekler. Bu sayfayı etkinlik akışını, ders modüllerinin bir listesini, ders izlencesini veya sizin oluşturduğunuz bir sayfayı gösterecek şekilde ayarlayabilirsiniz. Varsayılan olarak ders etkinlik akışı ayarlıdır."
   when_posting_grades_for_anonymous_assignments_grad_b13f3ae6: "İsimsiz ödevler için notlar yayınlandığında notlar dersteki herkes için yayınlanır. Anonimlik kaldırılacak."

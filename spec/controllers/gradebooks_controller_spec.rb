@@ -22,6 +22,7 @@ describe GradebooksController do
   include TextHelper
 
   before :once do
+    Account.site_admin.disable_feature!(:archived_grading_schemes)
     course_with_teacher active_all: true
     @teacher_enrollment = @enrollment
     student_in_course active_all: true
@@ -625,7 +626,8 @@ describe GradebooksController do
         grading_standard = @course.grading_standards.build({ title: "My Grading Scheme",
                                                              data: GradingSchemesJsonController.to_grading_standard_data(data),
                                                              points_based: true,
-                                                             scaling_factor: 4.0 })
+                                                             scaling_factor: 4.0,
+                                                             workflow_state: "active" })
         @course.update!(grading_standard:)
         all_grading_periods_id = 0
         get "grade_summary", params: { course_id: @course.id, id: @student.id, grading_period_id: all_grading_periods_id }
@@ -638,7 +640,8 @@ describe GradebooksController do
                                                                          "permissions" => { "manage" => false },
                                                                          "assessed_assignment" => false,
                                                                          "points_based" => grading_standard.points_based,
-                                                                         "scaling_factor" => grading_standard.scaling_factor })
+                                                                         "scaling_factor" => grading_standard.scaling_factor,
+                                                                         "workflow_state" => "active" })
         expect(controller.js_env[:grading_scheme]).to be_nil
       end
 
@@ -656,7 +659,8 @@ describe GradebooksController do
                                                                          "permissions" => { "manage" => false },
                                                                          "assessed_assignment" => false,
                                                                          "points_based" => false,
-                                                                         "scaling_factor" => 1.0 })
+                                                                         "scaling_factor" => 1.0,
+                                                                         "workflow_state" => nil })
 
         expect(controller.js_env[:grading_scheme]).to be_nil
       end
@@ -689,7 +693,8 @@ describe GradebooksController do
                                                                          "permissions" => { "manage" => false },
                                                                          "assessed_assignment" => false,
                                                                          "points_based" => false,
-                                                                         "scaling_factor" => 1.0 })
+                                                                         "scaling_factor" => 1.0,
+                                                                         "workflow_state" => nil })
         expect(controller.js_env[:grading_scheme]).to be_nil
       end
 
@@ -1380,12 +1385,6 @@ describe GradebooksController do
       describe "performance_controls" do
         let(:performance_controls) { assigns[:js_env][:GRADEBOOK_OPTIONS][:performance_controls] }
 
-        it "includes active_request_limit" do
-          Setting.set("gradebook.active_request_limit", 20)
-          get :show, params: { course_id: @course.id }
-          expect(performance_controls[:active_request_limit]).to eq(20)
-        end
-
         it "defaults active_request_limit to 12" do
           get :show, params: { course_id: @course.id }
           expect(performance_controls[:active_request_limit]).to eq(12)
@@ -1396,21 +1395,9 @@ describe GradebooksController do
           expect(performance_controls[:api_max_per_page]).to eq(100)
         end
 
-        it "includes assignment_groups_per_page" do
-          Setting.set("gradebook.assignment_groups_per_page", 200)
-          get :show, params: { course_id: @course.id }
-          expect(performance_controls[:assignment_groups_per_page]).to eq(200)
-        end
-
         it "defaults assignment_groups_per_page to the api_max_per_page setting" do
           get :show, params: { course_id: @course.id }
           expect(performance_controls[:assignment_groups_per_page]).to eq(100)
-        end
-
-        it "includes context_modules_per_page" do
-          Setting.set("gradebook.context_modules_per_page", 200)
-          get :show, params: { course_id: @course.id }
-          expect(performance_controls[:context_modules_per_page]).to eq(200)
         end
 
         it "defaults context_modules_per_page to the api_max_per_page setting" do
@@ -1418,21 +1405,9 @@ describe GradebooksController do
           expect(performance_controls[:context_modules_per_page]).to eq(100)
         end
 
-        it "includes custom_column_data_per_page" do
-          Setting.set("gradebook.custom_column_data_per_page", 200)
-          get :show, params: { course_id: @course.id }
-          expect(performance_controls[:custom_column_data_per_page]).to eq(200)
-        end
-
         it "defaults custom_column_data_per_page to the api_max_per_page setting" do
           get :show, params: { course_id: @course.id }
           expect(performance_controls[:custom_column_data_per_page]).to eq(100)
-        end
-
-        it "includes custom_columns_per_page" do
-          Setting.set("gradebook.custom_columns_per_page", 200)
-          get :show, params: { course_id: @course.id }
-          expect(performance_controls[:custom_columns_per_page]).to eq(200)
         end
 
         it "defaults custom_columns_per_page to the api_max_per_page setting" do
@@ -1440,32 +1415,14 @@ describe GradebooksController do
           expect(performance_controls[:custom_columns_per_page]).to eq(100)
         end
 
-        it "includes students_chunk_size" do
-          Setting.set("gradebook.students_chunk_size", 200)
-          get :show, params: { course_id: @course.id }
-          expect(performance_controls[:students_chunk_size]).to eq(200)
-        end
-
         it "defaults students_chunk_size to the api_max_per_page setting" do
           get :show, params: { course_id: @course.id }
           expect(performance_controls[:students_chunk_size]).to eq(100)
         end
 
-        it "includes submissions_chunk_size" do
-          Setting.set("gradebook.submissions_chunk_size", 20)
-          get :show, params: { course_id: @course.id }
-          expect(performance_controls[:submissions_chunk_size]).to eq(20)
-        end
-
         it "defaults submissions_chunk_size to 10" do
           get :show, params: { course_id: @course.id }
           expect(performance_controls[:submissions_chunk_size]).to eq(10)
-        end
-
-        it "includes submissions_per_page" do
-          Setting.set("gradebook.submissions_per_page", 200)
-          get :show, params: { course_id: @course.id }
-          expect(performance_controls[:submissions_per_page]).to eq(200)
         end
 
         it "defaults submissions_per_page to the api_max_per_page setting" do

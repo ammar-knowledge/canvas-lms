@@ -109,7 +109,6 @@ describe UsersController do
 
       before do
         allow(ApplicationController).to receive_messages(test_cluster?: true, test_cluster_name: "beta")
-        Account.site_admin.enable_feature! :dynamic_lti_environment_overrides
 
         tool.settings[:environments] = {
           launch_url: override_url
@@ -787,7 +786,7 @@ describe UsersController do
         expect(p.user.communication_channels.length).to eq 1
         expect(p.user.communication_channels.first).to be_unconfirmed
         expect(p.user.communication_channels.first.path).to eq "jacob@instructure.com"
-        expect([cc1, cc2, cc3]).not_to be_include(p.user.communication_channels.first)
+        expect([cc1, cc2, cc3]).not_to include(p.user.communication_channels.first)
       end
 
       it "re-uses 'conflicting' unique_ids if it hasn't been fully registered yet" do
@@ -2001,8 +2000,8 @@ describe UsersController do
       teacher_enrollments = assigns[:presenter].teacher_enrollments
       expect(teacher_enrollments).not_to be_nil
       teachers = teacher_enrollments.map(&:user)
-      expect(teachers).to be_include(@teacher)
-      expect(teachers).not_to be_include(@designer)
+      expect(teachers).to include(@teacher)
+      expect(teachers).not_to include(@designer)
     end
 
     it "does not redirect to an observer enrollment with no observee" do
@@ -2348,6 +2347,26 @@ describe UsersController do
       get "show", params: { id: @user.id }
       expect(response).to have_http_status :ok
     end
+
+    it "shows a deleted user from the account context if they have a deleted pseudonym for that account" do
+      course_with_teacher(active_all: 1, user: user_with_pseudonym)
+      account_admin_user(active_all: true)
+      user_session(@admin)
+      @teacher.remove_from_root_account(Account.default)
+
+      get "show", params: { account_id: Account.default.id, id: @teacher.id }
+      expect(response).to have_http_status :ok
+    end
+
+    it "does not show a deleted user from an account the user doesn't have access to" do
+      course_with_teacher(active_all: 1, user: user_with_pseudonym)
+      account_admin_user(active_all: true, account: account_model)
+      user_session(@admin)
+      @teacher.remove_from_root_account(@course.root_account)
+
+      get "show", params: { account_id: @course.root_account.id, id: @teacher.id }
+      expect(response).to have_http_status :unauthorized
+    end
   end
 
   describe "PUT 'update'" do
@@ -2393,7 +2412,7 @@ describe UsersController do
         post "masquerade", params: { user_id: user2.id }
         expect(response).to be_redirect
 
-        expect(admin.associated_shards(:shadow)).to be_include(@shard1)
+        expect(admin.associated_shards(:shadow)).to include(@shard1)
       end
     end
 
@@ -2409,7 +2428,7 @@ describe UsersController do
         post "masquerade", params: { user_id: user2.id }
         expect(response).not_to be_redirect
 
-        expect(admin.associated_shards(:shadow)).not_to be_include(@shard1)
+        expect(admin.associated_shards(:shadow)).not_to include(@shard1)
       end
     end
 
@@ -2425,7 +2444,7 @@ describe UsersController do
         post "masquerade", params: { user_id: user2.id }
         expect(response).to be_redirect
 
-        expect(admin.associated_shards(:shadow)).not_to be_include(@shard1)
+        expect(admin.associated_shards(:shadow)).not_to include(@shard1)
       end
     end
   end
@@ -3088,13 +3107,173 @@ describe UsersController do
   end
 
   describe "#pandata_events_token" do
-    it "returns bad_request if called without an access token" do
-      user_factory(active_all: true)
-      user_session(@user)
-      get "pandata_events_token"
-      assert_status(400)
-      json = response.parsed_body
-      expect(json["message"]).to eq "Access token required"
+    subject do
+      @request.env["HTTP_AUTHORIZATION"] = "Bearer #{access_token.full_token}"
+      get "pandata_events_token", params: { app_key: }
+    end
+
+    let(:user) do
+      user_with_pseudonym(active_user: true, username: "test1@example.com", password: "test1234")
+      @user
+    end
+    let(:developer_key) { DeveloperKey.create! }
+    let(:access_token) { user.access_tokens.create!(developer_key:) }
+    let(:endpoint) { "https://example.com" }
+    let(:app_key) { "VALID" }
+    let(:credentials) do
+      {
+        valid_key: "VALID",
+        valid_secret: "secret",
+        valid_secret_alg: :HS256,
+        invalid_key: "INVALID",
+        invalid_secret: "secret"
+      }.with_indifferent_access
+    end
+
+    before do
+      enable_developer_key_account_binding!(developer_key)
+      allow(Setting).to receive(:get).and_call_original
+      allow(Setting).to receive(:get).with("pandata_events_token_allowed_developer_key_ids", "").and_return(developer_key.global_id.to_s)
+      allow(Setting).to receive(:get).with("pandata_events_token_prefixes", "ios,android").and_return("valid")
+      allow(PandataEvents).to receive_messages(credentials:, endpoint:)
+    end
+
+    context "with logged-in user but no access token" do
+      subject { get "pandata_events_token" }
+
+      before do
+        user_session(user)
+      end
+
+      it "returns bad_request" do
+        subject
+        assert_status(400)
+        json = response.parsed_body
+        expect(json["message"]).to eq "Access token required"
+      end
+    end
+
+    context "with wrong developer key" do
+      before do
+        allow(Setting).to receive(:get).with("pandata_events_token_allowed_developer_key_ids", "").and_return("")
+      end
+
+      it "returns forbidden" do
+        subject
+        assert_status(403)
+        json = response.parsed_body
+        expect(json["message"]).to eq "Developer key not authorized"
+      end
+    end
+
+    context "with invalid app key" do
+      let(:app_key) { "INVALID" }
+
+      it "returns bad request" do
+        subject
+        assert_status(400)
+        json = response.parsed_body
+        expect(json["message"]).to eq "Invalid app key"
+      end
+    end
+
+    it "succeeds" do
+      subject
+      assert_status(200)
+    end
+
+    it "returns the PandataEvents endpoint" do
+      subject
+      expect(response.parsed_body["url"]).to eq endpoint
+    end
+
+    context "auth token" do
+      let(:token) { CanvasSecurity.decode_jwt(response.parsed_body["auth_token"], ["secret"]) }
+
+      it "contains the app key as iss" do
+        subject
+        expect(token["iss"]).to eq app_key
+      end
+
+      it "contains the user id as sub" do
+        subject
+        expect(token["sub"]).to eq user.global_id
+      end
+
+      it "has exp that matches expires_at" do
+        subject
+        exp = DateTime.strptime(token["exp"].to_s, "%s")
+        expires_at = DateTime.strptime(response.parsed_body["expires_at"].to_s, "%Q")
+        expect(exp.to_s).to eq expires_at.to_s
+      end
+    end
+
+    context "props token" do
+      let(:token) { CanvasSecurity.decode_jwt(response.parsed_body["props_token"], ["secret"]) }
+
+      it "contains the user id" do
+        subject
+        expect(token["user_id"]).to eq user.global_id
+      end
+
+      it "contains the shard id" do
+        subject
+        expect(token["shard"]).to eq Shard.current.id
+      end
+
+      it "contains the root account id" do
+        subject
+        expect(token["root_account_id"]).to eq Account.default.id
+      end
+
+      it "contains the root account uuid" do
+        subject
+        expect(token["root_account_uuid"]).to eq Account.default.uuid
+      end
+    end
+
+    context "expires_at" do
+      it "is an epoch timestamp in ms" do
+        subject
+        expires_at = response.parsed_body["expires_at"]
+        expect(expires_at).to be_a Float
+        expires_at_date = DateTime.strptime(expires_at.to_s, "%Q")
+        expect(expires_at_date).to be_a DateTime
+      end
+
+      it "is ~1 day from now" do
+        subject
+        expires_at = response.parsed_body["expires_at"]
+        expect(DateTime.strptime(expires_at.to_s, "%Q").utc).to be_within(1.minute).of(1.day.from_now)
+      end
+    end
+
+    context "after multiple requests" do
+      specs_require_cache(:redis_cache_store)
+
+      it "still has exp that matches expires_at" do
+        expires_at = nil
+        Timecop.travel(5.minutes.ago) do
+          @request.env["HTTP_AUTHORIZATION"] = "Bearer #{access_token.full_token}"
+          get "pandata_events_token", params: { app_key: }
+
+          token = CanvasSecurity.decode_jwt(response.parsed_body["auth_token"], ["secret"])
+          exp = DateTime.strptime(token["exp"].to_s, "%s").to_s
+          expires_at = DateTime.strptime(response.parsed_body["expires_at"].to_s, "%Q").to_s
+
+          expect(exp).to eq expires_at
+        end
+
+        @request.env["HTTP_AUTHORIZATION"] = "Bearer #{access_token.full_token}"
+        get "pandata_events_token", params: { app_key: }
+
+        token = CanvasSecurity.decode_jwt(response.parsed_body["auth_token"], ["secret"])
+        exp2 = DateTime.strptime(token["exp"].to_s, "%s").to_s
+        expires_at2 = DateTime.strptime(response.parsed_body["expires_at"].to_s, "%Q").to_s
+
+        expect(expires_at).not_to eq expires_at2
+        expect(exp2).to eq expires_at2
+      end
     end
   end
 
@@ -3154,6 +3333,26 @@ describe UsersController do
 
       expect(user.reload.last_logged_out).not_to be_nil
       expect(user.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
+    end
+
+    it "allows admin to expire mobile sessions" do
+      user_session(admin)
+      delete "expire_mobile_sessions", format: :json
+
+      expect(response).to have_http_status :ok
+      expect(user.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
+    end
+
+    it "only expires access tokens associated to mobile app developer keys" do
+      dev_key = DeveloperKey.create!
+      user2.access_tokens.create!(developer_key: dev_key)
+
+      user_session(admin)
+      delete "expire_mobile_sessions", format: :json
+
+      expect(response).to have_http_status :ok
+      expect(user.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
+      expect(user2.reload.access_tokens.take.permanent_expires_at).to be_nil
     end
   end
 

@@ -88,6 +88,7 @@ exports.swc = [
     use: {
       loader: 'swc-loader',
       options: {
+        parseMap: true,
         sourceMaps: true,
         jsc: {
           externalHelpers: true,
@@ -95,7 +96,9 @@ exports.swc = [
             syntax: 'typescript',
           },
           experimental: {
-            plugins: [['swc-plugin-coverage-instrument', {}]],
+            plugins: [
+              process.env.CRYSTALBALL_MAP === '1' && ['swc-plugin-coverage-instrument', {}],
+            ].filter(Boolean),
           },
         },
         env: {
@@ -111,6 +114,7 @@ exports.swc = [
     use: {
       loader: 'swc-loader',
       options: {
+        parseMap: true,
         sourceMaps: true,
         jsc: {
           externalHelpers: true,
@@ -119,7 +123,9 @@ exports.swc = [
             tsx: true,
           },
           experimental: {
-            plugins: [['swc-plugin-coverage-instrument', {}]],
+            plugins: [
+              process.env.CRYSTALBALL_MAP === '1' && ['swc-plugin-coverage-instrument', {}],
+            ].filter(Boolean),
           },
         },
         env: {
@@ -154,7 +160,7 @@ exports.emberHandlebars = {
 // only use it when generating crystalball map
 // i.e. process.env.CRYSTALBALL_MAP === '1'
 exports.istanbul = {
-  test: /\.(js|ts|tsx)$/,
+  test: /\.(js|jsx|ts|tsx)$/,
   include: [
     resolve(canvasDir, 'ui'),
     resolve(canvasDir, 'spec/javascripts/jsx'),
