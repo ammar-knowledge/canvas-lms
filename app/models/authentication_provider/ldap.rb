@@ -170,7 +170,7 @@ class AuthenticationProvider::LDAP < AuthenticationProvider
     rescue SocketError
       errors.add(:ldap_connection_test, t(:test_host_unknown, "Unknown host: %{host}", host: auth_host))
     rescue Timeout::Error
-      errors.add(:ldap_connection_test, t(:test_connection_timeout, "Timeout when connecting"))
+      errors.add(:ldap_connection_test, "Timeout when connecting: "+ e.message)
     rescue => e
       errors.add(:ldap_connection_test, e.message)
     end
@@ -248,7 +248,7 @@ class AuthenticationProvider::LDAP < AuthenticationProvider
     rescue => e
       return nil unless verify_tls_certs # don't continue if the connection fails even without verifying certs
 
-      return [false, e.message]
+      return [false, e.message.to_s]
     end
 
     [true, nil]
