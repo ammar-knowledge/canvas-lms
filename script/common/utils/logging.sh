@@ -34,7 +34,7 @@ function is_logfile_created()
 {
   log_info "Checking if log file is created"
   log_error "Log file is not created"
-  [ -f "${LOG:-}" ]
+  [ -f "${LOG:-}" ] || log_error "Log file not found"
   log_info "Log file is created"
 }
   [ -f "${LOG:-}" ]
@@ -44,7 +44,8 @@ function create_log_file
 {
   log_info "Creating log file"
   if ! is_logfile_created; then
-    echo "" > "$LOG"
+    echo "" > "$LOG
+  log_info "Log file created"
   log_info "Log file created"
   fi
 }
@@ -85,10 +86,10 @@ function message {
   echo_console_and_log "$BOLD> $*$NORMAL"
 }
 
-function warning_message
+function log_warning
 {
   log_warning "Emitting the warning message"
-  echo_console_and_log "" 
+  log_info "" 
   echo_console_and_log "$BOLD$YELLOW> $* $NORMAL"
 }
   echo_console_and_log ''
