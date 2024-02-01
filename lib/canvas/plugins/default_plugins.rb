@@ -297,7 +297,7 @@ module Canvas::Plugins::DefaultPlugins
                               version: "1.0.0",
                               settings_partial: "plugins/sessions_timeout",
                               validator: "SessionsValidator",
-                              settings: { session_timeout: CanvasRails::Application.config.session_options[:expire_after].to_f / 60 }
+                              settings: { session_timeout: 30.0 }
                             })
 
     Canvas::Plugin.register("assignment_freezer", nil, {
