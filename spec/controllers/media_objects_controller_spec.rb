@@ -80,6 +80,7 @@ describe MediaObjectsController do
       get "show", params: { media_object_id: deleted_media_id }
       expect(json_parse(response.body)).to eq(
         {
+          "auto_caption_status" => nil,
           "can_add_captions" => false,
           "created_at" => media_object.created_at.as_json,
           "media_id" => deleted_media_id,
@@ -163,6 +164,109 @@ describe MediaObjectsController do
           assert_status(200)
         end
       end
+
+      it "finds media object when attachment is on its own shard" do
+        @shard1.activate do
+          @mo = MediaObject.create! media_id: "_media_id"
+        end
+
+        @shard2.activate do
+          user_model
+          user_session(@user)
+          @att = Folder.media_folder(@user).attachments.create!(
+            context: @user,
+            display_name: "file.mp4",
+            filename: "file.mp4",
+            content_type: "video/mp4",
+            media_entry_id: @mo.media_id,
+            file_state: "hidden",
+            workflow_state: "pending_upload"
+          )
+        end
+        @mo.attachment = @att
+        @mo.save!
+        @shard1.activate do
+          get "show", params: { attachment_id: @mo.attachment.id }
+          assert_status(200)
+        end
+      end
+
+      it "finds media object when the access shard is different" do
+        @shard2.activate do
+          user_model
+          user_session(@user)
+          @mo = MediaObject.create! media_id: "_media_id"
+          @mo.attachment = Folder.media_folder(@user).attachments.create!(
+            context: @user,
+            display_name: "file.mp4",
+            filename: "file.mp4",
+            content_type: "video/mp4",
+            file_state: "hidden",
+            workflow_state: "pending_upload",
+            media_entry_id: @mo.media_id
+          )
+        end
+
+        @shard1.activate do
+          get "show", params: { attachment_id: @mo.attachment.id }
+          assert_status(200)
+        end
+      end
+
+      it "finds media object when media object is on the attachment root account shard" do
+        @shard1.activate do
+          @root_acc = Account.create! name: "second root_account"
+          @mo = MediaObject.create! media_id: "_media_id"
+        end
+
+        @shard2.activate do
+          user_model
+          user_session(@user)
+          @att = Folder.media_folder(@user).attachments.create!(
+            context: @user,
+            display_name: "file.mp4",
+            filename: "file.mp4",
+            content_type: "video/mp4",
+            file_state: "hidden",
+            workflow_state: "pending_upload"
+          )
+          @mo.attachment = @att
+          @mo.save!
+          @att.root_account_id = @root_acc.id
+          @att.media_entry_id = @mo.media_id
+          @att.save!
+
+          get "show", params: { attachment_id: @mo.attachment.id }
+          assert_status(200)
+        end
+      end
+
+      it "finds media object when media object is on the attachment user shard" do
+        @shard1.activate do
+          @mo = MediaObject.create! media_id: "_media_id"
+          user_model
+        end
+
+        @shard2.activate do
+          user_session(@user)
+          @att = Attachment.create!(
+            context: @user,
+            display_name: "file.mp4",
+            filename: "file.mp4",
+            content_type: "video/mp4",
+            file_state: "hidden",
+            workflow_state: "pending_upload"
+          )
+          @mo.attachment = @att
+          @mo.save!
+          @att.user_id = @user.id
+          @att.media_entry_id = @mo.media_id
+          @att.save!
+
+          get "show", params: { attachment_id: @mo.attachment.id }
+          assert_status(200)
+        end
+      end
     end
   end
 
@@ -193,6 +297,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo2.created_at.as_json,
             "media_id" => "test2",
@@ -210,6 +315,7 @@ describe MediaObjectsController do
             "embedded_iframe_url" => "http://test.host/media_objects_iframe/test2"
           },
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo3.created_at.as_json,
             "media_id" => "test3",
@@ -227,6 +333,7 @@ describe MediaObjectsController do
             "embedded_iframe_url" => "http://test.host/media_objects_iframe/test3"
           },
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo1.created_at.as_json,
             "media_id" => "test",
@@ -269,6 +376,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to eq(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo.created_at.as_json,
             "media_id" => "test",
@@ -291,6 +399,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to eq(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo.created_at.as_json,
             "media_id" => "test",
@@ -328,6 +437,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo1.created_at.as_json,
             "media_id" => "test",
@@ -336,6 +446,7 @@ describe MediaObjectsController do
             "embedded_iframe_url" => "http://test.host/media_objects_iframe/test"
           },
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo2.created_at.as_json,
             "media_id" => "another_test",
@@ -376,6 +487,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo3.created_at.as_json,
             "media_id" => "test3",
@@ -393,6 +505,7 @@ describe MediaObjectsController do
             "embedded_iframe_url" => "http://test.host/media_objects_iframe/test3"
           },
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo2.created_at.as_json,
             "media_id" => "test2",
@@ -416,6 +529,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo1.created_at.as_json,
             "media_id" => "test",
@@ -466,6 +580,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "media_id" => "in_course_with_att",
             "media_type" => nil,
             "created_at" => mo1.created_at.as_json,
@@ -474,6 +589,7 @@ describe MediaObjectsController do
             "embedded_iframe_url" => "http://test.host/media_objects_iframe/in_course_with_att"
           },
           {
+            "auto_caption_status" => nil,
             "media_id" => "in_course_with_deleted_att",
             "media_type" => nil,
             "created_at" => mo2.created_at.as_json,
@@ -517,6 +633,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo3.created_at.as_json,
             "media_id" => "test3",
@@ -534,6 +651,7 @@ describe MediaObjectsController do
             "embedded_iframe_url" => "http://test.host/media_objects_iframe/test3"
           },
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo2.created_at.as_json,
             "media_id" => "test2",
@@ -560,6 +678,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo1.created_at.as_json,
             "media_id" => "test",
@@ -605,6 +724,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to eq(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo2.created_at.as_json,
             "media_id" => "not_in_course",
@@ -634,6 +754,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "media_id" => "in_group",
             "media_type" => nil,
             "created_at" => mo1.created_at.as_json,
@@ -743,6 +864,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo2.created_at.as_json,
             "media_id" => "test2",
@@ -760,6 +882,7 @@ describe MediaObjectsController do
             "embedded_iframe_url" => "http://test.host/media_objects_iframe/test2"
           },
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo1.created_at.as_json,
             "media_id" => "test",
@@ -793,6 +916,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo1.created_at.as_json,
             "media_id" => "test",
@@ -819,6 +943,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "can_add_captions" => true,
             "created_at" => mo1.created_at.as_json,
             "media_id" => "test",
@@ -846,6 +971,7 @@ describe MediaObjectsController do
       expect(json_parse(response.body)).to match_array(
         [
           {
+            "auto_caption_status" => nil,
             "media_id" => "in_group",
             "media_type" => nil,
             "created_at" => mo1.created_at.as_json,
@@ -1068,6 +1194,16 @@ describe MediaObjectsController do
         user_session(@teacher)
         media_attachment_api_json = controller.media_attachment_api_json(@attachment, @media_object, @teacher, session)
         expect(media_attachment_api_json["can_add_captions"]).to be(false)
+      end
+
+      it "returns true if media object points to different attachment" do
+        user_session(@teacher)
+        other_course = course_factory
+        other_attachment = other_course.attachments.create! media_entry_id: "0_deadbeef", filename: "blah.flv", uploaded_data: StringIO.new("data"), media_object: @media_object
+        @media_object.attachment = other_attachment
+        @media_object.save!
+        media_attachment_api_json = controller.media_attachment_api_json(@attachment, @media_object, @teacher, session)
+        expect(media_attachment_api_json["can_add_captions"]).to be(true)
       end
     end
   end

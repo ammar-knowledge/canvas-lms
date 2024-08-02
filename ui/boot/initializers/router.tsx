@@ -49,7 +49,7 @@ const portalRouter = createBrowserRouter(
       {accountGradingSettingsRoutes}
 
       {(window.ENV.FEATURES.instui_nav || localStorage.instui_nav_dev) &&
-        ['/', '/accounts/*', '/calendar/*', '/courses/*', '/conversations/*'].map(path => (
+        ['/', '/*', '/*/*'].map(path => (
           <Route
             key={`key-to-${path}`}
             path={path}
@@ -57,10 +57,10 @@ const portalRouter = createBrowserRouter(
           />
         ))}
 
-      {window.ENV.FEATURES.enhanced_rubrics && RubricRoutes}
+      {window.ENV.enhanced_rubrics_enabled && RubricRoutes}
 
       {window.ENV.FEATURES.learner_passport && LearnerPassportLearnerRoutes}
-      {window.ENV.FEATURES.learner_passport_r2 && LearnerPassportAdminRoutes}
+      {window.ENV.FEATURES.learner_passport && LearnerPassportAdminRoutes}
 
       <Route path="*" element={<></>} />
     </Route>

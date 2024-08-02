@@ -60,6 +60,8 @@ class Rubric < ActiveRecord::Base
   validates :context_id, :context_type, :workflow_state, presence: true
   validates :description, length: { maximum: maximum_text_length, allow_blank: true }
   validates :title, length: { maximum: maximum_string_length, allow_blank: false }
+  validates :button_display, inclusion: { in: %w[numeric emoji letter] }
+  validates :rating_order, inclusion: { in: %w[ascending descending] }
 
   validates_with RubricUniqueAlignments
   validates_with RubricAssessedAlignments
@@ -76,7 +78,7 @@ class Rubric < ActiveRecord::Base
   scope :publicly_reusable, -> { where(reusable: true).order(best_unicode_collation_key("title")) }
   scope :matching, ->(search) { where(wildcard("rubrics.title", search)).order("rubrics.association_count DESC") }
   scope :before, ->(date) { where("rubrics.created_at<?", date) }
-  scope :active, -> { where.not(workflow_state: "deleted") }
+  scope :active, -> { where.not(workflow_state: %w[archived deleted draft]) }
 
   set_policy do
     given { |user, session| context.grants_right?(user, session, :manage_rubrics) }
@@ -92,10 +94,10 @@ class Rubric < ActiveRecord::Base
     can :read
 
     # read_only means "associated with > 1 object for grading purposes"
-    given { |user, session| !read_only && rubric_associations.for_grading.length < 2 && context.grants_any_right?(user, session, :manage_assignments, :manage_assignments_edit) }
+    given { |user, session| !read_only && rubric_associations.for_grading.count < 2 && context.grants_any_right?(user, session, :manage_assignments, :manage_assignments_edit) }
     can :update and can :delete
 
-    given { |user, session| !read_only && rubric_associations.for_grading.length < 2 && context.grants_right?(user, session, :manage_rubrics) }
+    given { |user, session| !read_only && rubric_associations.for_grading.count < 2 && context.grants_right?(user, session, :manage_rubrics) }
     can :update and can :delete
 
     given { |user, session| context.grants_any_right?(user, session, :manage_assignments, :manage_assignments_edit) }
@@ -106,6 +108,12 @@ class Rubric < ActiveRecord::Base
 
     given { |user, session| context.grants_right?(user, session, :read) }
     can :read
+
+    given { |user, session| context.grants_right?(user, session, :manage_rubrics) }
+    can :archive
+
+    given { |user, session| context.grants_right?(user, session, :manage_rubrics) }
+    can :unarchive
   end
 
   workflow do
@@ -115,6 +123,7 @@ class Rubric < ActiveRecord::Base
     state :archived do
       event :unarchive, transitions_to: :active
     end
+    state :draft
     state :deleted
   end
 
@@ -125,6 +134,10 @@ class Rubric < ActiveRecord::Base
   end
 
   def unarchive
+    super if enhanced_rubrics_enabled?
+  end
+
+  def draft
     super if enhanced_rubrics_enabled?
   end
 
@@ -273,8 +286,16 @@ class Rubric < ActiveRecord::Base
     OutcomeFriendlyDescription.where(learning_outcome_id: data_outcome_ids)
   end
 
+  def outcome_data
+    return [] unless data_outcome_ids.present?
+
+    LearningOutcome.where(id: data_outcome_ids).map do |outcome|
+      { id: outcome.id, display_name: outcome.display_name }
+    end
+  end
+
   def criteria_object
-    OpenObject.process(data)
+    reconstitute_criteria(data)
   end
 
   def criteria
@@ -329,9 +350,12 @@ class Rubric < ActiveRecord::Base
     data = generate_criteria(params)
     self.hide_score_total = params[:hide_score_total] if hide_score_total.nil? || (association_count || 0) < 2
     self.data = data.criteria
+    self.button_display = params[:button_display] if params.key?(:button_display)
     self.title = data.title
     self.points_possible = data.points_possible
     self.hide_points = params[:hide_points]
+    self.rating_order = params[:rating_order] if params.key?(:rating_order)
+    self.workflow_state = params[:workflow_state] if params[:workflow_state]
     save
     self
   end
@@ -425,6 +449,8 @@ class Rubric < ActiveRecord::Base
   end
 
   CriteriaData = Struct.new(:criteria, :points_possible, :title)
+  Criterion = Struct.new(:description, :long_description, :points, :id, :criterion_use_range, :learning_outcome_id, :mastery_points, :ignore_for_scoring, :ratings, :title, :migration_id, :percentage, :order, keyword_init: true)
+  Rating = Struct.new(:description, :long_description, :points, :id, :criterion_id, :migration_id, :percentage, keyword_init: true)
   def generate_criteria(params)
     @used_ids = {}
     title = params[:title] || t("context_name_rubric", "%{course_name} Rubric", course_name: context.name)
@@ -469,12 +495,19 @@ class Rubric < ActiveRecord::Base
     CriteriaData.new(criteria, points_possible, title)
   end
 
+  def reconstitute_criteria(criteria)
+    criteria.map do |criterion|
+      ratings = criterion[:ratings].map { |rating| Rating.new(**rating.slice(*Rating.members)) }
+      Criterion.new(**criterion.slice(*Criterion.members), ratings:)
+    end
+  end
+
   def total_points_from_criteria(criteria)
     criteria.reject { |c| c[:ignore_for_scoring] }.sum { |c| c[:points] }
   end
 
   def reconcile_criteria_models(current_user)
-    return unless Account.site_admin.feature_enabled?(:enhanced_rubrics)
+    return unless enhanced_rubrics_enabled?
 
     return unless criteria.present? && criteria.is_a?(Array)
 
@@ -538,10 +571,30 @@ class Rubric < ActiveRecord::Base
   end
 
   def enhanced_rubrics_enabled?
-    Account.site_admin.feature_enabled?(:enhanced_rubrics)
+    return context.feature_enabled?(:enhanced_rubrics) if context_type == "Account"
+
+    context.account.feature_enabled?(:enhanced_rubrics)
+  end
+
+  def self.enhanced_rubrics_enabled_for_context?(context)
+    return false unless context
+    return context.feature_enabled?(:enhanced_rubrics) if context.is_a?(Account)
+    return context.account.feature_enabled?(:enhanced_rubrics) if context.is_a?(Course)
+
+    false
   end
 
   def learning_outcome_ids_from_results
     learning_outcome_results.select(:learning_outcome_id).distinct.pluck(:learning_outcome_id)
+  end
+
+  def rubric_assignment_associations?
+    rubric_associations.where(association_type: "Assignment", workflow_state: "active").any?
+  end
+
+  def used_locations
+    associations = rubric_associations.active.where(association_type: "Assignment")
+
+    Assignment.where(id: associations.pluck(:association_id))
   end
 end

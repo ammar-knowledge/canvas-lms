@@ -65,12 +65,22 @@ export class CardDashboardLoader {
     )
   }
 
-  loadCardDashboard(renderFn = this.renderIntoDOM, observedUserId: string) {
+  async loadCardDashboard(
+    renderFn = this.renderIntoDOM,
+    observedUserId: string,
+    preloadedCards?: Card[] | null
+  ) {
     if (observedUserId) {
       this.observedUserId = observedUserId
     }
 
-    if (observedUserId && CardDashboardLoader.observedUsersDashboardCards[observedUserId]) {
+    if (window?.ENV?.FEATURES?.dashboard_graphql_integration && preloadedCards) {
+      try {
+        renderFn(preloadedCards)
+      } catch (e) {
+        this.showError(e as Error)
+      }
+    } else if (observedUserId && CardDashboardLoader.observedUsersDashboardCards[observedUserId]) {
       // @ts-expect-error
       renderFn(CardDashboardLoader.observedUsersDashboardCards[observedUserId], true)
     } else if (this.promiseToGetDashboardCards) {

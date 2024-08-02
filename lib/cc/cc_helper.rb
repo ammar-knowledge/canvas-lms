@@ -205,7 +205,7 @@ module CC
     require "set"
 
     class HtmlContentExporter
-      attr_reader :course, :user, :media_object_flavor, :media_object_infos
+      attr_reader :course, :user, :used_media_objects, :media_object_flavor, :media_object_infos
       attr_accessor :referenced_files, :referenced_assessment_question_files
 
       def initialize(course, user, opts = {})
@@ -265,30 +265,21 @@ module CC
             obj.export_id = @key_generator.create_key(obj)
             current_referenced_files[obj.id] = obj if @track_referenced_files && !current_referenced_files[obj.id]
 
-            url = if @for_course_copy
-                    "#{COURSE_TOKEN}/file_ref/#{obj.export_id}#{match.rest}"
-                  else
-                    # for files in exports, turn it into a relative link by path, rather than by file id
-                    # we retain the file query string parameters
-                    folder = if match.context_type == "assessment_questions"
-                               "#{WEB_CONTENT_TOKEN}/assessment_questions"
-                             else
-                               obj.folder&.full_name&.sub(/course( |%20)files/, WEB_CONTENT_TOKEN)
-                             end
-                    folder = folder.split("/").map { |part| URI::DEFAULT_PARSER.escape(part) }.join("/")
-                    path = "#{folder}/#{URI::DEFAULT_PARSER.escape(obj.display_name)}"
-                    path = HtmlTextHelper.escape_html(path)
-                    "#{path}#{CCHelper.file_query_string(match.rest)}"
-                  end
-            # when media attachments is stable on production and media objects export code is removed,
-            # this block should be removed (after LF-197 is complete)
-            uri = Addressable::URI.parse(url)
-            if match.type == "media_attachments_iframe"
-              query_values = uri.query_values || {}
-              query_values["media_attachment"] = true
-              uri.query_values = query_values
+            if @for_course_copy
+              "#{COURSE_TOKEN}/file_ref/#{obj.export_id}#{match.rest}"
+            else
+              # for files in exports, turn it into a relative link by path, rather than by file id
+              # we retain the file query string parameters
+              folder = if match.context_type == "assessment_questions"
+                         "#{WEB_CONTENT_TOKEN}/assessment_questions"
+                       else
+                         obj.folder&.full_name&.sub(/course( |%20)files/, WEB_CONTENT_TOKEN)
+                       end
+              folder = folder.split("/").map { |part| URI::DEFAULT_PARSER.escape(part) }.join("/")
+              path = "#{folder}/#{URI::DEFAULT_PARSER.escape(obj.display_name)}"
+              path = HtmlTextHelper.escape_html(path)
+              "#{path}#{CCHelper.file_query_string(match.rest)}"
             end
-            uri.to_s
           end
         end
         @rewriter.set_handler("files", &file_handler)
@@ -349,20 +340,6 @@ module CC
         @url_prefix += ":#{port}" if !host&.include?(":") && port.present?
       end
 
-      # after LF-232 is stable on master, we should be able to remove this, I think
-      def used_media_objects
-        return @used_media_objects if @ensure_attachments_for_media_objects
-
-        @used_media_objects.each do |obj|
-          unless obj.attachment
-            obj.attachment = Attachment.create!(context: obj.context, media_entry_id: obj.media_id, filename: obj.guaranteed_title, content_type: "unknown/unknown")
-            obj.save!
-          end
-        end
-        @ensure_attachments_for_media_objects = true
-        @used_media_objects
-      end
-
       def translate_module_item_query(query)
         return query unless query&.include?("module_item_id=")
 
@@ -397,18 +374,26 @@ module CC
         iframe
       end
 
+      def media_object_export_path(media_id)
+        obj = MediaObject.active.by_media_id(media_id).take
+        return unless obj && @key_generator.create_key(obj)
+
+        @used_media_objects << obj
+        info = CCHelper.media_object_info(obj, course: @course, flavor: media_object_flavor)
+        @media_object_infos[obj.id] = info
+        attachment = info[:attachment]
+        attachment.export_id = @key_generator.create_key(attachment)
+        referenced_files[attachment.id] = attachment unless referenced_files[attachment.id]
+        File.join(WEB_CONTENT_TOKEN, info[:path])
+      end
+
       def html_content(html)
-        return html if @disable_content_rewriting
+        return html if @disable_content_rewriting || html.blank?
 
         html = @rewriter.translate_content(html)
         return html if html.blank?
 
         doc = Nokogiri::HTML5.fragment(html)
-        doc.css("iframe[src*=media_attachment]").each do |iframe|
-          replace_media_iframe(iframe)
-        end
-        return doc.to_s if @for_course_copy
-
         # keep track of found media comments, and translate them into links into the files tree
         # if imported back into canvas, they'll get uploaded to the media server
         # and translated back into media comments
@@ -416,33 +401,24 @@ module CC
           next unless anchor["id"]
 
           media_id = anchor["id"].gsub(/^media_comment_/, "")
-          obj = MediaObject.active.by_media_id(media_id).first
-          next unless obj && @key_generator.create_key(obj)
-
-          @used_media_objects << obj
-          info = CCHelper.media_object_info(obj, course: @course, flavor: media_object_flavor)
-          @media_object_infos[obj.id] = info
-          anchor["href"] = File.join(WEB_CONTENT_TOKEN, info[:path])
+          path = media_object_export_path(media_id)
+          anchor["href"] = path if path
         end
 
-        # process new RCE media iframes too
-        doc.css("iframe[data-media-id]").each do |iframe|
-          next if iframe["src"].include?("/media_attachments_iframe/")
+        # process RCE media object iframes
+        doc.css("iframe[src*='media_objects']").each do |iframe|
+          next if iframe["src"].include?(WEB_CONTENT_TOKEN)
 
-          media_id = iframe["data-media-id"]
-          obj = MediaObject.active.by_media_id(media_id).take
-          next unless obj && @key_generator.create_key(obj)
-
-          @used_media_objects << obj
-          info = CCHelper.media_object_info(obj, course: @course, flavor: media_object_flavor)
-          @media_object_infos[obj.id] = info
-
-          iframe["src"] = File.join(WEB_CONTENT_TOKEN, info[:path])
+          media_id = iframe["src"].match(%r{media_objects(?:_iframe)?/([^?.]+)})&.[](1) || iframe["data-media-id"]
+          path = media_object_export_path(media_id)
+          iframe["src"] = path if path
         end
 
         doc.css("iframe[data-media-type]").each do |iframe|
           replace_media_iframe(iframe)
         end
+
+        return doc.to_html if @for_course_copy
 
         # prepend the Canvas domain to remaining absolute paths that are missing the host
         # (those in the course are already "$CANVAS_COURSE_REFERENCE$/...", but links
@@ -474,6 +450,8 @@ module CC
       client
     end
 
+    # TODO: after we've enforced all media objects have attachments,
+    # this whole method should be unnecessary
     def self.media_object_info(obj, course: nil, client: nil, flavor: nil)
       client ||= kaltura_admin_session
       if flavor
@@ -483,19 +461,34 @@ module CC
       else
         asset = client.flavorAssetGetOriginalAsset(obj.media_id)
       end
-      source_attachment = Attachment.find_by(id: obj.attachment_id) if obj.attachment_id
+      obj.ensure_attachment_media_info
+      source_attachment = obj.attachment if obj.attachment_id
       related_attachment_ids = [source_attachment.id] + source_attachment.related_attachments.pluck(:id) if source_attachment
-      attachment = course && related_attachment_ids && course.attachments.not_deleted.where(id: related_attachment_ids).take
-      path = if attachment
-               # if the media object is associated with a file in the course, use the file's path in the export, to avoid exporting it twice
-               attachment.full_display_path.sub(/^#{Regexp.quote(Folder::ROOT_FOLDER_NAME)}/, "")
-             else
-               # otherwise export to a file named after the media id
-               filename = obj.media_id
-               filename += ".#{asset[:fileExt]}" if asset
-               File.join(MEDIA_OBJECTS_FOLDER, filename)
-             end
-      { asset:, path: }
+      attachment = related_attachment_ids && course&.attachments&.find_by(id: related_attachment_ids)
+      attachment ||= course&.attachments&.find_by(media_entry_id: obj.media_id)
+
+      # if a user deletes a file in the course, but it's still linked via a
+      # media object, the file will get reactivated when they export
+      unless attachment
+        att = obj.attachment || Attachment.find_by(media_entry_id: obj.media_id)
+        attachment = att.copy_to_folder!(Folder.media_folder(course))
+      end
+      updates = {}
+      updates[:media_entry_id] = obj.media_id if [nil, "maybe"].include?(attachment.media_entry_id)
+      updates[:content_type] = obj.media_type if attachment.content_type == "unknown/unknown"
+      if attachment.file_state == "deleted"
+        updates[:folder_id] = Folder.media_folder(course).id
+        updates[:file_state] = "hidden"
+      end
+      if attachment.content_type.present? && File.extname(attachment.display_name).empty?
+        ext = Mime::Type.lookup(MediaObject.normalize_content_type(attachment.content_type)).symbol.to_s
+        attachment.display_name = "#{attachment.display_name}.#{ext}" if ext.present?
+      end
+      attachment.handle_duplicates(:rename)
+      attachment.update! updates if updates.present? || attachment.changed?
+
+      path = attachment.full_display_path.sub(/^#{Regexp.quote(Folder::ROOT_FOLDER_NAME)}/, "")
+      { asset:, path:, attachment: }
     end
 
     # sub_path is the last part of a file url: /courses/1/files/1(/download)

@@ -24,15 +24,22 @@ class GradebookUpload < ActiveRecord::Base
   belongs_to :progress
   has_many :attachments, as: :context, inverse_of: :context, dependent: :destroy
 
-  serialize :gradebook, JSON
+  serialize :gradebook, coder: JSON
 
   def self.queue_from(course, user, attachment_data)
     progress = Progress.create!(context: course, tag: "gradebook_upload") do |p|
       p.user = user
     end
     gradebook_upload = GradebookUpload.create!(course:, user:, progress:)
-    gradebook_upload_attachment = gradebook_upload.attachments.create!(attachment_data)
-    progress.process_job(GradebookImporter, :create_from, {}, gradebook_upload, user, gradebook_upload_attachment)
+    begin
+      gradebook_upload_attachment = gradebook_upload.attachments.create!(attachment_data)
+      progress.process_job(GradebookImporter, :create_from, {}, gradebook_upload, user, gradebook_upload_attachment)
+    rescue ActiveRecord::RecordInvalid => e
+      progress.message = "Invalid attachment"
+      progress.workflow_state = "failed"
+      progress.save
+      Canvas::Errors.capture_exception(:gradebook_import, e, :info)
+    end
     progress
   end
 

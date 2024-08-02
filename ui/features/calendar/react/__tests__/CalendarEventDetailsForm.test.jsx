@@ -19,7 +19,7 @@
 import React from 'react'
 import $ from 'jquery'
 import moment from 'moment-timezone'
-import {act, fireEvent, render, waitFor} from '@testing-library/react'
+import {act, fireEvent, getByTestId, render, waitFor} from '@testing-library/react'
 import {screen} from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import {eventFormProps, conference, userContext, courseContext, accountContext} from './mocks'
@@ -35,7 +35,7 @@ let defaultProps = eventFormProps()
 const changeValue = (component, testid, value) => {
   const child = component.getByTestId(testid)
   expect(child).toBeInTheDocument()
-  userEvent.click(child)
+  act(() => child.click())
   fireEvent.change(child, {target: {value}})
   act(() => child.blur())
   return child
@@ -157,9 +157,9 @@ describe('CalendarEventDetailsForm', () => {
     const props = eventFormProps()
     props.event.calendarEvent = {
       ...props.event.calendarEvent,
-      rrule: 'FREQ=DAILY;INTERVAL=1;COUNT=3',
       series_uuid: '123',
     }
+    props.event.object = {rrule: 'FREQ=DAILY;INTERVAL=1;COUNT=3'}
 
     const component = render(<CalendarEventDetailsForm {...props} />)
     component.getByText('Submit').click()
@@ -172,6 +172,38 @@ describe('CalendarEventDetailsForm', () => {
         expect.any(Function)
       )
     )
+  })
+
+  it('does not show UpdateCalendarEventsDialog when saving a single event', async () => {
+    const props = eventFormProps()
+    props.event.calendarEvent = {
+      ...props.event.calendarEvent,
+      series_uuid: null,
+    }
+    props.event.object = {rrule: null}
+
+    const component = render(<CalendarEventDetailsForm {...props} />)
+    component.getByText('Submit').click()
+
+    expect(UpdateCalendarEventDialogModule.renderUpdateCalendarEventDialog).not.toHaveBeenCalled()
+    await waitFor(() => expect(props.event.save).toHaveBeenCalled())
+  })
+
+  it('does not show UpdateCalendarEventsDialog when changing series to a single event', async () => {
+    const props = eventFormProps()
+    props.event.calendarEvent = {
+      ...props.event.calendarEvent,
+      series_uuid: '123',
+    }
+    props.event.object = {rrule: 'FREQ=DAILY;INTERVAL=1;COUNT=3'}
+
+    const component = render(<CalendarEventDetailsForm {...props} />)
+    component.getByText('Frequency').click() // open the dropdown
+    component.getByText('Does not repeat').click() // select the option
+    component.getByText('Submit').click()
+
+    expect(UpdateCalendarEventDialogModule.renderUpdateCalendarEventDialog).not.toHaveBeenCalled()
+    await waitFor(() => expect(props.event.save).toHaveBeenCalled())
   })
 
   it('can change the date multiple times', async () => {
@@ -194,6 +226,23 @@ describe('CalendarEventDetailsForm', () => {
         expect.any(Function)
       )
     )
+  })
+
+  it('shows the date for the France locale', async () => {
+    const old_locale = window.ENV.LOCALE
+    window.ENV.LOCALE = 'fr'
+
+    const props = {...defaultProps}
+    props.event = commonEventFactory(null, [userContext, courseContext])
+    const d = moment('2023-08-28') // a monday
+    props.event.date = d.toDate()
+    props.event.startDate = jest.fn(() => moment(props.event.date))
+
+    const {getByTestId} = render(<CalendarEventDetailsForm {...props} />)
+    const beginning_date = getByTestId('edit-calendar-event-form-date')
+
+    expect(beginning_date.value).toBe('lun. 28 août 2023')
+    window.ENV.LOCALE = old_locale
   })
 
   // LF-630 (08/23/2023)
@@ -310,14 +359,14 @@ describe('CalendarEventDetailsForm', () => {
     expect(errMessage).not.toBeInTheDocument()
   })
 
-  it('allows setting arbitrary start/ end times', () => {
+  it('allows setting arbitrary start/ end times', async () => {
+    const user = userEvent.setup({delay: null})
     const {getByTestId} = render(<CalendarEventDetailsForm {...defaultProps} />)
     const startInput = getByTestId('event-form-start-time')
     const endInput = getByTestId('event-form-end-time')
-    userEvent.clear(startInput)
-    userEvent.type(startInput, '8:14 AM')
-    userEvent.clear(endInput)
-    userEvent.type(endInput, '9:38 AM')
+    await user.type(startInput, '8:14 AM')
+    await user.tripleClick(endInput)
+    await user.type(endInput, '9:38 AM')
     expect(startInput.value).toBe('8:14 AM')
     expect(endInput.value).toBe('9:38 AM')
   })
@@ -365,13 +414,14 @@ describe('CalendarEventDetailsForm', () => {
     expect(component.getByTestId('edit-calendar-event-form-date')).toHaveValue('avocado')
   })
 
-  it('does not show error with when choosing another date time format', () => {
+  it('does not show error with when choosing another date time format', async () => {
+    const user = userEvent.setup({delay: null})
     jest.spyOn(window.navigator, 'language', 'get').mockReturnValue('en-AU')
     const component = render(<CalendarEventDetailsForm {...defaultProps} />)
-    userEvent.click(component.getByTestId('edit-calendar-event-form-date'))
-    userEvent.click(component.getByTestId('edit-calendar-event-form-title'))
+    await user.click(component.getByTestId('edit-calendar-event-form-date'))
+    await user.click(component.getByTestId('edit-calendar-event-form-title'))
     expect(component.getByTestId('edit-calendar-event-form-date').value).toMatch(
-      /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), \d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}$/
+      /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat), \d{1,2} (Jan|Feb|Mar|Apr|May|June|July|Aug|Sept|Oct|Nov|Dec) \d{4}$/
     )
 
     const errMessage = component.queryByText('This date is invalid.')

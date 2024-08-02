@@ -35,7 +35,7 @@ describe Canvas::CacheRegister do
   let(:time2) { 2.minutes.from_now }
 
   def to_stamp(time)
-    time.to_s(User.cache_timestamp_format)
+    time.to_fs(User.cache_timestamp_format)
   end
 
   context "reading" do
@@ -345,6 +345,31 @@ describe Canvas::CacheRegister do
       expect do
         Rails.cache.fetch_with_batched_keys("k", batch_object: @user, batched_keys: :blah) { "v" }
       end.to raise_error("invalid cache_key type 'blah' for User")
+    end
+
+    it "ignores the cache when the entry is utter garbage" do
+      Rails.cache.fetch_with_batched_keys("key", batch_object: @user, batched_keys: [:enrollments, :groups], expires_in: 5.minutes) do
+        "a"
+      end
+
+      allow(Canvas::CacheRegister.lua).to receive(:run).and_return(["frd_key", "garbage"])
+
+      expect(Rails.cache.fetch_with_batched_keys("key", batch_object: @user, batched_keys: [:enrollments, :groups], expires_in: 5.minutes) do
+        "b"
+      end).to eql "b"
+    end
+
+    it "ignores the cache when the entry is not unmarshallable" do
+      stub_const("MyCacheClass", Class.new(String))
+      Rails.cache.fetch_with_batched_keys("key", batch_object: @user, batched_keys: [:enrollments, :groups], expires_in: 5.minutes) do
+        MyCacheClass.new
+      end
+
+      stub_const("MyCacheClass", Class.new)
+
+      expect(Rails.cache.fetch_with_batched_keys("key", batch_object: @user, batched_keys: [:enrollments, :groups], expires_in: 5.minutes) do
+        "b"
+      end).to eql "b"
     end
   end
 

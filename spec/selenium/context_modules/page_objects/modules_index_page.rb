@@ -25,6 +25,10 @@ module ModulesIndexPage
     "#context_module_#{module_id}"
   end
 
+  def delete_card_button_selector
+    "[data-testid = 'delete-card-button']"
+  end
+
   def manage_module_item_assign_to_selector(module_item_id)
     "#context_module_item_#{module_item_id} .module-item-assign-to-link"
   end
@@ -81,9 +85,29 @@ module ModulesIndexPage
     "#context_module_#{module_id} .module_header_items svg[name='IconUnpublished']"
   end
 
+  def all_modules_selector
+    "#context_modules .context_module"
+  end
+
+  def duplicate_module_button_selector(context_module)
+    "#context_module_#{context_module.id} a.duplicate_module_link"
+  end
+
+  def module_index_menu_tool_link_selector(tool_text)
+    "[role=menuitem]:contains('#{tool_text}')"
+  end
+
+  def view_assign_to_link_selector
+    ".view_assign_link"
+  end
+
   #------------------------------ Elements ------------------------------
   def context_module(module_id)
     f(context_module_selector(module_id))
+  end
+
+  def delete_card_button
+    ff(delete_card_button_selector)
   end
 
   def manage_module_item_assign_to(module_item_id)
@@ -99,7 +123,7 @@ module ModulesIndexPage
   end
 
   def module_index_menu_tool_link(tool_text)
-    fj("[role=menuitem]:contains('#{tool_text}')")
+    fj(module_index_menu_tool_link_selector(tool_text))
   end
 
   def module_create_button
@@ -147,7 +171,7 @@ module ModulesIndexPage
   end
 
   def tool_dialog_iframe
-    tool_dialog.find_element(:css, "iframe")
+    f(".tool_launch")
   end
 
   def view_assign
@@ -164,6 +188,10 @@ module ModulesIndexPage
 
   def add_module_item_button(context_module)
     f("#context_module_#{context_module.id} .add_module_item_link")
+  end
+
+  def duplicate_module_button(context_module)
+    f(duplicate_module_button_selector(context_module))
   end
 
   def unlock_details(module_id)
@@ -190,6 +218,10 @@ module ModulesIndexPage
     f(unpublished_module_icon_selector(module_id))
   end
 
+  def all_modules
+    ff(all_modules_selector)
+  end
+
   #------------------------------ Actions ------------------------------
   def visit_modules_index_page(course_id)
     get "/courses/#{course_id}/modules"
@@ -203,6 +235,10 @@ module ModulesIndexPage
     replace_content(f("##{type}s_select input.item_title"), name)
     fj(".add_item_button:visible").click
     wait_for_ajax_requests
+  end
+
+  def click_delete_card_button(button_number)
+    delete_card_button[button_number].click
   end
 
   def click_manage_module_item_assign_to(module_item)

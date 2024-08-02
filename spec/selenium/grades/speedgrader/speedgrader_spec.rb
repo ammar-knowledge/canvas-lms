@@ -28,7 +28,7 @@ require_relative "../pages/gradebook_page"
 require_relative "../../assignments/page_objects/assignment_page"
 require_relative "../../assignments/page_objects/submission_detail_page"
 
-describe "Speedgrader" do
+describe "SpeedGrader" do
   include_context "in-process server selenium tests"
   include QuizzesCommon
   include GradebookCommon
@@ -846,7 +846,6 @@ describe "Speedgrader" do
 
   context "assignment group" do
     it "updates grades for all students in group", priority: "1" do
-      skip "Skipped because this spec fails if not run in foreground\nThis is believed to be the issue: https://code.google.com/p/selenium/issues/detail?id=7346"
       init_course_with_students 5
       user_session(@teacher)
       seed_groups 1, 1
@@ -860,7 +859,7 @@ describe "Speedgrader" do
 
       assignment = @course.assignments.create!(
         title: "Group Assignment",
-        group_category_id: @testgroup[0].id,
+        group_category_id: @testgroup[0].group_category_id,
         grade_group_students_individually: false,
         points_possible: 20
       )
@@ -1153,8 +1152,6 @@ describe "Speedgrader" do
     end
 
     it "opens and closes keyboard shortcut modal via blue info icon", priority: "2" do
-      skip "EVAL-2497 (6/10/22)"
-
       Speedgrader.click_settings_link
       expect(Speedgrader.keyboard_shortcuts_link).to be_displayed
 

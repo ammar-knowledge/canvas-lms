@@ -21,9 +21,11 @@ require_relative "../common"
 require_relative "../../conditional_release_spec_helper"
 require_relative "../assignments/page_objects/assignments_index_page"
 require_relative "page_objects/conditional_release_objects"
+require_relative "../../helpers/selective_release_common"
 
 describe "native canvas conditional release" do
   include AssignmentsIndexPage
+  include SelectiveReleaseCommon
 
   include_context "in-process server selenium tests"
   before(:once) do
@@ -38,11 +40,13 @@ describe "native canvas conditional release" do
 
   context "Pages as part of Mastery Paths" do
     it "shows Allow in Mastery Paths for a Page when feature enabled" do
+      differentiated_modules_off
       get "/courses/#{@course.id}/pages/new/edit"
       expect(ConditionalReleaseObjects.conditional_content_exists?).to be(true)
     end
 
     it "does not show Allow in Mastery Paths when feature disabled" do
+      differentiated_modules_off
       account = Account.default
       account.settings[:conditional_release] = { value: false }
       account.save!
@@ -217,21 +221,21 @@ describe "native canvas conditional release" do
     before do
       @trigger_assmt = @course.assignments.create!(points_possible: 10, submission_types: "online_text_entry")
       ranges = [
-        FactoryBot.create(
+        create(
           :scoring_range_with_assignments,
           assignment_set_count: 1,
           assignment_count: 1,
           lower_bound: 0.7,
           upper_bound: 1.0
         ),
-        FactoryBot.create(
+        create(
           :scoring_range_with_assignments,
           assignment_set_count: 1,
           assignment_count: 2,
           lower_bound: 0.4,
           upper_bound: 0.7
         ),
-        FactoryBot.create(
+        create(
           :scoring_range_with_assignments,
           assignment_set_count: 2,
           assignment_count: 2,

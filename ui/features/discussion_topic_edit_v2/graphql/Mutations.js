@@ -34,15 +34,19 @@ export const CREATE_DISCUSSION_TOPIC = gql`
     $isAnonymousAuthor: Boolean
     $allowRating: Boolean
     $onlyGradersCanRate: Boolean
+    $onlyVisibleToOverrides: Boolean
     $todoDate: DateTime
     $podcastEnabled: Boolean
     $podcastHasStudentPosts: Boolean
     $locked: Boolean
+    $discussionType: DiscussionTopicDiscussionType
     $isAnnouncement: Boolean
     $specificSections: String
     $groupCategoryId: ID
     $assignment: AssignmentCreate
+    $checkpoints: [DiscussionCheckpoints!]
     $fileId: ID
+    $ungradedDiscussionOverrides: [AssignmentOverrideCreateOrUpdate!]
   ) {
     createDiscussionTopic(
       input: {
@@ -55,9 +59,11 @@ export const CREATE_DISCUSSION_TOPIC = gql`
         anonymousState: $anonymousState
         delayedPostAt: $delayedPostAt
         lockAt: $lockAt
+        discussionType: $discussionType
         isAnonymousAuthor: $isAnonymousAuthor
         allowRating: $allowRating
         onlyGradersCanRate: $onlyGradersCanRate
+        onlyVisibleToOverrides: $onlyVisibleToOverrides
         todoDate: $todoDate
         podcastEnabled: $podcastEnabled
         podcastHasStudentPosts: $podcastHasStudentPosts
@@ -66,7 +72,9 @@ export const CREATE_DISCUSSION_TOPIC = gql`
         specificSections: $specificSections
         groupCategoryId: $groupCategoryId
         assignment: $assignment
+        checkpoints: $checkpoints
         fileId: $fileId
+        ungradedDiscussionOverrides: $ungradedDiscussionOverrides
       }
     ) {
       discussionTopic {
@@ -79,18 +87,22 @@ export const CREATE_DISCUSSION_TOPIC = gql`
         anonymousState
         delayedPostAt
         lockAt
+        discussionType
         isAnonymousAuthor
         allowRating
         onlyGradersCanRate
+        onlyVisibleToOverrides
         todoDate
         podcastEnabled
         podcastHasStudentPosts
         isAnnouncement
+        replyToEntryRequiredCount
         assignment {
           _id
           name
           pointsPossible
           gradingType
+          importantDates
           assignmentGroupId
           canDuplicate
           canUnpublish
@@ -108,6 +120,16 @@ export const CREATE_DISCUSSION_TOPIC = gql`
             count
             dueAt
             enabled
+          }
+          checkpoints {
+            dueAt
+            name
+            onlyVisibleToOverrides
+            pointsPossible
+            tag
+          }
+          gradingStandard {
+            _id
           }
         }
         attachment {
@@ -134,15 +156,22 @@ export const UPDATE_DISCUSSION_TOPIC = gql`
     $lockAt: DateTime
     $allowRating: Boolean
     $onlyGradersCanRate: Boolean
+    $onlyVisibleToOverrides: Boolean
     $todoDate: DateTime
     $podcastEnabled: Boolean
     $podcastHasStudentPosts: Boolean
     $locked: Boolean
+    $discussionType: DiscussionTopicDiscussionType
     $specificSections: String
     $fileId: ID
     $groupCategoryId: ID
     $removeAttachment: Boolean
     $assignment: AssignmentUpdate
+    $checkpoints: [DiscussionCheckpoints!]
+    $setCheckpoints: Boolean
+    $ungradedDiscussionOverrides: [AssignmentOverrideCreateOrUpdate!]
+    $anonymousState: DiscussionTopicAnonymousStateType
+    $notifyUsers: Boolean
   ) {
     updateDiscussionTopic(
       input: {
@@ -153,8 +182,10 @@ export const UPDATE_DISCUSSION_TOPIC = gql`
         requireInitialPost: $requireInitialPost
         delayedPostAt: $delayedPostAt
         lockAt: $lockAt
+        discussionType: $discussionType
         allowRating: $allowRating
         onlyGradersCanRate: $onlyGradersCanRate
+        onlyVisibleToOverrides: $onlyVisibleToOverrides
         todoDate: $todoDate
         podcastEnabled: $podcastEnabled
         podcastHasStudentPosts: $podcastHasStudentPosts
@@ -164,6 +195,11 @@ export const UPDATE_DISCUSSION_TOPIC = gql`
         fileId: $fileId
         removeAttachment: $removeAttachment
         assignment: $assignment
+        checkpoints: $checkpoints
+        setCheckpoints: $setCheckpoints
+        ungradedDiscussionOverrides: $ungradedDiscussionOverrides
+        anonymousState: $anonymousState
+        notifyUsers: $notifyUsers
       }
     ) {
       discussionTopic {
@@ -176,13 +212,16 @@ export const UPDATE_DISCUSSION_TOPIC = gql`
         anonymousState
         delayedPostAt
         lockAt
+        discussionType
         isAnonymousAuthor
         allowRating
         onlyGradersCanRate
+        onlyVisibleToOverrides
         todoDate
         podcastEnabled
         podcastHasStudentPosts
         isAnnouncement
+        replyToEntryRequiredCount
         attachment {
           ...Attachment
         }
@@ -191,6 +230,7 @@ export const UPDATE_DISCUSSION_TOPIC = gql`
           name
           pointsPossible
           gradingType
+          importantDates
           assignmentGroupId
           canDuplicate
           canUnpublish
@@ -208,6 +248,13 @@ export const UPDATE_DISCUSSION_TOPIC = gql`
             count
             dueAt
             enabled
+          }
+          checkpoints {
+            dueAt
+            name
+            onlyVisibleToOverrides
+            pointsPossible
+            tag
           }
         }
       }

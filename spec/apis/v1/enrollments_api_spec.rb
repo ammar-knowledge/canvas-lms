@@ -1142,7 +1142,8 @@ describe EnrollmentsApiController, type: :request do
 
     describe "temporary enrollments" do
       let_once(:start_at) { 1.day.ago }
-      let_once(:end_at) { 1.day.from_now }
+      let_once(:start_at_future) { 1.day.from_now }
+      let_once(:end_at) { 1.month.from_now }
 
       before(:once) do
         Account.default.enable_feature!(:temporary_enrollments)
@@ -1169,7 +1170,7 @@ describe EnrollmentsApiController, type: :request do
             role: teacher_role,
             temporary_enrollment_source_user_id: @provider.id,
             temporary_enrollment_pairing_id: temporary_enrollment_pairing.id,
-            start_at:,
+            start_at: start_at_future,
             end_at:
           }
         )
@@ -1636,7 +1637,7 @@ describe EnrollmentsApiController, type: :request do
             section = @course.course_sections.create!(name: "other_section")
             e = section.enroll_user(@teacher, "TeacherEnrollment")
             # generally these are populated from a sis_import
-            Enrollment.where(id: e).update_all(sis_pseudonym_id: @teacher.pseudonyms.where(sis_user_id: "1234").take.id)
+            Enrollment.where(id: e).update_all(sis_pseudonym_id: @teacher.pseudonyms.find_by(sis_user_id: "1234").id)
             @params[:sis_user_id] = "1234"
             @params[:created_for_sis_id] = true
             json = api_call(:get, @path, @params)
@@ -1915,6 +1916,31 @@ describe EnrollmentsApiController, type: :request do
         json = api_call(:get, path, params)
 
         expect(json.first["enrollment_state"]).to eql "deleted"
+      end
+
+      describe "no associated accounts" do
+        before :once do
+          @student.pseudonyms.destroy_all
+          @student.user_account_associations.destroy_all
+        end
+
+        it "returns an empty array when caller has read roster rights but target user has no associated accounts" do
+          path = "/api/v1/users/#{@student.id}/enrollments"
+          params = { controller: "enrollments_api", action: "index", user_id: @student.id.to_param, format: "json" }
+          json = api_call(:get, path, params)
+
+          expect(json).to be_empty
+        end
+
+        it "returns unauthorized when caller doesn't have read roster rights and target user has no associated accounts" do
+          @observer = user_factory
+
+          path = "/api/v1/users/#{@student.id}/enrollments"
+          params = { controller: "enrollments_api", action: "index", user_id: @student.id.to_param, format: "json" }
+          api_call_as_user(@observer, :get, path, params)
+
+          expect(response).to have_http_status :unauthorized
+        end
       end
 
       describe "custom roles" do
@@ -3508,6 +3534,7 @@ describe EnrollmentsApiController, type: :request do
       Account.default.enable_feature!(:temporary_enrollments)
       @provider = user_factory(active_all: true)
       @recipient = user_factory(active_all: true)
+      @user = user_factory(active_all: true)
       course1 = course_with_teacher(active_all: true, user: @provider).course
       course2 = course_with_teacher(active_all: true, user: @provider).course
       temporary_enrollment_pairing = TemporaryEnrollmentPairing.create!(root_account: Account.default, created_by: account_admin_user)
@@ -3533,6 +3560,16 @@ describe EnrollmentsApiController, type: :request do
           end_at:
         }
       )
+      enrollment = course1.enroll_user(
+        @user,
+        "TeacherEnrollment",
+        {
+          role: teacher_role,
+          start_at:,
+          end_at:
+        }
+      )
+      enrollment.accept
     end
 
     it "returns appropriate status for a provider" do
@@ -3542,9 +3579,10 @@ describe EnrollmentsApiController, type: :request do
                       user_id: @provider.id,
                       format: "json" }
       json = api_call_as_user(account_admin_user, :get, user_path, user_params)
-      expect(json.length).to eq(2)
+      expect(json.length).to eq(3)
       expect(json["is_provider"]).to be_truthy
       expect(json["is_recipient"]).to be_falsey
+      expect(json["can_provide"]).to be_truthy
     end
 
     it "returns appropriate status for a recipient" do
@@ -3554,9 +3592,23 @@ describe EnrollmentsApiController, type: :request do
                       user_id: @recipient.id,
                       format: "json" }
       json = api_call_as_user(account_admin_user, :get, user_path, user_params)
-      expect(json.length).to eq(2)
+      expect(json.length).to eq(3)
       expect(json["is_provider"]).to be_falsey
       expect(json["is_recipient"]).to be_truthy
+      expect(json["can_provide"]).to be_truthy
+    end
+
+    it "returns appropriate status for a user that can provide" do
+      user_path = "/api/v1/users/#{@user.id}/temporary_enrollment_status"
+      user_params = { controller: "enrollments_api",
+                      action: "show_temporary_enrollment_status",
+                      user_id: @user.id,
+                      format: "json" }
+      json = api_call_as_user(account_admin_user, :get, user_path, user_params)
+      expect(json.length).to eq(3)
+      expect(json["is_provider"]).to be_falsey
+      expect(json["is_recipient"]).to be_falsey
+      expect(json["can_provide"]).to be_truthy
     end
   end
 end

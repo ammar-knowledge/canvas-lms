@@ -21,11 +21,12 @@ import '@canvas/jquery/jquery.ajaxJSON'
 import '@canvas/module-sequence-footer'
 import MarkAsDone from '@canvas/util/jquery/markAsDone'
 import ToolLaunchResizer from '@canvas/lti/jquery/tool_launch_resizer'
-import {monitorLtiMessages} from '@canvas/lti/jquery/messages'
 import ready from '@instructure/ready'
+import MutexManager from '@canvas/mutex-manager/MutexManager'
 
 ready(() => {
-  const formSubmissionDelay = window.ENV.INTEROP_8200_DELAY_FORM_SUBMIT
+  const formSubmissionDelay = window.ENV.LTI_FORM_SUBMIT_DELAY
+  const formSubmissionMutex = window.ENV.INIT_DRAWER_LAYOUT_MUTEX
 
   let toolFormId = '#tool_form'
   let toolIframeId = '#tool_content'
@@ -35,32 +36,44 @@ ready(() => {
   }
   const $toolForm = $(toolFormId)
 
+  const submitForm = function (submitFn) {
+    if (formSubmissionDelay) {
+      setTimeout(() => {
+        MutexManager.awaitMutex(formSubmissionMutex, () => {
+          if (submitFn) {
+            $toolForm.submit(submitFn)
+          } else {
+            $toolForm.submit()
+          }
+        })
+      }, formSubmissionDelay)
+    } else {
+      MutexManager.awaitMutex(formSubmissionMutex, () => {
+        if (submitFn) {
+          $toolForm.submit(submitFn)
+        } else {
+          $toolForm.submit()
+        }
+      })
+    }
+  }
+
   const launchToolManually = function () {
     const $button = $toolForm.find('button')
 
     $toolForm.show()
 
     // Firefox remembers disabled state after page reloads
-    $button.attr('disabled', false)
+    $button.prop('disabled', false)
     setTimeout(() => {
       // LTI links have a time component in the signature and will
       // expire after a few minutes.
-      $button.attr('disabled', true).text($button.data('expired_message'))
+      $button.prop('disabled', true).text($button.data('expired_message'))
     }, 60 * 2.5 * 1000)
 
-    if (formSubmissionDelay) {
-      setTimeout(
-        () =>
-          $toolForm.submit(function () {
-            $(this).find('.load_tab,.tab_loaded').toggle()
-          }),
-        formSubmissionDelay
-      )
-    } else {
-      $toolForm.submit(function () {
-        $(this).find('.load_tab,.tab_loaded').toggle()
-      })
-    }
+    submitForm(function () {
+      $(this).find('.load_tab,.tab_loaded').toggle()
+    })
   }
 
   const launchToolInNewTab = function () {
@@ -75,19 +88,11 @@ ready(() => {
       break
     case 'self':
       $toolForm.removeAttr('target')
-      if (formSubmissionDelay) {
-        setTimeout(() => $toolForm.submit(), formSubmissionDelay)
-      } else {
-        $toolForm.submit()
-      }
+      submitForm()
       break
     default:
       // Firefox throws an error when submitting insecure content
-      if (formSubmissionDelay) {
-        setTimeout(() => $toolForm.submit(), formSubmissionDelay)
-      } else {
-        $toolForm.submit()
-      }
+      submitForm()
 
       $(toolIframeId).bind('load', () => {
         if (document.location.protocol !== 'https:' || $toolForm[0].action.indexOf('https:') > -1) {
@@ -128,7 +133,8 @@ ready(() => {
   const is_full_screen = $('body').hasClass('ic-full-screen-lti-tool')
 
   if (!is_full_screen) {
-    canvas_chrome_height = $tool_content_wrapper.offset().top + $('#footer').outerHeight(true)
+    const footerHeight = $('#footer').outerHeight(true) || 0
+    canvas_chrome_height = $tool_content_wrapper.offset().top + footerHeight
   }
 
   if ($tool_content_wrapper.length) {
@@ -157,11 +163,10 @@ ready(() => {
 
             toolResizer.resize_tool_content_wrapper(tool_height, $tool_content_wrapper, true)
           } else {
+            // module item navigation from PLAT-1687
+            const sequenceFooterHeight = $('#sequence_footer').outerHeight(true) || 0
             toolResizer.resize_tool_content_wrapper(
-              $window.height() -
-                canvas_chrome_height -
-                // module item navigation from PLAT-1687
-                $('#sequence_footer').outerHeight(true)
+              $window.height() - canvas_chrome_height - sequenceFooterHeight
             )
           }
         }
@@ -181,5 +186,3 @@ ready(() => {
     MarkAsDone.toggle(this)
   })
 })
-
-monitorLtiMessages()

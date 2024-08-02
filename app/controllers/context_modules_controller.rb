@@ -47,7 +47,7 @@ class ContextModulesController < ApplicationController
 
     def modules_cache_key
       @modules_cache_key ||= begin
-        visible_assignments = @current_user.try(:assignment_and_quiz_visibilities, @context)
+        visible_assignments = @current_user.try(:learning_object_visibilities, @context)
         cache_key_items = [@context.cache_key,
                            @can_view,
                            @can_add,
@@ -59,7 +59,7 @@ class ContextModulesController < ApplicationController
                            "all_context_modules_draft_10",
                            collection_cache_key(@modules),
                            Time.zone,
-                           Digest::SHA256.hexdigest([visible_assignments, @section_visibility].join("/"))]
+                           Digest::SHA256.hexdigest([visible_assignments, @section_visibility, @module_ids_with_overrides].join("/"))]
         cache_key = cache_key_items.join("/")
         cache_key = add_menu_tools_to_cache_key(cache_key)
         add_mastery_paths_to_cache_key(cache_key, @context, @current_user)
@@ -83,8 +83,9 @@ class ContextModulesController < ApplicationController
       @can_view_grades = can_do(@context, @current_user, :view_all_grades)
       @is_student = @context.grants_right?(@current_user, session, :participate_as_student)
       @can_view_unpublished = @context.grants_right?(@current_user, session, :read_as_admin)
+      @viewable_module_ids = @context.modules_visible_to(@current_user).pluck(:id)
 
-      if Account.site_admin.feature_enabled?(:differentiated_modules)
+      if Account.site_admin.feature_enabled?(:selective_release_backend)
         @module_ids_with_overrides = AssignmentOverride.where(context_module_id: @modules).active.distinct.pluck(:context_module_id)
       end
 
@@ -125,6 +126,9 @@ class ContextModulesController < ApplicationController
       if @context.grants_any_right?(@current_user, session, :manage_content, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
         module_file_details = load_module_file_details
       end
+
+      @allow_menu_tools = @context.grants_any_right?(@current_user, session, :manage_content, :manage_course_content_add) &&
+                          (@menu_tools[:module_index_menu].present? || @menu_tools[:module_index_menu_modal].present?)
 
       hash = {
         course_id: @context.id,
@@ -699,7 +703,8 @@ class ContextModulesController < ApplicationController
         content_details: content_details(@tag, @current_user),
         assignment_id: @tag.assignment.try(:id),
         is_cyoe_able: cyoe_able?(@tag),
-        is_duplicate_able: @tag.duplicate_able?
+        is_duplicate_able: @tag.duplicate_able?,
+        can_manage_assign_to: @tag.content&.grants_right?(@current_user, session, :manage_assign_to)
       )
       @context.touch
       render json:
@@ -809,14 +814,23 @@ class ContextModulesController < ApplicationController
     content_with_assignments = assignment_tags
                                .select { |ct| ct.content_type != "Assignment" && ct.content.assignment_id }.map(&:content)
     ActiveRecord::Associations.preload(content_with_assignments, :assignment) if content_with_assignments.any?
+    DatesOverridable.preload_override_data_for_objects(content_with_assignments.map(&:assignment))
+    DatesOverridable.preload_override_data_for_objects(tags.select { |ct| %w[Assignment Quizzes::Quiz WikiPage DiscussionTopic].include?(ct.content_type) }.map(&:content))
 
     if user_is_admin && should_preload_override_data?
       assignments = assignment_tags.filter_map(&:assignment)
       plain_quizzes = assignment_tags.select { |ct| ct.content.is_a?(Quizzes::Quiz) && !ct.content.assignment }.map(&:content)
-
       preload_has_too_many_overrides(assignments, :assignment_id)
       preload_has_too_many_overrides(plain_quizzes, :quiz_id)
-      overrideables = (assignments + plain_quizzes).reject(&:has_too_many_overrides)
+
+      sub_assignments = []
+      if @context.root_account.feature_enabled?(:discussion_checkpoints)
+        ActiveRecord::Associations.preload(content_with_assignments, assignment: :sub_assignments) if content_with_assignments.any?
+        sub_assignments = assignments.flat_map(&:sub_assignments)
+        preload_has_too_many_overrides(sub_assignments, :assignment_id)
+      end
+
+      overrideables = (assignments + plain_quizzes + sub_assignments).reject(&:has_too_many_overrides)
 
       if overrideables.any?
         ActiveRecord::Associations.preload(overrideables, :assignment_overrides)
@@ -842,7 +856,6 @@ class ContextModulesController < ApplicationController
       ids = AssignmentOverride.active.where(override_column => assignments_or_quizzes)
                               .group(override_column).having("COUNT(*) > ?", Api::V1::Assignment::ALL_DATES_LIMIT)
                               .active.pluck(override_column)
-
       if ids.any?
         assignments_or_quizzes.each { |o| o.has_too_many_overrides = true if ids.include?(o.id) }
       end

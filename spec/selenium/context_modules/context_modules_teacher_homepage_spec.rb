@@ -20,12 +20,14 @@ require_relative "../helpers/context_modules_common"
 require_relative "../helpers/public_courses_context"
 require_relative "page_objects/modules_index_page"
 require_relative "page_objects/modules_settings_tray"
+require_relative "../../helpers/selective_release_common"
 
 describe "context modules" do
   include_context "in-process server selenium tests"
   include ContextModulesCommon
   include ModulesIndexPage
   include ModulesSettingsTray
+  include SelectiveReleaseCommon
 
   context "as a teacher through course home page (set to modules)", priority: "1" do
     before(:once) do
@@ -95,7 +97,8 @@ describe "context modules" do
         wait_for_ajax_requests
         expect(tag.reload).to be_published
         refresh_page
-        driver.action.move_to(f("i.icon-unpublish")).perform
+        f("#course_publish_button button").click
+        f("ul[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
         expect(f("span.publish-icon.published.publish-icon-published")).to be_displayed
         expect(tag).to be_published
       end
@@ -132,7 +135,7 @@ describe "context modules" do
 
     context "when adding new module without differentiated modules" do
       before :once do
-        Account.site_admin.disable_feature! :differentiated_modules
+        Account.site_admin.disable_feature! :selective_release_ui_api
       end
 
       before do

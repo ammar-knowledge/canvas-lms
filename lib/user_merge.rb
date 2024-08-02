@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 class UserMerge
-  class UnsafeMergeError < StandardError; end
-
   def self.from(user)
     new(user)
   end
@@ -38,11 +36,6 @@ class UserMerge
     return unless target_user
     return if target_user == from_user
     raise "cannot merge a test student" if from_user.preferences[:fake_student] || target_user.preferences[:fake_student]
-
-    if UserMergeData.active.splitable.where(user_id: target_user, from_user_id: from_user).exists?
-      raise UnsafeMergeError,
-            "There is already an existing active user merge for target user, from user: (#{target_user.id}, #{from_user.id})}"
-    end
 
     @target_user = target_user
     target_user.associate_with_shard(from_user.shard, :shadow)
@@ -69,12 +62,8 @@ class UserMerge
       merge_data.items.create!(user: from_user, item_type: "user_preferences", item: from_user.preferences)
       merge_data.items.create!(user: target_user, item_type: "user_preferences", item: target_user.preferences)
 
-      if from_user.needs_preference_migration?
-        prefs = shard_aware_preferences
-      else
-        copy_migrated_preferences # uses new rows to store preferences
-        prefs = from_user.preferences
-      end
+      copy_migrated_preferences # uses new rows to store preferences
+      prefs = from_user.preferences
       target_user.preferences = target_user.preferences.merge(prefs)
       target_user.save if target_user.changed?
 
@@ -194,10 +183,14 @@ class UserMerge
       merge_data.bulk_insert_merge_data(data) unless data.empty?
       @data = []
       Enrollment.delay.recompute_due_dates_and_scores(target_user.id)
-      target_user.update_account_associations
     end
 
     from_user.reload
+    target_user.reload
+    target_user.update_account_associations
+    # we need to ensure root_account_ids field is up to date for the user
+    # as it is leveraged by DAP to determine the root account of a user
+    target_user.update_root_account_ids_later
     target_user.clear_caches
     from_user.update!(merged_into_user: target_user)
     from_user.destroy
@@ -225,25 +218,7 @@ class UserMerge
     key.is_a?(String) ? [key.split("_").first, new_id].join("_") : new_id
   end
 
-  # can remove when all preferences have been migrated
-  def shard_aware_preferences
-    return from_user.preferences if from_user.shard == target_user.shard
-
-    preferences = from_user.preferences.dup
-    %i[custom_colors course_nicknames].each do |pref|
-      preferences.delete(pref)
-      new_pref = {}
-      from_user.preferences[pref]&.each do |key, value|
-        new_key = translate_course_id_or_asset_string(key)
-        new_pref[new_key] = value
-      end
-      preferences[pref] = new_pref unless new_pref.empty?
-    end
-    preferences
-  end
-
   def copy_migrated_preferences
-    target_user.migrate_preferences_if_needed # may as well
     from_values = from_user.user_preference_values.to_a
     target_values = target_user.user_preference_values.to_a.index_by { |r| [r.key, r.sub_key] }
 
@@ -255,7 +230,6 @@ class UserMerge
       sub_key = from_record.sub_key
       value = from_record.value
       if from_user.shard != target_user.shard
-        # tl;dr do the same thing as shard_aware_preferences
         case key
         when "custom_colors"
           value = value.transform_keys { |id| translate_course_id_or_asset_string(id) }
@@ -455,6 +429,8 @@ class UserMerge
     # the comments inline show all the different cases, with the source cc on the left,
     # target cc on the right.  The * indicates the CC that will be retired in order
     # to resolve the conflict
+    target_cc.reload
+
     if target_cc.active?
       # retired, active
       # unconfirmed*, active

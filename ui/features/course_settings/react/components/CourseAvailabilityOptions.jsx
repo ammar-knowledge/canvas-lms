@@ -17,7 +17,8 @@
  */
 
 import {useScope as useI18nScope} from '@canvas/i18n'
-import * as tz from '@canvas/datetime'
+import * as tz from '@instructure/moment-utils'
+import {isMidnight} from '@instructure/moment-utils'
 import moment from 'moment'
 import React, {useState} from 'react'
 import {bool} from 'prop-types'
@@ -29,7 +30,7 @@ import CanvasDateInput from '@canvas/datetime/react/components/DateInput'
 import {Flex} from '@instructure/ui-flex'
 import {ScreenReaderContent, AccessibleContent} from '@instructure/ui-a11y-content'
 import {IconWarningSolid} from '@instructure/ui-icons'
-import {changeTimezone} from '@canvas/datetime/changeTimezone'
+import {changeTimezone} from '@instructure/moment-utils/changeTimezone'
 import {View} from '@instructure/ui-view'
 
 const I18n = useI18nScope('CourseAvailabilityOptions')
@@ -79,9 +80,9 @@ export default function CourseAvailabilityOptions({canManage, viewPastLocked, vi
 
   const formatDate = date => tz.format(date, 'date.formats.full')
 
-  const parseDate = (date, tz) => {
+  const parseDate = (date, originTZ) => {
     const dateObj = new Date(date)
-    const parsedDate = changeTimezone(dateObj, {originTZ: tz, desiredTZ: ENV.TIMEZONE})
+    const parsedDate = changeTimezone(dateObj, {originTZ, desiredTZ: ENV.TIMEZONE})
     return formatDate(parsedDate)
   }
 
@@ -103,6 +104,16 @@ export default function CourseAvailabilityOptions({canManage, viewPastLocked, vi
     setStartDate(null)
     setFormValue(FORM_IDS.END_DATE, null)
     setEndDate(null)
+  }
+
+  const endDateErrors = (startDate, endDate) => {
+    if(endDate < startDate){
+      return [{
+        type: 'error',
+        text: I18n.t('The end date can not occur before the start date.')
+      }]
+    }
+    return []
   }
 
   return (
@@ -194,6 +205,7 @@ export default function CourseAvailabilityOptions({canManage, viewPastLocked, vi
             <Flex.Item padding="xx-small">
               <ScreenReaderContent>{I18n.t('Course End Date')}</ScreenReaderContent>
               <CanvasDateInput
+                messages={endDateErrors(startDate, endDate)}
                 renderLabel={I18n.t('End')}
                 formatDate={formatDate}
                 interaction={datesInteraction()}
@@ -223,7 +235,7 @@ export default function CourseAvailabilityOptions({canManage, viewPastLocked, vi
               )}
             </Flex.Item>
           </Flex>
-          {tz.isMidnight(endDate) && selectedApplicabilityValue === 'course' && (
+          {isMidnight(endDate) && selectedApplicabilityValue === 'course' && (
             <Flex>
               <Flex.Item margin="xx-small small xx-small 0" align="start">
                 <AccessibleContent alt={I18n.t('Warning')}>

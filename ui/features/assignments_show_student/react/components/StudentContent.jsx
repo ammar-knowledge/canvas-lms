@@ -43,7 +43,7 @@ import VisualOnFocusMessage from './VisualOnFocusMessage'
 import ToolLaunchIframe from '@canvas/external-tools/react/components/ToolLaunchIframe'
 import iframeAllowances from '@canvas/external-apps/iframeAllowances'
 import {Flex} from '@instructure/ui-flex'
-import {arrayOf, func} from 'prop-types'
+import {arrayOf, func, bool} from 'prop-types'
 
 const I18n = useI18nScope('assignments_2_student_content')
 
@@ -128,7 +128,7 @@ function renderAttemptsAndAvailability(assignment) {
 }
 
 function renderContentBaseOnAvailability(
-  {assignment, submission, reviewerSubmission},
+  {assignment, submission, reviewerSubmission, rubricExpanded, toggleRubricExpanded},
   alertContext,
   onSuccessfulPeerReview
 ) {
@@ -145,7 +145,7 @@ function renderContentBaseOnAvailability(
     // EVAL-3711 Remove ICE Feature Flag
     return (
       <>
-        {!window.ENV.FEATURES.instui_nav &&
+        {!window.ENV.FEATURES?.instui_nav &&
           !assignment.env.peerReviewModeEnabled &&
           renderAttemptsAndAvailability(assignment)}
         <AssignmentToggleDetails description={assignment.description} />
@@ -167,7 +167,7 @@ function renderContentBaseOnAvailability(
         <Flex margin="medium 0 0 0" alignItems="start">
           <div style={{flexGrow: 1}}>
             {/* EVAL-3711 Remove ICE Feature Flag */}
-            {!window.ENV.FEATURES.instui_nav &&
+            {!window.ENV.FEATURES?.instui_nav &&
               !assignment.env.peerReviewModeEnabled &&
               renderAttemptsAndAvailability(assignment)}
             {assignment.submissionTypes.includes('student_annotation') && (
@@ -182,7 +182,12 @@ function renderContentBaseOnAvailability(
 
             {assignment.rubric && (
               <Suspense fallback={<LoadingIndicator />}>
-                <RubricsQuery assignment={assignment} submission={submission} />
+                <RubricsQuery
+                  assignment={assignment}
+                  submission={submission}
+                  rubricExpanded={rubricExpanded}
+                  toggleRubricExpanded={toggleRubricExpanded}
+                />
               </Suspense>
             )}
           </div>
@@ -275,24 +280,34 @@ function StudentContent(props) {
 
   // TODO: Move the button provider up one level
   return (
-    <div data-testid="assignments-2-student-view">
-      <Header
-        assignment={props.assignment}
-        scrollThreshold={150}
-        submission={props.submission}
-        reviewerSubmission={props.reviewerSubmission}
-      />
-      <AttemptInformation
-        assignment={props.assignment}
-        submission={props.submission}
-        reviewerSubmission={props.reviewerSubmission}
-        onChangeSubmission={props.onChangeSubmission}
-        allSubmissions={props.allSubmissions}
-        openCommentTray={openCommentTray}
-        closeCommentTray={closeCommentTray}
-        commentTrayStatus={commentTrayStatus}
-        onSuccessfulPeerReview={onSuccessfulPeerReview}
-      />
+    <div data-testid="assignments-2-student-view" style={{marginTop: '-36px'}}>
+      <View
+        as="div"
+        position="sticky"
+        stacking="above"
+        background="primary"
+        style={{top: 0}}
+        padding="large 0 0 0"
+        themeOverride={{paddingLarge: '36px'}}
+      >
+        <Header
+          assignment={props.assignment}
+          scrollThreshold={150}
+          submission={props.submission}
+          reviewerSubmission={props.reviewerSubmission}
+        />
+        <AttemptInformation
+          assignment={props.assignment}
+          submission={props.submission}
+          reviewerSubmission={props.reviewerSubmission}
+          onChangeSubmission={props.onChangeSubmission}
+          allSubmissions={props.allSubmissions}
+          openCommentTray={openCommentTray}
+          closeCommentTray={closeCommentTray}
+          commentTrayStatus={commentTrayStatus}
+          onSuccessfulPeerReview={onSuccessfulPeerReview}
+        />
+      </View>
       {renderContentBaseOnAvailability(props, alertContext, onSuccessfulPeerReview)}
     </div>
   )
@@ -304,6 +319,8 @@ StudentContent.propTypes = {
   reviewerSubmission: Submission.shape,
   onChangeSubmission: func,
   allSubmissions: arrayOf(Submission.shape),
+  rubricExpanded: bool,
+  toggleRubricExpanded: func,
 }
 
 StudentContent.defaultProps = {

@@ -225,7 +225,7 @@ be the user's typical LTI ID.
 
 Returns an empty string otherwise.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 **Launch Parameter**: *com_instructure_user_observees*  
 
 ```
@@ -234,9 +234,10 @@ Returns an empty string otherwise.
 ```
 ## com.instructure.User.sectionNames
 Returns an array of the section names in a JSON-escaped format that the user is enrolled in, if the
-context of the tool launch is within a course.
+context of the tool launch is within a course. The names are sorted by the course_section_id, so that
+they are useful in conjunction with the Canvas.course.sectionIds substitution.
 
-**Availability**: *when launched from a course*  
+**Availability**: *when launched from a course (or a Group within a course)*  
 **Launch Parameter**: *com_instructure_user_section_names*  
 
 ```
@@ -264,7 +265,7 @@ Returns true if the user is launching from student view.
 ## com.instructure.Observee.sisIds
 returns all observee ids linked to this observer as an String separated by `,`.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 **Launch Parameter**: *com_instructure_observee_sis_ids*  
 
 ```
@@ -372,7 +373,7 @@ in the launch.
 ## CourseOffering.sourcedId
 the LIS identifier for the course offering.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 **Launch Parameter**: *lis_course_offering_sourcedid*  
 
 ```
@@ -415,16 +416,16 @@ If the context is a Course, returns sourced Id of the context.
 1234
 ```
 ## Context.id.history
-Returns a string with a comma-separated list of the context ids of the
-courses in reverse chronological order from which content has been copied.
-Will show a limit of 1000 context ids.  When the number passes 1000,
-'truncated' will show at the end of the list.
+With respect to the current course, recursively returns the context ids of the courses from which content has been copied (excludes cartridge imports).
+Will show a limit of 1000 context ids.  When the number passes 1000, 'truncated' will show at the end of the list.
 
-**Availability**: *when launched in a course*  
+This is an alias of `Canvas.course.previousContextIds.recursive`.
+
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
-"789,456,123"
+"1234,4567"
 ```
 ## Message.documentTarget
 communicates the kind of browser window/frame where the Canvas has launched a tool.
@@ -602,7 +603,7 @@ returns the shard id for the current context.
 ```
 1234
 ```
-## Canvas.root_account.global_id [duplicates Canvas.user.globalId]
+## Canvas.root_account.global_id
 returns the root account's global id for the current context.
 
 **Availability**: *always*  
@@ -641,7 +642,7 @@ returns the root account sis source id for the current context.
 ## Canvas.course.id
 returns the current course id.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -650,7 +651,7 @@ returns the current course id.
 ## vnd.instructure.Course.uuid
 returns the current course uuid.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -659,7 +660,7 @@ returns the current course uuid.
 ## Canvas.course.name
 returns the current course name.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -668,7 +669,7 @@ returns the current course name.
 ## Canvas.course.sisSourceId
 returns the current course sis source id.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -677,7 +678,7 @@ returns the current course sis source id.
 ## com.instructure.Course.integrationId
 returns the current course integration id.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -686,7 +687,7 @@ returns the current course integration id.
 ## Canvas.course.startAt
 returns the current course start date.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -695,7 +696,7 @@ returns the current course start date.
 ## Canvas.course.endAt
 returns the current course end date.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -705,7 +706,7 @@ returns the current course end date.
 returns the current course workflow state. Workflow states of "claimed" or "created"
 indicate an unpublished course.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -714,7 +715,7 @@ indicate an unpublished course.
 ## Canvas.term.startAt
 returns the current course's term start date.
 
-**Availability**: *when launched in a course that has a term with a start date*  
+**Availability**: *when launched in a course (or a Group within a course) that has a term with a start date*  
 
 
 ```
@@ -723,7 +724,7 @@ returns the current course's term start date.
 ## Canvas.term.endAt
 returns the current course's term end date.
 
-**Availability**: **  
+**Availability**: *when launched in a course (or a Group within a course) that has a term with a end date*  
 
 
 ```
@@ -732,17 +733,26 @@ returns the current course's term end date.
 ## Canvas.term.name
 returns the current course's term name.
 
-**Availability**: **  
+**Availability**: *when launched in a course (or a Group within a course) that has a term with a name*  
 **Launch Parameter**: *canvas_term_name*  
 
 ```
 "W1 2017"
 ```
+## Canvas.term.id
+returns the current course's term numerical id.
+
+**Availability**: *when launched in a course (or a Group within a course) that has a term *  
+**Launch Parameter**: *canvas_term_id*  
+
+```
+123
+```
 ## CourseSection.sourcedId
 returns the current course sis source id
 to return the section source id use Canvas.course.sectionIds.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 **Launch Parameter**: *lis_course_section_sourcedid*  
 
 ```
@@ -751,7 +761,7 @@ to return the section source id use Canvas.course.sectionIds.
 ## Canvas.enrollment.enrollmentState
 returns the current course enrollment state.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -781,7 +791,7 @@ true
 returns the grading scheme data for the course
 it is an array of objects of grade levels.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 **Launch Parameter**: *com_instructure_course_grading_scheme*  
 
 ```
@@ -795,7 +805,7 @@ it is an array of objects of grade levels.
 returns the current course membership roles
 using the LIS v2 vocabulary.
 
-**Availability**: *when launched from a course or an account*  
+**Availability**: *when launched from a course or an account (or a Group within a course or account)*  
 **Launch Parameter**: *com_instructure_membership_roles*  
 
 ```
@@ -804,7 +814,7 @@ using the LIS v2 vocabulary.
 ## Canvas.membership.roles
 returns the current course membership roles.
 
-**Availability**: *when launched from a course or an account*  
+**Availability**: *when launched from a course or an account (or a Group within a course or account)*  
 **Launch Parameter**: *canvas_membership_roles*  
 
 ```
@@ -813,7 +823,7 @@ returns the current course membership roles.
 ## Canvas.membership.concludedRoles
 This is a list of IMS LIS roles should have a different key.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -822,7 +832,7 @@ This is a list of IMS LIS roles should have a different key.
 ## Canvas.course.previousContextIds
 With respect to the current course, returns the context ids of the courses from which content has been copied (excludes cartridge imports).
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -832,7 +842,9 @@ With respect to the current course, returns the context ids of the courses from 
 With respect to the current course, recursively returns the context ids of the courses from which content has been copied (excludes cartridge imports).
 Will show a limit of 1000 context ids.  When the number passes 1000, 'truncated' will show at the end of the list.
 
-**Availability**: *when launched in a course*  
+This is an alias of `$Context.id.history`.
+
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -841,7 +853,7 @@ Will show a limit of 1000 context ids.  When the number passes 1000, 'truncated'
 ## Canvas.course.previousCourseIds
 With respect to the current course, returns the course ids of the courses from which content has been copied (excludes cartridge imports).
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 
 
 ```
@@ -985,7 +997,7 @@ false
 ## com.instructure.Course.groupIds
 returns the Canvas ids of all active groups in the current course.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 **Launch Parameter**: *com_instructure_course_groupids*  
 
 ```
@@ -1037,7 +1049,7 @@ Same as "Canvas.xuser.allRoles", but uses roles formatted for LTI Advantage.
  "http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor",
  "http://purl.imsglobal.org/vocab/lis/v2/system/person#User"
 ```
-## Canvas.user.globalId [duplicates Canvas.root_account.global_id]
+## Canvas.user.globalId
 Returns the Canvas global user_id of the launching user.
 
 **Availability**: *when launched by a logged in user*  
@@ -1061,10 +1073,23 @@ that a user has admin rights in, which fall under the root account that
 the tool was launched under. This list includes the IDs of
 all subaccounts of these accounts (and their subaccounts, etc.), since
 the admin privileges carry from an account to all its subaccounts.
+Root account admins are not supported by this variable,
+use `Canvas.user.isRootAccountAdmin` instead.
+
+### Example:
+* Root account
+    * Subaccount 1 (user is account admin)
+        * Subaccount 2
+            * Subaccount 3
+        * Subaccount 4
+    * Subaccount 5
+
+Result: `"1,2,4,3"`
 
 Will show a limit of 40000 characters. If the account IDs list is too big
 to fit into 40000 characters, 'truncated' will show at the end of the
 list.
+The result is cached for 5 minutes.
 
 **Availability**: *when launched by a logged in user*  
 
@@ -1182,7 +1207,7 @@ Returns the caliper url for the user.
 ## Canvas.course.sectionIds
 Returns a comma separated list of section_id's that the user is enrolled in.
 
-**Availability**: *when launched from a course*  
+**Availability**: *when launched from a course (or a Group within a course)*  
 
 
 ```
@@ -1191,7 +1216,7 @@ Returns a comma separated list of section_id's that the user is enrolled in.
 ## Canvas.course.sectionRestricted
 Returns true if the user can only view and interact with users in their own sections.
 
-**Availability**: *when launched from a course*  
+**Availability**: *when launched from a course (or a Group within a course)*  
 
 
 ```
@@ -1200,7 +1225,7 @@ true
 ## Canvas.course.sectionSisSourceIds
 Returns a comma separated list of section sis_id's that the user is enrolled in.
 
-**Availability**: *when launched from a course*  
+**Availability**: *when launched from a course (or a Group within a course)*  
 
 
 ```
@@ -1209,7 +1234,7 @@ Returns a comma separated list of section sis_id's that the user is enrolled in.
 ## com.instructure.contextLabel
 Returns the course code.
 
-**Availability**: *when launched in a course*  
+**Availability**: *when launched in a course (or a Group within a course)*  
 **Launch Parameter**: *context_label*  
 
 ```
@@ -1573,6 +1598,17 @@ in Canvas-side GET request that triggers the LTI launch.
 
 ```
 page
+```
+## com.instructure.Course.canvas_resource_id
+Returns the target resource id for the current page, forwarded from the request. Only functional when
+`com_instructure_course_canvas_resource_type` is included as a query param. Currently, this is not
+supported generally, and is only implemented for specific use cases.
+
+**Availability**: *always*  
+
+
+```
+123123
 ```
 ## com.instructure.Course.allow_canvas_resource_selection
 Returns whether a content can be imported into a specific group on the page, forwarded from the request.

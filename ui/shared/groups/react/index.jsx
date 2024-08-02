@@ -62,7 +62,7 @@ const StudentView = createReactClass({
   openManageGroupDialog(group) {
     const $dialog = $('<div>').dialog({
       id: 'manage_group_form',
-      title: 'Manage Student Group',
+      title: I18n.t('Manage Student Group'),
       height: 500,
       width: 700,
       'fix-dialog-buttons': false,
@@ -71,6 +71,8 @@ const StudentView = createReactClass({
         ReactDOM.unmountComponentAtNode($dialog[0])
         $(this).remove()
       },
+      modal: true,
+      zIndex: 1000,
     })
 
     const closeDialog = e => {

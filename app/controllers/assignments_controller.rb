@@ -67,6 +67,7 @@ class AssignmentsController < ApplicationController
         set_js_assignment_data
         set_tutorial_js_env
         set_section_list_js_env
+        grading_standard = @context.grading_standard_or_default
         hash = {
           WEIGHT_FINAL_GRADES: @context.apply_group_weights?,
           POST_TO_SIS_DEFAULT: @context.account.sis_default_grade_export[:value],
@@ -83,7 +84,9 @@ class AssignmentsController < ApplicationController
             newquizzes_on_quiz_page: @context.root_account.feature_enabled?(:newquizzes_on_quiz_page),
             show_additional_speed_grader_link: Account.site_admin.feature_enabled?(:additional_speedgrader_links),
           },
-          grading_scheme: @context.grading_standard_or_default.data
+          grading_scheme: grading_standard.data,
+          points_based: grading_standard.points_based?,
+          scaling_factor: grading_standard.scaling_factor
         }
 
         set_default_tool_env!(@context, hash)
@@ -140,7 +143,7 @@ class AssignmentsController < ApplicationController
 
     peer_review_mode_enabled = @context.feature_enabled?(:peer_reviews_for_a2) && (params[:reviewee_id].present? || params[:anonymous_asset_id].present?)
     peer_review_available = submission.present? && @assignment.submitted?(submission:) && current_user_submission.present? && @assignment.submitted?(submission: current_user_submission)
-
+    grading_standard = @context.grading_standard_or_default
     js_env({
              a2_student_view: render_a2_student_view?,
              peer_review_mode_enabled: submission.present? && peer_review_mode_enabled,
@@ -148,7 +151,10 @@ class AssignmentsController < ApplicationController
              peer_display_name: @assignment.anonymous_peer_reviews? ? I18n.t("Anonymous student") : submission&.user&.name,
              originality_reports_for_a2_enabled: Account.site_admin.feature_enabled?(:originality_reports_for_a2),
              restrict_quantitative_data: @assignment.restrict_quantitative_data?(@current_user),
-             grading_scheme: @context.grading_standard_or_default.data
+             grading_scheme: grading_standard.data,
+             points_based: grading_standard.points_based?,
+             scaling_factor: grading_standard.scaling_factor,
+             enhanced_rubrics_enabled: Rubric.enhanced_rubrics_enabled_for_context?(@context),
            })
 
     if peer_review_mode_enabled
@@ -156,7 +162,7 @@ class AssignmentsController < ApplicationController
       if current_user_submission
         graphql_reviewer_submission_id = CanvasSchema.id_from_object(
           current_user_submission,
-          CanvasSchema.resolve_type(nil, current_user_submission, nil),
+          CanvasSchema.resolve_type(nil, current_user_submission, nil)[0],
           nil
         )
       end
@@ -171,7 +177,7 @@ class AssignmentsController < ApplicationController
     if submission
       graphql_submission_id = CanvasSchema.id_from_object(
         submission,
-        CanvasSchema.resolve_type(nil, submission, nil),
+        CanvasSchema.resolve_type(nil, submission, nil)[0],
         nil
       )
     end
@@ -275,10 +281,14 @@ class AssignmentsController < ApplicationController
         @locked = @assignment.locked_for?(@current_user, check_policies: true, deep_check_if_needed: true)
         @unlocked = !@locked || @assignment.grants_right?(@current_user, session, :update)
 
-        if @assignment.submission_types == "external_tool" && Account.site_admin.feature_enabled?(:external_tools_for_a2) && @unlocked
+        if @assignment.external_tool? && Account.site_admin.feature_enabled?(:external_tools_for_a2) && @unlocked
           @tool = ContextExternalTool.from_assignment(@assignment)
 
-          js_env({ LTI_TOOL: "true", ASSIGNMENT_POINTS_POSSIBLE: @assignment.points_possible })
+          js_env({ LTI_TOOL: "true" })
+        end
+
+        if @assignment.external_tool?
+          js_env({ ASSIGNMENT_POINTS_POSSIBLE: @assignment.points_possible })
         end
 
         unless @assignment.new_record? || (@locked && !@locked[:can_view])
@@ -323,7 +333,7 @@ class AssignmentsController < ApplicationController
             return
           else
             # This should not be reachable but leaving in place until we remove the old view
-            flash[:notice] = t "No student is being observed. To select a student, return to the dashboard."
+            flash[:notice] = t "No student is being observed."
           end
         end
 
@@ -424,17 +434,20 @@ class AssignmentsController < ApplicationController
 
         @similarity_pledge = pledge_text
 
-        js_env({
-                 EULA_URL: tool_eula_url,
-                 EXTERNAL_TOOLS: external_tools_json(@external_tools, @context, @current_user, session),
-                 PERMISSIONS: permissions,
-                 SIMILARITY_PLEDGE: @similarity_pledge,
-                 CONFETTI_ENABLED: @domain_root_account&.feature_enabled?(:confetti_for_assignments),
-                 EMOJIS_ENABLED: @context.feature_enabled?(:submission_comment_emojis),
-                 EMOJI_DENY_LIST: @context.root_account.settings[:emoji_deny_list],
-                 USER_ASSET_STRING: @current_user&.asset_string,
-                 OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION: @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation),
-               })
+        hash = {
+          EULA_URL: tool_eula_url,
+          EXTERNAL_TOOLS: external_tools_json(@external_tools, @context, @current_user, session),
+          PERMISSIONS: permissions,
+          SIMILARITY_PLEDGE: @similarity_pledge,
+          CONFETTI_ENABLED: @domain_root_account&.feature_enabled?(:confetti_for_assignments),
+          EMOJIS_ENABLED: @context.feature_enabled?(:submission_comment_emojis),
+          EMOJI_DENY_LIST: @context.root_account.settings[:emoji_deny_list],
+          USER_ASSET_STRING: @current_user&.asset_string,
+          OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION: @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation),
+        }
+
+        append_default_due_time_js_env(@context, hash)
+        js_env(hash)
 
         set_master_course_js_env_data(@assignment, @context)
         conditional_release_js_env(@assignment, includes: :rule)
@@ -799,7 +812,8 @@ class AssignmentsController < ApplicationController
         ASSIGNMENT_INDEX_URL: polymorphic_url([@context, :assignments]),
         ASSIGNMENT_OVERRIDES: assignment_overrides_json(
           @assignment.overrides_for(@current_user, ensure_set_not_empty: true),
-          @current_user
+          @current_user,
+          include_names: true
         ),
         AVAILABLE_MODERATORS: @assignment.available_moderators.map { |user| { name: user.name, id: user.id } },
         COURSE_ID: @context.id,
@@ -826,8 +840,11 @@ class AssignmentsController < ApplicationController
           Account.site_admin.feature_enabled?(:hide_zero_point_quizzes_option),
         GRADING_SCHEME_UPDATES_ENABLED:
           Account.site_admin.feature_enabled?(:grading_scheme_updates),
+        ARCHIVED_GRADING_SCHEMES_ENABLED: Account.site_admin.feature_enabled?(:archived_grading_schemes),
         OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION:
-          @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation)
+          @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation),
+        ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED:
+          Account.site_admin.feature_enabled?(:assignment_submission_type_card)
       }
 
       if @context.root_account.feature_enabled?(:instui_nav)
@@ -1131,7 +1148,7 @@ class AssignmentsController < ApplicationController
 
   def filter_speed_grader_by_student_group?
     # Group assignments only need to filter if they show individual students
-    return false if @assignment.group_category? && !@assignment.grade_group_students_individually?
+    return false if @assignment.group_category_id && !@assignment.grade_group_students_individually?
 
     @context.filter_speed_grader_by_student_group?
   end

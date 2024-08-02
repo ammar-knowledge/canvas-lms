@@ -18,6 +18,7 @@
 
 import {string} from 'prop-types'
 import gql from 'graphql-tag'
+import {ContextModule} from './ContextModule'
 
 export const AssignmentOverride = {
   fragment: gql`
@@ -27,6 +28,10 @@ export const AssignmentOverride = {
       dueAt
       lockAt
       unlockAt
+      unassignItem
+      contextModule {
+        ...ContextModule
+      }
       set {
         ... on AdhocStudents {
           __typename
@@ -58,6 +63,7 @@ export const AssignmentOverride = {
         }
       }
     }
+    ${ContextModule.fragment}
   `,
   shape: () => ({
     _id: string,
@@ -65,6 +71,8 @@ export const AssignmentOverride = {
     dueAt: string,
     lockAt: string,
     unlockAt: string,
+    unassignItem: Boolean,
+    module: ContextModule.shape,
   }),
   mock: ({
     _id = '1',
@@ -72,18 +80,22 @@ export const AssignmentOverride = {
     dueAt = '2020-01-01',
     lockAt = '2020-01-01',
     unlockAt = '2020-01-01',
+    unassignItem = false,
     set = {
       __typename: 'Section',
       id: '1',
       name: 'Section Name',
       _id: '1',
     },
+    contextModule = null,
   } = {}) => ({
     _id,
     id,
     dueAt,
     lockAt,
     unlockAt,
+    unassignItem,
     set,
+    contextModule,
   }),
 }

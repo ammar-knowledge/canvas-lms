@@ -176,7 +176,7 @@ describe DeveloperKey do
     end
 
     describe "instrumentation" do
-      subject do
+      def enable_external_tools
         developer_key.enable_external_tools!(account)
         Timecop.travel(10.seconds) do
           run_jobs
@@ -191,27 +191,23 @@ describe DeveloperKey do
       end
 
       around do |example|
-        Timecop.freeze(Time.zone.now, &example)
-      end
-
-      after do
-        Timecop.return
+        Timecop.freeze(&example)
       end
 
       context "when method succeeds" do
         it "increments success count" do
-          subject
+          enable_external_tools
           expect(InstStatsd::Statsd).to have_received(:increment).with("developer_key.manage_external_tools.count", any_args)
         end
 
         it "tracks success timing" do
-          subject
+          enable_external_tools
           expect(InstStatsd::Statsd).to have_received(:timing).with("developer_key.manage_external_tools.latency", be_within(5000).of(10_000), any_args)
         end
       end
 
       context "when method raises an exception" do
-        subject do
+        def manage_external_tools
           developer_key.send(:manage_external_tools, developer_key.send(:tool_management_enqueue_args), :nonexistent_method, account)
           Timecop.travel(10.seconds) do
             run_jobs
@@ -223,33 +219,30 @@ describe DeveloperKey do
         end
 
         it "increments error count" do
-          subject
+          manage_external_tools
           expect(InstStatsd::Statsd).to have_received(:increment).with("developer_key.manage_external_tools.error.count", any_args)
         end
 
         it "tracks success timing" do
-          subject
+          manage_external_tools
           expect(InstStatsd::Statsd).to have_received(:timing).with("developer_key.manage_external_tools.error.latency", be_within(5000).of(10_000), any_args)
         end
 
         it "sends error to sentry" do
-          subject
+          manage_external_tools
           expect(Canvas::Errors).to have_received(:capture_exception).with(:developer_keys, instance_of(NoMethodError), :error)
         end
       end
     end
 
     describe "#restore_external_tools!" do
-      before do
-        developer_key
-        @shard1.activate { tool_configuration }
-        shard_1_tool.update!(root_account: shard_1_account)
-        shard_2_tool.update!(root_account: shard_2_account)
-        subject
-      end
-
       context "when account is site admin" do
-        subject do
+        before do
+          developer_key
+          @shard1.activate { tool_configuration }
+          shard_1_tool.update!(root_account: shard_1_account)
+          shard_2_tool.update!(root_account: shard_2_account)
+
           @shard1.activate do
             developer_key.restore_external_tools!(account)
             run_jobs
@@ -274,11 +267,11 @@ describe DeveloperKey do
         @shard1.activate { tool_configuration }
         shard_1_tool
         shard_2_tool
-        subject
+        disable_external_tools
       end
 
       context "when account is site admin" do
-        subject do
+        def disable_external_tools
           @shard1.activate do
             developer_key.disable_external_tools!(account)
             run_jobs
@@ -297,7 +290,7 @@ describe DeveloperKey do
       end
 
       context "account is not site admin" do
-        subject do
+        def disable_external_tools
           @shard1.activate do
             developer_key.disable_external_tools!(account)
             run_jobs
@@ -317,19 +310,15 @@ describe DeveloperKey do
     end
 
     describe "#enable_external_tools!" do
-      subject do
-        @shard1.activate do
-          developer_key.enable_external_tools!(account)
-          run_jobs
-        end
-      end
-
       before do
         developer_key
         @shard1.activate { tool_configuration }
         shard_1_tool.update!(workflow_state: "disabled")
         shard_2_tool.update!(workflow_state: "disabled")
-        subject
+        @shard1.activate do
+          developer_key.enable_external_tools!(account)
+          run_jobs
+        end
       end
 
       context "account is site admin" do
@@ -371,7 +360,7 @@ describe DeveloperKey do
     end
 
     describe "#update_external_tools!" do
-      subject do
+      def update_external_tools
         @shard1.activate do
           tool_configuration.settings["title"] = new_title
           tool_configuration.save!
@@ -392,7 +381,7 @@ describe DeveloperKey do
       context "when site admin key" do
         before do
           developer_key.update!(account: nil)
-          subject
+          update_external_tools
           run_jobs
         end
 
@@ -413,7 +402,7 @@ describe DeveloperKey do
       context "when non-site admin key" do
         before do
           developer_key.update!(account: shard_1_account)
-          subject
+          update_external_tools
           run_jobs
         end
 
@@ -439,7 +428,7 @@ describe DeveloperKey do
             .update_all(context_id: Course.last&.id.to_i + 1, context_type: "Course")
           developer_key.tool_configuration.configuration["oidc_initiation_url"] = "example.com"
           developer_key.tool_configuration.save!
-          subject
+          update_external_tools
           run_jobs
           failed_jobs = Delayed::Job.where("tag LIKE ?", "DeveloperKey%").where.not(last_error: nil)
           expect(failed_jobs.to_a).to eq([])
@@ -531,20 +520,20 @@ describe DeveloperKey do
           a = account_model
           DeveloperKey.create!(
             account: a,
-            tool_configuration: tool_configuration.dup
+            skip_lti_sync: true
           )
         end
       end
 
       let(:site_admin_key) do
         Account.site_admin.shard.activate do
-          DeveloperKey.create!
+          DeveloperKey.create!(skip_lti_sync: true)
         end
       end
 
       let(:lti_site_admin_key) do
         Account.site_admin.shard.activate do
-          k = DeveloperKey.create!
+          k = DeveloperKey.create!(skip_lti_sync: true)
           Lti::ToolConfiguration.create!(
             developer_key: k,
             settings: settings.merge(public_jwk: tool_config_public_jwk)
@@ -637,6 +626,13 @@ describe DeveloperKey do
       end.to raise_exception ActiveRecord::RecordInvalid
     end
 
+    it "renames scopes while validating" do
+      devkey = DeveloperKey.create!(scopes: [TokenScopes::LTI_PAGE_CONTENT_SHOW_SCOPE_DEPRECATED])
+      devkey.save!
+
+      expect(devkey.scopes).to eq [TokenScopes::LTI_PAGE_CONTENT_SHOW_SCOPE]
+    end
+
     it "rejects changes to routes.rb if it would break an existing scope" do
       stub_const("CanvasRails::Application", TokenScopesHelper::SpecHelper::MockCanvasRails::Application)
       all_routes = Set.new(TokenScopes.api_routes.pluck(:verb, :path))
@@ -693,6 +689,17 @@ describe DeveloperKey do
       expect(newly_added_routes).to be_empty, error_message
     end
 
+    it "ensures scopes are sorted" do
+      error_message = <<~TEXT
+        The scopes in spec/lib/token_scopes/last_known_accepted_scopes.rb are not sorted.
+
+        Please sort them by path and then by verb.
+      TEXT
+
+      scopes = TokenScopesHelper::SpecHelper.last_known_accepted_scopes
+      expect(scopes).to eql(scopes.sort_by { |s| [s[1], s[0]] }), error_message
+    end
+
     context "when api token scoping FF is enabled" do
       let(:valid_scopes) do
         %w[url:POST|/api/v1/courses/:course_id/quizzes/:id/validate_access_code
@@ -734,8 +741,16 @@ describe DeveloperKey do
       end
 
       describe "after_update" do
+        include_context "lti_1_3_spec_helper"
+
         let(:user) { user_model }
-        let(:developer_key_with_scopes) { DeveloperKey.create!(scopes: valid_scopes) }
+        let(:developer_key_with_scopes) do
+          DeveloperKey.create!(scopes: valid_scopes,
+                               name: "test_tool",
+                               current_user: user,
+                               account:,
+                               tool_configuration: tool_configuration.dup)
+        end
         let(:access_token) { user.access_tokens.create!(developer_key: developer_key_with_scopes) }
         let(:valid_scopes) do
           [
@@ -764,6 +779,32 @@ describe DeveloperKey do
         it "does not delete its associated access tokens if a new scope was added" do
           developer_key_with_scopes.update!(scopes: valid_scopes.push("url:PUT|/api/v1/courses/:course_id/quizzes/:id"))
           expect(developer_key_with_scopes.access_tokens).to match_array [access_token]
+        end
+
+        context "updates lti_registration" do
+          let(:lti_registration) do
+            Lti::Registration.create!(developer_key: developer_key_with_scopes,
+                                      name: "test_tool",
+                                      admin_nickname: "the_test_tool",
+                                      vendor: "test",
+                                      account_id: account.id,
+                                      created_by: user,
+                                      updated_by: user)
+          end
+
+          before do
+            developer_key_with_scopes.update!(is_lti_key: true, public_jwk:, skip_lti_sync: true, lti_registration:)
+          end
+
+          it "updates the corresponding lti registration" do
+            developer_key_with_scopes.update!(skip_lti_sync: false, name: "new tool name")
+            expect(developer_key_with_scopes.lti_registration.reload.admin_nickname).to eq "new tool name"
+          end
+
+          it "does not update the corresponding lti registration if skip_lti_sync is true" do
+            developer_key_with_scopes.update!(skip_lti_sync: true, name: "new tool name")
+            expect(developer_key_with_scopes.lti_registration.reload.admin_nickname).to_not eq "new tool name"
+          end
         end
       end
 
@@ -901,6 +942,29 @@ describe DeveloperKey do
     end
 
     describe "after_save" do
+      include_context "lti_1_3_spec_helper"
+
+      before do
+        developer_key_not_saved.tool_configuration = tool_configuration.dup
+        developer_key_not_saved.account = account
+      end
+
+      it "does not create a new lti registration when devKey is not an lti key" do
+        developer_key_not_saved.save!
+        expect(developer_key_not_saved.lti_registration).to be_nil
+      end
+
+      it "creates a new lti registration when tool_configuration is present" do
+        developer_key_not_saved.update!(is_lti_key: true, public_jwk:, current_user: user_model)
+        expect(developer_key_not_saved.lti_registration).to be_present
+      end
+
+      it "does not create a new lti registration if skip_lti_sync is true" do
+        developer_key_not_saved.update!(is_lti_key: true, public_jwk:, skip_lti_sync: true)
+        developer_key_not_saved.save!
+        expect(developer_key_not_saved.lti_registration).to be_nil
+      end
+
       describe "set_root_account" do
         context "when account is not root account" do
           let(:account) { account_model(root_account: Account.create!) }
@@ -913,7 +977,7 @@ describe DeveloperKey do
           end
         end
 
-        context "when accout is site admin" do
+        context "when account is site admin" do
           subject { developer_key_not_saved.root_account }
 
           let(:account) { nil }
@@ -941,6 +1005,9 @@ describe DeveloperKey do
     let(:developer_key_account_binding) { developer_key_saved.developer_key_account_bindings.first }
 
     it { is_expected.to belong_to(:service_user) }
+
+    it { is_expected.to belong_to(:lti_registration).class_name("Lti::Registration").dependent(:destroy).inverse_of(:developer_key) }
+    it { is_expected.to have_one(:ims_registration).class_name("Lti::IMS::Registration").dependent(:destroy).inverse_of(:developer_key) }
 
     it "destroys developer key account bindings when destroyed" do
       binding_id = developer_key_account_binding.id

@@ -34,7 +34,7 @@ class LtiApiController < ApplicationController
   def grade_passback
     verify_oauth
 
-    if request.content_type != "application/xml"
+    if request.media_type != "application/xml"
       raise BasicLTI::BasicOutcomes::InvalidRequest, "Content-Type must be 'application/xml'"
     end
 
@@ -96,7 +96,7 @@ class LtiApiController < ApplicationController
     token = Lti::AnalyticsService::Token.parse_and_validate(params[:token])
     verify_oauth(token.tool)
 
-    if request.content_type != "application/json"
+    if request.media_type != "application/json"
       return head :unsupported_media_type
     end
 

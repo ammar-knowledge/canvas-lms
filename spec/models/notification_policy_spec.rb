@@ -37,7 +37,7 @@ describe NotificationPolicy do
     it "causes message dispatch to specified channel on triggered policies" do
       communication_channel(@student, { username: "default@example.com", active_cc: true })
       communication_channel(@student, { username: "secondary@example.com", active_cc: true })
-      @policy = NotificationPolicy.create(notification: @notif, communication_channel: @cc, frequency: "immediately")
+      @cc.notification_policies.first.update_attribute(:frequency, "immediately")
       @assignment = @course.assignments.create!(title: "test assignment")
       expect(@assignment.messages_sent).to include("Assignment Created")
       m = @assignment.messages_sent["Assignment Created"].find { |message| message.to == "default@example.com" }
@@ -48,7 +48,7 @@ describe NotificationPolicy do
 
     it "prevents message dispatches if set to 'never' on triggered policies" do
       communication_channel(@student, { username: "secondary@example.com", active_cc: true })
-      @policy = NotificationPolicy.create(notification: @notif, communication_channel: @cc, frequency: "never")
+      @cc.notification_policies.first.update_attribute(:frequency, "never")
       @assignment = @course.assignments.create!(title: "test assignment")
       m = @assignment.messages_sent["Assignment Created"].find { |message| message.to == "default@example.com" }
       expect(m).to be_nil
@@ -352,6 +352,19 @@ describe NotificationPolicy do
       policies = NotificationPolicy.find_all_for(channel, context_type: "Course")
       expect(policies.count).to eq 1
       expect(policies.first.notification.name).to eq course_type_notification.name
+    end
+
+    it "creates NotificationPolicies with default frequencies when they don't exist" do
+      student = factory_with_protected_attributes(User, name: "student", workflow_state: "registered")
+      channel = communication_channel(student, { username: "default@example.com", active_cc: true })
+      notification = Notification.create!(name: "Panda Express", subject: "Test", category: "Whatever")
+
+      # No existing policie with active communication channel
+      expect(channel.notification_policies.count).to eq 0
+      NotificationPolicy.find_all_for(channel)
+
+      expect(channel.notification_policies.count).to eq 1
+      expect(channel.notification_policies.first.frequency).to eq notification.default_frequency(channel.user)
     end
   end
 end

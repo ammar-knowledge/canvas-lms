@@ -23,6 +23,9 @@ class AccessToken < ActiveRecord::Base
   extend RootAccountResolver
 
   workflow do
+    state :pending do
+      event :activate, transitions_to: :active
+    end
     state :active
     state :deleted
   end
@@ -35,7 +38,7 @@ class AccessToken < ActiveRecord::Base
   belongs_to :real_user, inverse_of: :masquerade_tokens, class_name: "User"
   has_one :account, through: :developer_key
 
-  serialize :scopes, Array
+  serialize :scopes, type: Array
 
   validates :purpose, length: { maximum: maximum_string_length }
   validate :must_only_include_valid_scopes, unless: :deleted?
@@ -56,21 +59,38 @@ class AccessToken < ActiveRecord::Base
     end
   end
 
+  set_policy do
+    given do |user|
+      user.id == user_id && (
+        !user.account.feature_enabled?(:admin_manage_access_tokens) ||
+        !user.account.limit_personal_access_tokens?
+      )
+    end
+    can :create and can :update
+
+    given do |user|
+      self.user.check_accounts_right?(user, :create_access_tokens)
+    end
+    can :create and can :update
+
+    given { |user| user.id == user_id }
+    can :read and can :delete
+
+    given { |user| self.user.check_accounts_right?(user, :delete_access_tokens) }
+    can :delete
+  end
+
   # For user-generated tokens, purpose can be manually set.
   # For app-generated tokens, this should be generated based
   # on the scope defined in the auth process (scope has not
   # yet been implemented)
 
   scope :active, -> { not_deleted.where("permanent_expires_at IS NULL OR permanent_expires_at>?", Time.now.utc) }
-  scope :not_deleted, -> { where(workflow_state: "active") }
+  scope :not_deleted, -> { where.not(workflow_state: "deleted") }
 
   TOKEN_SIZE = 64
-  TOKEN_TYPES = OpenStruct.new(
-    {
-      crypted_token: :crypted_token,
-      crypted_refresh_token: :crypted_refresh_token
-    }
-  )
+  TOKEN_TYPES = [:crypted_token, :crypted_refresh_token].freeze
+  HINT_LENGTH = 5
 
   before_create :generate_token
   before_create :generate_refresh_token
@@ -110,6 +130,13 @@ class AccessToken < ActiveRecord::Base
     Canvas::Security.hmac_sha1(token, key)
   end
 
+  # @return [String, false]
+  #   the de-mangled token hint that should match the database if the id is a
+  #   valid token hint, false otherwise
+  def self.token_hint?(id)
+    id.is_a?(String) && id.length == HINT_LENGTH && id
+  end
+
   def self.all_hashed_tokens(token)
     Canvas::Security.encryption_keys.map { |key| hashed_token(token, key) }
   end
@@ -122,8 +149,20 @@ class AccessToken < ActiveRecord::Base
     !!authenticate(token_string)&.site_admin?
   end
 
+  def localized_workflow_state
+    if expired?
+      I18n.t("expired")
+    elsif pending?
+      I18n.t("pending")
+    elsif active?
+      I18n.t("active")
+    else
+      workflow_state
+    end
+  end
+
   def usable?(token_key = :crypted_token)
-    return false if expired?
+    return false if expired? || pending?
 
     if !developer_key_id || developer_key&.usable?
       return false if token_key != :crypted_refresh_token && needs_refresh?
@@ -199,7 +238,7 @@ class AccessToken < ActiveRecord::Base
   def token=(new_token)
     self.crypted_token = AccessToken.hashed_token(new_token)
     @full_token = new_token
-    self.token_hint = new_token[0, 5]
+    self.token_hint = new_token[0, HINT_LENGTH]
   end
 
   def clear_full_token!
@@ -225,12 +264,6 @@ class AccessToken < ActiveRecord::Base
 
   def clear_plaintext_refresh_token!
     @plaintext_refresh_token = nil
-  end
-
-  def regenerate=(val)
-    if val == "1" && manually_created?
-      generate_token(true)
-    end
   end
 
   def regenerate_access_token
@@ -301,13 +334,18 @@ class AccessToken < ActiveRecord::Base
     developer_key_id == DeveloperKey.default.id
   end
 
-  def self.invalidate_mobile_tokens!(account)
+  # if user is not provided, all user tokens in the account will be invalidated
+  def self.invalidate_mobile_tokens!(account, user: nil)
     return unless account.root_account?
 
     developer_key_ids = DeveloperKey.mobile_app_keys.map do |app_key|
       app_key.respond_to?(:global_id) ? app_key.global_id : app_key.id
     end
-    user_ids = User.active.joins(:pseudonyms).where(pseudonyms: { account_id: account }).ids
+    user_ids = if user
+                 [user.id]
+               else
+                 User.active.joins(:pseudonyms).where(pseudonyms: { account_id: account }).ids
+               end
     tokens = active.where(developer_key_id: developer_key_ids, user_id: user_ids)
 
     now = Time.zone.now

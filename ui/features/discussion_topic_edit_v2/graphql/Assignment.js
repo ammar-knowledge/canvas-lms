@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import gql from 'graphql-tag'
-import {bool, number, shape, string} from 'prop-types'
+import {arrayOf, bool, number, shape, string} from 'prop-types'
 import {AssignmentGroup} from './AssignmentGroup'
 import {AssignmentOverride} from './AssignmentOverride'
 
@@ -29,6 +29,9 @@ export const Assignment = {
       postToSis
       pointsPossible
       gradingType
+      importantDates
+      onlyVisibleToOverrides
+      visibleToEveryone
       dueAt(applyOverrides: false)
       unlockAt(applyOverrides: false)
       lockAt(applyOverrides: false)
@@ -52,6 +55,21 @@ export const Assignment = {
           ...AssignmentOverride
         }
       }
+      hasSubAssignments
+      checkpoints {
+        dueAt
+        unlockAt
+        lockAt
+        name
+        onlyVisibleToOverrides
+        pointsPossible
+        tag
+        assignmentOverrides {
+          nodes {
+            ...AssignmentOverride
+          }
+        }
+      }
     }
     ${AssignmentGroup.fragment}
     ${AssignmentOverride.fragment}
@@ -65,6 +83,9 @@ export const Assignment = {
     postToSis: bool,
     pointsPossible: number,
     gradingType: string,
+    importantDates: bool,
+    onlyVisibleToOverrides: bool,
+    visibleToEveryone: bool,
     unlockAt: string,
     dueAt: string,
     lockAt: string,
@@ -77,6 +98,18 @@ export const Assignment = {
       intraReviews: bool,
     }),
     assignmentOverrides: AssignmentOverride.shape(),
+    hasSubAssignments: bool,
+    checkpoints: arrayOf(
+      shape({
+        dueAt: string,
+        unlockAt: string,
+        lockAt: string,
+        name: string,
+        onlyVisibleToOverrides: bool,
+        pointsPossible: number,
+        tag: string,
+      })
+    ),
   }),
 
   mock: ({
@@ -87,11 +120,16 @@ export const Assignment = {
     postToSis = false,
     pointsPossible = 10,
     gradingType = 'points',
+    importantDates = false,
+    onlyVisibleToOverrides = false,
+    visibleToEveryone = true,
     unlockAt = null,
     dueAt = null,
     lockAt = null,
     peerReviews = null,
     assignmentOverrides = null,
+    hasSubAssignments = false,
+    checkpoints = [],
   } = {}) => ({
     id,
     _id,
@@ -100,11 +138,16 @@ export const Assignment = {
     postToSis,
     pointsPossible,
     gradingType,
+    importantDates,
+    onlyVisibleToOverrides,
+    visibleToEveryone,
     unlockAt,
     dueAt,
     lockAt,
     peerReviews,
     assignmentOverrides,
+    hasSubAssignments,
+    checkpoints,
     __typename: 'Assignment',
   }),
 }

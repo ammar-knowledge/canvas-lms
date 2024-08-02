@@ -65,6 +65,7 @@ export const addNewGroupCategoryToCache = (cache, newCategory) => {
 const getAssetCode = (assetType, assetId) => {
   if (assetType === ASSIGNMENT_OVERRIDE_GRAPHQL_TYPENAMES.SECTION)
     return `course_section_${assetId}`
+  if (assetType === ASSIGNMENT_OVERRIDE_GRAPHQL_TYPENAMES.COURSE) return `course_${assetId}`
   if (assetType === ASSIGNMENT_OVERRIDE_GRAPHQL_TYPENAMES.GROUP) return `group_${assetId}`
   return masteryPathsOption.assetCode
 }
@@ -87,18 +88,97 @@ export const buildDefaultAssignmentOverride = () => {
     },
   ]
 }
+export const buildAssignmentOverrides = discussion => {
+  const target = discussion.assignment || discussion
 
-export const buildAssignmentOverrides = assignment => {
-  if (!assignment) return buildDefaultAssignmentOverride()
+  if (!target) return buildDefaultAssignmentOverride()
 
-  const overrides =
-    assignment?.assignmentOverrides?.nodes?.map(override => ({
+  let overrides =
+    target === discussion.assignment
+      ? target.assignmentOverrides
+      : target.ungradedDiscussionOverrides
+
+  overrides =
+    overrides?.nodes?.map(override => ({
       dueDateId: override.id,
       assignedList: getAssignedList(override),
       dueDate: override.dueAt,
       availableFrom: override.unlockAt,
       availableUntil: override.lockAt,
+      unassignItem: override.unassignItem,
+      ...(override.contextModule && {
+        context_module_id: override.contextModule._id,
+        context_module_name: override.contextModule.name,
+      }),
     })) || []
+
+  const hasCourseOverride = overrides.some(obj =>
+    obj.assignedList.some(item => item.includes('course') && !item.includes('section'))
+  )
+
+  let checkpointOverrides = []
+  const hasCheckpoints = discussion?.assignment?.hasSubAssignments
+  if (hasCheckpoints) {
+    // we need an override for each 'assignee type: everyone, section, students,...'
+    // to determine, count union of reply_to_topic and required_reply + 1 for everyone if checkpoint.due_at
+    const allAssignees = getCheckpointAssignees(discussion.assignment.checkpoints)
+    const everyoneDates = {}
+    checkpointOverrides = allAssignees.map(assignee => {
+      const returnHash = {}
+      returnHash.assignedList = assignee
+
+      discussion.assignment.checkpoints.forEach(checkpoint => {
+        // select the correct checkpoint override for the assignee;
+        // eslint-disable-next-line @typescript-eslint/no-shadow
+        const override = checkpoint.assignmentOverrides.nodes.filter(override => {
+          return JSON.stringify(assignee) === JSON.stringify(getAssignedList(override))
+        })[0]
+        if (override) {
+          if (checkpoint.tag === 'reply_to_topic') {
+            returnHash.replyToTopicOverrideId = override._id
+            returnHash.replyToTopicDueDate = override.dueAt
+          }
+          if (checkpoint.tag === 'reply_to_entry') {
+            returnHash.replyToEntryOverrideId = override._id
+            returnHash.requiredRepliesDueDate = override.dueAt
+          }
+          returnHash.dueDateId = returnHash.dueDateId || override._id || null
+          returnHash.availableFrom = returnHash.availableFrom || override.unlockAt || null
+          returnHash.availableUntil = returnHash.availableUntil || override.lockAt || null
+        }
+      })
+      return returnHash
+    })
+
+    const topicCheckpoint = discussion.assignment.checkpoints[0]
+    const replyCheckpoint = discussion.assignment.checkpoints[1]
+
+    if (topicCheckpoint.dueAt || topicCheckpoint.unlockAt || topicCheckpoint.lockAt) {
+      everyoneDates.replyToTopicDueDate = topicCheckpoint.dueAt
+      everyoneDates.availableFrom = topicCheckpoint.unlockAt
+      everyoneDates.availableUntil = topicCheckpoint.lockAt
+    }
+    if (replyCheckpoint.dueAt || replyCheckpoint.unlockAt || replyCheckpoint.lockAt) {
+      everyoneDates.requiredRepliesDueDate = replyCheckpoint.dueAt
+      everyoneDates.availableFrom = replyCheckpoint.unlockAt
+      everyoneDates.availableUntil = replyCheckpoint.lockAt
+    }
+
+    if (Object.keys(everyoneDates).length > 0) {
+      everyoneDates.assignedList = ['everyone']
+      checkpointOverrides.push(everyoneDates)
+    }
+    overrides = checkpointOverrides
+  }
+
+  // When this is true, then we do not have a everyone/everyone else option
+  if (
+    target.onlyVisibleToOverrides ||
+    !target.visibleToEveryone ||
+    hasCourseOverride ||
+    hasCheckpoints
+  )
+    return overrides
 
   overrides.push({
     dueDateId: nanoid(),
@@ -106,10 +186,36 @@ export const buildAssignmentOverrides = assignment => {
       overrides.length > 0
         ? [defaultEveryoneElseOption.assetCode]
         : [defaultEveryoneOption.assetCode],
-    dueDate: assignment.dueAt,
-    availableFrom: assignment.unlockAt,
-    availableUntil: assignment.lockAt,
+    dueDate: target.dueAt,
+    availableFrom: target.unlockAt || target.delayedPostAt,
+    availableUntil: target.lockAt,
   })
-
   return overrides.length > 0 ? overrides : buildDefaultAssignmentOverride()
+}
+
+const getCheckpointAssignees = checkpoints => {
+  if (checkpoints.length === 0) {
+    return []
+  } else {
+    let allAssignees = []
+    checkpoints.forEach(checkpoint => {
+      const checkpointAssignees = checkpoint.assignmentOverrides?.nodes.map(override =>
+        getAssignedList(override)
+      )
+      allAssignees = [...new Set([...allAssignees, ...checkpointAssignees])]
+    })
+
+    const uniqueTopLevelArrays = []
+    const seenTopLevelArrays = new Set()
+
+    // studentIds come in subArrays that have to be duplicate checked differently
+    allAssignees.forEach(arr => {
+      const arrString = JSON.stringify(arr)
+      if (!seenTopLevelArrays.has(arrString)) {
+        seenTopLevelArrays.add(arrString)
+        uniqueTopLevelArrays.push(arr)
+      }
+    })
+    return uniqueTopLevelArrays
+  }
 }

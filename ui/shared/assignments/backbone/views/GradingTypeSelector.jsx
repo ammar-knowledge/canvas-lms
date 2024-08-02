@@ -104,6 +104,8 @@ GradingTypeSelector.prototype.showGpaDialog = function (ev) {
     close() {
       return $(ev.target).focus()
     },
+    modal: true,
+    zIndex: 1000,
   })
 }
 
@@ -120,6 +122,8 @@ GradingTypeSelector.prototype.showGradingSchemeDialog = function (ev) {
       close() {
         return $(ev.target).focus()
       },
+      modal: true,
+      zIndex: 1000,
     })
     .fixDialogButtons()
 }
@@ -187,6 +191,11 @@ GradingTypeSelector.prototype.renderGradingSchemeSelector = function () {
     onChange: this.handleGradingStandardIdChanged,
     contextId: ENV.COURSE_ID,
     contextType: 'Course',
+    archivedGradingSchemesEnabled: ENV.ARCHIVED_GRADING_SCHEMES_ENABLED,
+    assignmentId:
+      ENV.ASSIGNMENT?.id ?? ENV.ASSIGNMENT_ID ?? this.parentModel.id
+        ? String(this.parentModel.id)
+        : undefined,
   }
   const mountPoint = document.querySelector('#grading_scheme_selector-target')
   // eslint-disable-next-line react/no-render-return-value

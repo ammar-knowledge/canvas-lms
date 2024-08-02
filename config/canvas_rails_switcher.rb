@@ -27,15 +27,17 @@
 # 3. Create a Consul setting private/canvas/rails_version with <supported version> as the contents
 
 # the default version (corresponding to the bare Gemfile.lock) must be listed first
-SUPPORTED_RAILS_VERSIONS = %w[7.0 7.1].freeze
+SUPPORTED_RAILS_VERSIONS = %w[7.1].freeze
 
 unless defined?($canvas_rails)
   file_path = File.expand_path("RAILS_VERSION", __dir__)
 
   if ENV["CANVAS_RAILS"]
     $canvas_rails = ENV["CANVAS_RAILS"]
+    source = "the CANVAS_RAILS environment variable"
   elsif File.exist?(file_path)
     $canvas_rails = File.read(file_path).strip
+    source = file_path
   else
     begin
       # have to do the consul communication without any gems, because
@@ -47,20 +49,27 @@ unless defined?($canvas_rails)
 
       environment = YAML.safe_load_file(File.expand_path("consul.yml", __dir__)).dig(ENV["RAILS_ENV"] || "development", "environment")
 
-      keys = [
-        ["private/canvas", environment, $canvas_cluster, "rails_version"].compact.join("/"),
+      keys = ($canvas_clusters || []).map do |canvas_cluster| # rubocop:disable Style/GlobalVars
+        "private/canvas/#{environment}/#{canvas_cluster}/rails_version"
+      end
+
+      keys.push(
         ["private/canvas", environment, "rails_version"].compact.join("/"),
         ["private/canvas", "rails_version"].compact.join("/"),
         ["global/private/canvas", environment, "rails_version"].compact.join("/"),
         ["global/private/canvas", "rails_version"].compact.join("/")
-      ].uniq
+      )
+      keys.uniq!
 
       result = nil
       Net::HTTP.start("localhost", 8500, connect_timeout: 1, read_timeout: 1) do |http|
         keys.each do |key|
           result = http.request_get("/v1/kv/#{key}?stale")
           result = nil unless result.is_a?(Net::HTTPSuccess)
-          break if result
+          if result
+            source = "the Consul key #{key}"
+            break
+          end
         end
       end
       $canvas_rails = result ? Base64.decode64(JSON.parse(result.body).first["Value"]).strip : SUPPORTED_RAILS_VERSIONS.first
@@ -71,5 +80,5 @@ unless defined?($canvas_rails)
 end
 
 unless SUPPORTED_RAILS_VERSIONS.any?($canvas_rails)
-  raise "unsupported Rails version specified #{$canvas_rails}"
+  raise "unsupported Rails version #{$canvas_rails} specified in #{source}"
 end

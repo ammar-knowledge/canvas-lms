@@ -60,7 +60,9 @@ describe Types::DiscussionEntryType do
     expect(type.resolve("ratingCount")).to eq parent_entry.rating_count
     expect(type.resolve("deleted")).to eq parent_entry.deleted?
     expect(type.resolve("author { _id }")).to eq parent_entry.user_id.to_s
+    expect(type.resolve("author { courseRoles }")).to eq ["TeacherEnrollment"]
     expect(type.resolve("editor { _id }")).to eq parent_entry.editor_id.to_s
+    expect(type.resolve("editor { courseRoles }")).to eq ["TeacherEnrollment"]
     expect(type.resolve("discussionTopic { _id }")).to eq parent_entry.discussion_topic.id.to_s
     expect(type.resolve("depth")).to eq parent_entry.depth
   end
@@ -122,8 +124,8 @@ describe Types::DiscussionEntryType do
       # Create a new subentry and set it as the quoted entry
       expect(type.resolve("quotedEntry { author { shortName } }")).to eq parent.user.short_name
       expect(type.resolve("quotedEntry { createdAt }")).to eq parent.created_at.iso8601
-      expect(type.resolve("quotedEntry { previewMessage }")).to eq parent.summary(500) # longer than the message
-      expect(type.resolve("quotedEntry { previewMessage }").length).to eq 235
+      expect(type.resolve("quotedEntry { message }")).to eq parent.message
+      expect(type.resolve("quotedEntry { message }").length).to eq parent.message.length
     end
 
     it "returns the quoted_entry over parent_entry if quoted_entry is populated and include_reply_preview is true" do
@@ -139,7 +141,7 @@ describe Types::DiscussionEntryType do
       expect(inline_reply_to_third_level_entry.depth).to eq 3
       expect(type.resolve("quotedEntry { author { shortName } }")).to eq inline_reply_to_third_level_entry.user.short_name
       expect(type.resolve("quotedEntry { createdAt }")).to eq inline_reply_to_third_level_entry.created_at.iso8601
-      expect(type.resolve("quotedEntry { previewMessage }")).to eq inline_reply_to_third_level_entry.summary(500)
+      expect(type.resolve("quotedEntry { message }")).to eq inline_reply_to_third_level_entry.message
       expect(type.resolve("quotedEntry { _id }")).to eq inline_reply_to_third_level_entry.id.to_s
     end
   end

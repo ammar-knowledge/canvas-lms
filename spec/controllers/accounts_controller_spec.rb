@@ -269,6 +269,67 @@ describe AccountsController do
       expect(@account.settings[:app_center_access_token]).to eq access_token
     end
 
+    it "does not clear 'app_center_access_token'" do
+      account_with_admin_logged_in
+      @account = @account.sub_accounts.create!
+      access_token = @account.settings[:app_center_access_token]
+      post "update", params: { id: @account.id,
+                               account: {
+                                 settings: {
+                                   setting: :set
+                                 }
+                               } }
+      @account.reload
+      expect(@account.settings[:app_center_access_token]).to eq access_token
+    end
+
+    context "when user does not have manage LTI permissions" do
+      let(:role_changes) do
+        {
+          manage_lti_add: false,
+          manage_lti_edit: false,
+          manage_lti_delete: false,
+          lti_add_edit: false,
+        }
+      end
+
+      before do
+        account_with_admin_logged_in
+        account_admin_user_with_role_changes(user: @admin, role_changes:)
+      end
+
+      it "does not update 'app_center_access_token'" do
+        @account = @account.sub_accounts.create!
+        access_token = SecureRandom.uuid
+        post "update", params: { id: @account.id,
+                                 account: {
+                                   settings: {
+                                     app_center_access_token: access_token
+                                   }
+                                 } }
+        @account.reload
+        expect(@account.settings[:app_center_access_token]).to be_nil
+      end
+
+      context "with flag disabled" do
+        before do
+          @account.disable_feature!(:require_permission_for_app_center_token)
+        end
+
+        it "updates 'app_center_access_token'" do
+          access_token = SecureRandom.uuid
+          post "update", params: { id: @account.id,
+                                   account: {
+                                     settings: {
+                                       app_center_access_token: access_token
+                                     }
+                                   } }
+          @account.reload
+          expect(@account.settings[:app_center_access_token]).to eq access_token
+        end
+      end
+    end
+
     it "updates 'emoji_deny_list'" do
       account_with_admin_logged_in
       @account.allow_feature!(:submission_comment_emojis)
@@ -683,7 +744,7 @@ describe AccountsController do
         @account.default_storage_quota_mb = 123
         @account.default_user_storage_quota_mb = 45
         @account.default_group_storage_quota_mb = 9001
-        @account.storage_quota = 555.megabytes
+        @account.storage_quota = 555.decimal_megabytes
         @account.save!
       end
 
@@ -719,19 +780,19 @@ describe AccountsController do
         it "allows setting default quota (bytes)" do
           post "update", params: { id: @account.id,
                                    account: {
-                                     default_storage_quota: 101.megabytes,
+                                     default_storage_quota: 101.decimal_megabytes,
                                    } }
           @account.reload
-          expect(@account.default_storage_quota).to eq 101.megabytes
+          expect(@account.default_storage_quota).to eq 101.decimal_megabytes
         end
 
         it "allows setting storage quota" do
           post "update", params: { id: @account.id,
                                    account: {
-                                     storage_quota: 777.megabytes
+                                     storage_quota: 777.decimal_megabytes
                                    } }
           @account.reload
-          expect(@account.storage_quota).to eq 777.megabytes
+          expect(@account.storage_quota).to eq 777.decimal_megabytes
         end
       end
 
@@ -762,22 +823,22 @@ describe AccountsController do
         it "disallows setting default quota (bytes)" do
           post "update", params: { id: @account.id,
                                    account: {
-                                     default_storage_quota: 101.megabytes,
+                                     default_storage_quota: 101.decimal_megabytes,
                                      default_time_zone: "Alaska"
                                    } }
           @account.reload
-          expect(@account.default_storage_quota).to eq 123.megabytes
+          expect(@account.default_storage_quota).to eq 123.decimal_megabytes
           expect(@account.default_time_zone.name).to eq "Alaska"
         end
 
         it "disallows setting storage quota" do
           post "update", params: { id: @account.id,
                                    account: {
-                                     storage_quota: 777.megabytes,
+                                     storage_quota: 777.decimal_megabytes,
                                      default_time_zone: "Alaska"
                                    } }
           @account.reload
-          expect(@account.storage_quota).to eq 555.megabytes
+          expect(@account.storage_quota).to eq 555.decimal_megabytes
           expect(@account.default_time_zone.name).to eq "Alaska"
         end
       end
@@ -851,61 +912,6 @@ describe AccountsController do
         expect(@account.reload.terms_of_service.passive).to be false
         post "update", params: { id: @account.id, account: { terms_of_service: { passive: "1" } } }
         expect(@account.reload.terms_of_service.passive).to be true
-      end
-    end
-
-    describe "privacy settings" do
-      let(:account) { account_model }
-      let(:sub_account) { account_model(root_account: account) }
-      let(:site_admin) { site_admin_user }
-      let(:payload) do
-        {
-          account: {
-            settings: {
-              enable_fullstory: "0",
-            }
-          }
-        }
-      end
-
-      it "accepts changes made by a siteadmin to a root account" do
-        user_session(site_admin)
-
-        expect do
-          post "update", format: "json", params: { id: account.id, **payload }
-        end.to change {
-          account.reload.settings.fetch(:enable_fullstory, true)
-        }.from(true).to(false)
-      end
-
-      it "ignores changes made to the site_admin account" do
-        user_session(site_admin)
-
-        expect do
-          post "update", format: "json", params: { id: Account.site_admin.id, **payload }
-        end.to not_change {
-          account.reload.settings.fetch(:enable_fullstory, true)
-        }
-      end
-
-      it "ignores changes to sub accounts" do
-        user_session(site_admin)
-
-        expect do
-          post "update", format: "json", params: { id: sub_account.id, **payload }
-        end.to not_change {
-          account.reload.settings.fetch(:enable_fullstory, true)
-        }
-      end
-
-      it "ignores changes from regular admins" do
-        user_session(account_admin_user(account:))
-
-        expect do
-          post "update", format: "json", params: { id: account.id, **payload }
-        end.to not_change {
-          account.reload.settings.fetch(:enable_fullstory, true)
-        }
       end
     end
 
@@ -1400,12 +1406,30 @@ describe AccountsController do
       expect(response.body).to match(/#{@c2.id}/)
     end
 
+    context "post_manually" do
+      it "gets of a list of courses with post_manually populated if included in the includes param" do
+        admin_logged_in(@account)
+        get "courses_api", params: { account_id: @account.id, include: ["post_manually"] }
+
+        expect(response).to be_successful
+        expect(response.body).to match(/"post_manually":false/)
+      end
+
+      it "gets a list of courses without post_manually populated if it is not included in the includes param" do
+        admin_logged_in(@account)
+        get "courses_api", params: { account_id: @account.id }
+
+        expect(response).to be_successful
+        expect(response.body).not_to match(/"post_manually":false/)
+      end
+    end
+
     it "does not set pagination total_pages/last page link" do
       admin_logged_in(@account)
       get "courses_api", params: { account_id: @account.id, per_page: 1 }
 
       expect(response).to be_successful
-      expect(response.headers.to_a.find { |a| a.first == "Link" }.last).to_not include("last")
+      expect(response.headers.to_a.find { |a| a.first.downcase == "link" }.last).to_not include("last")
     end
 
     it "sets pagination total_pages/last page link if includes ui_invoked is set" do
@@ -1414,7 +1438,7 @@ describe AccountsController do
       get "courses_api", params: { account_id: @account.id, per_page: 1, include: ["ui_invoked"] }
 
       expect(response).to be_successful
-      expect(response.headers.to_a.find { |a| a.first == "Link" }.last).to include("last")
+      expect(response.headers.to_a.find { |a| a.first.downcase == "link" }.last).to include("last")
     end
 
     it "properly removes sections from includes" do
@@ -1426,6 +1450,33 @@ describe AccountsController do
 
       expect(response).to be_successful
       expect(response.body).not_to match(/sections/)
+    end
+
+    context "sort by course status" do
+      before do
+        @c1.workflow_state = "created"
+        @c1.save
+        @c2.workflow_state = "available"
+        @c2.save
+        @c3 = course_factory(account: @account, course_name: "apple", sis_source_id: 30)
+        @c3.workflow_state = "completed"
+        @c3.save
+        admin_logged_in(@account)
+      end
+
+      it "is able to sort by status ascending" do
+        get "courses_api", params: { account_id: @account.id, sort: "course_status", order: "asc" }
+
+        expect(response).to be_successful
+        expect(response.body).to match(/"name":"foo".+"name":"bar".+"name":"apple"/)
+      end
+
+      it "is able to sort by status descending" do
+        get "courses_api", params: { account_id: @account.id, sort: "course_status", order: "desc" }
+
+        expect(response).to be_successful
+        expect(response.body).to match(/"name":"apple".+"name":"bar".+"name":"foo"/)
+      end
     end
 
     it "is able to sort courses by name ascending" do

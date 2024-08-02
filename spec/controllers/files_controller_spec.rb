@@ -141,6 +141,12 @@ describe FilesController do
   end
 
   describe "GET 'index'" do
+    def enable_limited_access_for_students
+      @course.account.root_account.enable_feature!(:allow_limited_access_for_students)
+      @course.account.settings[:enable_limited_access_for_students] = true
+      @course.account.save!
+    end
+
     it "requires authorization" do
       get "index", params: { course_id: @course.id }
       assert_unauthorized
@@ -188,6 +194,33 @@ describe FilesController do
       @file.context = @group
       get "index", params: { group_id: @group.id }
       expect(assigns[:js_env][:FILES_CONTEXTS][0][:file_menu_tools]).to eq []
+    end
+
+    it "redirects to course homepage if context is course in limited access for students account" do
+      enable_limited_access_for_students
+
+      user_session(@student)
+      get "index", params: { course_id: @course.id }
+      expect(response).to redirect_to(course_path(@course))
+    end
+
+    it "renders unauthorized if context is a User enrolled as student in a limited access for students account" do
+      enable_limited_access_for_students
+
+      user_session(@student)
+      get "index", params: { user_id: @student.id }
+      expect(response.code.to_i).to be 401
+    end
+
+    it "renders unauthorized if context is a Group and user is student in a limited access for students account" do
+      enable_limited_access_for_students
+
+      category = group_category
+      @group = category.groups.create(context: @course)
+
+      user_session(@student)
+      get "index", params: { group_id: @group.id }
+      expect(response.code.to_i).to be 401
     end
 
     context "file menu tool visibility" do
@@ -303,6 +336,24 @@ describe FilesController do
         allow_any_instance_of(Attachment).to receive(:canvadoc_url).and_return "stubby"
         expect(Canvas::LiveEvents).to receive(:asset_access).with(@file, "files", nil, nil)
         get "show", params: { course_id: @course.id, id: @file.id, verifier: @file.uuid, download: 1 }, format: "json"
+      end
+    end
+
+    describe "sets the X-Robots-Tag" do
+      it "sets the X-Robots-Tag header to noindex, nofollow" do
+        verifier = Attachments::Verification.new(@file).verifier_for_user(nil)
+        get "show", params: { course_id: @course.id, id: @file.id, verifier: }, format: "json"
+        expect(response).to be_successful
+        expect(response.headers["X-Robots-Tag"]).to eq("noindex, nofollow")
+      end
+
+      it "does not set the X-Robots-Tag header if the account allows indexing" do
+        @course.root_account.settings[:enable_search_indexing] = true
+        @course.root_account.save!
+        verifier = Attachments::Verification.new(@file).verifier_for_user(nil)
+        get "show", params: { course_id: @course.id, id: @file.id, verifier: }, format: "json"
+        expect(response).to be_successful
+        expect(response.headers["X-Robots-Tag"]).to be_nil
       end
     end
 
@@ -1434,7 +1485,7 @@ describe FilesController do
     end
 
     before do
-      @content = Rack::Test::UploadedFile.new(File.join(RSpec.configuration.fixture_path, "courses.yml"), "")
+      @content = Rack::Test::UploadedFile.new(file_fixture("a_file.txt"), "")
       request.env["CONTENT_TYPE"] = "multipart/form-data"
       enable_forgery_protection
     end
@@ -1447,7 +1498,7 @@ describe FilesController do
       @attachment.reload
       # the file is not available until the third api call is completed
       expect(@attachment.file_state).to eq "deleted"
-      expect(@attachment.open.read).to eq File.read(File.join(RSpec.configuration.fixture_path, "courses.yml"))
+      expect(@attachment.open.read).to eq file_fixture("a_file.txt").read
     end
 
     it "opens up cors headers" do

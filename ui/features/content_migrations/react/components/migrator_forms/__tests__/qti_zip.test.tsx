@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {render, screen} from '@testing-library/react'
+import {render, screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import QTIZipImporter from '../qti_zip'
 
@@ -32,13 +32,13 @@ describe('CanvasCartridgeImporter', () => {
 
   afterEach(() => jest.clearAllMocks())
 
-  it('calls onSubmit', () => {
+  it('calls onSubmit', async () => {
     renderComponent()
 
     const file = new File(['blah, blah, blah'], 'my_file.zip', {type: 'application/zip'})
     const input = screen.getByTestId('migrationFileUpload')
-    userEvent.upload(input, file)
-    userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
+    await userEvent.upload(input, file)
+    await userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         pre_attachment: {
@@ -51,10 +51,49 @@ describe('CanvasCartridgeImporter', () => {
     )
   })
 
-  it('calls onCancel', () => {
+  it('calls onCancel', async () => {
     renderComponent()
 
-    userEvent.click(screen.getByRole('button', {name: 'Cancel'}))
+    await userEvent.click(screen.getByRole('button', {name: 'Cancel'}))
     expect(onCancel).toHaveBeenCalled()
+  })
+
+  it('renders the progressbar info', async () => {
+    renderComponent({isSubmitting: true, fileUploadProgress: 10})
+    expect(screen.getByText('Uploading File')).toBeInTheDocument()
+  })
+
+  it('disable inputs while uploading', async () => {
+    renderComponent({isSubmitting: true})
+    await waitFor(() => {
+      expect(screen.getByRole('button', {name: 'Choose File'})).toBeDisabled()
+      expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled()
+      expect(screen.getByRole('button', {name: /Adding.../})).toBeDisabled()
+      expect(
+        screen.getByRole('checkbox', {name: /Overwrite assessment content with matching IDs/})
+      ).toBeDisabled()
+    })
+  })
+
+  it('disable question bank inputs while uploading', async () => {
+    const {getByRole, rerender, getByPlaceholderText} = renderComponent()
+
+    await userEvent.click(getByRole('combobox', {name: 'Default Question bank'}))
+    await userEvent.click(getByRole('option', {name: 'Create new question bank...'}))
+
+    rerender(
+      <QTIZipImporter
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+        isSubmitting={true}
+        fileUploadProgress={10}
+      />
+    )
+
+    await waitFor(() => {
+      expect(getByPlaceholderText('New question bank')).toBeInTheDocument()
+      expect(getByPlaceholderText('New question bank')).toBeDisabled()
+      expect(getByRole('combobox', {name: 'Default Question bank'})).toBeDisabled()
+    })
   })
 })

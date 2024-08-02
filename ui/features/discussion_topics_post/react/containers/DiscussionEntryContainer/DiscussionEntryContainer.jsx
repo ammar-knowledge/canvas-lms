@@ -22,7 +22,7 @@ import {DeletedPostMessage} from '../../components/DeletedPostMessage/DeletedPos
 import {PostMessage} from '../../components/PostMessage/PostMessage'
 import PropTypes from 'prop-types'
 import React, {useContext} from 'react'
-import {responsiveQuerySizes} from '../../utils'
+import {responsiveQuerySizes, userNameToShow} from '../../utils'
 import {SearchContext} from '../../utils/constants'
 import {Attachment} from '../../../graphql/Attachment'
 import {User} from '../../../graphql/User'
@@ -32,14 +32,20 @@ import {Responsive} from '@instructure/ui-responsive'
 import {Link} from '@instructure/ui-link'
 import {View} from '@instructure/ui-view'
 import {ReplyPreview} from '../../components/ReplyPreview/ReplyPreview'
+import theme from '@instructure/canvas-theme'
 
 export const DiscussionEntryContainer = props => {
   const {searchTerm} = useContext(SearchContext)
 
+  const getDeletedDisplayName = (author, editor = null) => {
+    const user = editor || author
+    return userNameToShow(user.displayName, author._id, user.courseRoles)
+  }
+
   if (props.deleted) {
     return (
       <DeletedPostMessage
-        deleterName={props.editor ? props.editor?.displayName : props.author?.displayName}
+        deleterName={getDeletedDisplayName(props.author, props.editor)}
         timingDisplay={props.timingDisplay}
         deletedTimingDisplay={props.editedTimingDisplay}
       >
@@ -108,7 +114,7 @@ export const DiscussionEntryContainer = props => {
       }}
       render={responsiveProps => (
         // If you change the left padding here, please update the DiscussionThreadContainer getReplyLeftMargin function
-        <Flex direction="column" padding="0 0 small small">
+        <Flex direction="column" padding="0 0 small small" data-authorid={props.author?._id}>
           <Flex.Item shouldGrow={true} shouldShrink={true} overflowY="visible">
             <Flex direction={props.isTopic ? responsiveProps.direction : 'row'}>
               {hasAuthor && (
@@ -126,6 +132,8 @@ export const DiscussionEntryContainer = props => {
                     isForcedRead={props.isForcedRead}
                     isSplitView={props.isSplitView}
                     timingDisplay={props.timingDisplay}
+                    createdAt={props.createdAt}
+                    updatedAt={props.updatedAt}
                     editedTimingDisplay={props.editedTimingDisplay}
                     lastReplyAtDisplay={props.lastReplyAtDisplay}
                     showCreatedAsTooltip={!props.isTopic}
@@ -135,6 +143,7 @@ export const DiscussionEntryContainer = props => {
                     }
                     reportTypeCounts={props.discussionEntry?.reportTypeCounts}
                     threadMode={threadMode}
+                    toggleUnread={props.toggleUnread}
                   />
                 </Flex.Item>
               )}
@@ -174,6 +183,7 @@ export const DiscussionEntryContainer = props => {
               onSave={props.onSave}
               onCancel={props.onCancel}
               isSplitView={props.isSplitView}
+              discussionTopic={props.discussionTopic}
             >
               {props.attachment && (
                 <View as="div" padding="small none none">
@@ -183,6 +193,15 @@ export const DiscussionEntryContainer = props => {
               {props.children}
             </PostMessage>
           </Flex.Item>
+          {!props.isTopic && (
+            <hr
+              data-testid="post-separator"
+              style={{
+                height: theme.variables.borders.widthSmall,
+                color: theme.variables.colors.borderMedium,
+              }}
+            />
+          )}
         </Flex>
       )}
     />
@@ -206,6 +225,8 @@ DiscussionEntryContainer.propTypes = {
   editor: User.shape,
   isUnread: PropTypes.bool,
   isForcedRead: PropTypes.bool,
+  createdAt: PropTypes.string,
+  updatedAt: PropTypes.string,
   timingDisplay: PropTypes.string,
   editedTimingDisplay: PropTypes.string,
   lastReplyAtDisplay: PropTypes.string,
@@ -214,6 +235,7 @@ DiscussionEntryContainer.propTypes = {
   threadParent: PropTypes.bool,
   quotedEntry: PropTypes.object,
   attachment: Attachment.shape,
+  toggleUnread: PropTypes.func,
 }
 
 DiscussionEntryContainer.defaultProps = {

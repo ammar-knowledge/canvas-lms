@@ -180,6 +180,8 @@ export type Assignment = Readonly<{
   automatic_peer_reviews: boolean
   can_duplicate: boolean
   course_id: string
+  checkpoints: Checkpoint[]
+  discussion_topic: DiscussionTopic
   due_date_required: boolean
   final_grader_id: null | string
   grade_group_students_individually: boolean
@@ -193,6 +195,7 @@ export type Assignment = Readonly<{
   grading_type: GradingType
   group_category_id: string | null
   has_overrides: boolean
+  has_sub_assignments: boolean
   has_submitted_submissions: boolean
   hide_in_gradebook: boolean
   important_dates: boolean
@@ -229,6 +232,7 @@ export type Assignment = Readonly<{
   unlock_at: null | string
   unpublishable: boolean
   updated_at: string
+  visible_to_everyone: boolean
   workflow_state: WorkflowState
 }> & {
   anonymize_students: boolean
@@ -591,7 +595,7 @@ export type Account = Readonly<{
   name: string
 }>
 
-// '/api/v1/users/self/favorites/courses?include[]=term&exclude[]=enrollments&sort=nickname',
+// '/api/v1/users/self/favorites/courses?include[]=term&include[]=sections&sort=nickname',
 export type Course = Readonly<{
   id: string
   name: string
@@ -601,6 +605,13 @@ export type Course = Readonly<{
     name: string
   }
   homeroom_course: boolean
+  sis_course_id: string | null
+  sections: [
+    {
+      id: string
+      name: string
+    }
+  ]
 }>
 
 // '/api/v1/users/self/tabs',
@@ -643,4 +654,28 @@ export type ReleaseNote = {
   url: string
   date: string
   new: boolean
+}
+
+export type DiscussionTopic = {
+  reply_to_entry_required_count: number
+}
+
+export type Checkpoint = {
+  due_at: string | null
+  name: string
+  only_visible_to_overrides: boolean
+  overrides: CheckpointOverride[]
+  points_possible: number
+  tag: string
+}
+
+export type CheckpointOverride = {
+  all_day: boolean
+  all_day_date: string
+  assignment_id: string
+  due_at: string
+  id: string
+  student_ids: string[]
+  title: string
+  unassign_item: boolean
 }

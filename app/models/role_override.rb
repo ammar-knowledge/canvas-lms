@@ -132,6 +132,26 @@ class RoleOverride < ActiveRecord::Base
         true_for: %w[AccountAdmin],
         available_to: %w[AccountAdmin AccountMembership],
       },
+      create_access_tokens: {
+        label: -> { t("Create Access Token") },
+        label_v2: -> { t("Access Token - create / update") },
+        account_only: :root,
+        true_for: %w[AccountAdmin],
+        available_to: %w[AccountAdmin AccountMembership],
+        account_allows: ->(a) { a.feature_enabled?(:admin_manage_access_tokens) },
+        group: "manage_access_tokens",
+        group_label: -> { t("Manage Access Tokens") },
+      },
+      delete_access_tokens: {
+        label: -> { t("Manage Access Token") },
+        label_v2: -> { t("Access Token - delete") },
+        account_only: :root,
+        true_for: %w[AccountAdmin],
+        available_to: %w[AccountAdmin AccountMembership],
+        account_allows: ->(a) { a.feature_enabled?(:admin_manage_access_tokens) },
+        group: "manage_access_tokens",
+        group_label: -> { t("Manage Access Tokens") },
+      },
       manage_account_memberships: {
         label: -> { t("permissions.manage_account_memberships", "Add/remove other admins for the account") },
         label_v2: -> { t("Admins - add / remove") },
@@ -323,6 +343,13 @@ class RoleOverride < ActiveRecord::Base
         account_only: :site_admin,
         true_for: %w[AccountAdmin],
         available_to: %w[AccountAdmin AccountMembership],
+      },
+      manage_lti_registrations: {
+        label: -> { t("LTI Registrations - manage ") },
+        account_only: true,
+        true_for: %w[AccountAdmin],
+        available_to: %w[AccountAdmin AccountMembership],
+        account_allows: ->(a) { a.root_account.feature_enabled?(:lti_registrations_page) }
       },
       manage_release_notes: {
         label: -> { t("Manage release notes") },
@@ -1105,6 +1132,21 @@ class RoleOverride < ActiveRecord::Base
           AccountAdmin
         ],
       },
+      share_banks_with_subaccounts: {
+        label: -> { t("permissions.share_banks_with_subaccounts", "Share item banks with subaccounts") },
+        label_v2: -> { t("Item Banks - share with subaccounts") },
+        available_to: %w[
+          DesignerEnrollment
+          TaEnrollment
+          TeacherEnrollment
+          AccountAdmin
+          AccountMembership
+        ],
+        true_for: %w[
+          AccountAdmin
+        ],
+        account_allows: ->(_a) { Account.site_admin.feature_enabled?(:new_quizzes_subaccount_sharing_permission) },
+      },
       manage_files_add: {
         label: -> { t("Add course files") },
         label_v2: -> { t("Course Files - add") },
@@ -1801,6 +1843,49 @@ class RoleOverride < ActiveRecord::Base
         true_for: %w[AccountAdmin],
         account_only: true,
         account_allows: ->(a) { a.feature_enabled?(:admin_analytics_view_permission) }
+      },
+      view_analytics_hub: {
+        label: -> { t("Analytics Hub") },
+        available_to: %w[AccountAdmin AccountMembership],
+        true_for: %w[AccountAdmin],
+        account_only: true,
+        account_allows: ->(a) { a.feature_enabled?(:analytics_hub) }
+      },
+      view_ask_questions_analytics: {
+        label: -> { t("Ask Your Data") },
+        group: "view_advanced_analytics",
+        group_label: -> { t("Intelligent Insights") },
+        available_to: %w[AccountAdmin AccountMembership],
+        true_for: %w[AccountAdmin],
+        account_only: true,
+        account_allows: ->(a) { a.feature_enabled?(:advanced_analytics_ask_questions) }
+      },
+      view_students_in_need: {
+        label: -> { t("Students in Need of Attention") },
+        group: "view_advanced_analytics",
+        group_label: -> { t("Intelligent Insights") },
+        available_to: %w[AccountAdmin AccountMembership],
+        true_for: %w[AccountAdmin],
+        account_only: true,
+        account_allows: ->(a) { a.feature_enabled?(:k20_students_in_need_of_attention) }
+      },
+      view_course_readiness: {
+        label: -> { t("Course Readiness") },
+        group: "view_advanced_analytics",
+        group_label: -> { t("Intelligent Insights") },
+        available_to: %w[AccountAdmin AccountMembership],
+        true_for: %w[AccountAdmin],
+        account_only: true,
+        account_allows: ->(a) { a.feature_enabled?(:k20_course_readiness) }
+      },
+      view_lti_usage: {
+        label: -> { t("LTI Usage") },
+        group: "view_advanced_analytics",
+        group_label: -> { t("Intelligent Insights") },
+        available_to: %w[AccountAdmin AccountMembership],
+        true_for: %w[AccountAdmin],
+        account_only: true,
+        account_allows: ->(a) { a.feature_enabled?(:k20_lti_usage) }
       },
       manage_impact: {
         label: -> { t("Manage Impact") },

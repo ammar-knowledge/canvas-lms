@@ -34,22 +34,132 @@ export const masteryPathsOption = {
   label: I18n.t('Mastery Paths'),
 }
 
-const GradedDiscussionDueDateDefaultValues = {
+const DiscussionDueDateDefaultValues = {
   assignedInfoList: [],
   setAssignedInfoList: () => {},
   studentEnrollments: [],
   sections: [],
-  dueDateErrorMessages: [],
-  setDueDateErrorMessages: () => {},
   groups: [],
+  gradedDiscussionRefMap: new Map(),
+  setGradedDiscussionRefMap: () => {},
+  pointsPossibleReplyToTopic: 0,
+  setPointsPossibleReplyToTopic: points => {},
+  pointsPossibleReplyToEntry: 0,
+  setPointsPossibleReplyToEntry: points => {},
+  replyToEntryRequiredCount: 1,
+  setReplyToEntryRequiredCount: count => {},
+  importantDates: false,
+  setImportantDates: newImportantDatesValue => {},
 }
 
-export const GradedDiscussionDueDatesContext = React.createContext(
-  GradedDiscussionDueDateDefaultValues
-)
+export const DiscussionDueDatesContext = React.createContext(DiscussionDueDateDefaultValues)
 
 export const ASSIGNMENT_OVERRIDE_GRAPHQL_TYPENAMES = {
   ADHOC: 'AdhocStudents',
   SECTION: 'Section',
   GROUP: 'Group',
+  COURSE: 'Course',
+}
+
+export const minimumReplyToEntryRequiredCount = 1
+export const maximumReplyToEntryRequiredCount = 10
+
+export const REPLY_TO_TOPIC = 'reply_to_topic'
+export const REPLY_TO_ENTRY = 'reply_to_entry'
+
+export const useShouldShowContent = (
+  isGraded,
+  isAnnouncement,
+  isGroupDiscussion,
+  isGroupContext,
+  discussionAnonymousState,
+  isEditing,
+  isStudent,
+  published
+) => {
+  const shouldShowTodoSettings =
+    !isGraded &&
+    !isAnnouncement &&
+    ENV.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_MANAGE_CONTENT &&
+    ENV.STUDENT_PLANNER_ENABLED
+
+  const shouldShowPostToSectionOption =
+    !isGraded &&
+    !isGroupDiscussion &&
+    !isGroupContext &&
+    !(ENV.FEATURES?.selective_release_ui_api && !isAnnouncement)
+
+  const shouldShowAnonymousOptions =
+    !isGroupContext &&
+    !isAnnouncement &&
+    (ENV.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_MODERATE ||
+      ENV.allow_student_anonymous_discussion_topics)
+
+  const shouldShowAnnouncementOnlyOptions = isAnnouncement && !isGroupContext
+
+  const shouldShowGroupOptions =
+    discussionAnonymousState === 'off' &&
+    !isAnnouncement &&
+    !isGroupContext &&
+    ENV.DISCUSSION_TOPIC.PERMISSIONS.CAN_SET_GROUP
+
+  const shouldShowGradedDiscussionOptions =
+    discussionAnonymousState === 'off' &&
+    !isAnnouncement &&
+    !isGroupContext &&
+    ENV.DISCUSSION_TOPIC.PERMISSIONS.CAN_CREATE_ASSIGNMENT
+
+  const shouldShowUsageRightsOption =
+    ENV?.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_ATTACH &&
+    ENV?.FEATURES?.usage_rights_discussion_topics &&
+    ENV?.USAGE_RIGHTS_REQUIRED &&
+    ENV?.PERMISSIONS?.manage_files
+
+  const shouldShowLikingOption = !ENV.K5_HOMEROOM_COURSE
+
+  const shouldShowPartialAnonymousSelector =
+    !isEditing && discussionAnonymousState === 'partial_anonymity' && isStudent
+
+  const shouldShowAvailabilityOptions = !isGroupContext
+
+  /* discussion moderators viewing a new or still unpublished discussion */
+  const shouldShowSaveAndPublishButton =
+    !isAnnouncement && ENV.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_MODERATE && !published
+
+  const shouldShowPodcastFeedOption =
+    ENV.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_MODERATE && !ENV.K5_HOMEROOM_COURSE
+
+  const shouldShowCheckpointsOptions = isGraded && ENV.DISCUSSION_CHECKPOINTS_ENABLED
+
+  const canCreateGradedDiscussion =
+    !isEditing && ENV?.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_CREATE_ASSIGNMENT
+  const canEditDiscussionAssignment =
+    isEditing && ENV?.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_UPDATE_ASSIGNMENT
+
+  const shouldShowAssignToForUngradedDiscussions =
+    !isAnnouncement &&
+    !isGraded &&
+    ENV.FEATURES?.selective_release_ui_api &&
+    ENV.DISCUSSION_TOPIC?.PERMISSIONS?.CAN_MANAGE_ASSIGN_TO_UNGRADED
+
+  const shouldShowAllowParticipantsToCommentOption =
+    !ENV?.ANNOUNCEMENTS_COMMENTS_DISABLED && shouldShowAnnouncementOnlyOptions
+
+  return {
+    shouldShowTodoSettings,
+    shouldShowPostToSectionOption,
+    shouldShowAnonymousOptions,
+    shouldShowAnnouncementOnlyOptions,
+    shouldShowGroupOptions,
+    shouldShowGradedDiscussionOptions,
+    shouldShowUsageRightsOption,
+    shouldShowLikingOption,
+    shouldShowPartialAnonymousSelector,
+    shouldShowAvailabilityOptions,
+    shouldShowSaveAndPublishButton,
+    shouldShowPodcastFeedOption,
+    shouldShowCheckpointsOptions,
+    shouldShowAssignToForUngradedDiscussions,
+    shouldShowAllowParticipantsToCommentOption,
+  }
 }

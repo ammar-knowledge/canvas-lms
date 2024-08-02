@@ -231,7 +231,7 @@ class RubricAssociation < ActiveRecord::Base
   end
 
   def update_rubric
-    cnt = rubric.rubric_associations.for_grading.length rescue 0
+    cnt = rubric.rubric_associations.for_grading.count
     rubric&.with_versioning(false) do
       rubric.read_only = cnt > 1
       rubric.association_count = cnt
@@ -363,6 +363,7 @@ class RubricAssociation < ActiveRecord::Base
         self.summary_data[:saved_comments][criterion.id.to_s] << rating[:comments]
         # TODO: i18n
         self.summary_data[:saved_comments][criterion.id.to_s] = self.summary_data[:saved_comments][criterion.id.to_s].select { |desc| desc.present? && desc != "No Details" }.uniq.sort
+        self.skip_updating_points_possible = true
         save
       end
       rating[:description] = t("no_details", "No details") if rating[:description].blank?

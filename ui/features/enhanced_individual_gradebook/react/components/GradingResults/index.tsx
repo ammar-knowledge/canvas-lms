@@ -177,6 +177,7 @@ export default function GradingResults({
   const {
     changeGradeUrl,
     customOptions: {hideStudentNames},
+    gradingStandardPointsBased,
   } = gradebookOptions
 
   const submitScoreUrl = (changeGradeUrl ?? '')
@@ -250,6 +251,7 @@ export default function GradingResults({
               handleSetGradeInput={handleSetGradeInput}
               handleSubmitGrade={submitGrade}
               handleChangePassFailStatus={handleChangePassFailStatus}
+              gradingStandardPointsBased={gradingStandardPointsBased}
             />
             <View as="div" margin="small 0 0 0">
               {submission.late && (
@@ -315,7 +317,7 @@ export default function GradingResults({
             )}
             {dropped && (
               <p className="dropped muted" data-testid="dropped-assignment-message">
-                This grade is currently dropped for this student.
+                {I18n.t('This grade is currently dropped for this student.')}
               </p>
             )}
             {submission.gradeMatchesCurrentSubmission !== null &&

@@ -41,11 +41,13 @@ type Props = {
   disabled: boolean
   enterGradesAs: 'gradingScheme' | 'passFail' | 'percent' | 'points'
   gradingScheme: [name: string, value: number][]
+  pointsBasedGradingScheme: boolean
   pendingGradeInfo: {
     excused: boolean
     grade: string
     valid: boolean
   }
+  scalingFactor: number
   submission: {
     enteredGrade: string
     enteredScore: number

@@ -18,7 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "atom"
 require "rrule"
 
 # @API Calendar Events
@@ -326,6 +325,7 @@ class CalendarEventsApiController < ApplicationController
   before_action :get_calendar_context, only: :create
   before_action :require_user_or_observer, only: [:user_index]
   before_action :require_authorization, only: %w[index user_index]
+  before_action :check_limited_access_for_students, only: %w[index create show update]
 
   RECURRING_EVENT_LIMIT = 200
 
@@ -942,9 +942,11 @@ class CalendarEventsApiController < ApplicationController
   #
   def update_from_series(target_event, params_for_update, which)
     which ||= "one"
-    params_for_update[:rrule] ||= target_event.rrule
-    rrule = params_for_update[:rrule]
+    rrule = params_for_update.key?(:rrule) ? params_for_update[:rrule] : target_event.rrule
     rrule_changed = rrule != target_event[:rrule]
+    # If a nil RRULE is explicitly passed in params and the event had a valid RRULE the series will be converted to a single event
+    change_to_single_event = rrule_changed && params_for_update.key?(:rrule) && params_for_update[:rrule].blank?
+    params_for_update[:rrule] ||= rrule
     params_for_update[:series_uuid] ||= target_event.series_uuid
     params_for_update[:start_at] ||= target_event.start_at.iso8601
     params_for_update[:end_at] ||= target_event.end_at.iso8601
@@ -966,7 +968,7 @@ class CalendarEventsApiController < ApplicationController
       end
     end
 
-    if which == "one"
+    if which == "one" && !change_to_single_event
       if target_event.workflow_state == "locked"
         render json: { message: t("You may not update a locked event") }, status: :bad_request
         return
@@ -980,7 +982,7 @@ class CalendarEventsApiController < ApplicationController
 
     all_events = find_which_series_events(target_event:, which: "all", for_update: true)
     adjusted_all_events = all_events.empty? ? [target_event] : all_events
-    events = (which == "following") ? adjusted_all_events.where("start_at >= ?", target_event.start_at) : adjusted_all_events
+    events = (which == "following") ? adjusted_all_events.where(start_at: target_event.start_at..) : adjusted_all_events
 
     tz = @current_user.time_zone || ActiveSupport::TimeZone.new("UTC")
     target_start = Time.parse(params_for_update[:start_at]).in_time_zone(tz)
@@ -1001,12 +1003,16 @@ class CalendarEventsApiController < ApplicationController
     end
     duration = first_end_at - first_start_at
 
-    rr = validate_and_parse_rrule(
-      rrule,
-      dtstart: first_start_at,
-      tzid: tz&.tzinfo&.name || "UTC"
-    )
-    return false if rr.nil?
+    # An RRULE is not present if the series will be converted to a single event
+    rr = nil
+    if rrule.present?
+      rr = validate_and_parse_rrule(
+        rrule,
+        dtstart: first_start_at,
+        tzid: tz&.tzinfo&.name || "UTC"
+      )
+      return false if rr.nil?
+    end
 
     params_for_update_front_half = nil
     front_half_events = []
@@ -1030,8 +1036,8 @@ class CalendarEventsApiController < ApplicationController
     error = nil
     CalendarEvent.skip_touch_context
     CalendarEvent.transaction do
-      dtstart_list = rr.all(limit: update_limit)
-      if events.length > dtstart_list.length
+      dtstart_list = rr.present? ? rr.all(limit: update_limit) : []
+      if rr.present? && events.length > dtstart_list.length
         # truncate the list of events we're updating to how many
         # we'll end up with given the (possible updated) rrule
         events.drop(dtstart_list.length).each do |event|
@@ -1079,6 +1085,30 @@ class CalendarEventsApiController < ApplicationController
             raise ActiveRecord::Rollback
           end
         end
+      end
+
+      # For convert series to single event, all the series event will be removed except the target event
+      if change_to_single_event
+        params_for_update[:series_head] = false
+        params_for_update[:series_uuid] = nil
+        params_for_update[:rrule] = nil
+        unless target_event.update(params_for_update)
+          error = { message: t("Failed updating an event in the series, update not saved") }
+          raise ActiveRecord::Rollback
+        end
+
+        (events - [target_event]).each do |event|
+          unless event.grants_any_right?(@current_user, session, :delete)
+            error = { message: t("Failed deleting an event from the series, update not saved"), status: :unauthorized }
+            raise ActiveRecord::Rollback
+          end
+
+          unless event.destroy
+            error = { message: t("Failed deleting an event from the series, update not saved") }
+            raise ActiveRecord::Rollback
+          end
+        end
+        events = [target_event]
       end
 
       # if we updated this-and-all-following, we had to update the front half's rrule
@@ -1259,16 +1289,14 @@ class CalendarEventsApiController < ApplicationController
         render plain: calendar.to_ical
       end
       format.atom do
-        feed = Atom::Feed.new do |f|
-          f.title = t :feed_title, "%{course_or_group_name} Calendar Feed", course_or_group_name: @context.name
-          f.links << Atom::Link.new(href: calendar_url_for(@context), rel: "self")
-          f.updated = Time.now
-          f.id = calendar_url_for(@context)
+        title = t :feed_title, "%{course_or_group_name} Calendar Feed", course_or_group_name: @context.name
+        link = calendar_url_for(@context)
+
+        feed_xml = AtomFeedHelper.render_xml(title:, link:, entries: @events) do |e|
+          { exclude_description: !!e.try(:locked_for?, @current_user) }
         end
-        @events.each do |e|
-          feed.entries << e.to_atom(exclude_description: !!e.try(:locked_for?, @current_user))
-        end
-        render plain: feed.to_xml
+
+        render plain: feed_xml
       end
     end
   end

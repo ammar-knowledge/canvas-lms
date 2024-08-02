@@ -18,23 +18,46 @@
 
 import React from 'react'
 import {Flex} from '@instructure/ui-flex'
+import { ToggleDetails } from '@instructure/ui-toggle-details'
+import {useScope as useI18nScope} from '@canvas/i18n'
 import SearchResult from './SearchResult'
 
-export default function SearchResults(props) {
-  function searchItemKey(searchItem) {
-    if (searchItem.wiki_page) {
-      return 'wiki_page-' + searchItem.wiki_page.id
-    } // TODO: add other search item types
-    return 'unknown'
-  }
+const I18n = useI18nScope('SmartSearch')
 
-  return (
-    <Flex as="div" direction="column">
-      {props.searchResults.map(s => (
-        <Flex.Item key={searchItemKey(s)} as="div">
-          <SearchResult searchResult={s} />
-        </Flex.Item>
+export default function SearchResults({onDislike, onExplain, onLike, searchResults, searchTerm}) {
+  const searchItemKey = ({content_id, content_type}) => `${content_type}_${content_id}`
+
+  const topResults = searchResults.filter(result => result.relevance >= 50)
+  const otherResults = searchResults.filter(result => result.relevance < 50)
+
+  return (<>
+    <Flex as="ul" className="searchResults" direction="column">
+      {topResults.map(result => (
+        <SearchResult
+          key={searchItemKey(result)}
+          result={result}
+          onDislike={onDislike}
+          onExplain={onExplain}
+          onLike={onLike}
+          searchTerm={searchTerm}
+        />
       ))}
     </Flex>
-  )
+    {otherResults.length > 0 && (
+      <ToggleDetails summary={I18n.t('Show additional results that may be less relevant')}>
+        <Flex as="ul" className="searchResults" direction="column">
+          {searchResults.filter(result => result.relevance < 50).map(result => (
+            <SearchResult
+              key={searchItemKey(result)}
+              result={result}
+              onDislike={onDislike}
+              onExplain={onExplain}
+              onLike={onLike}
+              searchTerm=""
+            />
+          ))}
+        </Flex>
+      </ToggleDetails>
+    )}
+  </>)
 }

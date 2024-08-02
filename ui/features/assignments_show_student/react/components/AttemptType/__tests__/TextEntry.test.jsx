@@ -38,9 +38,8 @@ async function makeProps(opts = {}) {
   const mockedSubmission =
     opts.submission ||
     (await mockSubmission({
-      Submission: {
-        submissionDraft: {body: 'words'},
-      },
+      Submission: {submissionDraft: {}},
+      SubmissionDraft: {body: 'words'},
     }))
 
   return {
@@ -358,10 +357,11 @@ describe('TextEntry', () => {
     })
 
     it('calls onContentsChanged when the user types', async () => {
+      const user = userEvent.setup({delay: null})
       const props = await makeProps()
       await renderEditor(props)
       props.onContentsChanged.mockClear()
-      userEvent.type(document.getElementById('textentry_text'), '!')
+      await user.type(document.getElementById('textentry_text'), '!')
       expect(props.onContentsChanged).toHaveBeenCalled()
     })
   })

@@ -18,6 +18,8 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+require "feedjira"
+
 describe GroupsController do
   before :once do
     course_with_teacher(active_all: true)
@@ -612,7 +614,7 @@ describe GroupsController do
 
     describe "quota" do
       before do
-        Setting.set("group_default_quota", 11.megabytes)
+        Setting.set("group_default_quota", 11.decimal_megabytes)
       end
 
       context "teacher" do
@@ -918,30 +920,29 @@ describe GroupsController do
 
     it "includes absolute path for rel='self' link" do
       get "public_feed", params: { feed_code: @group.feed_code }, format: "atom"
-      feed = Atom::Feed.load_feed(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed).not_to be_nil
-      expect(feed.links.first.rel).to match(/self/)
-      expect(feed.links.first.href).to match(%r{http://})
+      expect(feed.feed_url).to match(%r{http://})
     end
 
     it "includes an author for each entry" do
       get "public_feed", params: { feed_code: @group.feed_code }, format: "atom"
-      feed = Atom::Feed.load_feed(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed).not_to be_nil
       expect(feed.entries).not_to be_empty
-      expect(feed.entries.all? { |e| e.authors.present? }).to be_truthy
+      expect(feed.entries.all? { |e| e.author.present? }).to be_truthy
     end
 
     it "excludes unpublished things" do
       get "public_feed", params: { feed_code: @group.feed_code }, format: "atom"
-      feed = Atom::Feed.load_feed(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed.entries.size).to eq 2
 
       @wp.unpublish
       @dt.unpublish! # yes, you really have to shout to unpublish a discussion topic :(
 
       get "public_feed", params: { feed_code: @group.feed_code }, format: "atom"
-      feed = Atom::Feed.load_feed(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed.entries.size).to eq 0
     end
   end
@@ -1094,6 +1095,19 @@ describe GroupsController do
       it "does not check quota if submit_assignment is true" do
         put "create_file", params: request_params.merge(submit_assignment: true)
         expect_any_instance_of(Attachment).not_to receive(:get_quota)
+      end
+
+      context "in a limited access account" do
+        before do
+          course.root_account.enable_feature!(:allow_limited_access_for_students)
+          course.account.settings[:enable_limited_access_for_students] = true
+          course.account.save!
+        end
+
+        it "renders unauthorized" do
+          put "create_file", params: request_params.merge(submit_assignment: true)
+          expect(response.code.to_i).to be 401
+        end
       end
     end
   end

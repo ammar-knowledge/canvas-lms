@@ -47,6 +47,13 @@ describe User do
     end
   end
 
+  context "relationships" do
+    subject { User.new }
+
+    it { is_expected.to have_many(:created_lti_registrations).class_name("Lti::Registration").with_foreign_key("created_by_id") }
+    it { is_expected.to have_many(:updated_lti_registrations).class_name("Lti::Registration").with_foreign_key("updated_by_id") }
+  end
+
   describe "notifications" do
     describe "#daily_notification_time" do
       it "returns the users 6pm local time" do
@@ -1784,21 +1791,42 @@ describe User do
       expect(User.avatar_fallback_url("http://somedomain:3000/path")).to eq(
         "http://somedomain:3000/path"
       )
-      expect(User.avatar_fallback_url(nil, OpenObject.new(host: "foo", protocol: "http://"))).to eq(
-        "http://foo/images/messages/avatar-50.png"
-      )
-      expect(User.avatar_fallback_url("/somepath", OpenObject.new(host: "bar", protocol: "https://"))).to eq(
-        "https://bar/somepath"
-      )
-      expect(User.avatar_fallback_url("//somedomain/path", OpenObject.new(host: "bar", protocol: "https://"))).to eq(
-        "https://somedomain/path"
-      )
-      expect(User.avatar_fallback_url("http://somedomain/path", OpenObject.new(host: "bar", protocol: "https://"))).to eq(
-        "http://somedomain/path"
-      )
-      expect(User.avatar_fallback_url("http://localhost/path", OpenObject.new(host: "bar", protocol: "https://"))).to eq(
-        "https://bar/path"
-      )
+      expect(User.avatar_fallback_url(nil, instance_double("ActionDispatch::Request",
+                                                           host: "foo",
+                                                           protocol: "http://",
+                                                           port: 80,
+                                                           scheme: "http"))).to eq(
+                                                             "http://foo/images/messages/avatar-50.png"
+                                                           )
+      expect(User.avatar_fallback_url("/somepath", instance_double("ActionDispatch::Request",
+                                                                   host:
+                                                                         "bar",
+                                                                   protocol: "https://",
+                                                                   port: 443,
+                                                                   scheme: "https"))).to eq(
+                                                                     "https://bar/somepath"
+                                                                   )
+      expect(User.avatar_fallback_url("//somedomain/path", instance_double("ActionDispatch::Request",
+                                                                           host: "bar",
+                                                                           protocol: "https://",
+                                                                           port: 443,
+                                                                           scheme: "https"))).to eq(
+                                                                             "https://somedomain/path"
+                                                                           )
+      expect(User.avatar_fallback_url("http://somedomain/path", instance_double("ActionDispatch::Request",
+                                                                                host: "bar",
+                                                                                protocol: "https://",
+                                                                                port: 443,
+                                                                                scheme: "https"))).to eq(
+                                                                                  "http://somedomain/path"
+                                                                                )
+      expect(User.avatar_fallback_url("http://localhost/path", instance_double("ActionDispatch::Request",
+                                                                               host: "bar",
+                                                                               protocol: "https://",
+                                                                               port: 443,
+                                                                               scheme: "https"))).to eq(
+                                                                                 "https://bar/path"
+                                                                               )
     end
 
     describe "#clear_avatar_image_url_with_uuid" do
@@ -2656,7 +2684,7 @@ describe User do
     it "sums up associated root account quotas" do
       @user.associated_root_accounts << Account.create! << (a = Account.create!)
       a.update_attribute :default_user_storage_quota_mb, a.default_user_storage_quota_mb + 10
-      expect(@user.quota).to eql((2 * User.default_storage_quota) + 10.megabytes)
+      expect(@user.quota).to eql((2 * User.default_storage_quota) + 10.decimal_megabytes)
     end
   end
 
@@ -4548,6 +4576,68 @@ describe User do
       it "returns all subaccount ids" do
         expect(subject).to contain_exactly(*expected_adminable.map(&:id))
       end
+    end
+  end
+
+  describe "learning_object_visibilities" do
+    before :once do
+      student_in_course(active_all: true)
+    end
+
+    it "includes assignment and quiz ids with the selective_release_backend flag disabled" do
+      Account.site_admin.disable_feature!(:selective_release_backend)
+      expect(@user.learning_object_visibilities(@course).keys).to contain_exactly(:assignment_ids, :quiz_ids)
+    end
+
+    it "includes all learning object ids with the selective_release_backend flag enabled" do
+      Account.site_admin.enable_feature!(:selective_release_backend)
+      expect(@user.learning_object_visibilities(@course).keys).to contain_exactly(:assignment_ids, :quiz_ids, :context_module_ids, :discussion_topic_ids, :wiki_page_ids)
+    end
+  end
+
+  describe "#active_student_enrollments_in_account?" do
+    before(:once) do
+      @account = Account.default
+      @account_other = @account.sub_accounts.create!
+      @user = user_with_pseudonym
+      course_with_user("StudentEnrollment", { user: @user, account: @account })
+    end
+
+    it "returns true if there are active student enrollments in the specified account" do
+      expect(@user.active_student_enrollments_in_account?(@account)).to be true
+    end
+
+    it "returns false if there are no active student enrollments in the specified account" do
+      expect(@user.active_student_enrollments_in_account?(@account_other)).to be false
+    end
+
+    it "returns false if user has active student enrollment in descendant account" do
+      @user.enrollments.destroy_all
+      course_with_user("StudentEnrollment", { user: @user, account: @account_other })
+      expect(@user.active_student_enrollments_in_account?(@account)).to be false
+    end
+  end
+
+  describe "#student_in_limited_access_account??" do
+    before(:once) do
+      @limited_access_account = Account.default
+      @account_other = Account.create!
+
+      @limited_access_account.root_account.enable_feature!(:allow_limited_access_for_students)
+      @limited_access_account.settings[:enable_limited_access_for_students] = true
+      @limited_access_account.save!
+
+      @user = user_with_pseudonym
+      course_with_user("StudentEnrollment", { user: @user, account: @account_other })
+    end
+
+    it "returns true if user has active student enrollment in locked down account" do
+      course_with_user("StudentEnrollment", { user: @user, account: @limited_access_account })
+      expect(@user.student_in_limited_access_account?).to be true
+    end
+
+    it "returns false if user has no active student enrollments in locked down accounts" do
+      expect(@user.student_in_limited_access_account?).to be false
     end
   end
 end

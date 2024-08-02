@@ -52,6 +52,8 @@ export default class FindDialog extends DialogBaseView {
           click: e => this.import(e),
         },
       ],
+      modal: true,
+      zIndex: 1000,
     }
   }
 
@@ -178,6 +180,10 @@ export default class FindDialog extends DialogBaseView {
       canShow = false
     }
     $('.ui-dialog-buttonpane .btn-primary').toggle(canShow)
+  }
+
+  cleanup() {
+    this.$el.remove()
   }
 
   confirmText(model) {

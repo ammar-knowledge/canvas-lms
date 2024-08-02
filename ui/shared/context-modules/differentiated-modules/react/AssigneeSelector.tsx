@@ -17,7 +17,7 @@
  */
 
 import CanvasMultiSelect, {type Size} from '@canvas/multi-select/react'
-import React, {type ReactElement, useEffect, useRef, useState} from 'react'
+import React, {type ReactElement, useEffect, useRef, useState, useCallback} from 'react'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import {Link} from '@instructure/ui-link'
 import {View} from '@instructure/ui-view'
@@ -27,6 +27,8 @@ import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {setContainScrollBehavior} from '../utils/assignToHelper'
 import useFetchAssignees from '../utils/hooks/useFetchAssignees'
 import type {FormMessage} from '@instructure/ui-form-field'
+import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import type {AssigneeOption} from './Item/types'
 
 const {Option: CanvasMultiSelectOption} = CanvasMultiSelect as any
 
@@ -48,14 +50,10 @@ interface Props {
   customSetSearchTerm?: (term: string) => void
   onError?: () => void
   showVisualLabel?: boolean
-}
-
-export interface AssigneeOption {
-  id: string
-  value: string
-  sisID?: string
-  overrideId?: string
-  group?: string
+  inputRef?: (inputElement: HTMLInputElement | null) => void
+  onBlur?: () => void
+  disabledWithGradingPeriod?: boolean
+  disabledOptionIdsRef?: React.MutableRefObject<string[]>
 }
 
 const AssigneeSelector = ({
@@ -74,10 +72,13 @@ const AssigneeSelector = ({
   customSetSearchTerm,
   onError,
   showVisualLabel = true,
+  inputRef,
+  onBlur,
+  disabledWithGradingPeriod,
+  disabledOptionIdsRef,
 }: Props) => {
   const listElementRef = useRef<HTMLElement | null>(null)
   const [options, setOptions] = useState<AssigneeOption[]>(defaultValues)
-  const [isShowingOptions, setIsShowingOptions] = useState(false)
   const {allOptions, isLoading, setSearchTerm} = useFetchAssignees({
     courseId,
     everyoneOption,
@@ -89,24 +90,21 @@ const AssigneeSelector = ({
     onError,
   })
   const [highlightedOptionId, setHighlightedOptionId] = useState<string | null>(null)
+  const disabledOptions = disabledOptionIdsRef?.current ?? disabledOptionIds
 
   const shouldUpdateOptions = [
     JSON.stringify(allOptions),
-    JSON.stringify(disabledOptionIds),
+    JSON.stringify(disabledOptions),
     JSON.stringify(selectedOptionIds),
   ]
 
   useEffect(() => {
     const newOptions = allOptions.filter(
-      option => selectedOptionIds.includes(option.id) || !disabledOptionIds.includes(option.id)
+      option => selectedOptionIds.includes(option.id) || !disabledOptions.includes(option.id)
     )
     setOptions(newOptions)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, shouldUpdateOptions)
-
-  const handleSelectOption = () => {
-    setIsShowingOptions(false)
-  }
 
   const handleChange = (newSelected: string[]) => {
     const newSelectedSet = new Set(newSelected)
@@ -117,10 +115,14 @@ const AssigneeSelector = ({
   const handleInputChange = debounce(value => setSearchTerm(value), 500)
 
   const handleShowOptions = () => {
-    setIsShowingOptions(true)
     setTimeout(() => {
       setContainScrollBehavior(listElementRef.current)
     }, 500)
+  }
+
+  const handleClear = () => {
+    onSelect([])
+    showFlashAlert({message: I18n.t('All assignees removed'), srOnly: true})
   }
 
   const label = I18n.t('Assign To')
@@ -139,9 +141,17 @@ const AssigneeSelector = ({
     )
   }
 
+  const handleFocus = useCallback(() => {
+    const newOptions = allOptions.filter(
+      option => selectedOptionIds.includes(option.id) || !disabledOptions.includes(option.id)
+    )
+    setOptions(newOptions)
+  }, [allOptions, selectedOptionIds, disabledOptions])
+
   return (
     <>
       <CanvasMultiSelect
+        disabled={disabledWithGradingPeriod}
         data-testid="assignee_selector"
         messages={messages}
         label={showVisualLabel ? label : <ScreenReaderContent>{label}</ScreenReaderContent>}
@@ -152,11 +162,11 @@ const AssigneeSelector = ({
         customOnInputChange={handleInputChange}
         visibleOptionsCount={10}
         isLoading={isLoading}
+        isRequired={true}
+        setInputRef={inputRef}
         listRef={e => (listElementRef.current = e)}
-        isShowingOptions={isShowingOptions}
         customOnRequestShowOptions={handleShowOptions}
-        customOnRequestHideOptions={() => setIsShowingOptions(false)}
-        customOnRequestSelectOption={handleSelectOption}
+        onFocus={handleFocus}
         customRenderBeforeInput={tags =>
           tags?.map((tag: ReactElement) => (
             <View
@@ -172,6 +182,7 @@ const AssigneeSelector = ({
         }
         customMatcher={optionMatcher}
         onUpdateHighlightedOption={setHighlightedOptionId}
+        customOnBlur={onBlur}
       >
         {options.map(option => {
           return (
@@ -198,11 +209,7 @@ const AssigneeSelector = ({
       </CanvasMultiSelect>
       {!clearAllDisabled && (
         <View as="div" textAlign="end" margin="small none">
-          <Link
-            data-testid="clear_selection_button"
-            onClick={() => onSelect([])}
-            isWithinText={false}
-          >
+          <Link data-testid="clear_selection_button" onClick={handleClear} isWithinText={false}>
             <span aria-hidden={true}>{I18n.t('Clear All')}</span>
             <ScreenReaderContent>{I18n.t('Clear Assign To')}</ScreenReaderContent>
           </Link>

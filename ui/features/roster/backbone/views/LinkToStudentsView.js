@@ -22,6 +22,7 @@ import DialogBaseView from '@canvas/dialog-base-view'
 import RosterDialogMixin from './RosterDialogMixin'
 import linkToStudentsViewTemplate from '../../jst/LinkToStudentsView.handlebars'
 import '@canvas/jquery/jquery.disableWhileLoading'
+import '../../jquery/ContextSearch'
 
 const I18n = useI18nScope('course_settings')
 
@@ -32,6 +33,8 @@ export default class LinkToStudentsView extends DialogBaseView {
     this.prototype.dialogOptions = {
       id: 'link_students',
       title: I18n.t('titles.link_to_students', 'Link to Students'),
+      modal: true,
+      zIndex: 1000,
     }
   }
 
@@ -64,6 +67,8 @@ export default class LinkToStudentsView extends DialogBaseView {
     })
     const input = this.$('#student_input').data('token_input')
     input.$fakeInput.css('width', '100%')
+    input.$fakeInput.css('min-height', '78px')
+    input.$fakeInput.css('overflow', 'auto')
 
     for (const e of this.model.allEnrollmentsByType('ObserverEnrollment')) {
       if (e.observed_user && some(e.observed_user.enrollments)) {

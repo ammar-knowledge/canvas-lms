@@ -26,7 +26,7 @@ class HostUrlContainer
   end
 end
 
-environment_configuration(defined?(config) && config) do |config|
+Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb
 
   # In the development environment your application's code is reloaded on
@@ -38,6 +38,9 @@ environment_configuration(defined?(config) && config) do |config|
   config.consider_all_requests_local = !ActiveModel::Type::Boolean.new.cast(ENV.fetch("SHOW_PRODUCTION_ERRORS", false))
   config.action_controller.perform_caching = ActiveModel::Type::Boolean.new.cast(ENV.fetch("ACTION_CONTROLLER_CACHING", false))
 
+  # Enable server timing
+  config.server_timing = true
+
   # run rake js:build to build the optimized JS if set to true
   # ENV['USE_OPTIMIZED_JS']                            = 'true'
 
@@ -48,12 +51,14 @@ environment_configuration(defined?(config) && config) do |config|
   if RUBY_ENGINE == "ruby"
     require "debug/prelude"
     if ENV["REMOTE_DEBUGGING_ENABLED"]
+      # rubocop:disable Lint/Debugger
       if defined?(PhusionPassenger)
         # only initialize in forked child process (to prevent EADDRINUSE)
         PhusionPassenger.on_event(:starting_worker_process) { require "debug/open_nonstop" }
       else
         require "debug/open_nonstop"
       end
+      # rubocop:enable Lint/Debugger
     end
   end
 

@@ -93,18 +93,21 @@ describe GradebooksController do
         attachment = attachment_model(context: @assignment)
         attachment2 = attachment_model(context: @assignment)
         other_student = @course.enroll_user(User.create!(name: "some other user")).user
+        deleted_media_object = factory_with_protected_attributes(MediaObject, media_id: "m-someid2", media_type: "video", title: "Example Media Object 2", context: @course)
         submission_to_comment = @assignment.grade_student(@student, grade: 10, grader: @teacher).first
         comment_1 = submission_to_comment.add_comment(comment: "a student comment", author: @teacher, attachments: [attachment])
         comment_2 = submission_to_comment.add_comment(comment: "another student comment", author: @teacher, attachments: [attachment, attachment2])
         comment_3 = submission_to_comment.add_comment(comment: "an anonymous comment", author: other_student)
         comment_4 = submission_to_comment.add_comment(media_comment_id: "m-someid", media_comment_type: "video", author: @student)
+        submission_to_comment.add_comment(media_comment_id: "m-someid2", media_comment_type: "video", author: @student)
+        deleted_media_object.destroy_permanently!
         comment_1.mark_read!(@student)
 
         get "grade_summary", params: { course_id: @course.id, id: @student.id }
         submission = assigns[:js_env][:submissions].find { |s| s[:assignment_id] == @assignment.id }
         aggregate_failures do
           expect(submission[:score]).to be 10.0
-          expect(submission[:submission_comments].length).to be 4
+          expect(submission[:submission_comments].length).to be 5
 
           submission_comment_1 = submission[:submission_comments].first
           expect(submission_comment_1).to include({
@@ -638,7 +641,6 @@ describe GradebooksController do
                                                                          "context_name" => @course.name,
                                                                          "data" => data,
                                                                          "permissions" => { "manage" => false },
-                                                                         "assessed_assignment" => false,
                                                                          "points_based" => grading_standard.points_based,
                                                                          "scaling_factor" => grading_standard.scaling_factor,
                                                                          "workflow_state" => "active" })
@@ -657,7 +659,6 @@ describe GradebooksController do
                                                                          "context_name" => @course.name,
                                                                          "data" => [{ "name" => "A", "value" => 0.94 }, { "name" => "A-", "value" => 0.9 }, { "name" => "B+", "value" => 0.87 }, { "name" => "B", "value" => 0.84 }, { "name" => "B-", "value" => 0.8 }, { "name" => "C+", "value" => 0.77 }, { "name" => "C", "value" => 0.74 }, { "name" => "C-", "value" => 0.7 }, { "name" => "D+", "value" => 0.67 }, { "name" => "D", "value" => 0.64 }, { "name" => "D-", "value" => 0.61 }, { "name" => "F", "value" => 0.0 }],
                                                                          "permissions" => { "manage" => false },
-                                                                         "assessed_assignment" => false,
                                                                          "points_based" => false,
                                                                          "scaling_factor" => 1.0,
                                                                          "workflow_state" => nil })
@@ -691,7 +692,6 @@ describe GradebooksController do
                                                                          "context_name" => @course.name,
                                                                          "data" => [{ "name" => "A", "value" => 0.94 }, { "name" => "A-", "value" => 0.9 }, { "name" => "B+", "value" => 0.87 }, { "name" => "B", "value" => 0.84 }, { "name" => "B-", "value" => 0.8 }, { "name" => "C+", "value" => 0.77 }, { "name" => "C", "value" => 0.74 }, { "name" => "C-", "value" => 0.7 }, { "name" => "D+", "value" => 0.67 }, { "name" => "D", "value" => 0.64 }, { "name" => "D-", "value" => 0.61 }, { "name" => "F", "value" => 0.0 }],
                                                                          "permissions" => { "manage" => false },
-                                                                         "assessed_assignment" => false,
                                                                          "points_based" => false,
                                                                          "scaling_factor" => 1.0,
                                                                          "workflow_state" => nil })
@@ -3108,8 +3108,23 @@ describe GradebooksController do
       expect(response).not_to be_redirect
     end
 
+    it "loads the platform speedgreader when the feature flag is on and the platform_sg flag is passed" do
+      @assignment.publish
+      Account.site_admin.enable_feature!(:platform_service_speedgrader)
+      get "speed_grader", params: { course_id: @course, assignment_id: @assignment.id, platform_sg: true }
+      expect(response).to render_template(:bare, locals: { anonymous_grading: false })
+    end
+
     describe "js_env" do
       let(:js_env) { assigns[:js_env] }
+
+      context "when platform_service_speedgrader is enabled" do
+        it "includes info indicating whether grade by question is supported" do
+          Account.site_admin.enable_feature!(:platform_service_speedgrader)
+          get "speed_grader", params: { course_id: @course, assignment_id: @assignment.id, platform_sg: true }
+          expect(js_env).to have_key :GRADE_BY_QUESTION_SUPPORTED
+        end
+      end
 
       it "includes lti_retrieve_url" do
         get "speed_grader", params: { course_id: @course, assignment_id: @assignment.id }
@@ -3291,6 +3306,40 @@ describe GradebooksController do
             get :speed_grader, params: { course_id: @course, assignment_id: @assignment }
             expect(js_env).not_to include(:filter_speed_grader_by_student_group)
           end
+        end
+      end
+
+      describe "rubric_outcome_data" do
+        before do
+          @course.account.enable_feature!(:enhanced_rubrics)
+        end
+
+        it "does not include rubric_outcome_data when the assignment does not have a rubric" do
+          rubric = Rubric.create!(context: @course, title: "testing")
+          RubricAssociation.create!(context: @course, rubric:, purpose: :grading, association_object: @assignment)
+
+          get :speed_grader, params: { course_id: @course, assignment_id: @assignment }
+          expect(js_env[:rubric_outcome_data]).to eq []
+        end
+
+        it "includes rubric_outcome_data" do
+          outcome_with_rubric({ mastery_points: 3 })
+          @outcome.display_name = "Outcome 1"
+          @outcome.save!
+          RubricAssociation.create!(context: @course, rubric: @rubric, purpose: :grading, association_object: @assignment)
+
+          get :speed_grader, params: { course_id: @course, assignment_id: @assignment }
+          expect(js_env[:rubric_outcome_data].length).to eq 1
+          expect(js_env[:rubric_outcome_data].first[:display_name]).to eq "Outcome 1"
+        end
+
+        it "does not include rubric_outcome_data when the enhanced_rubric feature is disabled" do
+          @course.account.disable_feature!(:enhanced_rubrics)
+          rubric = Rubric.create!(context: @course, title: "testing")
+          RubricAssociation.create!(context: @course, rubric:, purpose: :grading, association_object: @assignment)
+
+          get :speed_grader, params: { course_id: @course, assignment_id: @assignment }
+          expect(js_env[:rubric_outcome_data]).to eq []
         end
       end
     end

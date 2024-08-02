@@ -117,6 +117,15 @@
                     </a>
                   </li>
               {{/if}}
+              {{#if show_assign_to}}
+                {{#if CAN.MANAGE_ASSIGN_TO}}
+                  <li>
+                    <a href="#" class="icon-permissions assign-wiki-page-to" title="{{#t}}Assign To...{{/t}}">
+                      {{#t}}Assign To...{{/t}}
+                    </a>
+                  </li>
+                {{/if}}
+              {{/if}}
           {{/if}}
           {{#if DIRECT_SHARE_ENABLED}}
               <li>

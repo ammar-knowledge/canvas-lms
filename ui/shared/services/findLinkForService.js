@@ -144,7 +144,7 @@ export function findLinkForService(service_type, callback) {
         }
       )
     })
-    $dialog.delegate('.bookmark_link', 'click', function (event) {
+    $dialog.on('click', '.bookmark_link', function (event) {
       event.preventDefault()
       const url = $(this).attr('href')
       const title = $(this).attr('title') || $(this).text()
@@ -169,5 +169,7 @@ export function findLinkForService(service_type, callback) {
       $dialog.find('input:visible:first').focus().select()
     },
     width: 400,
+    modal: true,
+    zIndex: 1000,
   })
 }

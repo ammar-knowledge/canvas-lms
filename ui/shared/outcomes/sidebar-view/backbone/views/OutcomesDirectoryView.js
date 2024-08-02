@@ -28,6 +28,7 @@ import OutcomeGroupIconView from './OutcomeGroupIconView'
 import OutcomeIconView from './OutcomeIconView'
 import {publish} from 'jquery-tinypubsub'
 import '@canvas/jquery/jquery.disableWhileLoading'
+import 'jqueryui/draggable'
 import 'jqueryui/droppable'
 import '@canvas/rails-flash-notifications'
 

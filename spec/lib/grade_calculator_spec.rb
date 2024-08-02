@@ -398,8 +398,7 @@ describe GradeCalculator do
       end
 
       it "emits one live event per student" do
-        expect(Canvas::LiveEvents).to receive(:course_grade_change).exactly(1).times \
-          do |score, old_score_values, enrollment|
+        expect(Canvas::LiveEvents).to receive(:course_grade_change).once do |score, old_score_values, enrollment|
           expect(enrollment.user_id).to eq(@student.id)
           expect(enrollment.course_id).to eq(@course.id)
           expect(score.current_score).to eq(60)
@@ -1912,6 +1911,52 @@ describe GradeCalculator do
 
         expect { calc.send(:save_course_and_grading_period_scores) }.to raise_error(Delayed::RetriableError)
       end
+    end
+  end
+
+  context "what if scores" do
+    let(:calc) { GradeCalculator.new([@student.id], @course, use_what_if_scores: true) }
+
+    before do
+      @assignment1 = @course.assignments.create! points_possible: 100
+      @assignment2 = @course.assignments.create! points_possible: 100
+    end
+
+    it "uses student_entered_score" do
+      @assignment1.grade_student @student, grade: 50, grader: @teacher
+      @assignment2.grade_student @student, grade: 90, grader: @teacher
+      submission = @assignment2.submissions.find_by(user: @student)
+      expect { submission.update_column(:student_entered_score, 10) }.to change { submission.reload.student_entered_score }.from(nil).to(10)
+
+      scores = calc.compute_scores
+
+      expect(scores.first[:current][:grade]).to eq 30
+    end
+
+    it "includes student_entered_scores even if the submission is unposted" do
+      @assignment2.ensure_post_policy(post_manually: true)
+      @assignment1.grade_student @student, grade: 50, grader: @teacher
+      @assignment2.grade_student @student, grade: 90, grader: @teacher
+      submission = @assignment2.submissions.find_by(user: @student)
+      submission.update_column(:student_entered_score, 10)
+
+      scores = calc.compute_scores
+
+      expect(scores.first[:current][:grade]).to eq 30
+    end
+
+    it "drops student_entered_score if necessary" do
+      @assignment1.assignment_group.rules_hash = { drop_lowest: 1 }.with_indifferent_access
+      @assignment1.assignment_group.save!
+      expect(@assignment1.assignment_group.id).to eq @assignment2.assignment_group.id
+      @assignment1.grade_student @student, grade: 50, grader: @teacher
+      @assignment2.grade_student @student, grade: 90, grader: @teacher
+      submission = @assignment2.submissions.find_by(user: @student)
+      expect { submission.update_column(:student_entered_score, 10) }.to change { submission.reload.student_entered_score }.from(nil).to(10)
+
+      scores = calc.compute_scores
+
+      expect(scores.first[:current][:grade]).to eq 50
     end
   end
 end

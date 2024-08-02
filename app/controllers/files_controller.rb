@@ -169,6 +169,8 @@ class FilesController < ApplicationController
   before_action :verify_api_id, only: %i[
     api_show api_create_success api_file_status api_update destroy icon_metadata reset_verifier
   ]
+  before_action :check_limited_access_contexts, only: %i[index]
+  before_action :check_limited_access_for_students, only: %i[show api_index api_show]
 
   include Api::V1::Attachment
   include Api::V1::Avatar
@@ -180,6 +182,14 @@ class FilesController < ApplicationController
 
   def verify_api_id
     raise ActiveRecord::RecordNotFound unless Api::ID_REGEX.match?(params[:id])
+  end
+
+  def check_limited_access_contexts
+    if @context.is_a?(Course) && @context&.account&.limited_access_for_user?(@current_user)
+      redirect_to course_path(@context)
+    else
+      check_limited_access_for_students
+    end
   end
 
   def quota
@@ -348,7 +358,7 @@ class FilesController < ApplicationController
                        else
                          Attachment.display_name_order_by_clause("attachments")
                        end
-        order_clause += " DESC" if params[:order] == "desc"
+        order_clause = "#{order_clause} DESC" if params[:order] == "desc"
         scope = scope.order(Arel.sql(order_clause)).order(id: (params[:order] == "desc") ? :desc : :asc)
 
         if params[:content_types].present?
@@ -616,6 +626,9 @@ class FilesController < ApplicationController
   end
 
   def show
+    # Ensure these links are not indexed by search engines
+    response.headers["X-Robots-Tag"] = "noindex, nofollow" unless @allow_robot_indexing
+
     GuardRail.activate(:secondary) do
       params[:id] ||= params[:file_id]
 
@@ -659,7 +672,7 @@ class FilesController < ApplicationController
           render status: :not_found, template: "shared/errors/404_message", formats: [:html]
           return
         end
-        flash[:notice] = t "notices.deleted", "The file %{display_name} has been deleted", display_name: @attachment.display_name
+        flash[:notice] = t "notices.deleted", "The file %{display_name} has been deleted", display_name: @attachment.display_name unless request.format == :json # rubocop:disable Rails/ActionControllerFlashBeforeRender
         if params[:preview] && @attachment.mime_class == "image"
           redirect_to "/images/blank.png"
         elsif request.format == :json
@@ -890,7 +903,10 @@ class FilesController < ApplicationController
       # despite name, this is really just asking if the assignment expects an
       # upload
       # The discussion_topic check is to allow attachments to graded discussions to not count against the user's quota.
-      if asset.allow_google_docs_submission? || asset.submission_types == "discussion_topic"
+      if asset.submission_types == "discussion_topic"
+        any_entry = asset.discussion_topic.discussion_entries.temp_record
+        authorized_action(any_entry, @current_user, :attach)
+      elsif asset.allow_google_docs_submission?
         authorized_action(asset, @current_user, :submit)
       else
         authorized_action(asset, @current_user, :nothing)
@@ -951,12 +967,23 @@ class FilesController < ApplicationController
     @asset = Context.find_asset_by_asset_string(params[:attachment][:asset_string], @context) if params[:attachment][:asset_string]
     intent = params[:attachment][:intent]
 
+    # Discussions Redesign is now using this endpoint and this is how we make it work for them.
+    # We need to find the asset if it's a discussion topic and the asset_string is provided.
+    # This only applies when the intent is "submit" and the asset.submission_types is a "discussion_topic".
+    if params[:attachment][:asset_string] && @asset.nil? && intent == "submit"
+      asset = Context.find_asset_by_asset_string(params[:attachment][:asset_string])
+
+      if asset.is_a?(Assignment) && asset.submission_types == "discussion_topic"
+        @asset = asset
+      end
+    end
+
     # correct context for assignment-related attachments
     if @asset.is_a?(Assignment) && intent == "comment"
       # attachments that are comments on an assignment "belong" to the
       # assignment, even if another context was nominally provided
       @context = @asset
-    elsif @asset.is_a?(Assignment) && intent == "submit"
+    elsif @asset.is_a?(Assignment) && intent == "submit" && @asset.submission_types != "discussion_topic"
       # assignment submissions belong to either the group (if it's a group
       # assignment) or the user, even if another context was nominally provided
       group = @asset.group_category.group_for(@current_user) if @asset.has_group_category?
@@ -1048,7 +1075,7 @@ class FilesController < ApplicationController
 
     overwritten_instfs_uuid = nil
     @attachment = if params.key?(:precreated_attachment_id)
-                    att = Attachment.where(id: params[:precreated_attachment_id]).take
+                    att = Attachment.find_by(id: params[:precreated_attachment_id])
                     if att.nil?
                       reject! "Requested to use precreated attachment, but attachment with id #{params[:precreated_attachment_id]} doesn't exist", 422
                     else
@@ -1103,7 +1130,7 @@ class FilesController < ApplicationController
 
     # apply duplicate handling
     if overwritten_instfs_uuid
-      InstFS.delay_if_production.delete_file(overwritten_instfs_uuid)
+      @attachment.delay_if_production.safe_delete_overwritten_instfs_uuid(overwritten_instfs_uuid)
     else
       @attachment.handle_duplicates(params[:on_duplicate])
     end

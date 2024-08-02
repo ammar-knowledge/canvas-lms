@@ -20,7 +20,6 @@
 
 require_relative "../api_spec_helper"
 require_relative "../file_uploads_spec_helper"
-require_relative "../../cassandra_spec_helper"
 
 class TestUserApi
   include Api::V1::User
@@ -763,72 +762,57 @@ describe "Users API", type: :request do
     assert_status(401)
   end
 
-  shared_examples_for "page view api" do
-    describe "page view api" do
-      before do
-        @timestamp = Time.zone.at(1.day.ago.to_i)
-        page_view_model(user: @student, created_at: @timestamp - 1.day)
-        page_view_model(user: @student, created_at: @timestamp + 1.day)
-        page_view_model(user: @student, created_at: @timestamp, developer_key: DeveloperKey.default)
-      end
-
-      it "returns page view history" do
-        stub_const("Api::MAX_PER_PAGE", 2)
-        json = api_call(:get,
-                        "/api/v1/users/#{@student.id}/page_views?per_page=1000",
-                        { controller: "page_views", action: "index", user_id: @student.to_param, format: "json", per_page: "1000" })
-        expect(json.size).to eq 2
-        json.each { |j| expect(j["url"]).to eq "http://www.example.com/courses/1" }
-        expect(json[0]["created_at"]).to be > json[1]["created_at"]
-        expect(json[0]["app_name"]).to be_nil
-        expect(json[1]["app_name"]).to eq "User-Generated"
-        expect(response.headers["Link"]).to match(/next/)
-        response.headers["Link"].split(",").find { |l| l =~ /<([^>]+)>.+next/ }
-        url = $1
-        _path, querystring = url.split("?")
-        page = Rack::Utils.parse_nested_query(querystring)["page"]
-        json = api_call(:get,
-                        url,
-                        { controller: "page_views", action: "index", user_id: @student.to_param, format: "json", page:, per_page: Setting.get("api_max_per_page", "2") })
-        expect(json.size).to eq 1
-        json.each { |j| expect(j["url"]).to eq "http://www.example.com/courses/1" }
-        expect(response.headers["Link"]).not_to match(/next/)
-        expect(response.headers["Link"]).to match(/last/)
-      end
-
-      it "recognizes start_time parameter" do
-        stub_const("Api::MAX_PER_PAGE", 3)
-        start_time = @timestamp.iso8601
-        json = api_call(:get,
-                        "/api/v1/users/#{@student.id}/page_views?start_time=#{start_time}",
-                        { controller: "page_views", action: "index", user_id: @student.to_param, format: "json", start_time: })
-        expect(json.size).to eq 2
-        json.each { |j| expect(CanvasTime.try_parse(j["created_at"]).to_i).to be >= @timestamp.to_i }
-      end
-
-      it "recognizes end_time parameter" do
-        stub_const("Api::MAX_PER_PAGE", 3)
-        end_time = @timestamp.iso8601
-        json = api_call(:get,
-                        "/api/v1/users/#{@student.id}/page_views?end_time=#{end_time}",
-                        { controller: "page_views", action: "index", user_id: @student.to_param, format: "json", end_time: })
-        expect(json.size).to eq 2
-        json.each { |j| expect(CanvasTime.try_parse(j["created_at"]).to_i).to be <= @timestamp.to_i }
-      end
-    end
-  end
-
-  include_examples "page view api"
-
-  describe "cassandra page views" do
+  describe "page view api" do
     before do
-      # can't use :once'd @student, since cassandra doesn't reset
-      student_in_course(course: @course, user: user_with_pseudonym(name: "Student", username: "pvuser2@example.com", active_user: true))
-      @user = @admin
+      @timestamp = Time.zone.at(1.day.ago.to_i)
+      page_view_model(user: @student, created_at: @timestamp - 1.day)
+      page_view_model(user: @student, created_at: @timestamp + 1.day)
+      page_view_model(user: @student, created_at: @timestamp, developer_key: DeveloperKey.default)
     end
 
-    include_examples "cassandra page views"
-    include_examples "page view api"
+    it "returns page view history" do
+      stub_const("Api::MAX_PER_PAGE", 2)
+      json = api_call(:get,
+                      "/api/v1/users/#{@student.id}/page_views?per_page=1000",
+                      { controller: "page_views", action: "index", user_id: @student.to_param, format: "json", per_page: "1000" })
+      expect(json.size).to eq 2
+      json.each { |j| expect(j["url"]).to eq "http://www.example.com/courses/1" }
+      expect(json[0]["created_at"]).to be > json[1]["created_at"]
+      expect(json[0]["app_name"]).to be_nil
+      expect(json[1]["app_name"]).to eq "User-Generated"
+      expect(response.headers["Link"]).to match(/next/)
+      response.headers["Link"].split(",").find { |l| l =~ /<([^>]+)>.+next/ }
+      url = $1
+      _path, querystring = url.split("?")
+      page = Rack::Utils.parse_nested_query(querystring)["page"]
+      json = api_call(:get,
+                      url,
+                      { controller: "page_views", action: "index", user_id: @student.to_param, format: "json", page:, per_page: Setting.get("api_max_per_page", "2") })
+      expect(json.size).to eq 1
+      json.each { |j| expect(j["url"]).to eq "http://www.example.com/courses/1" }
+      expect(response.headers["Link"]).not_to match(/next/)
+      expect(response.headers["Link"]).to match(/last/)
+    end
+
+    it "recognizes start_time parameter" do
+      stub_const("Api::MAX_PER_PAGE", 3)
+      start_time = @timestamp.iso8601
+      json = api_call(:get,
+                      "/api/v1/users/#{@student.id}/page_views?start_time=#{start_time}",
+                      { controller: "page_views", action: "index", user_id: @student.to_param, format: "json", start_time: })
+      expect(json.size).to eq 2
+      json.each { |j| expect(CanvasTime.try_parse(j["created_at"]).to_i).to be >= @timestamp.to_i }
+    end
+
+    it "recognizes end_time parameter" do
+      stub_const("Api::MAX_PER_PAGE", 3)
+      end_time = @timestamp.iso8601
+      json = api_call(:get,
+                      "/api/v1/users/#{@student.id}/page_views?end_time=#{end_time}",
+                      { controller: "page_views", action: "index", user_id: @student.to_param, format: "json", end_time: })
+      expect(json.size).to eq 2
+      json.each { |j| expect(CanvasTime.try_parse(j["created_at"]).to_i).to be <= @timestamp.to_i }
+    end
   end
 
   it "does not find users in other root accounts by sis id" do
@@ -990,7 +974,7 @@ describe "Users API", type: :request do
                         { controller: "users", action: "api_show", id: @other_user.id.to_param, format: "json" },
                         {},
                         expected_status: 404)
-        expect(json.keys).to eq ["errors"]
+        expect(json.keys).to include("id")
       end
 
       it "404s but still returns the user on a deleted user for a site admin" do
@@ -1548,6 +1532,14 @@ describe "Users API", type: :request do
         users = User.where(name: "Test User").to_a
         expect(users.length).to be 1
         user = users.first
+
+        # setup communication channel
+        communication_channel = user.communication_channels.email.first
+        expect(communication_channel).not_to be_nil
+        # create presenter with a mock request
+        request = instance_double("ActionDispatch::Request", host_with_port: "example.com")
+        presenter = CommunicationChannelPresenter.new(communication_channel, request)
+
         expect(user.name).to eql "Test User"
         expect(user.short_name).to eql "Test"
         expect(user.sortable_name).to eql "User, T."
@@ -1559,20 +1551,21 @@ describe "Users API", type: :request do
         expect(pseudonym.unique_id).to eql "test@example.com"
         expect(pseudonym.sis_user_id).to eql "12345"
 
-        expect(JSON.parse(response.body)).to eq({
-                                                  "name" => "Test User",
-                                                  "short_name" => "Test",
-                                                  "sortable_name" => "User, T.",
-                                                  "id" => user.id,
-                                                  "created_at" => user.created_at.iso8601,
-                                                  "sis_user_id" => "12345",
-                                                  "sis_import_id" => user.pseudonym.sis_batch_id,
-                                                  "login_id" => "test@example.com",
-                                                  "integration_id" => nil,
-                                                  "locale" => "en",
-                                                  "confirmation_url" => user.communication_channels.email.first.confirmation_url,
-                                                  "uuid" => user.uuid
-                                                })
+        expected_response = {
+          "name" => "Test User",
+          "short_name" => "Test",
+          "sortable_name" => "User, T.",
+          "id" => user.id,
+          "created_at" => user.created_at.iso8601,
+          "sis_user_id" => "12345",
+          "sis_import_id" => user.pseudonym.sis_batch_id,
+          "login_id" => "test@example.com",
+          "integration_id" => nil,
+          "locale" => "en",
+          "confirmation_url" => presenter.confirmation_url,
+          "uuid" => user.uuid
+        }
+        expect(JSON.parse(response.body)).to eq(expected_response)
       end
 
       it "accepts a valid destination param" do
@@ -2107,17 +2100,13 @@ describe "Users API", type: :request do
             end
           end
 
-          it "errors" do
+          it "admin can update student pronoun" do
             @student.pronouns = "She/Her"
             @student.save!
-            original_pronoun = @student.pronouns
             test_pronoun = "He/Him"
             raw_api_call(:put, @path, @path_options, { user: { pronouns: test_pronoun } })
-            json = JSON.parse(response.body)
-            expect(response).to have_http_status :unauthorized
-            expect(json["status"]).to eq "unauthorized"
-            expect(json["errors"][0]["message"]).to eq "user not authorized to perform that action"
-            expect(@student.reload.pronouns).to eq original_pronoun
+            expect(response).to have_http_status :ok
+            expect(@student.reload.pronouns).to eq test_pronoun
           end
         end
       end
@@ -2143,6 +2132,50 @@ describe "Users API", type: :request do
                    user: { title: another_title }
                  })
         expect(user.profile.reload.title).to eq another_title
+      end
+
+      it "can update name pronunciation in user's profile if name pronunciation is enabled" do
+        Account.default.tap do |a|
+          a.settings[:enable_profiles] = true
+          a.settings[:enable_name_pronunciation] = true
+          a.save!
+        end
+
+        new_pronunciation = "Burni Nator"
+        json = api_call(:put, @path, @path_options, {
+                          user: { pronunciation: new_pronunciation }
+                        })
+        expect(json["pronunciation"]).to eq new_pronunciation
+        user = User.find(json["id"])
+        expect(user.profile.pronunciation).to eq new_pronunciation
+
+        another_pronunciation = "another pronunciation"
+        api_call(:put, @path, @path_options, {
+                   user: { pronunciation: another_pronunciation }
+                 })
+        expect(user.reload.profile.pronunciation).to eq another_pronunciation
+      end
+
+      it "will get an error when updating name pronunciation in user's profile if name pronunciation is disabled" do
+        Account.default.tap do |a|
+          a.settings[:enable_profiles] = true
+          a.settings[:enable_name_pronunciation] = false
+          a.save!
+        end
+
+        @student.profile.pronunciation = "My name pronunciation"
+        @student.profile.save!
+
+        original_pronunciation = @student.reload.profile.pronunciation
+        new_pronunciation = "Burni Nator"
+
+        raw_api_call(:put, @path, @path_options, { user: { pronunciation: new_pronunciation } })
+        json = JSON.parse(response.body)
+
+        expect(response).to have_http_status :unauthorized
+        expect(json["status"]).to eq "unauthorized"
+        expect(json["errors"][0]["message"]).to eq "user not authorized to perform that action"
+        expect(@student.reload.profile.pronunciation).to eq original_pronunciation
       end
 
       it "is able to update a user's profile with email" do
@@ -2637,6 +2670,25 @@ describe "Users API", type: :request do
     end
   end
 
+  describe "DELETE expire_mobile_sessions" do
+    let_once(:user) { user_with_pseudonym(active_all: true)  }
+    let_once(:admin) { account_admin_user(active_all: true)  }
+    let_once(:path) { "/api/v1/users/mobile_sessions" }
+    let_once(:path_options) { { controller: "users", action: "expire_mobile_sessions", format: "json" } }
+
+    before do
+      user.access_tokens.create!
+    end
+
+    it "allows admin to expire mobile sessions" do
+      user_session(admin)
+      raw_api_call(:delete, path, path_options)
+
+      expect(response).to have_http_status :ok
+      expect(user.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
+    end
+  end
+
   context "user files" do
     before do
       @context = @user
@@ -2670,6 +2722,24 @@ describe "Users API", type: :request do
                { name: "my_essay.doc" },
                {},
                expected_status: 401)
+    end
+
+    context "student in limited access account" do
+      before do
+        @user = course_with_student.user
+        @course.root_account.enable_feature!(:allow_limited_access_for_students)
+        @course.account.settings[:enable_limited_access_for_students] = true
+        @course.account.save!
+      end
+
+      it "renders unauthorized" do
+        api_call(:post,
+                 "/api/v1/users/#{@user.id}/files",
+                 { controller: "users", action: "create_file", format: "json", user_id: @user.to_param, },
+                 { name: "my_essay.doc" },
+                 {},
+                 expected_status: 401)
+      end
     end
   end
 

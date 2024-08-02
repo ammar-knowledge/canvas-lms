@@ -21,12 +21,14 @@ require_relative "page_objects/assignments_index_page"
 require_relative "page_objects/assignment_page"
 require_relative "../helpers/items_assign_to_tray"
 require_relative "../helpers/context_modules_common"
+require_relative "../../helpers/selective_release_common"
 
 describe "assignments show page assign to" do
   include_context "in-process server selenium tests"
   include AssignmentsIndexPage
   include ItemsAssignToTray
   include ContextModulesCommon
+  include SelectiveReleaseCommon
 
   before :once do
     differentiated_modules_on
@@ -94,6 +96,18 @@ describe "assignments show page assign to" do
     expect(assign_to_in_tray("Remove #{@student1.name}")[0]).to be_displayed
   end
 
+  it "does not show cards for ADHOC override with no students" do
+    @assignment1.assignment_overrides.create!(set_type: "ADHOC")
+
+    get "/courses/#{@course.id}/assignments/#{@assignment1.id}"
+
+    AssignmentPage.click_assign_to_button
+    wait_for_assign_to_tray_spinner
+    keep_trying_until { expect(item_tray_exists?).to be_truthy }
+    # only renders the everyone card
+    expect(module_item_assign_to_card.length).to be(1)
+  end
+
   it "saves and shows override updates when tray reaccessed" do
     get "/courses/#{@course.id}/assignments/#{@assignment1.id}"
 
@@ -119,8 +133,61 @@ describe "assignments show page assign to" do
 
     expect(assign_to_due_date(0).attribute("value")).to eq("Dec 31, 2022")
     expect(assign_to_due_time(0).attribute("value")).to eq("5:00 PM")
-    expect(assign_to_date_and_time[0].text).to include("Saturday, December 31, 2022 5:00 PM")
-    expect(assign_to_date_and_time[1].text).to include("Tuesday, December 27, 2022 8:00 AM")
-    expect(assign_to_date_and_time[2].text).to include("Saturday, January 7, 2023 9:00 PM")
+    expect(assign_to_available_from_date(0).attribute("value")).to eq("Dec 27, 2022")
+    expect(assign_to_available_from_time(0).attribute("value")).to eq("8:00 AM")
+    expect(assign_to_until_date(0).attribute("value")).to eq("Jan 7, 2023")
+    expect(assign_to_until_time(0).attribute("value")).to eq("9:00 PM")
+  end
+
+  it "focus close button on open" do
+    get "/courses/#{@course.id}/assignments/#{@assignment1.id}"
+
+    AssignmentPage.click_assign_to_button
+    wait_for_assign_to_tray_spinner
+    keep_trying_until { expect(item_tray_exists?).to be_truthy }
+
+    check_element_has_focus close_button
+  end
+
+  it "does not show the button when the user does not have the manage_assignments_edit permission" do
+    get "/courses/#{@course.id}/assignments/#{@assignment1.id}"
+    expect(element_exists?(AssignmentPage.assign_to_button_selector)).to be_truthy
+
+    RoleOverride.create!(context: @course.account, permission: "manage_assignments_edit", role: teacher_role, enabled: false)
+    get "/courses/#{@course.id}/assignments/#{@assignment1.id}"
+    expect(element_exists?(AssignmentPage.assign_to_button_selector)).to be_falsey
+  end
+
+  it "does show mastery paths in the assign to list for assignments" do
+    @course.conditional_release = true
+    @course.save!
+
+    get "/courses/#{@course.id}/assignments/#{@assignment1.id}"
+
+    AssignmentPage.click_assign_to_button
+    wait_for_assign_to_tray_spinner
+    keep_trying_until { expect(item_tray_exists?).to be_truthy }
+
+    option_elements = INSTUI_Select_options(module_item_assignee[0])
+    option_names = option_elements.map(&:text)
+    expect(option_names).to include("Mastery Paths")
+  end
+
+  it "shows all the overrides if there are more than a page size for the assignment", custom_timeout: 30 do
+    @page_size = 5
+    stub_const("Api::MAX_PER_PAGE", @page_size)
+    create_users_in_course(@course, 20, return_type: :record, name_prefix: "Student")
+    Assignment.suspend_due_date_caching do
+      @course.students.each do |student|
+        ao = @assignment1.assignment_overrides.create!
+        ao.assignment_override_students.create!(user: student)
+      end
+    end
+    get "/courses/#{@course.id}/assignments/#{@assignment1.id}"
+    AssignmentPage.click_assign_to_button
+    wait_for_assign_to_tray_spinner
+    keep_trying_until { expect(item_tray_exists?).to be_truthy }
+    # there were 2 existing users in the course, plus the Everyone Else card, so we expect 23 cards
+    expect(module_item_assign_to_card.length).to eq(23)
   end
 end

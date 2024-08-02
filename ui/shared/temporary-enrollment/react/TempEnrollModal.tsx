@@ -23,17 +23,20 @@ import {Modal} from '@instructure/ui-modal'
 import {Button, CloseButton} from '@instructure/ui-buttons'
 import {Heading} from '@instructure/ui-heading'
 import {TempEnrollSearch} from './TempEnrollSearch'
-import {TempEnrollEdit} from './TempEnrollEdit'
+import {TempEnrollView} from './TempEnrollView'
 import {TempEnrollAssign} from './TempEnrollAssign'
 import {Flex} from '@instructure/ui-flex'
-import type {Enrollment, EnrollmentType, Role, TempEnrollPermissions, User} from './types'
+import type {
+  Enrollment,
+  EnrollmentType,
+  Role,
+  ModifyPermissions,
+  User,
+  RolePermissions,
+} from './types'
 import {MODULE_NAME, RECIPIENT} from './types'
 import {showFlashSuccess} from '@canvas/alerts/react/FlashAlert'
 import {createAnalyticPropsGenerator, setAnalyticPropsOnRef} from './util/analytics'
-import {Spinner} from '@instructure/ui-spinner'
-import {fetchTemporaryEnrollments} from './api/enrollment'
-import {Alert} from '@instructure/ui-alerts'
-import {captureException} from '@sentry/browser'
 
 const I18n = useI18nScope('temporary_enrollment')
 
@@ -45,19 +48,11 @@ interface Props {
   children: ReactElement
   user: User
   canReadSIS?: boolean
-  permissions: {
-    teacher: boolean
-    ta: boolean
-    student: boolean
-    observer: boolean
-    designer: boolean
-  }
+  rolePermissions: RolePermissions
   roles: Role[]
-  defaultOpen?: boolean
-  tempEnrollments?: Enrollment[]
   isEditMode: boolean
   onToggleEditMode?: (mode?: boolean) => void
-  tempEnrollPermissions: TempEnrollPermissions
+  modifyPermissions: ModifyPermissions
 }
 
 export const generateModalTitle = (
@@ -87,37 +82,21 @@ export const generateModalTitle = (
 }
 
 export function TempEnrollModal(props: Props) {
-  const [open, setOpen] = useState(props.defaultOpen || false)
+  const [open, setOpen] = useState(false)
   const [page, setPage] = useState(0)
   const [enrollment, setEnrollment] = useState<User | null>(null)
-  const [enrollmentData, setEnrollmentData] = useState<Enrollment[]>([])
-  const [isFetchEnrollmentDataComplete, setIsFetchEnrollmentDataComplete] = useState(false)
   const [isViewingAssignFromEdit, setIsViewingAssignFromEdit] = useState(false)
   const [buttonsDisabled, setButtonsDisabled] = useState(true)
-  const [loading, setLoading] = useState(false)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [wasReset, setWasReset] = useState(false)
   const [isModalOpenAnimationComplete, setIsModalOpenAnimationComplete] = useState(false)
   const [tempEnrollmentsPairing, setTempEnrollmentsPairing] = useState<Enrollment[] | null>(null)
-  const [title, setTitle] = useState('')
+  const [title, setTitle] = useState(' ')
 
   useEffect(() => {
-    if (isFetchEnrollmentDataComplete && isModalOpenAnimationComplete) {
-      setLoading(false)
+    if (isModalOpenAnimationComplete) {
       setButtonsDisabled(false)
     }
-  }, [isFetchEnrollmentDataComplete, isModalOpenAnimationComplete])
-
-  const fetchAndSetEnrollments = async (userId: string, isRecipient: boolean) => {
-    try {
-      const fetchedEnrollments = await fetchTemporaryEnrollments(userId, isRecipient)
-      setEnrollmentData(fetchedEnrollments)
-    } catch (error) {
-      setErrorMessage('An unexpected error occurred, please try again later.')
-      // eslint-disable-next-line no-console
-      console.error(`Failed to fetch enrollments for user ${userId}:`, error)
-      captureException(error)
-    }
-  }
+  }, [isModalOpenAnimationComplete])
 
   useEffect(() => {
     const newTitle = generateModalTitle(
@@ -134,18 +113,14 @@ export function TempEnrollModal(props: Props) {
     if (props.isEditMode && props.onToggleEditMode) {
       props.onToggleEditMode(false)
     }
-
-    if (props.tempEnrollments) {
-      setEnrollmentData(props.tempEnrollments)
-    }
   }
 
   const handleModalReset = () => {
     setPage(0)
     setEnrollment(null)
+    setWasReset(true)
     setTempEnrollmentsPairing(null)
     setIsViewingAssignFromEdit(false)
-    setIsFetchEnrollmentDataComplete(false)
     setIsModalOpenAnimationComplete(false)
     resetCommonState()
   }
@@ -161,18 +136,17 @@ export function TempEnrollModal(props: Props) {
     resetCommonState()
   }
 
-  const handleEnrollmentSubmission = (isSuccess: boolean) => {
+  const handleEnrollmentSubmission = (isSuccess: boolean, isUpdate: boolean) => {
     if (isSuccess) {
       setOpen(false)
-      showFlashSuccess(I18n.t('Temporary enrollment was successfully created.'))()
+      if (isUpdate) {
+        showFlashSuccess(I18n.t('Temporary enrollment was successfully updated.'))()
+      } else {
+        showFlashSuccess(I18n.t('Temporary enrollment was successfully created.'))()
+      }
     } else {
       setPage(2)
     }
-  }
-
-  const handleEnrollmentDeletion = (enrollmentIds: string[]) => {
-    // remove/update multiple enrollments from internal state
-    setEnrollmentData(prevData => prevData.filter(item => !enrollmentIds.includes(item.id)))
   }
 
   const handleOpenModal = () => {
@@ -184,6 +158,7 @@ export function TempEnrollModal(props: Props) {
   const handleCloseModal = () => {
     if (open) {
       setOpen(false)
+      handleModalReset()
     }
   }
 
@@ -191,12 +166,8 @@ export function TempEnrollModal(props: Props) {
     setEnrollment(enrollmentUser)
   }
 
-  const handleGoBackward = () => {
-    setPage((currentPage: number) => currentPage - 1)
-  }
-
-  const handleGoForward = () => {
-    setPage(currentPage => currentPage + 1)
+  const handlePageChange = (change: number) => {
+    setPage((currentPage: number) => currentPage + change)
   }
 
   const isSubmissionPage = () => {
@@ -207,23 +178,8 @@ export function TempEnrollModal(props: Props) {
     setIsModalOpenAnimationComplete(true)
   }
 
-  const handleModalEnter = async () => {
-    setLoading(true)
-    setButtonsDisabled(true)
-
-    if (!props.user || !props.isEditMode) {
-      setIsFetchEnrollmentDataComplete(true)
-      return
-    }
-
-    const isRecipientEnrollment = props.enrollmentType === RECIPIENT
-    await fetchAndSetEnrollments(props.user.id, isRecipientEnrollment)
-    setIsFetchEnrollmentDataComplete(true)
-  }
-
   const handleModalExit = () => {
     setButtonsDisabled(true)
-    setLoading(true)
   }
 
   const handleChildClick =
@@ -255,14 +211,13 @@ export function TempEnrollModal(props: Props) {
   const renderBody = () => {
     if (props.isEditMode) {
       return (
-        <TempEnrollEdit
+        <TempEnrollView
           user={props.user}
-          enrollments={enrollmentData}
           onAddNew={handleModalReset}
           onEdit={handleGoToAssignPageWithEnrollment}
-          onDelete={handleEnrollmentDeletion}
           enrollmentType={props.enrollmentType}
-          tempEnrollPermissions={props.tempEnrollPermissions}
+          modifyPermissions={props.modifyPermissions}
+          disableModal={(isDisabled: boolean) => setButtonsDisabled(isDisabled)}
         />
       )
     } else {
@@ -272,8 +227,8 @@ export function TempEnrollModal(props: Props) {
             user={props.user}
             enrollment={enrollment}
             roles={props.roles}
-            goBack={handleGoBackward}
-            permissions={props.permissions}
+            goBack={() => handlePageChange(-1)}
+            rolePermissions={props.rolePermissions}
             doSubmit={isSubmissionPage}
             setEnrollmentStatus={handleEnrollmentSubmission}
             isInAssignEditMode={isViewingAssignFromEdit}
@@ -291,6 +246,7 @@ export function TempEnrollModal(props: Props) {
           searchFail={handleModalReset}
           searchSuccess={handleSetEnrollmentFromSearch}
           foundUser={enrollment}
+          wasReset={wasReset}
         />
       )
     }
@@ -332,9 +288,9 @@ export function TempEnrollModal(props: Props) {
         !props.isEditMode && (
           <Flex.Item key="nextOrSubmit">
             <Button
-              disabled={buttonsDisabled}
+              disabled={buttonsDisabled || (enrollment === null && page === 1)}
               color="primary"
-              onClick={handleGoForward}
+              onClick={() => handlePageChange(1)}
               {...analyticProps(page === 2 ? 'Submit' : 'Next')}
             >
               {page === 2 ? I18n.t('Submit') : I18n.t('Next')}
@@ -345,52 +301,35 @@ export function TempEnrollModal(props: Props) {
     }
   }
 
-  const renderLoader = () => {
-    return (
-      <Flex justifyItems="center" alignItems="center">
-        <Spinner renderTitle={I18n.t('Loading')} />
-      </Flex>
-    )
-  }
-
-  const renderError = () => {
-    return (
-      <Alert variant="error" margin="0">
-        {errorMessage}
-      </Alert>
-    )
-  }
-
   return (
     <>
-      <Modal
-        overflow="scroll"
-        open={open}
-        size="large"
-        label={I18n.t('Create a Temporary Enrollment')}
-        shouldCloseOnDocumentClick={false}
-        themeOverride={{smallMaxWidth: '30em'}}
-        onEnter={handleModalEnter}
-        onEntered={handleModalEntered}
-        onExit={handleModalExit}
-        onDismiss={handleCloseModal}
-        onExited={handleModalReset}
-      >
-        <Modal.Header>
-          {renderCloseButton()}
-          <Heading tabIndex={-1} level="h2">
-            {title}
-          </Heading>
-        </Modal.Header>
+      {open && (
+        <Modal
+          overflow="scroll"
+          open={open}
+          size="large"
+          label={I18n.t('Create a Temporary Enrollment')}
+          shouldCloseOnDocumentClick={false}
+          themeOverride={{smallMaxWidth: '30em'}}
+          onEntered={handleModalEntered}
+          onExit={handleModalExit}
+          onDismiss={handleCloseModal}
+          onExited={handleModalReset}
+        >
+          <Modal.Header>
+            {renderCloseButton()}
+            <Heading tabIndex={-1} level="h2">
+              {title}
+            </Heading>
+          </Modal.Header>
 
-        <Modal.Body>
-          {errorMessage ? renderError() : loading ? renderLoader() : renderBody()}
-        </Modal.Body>
+          <Modal.Body>{renderBody()}</Modal.Body>
 
-        <Modal.Footer>
-          <Flex gap="small">{renderButtons()}</Flex>
-        </Modal.Footer>
-      </Modal>
+          <Modal.Footer>
+            <Flex gap="small">{renderButtons()}</Flex>
+          </Modal.Footer>
+        </Modal>
+      )}
 
       {cloneElement(props.children, {
         onClick: handleChildClick(props.children.props.onClick),

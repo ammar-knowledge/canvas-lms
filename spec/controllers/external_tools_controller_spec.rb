@@ -173,7 +173,7 @@ describe ExternalToolsController do
 
         it "caches the the LTI 1.3 launch" do
           subject
-          expect(cached_launch["https://purl.imsglobal.org/spec/lti/claim/message_type"]).to eq "LtiResourceLinkRequest"
+          expect(cached_launch["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/message_type"]).to eq "LtiResourceLinkRequest"
         end
 
         it 'sets the "canvas_domain" to the request domain' do
@@ -184,7 +184,7 @@ describe ExternalToolsController do
 
         it "defaults placement to context navigation" do
           subject
-          expect(cached_launch["https://www.instructure.com/placement"]).to eq "course_navigation"
+          expect(cached_launch["post_payload"]["https://www.instructure.com/placement"]).to eq "course_navigation"
         end
 
         context "in the student_context_card placement" do
@@ -230,25 +230,9 @@ describe ExternalToolsController do
 
             it "includes lti_student_id in launch" do
               subject
-              expect(cached_launch["https://www.instructure.com/lti_student_id"]).to eq(student.global_id.to_s)
+              expect(cached_launch["post_payload"]["https://www.instructure.com/lti_student_id"]).to eq(student.global_id.to_s)
             end
           end
-        end
-      end
-
-      context "when Lti::LaunchDebugLogger is enabled" do
-        before do
-          Lti::LaunchDebugLogger.enable!(@course.root_account, 1)
-          user_session(@teacher)
-          get :show, params: { course_id: @course.id, id: tool.id }
-        end
-
-        after { Lti::LaunchDebugLogger.disable!(@course.root_account) }
-
-        it "includes a debug_trace in lti_message_hint" do
-          message_hint = JSON::JWT.decode(assigns[:lti_launch].params["lti_message_hint"], :skip_verification)
-          expect(message_hint["debug_trace"]).to be_a(String)
-          expect(message_hint["debug_trace"]).to_not be_empty
         end
       end
 
@@ -269,7 +253,7 @@ describe ExternalToolsController do
 
         it "returns the TestUser claim when viewing as a student" do
           get :show, params: { course_id: @course.id, id: tool.id }
-          expect(cached_launch["https://purl.imsglobal.org/spec/lti/claim/roles"]).to include("http://purl.imsglobal.org/vocab/lti/system/person#TestUser")
+          expect(cached_launch["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/roles"]).to include("http://purl.imsglobal.org/vocab/lti/system/person#TestUser")
         end
       end
 
@@ -280,12 +264,12 @@ describe ExternalToolsController do
 
         it "get passed in target_link_uri" do
           get :show, params: { course_id: @course.id, id: tool.id, launch_url: "http://www.example.com/deep_link" }
-          expect(cached_launch["https://purl.imsglobal.org/spec/lti/claim/target_link_uri"]).to eq "http://www.example.com/deep_link"
+          expect(cached_launch["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/target_link_uri"]).to eq "http://www.example.com/deep_link"
         end
 
         it "does not pass in target_link_uri if it doesn't match the tool domain" do
           get :show, params: { course_id: @course.id, id: tool.id, launch_url: "http://www.hi.com/deep_link" }
-          expect(cached_launch["https://purl.imsglobal.org/spec/lti/claim/target_link_uri"]).to eq "http://www.example.com/basic_lti"
+          expect(cached_launch["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/target_link_uri"]).to eq "http://www.example.com/basic_lti"
         end
       end
     end
@@ -984,16 +968,9 @@ describe ExternalToolsController do
       end
 
       context "ENV.LTI_TOOL_FORM_ID" do
-        it "with the lti_unique_tool_form_ids flag on, sets a random id" do
-          @course.account.enable_feature!(:lti_unique_tool_form_ids)
+        it "sets a random id" do
           expect(controller).to receive(:random_lti_tool_form_id).and_return("1")
           expect(controller).to receive(:js_env).with(LTI_TOOL_FORM_ID: "1")
-          get "retrieve", params: { course_id: @course.id, url: "http://www.example.com/launch" }
-        end
-
-        it "with the lti_unique_tool_form_ids flag off, does not set a random it" do
-          @course.account.disable_feature!(:lti_unique_tool_form_ids)
-          expect(controller).not_to receive(:js_env).with(LTI_TOOL_FORM_ID: anything)
           get "retrieve", params: { course_id: @course.id, url: "http://www.example.com/launch" }
         end
       end
@@ -1031,7 +1008,7 @@ describe ExternalToolsController do
         context "when launch_type is not provided" do
           it "does not include placement in launch" do
             get_page
-            expect(launch_hash["https://www.instructure.com/placement"]).to be_nil
+            expect(launch_hash["post_payload"]["https://www.instructure.com/placement"]).to be_nil
           end
         end
 
@@ -1046,13 +1023,13 @@ describe ExternalToolsController do
 
           it "includes placement in launch" do
             get_page
-            expect(launch_hash["https://www.instructure.com/placement"]).to eq launch_type
+            expect(launch_hash["post_payload"]["https://www.instructure.com/placement"]).to eq launch_type
           end
         end
 
         it "sets the custom parameters in the launch hash" do
           get_page
-          expect(launch_hash["https://purl.imsglobal.org/spec/lti/claim/custom"]).to include(
+          expect(launch_hash["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/custom"]).to include(
             "abc" => "def",
             "expans" => @teacher.id.to_s
           )
@@ -1065,7 +1042,7 @@ describe ExternalToolsController do
             resource_link_lookup_id: rl.lookup_uuid
           }
 
-          expect(launch_hash["https://purl.imsglobal.org/spec/lti/claim/custom"]).to include(
+          expect(launch_hash["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/custom"]).to include(
             "abc" => "def",
             "expans" => @teacher.id.to_s
           )
@@ -1127,7 +1104,7 @@ describe ExternalToolsController do
           )
           rl.update(context_external_tool: tool2)
           get_page
-          expect(launch_params["https://purl.imsglobal.org/spec/lti/claim/custom"]).to be_blank
+          expect(launch_params["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/custom"]).to be_blank
         end
 
         it "succeeds if the resource_link is for a tool with the same host" do
@@ -1142,7 +1119,7 @@ describe ExternalToolsController do
           rl.update(context_external_tool: tool2)
           get_page
           expect(
-            launch_params["https://purl.imsglobal.org/spec/lti/claim/custom"]
+            launch_params["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/custom"]
           ).to eq({ "abc" => "def", "expans" => @teacher.id.to_s })
         end
 
@@ -1170,7 +1147,7 @@ describe ExternalToolsController do
           lti_assignment_id = SecureRandom.uuid
           jwt = Canvas::Security.create_jwt({ lti_assignment_id: })
           get :show, params: { course_id: @course.id, id: lti_1_3_tool.id, secure_params: jwt, launch_type: "assignment_selection" }
-          expect(launch_hash["https://purl.imsglobal.org/spec/lti/claim/custom"]["assignment_id"]).to eq(lti_assignment_id)
+          expect(launch_hash["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/custom"]["assignment_id"]).to eq(lti_assignment_id)
         end
       end
 
@@ -1197,7 +1174,7 @@ describe ExternalToolsController do
         # end
 
         let(:jwt) do
-          deep_link_return_url = launch_params["https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"]["deep_link_return_url"]
+          deep_link_return_url = launch_params["post_payload"]["https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"]["deep_link_return_url"]
           return_jwt = deep_link_return_url.match(/data=([^&]*)/)[1]
           JSON::JWT.decode(return_jwt, :skip_verification)
         end
@@ -1272,6 +1249,7 @@ describe ExternalToolsController do
             tool:,
             context: @course,
             user: @teacher,
+            session_id: nil,
             placement:,
             launch_type: :indirect_link
           )
@@ -1286,6 +1264,7 @@ describe ExternalToolsController do
             tool:,
             context: @course,
             user: @teacher,
+            session_id: nil,
             placement: nil,
             launch_type: :content_item
           )
@@ -1474,7 +1453,7 @@ describe ExternalToolsController do
 
       it "renders the tool launch iframe" do
         subject
-        expect(response.body).to include("id=\"tool_content\"")
+        expect(response.body).to include("id=\"tool_content_")
       end
 
       it "includes post_message_forwarding JS for main frame" do
@@ -1773,6 +1752,7 @@ describe ExternalToolsController do
         tool:,
         context: @course,
         user: @teacher,
+        session_id: nil,
         placement: "resource_selection",
         launch_type: :resource_selection
       )
@@ -1967,9 +1947,11 @@ describe ExternalToolsController do
         context "during a basic launch" do
           let(:message_type) { "LtiResourceLinkRequest" }
 
-          it_behaves_like "includes editor variables" do
-            let(:selection_launch_param) { launch_params.dig("https://purl.imsglobal.org/spec/lti/claim/custom", "selection") }
-            let(:contents_launch_param) { launch_params.dig("https://purl.imsglobal.org/spec/lti/claim/custom", "contents") }
+          it "doesn't launch, as LtiResourceLinkRequest is not supported in the RCE" do
+            allow(CanvasErrors).to receive(:capture)
+            subject
+            expect(response).not_to be_successful
+            expect(CanvasErrors).to have_received(:capture).with(an_instance_of(Lti::InvalidMessageTypeForPlacementError), hash_including({ tags: { developer_key_id: tool.global_developer_key_id } }), :error)
           end
         end
 
@@ -1977,8 +1959,8 @@ describe ExternalToolsController do
           let(:message_type) { "LtiDeepLinkingRequest" }
 
           it_behaves_like "includes editor variables" do
-            let(:selection_launch_param) { launch_params.dig("https://purl.imsglobal.org/spec/lti/claim/custom", "selection") }
-            let(:contents_launch_param) { launch_params.dig("https://purl.imsglobal.org/spec/lti/claim/custom", "contents") }
+            let(:selection_launch_param) { launch_params["post_payload"].dig("https://purl.imsglobal.org/spec/lti/claim/custom", "selection") }
+            let(:contents_launch_param) { launch_params["post_payload"].dig("https://purl.imsglobal.org/spec/lti/claim/custom", "contents") }
           end
 
           context "when the parent_frame_context param is sent" do
@@ -1990,7 +1972,7 @@ describe ExternalToolsController do
             end
 
             it "forwards parent_frame_context to the deep link return url" do
-              deep_link_return_url = launch_params["https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"]["deep_link_return_url"]
+              deep_link_return_url = launch_params["post_payload"]["https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings"]["deep_link_return_url"]
               return_jwt = deep_link_return_url.match(/data=([^&]*)/)[1]
               jwt = JSON::JWT.decode(return_jwt, :skip_verification)
               expect(jwt[:parent_frame_context]).to eq tool.id.to_s
@@ -3217,29 +3199,6 @@ describe ExternalToolsController do
           expect(json_parse["id"]).to eq(tool.id)
         end
       end
-
-      context "when Lti::LaunchDebugLogger is enabled" do
-        subject do
-          allow(RequestContext::Generator).to receive(:request_id).and_return("1234")
-          get(:generate_sessionless_launch, params:)
-          json_parse["url"]
-        end
-
-        before do
-          Lti::LaunchDebugLogger.enable!(Account.default, 4)
-        end
-
-        after { Lti::LaunchDebugLogger.disable!(Account.default) }
-
-        it "includes a sessionless_source in the URL" do
-          debug_trace = CGI.parse(URI.parse(subject).query)["sessionless_source"].first
-          expect(Lti::LaunchDebugLogger.decode_debug_trace(debug_trace)).to \
-            eq({
-                 "request_id" => "1234",
-                 "user_agent" => "Rails Testing",
-               })
-        end
-      end
     end
   end
 
@@ -3278,6 +3237,7 @@ describe ExternalToolsController do
         tool:,
         context: @course,
         user: @user,
+        session_id: nil,
         placement: "course_navigation",
         launch_type: :direct_link
       )

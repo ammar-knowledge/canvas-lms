@@ -81,7 +81,8 @@ class ExternalToolsController < ApplicationController
   #        "updated_at": "2037-07-28T19:38:31Z",
   #        "privacy_level": "anonymous",
   #        "custom_fields": {"key": "value"},
-  #        "is_rce_favorite": false
+  #        "is_rce_favorite": false,
+  #        "is_top_nav_favorite": false,
   #        "account_navigation": {
   #             "canvas_icon_class": "icon-lti",
   #             "icon_url": "...",
@@ -181,7 +182,7 @@ class ExternalToolsController < ApplicationController
       end
 
       launch_type = placement.present? ? :indirect_link : :content_item
-      Lti::LogService.new(tool:, context: @context, user: @current_user, placement:, launch_type:).call
+      Lti::LogService.new(tool:, context: @context, user: @current_user, session_id: session[:session_id], placement:, launch_type:).call
 
       display_override = params["borderless"] ? "borderless" : params[:display]
       render Lti::AppUtil.display_template(@tool.display_type(placement), display_override:)
@@ -217,6 +218,9 @@ class ExternalToolsController < ApplicationController
       [tool, provided_url]
     elsif resource_link.url
       tool = resource_link.current_external_tool context
+      unless tool
+        invalid_settings_error
+      end
       [tool, resource_link.url]
     else
       invalid_settings_error
@@ -347,7 +351,7 @@ class ExternalToolsController < ApplicationController
       if tool
         placement = launch_settings.dig("metadata", "placement")
         launch_type = launch_settings.dig("metadata", "launch_type")&.to_sym
-        Lti::LogService.new(tool:, context: @context, user: @current_user, placement:, launch_type:).call
+        Lti::LogService.new(tool:, context: @context, user: @current_user, session_id: session[:session_id], placement:, launch_type:).call
         log_asset_access(tool, "external_tools", "external_tools", overwrite: false)
       end
 
@@ -370,6 +374,7 @@ class ExternalToolsController < ApplicationController
   # @response_field privacy_level How much user information to send to the external tool: "anonymous", "name_only", "email_only", "public"
   # @response_field custom_fields Custom fields that will be sent to the tool consumer
   # @response_field is_rce_favorite Boolean determining whether this tool should be in a preferred location in the RCE.
+  # @response_field is_top_nav_favorite Boolean determining whether this tool should have a dedicated button in Top Navigation.
   # @response_field account_navigation The configuration for account navigation links (see create API for values)
   # @response_field assignment_selection The configuration for assignment selection links (see create API for values)
   # @response_field course_home_sub_navigation The configuration for course home navigation links (see create API for values)
@@ -488,12 +493,33 @@ class ExternalToolsController < ApplicationController
         js_env(LTI_LAUNCH_RESOURCE_URL: @lti_launch.resource_url)
         set_tutorial_js_env
 
-        Lti::LogService.new(tool: @tool, context: @context, user: @current_user, placement:, launch_type: :direct_link).call
+        Lti::LogService.new(tool: @tool, context: @context, user: @current_user, session_id: session[:session_id], placement:, launch_type: :direct_link).call
 
         render Lti::AppUtil.display_template(@tool.display_type(placement), display_override: params[:display])
         timing_meta.tags = { lti_version: @tool&.lti_version }.compact
       end
     end
+  end
+
+  def migration_info
+    # Define tool to be the external tool associated with the external tool id from the route
+    tool = ContextExternalTool.find(params[:external_tool_id])
+
+    # Instance variable for the migration status -- this will be used for conditional rendering
+    migration_running = tool.migrating?
+
+    unless migration_running
+      return render json: { migration_running: }
+    end
+
+    migration_progress = tool.progresses.where.not(workflow_state: "completed").first
+
+    total_items = migration_progress.results[:total_batches]
+
+    tool_id = migration_progress.results[:tool_id]
+    completed_items = total_items - Delayed::Job.where(strand: "ContextExternalTool#migrate_content_to_1_3/#{tool_id}").count
+
+    render json: { migration_running:, total_items:, completed_items: }
   end
 
   def tool_return_success_url(selection_type = nil)
@@ -549,7 +575,7 @@ class ExternalToolsController < ApplicationController
         return
       end
 
-      Lti::LogService.new(tool: @tool, context: @context, user: @current_user, placement: selection_type, launch_type: :resource_selection).call
+      Lti::LogService.new(tool: @tool, context: @context, user: @current_user, session_id: session[:session_id], placement: selection_type, launch_type: :resource_selection).call
 
       render Lti::AppUtil.display_template("borderless")
       timing_meta.tags = { lti_version: @tool&.lti_version }.compact
@@ -583,10 +609,8 @@ class ExternalToolsController < ApplicationController
     message_type = tool.extension_setting(selection_type, "message_type") if selection_type
     log_asset_access(@tool, "external_tools", "external_tools") if post_live_event
 
-    if tool.root_account.feature_enabled?(:lti_unique_tool_form_ids)
-      @tool_form_id = random_lti_tool_form_id
-      js_env(LTI_TOOL_FORM_ID: @tool_form_id)
-    end
+    @tool_form_id = random_lti_tool_form_id
+    js_env(LTI_TOOL_FORM_ID: @tool_form_id)
 
     case message_type
     when "ContentItemSelectionResponse", "ContentItemSelection"
@@ -701,7 +725,7 @@ class ExternalToolsController < ApplicationController
 
     if assignment.present? && ((@current_user && assignment.quiz_lti?) || assignment.root_account.feature_enabled?(:lti_resource_link_id_speedgrader_launches_reference_assignment))
       # Set assignment LTI launch parameters for this code path (e.g. launches
-      # from Speedgrader)
+      # from SpeedGrader)
       opts[:link_code] = @tool.opaque_identifier_for(assignment.external_tool_tag)
       opts[:overrides] ||= {}
       opts[:overrides]["resource_link_title"] = assignment.title
@@ -734,8 +758,7 @@ class ExternalToolsController < ApplicationController
                   expander:,
                   include_storage_target: !in_lti_mobile_webview?,
                   opts: opts.merge(
-                    resource_link: lookup_resource_link(tool),
-                    lti_launch_debug_logger: make_lti_launch_debug_logger(tool)
+                    resource_link: lookup_resource_link(tool)
                   )
                 )
 
@@ -1144,7 +1167,7 @@ class ExternalToolsController < ApplicationController
     else
       external_tool_params = (params[:external_tool] || params).to_unsafe_h
       @tool = @context.context_external_tools.new
-      if request.content_type == "application/x-www-form-urlencoded"
+      if request.media_type == "application/x-www-form-urlencoded"
         custom_fields = Lti::AppUtil.custom_params(request.raw_post)
         external_tool_params[:custom_fields] = custom_fields if custom_fields.present?
       end
@@ -1225,7 +1248,7 @@ class ExternalToolsController < ApplicationController
     @tool = @context.context_external_tools.active.find(params[:id] || params[:external_tool_id])
     if authorized_action(@tool, @current_user, :update_manually)
       external_tool_params = (params[:external_tool] || params).to_unsafe_h
-      if request.content_type == "application/x-www-form-urlencoded"
+      if request.media_type == "application/x-www-form-urlencoded"
         custom_fields = Lti::AppUtil.custom_params(request.raw_post)
         external_tool_params[:custom_fields] = custom_fields if custom_fields.present?
       end
@@ -1324,6 +1347,58 @@ class ExternalToolsController < ApplicationController
         @context.save!
       end
       render json: { rce_favorite_tool_ids: favorite_ids.map { |id| Shard.relative_id_for(id, Shard.current, Shard.current) } }
+    end
+  end
+
+  # @API Add tool to Top Navigation Favorites
+  # Adds a dedicated button in Top Navigation for the specified tool for the given account.
+  # Cannot set more than 2 top_navigation Favorites.
+  #
+  # @example_request
+  #
+  #   curl -X POST 'https://<canvas>/api/v1/accounts/<account_id>/external_tools/top_nav_favorites/<id>' \
+  #        -H "Authorization: Bearer <token>"
+  def add_top_nav_favorite
+    if authorized_action(@context, @current_user, [:lti_add_edit, :manage_lti_add])
+      @tool = ContextExternalTool.find_external_tool_by_id(params[:id], @context)
+      raise ActiveRecord::RecordNotFound unless @tool
+      unless @tool.can_be_top_nav_favorite?
+        return render json: { message: "Tool does not have top_navigation placement" }, status: :bad_request
+      end
+
+      favorite_ids = @context.get_top_nav_favorite_tool_ids
+      favorite_ids << @tool.global_id
+      favorite_ids.uniq!
+      if favorite_ids.length > 2
+        valid_ids = Lti::ContextToolFinder.new(@context, placements: [:top_navigation]).all_tools_scope_union.pluck(:id)
+        valid_ids.map! { |id| Shard.global_id_for(id) }
+        favorite_ids &= valid_ids # try to clear out any possibly deleted tool references first before causing a fuss
+      end
+      if favorite_ids.length > 2
+        render json: { message: "Cannot have more than 2 favorited tools" }, status: :bad_request
+      else
+        @context.settings[:top_nav_favorite_tool_ids] = { value: favorite_ids }
+        @context.save!
+        render json: { top_nav_favorite_tool_ids: favorite_ids.map { |id| Shard.relative_id_for(id, Shard.current, Shard.current) } }
+      end
+    end
+  end
+
+  # @API Remove tool from Top Navigation Favorites
+  # Removes the dedicated button in Top Navigation for the specified tool for the given account.
+  #
+  # @example_request
+  #
+  #   curl -X DELETE 'https://<canvas>/api/v1/accounts/<account_id>/external_tools/top_nav_favorites/<id>' \
+  #        -H "Authorization: Bearer <token>"
+  def remove_top_nav_favorite
+    if authorized_action(@context, @current_user, [:lti_add_edit, :manage_lti_delete])
+      favorite_ids = @context.get_top_nav_favorite_tool_ids
+      if favorite_ids.delete(Shard.global_id_for(params[:id]))
+        @context.settings[:top_nav_favorite_tool_ids] = { value: favorite_ids }
+        @context.save!
+      end
+      render json: { top_nav_favorite_tool_ids: favorite_ids.map { |id| Shard.relative_id_for(id, Shard.current, Shard.current) } }
     end
   end
 
@@ -1501,7 +1576,8 @@ class ExternalToolsController < ApplicationController
       respond_to do |format|
         format.html do
           flash[:error] = t "#application.errors.invalid_external_tool", "Couldn't find valid settings for this link"
-          return redirect_to named_context_url(@context, :context_url)
+          redirect_to named_context_url(@context, :context_url)
+          return
         end
         format.json { render json: { errors: { external_tool: "Unable to find a matching external tool" } } and return }
       end
@@ -1619,7 +1695,8 @@ class ExternalToolsController < ApplicationController
                 not_selectable
                 app_center_id
                 oauth_compliant
-                is_rce_favorite]
+                is_rce_favorite
+                is_top_nav_favorite]
     attrs += [:allow_membership_service_access] if @context.root_account.feature_enabled?(:membership_service_for_lti_tools)
 
     attrs.each do |prop|

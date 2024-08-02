@@ -101,12 +101,14 @@ class Submission::ShowPresenter
 
   # this is superficial and should be fine, since this is only showing data, not saving data
   def entered_grade
+    return "-" if @submission.score.nil?
+
     if @assignment.restrict_quantitative_data?(@current_user)
       if @assignment.grading_type == "pass_fail"
         return @submission.entered_grade
       end
 
-      grade = @assignment.score_to_grade(@submission.score, nil, true)
+      grade = @assignment.score_to_grade(@submission.score, nil, true) if @submission.score
       replace_dash_with_minus(grade)
     elsif @assignment.grading_type == "letter_grade"
       replace_dash_with_minus(@submission.entered_grade)

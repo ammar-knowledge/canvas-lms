@@ -32,7 +32,6 @@ import iframeAllowances from '@canvas/external-apps/iframeAllowances'
 import SelectContent from '../select_content'
 import setDefaultToolValues from '../setDefaultToolValues'
 import {findLinkForService, getUserServices} from '@canvas/services/findLinkForService'
-import '@canvas/datetime/jquery' /* datetime_field */
 import '@canvas/jquery/jquery.ajaxJSON'
 import '@canvas/jquery/jquery.instructure_forms' /* formSubmit, ajaxJSONFiles, getFormData, errorBox */
 import 'jqueryui/dialog'
@@ -283,6 +282,10 @@ export function handleContentItemResult(
   setJsonValueIfDefined('#external_tool_create_line_item', result.lineItem)
   setJsonValueIfDefined('#external_tool_create_submission', result.submission)
   setJsonValueIfDefined('#external_tool_create_available', result.available)
+  setJsonValueIfDefined(
+    '#external_tool_create_preserve_existing_assignment_name',
+    result['https://canvas.instructure.com/lti/preserveExistingAssignmentName']
+  )
   if ('text' in result && typeof result.text === 'string') {
     $('#external_tool_create_description').val(result.text)
   }
@@ -375,28 +378,37 @@ export const Events = {
 
         const $iframe = $dialog.find('#resource_selection_iframe')
 
-        const measurements = () => ({
-          iframeWidth: numberOrZero($iframe.outerWidth(true)),
-          iframeHeight: numberOrZero($iframe.outerHeight(true)),
-        })
+        let origIframeWidthStr = $iframe.css('width')
+        let origIframeHeightStr = $iframe.css('height')
+
+        const looksLikePixelMeasurement = (str: string) =>
+          str.match(/[0-9]/) && !str.match(/(%|em)/)
 
         $external_content_info_alerts.on('focus', function () {
-          const {iframeWidth, iframeHeight} = measurements()
+          origIframeWidthStr = $iframe.css('width')
+          origIframeHeightStr = $iframe.css('height')
+          const iframeWidth = parseInt(origIframeWidthStr, 10)
+          const iframeHeight = parseInt(origIframeHeightStr, 10)
           $iframe.css('border', '2px solid #0374B5')
           $(this).removeClass('screenreader-only')
           const alertHeight = numberOrZero($(this).outerHeight(true))
-          $iframe
-            .css('height', `${iframeHeight - alertHeight - 4}px`)
-            .css('width', `${iframeWidth - 4}px`)
+
+          // I'm not sure if the measurements can ever not be of the form
+          // /[0-9]+px/, but just in case it can, don't grossly misinterpret
+          // them
+          if (looksLikePixelMeasurement(origIframeWidthStr)) {
+            $iframe.css('width', `${iframeWidth - 4}px`)
+          }
+          if (looksLikePixelMeasurement(origIframeHeightStr)) {
+            $iframe.css('height', `${iframeHeight - alertHeight - 4}px`)
+          }
           $dialog.scrollLeft(0).scrollTop(0)
         })
 
         $external_content_info_alerts.on('blur', function () {
-          const {iframeWidth, iframeHeight} = measurements()
-          const alertHeight = numberOrZero($(this).outerHeight(true))
           $dialog.find('#resource_selection_iframe').css('border', 'none')
           $(this).addClass('screenreader-only')
-          $iframe.css('height', `${iframeHeight + alertHeight}px`).css('width', `${iframeWidth}px`)
+          $iframe.css('height', origIframeHeightStr).css('width', origIframeWidthStr)
           $dialog.scrollLeft(0).scrollTop(0)
         })
 
@@ -416,9 +428,12 @@ export const Events = {
                 .attr('src', '/images/ajax-loader-medium-444.gif')
             },
             open: () => {
+              $dialog.parent().find('.ui-dialog-titlebar-close').focus()
               window.addEventListener('message', ltiPostMessageHandlerForTool)
             },
             title: I18n.t('link_from_external_tool', 'Link Resource from External Tool'),
+            modal: true,
+            zIndex: 1000,
           })
           .bind('dialogresize', function () {
             $(this)
@@ -466,6 +481,7 @@ export const Events = {
       url = url + '?placement=' + placement_type + '&secure_params=' + $('#secure_params').val()
       if ($('#select_context_content_dialog').data('context_module_id')) {
         url += '&context_module_id=' + $('#select_context_content_dialog').data('context_module_id')
+        url += '&com_instructure_course_canvas_resource_type=context_module.external_tool'
       }
       $dialog.find('#resource_selection_iframe').attr({src: url, title: tool.name})
       $(window).on('beforeunload', beforeUnloadHandler)
@@ -502,7 +518,7 @@ export function extractContextExternalToolItemData() {
   return {
     'item[type]': tool_type,
     'item[id]': tool_id,
-    'item[new_tab]': $('#external_tool_create_new_tab').attr('checked') ? '1' : '0',
+    'item[new_tab]': $('#external_tool_create_new_tab').prop('checked') ? '1' : '0',
     'item[indent]': $('#content_tag_indent').val(),
     'item[url]': $('#external_tool_create_url').val(),
     'item[title]': $('#external_tool_create_title').val(),
@@ -514,6 +530,9 @@ export function extractContextExternalToolItemData() {
     'item[description]': $('#external_tool_create_description').val(),
     'item[submission]': $('#external_tool_create_submission').val(),
     'item[available]': $('#external_tool_create_available').val(),
+    'item[preserveExistingAssignmentName]': $(
+      '#external_tool_create_preserve_existing_assignment_name'
+    ).val(),
   } as const
 }
 
@@ -528,6 +547,7 @@ export function resetExternalToolFields() {
   $('#external_tool_create_assignment_id').val('')
   $('#external_tool_create_iframe_width').val('')
   $('#external_tool_create_iframe_height').val('')
+  $('#external_tool_create_preserve_existing_assignment_name').val('')
 }
 
 export type SelectContentDialogOptions = {
@@ -602,6 +622,8 @@ export const selectContentDialog = function (options?: SelectContentDialogOption
         }
         upload_form?.onClose()
       },
+      modal: true,
+      zIndex: 1000,
     })
     .fixDialogButtons()
 
@@ -658,7 +680,7 @@ $(document).ready(function () {
         'item[id]': $(
           '#select_context_content_dialog .module_item_option:visible:first .module_item_select'
         ).val(),
-        'item[new_tab]': $('#external_url_create_new_tab').attr('checked') ? '1' : '0',
+        'item[new_tab]': $('#external_url_create_new_tab').prop('checked') ? '1' : '0',
         'item[indent]': $('#content_tag_indent').val(),
       }
 

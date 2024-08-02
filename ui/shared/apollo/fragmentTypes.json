@@ -81,9 +81,6 @@
             "name": "AssignmentGroup"
           },
           {
-            "name": "AssignmentOverride"
-          },
-          {
             "name": "CommentBankItem"
           },
           {
@@ -295,9 +292,6 @@
           },
           {
             "name": "AssignmentGroup"
-          },
-          {
-            "name": "AssignmentOverride"
           },
           {
             "name": "CommentBankItem"
@@ -520,6 +514,9 @@
           },
           {
             "name": "GroupMembership"
+          },
+          {
+            "name": "InboxSettings"
           },
           {
             "name": "InternalSetting"

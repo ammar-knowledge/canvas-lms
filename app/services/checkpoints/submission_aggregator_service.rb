@@ -19,11 +19,14 @@
 
 class Checkpoints::SubmissionAggregatorService < Checkpoints::AggregatorService
   AggregateSubmission = Struct.new(
+    :excused,
     :grade,
     :graded_at,
     :graded_anonymously,
     :grader_id,
     :grade_matches_current_submission,
+    :grading_period_id,
+    :late_policy_status,
     :published_grade,
     :published_score,
     :posted_at,
@@ -67,8 +70,11 @@ class Checkpoints::SubmissionAggregatorService < Checkpoints::AggregatorService
       submission.grader_id = most_recently_graded.grader_id
     end
 
-    submission.grade = grade(submission.score)
-    submission.published_grade = grade(submission.published_score)
+    submission.excused = submissions.any?(&:excused)
+    submission.grade = grade(submissions, submission.score)
+    submission.grading_period_id = shared_attribute(submissions, :grading_period_id, nil)
+    submission.late_policy_status = calculate_late_policy_status(submissions)
+    submission.published_grade = grade(submissions, submission.published_score)
     submission.grade_matches_current_submission = calculate_grade_matches_current_submission(submissions)
     submission.posted_at = max_if_all_present(submissions, :posted_at)
     submission.workflow_state = shared_attribute(submissions, :workflow_state, "unsubmitted")
@@ -81,13 +87,37 @@ class Checkpoints::SubmissionAggregatorService < Checkpoints::AggregatorService
     submissions.all?(&field_name) ? max(submissions, field_name) : nil
   end
 
-  def grade(score)
+  def all_nil?(submissions, field_name)
+    submissions.all? { |submission| submission.send(field_name).nil? }
+  end
+
+  def all_equal?(submissions, field_name, value)
+    submissions.all? { |submission| submission.send(field_name) == value }
+  end
+
+  def grade(submissions, score)
+    if @assignment.grading_type == "pass_fail"
+      return nil if all_nil?(submissions, :grade)
+
+      return all_equal?(submissions, :grade, "complete") ? "complete" : "incomplete"
+    end
+
     score ? @assignment.score_to_grade(score) : nil
   end
 
   def calculate_grade_matches_current_submission(submissions)
     values = submissions.pluck(:grade_matches_current_submission)
     values.any?(false) ? false : values.compact.first
+  end
+
+  def calculate_late_policy_status(submissions)
+    values = submissions.pluck(:late_policy_status)
+    return "late" if values.include?("late")
+    return "missing" if values.include?("missing")
+    return "extended" if values.include?("extended")
+    return "none" if values.include?("none")
+
+    nil
   end
 
   def shared_attribute(submissions, field_name, default)

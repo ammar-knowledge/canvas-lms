@@ -22,7 +22,7 @@ import {extend} from '@canvas/backbone/utils'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import {each, filter, intersection, includes, without} from 'lodash'
-import * as tz from '@canvas/datetime'
+import * as tz from '@instructure/moment-utils'
 import DialogBaseView from '@canvas/dialog-base-view'
 import deparam from 'deparam'
 import template from '../../jst/editConferenceForm.handlebars'
@@ -31,6 +31,7 @@ import authenticity_token from '@canvas/authenticity-token'
 import numberHelper from '@canvas/i18n/numberHelper'
 import '@canvas/jquery/jquery.instructure_forms'
 import {encodeQueryString} from '@canvas/query-string-encoding'
+import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
 
 const I18n = useI18nScope('conferences')
 
@@ -107,7 +108,7 @@ EditConferenceView.prototype.show = function (model, opts) {
   this.model = model
   this.render()
   if (opts.isEditing) {
-    newTitle = I18n.t('Edit "%{conference_title}"', {
+    newTitle = I18n.t('Edit %{conference_title}', {
       conference_title: model.get('title'),
     })
     this.$el.dialog('option', 'title', newTitle)
@@ -250,7 +251,7 @@ EditConferenceView.prototype.renderConferenceFormUserSettings = function () {
   )
   return this.$('.date_entry').each(function () {
     if (!this.disabled) {
-      return $(this).datetime_field({
+      return renderDatetimeField($(this), {
         alwaysShowTime: true,
       })
     }
@@ -270,8 +271,8 @@ EditConferenceView.prototype.toggleAllUsers = function () {
 EditConferenceView.prototype.markInvitedUsers = function () {
   each(this.model.get('user_ids'), function (id) {
     const el = $('#members_list .member.user_' + id).find(':checkbox')
-    el.attr('checked', true)
-    return el.attr('disabled', true)
+    el.prop('checked', true)
+    return el.prop('disabled', true)
   })
 }
 
@@ -284,8 +285,8 @@ EditConferenceView.prototype.markInvitedSectionsAndGroups = function () {
         const intersection_ = intersection(section_user_ids, _this.model.get('user_ids'))
         if (intersection_.length === section_user_ids.length) {
           const el = $('#members_list .member.section_' + section.id).find(':checkbox')
-          el.attr('checked', true)
-          return el.attr('disabled', true)
+          el.prop('checked', true)
+          return el.prop('disabled', true)
         }
       }
     })(this)
@@ -299,8 +300,8 @@ EditConferenceView.prototype.markInvitedSectionsAndGroups = function () {
         const intersection_ = intersection(group_user_ids, _this.model.get('user_ids'))
         if (intersection_.length === group_user_ids.length) {
           el = $('#members_list .member.group_' + group.id).find(':checkbox')
-          el.attr('checked', true)
-          return el.attr('disabled', true)
+          el.prop('checked', true)
+          return el.prop('disabled', true)
         }
       }
     })(this)
@@ -322,8 +323,8 @@ EditConferenceView.prototype.setupGroupAndSectionEventListeners = function () {
   let selectedByGroup = []
   const toggleMember = function (id, checked) {
     const memberEl = $('#members_list .member.user_' + id).find(':checkbox')
-    memberEl.attr('checked', checked)
-    return memberEl.attr('disabled', checked)
+    memberEl.prop('checked', checked)
+    return memberEl.prop('disabled', checked)
   }
   each(
     ENV.groups,

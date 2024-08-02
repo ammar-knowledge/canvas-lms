@@ -54,8 +54,8 @@ export default function RequirementCountInput({
       name="requirement-count"
       description={<ScreenReaderContent>{I18n.t('Select Requirement Count')}</ScreenReaderContent>}
     >
-      <Flex>
-        <Flex.Item align="start">
+      <View display="flex">
+        <View>
           <RadioInput
             ref={defaultRadioInput}
             data-testid="complete-all-radio"
@@ -63,27 +63,28 @@ export default function RequirementCountInput({
             value="all"
             label={<ScreenReaderContent>{I18n.t('Complete all')}</ScreenReaderContent>}
             onClick={() => onChangeRequirementCount('all')}
+            aria-describedby="complete-all-subtitle"
           />
-        </Flex.Item>
-        <Flex.Item>
+        </View>
+        <View>
           <Text>{I18n.t('Complete all')}</Text>
           <View as="div">
-            <Text color="secondary" size="small">
+            <Text color="secondary" size="small" id="complete-all-subtitle">
               {I18n.t('Students must complete all of these requirements.')}
             </Text>
           </View>
-        </Flex.Item>
-      </Flex>
-      {requirementCount === 'all' && (
-        <View as="div" padding="0 0 0 medium">
-          <Checkbox
-            data-testid="sequential-progress-checkbox"
-            checked={requireSequentialProgress}
-            onChange={onToggleSequentialProgress}
-            label={I18n.t('Students must move through requirements in sequential order')}
-          />
+          {requirementCount === 'all' && (
+            <View as="div" margin="small small 0 0">
+              <Checkbox
+                data-testid="sequential-progress-checkbox"
+                checked={requireSequentialProgress}
+                onChange={onToggleSequentialProgress}
+                label={I18n.t('Students must move through requirements in sequential order')}
+              />
+            </View>
+          )}
         </View>
-      )}
+      </View>
       <Flex>
         <Flex.Item align="start">
           <RadioInput
@@ -92,12 +93,13 @@ export default function RequirementCountInput({
             value="one"
             label={<ScreenReaderContent>{I18n.t('Complete one')}</ScreenReaderContent>}
             onClick={() => onChangeRequirementCount('one')}
+            aria-describedby="complete-one-subtitle"
           />
         </Flex.Item>
         <Flex.Item>
           <Text>{I18n.t('Complete one')}</Text>
           <View as="div">
-            <Text color="secondary" size="small">
+            <Text color="secondary" size="small" id="complete-one-subtitle">
               {I18n.t('Students must complete one of these requirements.')}
             </Text>
           </View>

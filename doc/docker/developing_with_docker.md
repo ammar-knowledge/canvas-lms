@@ -1,6 +1,6 @@
 # Using Docker for Canvas Development
 
-_*This document and its associated scripts are deprecated in favor of the `inst` CLI. Go [here](./../../inst-cli/doc/docker/developing_with_docker.md) for more info.*_
+_*Instructure employees should use the `inst` CLI. Go [here](./../../inst-cli/doc/docker/developing_with_docker.md) for more info.*_
 
 You can use Docker in your development environment for a more seamless
 way to get started developing Canvas.
@@ -304,19 +304,6 @@ That directory tree contains a web page per spec failure, each featuring a
 colorized rails log and a browser screenshot taken at the time of the failure.
 
 ## Extra Services
-
-### Cassandra
-
-If you're using the analytics package, you'll also need Cassandra. The
-Cassandra configuration isn't enabled by default. Add `docker-compose/cassandra.override.yml` to your `COMPOSE_FILE` var in `.env`
-
-Then:
-- Uncomment configuration in config/cassandra.yml
-- See config/cassandra.yml.example for further setup instructions
-- to invoke cqlsh as directed in cassandra.yml.example use:
-```sh
-docker-compose exec cassandra cqlsh
-```
 
 ### Mail Catcher
 

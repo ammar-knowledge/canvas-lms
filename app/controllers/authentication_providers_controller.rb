@@ -215,6 +215,12 @@
 #           "type": "boolean",
 #           "default": false,
 #           "example": false
+#         },
+#         "autoconfirm": {
+#           "description": "(only for email) If the email address is trusted and should be automatically confirmed",
+#           "type": "boolean",
+#           "default": false,
+#           "example": false
 #         }
 #       }
 #     }
@@ -239,6 +245,9 @@ class AuthenticationProvidersController < ApplicationController
       render json: aacs_json(@account.authentication_providers.active)
     else
       @presenter = AuthenticationProvidersPresenter.new(@account)
+      @page_title = t("Authentication Settings")
+      add_crumb @page_title
+      page_has_instui_topnav
     end
   end
 
@@ -246,7 +255,7 @@ class AuthenticationProvidersController < ApplicationController
   #
   # Add external authentication provider(s) for the account.
   # Services may be Apple, CAS, Facebook, GitHub, Google, LDAP, LinkedIn,
-  # Microsoft, OpenID Connect, SAML, or Twitter.
+  # Microsoft, OpenID Connect, SAML, or X.com.
   #
   # Each authentication provider is specified as a set of parameters as
   # described below. A provider specification must include an 'auth_type'
@@ -605,15 +614,15 @@ class AuthenticationProvidersController < ApplicationController
   #
   #   See FederatedAttributesConfig. Any value is allowed for the provider attribute names.
   #
-  # For Twitter, the additional recognized parameters are:
+  # For X.com, the additional recognized parameters are:
   #
   # - consumer_key [Required]
   #
-  #   The Twitter Consumer Key. Not available if configured globally for Canvas.
+  #   The X.com Consumer Key. Not available if configured globally for Canvas.
   #
   # - consumer_secret [Required]
   #
-  #   The Twitter Consumer Secret. Not available if configured globally for Canvas.
+  #   The X.com Consumer Secret. Not available if configured globally for Canvas.
   #
   # - login_attribute [Optional]
   #

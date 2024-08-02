@@ -20,7 +20,6 @@
 
 class EnrollmentTerm < ActiveRecord::Base
   DEFAULT_TERM_NAME = "Default Term"
-
   include Workflow
 
   belongs_to :root_account, class_name: "Account"
@@ -202,8 +201,12 @@ class EnrollmentTerm < ActiveRecord::Base
     end
   end
 
+  def filter_courses_by_term
+    "/accounts/#{root_account_id}?enrollment_term_id=#{id}"
+  end
+
   scope :active, -> { where("enrollment_terms.workflow_state<>'deleted'") }
-  scope :ended, -> { where("enrollment_terms.end_at < ?", Time.now.utc) }
+  scope :ended, -> { where(enrollment_terms: { end_at: ...Time.now.utc }) }
   scope :started, -> { where("enrollment_terms.start_at IS NULL OR enrollment_terms.start_at < ?", Time.now.utc) }
   scope :not_ended, -> { where("enrollment_terms.end_at IS NULL OR enrollment_terms.end_at >= ?", Time.now.utc) }
   scope :not_started, -> { where("enrollment_terms.start_at IS NOT NULL AND enrollment_terms.start_at > ?", Time.now.utc) }

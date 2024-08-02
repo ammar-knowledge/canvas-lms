@@ -234,6 +234,7 @@ describe "Screenreader Gradebook" do
 
     EnhancedSRGB.select_assignment(a1)
     EnhancedSRGB.message_students_button.click
+
     EnhancedSRGB.message_students_input.send_keys("Hello!")
 
     expect(EnhancedSRGB.message_students_submit_button).to be_enabled

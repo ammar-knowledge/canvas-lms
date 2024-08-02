@@ -25,14 +25,13 @@
   <div>
     <hr />
     <a href="#" class="edit_settings_link btn button-sidebar-wide"><i class="icon-edit" aria-hidden="true"></i> <%= t('links.edit_settings', "Edit Settings") %></a>
-    <% mfa_settings = @user.mfa_settings(pseudonym_hint: @current_pseudonym) %>
-    <% if mfa_settings != :disabled %>
+      <% if current_mfa_settings != :disabled %>
       <a href="<%= otp_login_path %>" class="btn button-sidebar-wide"><i class="icon-lock" aria-hidden="true"></i> <%= @user.otp_secret_key ? t('links.reconfigure_mfa', "Reconfigure Multi-Factor Authentication") : t('links.configure_mfa', "Set Up Multi-Factor Authentication") %></a>
-    <% end %>
-    <% if mfa_settings == :optional && @user.otp_secret_key %>
+      <% end %>
+    <% if current_mfa_settings == :optional && @user.otp_secret_key %>
       <a href="<%= disable_mfa_path('self') %>" class="btn button-sidebar-wide" id="disable_mfa_link"><i class="icon-unlock" aria-hidden="true"></i> <%= t('links.disable_mfa', "Disable Multi-Factor Authentication") %></a>
-    <% end %>
-    <% if @user.otp_secret_key %>
+      <% end %>
+    <% if current_mfa_settings != :disabled && @user.otp_secret_key %>
         <a href="<%= one_time_passwords_path %>" class="btn button-sidebar-wide" id="otp_backup_codes_link" target="_blank"><i class="icon-lock" aria-hidden="true"></i> <%= t('links.otp_backup_codes', "Multi-Factor Authentication Backup Codes") %></a>
     <% end %>
     <a href="<%= dashboard_content_exports_path %>" class="btn button-sidebar-wide"><i class="icon-download" aria-hidden="true"></i> <%= t("Download Submissions") %></a>
@@ -60,7 +59,6 @@
 <% if service_enabled?(:avatars) %>
   <% if @user_data[:can_edit_avatar] %>
     <%= avatar(@user, url: '#', edit: true, class: "profile_pic_link #{@user.avatar_state}",
-        title: t('titles.click_to_change_profile_pic', "Click to change profile pic"),
         sr_content: t('Click to change profile picture for %{display_name}', :display_name => @user.short_name)) %>
   <% else %>
     <%= avatar(@user, url: nil, edit: false, class: "profile_pic") %>
@@ -99,14 +97,26 @@
     <tr>
       <th scope="row"><%= f.blabel :pronouns, :en => "Pronouns" %></th>
       <td>
-        <span id="pronouns" class="<%= @domain_root_account.can_change_pronouns? ? 'display_data' : 'edit_or_show_data' %>"><%= @user.pronouns || t("None") %></span>
-        <% if @domain_root_account.can_change_pronouns? %>
-          <span class="edit_data">
-            <%= f.select(
-              :pronouns,
-              options_for_select(([[t("None"), '']] + @domain_root_account.pronouns + [@user.pronouns]).compact.uniq, @user.pronouns))
-            %>
-          </span>
+        <% if @domain_root_account.grants_right?(@current_user, :manage_courses_admin) %>
+          <span id="pronouns" class="<%= @domain_root_account.can_add_pronouns? ? 'display_data' : 'edit_or_show_data' %>"><%= @user.pronouns || t("None") %></span>
+          <% if @domain_root_account.can_add_pronouns? %>
+            <span class="edit_data">
+              <%= f.select(
+                :pronouns,
+                options_for_select(([[t("None"), '']] + @domain_root_account.pronouns + [@user.pronouns]).compact.uniq, @user.pronouns))
+              %>
+            </span>
+          <% end %>
+        <% else %>
+          <span id="pronouns" class="<%= @domain_root_account.can_change_pronouns? ? 'display_data' : 'edit_or_show_data' %>"><%= @user.pronouns || t("None") %></span>
+          <% if @domain_root_account.can_change_pronouns? %>
+            <span class="edit_data">
+              <%= f.select(
+                :pronouns,
+                options_for_select(([[t("None"), '']] + @domain_root_account.pronouns + [@user.pronouns]).compact.uniq, @user.pronouns))
+              %>
+            </span>
+          <% end %>
         <% end %>
         <span class="edit_or_show_data data_description">
           <br/>
@@ -422,6 +432,9 @@ TEXT
       <thead>
         <tr>
           <th scope="col"><%= t('headers.application_abbrev', "App") %></th>
+          <% if @current_user&.account.feature_enabled?(:admin_manage_access_tokens) %>
+            <th scope="col"><%= t('headers.state', "Status") %></th>
+          <% end %>
           <th scope="col"><%= t('headers.purpose', "Purpose") %></th>
           <th scope="col"><%= t('headers.dates', "Dates") %></th>
           <th scope="col"><%= t('headers.action', "Details") %></th>
@@ -434,11 +447,13 @@ TEXT
       </tbody>
     </table>
   </div>
-  <% unless @real_current_user %>
-    <div style="margin-top: 10px;">
-      <a href="#" class="btn btn-primary add_access_token_link"><i class="icon-plus" aria-hidden="true"></i> <%= t('buttons.new_access_token', "New Access Token") %></a>
-    </div>
-  <% end %>
+  <% allow_token_creation = @current_user.access_tokens.temp_record.grants_right?(logged_in_user, :create) %>
+  <% prohibit_info_text = t("Your Canvas administrators have chosen to limit your ability to generate your own access token. Please reach out to your Canvas administrators to have them generate an access token on your behalf.") %>
+  <div style="margin-top: 10px;" title="<%= prohibit_info_text unless allow_token_creation || @real_current_user %>" >
+    <a href="#" class="btn btn-primary add_access_token_link" <%= "disabled" unless allow_token_creation %> >
+      <i class="icon-plus" aria-hidden="true"></i> <%= t('buttons.new_access_token', "New Access Token") %>
+    </a>
+  </div>
   <div id="token_details_dialog" style="display: none;" title="<%= t('titles.access_token_details', "Access Token Details") %>">
     <p><%= t(<<~TEXT, :wrapper => '<a href="https://canvas.instructure.com/doc/api/index.html" target="_blank" class="external">\1</a>')
       Access tokens can be used to allow other applications to make API calls
@@ -478,7 +493,7 @@ TEXT
           <th scope="row"><%= before_label(:token_expires, "Expires") %></th>
           <td class="expires">&nbsp;</td>
         </tr>
-        <% unless @real_current_user %>
+        <% unless !@current_user.access_tokens.temp_record.grants_right?(logged_in_user, :update) %>
           <tr class="refresh_token">
             <td colspan="2">
               <div class="button-container">
@@ -499,7 +514,7 @@ applications as needed, but if [you're developing a new or limited
 project](%{documentation_url}) you can just generate the token from here.
 TEXT
     %>
-    <%= form_for :access_token, :url => profile_tokens_url, :html => {:id => "access_token_form", :style => "margin-top: 10px;"} do |f| %>
+    <%= form_for :token, :url => api_v1_tokens_url("self"), :html => {:id => "access_token_form", :style => "margin-top: 10px;"} do |f| %>
       <table class="formtable" role="presentation">
         <tr>
           <td><%= f.blabel :purpose, :en => "Purpose" %></td>
@@ -507,11 +522,11 @@ TEXT
         </tr>
         <tr>
           <td>
-            <%= f.blabel :permanent_expires_at, en: "Expires", id: "token_expires_at_accessible_label" %>
+            <%= f.blabel :expires_at, en: "Expires", id: "token_expires_at_accessible_label" %>
           </td>
           <td>
             <div>
-              <%= f.text_field :permanent_expires_at,
+              <%= f.text_field :expires_at,
                                class: "expires_field datetime_field",
                                style: "width: 120px;",
                                "aria-describedby" => "leave_blank_for_no_expiration",

@@ -21,15 +21,44 @@
 module Api::V1::LearningObjectDates
   include Api::V1::Json
 
+  BASE_FIELDS = %w[id].freeze
   LEARNING_OBJECT_DATES_FIELDS = %w[
-    id
     due_at
     unlock_at
     lock_at
     only_visible_to_overrides
+    visible_to_everyone
+    group_category_id
   ].freeze
+  GRADED_MODELS = [Assignment, Quizzes::Quiz].freeze
+  LOCKABLE_PSEUDO_COLUMNS = %i[due_dates availability_dates].freeze
 
-  def learning_object_dates_json(learning_object, user, session)
-    api_json(learning_object, user, session, only: LEARNING_OBJECT_DATES_FIELDS)
+  def learning_object_dates_json(learning_object, overridable)
+    hash = learning_object.slice(BASE_FIELDS)
+    LEARNING_OBJECT_DATES_FIELDS.each do |field|
+      hash[field] = overridable.send(field) if overridable.respond_to?(field)
+    end
+    hash[:graded] = graded?(learning_object)
+    if hash[:group_category_id].nil?
+      group_category_id = group_category_id(learning_object)
+      hash[:group_category_id] = group_category_id if group_category_id
+    end
+    hash
+  end
+
+  def blueprint_date_locks_json(learning_object)
+    return {} unless learning_object.try(:is_child_content?)
+
+    { blueprint_date_locks: learning_object.child_content_restrictions.filter_map { |k, v| k if LOCKABLE_PSEUDO_COLUMNS.include?(k) && v } }
+  end
+
+  def graded?(learning_object)
+    return learning_object.assignment_id.present? if learning_object.is_a?(DiscussionTopic)
+
+    GRADED_MODELS.include?(learning_object.class)
+  end
+
+  def group_category_id(learning_object)
+    learning_object.group_category_id if learning_object.is_a?(DiscussionTopic)
   end
 end

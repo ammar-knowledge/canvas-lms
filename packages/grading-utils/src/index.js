@@ -16,8 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// @ts-ignore
-import Big from 'big.js';
+import Big from 'big.js'
 
 /**
  * @typedef {[string, number]} GradingStandard
@@ -30,44 +29,66 @@ import Big from 'big.js';
  */
 
 /**
- * @deprecated Use scoreToLetterGrade(score: number, gradingSchemeDataRows: GradingSchemeDataRow[]) instead, which takes
+ * @deprecated @deprecated Use scoreToLetterGrade(score: number, gradingSchemeDataRows: GradingSchemeDataRow[], points_based) instead, which takes
  * a more reasonably typed object model than the 2d array that this function takes in for gradingScheme data rows.
  * @param {number} score
  * @param {GradingStandard[]} gradingSchemes
+ * @param {boolean} pointsBased
  * @returns {?string}
  */
-export function scoreToGrade(score, gradingSchemes) {
+export function scoreToGrade(score, gradingSchemes, pointsBased = false, scalingFactor = 1) {
   // Because scoreToGrade is being used in a non typescript file, ui/features/grade_summary/jquery/index.js,
   // score can be NaN despite its type being declared as a number
   if (typeof score !== 'number' || Number.isNaN(score) || gradingSchemes == null) {
-    return null;
+    return null
   }
 
   // convert deprecated 2d array format to newer GradingSchemeDataRow[] format
-  const gradingSchemeDataRows = gradingSchemes.map(row => ({ name: row[0], value: row[1] }));
-  return scoreToLetterGrade(score, gradingSchemeDataRows);
+  const gradingSchemeDataRows = gradingSchemes.map(row => ({name: row[0], value: row[1]}))
+
+  return scoreToLetterGrade(score, gradingSchemeDataRows, pointsBased, scalingFactor)
 }
 
 /**
  * @param {number} score
  * @param {GradingSchemeDataRow[]} gradingSchemeDataRows
+ * @param {boolean} pointsBased
  * @returns {string}
  */
-export function scoreToLetterGrade(score, gradingSchemeDataRows) {
+export function scoreToLetterGrade(
+  score,
+  gradingSchemeDataRows,
+  pointsBased = false,
+  scalingFactor = null
+) {
   // Because scoreToGrade is being used in a non typescript file, ui/features/grade_summary/jquery/index.js,
   // score can be NaN despite its type being declared as a number
   if (typeof score !== 'number' || Number.isNaN(score) || gradingSchemeDataRows == null) {
-    return null;
+    return null
   }
 
-  const roundedScore = parseFloat(Big(score).round(4));
-  const scoreWithLowerBound = Math.max(roundedScore, 0);
+  const scaledScore =
+    pointsBased && typeof scalingFactor === 'number' ? scaleScore(score, scalingFactor) : score
+  const roundedScore = pointsBased
+    ? parseFloat(Big(scaledScore).round(2)) // round to 2 decimal places because points based grading schemes lower bounds are rounded to 2 decimal places
+    : parseFloat(Big(scaledScore).round(4))
+  const scoreWithLowerBound = Math.max(roundedScore, 0)
   const letter = gradingSchemeDataRows.find((row, i) => {
-    const schemeScore = (row.value * 100).toPrecision(4);
-    return scoreWithLowerBound >= parseFloat(schemeScore) || i === gradingSchemeDataRows.length - 1;
-  });
+    const schemeScore = (row.value * 100).toPrecision(4)
+    return scoreWithLowerBound >= parseFloat(schemeScore) || i === gradingSchemeDataRows.length - 1
+  })
   if (!letter) {
-    throw new Error('grading scheme not found');
+    throw new Error('grading scheme not found')
   }
-  return letter.name;
+
+  return letter.name
+}
+
+function scaleScore(score, scalingFactor) {
+  if (scalingFactor === 100 || scalingFactor <= 0) {
+    return score
+  }
+  const scaled = Big(score).div(Big(100).div(scalingFactor))
+  const rounded = scaled.round(2)
+  return rounded.div(scalingFactor).times(100)
 }

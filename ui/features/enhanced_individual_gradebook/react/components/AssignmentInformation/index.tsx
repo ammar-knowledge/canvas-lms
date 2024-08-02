@@ -41,6 +41,7 @@ import DefaultGradeModal from './DefaultGradeModal'
 import {CurveGradesModal} from './CurveGradesModal'
 import SubmissionDownloadModal from './SubmissionDownloadModal'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
+import {MSWLaunchContext} from '@canvas/message-students-dialog/react/MessageStudentsWhoDialog'
 
 const I18n = useI18nScope('enhanced_individual_gradebook')
 
@@ -127,7 +128,7 @@ export default function AssignmentInformation({
     <View as="div" data-testid="assignment-information">
       <View as="div" className="row-fluid">
         <View as="div" className="span4">
-          <View as="h2">Assignment Information</View>
+          <View as="h2">{I18n.t('Assignment Information')}</View>
         </View>
         <View as="div" className="span8">
           <View as="h3" className="assignment_selection">
@@ -152,9 +153,10 @@ export default function AssignmentInformation({
                 renderIcon={<IconWarningLine size="x-small" />}
                 data-testid="assignment-group-no-points-warning"
               >
-                <ScreenReaderContent>Warning</ScreenReaderContent>
-                Assignments in this group have no points possible and cannot be included in grade
-                calculation.
+                <ScreenReaderContent>{I18n.t('Warning')}</ScreenReaderContent>
+                {I18n.t(
+                  'Assignments in this group have no points possible and cannot be included in grade calculation.'
+                )}
               </Link>
             </View>
           ) : null}
@@ -275,6 +277,7 @@ function AssignmentActions({
           </Button>
           <MessageStudentsWhoModal
             assignment={assignment}
+            launchContext={MSWLaunchContext.ASSIGNMENT_CONTEXT}
             gradebookOptions={gradebookOptions}
             students={students}
             submissions={submissions}

@@ -96,6 +96,8 @@ export default function PointsDisplay(props) {
       formatType: 'points_out_of_fraction',
       restrict_quantitative_data: ENV.restrict_quantitative_data,
       grading_scheme: ENV.grading_scheme,
+      points_based_grading_scheme: ENV.points_based,
+      scaling_factor: ENV.scaling_factor,
     })
 
     if (
@@ -123,7 +125,7 @@ export default function PointsDisplay(props) {
             dangerouslySetInnerHTML={{__html: formatGrade()}}
             data-testid="grade-display"
             lineHeight="fit"
-            size={window.ENV.FEATURES.instui_nav ? 'medium' : 'x-large'}
+            size={window.ENV.FEATURES?.instui_nav ? 'medium' : 'x-large'}
             transform="capitalize"
           />
         </Flex.Item>

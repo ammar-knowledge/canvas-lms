@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 - present Instructure, Inc.
+ * Copyright (C) 2024 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useState} from 'react'
+import React, {useEffect, useRef, useState} from 'react'
 import {useNavigate, useParams} from 'react-router-dom'
 import {useQuery} from '@canvas/query'
 import {useScope as useI18nScope} from '@canvas/i18n'
@@ -36,7 +36,14 @@ import {
   type FetchRubricVariables,
   fetchAccountRubrics,
   fetchCourseRubrics,
+  fetchRubricCriterion,
+  fetchRubricUsedLocations,
+  archiveRubric,
+  unarchiveRubric,
 } from '../../queries/ViewRubricQueries'
+import {RubricAssessmentTray} from '@canvas/rubrics/react/RubricAssessment'
+import {showFlashError, showFlashSuccess} from '@canvas/alerts/react/FlashAlert'
+import {UsedLocationsModal, type FetchUsedLocationResponse} from '@canvas/grading-scheme'
 
 const {Item: FlexItem} = Flex
 
@@ -47,12 +54,57 @@ export const TABS = {
   archived: 'Archived',
 }
 
-export const ViewRubrics = () => {
+export type ViewRubricsProps = {
+  canManageRubrics?: boolean
+  showHeader?: boolean
+}
+
+export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewRubricsProps) => {
   const navigate = useNavigate()
   const {accountId, courseId} = useParams()
   const isAccount = !!accountId
   const isCourse = !!courseId
   const [selectedTab, setSelectedTab] = useState<string | undefined>(TABS.saved)
+  const [isPreviewTrayOpen, setIsPreviewTrayOpen] = useState(false)
+  const [rubricIdForPreview, setRubricIdForPreview] = useState<string | undefined>(undefined)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeRubrics, setActiveRubrics] = useState<Rubric[]>([])
+  const [archivedRubrics, setArchivedRubrics] = useState<Rubric[]>([])
+  const [rubricIdForLocations, setRubricIdForLocations] = useState<string>()
+  const [loadingUsedLocations, setLoadingUsedLocations] = useState(false)
+  const path = useRef<string | undefined>(undefined)
+
+  const handleArchiveRubric = async (rubricId: string) => {
+    try {
+      await archiveRubric(rubricId)
+
+      const updatedActiveRubrics = activeRubrics.filter(rubric => rubric.id !== rubricId)
+      const archivedRubric = activeRubrics.find(rubric => rubric.id === rubricId)
+      if (archivedRubric) {
+        setArchivedRubrics(prevState => [...prevState, archivedRubric])
+      }
+      setActiveRubrics(updatedActiveRubrics)
+      showFlashSuccess(I18n.t('Rubric archived successfully'))()
+    } catch (error) {
+      showFlashError(I18n.t('Error Archiving Rubric'))()
+    }
+  }
+
+  const handleUnarchiveRubric = async (rubricId: string) => {
+    try {
+      await unarchiveRubric(rubricId)
+
+      const updatedArchivedRubrics = archivedRubrics.filter(rubric => rubric.id !== rubricId)
+      const activeRubric = archivedRubrics.find(rubric => rubric.id === rubricId)
+      if (activeRubric) {
+        setActiveRubrics(prevState => [...prevState, activeRubric])
+      }
+      setArchivedRubrics(updatedArchivedRubrics)
+      showFlashSuccess(I18n.t('Rubric un-archived successfully'))()
+    } catch (error) {
+      showFlashError(I18n.t('Error Un-Archiving Rubric'))()
+    }
+  }
 
   let queryVariables: FetchRubricVariables
   let fetchQuery: (queryVariables: FetchRubricVariables) => Promise<RubricQueryResponse>
@@ -73,6 +125,45 @@ export const ViewRubrics = () => {
     queryFn: async () => fetchQuery(queryVariables),
   })
 
+  const {data: rubricPreview, isLoading: isLoadingPreview} = useQuery({
+    queryKey: [`rubric-preview-${rubricIdForPreview}`],
+    queryFn: async () => fetchRubricCriterion(rubricIdForPreview),
+    enabled: !!rubricIdForPreview,
+  })
+
+  useEffect(() => {
+    if (data) {
+      const {activeRubricsInitialState, archivedRubricsInitialState} =
+        data.rubricsConnection.nodes.reduce(
+          (prev, curr) => {
+            const rubric: Rubric = {
+              id: curr.id,
+              title: curr.title,
+              pointsPossible: curr.pointsPossible,
+              criteriaCount: curr.criteriaCount,
+              locations: [], // TODO: add locations once we have them
+              ratingOrder: curr.ratingOrder,
+              hidePoints: curr.hidePoints,
+              freeFormCriterionComments: curr.freeFormCriterionComments,
+              workflowState: curr.workflowState,
+              buttonDisplay: curr.buttonDisplay,
+              criteria: curr.criteria ?? [],
+              hasRubricAssociations: curr.hasRubricAssociations,
+            }
+
+            const activeStates = ['active', 'draft']
+            activeStates.includes(curr.workflowState ?? '')
+              ? prev.activeRubricsInitialState.push(rubric)
+              : prev.archivedRubricsInitialState.push(rubric)
+            return prev
+          },
+          {activeRubricsInitialState: [] as Rubric[], archivedRubricsInitialState: [] as Rubric[]}
+        )
+      setActiveRubrics(activeRubricsInitialState)
+      setArchivedRubrics(archivedRubricsInitialState)
+    }
+  }, [data])
+
   if (isLoading) {
     return <LoadingIndicator />
   }
@@ -81,50 +172,95 @@ export const ViewRubrics = () => {
     return null
   }
 
-  const {activeRubrics, archivedRubrics} = data.rubricsConnection.nodes.reduce(
-    (prev, curr) => {
-      const rubric: Rubric = {
-        id: curr.id,
-        title: curr.title,
-        pointsPossible: curr.pointsPossible,
-        criteriaCount: curr.criteriaCount,
-        locations: [], // TODO: add locations once we have them
-      }
+  const handlePreviewClick = (rubricId: string) => {
+    if (rubricIdForPreview === rubricId) {
+      setRubricIdForPreview(undefined)
+      setIsPreviewTrayOpen(false)
+      return
+    }
 
-      curr.workflowState === 'active'
-        ? prev.activeRubrics.push(rubric)
-        : prev.archivedRubrics.push(rubric)
-      return prev
-    },
-    {activeRubrics: [] as Rubric[], archivedRubrics: [] as Rubric[]}
-  )
+    setRubricIdForPreview(rubricId)
+    setIsPreviewTrayOpen(true)
+  }
+  const handleLocationsClick = (rubricId: string) => {
+    if (rubricIdForLocations === rubricId) {
+      setRubricIdForLocations(undefined)
+      return
+    }
+
+    setRubricIdForLocations(rubricId)
+  }
+  const filteredActiveRubrics =
+    searchQuery.trim() !== ''
+      ? activeRubrics.filter(rubric =>
+          rubric.title.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      : activeRubrics
+
+  const filteredArchivedRubrics =
+    searchQuery.trim() !== ''
+      ? archivedRubrics.filter(rubric =>
+          rubric.title.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      : archivedRubrics
+
+  const handleLocationsUsedModalClose = () => {
+    setRubricIdForLocations(undefined)
+    path.current = undefined
+  }
+
+  const executeFetchLocations = async (): Promise<FetchUsedLocationResponse> => {
+    setLoadingUsedLocations(true)
+    try {
+      const usedLocations = await fetchRubricUsedLocations({
+        accountId,
+        courseId,
+        id: rubricIdForLocations,
+        nextPagePath: path.current,
+      })
+
+      path.current = usedLocations?.nextPage
+      setLoadingUsedLocations(false)
+      return usedLocations
+    } catch (error) {
+      setLoadingUsedLocations(false)
+      throw error
+    }
+  }
 
   return (
     <View as="div">
       <Flex>
         <FlexItem shouldShrink={true} shouldGrow={true}>
-          <Heading level="h1" themeOverride={{h1FontWeight: 700}} margin="medium 0 0 0">
-            {I18n.t('Rubrics')}
-          </Heading>
+          {showHeader && (
+            <Heading level="h1" themeOverride={{h1FontWeight: 700}} margin="medium 0 0 0">
+              {I18n.t('Rubrics')}
+            </Heading>
+          )}
         </FlexItem>
         <FlexItem>
           <TextInput
             renderLabel={<ScreenReaderContent>{I18n.t('Search Rubrics')}</ScreenReaderContent>}
             placeholder={I18n.t('Search...')}
-            value=""
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
             width="17"
             renderBeforeInput={<IconSearchLine inline={false} />}
+            data-testid="rubric-search-bar"
           />
         </FlexItem>
         <FlexItem>
-          <Button
-            renderIcon={IconAddLine}
-            color="primary"
-            margin="small"
-            onClick={() => navigate('./create')}
-          >
-            {I18n.t('Create New Rubric')}
-          </Button>
+          {canManageRubrics && (
+            <Button
+              renderIcon={IconAddLine}
+              color="primary"
+              margin="small"
+              onClick={() => navigate('./create')}
+              data-testid="create-new-rubric-button"
+            >
+              {I18n.t('Create New Rubric')}
+            </Button>
+          )}
         </FlexItem>
       </Flex>
 
@@ -141,7 +277,14 @@ export const ViewRubrics = () => {
           padding="none"
         >
           <View as="div" margin="medium 0" data-testid="saved-rubrics-table">
-            <RubricTable rubrics={activeRubrics} />
+            <RubricTable
+              canManageRubrics={canManageRubrics}
+              rubrics={filteredActiveRubrics}
+              onLocationsClick={rubricId => handleLocationsClick(rubricId)}
+              onPreviewClick={rubricId => handlePreviewClick(rubricId)}
+              handleArchiveRubricChange={handleArchiveRubric}
+              active={true}
+            />
           </View>
         </Tabs.Panel>
         <Tabs.Panel
@@ -152,10 +295,37 @@ export const ViewRubrics = () => {
           padding="none"
         >
           <View as="div" margin="medium 0" data-testid="archived-rubrics-table">
-            <RubricTable rubrics={archivedRubrics} />
+            <RubricTable
+              canManageRubrics={canManageRubrics}
+              rubrics={filteredArchivedRubrics}
+              onLocationsClick={rubricId => handleLocationsClick(rubricId)}
+              onPreviewClick={rubricId => handlePreviewClick(rubricId)}
+              handleArchiveRubricChange={handleUnarchiveRubric}
+              active={false}
+            />
           </View>
         </Tabs.Panel>
       </Tabs>
+
+      <RubricAssessmentTray
+        isLoading={isLoadingPreview}
+        isOpen={isPreviewTrayOpen}
+        isPreviewMode={false}
+        rubric={rubricPreview}
+        rubricAssessmentData={[]}
+        onDismiss={() => {
+          setRubricIdForPreview(undefined)
+          setIsPreviewTrayOpen(false)
+        }}
+      />
+
+      <UsedLocationsModal
+        isLoading={loadingUsedLocations}
+        fetchUsedLocations={executeFetchLocations}
+        itemId={rubricIdForLocations}
+        isOpen={!!rubricIdForLocations}
+        onClose={handleLocationsUsedModalClose}
+      />
     </View>
   )
 }

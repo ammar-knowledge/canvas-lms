@@ -20,7 +20,7 @@
 
 # @API Learning Object Dates
 #
-# API for accessing date-related attributes on assignments, quizzes, and modules.
+# API for accessing date-related attributes on assignments, quizzes, modules, discussions, pages, and files.
 #
 # @model LearningObjectDates
 #     {
@@ -33,7 +33,7 @@
 #           "type": "integer"
 #         },
 #         "due_at": {
-#           "description": "the due date for the learning object. returns null if not present or applicable",
+#           "description": "the due date for the learning object. returns null if not present or applicable. never applicable for ungraded discussions, pages, and files",
 #           "example": "2012-07-01T23:59:00-06:00",
 #           "type": "datetime"
 #         },
@@ -52,6 +52,22 @@
 #           "example": false,
 #           "type": "boolean"
 #         },
+#         "graded": {
+#           "description": "whether the learning object is graded (and thus has a due date)",
+#           "example": true,
+#           "type": "boolean"
+#         },
+#         "blueprint_date_locks": {
+#           "description": "[exclusive to blueprint child content only] list of lock types",
+#           "example": ["due_dates", "availability_dates"],
+#           "type": "array",
+#           "items": {"type": "string"}
+#         },
+#         "visible_to_everyone": {
+#           "description": "whether the learning object is visible to everyone",
+#           "example": true,
+#           "type": "boolean"
+#         },
 #         "overrides": {
 #           "description": "paginated list of AssignmentOverride objects",
 #           "type": "array",
@@ -60,7 +76,7 @@
 #       }
 #     }
 class LearningObjectDatesController < ApplicationController
-  before_action :require_feature_flag # remove when differentiated_modules flag is removed
+  before_action :require_feature_flag # remove when selective_release_ui_api flag is removed
   before_action :require_user
   before_action :require_context
   before_action :check_authorized_action
@@ -68,6 +84,9 @@ class LearningObjectDatesController < ApplicationController
   include Api::V1::LearningObjectDates
   include Api::V1::Assignment
   include Api::V1::AssignmentOverride
+  include SubmittableHelper
+
+  OBJECTS_WITH_ASSIGNMENTS = %w[DiscussionTopic WikiPage].freeze
 
   # @API Get a learning object's date information
   #
@@ -79,10 +98,22 @@ class LearningObjectDatesController < ApplicationController
   # @returns LearningObjectDates
   def show
     route = polymorphic_url([:api_v1, @context, asset, :date_details])
-    overrides = Api.paginate(asset.all_assignment_overrides.active, self, route)
+    overrides = Api.paginate(overridable.all_assignment_overrides.active, self, route)
+
+    # this is a temporary check for any discussion_topic_section_visibilities until we eventually backfill that table
+    visibilities_to_override = if overridable.is_a?(DiscussionTopic) && overridable.is_section_specific
+                                 section_overrides = overridable.assignment_overrides.active.where(set_type: "CourseSection").select(:set_id)
+                                 section_visibilities = overridable.discussion_topic_section_visibilities.active.where.not(course_section_id: section_overrides)
+                                 Api.paginate(section_visibilities, self, route)
+                               end
+
+    all_overrides = assignment_overrides_json(overrides, @current_user, include_names: true)
+    all_overrides += section_visibility_to_override_json(section_visibilities, overridable) if visibilities_to_override
+
     render json: {
-      **learning_object_dates_json(asset, @current_user, session),
-      overrides: assignment_overrides_json(overrides, @current_user, include_names: true)
+      **learning_object_dates_json(asset, overridable),
+      **blueprint_date_locks_json(asset),
+      overrides: all_overrides,
     }
   end
 
@@ -96,7 +127,7 @@ class LearningObjectDatesController < ApplicationController
   # Note: this API is still under development and will not function until the feature is enabled.
   #
   # @argument due_at [DateTime]
-  #   The learning object's due date.
+  #   The learning object's due date. Not applicable for ungraded discussions, pages, and files.
   #
   # @argument unlock_at [DateTime]
   #   The learning object's unlock date. Must be before the due date if there is one.
@@ -112,7 +143,8 @@ class LearningObjectDatesController < ApplicationController
   #   an ID and will be updated if needed. New overrides will be created for overrides in the list
   #   without an ID. Overrides not included in the list will be deleted. Providing an empty list
   #   will delete all of the object's overrides. Keys for each override object can include: 'id',
-  #   'title', 'student_ids', and 'course_section_id'.
+  #   'title', 'due_at', 'unlock_at', 'lock_at', 'student_ids', and 'course_section_id', 'course_id',
+  #   'noop_id', and 'unassign_item'.
   #
   # @example_request
   #   curl https://<canvas>/api/v1/courses/:course_id/assignments/:assignment_id/date_details \
@@ -141,17 +173,36 @@ class LearningObjectDatesController < ApplicationController
       update_assignment(asset, object_update_params)
     when "Quizzes::Quiz"
       update_quiz(asset, object_update_params)
+    when "DiscussionTopic"
+      if asset == overridable
+        update_ungraded_object(asset, object_update_params)
+      else
+        update_assignment(overridable, object_update_params)
+        prefer_assignment_availability_dates(asset, overridable)
+      end
+    when "WikiPage"
+      if wiki_page_needs_assignment?
+        apply_assignment_parameters(object_update_params.merge(set_assignment: true), asset)
+      elsif asset == overridable
+        update_ungraded_object(asset, object_update_params)
+      else
+        update_assignment(overridable, object_update_params)
+      end
+    when "Attachment"
+      update_ungraded_object(asset, object_update_params)
     end
   end
 
   private
 
   def require_feature_flag
-    not_found unless Account.site_admin.feature_enabled? :differentiated_modules
+    not_found unless Account.site_admin.feature_enabled? :selective_release_ui_api
   end
 
   def check_authorized_action
-    render_unauthorized_action unless @context.grants_any_right?(@current_user, :manage_content, :manage_course_content_edit)
+    return render json: { error: "This API does not support files." }, status: :bad_request if asset.is_a?(Attachment) && !Account.site_admin.feature_enabled?(:differentiated_files)
+
+    render_unauthorized_action unless asset.grants_right?(@current_user, :manage_assign_to)
   end
 
   def asset
@@ -161,7 +212,21 @@ class LearningObjectDatesController < ApplicationController
                  @context.active_quizzes.find(params[:quiz_id])
                elsif params[:context_module_id]
                  @context.context_modules.not_deleted.find(params[:context_module_id])
+               elsif params[:discussion_topic_id]
+                 @context.discussion_topics.find(params[:discussion_topic_id])
+               elsif params[:url_or_id]
+                 @context.wiki.find_page(params[:url_or_id]) || not_found
+               elsif params[:attachment_id]
+                 @context.attachments.not_deleted.find(params[:attachment_id])
                end
+  end
+
+  # this is the object that has the overrides and the base dates (usually the same as the asset, but not always)
+  def overridable
+    # graded discussions have an assignment and are differentiated solely via that assignment
+    # ungraded topics do not have an assignment and have direct overrides and availability dates
+    # pages might have an assignment if they're "allowed in mastery paths"
+    @overridable ||= (OBJECTS_WITH_ASSIGNMENTS.include?(asset.class_name) && asset.assignment) ? asset.assignment : asset
   end
 
   def update_assignment(assignment, params)
@@ -198,11 +263,52 @@ class LearningObjectDatesController < ApplicationController
     head :no_content
   end
 
+  def update_ungraded_object(object, params)
+    overrides = params.delete :assignment_overrides
+    batch = prepare_assignment_overrides_for_batch_update(object, overrides, @current_user) if overrides
+    object.transaction do
+      object.update!(params)
+      perform_batch_update_assignment_overrides(object, batch) if overrides
+      # this is temporary until we are able to remove the dicussion_topic_section_visibilities table
+      if object.is_a?(DiscussionTopic) && object.is_section_specific
+        object.discussion_topic_section_visibilities.destroy_all
+        object.update!(is_section_specific: false)
+      end
+    end
+    object.clear_cache_key(:availability) if caches_availability?
+    head :no_content
+  end
+
+  def prefer_assignment_availability_dates(object, assignment)
+    return unless object.is_a?(DiscussionTopic) && assignment
+
+    object.delayed_post_at = nil if assignment.unlock_at.present?
+    object.unlock_at = nil if assignment.unlock_at.present?
+    object.lock_at = nil if assignment.lock_at.present?
+    object.save! if object.changed?
+  end
+
+  def allow_due_at?
+    asset.is_a?(Assignment) || asset.is_a?(Quizzes::Quiz) || (asset.is_a?(DiscussionTopic) && asset.assignment)
+  end
+
+  def caches_availability?
+    asset.is_a?(Assignment) || asset.is_a?(Quizzes::Quiz) || asset.is_a?(DiscussionTopic) || asset.is_a?(WikiPage)
+  end
+
+  def wiki_page_needs_assignment?
+    asset.is_a?(WikiPage) &&
+      asset.assignment.nil? &&
+      @context.conditional_release? &&
+      params[:assignment_overrides]&.any? { |override| override[:noop_id].present? }
+  end
+
   def object_update_params
-    params.permit(:due_at,
-                  :unlock_at,
-                  :lock_at,
-                  :only_visible_to_overrides,
-                  assignment_overrides: strong_anything)
+    allowed_params = [:unlock_at,
+                      :lock_at,
+                      :only_visible_to_overrides,
+                      { assignment_overrides: strong_anything }]
+    allowed_params.unshift(:due_at) if allow_due_at?
+    params.permit(*allowed_params)
   end
 end

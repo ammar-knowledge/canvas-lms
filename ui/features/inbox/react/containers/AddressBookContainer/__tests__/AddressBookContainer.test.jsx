@@ -234,6 +234,22 @@ describe('Should load <AddressBookContainer> normally', () => {
       expect(items.length).toBe(2)
     })
 
+    it('clears input when submenu is chosen', async () => {
+      jest.useFakeTimers()
+      const {container} = setup()
+      const input = container.querySelector('input')
+
+      fireEvent.change(input, {target: {value: 'Testing'}})
+      await act(async () => jest.advanceTimersByTime(1000))
+
+      const items = await screen.findAllByTestId('address-book-item')
+      // Click the courses submenu
+      fireEvent.mouseDown(items[1])
+
+      // Input should be cleared after selecting a submenu
+      expect(container.querySelector('input').value).toBe('')
+    })
+
     it('Should be able to select only 1 tags when limit is 1', async () => {
       setup({limitTagCount: 1, open: true})
       // Find initial courses and users sub-menu
@@ -252,6 +268,30 @@ describe('Should load <AddressBookContainer> normally', () => {
       // Verify that only 1 tag was created
       const tags = await screen.findAllByTestId('address-book-tag')
       expect(tags.length).toBe(1)
+    })
+
+    it('should properly update navigation state when activeCourseFilter changes mid navigation', async () => {
+      jest.useFakeTimers()
+      const {rerender} = setup()
+      let items = await screen.findAllByTestId('address-book-item')
+      fireEvent.mouseDown(items[1])
+      await act(async () => jest.advanceTimersByTime(1000))
+      items = await screen.findAllByTestId('address-book-item')
+      // Expects there to be 3 users and 1 backbutton
+      expect(items.length).toBe(4)
+
+      rerender(
+        <ApolloProvider client={mswClient}>
+          <AddressBookContainer
+            open={true}
+            activeCourseFilter={{contextID: 'course_123', contextName: 'course name'}}
+          />
+        </ApolloProvider>
+      )
+      await act(async () => jest.advanceTimersByTime(1000))
+      items = await screen.findAllByTestId('address-book-item')
+      // Expects there to be only Frederick Dukes, see mswHandlers.js GetAddressBookRecipients if (variables.context)
+      expect(items.length).toBe(1)
     })
   })
 

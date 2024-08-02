@@ -164,9 +164,11 @@ export default class Criterion extends React.Component {
     const pointsPossible = criterion.points
     const pointsElement = () =>
       !hidePoints &&
+      !ENV['restrict_quantitative_data'] &&
       !ignoreForScoring && (
         <Points
           key="points"
+          data-testid="points"
           allowExtraCredit={!isOutcome || allowExtraCredit}
           assessing={assessing}
           assessment={assessment}
@@ -243,7 +245,7 @@ export default class Criterion extends React.Component {
             </Text>
           </div>
           <div className="long-description">
-            {longDescription !== '' ? (
+            {longDescription?.trim() ? (
               <LongDescription showLongDescription={this.openModal} />
             ) : null}
             <LongDescriptionDialog
@@ -255,7 +257,7 @@ export default class Criterion extends React.Component {
           {!(hidePoints || _.isNil(threshold)) ? <Threshold threshold={threshold} /> : null}
         </Table.RowHeader>
         <Table.Cell>{ratings}</Table.Cell>
-        {hasPointsColumn && (
+        {(!ENV['restrict_quantitative_data'] && hasPointsColumn) && (
           <Table.Cell data-testid="criterion-points">
             {pointsElement()}
             {assessing && !freeForm && !editingComments ? commentButton : null}

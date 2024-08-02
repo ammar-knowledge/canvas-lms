@@ -110,20 +110,6 @@ create_course_subaccount_picker:
     people who can manually create courses to put those courses into any sub-account
     where they have enrollments.
 
-deleted_user_tools:
-  state: hidden
-  applies_to: SiteAdmin
-  display_name: 'Deleted User Tools'
-  description: |-
-    Adds a new page to the admin tools that allows admins to view and manage
-    deleted users. Also allows admins to search for deleted users with a checkbox
-    on the account user page.
-  environments:
-    development:
-      state: allowed_on
-    ci:
-      state: allowed_on
-
 enhanced_course_creation_account_fetching:
   applies_to: SiteAdmin
   state: hidden
@@ -204,13 +190,55 @@ instui_for_import_page:
     If enabled, the course import page will use InstUI components
   applies_to: SiteAdmin
 
-differentiated_modules:
+selective_release_backend:
   state: hidden
-  display_name: Differentiated Modules
+  display_name: Selective Release - Backend Changes
   description: |-
-    If enabled, modules and module items become assignable to specific
-    individuals and groups.
-  after_state_change_proc: differentiated_modules_setting_hook
+    Selective Release is a feature that allows modules and module items to
+    be assigned to specific individuals and groups. This is the first of two flags
+    that must be enabled to use this feature. When this flag is enabled, the
+    transparent backend changes that support assigning modules and module items will
+    be enabled. As long as no module-type AssignmentOverrides exist, enabling this
+    feature is backwards-compatible, and exists to ensure that the backend changes
+    are performant.
+  applies_to: SiteAdmin
+  environments:
+    ci:
+      state: allowed_on # enable for automated testings builds and local testing
+    development:
+      state: allowed_on # enable for local development
+
+selective_release_ui_api:
+  state: hidden
+  display_name: Selective Release - UI/API Changes
+  description: |-
+    Selective Release is a feature that allows modules and module items to
+    be assigned to specific individuals and groups. The selective_release_backend
+    flag MUST be enabled before this flag can be enabled. When this flag is enabled,
+    the UI and API that allow users to create module-type AssignmentOverrides will be
+    enabled, and thus the feature will be fully functional.
+  applies_to: SiteAdmin
+  environments:
+    ci:
+      state: allowed_on # enable for automated testings builds and local testing
+    development:
+      state: allowed_on # enable for local development
+
+selective_release_edit_page:
+  state: hidden
+  display_name: Selective Release - Edit Page
+  description: |-
+    If enabled, with selective release the edit page for assignments, quizzes, pages,
+    and discussions will have the assign to functionality directly in the page instead
+    of in a tray.
+  applies_to: SiteAdmin
+
+differentiated_files:
+  state: hidden
+  display_name: Selective Release - Files
+  description: |-
+    If enabled, files become assignable to specific individuals and groups using the
+    same interface that other learning object use.
   applies_to: SiteAdmin
 
 learner_passport:
@@ -219,13 +247,6 @@ learner_passport:
   root_opt_in: true
   display_name: Learner Passport Prototype
   description: An in-progress working prototype of the Learner Passport feature.
-
-learner_passport_r2:
-  state: hidden
-  applies_to: RootAccount
-  root_opt_in: true
-  display_name: Learner Passport Prototype R2
-  description: An in-progress working prototype of the Learner Passport feature, Release 2.
 
 precise_link_replacements:
   state: hidden
@@ -247,3 +268,38 @@ observer_appointment_groups:
       state: allowed_on
     development:
       state: allowed_on
+
+block_editor:
+  applies_to: Account
+  state: hidden
+  display_name: Block Editor
+  description: |-
+    Enable the new block editor for the rich content editor.
+  beta: true
+
+instui_header:
+  state: hidden
+  display_name: Use InstUI new headers
+  description: |-
+    If enabled, pages will use the new InstUI headers
+  applies_to: SiteAdmin
+
+rce_find_replace:
+  state: hidden
+  display_name: Find and Replace RCE Plugin
+  description: |-
+    Enable a plugin which can find and replace content when editing in an RCE
+  applies_to: SiteAdmin
+  environments:
+    ci:
+      state: allowed_on
+    development:
+      state: allowed_on
+
+dashboard_graphql_integration:
+  state: hidden
+  display_name: Dashboard GraphQL Integration
+  description: |-
+    Integrate GraphQL queries and mutations for the Dashboard to improve loading speed
+    and simplify data fetching logic.
+  applies_to: SiteAdmin

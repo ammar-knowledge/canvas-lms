@@ -19,6 +19,7 @@
 
 require_relative "../helpers/discussions_common"
 require_relative "pages/discussion_page"
+require_relative "../rcs/pages/rce_next_page"
 
 describe "threaded discussions" do
   include_context "in-process server selenium tests"
@@ -254,7 +255,7 @@ describe "threaded discussions" do
 
       delete_me = @topic.discussion_entries.create!(user: @student, message: "new threaded reply from student")
       Discussion.visit(@course, @topic)
-      fj('label[for="showDeleted"]').click
+      f('label[for="showDeleted"]').click
 
       delete_entry(delete_me)
       expect(f("#entry-#{delete_me.id} .discussion-title").text).to match("Deleted by #{@teacher.name} on")
@@ -288,6 +289,23 @@ describe "threaded discussions" do
   context "when discussions redesign feature flag is ON", :ignore_js_errors do
     before :once do
       Account.site_admin.enable_feature! :react_discussions_post
+      Account.site_admin.enable_feature! :discussion_create
+    end
+
+    context "not-threaded discussion" do
+      before do
+        user_session(@student)
+        @topic = create_discussion("not_threaded discussion", "not_threaded")
+        @first_reply = @topic.discussion_entries.create!(
+          user: @student,
+          message: "1st level reply"
+        )
+        Discussion.visit(@course, @topic)
+      end
+
+      it "does not display reply button in threading toolbar" do
+        expect(f("body")).not_to contain_jqcss("button[data-testid='threading-toolbar-reply']:contains('Reply')")
+      end
     end
 
     context "reply flow" do
@@ -329,6 +347,114 @@ describe "threaded discussions" do
         before do
           user_session(@student)
           get "/courses/#{@course.id}/discussion_topics/#{@threaded_topic.id}"
+        end
+
+        it "debounces the entry creation" do
+          # Click reply button
+          f("button[data-testid='discussion-topic-reply']").click
+          wait_for_ajaximations
+
+          entry_count = @threaded_topic.discussion_entries.count
+
+          # Type content
+          reply_content = "This is a reply to topic that should not be lost."
+          type_in_tiny("textarea", reply_content)
+
+          # Try to submit the reply
+          f("button[data-testid='DiscussionEdit-submit']")
+
+          # Simulate multiple rapid clicks using JavaScript
+          driver.execute_script(<<~JS)
+            let button = document.querySelector("button[data-testid='DiscussionEdit-submit']");
+            let event = new MouseEvent('click', {
+              view: window,
+              bubbles: true,
+              cancelable: true
+            });
+            for (let i = 0; i < 2; i++) {
+              button.dispatchEvent(event);
+            }
+          JS
+
+          wait_for_ajaximations
+
+          expect(@threaded_topic.discussion_entries.count).to eq entry_count + 1
+        end
+
+        describe "Discussion replies with network interruptions" do
+          after do
+            turn_on_network
+          end
+
+          it "preserves reply content to discussion topic reply when network is interrupted" do
+            # Click reply button
+            f("button[data-testid='discussion-topic-reply']").click
+            wait_for_ajaximations
+
+            # Type content
+            reply_content = "This is a reply to topic that should not be lost."
+            type_in_tiny("textarea", reply_content)
+
+            # Simulate offline mode
+            turn_off_network
+
+            # Try to submit the reply
+            f("button[data-testid='DiscussionEdit-submit']").click
+
+            # Expect error to occur
+            expect(fj("div:contains('There was an unexpected error creating the discussion entry.')")).to be_present
+            # Expect RCE to still be open
+            expect(f("div[data-testid='DiscussionEdit-container']")).to be_present
+            # Expect the typed content to still be there
+            in_frame f(".tox-editor-container iframe")["id"] do
+              expect(f("body")).to include_text("This is a reply to topic that should not be lost.")
+            end
+          end
+
+          it "preserves reply content to discussion entry reply when network is interrupted" do
+            f("button[data-testid='threading-toolbar-reply']").click
+            wait_for_ajaximations
+            type_in_tiny("textarea", "This is a reply to a 1st level reply that should not be lost.")
+
+            # Simulate offline mode
+            turn_off_network
+
+            # Try to submit the reply
+            f("button[data-testid='DiscussionEdit-submit']").click
+
+            # Expect error to occur
+            expect(fj("div:contains('There was an unexpected error creating the discussion entry.')")).to be_present
+            # Expect RCE to still be open
+            expect(f("div[data-testid='DiscussionEdit-container']")).to be_present
+            # Expect the typed content to still be there
+            in_frame f(".tox-editor-container iframe")["id"] do
+              expect(f("body")).to include_text("This is a reply to a 1st level reply that should not be lost.")
+            end
+          end
+
+          it "preserves edit content to discussion entry edit when network is interrupted" do
+            f("button[data-testid='expand-button']").click
+            wait_for_ajaximations
+            ff("button[data-testid='thread-actions-menu']").second.click
+            f("span[data-testid='edit']").click
+            wait_for_ajaximations
+            type_in_tiny("textarea", "This is an edit that should not be lost.")
+
+            # Simulate offline mode
+            turn_off_network
+
+            # Try to submit the reply
+            f("button[data-testid='DiscussionEdit-submit']").click
+
+            # Expect error to occur
+            expect(fj("div:contains('There was an unexpected error while updating the reply.')")).to be_present
+            # Expect RCE to still be open
+            expect(f("div[data-testid='DiscussionEdit-container']")).to be_present
+            # Expect the typed content to still be there
+            in_frame f(".tox-editor-container iframe")["id"] do
+              expect(f("body")).to include_text(@first_reply.message + "This is an edit that should not be lost.")
+            end
+          end
         end
 
         it "replies correctly to discussion topic" do
@@ -412,7 +538,8 @@ describe "threaded discussions" do
           expect(fj("div:contains(#{new_reply.summary})")).to be_present
           expect(fj("div:contains(#{@third_reply.summary})")).to be_present
           # Verify that the correct @mentions is created
-          expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"1\" data-reactroot=\"\">@#{@third_reply.author_name}</span>replying to 3rd level reply</p>"
+
+          expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"#{@third_reply.user_id}\" data-reactroot=\"\">@#{@third_reply.author_name}</span>replying to 3rd level reply</p>"
         end
 
         it "replies correctly to fourth reply" do
@@ -440,7 +567,7 @@ describe "threaded discussions" do
           expect(fj("div:contains(#{new_reply.summary})")).to be_present
           expect(fj("div:contains(#{@second_reply.summary})")).to be_present
           # Verify that the correct @mentions is created
-          expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"1\" data-reactroot=\"\">@#{@fourth_reply.author_name}</span>replying to 4th level reply</p>"
+          expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"#{@fourth_reply.user_id}\" data-reactroot=\"\">@#{@fourth_reply.author_name}</span>replying to 4th level reply</p>"
         end
 
         describe "when quoting" do
@@ -518,7 +645,9 @@ describe "threaded discussions" do
             # Verify that the correct quote is created after submission
             expect(fj("div[data-testid='reply-preview']:contains('#{@third_reply.summary}')")).to be_present
             # Verify that the correct @mentions is created
-            expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"1\" data-reactroot=\"\">@#{@third_reply.author_name}</span>quoting 3rd level reply</p>"
+            expect(new_reply.message).to include "<p><span class=\"mceNonEditable mention\""
+            expect(new_reply.message).to include "data-mention=\"#{@third_reply.user_id}\""
+            expect(new_reply.message).to include "@#{@third_reply.author_name}</span>quoting 3rd level reply</p>"
           end
 
           it "quotes fourth_reply correctly" do
@@ -553,7 +682,7 @@ describe "threaded discussions" do
             # Verify that the correct quote is created after submission
             expect(fj("div[data-testid='reply-preview']:contains('#{@fourth_reply.summary}')")).to be_present
             # Verify that the correct @mentions is created
-            expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"1\" data-reactroot=\"\">@#{@fourth_reply.author_name}</span>quoting 4th level reply</p>"
+            expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"#{@fourth_reply.user_id}\" data-reactroot=\"\">@#{@fourth_reply.author_name}</span>quoting 4th level reply</p>"
           end
         end
       end
@@ -567,6 +696,60 @@ describe "threaded discussions" do
         before do
           user_session(@student)
           get "/courses/#{@course.id}/discussion_topics/#{@threaded_topic.id}"
+        end
+
+        describe "Discussion replies with network interruptions" do
+          after do
+            turn_on_network
+          end
+
+          it "preserves reply content to 1st level discussion entry reply that has no existing subEntries when network is interrupted" do
+            @second_first_level_reply = @threaded_topic.discussion_entries.create!(
+              user: @student,
+              message: "2nd - 1st level reply"
+            )
+            get "/courses/#{@course.id}/discussion_topics/#{@threaded_topic.id}"
+
+            ff("button[data-testid='threading-toolbar-reply']")[0].click
+            wait_for_ajaximations
+            type_in_tiny("textarea", "This is a reply to a 1st level reply that should not be lost.")
+
+            # Simulate offline mode
+            turn_off_network
+
+            # Try to submit the reply
+            f("button[data-testid='DiscussionEdit-submit']").click
+
+            # Expect error to occur
+            expect(fj("div:contains('There was an unexpected error creating the discussion entry.')")).to be_present
+            # Expect RCE to still be open
+            expect(f("div[data-testid='DiscussionEdit-container']")).to be_present
+            # Expect the typed content to still be there
+            in_frame f(".tox-editor-container iframe")["id"] do
+              expect(f("body")).to include_text("This is a reply to a 1st level reply that should not be lost.")
+            end
+          end
+
+          it "preserves reply content to discussion entry reply when network is interrupted" do
+            f("button[data-testid='threading-toolbar-reply']").click
+            wait_for_ajaximations
+            type_in_tiny("textarea", "This is a reply to a 1st level reply that should not be lost.")
+
+            # Simulate offline mode
+            turn_off_network
+
+            # Try to submit the reply
+            f("button[data-testid='DiscussionEdit-submit']").click
+
+            # Expect error to occur
+            expect(fj("div:contains('There was an unexpected error creating the discussion entry.')")).to be_present
+            # Expect RCE to still be open
+            expect(f("div[data-testid='DiscussionEdit-container']")).to be_present
+            # Expect the typed content to still be there
+            in_frame f(".tox-editor-container iframe")["id"] do
+              expect(f("body")).to include_text("This is a reply to a 1st level reply that should not be lost.")
+            end
+          end
         end
 
         it "expands and collapses all correctly" do
@@ -647,7 +830,7 @@ describe "threaded discussions" do
         it "replies correctly to third reply" do
           f("button[data-testid='expand-button']").click
           wait_for_ajaximations
-          wait_for(method: nil, timeout: 5) { ff("button[data-testid='threading-toolbar-reply']").length >= 3 }
+          wait_for(method: nil, timeout: 7) { ff("button[data-testid='threading-toolbar-reply']").length >= 3 }
           ff("button[data-testid='threading-toolbar-reply']")[2].click
           wait_for_ajaximations
           type_in_tiny("textarea", "replying to 3rd level reply")
@@ -665,14 +848,14 @@ describe "threaded discussions" do
           # Verify that the correct level is opened
           expect(fj("div:contains(#{new_reply.summary})")).to be_present
           expect(fj("div:contains(#{@third_reply.summary})")).to be_present
-          expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"1\" data-reactroot=\"\">@#{@third_reply.author_name}</span>replying to 3rd level reply</p>"
+          expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"#{@third_reply.user_id}\" data-reactroot=\"\">@#{@third_reply.author_name}</span>replying to 3rd level reply</p>"
         end
 
         it "replies correctly to fourth reply" do
           f("button[data-testid='expand-button']").click
           wait_for_ajaximations
           wait_for_ajaximations
-          wait_for(method: nil, timeout: 5) { ff("button[data-testid='threading-toolbar-reply']").length >= 4 }
+          wait_for(method: nil, timeout: 7) { ff("button[data-testid='threading-toolbar-reply']").length >= 4 }
           ff("button[data-testid='threading-toolbar-reply']")[3].click
           wait_for_ajaximations
           type_in_tiny("textarea", "replying to 4th level reply")
@@ -690,7 +873,7 @@ describe "threaded discussions" do
           # Verify that the correct level is opened
           expect(fj("div:contains(#{new_reply.summary})")).to be_present
           expect(fj("div:contains(#{@second_reply.summary})")).to be_present
-          expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"1\" data-reactroot=\"\">@#{@fourth_reply.author_name}</span>replying to 4th level reply</p>"
+          expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"#{@fourth_reply.user_id}\" data-reactroot=\"\">@#{@fourth_reply.author_name}</span>replying to 4th level reply</p>"
         end
 
         describe "when quoting" do
@@ -767,7 +950,7 @@ describe "threaded discussions" do
 
             # Verify that the correct quote is created after submission
             expect(fj("div[data-testid='reply-preview']:contains('#{@third_reply.summary}')")).to be_present
-            expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"1\" data-reactroot=\"\">@#{@third_reply.author_name}</span>quoting 3rd level reply</p>"
+            expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"#{@third_reply.user_id}\" data-reactroot=\"\">@#{@third_reply.author_name}</span>quoting 3rd level reply</p>"
           end
 
           it "quotes fourth_reply correctly" do
@@ -795,7 +978,7 @@ describe "threaded discussions" do
 
             # Verify that the correct quote is created after submission
             expect(fj("div[data-testid='reply-preview']:contains('#{@fourth_reply.summary}')")).to be_present
-            expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"1\" data-reactroot=\"\">@#{@fourth_reply.author_name}</span>quoting 4th level reply</p>"
+            expect(new_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"#{@fourth_reply.user_id}\" data-reactroot=\"\">@#{@fourth_reply.author_name}</span>quoting 4th level reply</p>"
           end
         end
       end
@@ -841,6 +1024,70 @@ describe "threaded discussions" do
       fj("button:contains('Save')").click
       wait_for_ajax_requests
       expect(entry.reload.message).to match(edit_text)
+    end
+
+    it "preserves quoted reply when editing a reply" do
+      user_session(@teacher)
+
+      entry = @topic.discussion_entries.create!(
+        user: @teacher,
+        message: "new reply from teacher"
+      )
+      response = @topic.discussion_entries.create!(
+        user: @teacher,
+        message: "quoted reply from teacher",
+        parent_entry: entry,
+        quoted_entry: entry
+      )
+      get "/courses/#{@course.id}/discussion_topics/#{@topic.id}"
+      f("button[data-testid='expand-button']").click
+      wait_for_ajaximations
+      wait_for(method: nil, timeout: 5) { ff("button[data-testid='thread-actions-menu']").length >= 2 }
+      ff("button[data-testid='thread-actions-menu']")[1].click
+      f("span[data-testid='edit']").click
+      wait_for_ajaximations
+
+      edit_text = "edit message"
+      type_in_tiny("textarea", edit_text)
+      fj("button:contains('Save')").click
+      wait_for_ajaximations
+
+      response.reload
+      expect(response.message).to match(edit_text)
+      expect(response.quoted_entry_id).to eq(entry.id)
+    end
+
+    it "allows users to remove quote from reply when editing" do
+      user_session(@teacher)
+
+      entry = @topic.discussion_entries.create!(
+        user: @teacher,
+        message: "new reply from teacher"
+      )
+      response = @topic.discussion_entries.create!(
+        user: @teacher,
+        message: "quoted reply from teacher",
+        parent_entry: entry,
+        quoted_entry: entry
+      )
+      get "/courses/#{@course.id}/discussion_topics/#{@topic.id}"
+      f("button[data-testid='expand-button']").click
+      wait_for_ajaximations
+      wait_for(method: nil, timeout: 5) { ff("button[data-testid='thread-actions-menu']").length >= 2 }
+      ff("button[data-testid='thread-actions-menu']")[1].click
+      f("span[data-testid='edit']").click
+      wait_for_ajaximations
+
+      # The toggle to include quoted reply, I cannot click the input directly, as a random
+      # span intercepts the click event and selenium raises an error....
+      f("svg[name='IconCheck']").click
+
+      fj("button:contains('Save')").click
+
+      wait_for_ajaximations
+
+      response.reload
+      expect(response.quoted_entry_id).to be_nil
     end
 
     context "concluded student" do
@@ -892,6 +1139,7 @@ describe "threaded discussions" do
       driver.switch_to.alert.accept
       wait_for_ajax_requests
       entry.reload
+      expect(fj("span:contains('Deleted by teacher')")).to be_present
       expect(entry.workflow_state).to eq "deleted"
     end
 
@@ -929,12 +1177,12 @@ describe "threaded discussions" do
       wait_for_ajaximations
       flattened_reply = DiscussionEntry.last
       expect(flattened_reply.parent_id).to eq third_entry.parent_id
-      expect(flattened_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"1\" data-reactroot=\"\">@student</span>replying to 3rd level reply</p>"
+      expect(flattened_reply.message).to eq "<p><span class=\"mceNonEditable mention\" data-mention=\"#{third_entry.user_id}\" data-reactroot=\"\">@#{third_entry.author_name}</span>replying to 3rd level reply</p>"
     end
 
     context "replies reporting" do
       it "lets users report replies" do
-        skip "FOO-3823"
+        @course.root_account.enable_feature! :discussions_reporting
         @topic.discussion_entries.create!(
           user: @student,
           message: "this is offensive content"
@@ -947,16 +1195,16 @@ describe "threaded discussions" do
         expect(fj("h2:contains('Report Reply')")).to be_present
 
         # side test, click away from modal and make sure it closes
-        force_click("button[data-testid='discussion-topic-reply']")
+        move_to_click("input[data-testid='search-filter']")
         expect(f("body")).not_to contain_jqcss("h2:contains('Report Reply')")
 
         # resume main test
-        f("button[data-testid='thread-actions-menu']").click
+        move_to_click("button[data-testid='thread-actions-menu']")
         fj("li:contains('Report')").click
-        force_click("input[value='offensive']")
+        move_to_click("input[value='offensive']")
         f("button[data-testid='report-reply-submit-button']").click
         wait_for_ajaximations
-        f("button[data-testid='thread-actions-menu']").click
+        move_to_click("button[data-testid='thread-actions-menu']")
         expect(fj("li:contains('Reported')")).to be_present
       end
     end
@@ -1014,6 +1262,105 @@ describe "threaded discussions" do
         expect(authors).not_to include("student")
         expect(authors).not_to include("Mr Nil")
       end
+
+      it "allows liking" do
+        @teacher.preferences[:discussions_splitscreen_view] = false
+        @teacher.save!
+
+        anon_topic = @course.discussion_topics.create!(
+          user: @teacher,
+          title: "Fully Anonymous Topic",
+          message: "Teachers, TAs and Designers are anonymized",
+          workflow_state: "published",
+          anonymous_state: "full_anonymity",
+          allow_rating: true
+        )
+
+        @first_reply = anon_topic.discussion_entries.create!(
+          user: @teacher,
+          message: "1st level reply"
+        )
+
+        @second_reply = DiscussionEntry.create!(
+          message: "2nd level reply",
+          discussion_topic_id: @first_reply.discussion_topic_id,
+          user_id: @student.id,
+          root_entry_id: @first_reply.id,
+          parent_id: @first_reply.id
+        )
+
+        expect(@second_reply.rating_sum).to be_nil
+        user_session(@teacher)
+        get "/courses/#{@course.id}/discussion_topics/#{anon_topic.id}"
+        wait_for_ajaximations
+
+        f(".discussion-expand-btn").click
+        wait_for_ajaximations
+        expect(fj("div:contains('2nd level reply')")).to be_truthy
+
+        ff("[data-testid='like-button']")[1].click
+        wait_for_ajaximations
+        expect(@second_reply.reload.rating_sum).to eq(1)
+
+        ff("[data-testid='like-button']")[1].click
+        wait_for_ajaximations
+        expect(fj("div:contains('2nd level reply')")).to be_truthy
+        expect(@second_reply.reload.rating_sum).to eq(0)
+      end
+    end
+
+    context "partially anonymous discussions" do
+      def ui_entry_author_name
+        f("div[data-testid='discussion-root-entry-container'] span[data-testid='author_name']").text
+      end
+
+      before :once do
+        @partially_anon_topic = @course.discussion_topics.create!(
+          user: @teacher,
+          title: "Partially Anonymous Topic",
+          message: "feel free to be anonymous, or not",
+          workflow_state: "published",
+          anonymous_state: "partial_anonymity"
+        )
+      end
+
+      it "lets students post replies as themselves" do
+        message = "Real Name was used"
+        user_session(@student)
+        get "/courses/#{@course.id}/discussion_topics/#{@partially_anon_topic.id}"
+
+        f("button[data-testid='discussion-topic-reply']").click
+
+        force_click_native("span[data-testid='anonymous-response-selector'] input")
+        fj("li:contains('#{@student.name}')").click
+        type_in_tiny "textarea", message
+        f("button[data-testid='DiscussionEdit-submit'").click
+
+        # optimistic response
+        expect(ui_entry_author_name).to eq @student.name
+
+        # graphql response
+        wait_for_ajaximations
+        expect(ui_entry_author_name).to eq @student.name
+      end
+
+      it "lets students post replies anonymously" do
+        message = "Anonymous Name was used"
+        user_session(@student)
+        get "/courses/#{@course.id}/discussion_topics/#{@partially_anon_topic.id}"
+
+        f("button[data-testid='discussion-topic-reply']").click
+
+        force_click_native("span[data-testid='anonymous-response-selector'] input")
+        type_in_tiny "textarea", message
+        f("button[data-testid='DiscussionEdit-submit'").click
+
+        # optimistic response
+        expect(ui_entry_author_name).to start_with "Anonymous"
+        # graphql response
+        wait_for_ajaximations
+        expect(ui_entry_author_name).to start_with "Anonymous"
+      end
     end
 
     context "users must post before seeing replies" do
@@ -1037,6 +1384,45 @@ describe "threaded discussions" do
         expect(f("body")).to contain_jqcss("div:contains('students can only see this if they reply')")
         expect(f("body")).to contain_jqcss("div:contains('student here')")
       end
+    end
+
+    context "locked for comments" do
+      it "displays message for students in a discussion that is closed for comments" do
+        @topic.lock!
+        @topic.message = "This is visible"
+        @topic.save!
+        user_session(@student)
+
+        get "/courses/#{@course.id}/discussion_topics/#{@topic.id}"
+        expect(fj("span:contains('#{@topic.message}')")).to be_present
+      end
+    end
+
+    it "shows the correct entry counts for graded group discussions" do
+      topic = create_graded_discussion(@course)
+
+      group = @course.groups.create!(name: "Group 1")
+      group.add_user(@student)
+
+      topic.group_category = @course.group_categories.create!(name: "Group Category")
+      topic.save!
+
+      subtopic = topic.child_topics.build(title: "Subtopic 1", context: group)
+      subtopic_assignment = @course.assignments.build(submission_types: "discussion_topic", title: subtopic.title)
+      subtopic_assignment.infer_times
+      subtopic_assignment.saved_by = :discussion_topic
+      subtopic.assignment = subtopic_assignment
+      subtopic.group_category = topic.group_category
+      subtopic.save
+
+      root_entry = topic.discussion_entries.create!(user: @teacher, message: "root entry")
+      topic.discussion_entries.create!(user: @teacher, message: "sub entry", root_entry_id: root_entry.id, parent_id: root_entry.id)
+
+      user_session(@teacher)
+
+      get "/courses/#{@course.id}/discussion_topics/#{topic.id}"
+
+      expect(ff("div[data-testid='replies-counter']")[1]).to include_text("1 Reply")
     end
   end
 end

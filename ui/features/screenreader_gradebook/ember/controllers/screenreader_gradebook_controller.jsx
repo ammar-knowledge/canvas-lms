@@ -42,7 +42,7 @@ import {
   some,
   uniq,
 } from 'lodash'
-import * as tz from '@canvas/datetime'
+import * as tz from '@instructure/moment-utils'
 import AssignmentDetailsDialog from '../../jquery/AssignmentDetailsDialog'
 import CourseGradeCalculator from '@canvas/grading/CourseGradeCalculator'
 import {updateWithSubmissions, scopeToUser} from '@canvas/grading/EffectiveDueDates'
@@ -54,7 +54,7 @@ import GradingPeriodsApi from '@canvas/grading/jquery/gradingPeriodsApi'
 import GradingPeriodSetsApi from '@canvas/grading/jquery/gradingPeriodSetsApi'
 import ProxyUploadModal from '@canvas/proxy-submission/react/ProxyUploadModal'
 import {updateFinalGradeOverride} from '@canvas/grading/FinalGradeOverrideApi'
-import '@canvas/datetime/jquery'
+import {datetimeString} from '@canvas/datetime/date-functions'
 import 'jquery-tinypubsub'
 
 import '../components/ic_submission_download_dialog_component'
@@ -185,7 +185,7 @@ const ScreenreaderGradebookController = Ember.ObjectController.extend({
         'ENV.GRADEBOOK_OPTIONS.gradebook_csv_progress.progress.updated_at'
       )
       return I18n.t('Download Scores Generated on %{date}', {
-        date: $.datetimeString(gradebook_csv_export_date),
+        date: datetimeString(gradebook_csv_export_date),
       })
     }
   })(),
@@ -1063,7 +1063,7 @@ const ScreenreaderGradebookController = Ember.ObjectController.extend({
     if (assignment == null) {
       return false
     }
-    if (!assignment.only_visible_to_overrides) {
+    if (assignment.visible_to_everyone) {
       return true
     }
     return includes(assignment.assignment_visibility, student_id)
@@ -1071,7 +1071,7 @@ const ScreenreaderGradebookController = Ember.ObjectController.extend({
 
   studentsThatCanSeeAssignment(assignment) {
     const students = this.studentsHash()
-    if (!(assignment != null ? assignment.only_visible_to_overrides : undefined)) {
+    if (!(assignment != null ? !assignment.visible_to_everyone : undefined)) {
       return students
     }
     return assignment.assignment_visibility.reduce((result, id) => {
@@ -1290,10 +1290,10 @@ const ScreenreaderGradebookController = Ember.ObjectController.extend({
     if (submission.proxy_submitter) {
       return I18n.t('Submitted by %{proxy} on %{date}', {
         proxy: submission.proxy_submitter,
-        date: $.datetimeString(submission.submitted_at),
+        date: datetimeString(submission.submitted_at),
       })
     }
-    return I18n.t('Submitted on %{date}', {date: $.datetimeString(submission.submitted_at)})
+    return I18n.t('Submitted on %{date}', {date: datetimeString(submission.submitted_at)})
   }.property('selectedSubmission'),
 
   assignmentGroupsHash() {

@@ -120,7 +120,9 @@ module CustomWaitMethods
     bridge = driver if bridge.nil?
 
     res = StatePoller.await(0) { bridge.execute_script(AJAX_REQUESTS_SCRIPT) || 0 }
-    raise SlowCodePerformance, "AJAX requests not done after #{res[:spent]}s: #{res[:got]}" if res[:got] > 0
+    if res[:got] > 0 && !NoRaiseTimeoutsWhileDebugging.ever_run_a_debugger?
+      raise SlowCodePerformance, "AJAX requests not done after #{res[:spent]}s: #{res[:got]}"
+    end
   end
 
   # NOTE: for "$.timers" see https://github.com/jquery/jquery/blob/6c2c7362fb18d3df7c2a7b13715c2763645acfcb/src/effects.js#L638
@@ -143,6 +145,22 @@ module CustomWaitMethods
   def wait_for_ajaximations(bridge = nil)
     wait_for_ajax_requests(bridge)
     wait_for_animations(bridge)
+  end
+
+  DIALOG_COUNT_SCRIPT = "return document.querySelectorAll('[role=dialog]').length"
+
+  # ensure InstUI React modals are properly closed
+  def wait_for_dialog_close(bridge = nil)
+    bridge = driver if bridge.nil?
+
+    if (count = bridge.execute_script(DIALOG_COUNT_SCRIPT)) > 1
+      raise SlowCodePerformance, "Multiple dialogs found: #{count}"
+    end
+
+    res = StatePoller.await(0) { bridge.execute_script(DIALOG_COUNT_SCRIPT) || 0 }
+    if res[:got] > 0
+      raise SlowCodePerformance, "Dialog did not close within #{res[:spent]}s: found #{res[:got]} dialogs"
+    end
   end
 
   def wait_for_initializers(bridge = nil)

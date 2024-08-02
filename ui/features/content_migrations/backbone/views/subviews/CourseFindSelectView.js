@@ -26,6 +26,7 @@ import template from '../../../jst/subviews/CourseFindSelect.handlebars'
 import autocompleteItemTemplate from '../../../jst/autocomplete_item.handlebars'
 import '@canvas/jquery/jquery.ajaxJSON'
 import '@canvas/jquery/jquery.disableWhileLoading'
+import 'jqueryui/menu'
 import 'jqueryui/autocomplete'
 import {encodeQueryString} from '@canvas/query-string-encoding'
 

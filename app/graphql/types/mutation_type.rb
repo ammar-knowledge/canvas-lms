@@ -69,6 +69,7 @@ class Types::MutationType < Types::ApplicationObjectType
   field :update_assignment, mutation: Mutations::UpdateAssignment
   field :mark_submission_comments_read, mutation: Mutations::MarkSubmissionCommentsRead
   field :create_submission_comment, mutation: Mutations::CreateSubmissionComment
+  field :delete_submission_comment, mutation: Mutations::DeleteSubmissionComment
   field :create_submission_draft, mutation: Mutations::CreateSubmissionDraft
   field :delete_submission_draft, mutation: Mutations::DeleteSubmissionDraft
   field :create_module, mutation: Mutations::CreateModule
@@ -106,12 +107,15 @@ class Types::MutationType < Types::ApplicationObjectType
   field :update_submission_student_entered_score, mutation: Mutations::UpdateSubmissionStudentEnteredScore
   field :update_submissions_read_state, mutation: Mutations::UpdateSubmissionsReadState
   field :update_submission_grade, mutation: Mutations::UpdateSubmissionGrade
+  field :update_submission_grade_status, mutation: Mutations::UpdateSubmissionGradeStatus
+  field :post_draft_submission_comment, mutation: Mutations::PostDraftSubmissionComment
   field :update_user_discussions_splitscreen_view, mutation: Mutations::UpdateUserDiscussionsSplitscreenView
   field :upsert_custom_grade_status, mutation: Mutations::UpsertCustomGradeStatus
   field :upsert_standard_grade_status, mutation: Mutations::UpsertStandardGradeStatus
   field :delete_custom_grade_status, mutation: Mutations::DeleteCustomGradeStatus
   field :create_user_inbox_label, mutation: Mutations::CreateUserInboxLabel
   field :delete_user_inbox_label, mutation: Mutations::DeleteUserInboxLabel
+  field :update_my_inbox_settings, mutation: Mutations::UpdateMyInboxSettings
 
   # TODO: Remove the in active development string from here once this is more
   #       finalized.

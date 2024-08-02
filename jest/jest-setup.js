@@ -23,8 +23,9 @@ import Enzyme from 'enzyme'
 import Adapter from 'enzyme-adapter-react-16'
 import filterUselessConsoleMessages from '@instructure/filter-console-messages'
 import rceFormatMessage from '@instructure/canvas-rce/es/format-message'
-import {up as configureDateTime} from '../ui/boot/initializers/configureDateTime'
-import {up as configureDateTimeMomentParser} from '../ui/boot/initializers/configureDateTimeMomentParser'
+import {up as configureDateTime} from '@canvas/datetime/configureDateTime'
+import {up as configureDateTimeMomentParser} from '@canvas/datetime/configureDateTimeMomentParser'
+import {up as installNodeDecorations} from '../ui/boot/initializers/installNodeDecorations'
 import {useTranslations} from '@canvas/i18n'
 import MockBroadcastChannel from './MockBroadcastChannel'
 
@@ -52,13 +53,23 @@ const ignoredErrors = [
   /Prop `children` should be supplied unless/, // https://instructure.atlassian.net/browse/FOO-3407
   /The above error occurred in the <.*> component/,
   /You seem to have overlapping act\(\) calls/,
+  /Warning: `value` prop on `%s` should not be null. Consider using an empty string to clear the component or `undefined` for uncontrolled components.%s/,
+  /Warning: This synthetic event is reused for performance reasons/,
+  /Invalid prop `value` supplied to `MenuItem`/, // https://instructure.atlassian.net/browse/INSTUI-4054
 ]
 const globalWarn = global.console.warn
-const ignoredWarnings = []
+const ignoredWarnings = [
+  /JQMIGRATE:/, // ignore warnings about jquery migrate; these are muted globally when not in a jest test
+  /componentWillReceiveProps/, // ignore warnings about componentWillReceiveProps; this method is deprecated and will be removed with react upgrades
+]
+
 global.console = {
   log: console.log,
-  error: error => {
-    if (ignoredErrors.some(regex => regex.test(error))) {
+  error: (error, ...rest) => {
+    if (
+      ignoredErrors.some(regex => regex.test(error)) ||
+      ignoredErrors.some(regex => regex.test(rest))
+    ) {
       return
     }
     globalError(error)
@@ -96,6 +107,7 @@ document.documentElement.setAttribute('dir', 'ltr')
 
 configureDateTime()
 configureDateTimeMomentParser()
+installNodeDecorations()
 
 // because everyone implements `flat()` and `flatMap()` except JSDOM 🤦🏼‍♂️
 if (!Array.prototype.flat) {
@@ -202,7 +214,11 @@ if (!('scrollIntoView' in window.HTMLElement.prototype)) {
 }
 
 // Suppress errors for APIs that exist in JSDOM but aren't implemented
-Object.defineProperty(window, 'scrollTo', {configurable: true, writable: true, value: () => {}})
+Object.defineProperty(window, 'scrollTo', {
+  configurable: true,
+  writable: true,
+  value: () => {},
+})
 
 const locationProperties = Object.getOwnPropertyDescriptors(window.location)
 Object.defineProperty(window, 'location', {
@@ -269,3 +285,33 @@ Document.prototype.createRange =
 
 global.TextEncoder = TextEncoder
 global.TextDecoder = TextDecoder
+
+if (!('Worker' in window)) {
+  Object.defineProperty(window, 'Worker', {
+    value: class Worker {
+      constructor() {
+        this.postMessage = () => {}
+        this.terminate = () => {}
+        this.addEventListener = () => {}
+        this.removeEventListener = () => {}
+        this.dispatchEvent = () => {}
+      }
+    },
+  })
+}
+
+if (!Range.prototype.getBoundingClientRect) {
+  Range.prototype.getBoundingClientRect = () => ({
+    bottom: 0,
+    height: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    width: 0,
+  })
+  Range.prototype.getClientRects = () => ({
+    item: () => null,
+    length: 0,
+    [Symbol.iterator]: jest.fn(),
+  })
+}

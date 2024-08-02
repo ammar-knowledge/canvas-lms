@@ -47,6 +47,7 @@ module Types
     field :submission_id, ID, null: false
     field :created_at, Types::DateTimeType, null: false
     field :comment, String, null: true
+    field :draft, Boolean, null: false
 
     field :author, Types::UserType, null: true
     def author
@@ -121,6 +122,11 @@ module Types
       # to fix this in the database is challenging because submission.attempt
       # should be changed as well in order to keep everything consistent.
       object.attempt.nil? ? 0 : object.attempt
+    end
+
+    field :can_reply, Boolean, null: true
+    def can_reply
+      object.submission.grants_right?(current_user, :comment)
     end
   end
 end

@@ -18,6 +18,7 @@
 
 import {useScope as useI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
+import _ from 'lodash'
 
 import {CloseButton, Button} from '@instructure/ui-buttons'
 import {Heading} from '@instructure/ui-heading'
@@ -30,7 +31,7 @@ import type {AvailableScope} from './reducers/listScopesReducer'
 import type {DeveloperKeyCreateOrEditState} from './reducers/createOrEditReducer'
 import actions from './actions/developerKeysActions'
 import type {AnyAction, Dispatch} from 'redux'
-import type {DeveloperKey} from '../model/DeveloperKey'
+import type {DeveloperKey} from '../model/api/DeveloperKey'
 
 const I18n = useI18nScope('react_developer_keys')
 
@@ -48,7 +49,7 @@ type Props = {
   }
   actions: typeof actions
   selectedScopes: Array<string>
-  handleSuccessfulSave: () => void
+  handleSuccessfulSave: (warningMessage?: string) => void
 }
 
 type ConfigurationMethod = 'manual' | 'json' | 'url'
@@ -91,7 +92,7 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
     return {...this.props.createOrEditDeveloperKeyState.developerKey, ...this.state.developerKey}
   }
 
-  get manualForm() {
+  get toolConfigForm() {
     return this.newForm
       ? this.newForm
       : {
@@ -216,10 +217,10 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
       .updateLtiKey(developerKey, [], this.developerKey.id, settings, settings.custom_fields)
       .then(data => {
         this.setState({isSaving: false})
-        const {developer_key, tool_configuration} = data
+        const {developer_key, tool_configuration, warning_message} = data
         developer_key.tool_configuration = tool_configuration.settings
         dispatch(actions.listDeveloperKeysReplace(developer_key))
-        this.props.handleSuccessfulSave()
+        this.props.handleSuccessfulSave(warning_message)
         this.closeModal()
       })
       .catch(() => {
@@ -244,18 +245,24 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
     let settings: {
       scopes?: unknown
     } = {}
+
     if (this.isJsonConfig) {
-      if (!this.state.toolConfiguration) {
+      if (!this.state.toolConfiguration || _.isEmpty(this.state.toolConfiguration)) {
+        this.setState({submitted: true})
+        $.flashError(I18n.t('Configuration JSON cannot be empty.'))
+        return
+      }
+      if (!this.toolConfigForm.valid()) {
         this.setState({submitted: true})
         return
       }
       settings = this.state.toolConfiguration
     } else if (this.isManualConfig) {
-      if (!this.manualForm.valid()) {
+      if (!this.toolConfigForm.valid()) {
         this.setState({submitted: true})
         return
       }
-      settings = this.manualForm.generateToolConfiguration()
+      settings = this.toolConfigForm.generateToolConfiguration()
       this.setState({toolConfiguration: settings})
     }
     developer_key.scopes = settings.scopes
@@ -286,9 +293,9 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
       return actions
         .saveLtiToolConfiguration(toSave)(dispatch)
         .then(
-          () => {
+          data => {
             this.setState({isSaving: false})
-            this.props.handleSuccessfulSave()
+            this.props.handleSuccessfulSave(data.warning_message)
             this.closeModal()
           },
           () => this.setState({isSaving: false})

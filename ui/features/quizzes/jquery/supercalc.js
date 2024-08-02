@@ -26,6 +26,12 @@ import 'jqueryui/sortable'
 
 const I18n = useI18nScope('calculator')
 
+function handleLargeNumber(value, decimals) {
+  if (Math.abs(value) >= 1e20) {
+    return BigInt(Math.floor(value)).toString()
+  }
+  return value.toFixed(decimals)
+}
 const generateFinds = function ($table) {
   const finds = {}
   finds.formula_rows = $table.find('.formula_row')
@@ -98,10 +104,10 @@ $.fn.superCalc = function (options, more_options) {
     $table.find('tfoot tr:last td:first').append($input.hide())
     $entryBox.data('supercalc_options', options)
     $entryBox.data('supercalc_answer', $input)
-    $table.delegate('.save_formula_button', 'click', () => {
+    $table.on('click', '.save_formula_button', () => {
       $displayBox.triggerHandler('keypress', true)
     })
-    $table.delegate('.delete_formula_row_link', 'click', event => {
+    $table.on('click', '.delete_formula_row_link', event => {
       event.preventDefault()
       $(event.target).parents('tr').remove()
       $entryBox.triggerHandler('calculate')
@@ -112,7 +118,7 @@ $.fn.superCalc = function (options, more_options) {
         $entryBox.triggerHandler('calculate')
       },
     })
-    $table.delegate('.round', 'change', () => {
+    $table.on('change', '.round', () => {
       $entryBox.triggerHandler('calculate')
     })
     $entryBox.bind('calculate', function (event, no_dom) {
@@ -136,18 +142,29 @@ $.fn.superCalc = function (options, more_options) {
         $entryBox.val(formula_text)
         let res = null
         try {
-          const val = calcCmd.computeValue(formula_text)
           // we'll round using decimals but because of javascript imprecision
           // let's truncate with 2 extra decimals
+          const val = calcCmd.computeValue(formula_text)
           const decimals = parseInt(finds.round.val() || 0, 10)
-          const preresult = val.toFixed(decimals + 2)
-          // then replace the last decimal with number 1
-          res =
-            '= ' +
-            I18n.n(parseFloat(preresult.substr(0, preresult.length - 1) + '1').toFixed(decimals), {
+          const preresult = handleLargeNumber(val, decimals + 2)
+          const parsedResult = parseFloat(preresult)
+
+          // Determine if the result is in exponential notation
+          if (parsedResult.toString().includes('e')) {
+            // For exponential notation (large numbers)
+            const [coef, base] = parsedResult.toString().split('e')
+            const adjustedCoef = parseFloat(coef).toFixed(decimals)
+            res = `= ${I18n.n(adjustedCoef)}e${base}`
+          } else {
+            // For regular notation (smaller numbers)
+            const adjustedPreresult = preresult.substr(0, preresult.length - 1) + '1'
+            const parsedAdjustedResult = parseFloat(adjustedPreresult)
+            const roundedResult = parsedAdjustedResult.toFixed(decimals)
+            res = `= ${I18n.n(roundedResult, {
               precision: 5,
               strip_insignificant_zeros: true,
-            })
+            })}`
+          }
         } catch (e) {
           res = e.toString()
         }

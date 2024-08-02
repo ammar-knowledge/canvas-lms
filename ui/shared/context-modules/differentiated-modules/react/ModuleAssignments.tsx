@@ -17,22 +17,30 @@
  */
 
 import React, {useCallback, useEffect, useState} from 'react'
-import AssigneeSelector, {type AssigneeOption} from './AssigneeSelector'
+import AssigneeSelector from './AssigneeSelector'
+import type {FormMessage} from '@instructure/ui-form-field'
+import {AssigneeOption} from './Item/types'
 
 export interface ModuleAssignmentsProps {
   courseId: string
   onSelect: (options: AssigneeOption[]) => void
   defaultValues: AssigneeOption[]
   onDismiss?: () => void
+  onBlur?: () => void
+  messages?: FormMessage[]
+  inputRef?: (inputElement: HTMLInputElement | null) => void
 }
 
-export type {AssigneeOption} from './AssigneeSelector'
+export type {AssigneeOption} from './Item/types'
 
 export default function ModuleAssignments({
   courseId,
   onSelect,
   defaultValues,
   onDismiss,
+  onBlur,
+  messages,
+  inputRef,
 }: ModuleAssignmentsProps) {
   const [selectedOptions, setSelectedOptions] = useState<AssigneeOption[]>(defaultValues)
 
@@ -56,6 +64,9 @@ export default function ModuleAssignments({
       selectedOptionIds={selectedOptions.map(({id}) => id)}
       onError={onDismiss}
       showVisualLabel={false}
+      inputRef={inputRef}
+      onBlur={onBlur}
+      messages={messages}
     />
   )
 }

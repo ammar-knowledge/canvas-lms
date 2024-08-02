@@ -193,6 +193,12 @@ class BigBlueButtonConference < WebConference
       "meta_canvas-recording-ready-user" => recording_ready_user,
       "meta_canvas-recording-ready-url" => recording_ready_url(current_host)
     }
+
+    if context.is_a?(Course)
+      req_params[:bbbCanvasCourseName] = context.name
+      req_params[:bbbCanvasCourseCode] = context.course_code
+    end
+
     if Account.site_admin.feature_enabled? :bbb_modal_update
       req_params.merge!({
                           lockSettingsDisableCam: settings[:share_webcam] ? false : true,
@@ -363,12 +369,23 @@ class BigBlueButtonConference < WebConference
   end
 
   def join_url(user, type = :user)
+    additional_params = {}
+
+    if config[:send_avatar]
+      additional_params[:avatarURL] = user.avatar_url
+    end
+
+    unless user.pronouns.nil?
+      additional_params[:userdataPronouns] = user.pronouns
+    end
+
     generate_request :join,
                      fullName: user.short_name,
                      meetingID: conference_key,
                      password: settings[((type == :user) ? :user_key : :admin_key)],
                      userID: user.id,
-                     createTime: settings[:create_time]
+                     createTime: settings[:create_time],
+                     **additional_params
   end
 
   def end_meeting

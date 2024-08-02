@@ -82,10 +82,11 @@ export default createReactClass({
       }
     })
 
-    // eslint-disable-next-line react/no-is-mounted
-    if (this.isMounted()) {
+    try {
       this.setState({fields}, this.validateConfig)
       this.refs.addTool.focus()
+    } catch (err) {
+      console.error(err)
     }
   },
 
@@ -171,7 +172,7 @@ export default createReactClass({
     newTool.set('app_center_id', this.props.app.short_name)
     newTool.set('config_settings', this.configSettings())
 
-    $(e.target).attr('disabled', 'disabled')
+    $(e.target).prop('disabled', true)
 
     newTool.save()
   },

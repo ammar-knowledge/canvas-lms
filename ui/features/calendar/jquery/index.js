@@ -23,7 +23,7 @@
 import {useScope as useI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import {map, defaults, filter, omit, each, has, last, includes} from 'lodash'
-import * as tz from '@canvas/datetime'
+import * as tz from '@instructure/moment-utils'
 import {encodeQueryString} from '@canvas/query-string-encoding'
 import moment from 'moment'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
@@ -36,7 +36,6 @@ import calendarAppTemplate from '../jst/calendarApp.handlebars'
 import commonEventFactory from '@canvas/calendar/jquery/CommonEvent/index'
 import ShowEventDetailsDialog from './ShowEventDetailsDialog'
 import EditEventDetailsDialog from './EditEventDetailsDialog'
-import CalendarNavigator from '../backbone/views/CalendarNavigator'
 import AgendaView from '../backbone/views/AgendaView'
 import calendarDefaults from '../CalendarDefaults'
 import ContextColorer from '@canvas/util/contextColorer'
@@ -45,7 +44,7 @@ import htmlEscape from '@instructure/html-escape'
 import calendarEventFilter from '../CalendarEventFilter'
 import schedulerActions from '../react/scheduler/actions'
 import 'fullcalendar'
-import '../ext/patches-to-fullcalendar'
+// import '../ext/patches-to-fullcalendar'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
 import '@canvas/jquery/jquery.instructure_misc_plugins'
 import 'jquery-tinypubsub'
@@ -91,13 +90,6 @@ export default class Calendar {
     }
 
     this.el = $(selector).html(calendarAppTemplate())
-
-    // In theory this is no longer necessary, but it performs some function that
-    // another file depends on or perhaps even this one. Whatever the dependency
-    // is it is not clear, without more research, what effect this has on the
-    // calendar system
-    this.schedulerNavigator = new CalendarNavigator({el: $('.scheduler_navigator')})
-    this.schedulerNavigator.hide()
 
     this.agenda = new AgendaView({
       el: $('.agenda-wrapper'),
@@ -158,7 +150,6 @@ export default class Calendar {
     }
 
     this.connectHeaderEvents()
-    this.connectSchedulerNavigatorEvents()
     this.connectAgendaEvents()
     $('#flash_message_holder').on('click', '.gotoDate_link', event =>
       this.gotoDate(fcUtil.wrap($(event.target).data('date')))
@@ -212,14 +203,6 @@ export default class Calendar {
     this.header.on('agenda', () => this.loadView('agenda'))
     this.header.on('createNewEvent', this.addEventClick)
     this.header.on('refreshCalendar', this.reloadClick)
-    this.header.on('done', this.schedulerSingleDoneClick)
-  }
-
-  connectSchedulerNavigatorEvents() {
-    this.schedulerNavigator.on('navigatePrev', () => this.handleArrow('prev'))
-    this.schedulerNavigator.on('navigateToday', this.today)
-    this.schedulerNavigator.on('navigateNext', () => this.handleArrow('next'))
-    this.schedulerNavigator.on('navigateDate', this.navigateDate)
   }
 
   connectAgendaEvents() {
@@ -374,10 +357,10 @@ export default class Calendar {
     const startDate = event.startDate()
     const endDate = event.endDate()
     const timeString = (() => {
-      if (!endDate || +startDate === +endDate || event.blackout_date) {
+      if (startDate && (!endDate || +startDate === +endDate || event.blackout_date)) {
         startDate.locale(calendarDefaults.lang)
         return startDate.format('LT')
-      } else {
+      } else if (startDate && endDate) {
         startDate.locale(calendarDefaults.lang)
         endDate.locale(calendarDefaults.lang)
         return $.fullCalendar.formatRange(startDate, endDate, 'LT')
@@ -435,9 +418,9 @@ export default class Calendar {
       const time = element.find('.fc-time')
       let html = time.html()
       // the time element also contains the title for calendar events
-      html = html && html.replace(/^\d+:\d+\w?/, event.startDate().format('h:mmt'))
+      html = html && html.replace(/^\d+:\d+\w?/, event.startDate()?.format('h:mmt'))
       time.html(html)
-      time.attr('data-start', event.startDate().format('h:mm'))
+      time.attr('data-start', event.startDate()?.format('h:mm'))
     }
     if (event.eventType.match(/assignment/) && view.name === 'agendaWeek') {
       element
@@ -708,8 +691,7 @@ export default class Calendar {
   }
 
   setDateTitle = title => {
-    this.header.setHeaderText(title)
-    return this.schedulerNavigator.setTitle(title)
+    return this.header.setHeaderText(title)
   }
 
   // event triggered by items being dropped from outside the calendar
@@ -807,7 +789,7 @@ export default class Calendar {
   filterEventsWithSeriesIdAndWhich = (selectedEvent, which) => {
     const seriesId = selectedEvent.calendarEvent.series_uuid
     const eventSeries = this.calendar
-      .fullCalendar('getEventCache')
+      .fullCalendar('clientEvents')
       .filter(c => c.eventType === 'calendar_event' && c.calendarEvent.series_uuid === seriesId)
 
     let candidateEvents
@@ -966,7 +948,7 @@ export default class Calendar {
   // When we delete an event + all following from a series
   // the remaining events get updated with a new rrule
   eventsUpdatedFromSeries = ({updatedEvents}) => {
-    const candidateEventsInCalendar = this.calendar.fullCalendar('getEventCache').filter(c => {
+    const candidateEventsInCalendar = this.calendar.fullCalendar('clientEvents').filter(c => {
       if (c.eventType === 'calendar_event') {
         const updatedEventIndex = updatedEvents.findIndex(e => c.calendarEvent.id === e.id)
         if (updatedEventIndex >= 0) {
@@ -976,36 +958,20 @@ export default class Calendar {
       }
       return false
     })
-
-    // events got created
-    if (candidateEventsInCalendar.length < updatedEvents.length) {
-      this.dataSource.clearCache()
-    }
-
-    // if you change the start time of an event+following, it will create a new
-    // series for those events plus update those to the left with a new rrule
-    const updatedEventIds = candidateEventsInCalendar.map(e => e.calendarEvent.id)
-    const otherEventsInSeries = this.calendar.fullCalendar('getEventCache').filter(c => {
-      return (
-        c.calendarEvent?.series_uuid === updatedEvents[0].series_uuid &&
-        !updatedEventIds.includes(c.calendarEvent.id)
-      )
-    })
-
-    if (otherEventsInSeries.length !== 0) {
-      this.dataSource.clearCache()
-    }
+    // with the jquery and fullcalendar version update, editing events in a series
+    // would not update the contextInfo of the event the user initiated the change in
+    // resulting in the wrong info being shown in the detail dialog when clicking on an event.
+    // I cannot figure out where the contextInfo is failing to get updated. This fixes it.
+    // This change also means we don't need to look for special cases where we need to clear
+    // the cache, since it's always happening now.
+    this.dataSource.resetContexts()
 
     candidateEventsInCalendar.forEach(e => {
       this.updateEvent(e)
     })
     $.publish('CommonEvent/eventsSavedFromSeries', {seriesEvents: candidateEventsInCalendar})
 
-    // I don't understand why, but it we don't take a beat the
-    // events' coloring doesn't get updated.
-    window.setTimeout(() => {
-      this.calendar.fullCalendar('refetchEvents')
-    }, 0)
+    this.calendar.fullCalendar('refetchEvents')
   }
 
   // When an assignment event is updated, update its related overrides.
@@ -1150,7 +1116,6 @@ export default class Calendar {
       this.displayAppointmentEvents = null
       this.header.showAgendaRecommendation()
       this.calendar.show()
-      this.schedulerNavigator.hide()
       this.calendar.fullCalendar('refetchEvents')
       this.calendar.fullCalendar('changeView', view === 'week' ? 'agendaWeek' : 'month')
       this.calendar.fullCalendar('render')
@@ -1206,18 +1171,6 @@ export default class Calendar {
         })
       )
     }, 500)
-  }
-
-  showSchedulerSingle(group) {
-    this.agenda.viewingGroup = group
-    this.loadAgendaView()
-    return this.header.showDoneButton()
-  }
-
-  schedulerSingleDoneClick = () => {
-    this.agenda.viewingGroup = null
-    this.header.showSchedulerTitle()
-    return this.schedulerNavigator.hide()
   }
 
   syncNewContexts = additionalContexts => {

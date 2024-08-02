@@ -19,18 +19,37 @@
 #
 
 class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
+  include Api
+  include Api::V1::AssignmentOverride
+
   graphql_name "UpdateDiscussionTopic"
 
-  argument :discussion_topic_id, ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("DiscussionTopic")
+  # rubocop:disable GraphQL/ExtractInputType
+  argument :anonymous_state, Types::DiscussionTopicAnonymousStateType, required: false
+  argument :discussion_topic_id, GraphQL::Schema::Object::ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("DiscussionTopic")
   argument :remove_attachment, Boolean, required: false
-  argument :assignment, Mutations::AssignmentUpdate, required: false
+  argument :assignment, Mutations::AssignmentBase::AssignmentUpdate, required: false
+  argument :discussion_type, Types::DiscussionTopicDiscussionType, required: false
+  # sets in-memory (not persisiting) flag to decide when to notify users about announcement changes
+  argument :notify_users, Boolean, required: false
+  argument :set_checkpoints, Boolean, required: false
+  argument :ungraded_discussion_overrides, [Mutations::AssignmentBase::AssignmentOverrideCreateOrUpdate], required: false
+  # rubocop:enable GraphQL/ExtractInputType
 
-  field :discussion_topic, Types::DiscussionType, null: false
+  field :discussion_topic, Types::DiscussionType
   def resolve(input:)
     @current_user = current_user
 
     discussion_topic = DiscussionTopic.find(input[:discussion_topic_id])
     raise GraphQL::ExecutionError, "insufficient permission" unless discussion_topic.grants_right?(current_user, :update)
+
+    if input[:anonymous_state].present? && discussion_topic.discussion_subentry_count > 0
+      return validation_error(I18n.t("Anonymity settings are locked due to a posted reply"))
+    end
+
+    unless input[:anonymous_state].nil?
+      discussion_topic.anonymous_state = (input[:anonymous_state] == "off") ? nil : input[:anonymous_state]
+    end
 
     unless input[:published].nil?
       input[:published] ? discussion_topic.publish! : discussion_topic.unpublish!
@@ -40,19 +59,31 @@ class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
       input[:locked] ? discussion_topic.lock! : discussion_topic.unlock!
     end
 
-    set_sections(input[:specific_sections], discussion_topic)
-    invalid_sections = verify_specific_section_visibilities(discussion_topic) || []
+    if (!input.key?(:ungraded_discussion_overrides) && !Account.site_admin.feature_enabled?(:selective_release_ui_api)) || discussion_topic.is_announcement
+      # TODO: deprecate discussion_topic_section_visibilities for assignment_overrides LX-1498
+      set_sections(input[:specific_sections], discussion_topic)
+      invalid_sections = verify_specific_section_visibilities(discussion_topic) || []
 
-    unless invalid_sections.empty?
-      return validation_error(I18n.t("You do not have permissions to modify discussion for section(s) %{section_ids}", section_ids: invalid_sections.join(", ")))
+      unless invalid_sections.empty?
+        return validation_error(I18n.t("You do not have permissions to modify discussion for section(s) %{section_ids}", section_ids: invalid_sections.join(", ")))
+      end
     end
 
     if !input[:remove_attachment].nil? && input[:remove_attachment]
       discussion_topic.attachment_id = nil
     end
 
+    # if the discussion has threaded messages, can't disable threaded messages
+    if input[:discussion_type] == DiscussionTopic::DiscussionTypes::NOT_THREADED && discussion_topic.discussion_entries.where.not(parent_id: nil).where.not(workflow_state: "deleted").exists?
+      return validation_error(I18n.t("Cannot disable threaded replies when there are threaded messages under this discussion"))
+    end
+
+    unless input[:discussion_type].nil?
+      discussion_topic.discussion_type = input[:discussion_type]
+    end
+
     process_common_inputs(input, discussion_topic.is_announcement, discussion_topic)
-    process_future_date_inputs(input[:delayed_post_at], input[:lock_at], discussion_topic)
+    process_future_date_inputs(input.slice(:delayed_post_at, :lock_at), discussion_topic)
 
     # Take care of Assignment update information
     if input[:assignment]
@@ -97,9 +128,49 @@ class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
 
         discussion_topic.assignment = assignment_create_result[:assignment]
       end
+
+      # Assignment must be present to set checkpoints
+      if discussion_topic.assignment && input[:checkpoints]&.count == DiscussionTopic::REQUIRED_CHECKPOINT_COUNT
+        return validation_error(I18n.t("If checkpoints are defined, forCheckpoints: true must be provided to the discussion topic assignment.")) unless input.dig(:assignment, :for_checkpoints)
+
+        checkpoint_service = if discussion_topic.assignment.has_sub_assignments
+                               Checkpoints::DiscussionCheckpointUpdaterService
+                             else
+                               Checkpoints::DiscussionCheckpointCreatorService
+                             end
+
+        input[:checkpoints].each do |checkpoint|
+          dates = checkpoint[:dates]
+          checkpoint_service.call(
+            discussion_topic:,
+            checkpoint_label: checkpoint[:checkpoint_label],
+            points_possible: checkpoint[:points_possible],
+            dates:,
+            replies_required: checkpoint[:replies_required]
+          )
+        end
+      end
+    end
+
+    if input[:notify_users]
+      discussion_topic.notify_users = true
+    end
+
+    # Determine if the checkpoints are being deleted
+    is_deleting_checkpoints = input.key?(:set_checkpoints) && !input[:set_checkpoints]
+
+    if is_deleting_checkpoints
+      Checkpoints::DiscussionCheckpointDeleterService.call(
+        discussion_topic:
+      )
     end
 
     return errors_for(discussion_topic) unless discussion_topic.save!
+
+    if input.key?(:ungraded_discussion_overrides)
+      overrides = input[:ungraded_discussion_overrides] || []
+      update_ungraded_discussion(discussion_topic, overrides)
+    end
 
     discussion_topic.assignment = assignment_result[:assignment] if assignment_result && assignment_result[:assignment]
 
@@ -119,6 +190,13 @@ def set_discussion_assignment_association(assignment_params, discussion_topic)
 
   if is_deleting_assignment && !discussion_topic&.assignment.nil?
     assignment = discussion_topic.assignment
+
+    if assignment.has_sub_assignments
+      Checkpoints::DiscussionCheckpointDeleterService.call(
+        discussion_topic:
+      )
+    end
+
     discussion_topic.assignment = nil
     assignment.discussion_topic = nil
     assignment.destroy

@@ -25,18 +25,12 @@ describe Account do
     it { is_expected.to have_many(:feature_flags) }
     it { is_expected.to have_one(:outcome_proficiency).dependent(:destroy) }
     it { is_expected.to have_many(:lti_resource_links).class_name("Lti::ResourceLink") }
+    it { is_expected.to have_many(:lti_registrations).class_name("Lti::Registration").dependent(:destroy) }
+    it { is_expected.to have_many(:lti_registration_account_bindings).class_name("Lti::RegistrationAccountBinding").dependent(:destroy) }
   end
 
   describe "validations" do
     it { is_expected.to validate_inclusion_of(:account_calendar_subscription_type).in_array(Account::CALENDAR_SUBSCRIPTION_TYPES) }
-  end
-
-  context "BASIC_COLUMNS_FOR_CALLBACKS" do
-    it "can save a minimal object" do
-      a = Account.select(*Account::BASIC_COLUMNS_FOR_CALLBACKS).find(Account.default.id)
-      a.name = "Changed"
-      expect { a.save! }.not_to raise_error
-    end
   end
 
   context "domain_method" do
@@ -277,8 +271,8 @@ describe Account do
       a = Account.new
       a.equella_endpoint = "http://oer.equella.com/signon.do"
       expect(a.equella_settings).not_to be_nil
-      expect(a.equella_settings.endpoint).to eql("http://oer.equella.com/signon.do")
-      expect(a.equella_settings.default_action).not_to be_nil
+      expect(a.equella_settings[:endpoint]).to eql("http://oer.equella.com/signon.do")
+      expect(a.equella_settings[:default_action]).not_to be_nil
     end
   end
 
@@ -618,7 +612,6 @@ describe Account do
       common_siteadmin_privileges += [:read_global_outcomes] if k == :site_admin
 
       admin_privileges = full_access + common_siteadmin_privileges
-      admin_privileges += [:manage_privacy_settings] if k == :root
 
       user_privileges = limited_access + common_siteadmin_privileges
       expect(account.check_policy(hash[:site_admin][:admin]) - conditional_access).to match_array admin_privileges
@@ -671,7 +664,6 @@ describe Account do
       account = v[:account]
       admin_privileges = full_access.clone
       admin_privileges += [:read_global_outcomes] if k == :site_admin
-      admin_privileges += [:manage_privacy_settings] if k == :root
       user_array = some_access + [:reset_any_mfa] +
                    ((k == :site_admin) ? [:read_global_outcomes] : [])
       expect(account.check_policy(hash[:site_admin][:admin]) - conditional_access).to match_array admin_privileges
@@ -1711,13 +1703,13 @@ describe Account do
 
       expect(Account).to receive(:invalidate_inherited_caches).once
 
-      account.default_storage_quota = 10.megabytes
+      account.default_storage_quota = 10.decimal_megabytes
       account.save! # clear here
 
       account.reload
       account.save!
 
-      account.default_storage_quota = 10.megabytes
+      account.default_storage_quota = 10.decimal_megabytes
       account.save!
     end
 
@@ -1725,21 +1717,21 @@ describe Account do
       enable_cache do
         account = account_model
 
-        account.default_storage_quota = 10.megabytes
+        account.default_storage_quota = 10.decimal_megabytes
         account.save!
 
         subaccount = account.sub_accounts.create!
-        expect(subaccount.default_storage_quota).to eq 10.megabytes
+        expect(subaccount.default_storage_quota).to eq 10.decimal_megabytes
 
-        account.default_storage_quota = 20.megabytes
+        account.default_storage_quota = 20.decimal_megabytes
         account.save!
 
         # should clear caches
         account = Account.find(account.id)
-        expect(account.default_storage_quota).to eq 20.megabytes
+        expect(account.default_storage_quota).to eq 20.decimal_megabytes
 
         subaccount = Account.find(subaccount.id)
-        expect(subaccount.default_storage_quota).to eq 20.megabytes
+        expect(subaccount.default_storage_quota).to eq 20.decimal_megabytes
       end
     end
 
@@ -1749,7 +1741,7 @@ describe Account do
 
         sub1 = account.sub_accounts.create!
         sub2 = account.sub_accounts.create!
-        sub2.update(default_storage_quota: 10.megabytes)
+        sub2.update(default_storage_quota: 10.decimal_megabytes)
 
         to_be_subaccount = sub1.sub_accounts.create!
         expect(to_be_subaccount.default_storage_quota).to eq Account::DEFAULT_STORAGE_QUOTA
@@ -1758,7 +1750,7 @@ describe Account do
         Timecop.travel(1.second.from_now) do
           to_be_subaccount.update(parent_account: sub2)
           to_be_subaccount = Account.find(to_be_subaccount.id)
-          expect(to_be_subaccount.default_storage_quota).to eq 10.megabytes
+          expect(to_be_subaccount.default_storage_quota).to eq 10.decimal_megabytes
         end
       end
     end
@@ -2153,6 +2145,13 @@ describe Account do
             expect_id_chain_for_account(account1, [account1.global_id, Account.default.global_id])
           end
         end
+
+        it "returns correct global ids when used twice on different shards (doesn't cache across shards)" do
+          expect(account1.account_chain_ids).to eq([account1.id, Account.default.id])
+          @shard1.activate do
+            expect(account1.account_chain_ids).to eq([account1.id, Account.default.id])
+          end
+        end
       end
     end
   end
@@ -2396,13 +2395,9 @@ describe Account do
     end
 
     let_once(:level_two_sub_accounts) do
-      level_two_sub_accounts = []
-
-      root_account.sub_accounts.each do |sa|
-        level_two_sub_accounts << sa.sub_accounts.create!(name: "Level 2 - Sub account")
+      root_account.sub_accounts.map do |sa|
+        sa.sub_accounts.create!(name: "Level 2 - Sub account")
       end
-
-      level_two_sub_accounts
     end
 
     context "with empty parent account ids" do

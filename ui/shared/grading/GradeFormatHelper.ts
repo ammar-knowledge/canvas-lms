@@ -131,14 +131,29 @@ function formatPercentageGrade(score, options) {
 function formatGradingSchemeGrade(score, grade, options = {}) {
   let formattedGrade
   if (options?.restrict_quantitative_data && options.pointsPossible === 0 && score >= 0) {
-    formattedGrade = scoreToGrade(100, options.gradingScheme)
+    formattedGrade = scoreToGrade(
+      100,
+      options.gradingScheme,
+      options.pointsBasedGradingScheme,
+      options.scalingFactor
+    )
   } else if (options.pointsPossible) {
     const percent = scoreToPercentage(score, options.pointsPossible)
-    formattedGrade = scoreToGrade(percent, options.gradingScheme)
+    formattedGrade = scoreToGrade(
+      percent,
+      options.gradingScheme,
+      options.pointsBasedGradingScheme,
+      options.scalingFactor
+    )
   } else if (grade != null) {
     formattedGrade = grade
   } else {
-    formattedGrade = scoreToGrade(score, options.gradingScheme)
+    formattedGrade = scoreToGrade(
+      score,
+      options.gradingScheme,
+      options.pointsBasedGradingScheme,
+      options.scalingFactor
+    )
   }
 
   return replaceDashWithMinus(formattedGrade)
@@ -219,8 +234,10 @@ const GradeFormatHelper = {
         // at this stage, gradingType is either points or percent, or the passed grade is a number
         formattedGrade = formatGradingSchemeGrade(options.score, null, {
           gradingScheme: options.grading_scheme,
+          pointsBasedGradingScheme: options.points_based_grading_scheme,
           pointsPossible: options.pointsPossible,
           restrict_quantitative_data: options.restrict_quantitative_data,
+          scalingFactor: options.scaling_factor,
         })
       } else {
         const roundedGrade = round(parsedGrade, options.precision || 2)
@@ -242,8 +259,10 @@ const GradeFormatHelper = {
     ) {
       formattedGrade = formatGradingSchemeGrade(options.score, null, {
         gradingScheme: options.grading_scheme,
+        pointsBasedGradingScheme: options.points_based_grading_scheme,
         pointsPossible: options.pointsPossible,
         restrict_quantitative_data: options.restrict_quantitative_data,
+        scalingFactor: options.scaling_factor,
       })
     }
 
@@ -255,8 +274,10 @@ const GradeFormatHelper = {
     ) {
       formattedGrade = formatGradingSchemeGrade(options.score, null, {
         gradingScheme: options.grading_scheme,
+        pointsBasedGradingScheme: options.points_based_grading_scheme,
         pointsPossible: options.pointsPossible,
         restrict_quantitative_data: options.restrict_quantitative_data,
+        scalingFactor: options.scaling_factor,
       })
     }
     return formattedGrade

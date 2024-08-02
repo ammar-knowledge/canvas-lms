@@ -34,7 +34,6 @@ import ZipFileImporter from './migrator_forms/zip_file'
 import type {
   AttachmentProgressResponse,
   ContentMigrationItem,
-  ContentMigrationResponse,
   Migrator,
   DateShifts,
   onSubmitMigrationFormCallback,
@@ -66,6 +65,8 @@ type MigratorProps = {
   value: string
   onSubmit: onSubmitMigrationFormCallback
   onCancel: () => void
+  fileUploadProgress: number | null
+  isSubmitting: boolean
 }
 
 const renderMigrator = (props: MigratorProps) => {
@@ -73,6 +74,7 @@ const renderMigrator = (props: MigratorProps) => {
     case 'zip_file_importer':
       return <ZipFileImporter {...props} />
     case 'course_copy_importer':
+      props.fileUploadProgress = null
       return <CourseCopyImporter {...props} />
     case 'moodle_converter':
       return <MoodleZipImporter {...props} />
@@ -85,9 +87,26 @@ const renderMigrator = (props: MigratorProps) => {
     case 'angel_exporter':
     case 'blackboard_exporter':
     case 'd2l_exporter':
+      props.fileUploadProgress = null
       return <LegacyMigratorWrapper {...props} />
     default:
       return null
+  }
+}
+
+/*
+  This override is needed to set the default workflow state to 'queued' for the migration,
+  because in the StatusPill we want to use the progress workflow state to determine
+  the status of the migration. For example course copy create ContentMigration with default
+  running state.
+
+  The only exception is when the migration is in the 'waiting_for_select' state, because it cannot
+  be represented by the Progress record.
+*/
+const overrideDefaultWorkflowState = (cm: ContentMigrationItem): ContentMigrationItem => {
+  return {
+    ...cm,
+    workflow_state: cm.workflow_state === 'waiting_for_select' ? cm.workflow_state : 'queued',
   }
 }
 
@@ -97,18 +116,32 @@ export const ContentMigrationsForm = ({
   setMigrations: Dispatch<SetStateAction<ContentMigrationItem[]>>
 }) => {
   const [migrators, setMigrators] = useState<any>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [chosenMigrator, setChosenMigrator] = useState<string | null>(null)
-  const handleFileProgress = (_: AttachmentProgressResponse) => {}
-  // console.log(`${(response.loaded / response.total) * 100}%`)
 
-  const onResetForm = useCallback(() => setChosenMigrator(null), [])
+  const [fileUploadProgress, setFileUploadProgress] = useState<number | null>(null)
+  const onResetForm = useCallback(() => {
+    setChosenMigrator(null)
+    setIsSubmitting(false)
+  }, [])
 
+  const handleFileProgress = useCallback(
+    (json: ContentMigrationItem, {loaded, total}: AttachmentProgressResponse) => {
+      setFileUploadProgress(Math.trunc((loaded / total) * 100))
+      if (loaded === total) {
+        onResetForm()
+        setMigrations(prevMigrations => [json].concat(prevMigrations))
+      }
+    },
+    [setFileUploadProgress, onResetForm, setMigrations]
+  )
   const onSubmitForm: onSubmitMigrationFormCallback = useCallback(
     async (formData, preAttachmentFile) => {
       const courseId = window.ENV.COURSE_ID
       if (!chosenMigrator || !courseId || formData.errored) {
         return
       }
+      setIsSubmitting(true)
       delete formData.errored
       const requestBody: RequestBody = {
         course_id: courseId,
@@ -116,21 +149,25 @@ export const ContentMigrationsForm = ({
         ...formData,
       }
 
-      const {json} = (await doFetchApi({
+      const {json} = await doFetchApi({
         method: 'POST',
         path: `/api/v1/courses/${courseId}/content_migrations`,
         body: requestBody,
-      })) as {json: ContentMigrationResponse} // TODO: remove type assertion once doFetchApi is typed
+      })
       if (preAttachmentFile && json.pre_attachment) {
         completeUpload(json.pre_attachment, preAttachmentFile, {
           ignoreResult: true,
-          onProgress: handleFileProgress,
+          onProgress: (response: any) => {
+            handleFileProgress(json, response)
+          },
         })
+      } else {
+        onResetForm()
+        const overriddenJson = overrideDefaultWorkflowState(json as ContentMigrationItem)
+        setMigrations(prevMigrations => [overriddenJson].concat(prevMigrations))
       }
-      setMigrations(prevMigrations => [json as ContentMigrationItem].concat(prevMigrations))
-      onResetForm()
     },
-    [chosenMigrator, setMigrations, onResetForm]
+    [chosenMigrator, handleFileProgress, onResetForm, setMigrations]
   )
 
   useEffect(() => {
@@ -168,6 +205,7 @@ export const ContentMigrationsForm = ({
       <View as="div" margin="medium 0" maxWidth="22.5rem">
         {migrators.length > 0 ? (
           <SimpleSelect
+            disabled={isSubmitting}
             value={chosenMigrator || 'empty'}
             renderLabel={I18n.t('Select Content Type')}
             onChange={(_e: any, {value}: any) =>
@@ -194,6 +232,8 @@ export const ContentMigrationsForm = ({
             value: chosenMigrator,
             onSubmit: onSubmitForm,
             onCancel: onResetForm,
+            fileUploadProgress,
+            isSubmitting,
           })}
           <hr role="presentation" aria-hidden="true" />
         </>

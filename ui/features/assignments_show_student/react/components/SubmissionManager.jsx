@@ -192,6 +192,7 @@ const SubmissionManager = ({
   const [peerReviewHeaderMargin, setPeerReviewHeaderMargin] = useState(null)
 
   const displayedAssessment = useStore(state => state.displayedAssessment)
+  const isSavingRubricAssessment = useStore(state => state.isSavingRubricAssessment)
 
   const {setOnSuccess, setOnFailure} = useContext(AlertManagerContext)
   const {
@@ -282,6 +283,16 @@ const SubmissionManager = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [submission.attempt])
+
+  useEffect(() => {
+    if (isSavingRubricAssessment && ENV.enhanced_rubrics_enabled) {
+      if (isRubricComplete(displayedAssessment)) {
+        handleSubmitPeerReviewButton()
+      } else {
+        setOnFailure(I18n.t('Invalid Rubric Submission'))
+      }
+    }
+  }, [isSavingRubricAssessment])
 
   const isRubricComplete = assessment => {
     return (
@@ -459,7 +470,8 @@ const SubmissionManager = ({
       assignment.env.peerReviewModeEnabled &&
       assignment.env.peerReviewAvailable &&
       hasRubrics &&
-      !hasSubmittedAssessment()
+      !hasSubmittedAssessment() &&
+      !ENV.enhanced_rubrics_enabled
     )
   }
 
@@ -560,6 +572,7 @@ const SubmissionManager = ({
       setOnFailure(I18n.t('Error submitting rubric'))
     }
     setIsSubmitting(false)
+    useStore.setState({isSavingRubricAssessment: false})
   }
 
   const handleSuccess = (message = I18n.t('Submission sent')) => {

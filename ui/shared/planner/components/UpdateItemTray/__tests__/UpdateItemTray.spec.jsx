@@ -17,9 +17,9 @@
  */
 import moment from 'moment-timezone'
 import React from 'react'
-import {within, render} from '@testing-library/react'
+import {within, render, fireEvent} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {shallow, mount} from 'enzyme'
+import {shallow} from 'enzyme'
 import {UpdateItemTray_ as UpdateItemTray} from '../index'
 
 jest.useFakeTimers()
@@ -87,22 +87,24 @@ it("doesn't re-render unless new item is provided", () => {
 })
 
 it('renders Add To Do header when creating a new to do', () => {
-  const wrapper = mount(<UpdateItemTray {...defaultProps} />)
+  const wrapper = render(<UpdateItemTray {...defaultProps} />)
 
-  expect(wrapper.find('h2').text()).toBe('Add To Do')
+  expect(wrapper.getByText('Add To Do')).toBeInTheDocument()
 })
 
-it('shows title inputs', () => {
+it('shows title inputs', async () => {
+  const user = userEvent.setup({delay: null})
   const {getAllByRole} = render(<UpdateItemTray {...defaultProps} />)
   const input = getAllByRole('textbox')[0]
-  userEvent.type(input, 'New Text')
+  await user.type(input, 'New Text')
   expect(input).toHaveValue('New Text')
 })
 
-it('shows details inputs', () => {
+it('shows details inputs', async () => {
+  const user = userEvent.setup({delay: null})
   const {getAllByRole} = render(<UpdateItemTray {...defaultProps} />)
   const input = getAllByRole('textbox')[0]
-  userEvent.type(input, 'New Details')
+  await user.type(input, 'New Details')
   expect(input).toHaveValue('New Details')
 })
 
@@ -209,21 +211,26 @@ it.skip('clears the error message when a date is typed in', () => {
 
 it('respects the provided timezone', () => {
   const item = simpleItem({date: moment('2017-04-25 12:00:00-0300')})
-  const wrapper = mount(<UpdateItemTray {...defaultProps} noteItem={item} />)
+  const wrapper = render(<UpdateItemTray {...defaultProps} noteItem={item} />)
   // DateInput internally renders 3 TextInputs, we only need the first
-  const d = wrapper.find('DateInput').find('TextInput').first().props().value
-  expect(d).toEqual('April 26, 2017') // timezone shift from -3 to +9 pushes it to the next day
+  expect(wrapper.getAllByText('Wednesday, April 26, 2017 12:00 AM')[0]).toBeInTheDocument() // timezone shift from -3 to +9 pushes it to the next day
 })
 
 it('changes state when new date is typed in', () => {
   const noteItem = simpleItem({title: 'Planner Item'})
   const mockCallback = jest.fn()
-  const wrapper = mount(
-    <UpdateItemTray {...defaultProps} onSavePlannerItem={mockCallback} noteItem={noteItem} />
+  const ref = React.createRef()
+  render(
+    <UpdateItemTray
+      {...defaultProps}
+      onSavePlannerItem={mockCallback}
+      noteItem={noteItem}
+      ref={ref}
+    />
   )
   const newDate = moment('2017-10-16T13:30:00')
-  wrapper.instance().handleDateChange({}, newDate.toISOString())
-  wrapper.instance().handleSave()
+  ref.current.handleDateChange({}, newDate.toISOString())
+  ref.current.handleSave()
   expect(mockCallback).toHaveBeenCalledWith({
     uniqueId: '1',
     title: noteItem.title,
@@ -291,17 +298,19 @@ it('does render the delete button if an item is specified', () => {
   expect(deleteButton).toHaveLength(1)
 })
 
-it('renders just an optional option when no courses', () => {
+it('renders just an optional option when no courses', async () => {
+  const user = userEvent.setup({delay: null})
   const {getByTitle, getByRole} = render(<UpdateItemTray {...defaultProps} />)
   const option = getByTitle('Optional: Add Course')
-  userEvent.click(option)
+  await user.click(option)
   const listbox = getByRole('listbox', {hidden: true})
   const {getAllByRole} = within(listbox)
   const listItems = getAllByRole('option')
   expect(listItems).toHaveLength(1)
 })
 
-it('renders course options plus an optional option when provided with courses', () => {
+it('renders course options plus an optional option when provided with courses', async () => {
+  const user = userEvent.setup({delay: null})
   const {getByTitle, getByRole} = render(
     <UpdateItemTray
       {...defaultProps}
@@ -312,7 +321,7 @@ it('renders course options plus an optional option when provided with courses', 
     />
   )
   const option = getByTitle('Optional: Add Course')
-  userEvent.click(option)
+  await user.click(option)
   const listbox = getByRole('listbox', {hidden: true})
   const {getAllByRole} = within(listbox)
   const listItems = getAllByRole('option')
@@ -366,10 +375,10 @@ it('invokes the delete callback', () => {
 
 it('invokes invalidDateTimeMessage when an invalid date is entered', () => {
   const invalidCallbackSpy = jest.spyOn(UpdateItemTray.prototype, 'invalidDateTimeMessage')
-  const wrapper = mount(<UpdateItemTray {...defaultProps} />)
-  const dateInput = wrapper.find('DateInput').find('input')
-  dateInput.simulate('change', {target: {value: 'xxxxx'}})
-  dateInput.simulate('blur')
+  const wrapper = render(<UpdateItemTray {...defaultProps} />)
+  const dateInput = wrapper.getByLabelText('Date')
+  fireEvent.change(dateInput, {target: {value: 'xxxxx'}})
+  fireEvent.blur(dateInput)
   jest.runOnlyPendingTimers()
   expect(invalidCallbackSpy).toHaveBeenCalled()
 })

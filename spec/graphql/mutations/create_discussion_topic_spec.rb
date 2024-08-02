@@ -19,7 +19,9 @@
 #
 require "spec_helper"
 require_relative "../graphql_spec_helper"
+require_relative "../../helpers/selective_release_common"
 describe Mutations::CreateDiscussionTopic do
+  include SelectiveReleaseCommon
   before(:once) do
     course_with_teacher(active_all: true)
   end
@@ -47,6 +49,12 @@ describe Mutations::CreateDiscussionTopic do
             podcastEnabled
             podcastHasStudentPosts
             isSectionSpecific
+            ungradedDiscussionOverrides {
+              nodes {
+                _id
+                title
+              }
+            }
             groupSet {
               _id
             }
@@ -92,6 +100,7 @@ describe Mutations::CreateDiscussionTopic do
             podcastEnabled
             podcastHasStudentPosts
             isSectionSpecific
+            replyToEntryRequiredCount
             groupSet {
               _id
             }
@@ -104,6 +113,7 @@ describe Mutations::CreateDiscussionTopic do
               name
               pointsPossible
               gradingType
+              importantDates
               groupSet {
                 _id
               }
@@ -118,6 +128,13 @@ describe Mutations::CreateDiscussionTopic do
                   _id
                   title
                 }
+              }
+              checkpoints {
+                dueAt
+                name
+                onlyVisibleToOverrides
+                pointsPossible
+                tag
               }
             }
           }
@@ -240,6 +257,39 @@ describe Mutations::CreateDiscussionTopic do
 
     expect(announcement.locked_announcement?).to be true
     expect(announcement.workflow_state).to eq "active"
+  end
+
+  it "successfully creates a section specific announcement" do
+    is_announcement = true
+    context_type = "Course"
+    title = "Test Title"
+    message = "A message"
+    published = true
+    require_initial_post = true
+
+    section = add_section("New Section")
+
+    query = <<~GQL
+      isAnnouncement: #{is_announcement}
+      contextId: "#{@course.id}"
+      contextType: #{context_type}
+      title: "#{title}"
+      message: "#{message}"
+      published: #{published}
+      requireInitialPost: #{require_initial_post}
+      anonymousState: off
+      specificSections: "#{section.id}"
+    GQL
+
+    result = execute_with_input(query)
+    created_announcement = result.dig("data", "createDiscussionTopic", "discussionTopic")
+
+    expect(result["errors"]).to be_nil
+    expect(result.dig("data", "discussionTopic", "errors")).to be_nil
+
+    expect(Announcement.where("id = #{created_announcement["_id"]}").count).to eq 1
+    expect(created_announcement["isSectionSpecific"]).to be true
+    expect(created_announcement["courseSections"][0]["name"]).to eq("New Section")
   end
 
   it "creates an allow_rating discussion topic" do
@@ -667,6 +717,7 @@ describe Mutations::CreateDiscussionTopic do
     end
 
     it "successfully creates the discussion topic is_section_specific true" do
+      differentiated_modules_off
       context_type = "Course"
       title = "Test Title"
       message = "A message"
@@ -701,6 +752,7 @@ describe Mutations::CreateDiscussionTopic do
     end
 
     it "does not allow creation of disuccions to sections that are not visible to the user" do
+      differentiated_modules_off
       # This teacher does not have permission for section 2
       course2 =  course_factory(active_course: true)
       section1 = @course.course_sections.create!(name: "Section 1")
@@ -879,7 +931,7 @@ describe Mutations::CreateDiscussionTopic do
           pointsPossible: 15,
           gradingType: percent,
           postToSis: true,
-          groupCategoryId: "#{group_category.id}"
+          importantDates: true,
           peerReviews: {
             anonymousReviews: true,
             automaticReviews: true,
@@ -902,12 +954,12 @@ describe Mutations::CreateDiscussionTopic do
         expect(discussion_topic["assignment"]["name"]).to eq title
         expect(discussion_topic["assignment"]["pointsPossible"]).to eq 15
         expect(discussion_topic["assignment"]["gradingType"]).to eq "percent"
+        expect(discussion_topic["assignment"]["importantDates"]).to be true
         expect(discussion_topic["assignment"]["peerReviews"]["anonymousReviews"]).to be true
         expect(discussion_topic["assignment"]["peerReviews"]["automaticReviews"]).to be true
         expect(discussion_topic["assignment"]["peerReviews"]["count"]).to eq 2
         expect(discussion_topic["assignment"]["assignmentOverrides"]["nodes"]).to match([{ "_id" => assignment.assignment_overrides.first.id.to_s, "title" => assignment.assignment_overrides.first.title }])
         expect(discussion_topic["assignment"]["_id"]).to eq assignment.id.to_s
-        expect(discussion_topic["assignment"]["groupSet"]["_id"]).to eq group_category.id.to_s
         expect(discussion_topic["_id"]).to eq assignment.discussion_topic.id.to_s
         expect(DiscussionTopic.count).to eq 1
         expect(DiscussionTopic.last.assignment.post_to_sis).to be true
@@ -935,7 +987,6 @@ describe Mutations::CreateDiscussionTopic do
           name: "#{title}",
           pointsPossible: 15,
           postToSis: true,
-          groupCategoryId: "#{group_category.id}"
           assignmentOverrides: {
             groupId: "#{group.id}"
           }
@@ -952,7 +1003,6 @@ describe Mutations::CreateDiscussionTopic do
         expect(discussion_topic["assignment"]["pointsPossible"]).to eq 15
         expect(discussion_topic["assignment"]["assignmentOverrides"]["nodes"]).to match([{ "_id" => assignment.assignment_overrides.first.id.to_s, "title" => assignment.assignment_overrides.first.title }])
         expect(discussion_topic["assignment"]["_id"]).to eq assignment.id.to_s
-        expect(discussion_topic["assignment"]["groupSet"]["_id"]).to eq group_category.id.to_s
         expect(discussion_topic["_id"]).to eq assignment.discussion_topic.id.to_s
         expect(DiscussionTopic.count).to eq 2
         expect(DiscussionTopic.last.assignment.post_to_sis).to be true
@@ -1060,6 +1110,32 @@ describe Mutations::CreateDiscussionTopic do
       expect(discussion_topic).to be_nil
       expect(result["data"]["createDiscussionTopic"]["errors"][0]["message"]).to eq "[[:base, \"unknown student ids: [\\\"#{@teacher.id - 1}\\\"]\"]]"
     end
+
+    it "sets the ab_guid on the assignment" do
+      context_type = "Course"
+      title = "Graded Discussion"
+      message = "Lorem ipsum..."
+      published = true
+
+      query = <<~GQL
+        contextId: "#{@course.id}"
+        contextType: #{context_type}
+        title: "#{title}"
+        message: "#{message}"
+        published: #{published}
+        assignment: {
+          courseId: "#{@course.id}",
+          name: "#{title}",
+          pointsPossible: 15,
+          gradingType: percent,
+          abGuid: ["1E20776E-7053-11DF-8EBF-BE719DFF4B22", "1e20776e-7053-11df-8eBf-Be719dff4b22"]
+        }
+      GQL
+
+      execute_with_input_with_assignment(query)
+
+      expect(Assignment.last.ab_guid).to eq(["1E20776E-7053-11DF-8EBF-BE719DFF4B22", "1e20776e-7053-11df-8eBf-Be719dff4b22"])
+    end
   end
 
   context "checkpoints" do
@@ -1082,16 +1158,16 @@ describe Mutations::CreateDiscussionTopic do
         assignment: {
           courseId: "#{@course.id}",
           name: "#{title}",
-          forCheckpoints: true
+          forCheckpoints: true,
         }
         checkpoints: [
           {
-            checkpointLabel: "reply_to_topic",
+            checkpointLabel: reply_to_topic,
             pointsPossible: 10,
             dates: [{ type: everyone, dueAt: "#{5.days.from_now.iso8601}" }]
           },
           {
-            checkpointLabel: "reply_to_entry",
+            checkpointLabel: reply_to_entry,
             pointsPossible: 15,
             dates: [{ type: everyone, dueAt: "#{10.days.from_now.iso8601}" }],
             repliesRequired: 3
@@ -1100,7 +1176,18 @@ describe Mutations::CreateDiscussionTopic do
       GQL
 
       result = execute_with_input_with_assignment(query)
-      expect(result["errors"]).to be_nil
+      discussion_topic = result.dig("data", "createDiscussionTopic", "discussionTopic")
+      reply_to_topic_checkpoint = discussion_topic["assignment"]["checkpoints"].find { |checkpoint| checkpoint["tag"] == CheckpointLabels::REPLY_TO_TOPIC }
+      reply_to_entry_checkpoint = discussion_topic["assignment"]["checkpoints"].find { |checkpoint| checkpoint["tag"] == CheckpointLabels::REPLY_TO_ENTRY }
+      aggregate_failures do
+        expect(result["errors"]).to be_nil
+        expect(discussion_topic["assignment"]["checkpoints"][0]["name"]).to eq title
+        expect(reply_to_topic_checkpoint).to be_truthy
+        expect(reply_to_entry_checkpoint).to be_truthy
+        expect(reply_to_topic_checkpoint["pointsPossible"]).to eq 10
+        expect(reply_to_entry_checkpoint["pointsPossible"]).to eq 15
+        expect(discussion_topic["replyToEntryRequiredCount"]).to eq 3
+      end
     end
 
     it "successfully creates a discussion topic with checkpoints using dueAt, lockAt, unlockAt" do
@@ -1125,12 +1212,12 @@ describe Mutations::CreateDiscussionTopic do
         }
         checkpoints: [
           {
-            checkpointLabel: "reply_to_topic",
+            checkpointLabel: reply_to_topic,
             pointsPossible: 10,
             dates: [{ type: everyone, dueAt: "#{due_at.iso8601}", lockAt: "#{lock_at.iso8601}", unlockAt: "#{unlock_at.iso8601}" }]
           },
           {
-            checkpointLabel: "reply_to_entry",
+            checkpointLabel: reply_to_entry,
             pointsPossible: 15,
             dates: [{ type: everyone, dueAt: "#{10.days.from_now.iso8601}" }],
             repliesRequired: 3
@@ -1172,12 +1259,12 @@ describe Mutations::CreateDiscussionTopic do
         }
         checkpoints: [
           {
-            checkpointLabel: "reply_to_topic",
+            checkpointLabel: reply_to_topic,
             pointsPossible: 10,
             dates: [{ type: everyone, dueAt: "#{5.days.from_now.iso8601}" }]
           },
           {
-            checkpointLabel: "reply_to_entry",
+            checkpointLabel: reply_to_entry,
             pointsPossible: 15,
             dates: [
               { type: everyone, dueAt: "#{10.days.from_now.iso8601}" },
@@ -1240,12 +1327,12 @@ describe Mutations::CreateDiscussionTopic do
         }
         checkpoints: [
           {
-            checkpointLabel: "reply_to_topic",
+            checkpointLabel: reply_to_topic,
             pointsPossible: 10,
             dates: [{ type: everyone, dueAt: "#{5.days.from_now.iso8601}" }]
           },
           {
-            checkpointLabel: "reply_to_entry",
+            checkpointLabel: reply_to_entry,
             pointsPossible: 15,
             dates: [
               { type: everyone, dueAt: "#{10.days.from_now.iso8601}" },
@@ -1303,12 +1390,12 @@ describe Mutations::CreateDiscussionTopic do
         }
         checkpoints: [
           {
-            checkpointLabel: "reply_to_topic",
+            checkpointLabel: reply_to_topic,
             pointsPossible: 10,
             dates: [{ type: everyone, dueAt: "#{5.days.from_now.iso8601}" }]
           },
           {
-            checkpointLabel: "reply_to_entry",
+            checkpointLabel: reply_to_entry,
             pointsPossible: 15,
             dates: [
               { type: everyone, dueAt: "#{10.days.from_now.iso8601}" },
@@ -1344,6 +1431,108 @@ describe Mutations::CreateDiscussionTopic do
       student_ids = assignment_override.assignment_override_students.pluck(:user_id)
 
       expect(student_ids).to match_array [student1.id, student2.id]
+    end
+  end
+
+  context "with selective_release_ui_api flag ON" do
+    before do
+      Account.site_admin.enable_feature!(:selective_release_ui_api)
+    end
+
+    after do
+      Account.site_admin.disable_feature!(:selective_release_ui_api)
+    end
+
+    it "successfully creates a ungraded discussion topic with override" do
+      context_type = "Course"
+      title = "Ungraded Discussion"
+      message = "Lorem ipsum..."
+      published = true
+      student1 = @course.enroll_student(User.create!, enrollment_state: "active").user
+      student2 = @course.enroll_student(User.create!, enrollment_state: "active").user
+
+      query = <<~GQL
+        contextId: "#{@course.id}"
+        contextType: #{context_type}
+        title: "#{title}"
+        message: "#{message}"
+        published: #{published}
+        ungradedDiscussionOverrides: {
+          studentIds: [#{student1.id}, #{student2.id}]
+        }
+      GQL
+
+      result = execute_with_input(query)
+      discussion_topic = result.dig("data", "createDiscussionTopic", "discussionTopic")
+      override = DiscussionTopic.last.active_assignment_overrides.first
+      aggregate_failures do
+        expect(result.dig("data", "discussionTopic", "errors")).to be_nil
+        expect(discussion_topic["ungradedDiscussionOverrides"]["nodes"]).to match([{ "_id" => override.id.to_s, "title" => override.title }])
+        expect(override.set_type).to eq("ADHOC")
+        expect(override.set_id).to be_nil
+        expect(override.set.map(&:id)).to match_array([student1.id, student2.id])
+        expect(override.workflow_state).to eq "active"
+      end
+    end
+
+    it "does not create overrides on a group discussion topic" do
+      group = @course.groups.create!
+      student_in_group = student_in_course(course: @course, active_all: true).user
+      group.group_memberships.create!(user: student_in_group)
+
+      context_type = "Group"
+      title = "Group Discussion"
+      message = "Lorem ipsum..."
+      published = true
+
+      query = <<~GQL
+        contextId: "#{group.id}"
+        contextType: #{context_type}
+        title: "#{title}"
+        message: "#{message}"
+        published: #{published}
+        ungradedDiscussionOverrides: {
+          studentIds: [#{student_in_group.id}]
+        }
+      GQL
+
+      result = execute_with_input(query)
+      override = DiscussionTopic.last.active_assignment_overrides.first
+      aggregate_failures do
+        expect(result.dig("data", "discussionTopic", "errors")).to be_nil
+        expect(override).to be_nil
+      end
+    end
+
+    it "does not create a ungraded discussion topic with override if flag is off" do
+      Account.site_admin.disable_feature!(:selective_release_ui_api)
+
+      context_type = "Course"
+      title = "Ungraded Discussion"
+      message = "Lorem ipsum..."
+      published = true
+      student1 = @course.enroll_student(User.create!, enrollment_state: "active").user
+      student2 = @course.enroll_student(User.create!, enrollment_state: "active").user
+
+      query = <<~GQL
+        contextId: "#{@course.id}"
+        contextType: #{context_type}
+        title: "#{title}"
+        message: "#{message}"
+        published: #{published}
+        ungradedDiscussionOverrides: {
+          studentIds: [#{student1.id}, #{student2.id}]
+        }
+      GQL
+
+      result = execute_with_input(query)
+      discussion_topic = result.dig("data", "createDiscussionTopic", "discussionTopic")
+      override = DiscussionTopic.last.active_assignment_overrides.first
+      aggregate_failures do
+        expect(result.dig("data", "discussionTopic", "errors")).to be_nil
+        expect(discussion_topic["ungradedDiscussionOverrides"]).to be_nil
+        expect(override).to be_nil
+      end
     end
   end
 end

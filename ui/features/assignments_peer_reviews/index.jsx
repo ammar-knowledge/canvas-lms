@@ -21,7 +21,7 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import $ from 'jquery'
 import '@canvas/jquery/jquery.ajaxJSON'
-import '@canvas/datetime/jquery'
+import {datetimeString} from '@canvas/datetime/date-functions'
 import '@canvas/jquery/jquery.instructure_forms'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
 import '@canvas/jquery/jquery.instructure_misc_plugins'
@@ -93,13 +93,13 @@ $(document).ready(() => {
         .parents('.student_reviews')
         .getTemplateData({textValues: ['student_review_id']}).student_review_id
       url = replaceTags(url, 'reviewer_id', user_id)
-      $form.find(`select option.student_${user_id}`).attr('disabled', true)
+      $form.find(`select option.student_${user_id}`).prop('disabled', true)
       $(this)
         .parents('.student_reviews')
         .find('.peer_review')
         .each(function () {
           ;({user_id} = $(this).getTemplateData({textValues: ['user_id']}))
-          $form.find(`select option.student_${user_id}`).attr('disabled', true)
+          $form.find(`select option.student_${user_id}`).prop('disabled', true)
         })
       $form.attr('action', url)
       $(this).parents('.student_reviews').find('.form_content').empty().append($form)
@@ -132,7 +132,7 @@ $(document).ready(() => {
       $review.slideDown()
       $review.find('a').first().focus()
       const assessor_name = $(this).parents('.student_reviews').find('.assessor_name').text()
-      const time = $.datetimeString(data.assessment_request.updated_at)
+      const time = datetimeString(data.assessment_request.updated_at)
       $review.find('.reminder_peer_review_link').attr(
         'title',
         I18n.t('titles.reminder', 'Remind %{assessor} about Assessment, last notified %{time}', {
@@ -157,7 +157,7 @@ $(document).ready(() => {
     return $.ajaxJSON($link.attr('href'), 'POST', {}, data => {
       $link.parents('.peer_review').loadingImage('remove')
       const assessor_name = $link.parents('.student_reviews').find('.assessor_name').text()
-      const time = $.datetimeString(data.assessment_request.updated_at)
+      const time = datetimeString(data.assessment_request.updated_at)
       $link.attr(
         'title',
         I18n.t('titles.remind', 'Remind %{assessor} about Assessment, last notified %{time}', {

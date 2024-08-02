@@ -27,7 +27,7 @@ import {makeAllExternalLinksExternalLinks} from '@instructure/canvas-rce/es/enha
 import './instructure_helper'
 import 'jqueryui/draggable'
 import '@canvas/jquery/jquery.ajaxJSON'
-import '@canvas/datetime/jquery' /* datetimeString, dateString, fudgeDateForProfileTimezone */
+import {datetimeString, fudgeDateForProfileTimezone} from '@canvas/datetime/date-functions'
 import '@canvas/jquery/jquery.instructure_forms' /* formSubmit, fillFormData, formErrors */
 import 'jqueryui/dialog'
 import '@canvas/jquery/jquery.instructure_misc_helpers' /* replaceTags, youTubeID */
@@ -38,7 +38,7 @@ import '@canvas/rails-flash-notifications'
 import '@canvas/util/templateData'
 import '@canvas/util/jquery/fixDialogButtons'
 import '@canvas/media-comments/jquery/mediaCommentThumbnail'
-import 'date-js'
+import '@instructure/date-js'
 import 'jquery-tinypubsub' /* /\.publish\(/ */
 import 'jqueryui/resizable'
 import 'jqueryui/sortable'
@@ -48,7 +48,7 @@ import {captureException} from '@sentry/browser'
 const I18n = useI18nScope('instructure_js')
 
 export function formatTimeAgoTitle(date) {
-  const fudgedDate = $.fudgeDateForProfileTimezone(date)
+  const fudgedDate = fudgeDateForProfileTimezone(date)
   return fudgedDate.toString('MMM d, yyyy h:mmtt')
 }
 
@@ -113,7 +113,10 @@ function enhanceUserJQueryWidgetContent() {
         .find("a[href='#" + $dialog.attr('id') + "']")
         .on('click', event => {
           event.preventDefault()
-          $dialog.dialog()
+          $dialog.dialog({
+            modal: true,
+            zIndex: 1000,
+          })
         })
     })
     .end()
@@ -268,6 +271,8 @@ function previewEquellaContentWhenClicked() {
         close() {
           $dialog.find('iframe').attr('src', 'about:blank')
         },
+        modal: true,
+        zIndex: 1000,
       })
     }
     $dialog.find('.original_link').attr('href', $(this).attr('href'))
@@ -295,12 +300,13 @@ function openDialogsWhenClicked() {
     $('#' + $(this).attr('aria-controls')).ifExists($dialog => {
       event.preventDefault()
       // if the linked dialog has not already been initialized, initialize it (passing in opts)
-      if (!$dialog.data('dialog')) {
+      if (!$dialog.data('ui-dialog')) {
         $dialog.dialog(
           $.extend(
             {
               autoOpen: false,
               modal: true,
+              zIndex: 1000,
             },
             $(link).data('dialogOpts')
           )
@@ -406,7 +412,7 @@ function showAndHideRCEWhenAsked() {
 function doThingsWhenDiscussionTopicSubMessageIsPosted() {
   $('.communication_sub_message .add_sub_message_form').formSubmit({
     beforeSubmit(_data) {
-      $(this).find('button').attr('disabled', true)
+      $(this).find('button').prop('disabled', true)
       $(this).find('.submit_button').text(I18n.t('status.posting_message', 'Posting Message...'))
       $(this).loadingImage()
     },
@@ -429,7 +435,7 @@ function doThingsWhenDiscussionTopicSubMessageIsPosted() {
           const comment =
             submission.submission_comments[submission.submission_comments.length - 1]
               .submission_comment
-          comment.post_date = $.datetimeString(comment.created_at)
+          comment.post_date = datetimeString(comment.created_at)
           comment.message = comment.formatted_body || comment.comment
           $message.fillTemplateData({
             data: comment,
@@ -438,7 +444,7 @@ function doThingsWhenDiscussionTopicSubMessageIsPosted() {
         }
       } else {
         const entry = data.discussion_entry
-        entry.post_date = $.datetimeString(entry.created_at)
+        entry.post_date = datetimeString(entry.created_at)
         $message.find('.content > .message_html').val(entry.message)
         $message.fillTemplateData({
           data: entry,
@@ -458,7 +464,7 @@ function doThingsWhenDiscussionTopicSubMessageIsPosted() {
     },
     error(data) {
       $(this).loadingImage('remove')
-      $(this).find('button').attr('disabled', false)
+      $(this).find('button').prop('disabled', false)
       $(this)
         .find('.submit_button')
         .text(I18n.t('errors.posting_message_failed', 'Post Failed, Try Again'))
@@ -541,7 +547,7 @@ function doThingsToModuleSequenceFooter() {
 function showHideRemoveThingsToRightSideMoreLinksWhenClicked() {
   // this is for things like the to-do, recent items and upcoming, it
   // happend a lot so rather than duplicating it everywhere I stuck it here
-  $('#right-side').delegate('.more_link', 'click', function (event) {
+  $('#right-side').on('click', '.more_link', function (event) {
     const $this = $(this)
     const $children = $this.parents('ul').children(':hidden').show()
     $this.closest('li').remove()

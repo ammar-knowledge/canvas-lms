@@ -16,6 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+const {glob} = require('glob')
 const path = require('path')
 
 module.exports = {
@@ -210,7 +211,7 @@ module.exports = {
       {js: 'never', ts: 'never', jsx: 'never', tsx: 'never', coffee: 'never'},
     ],
     'import/no-commonjs': 'off', // This is overridden where it counts
-    'import/no-extraneous-dependencies': ['error', {devDependencies: true}],
+    'import/no-extraneous-dependencies': 'off',
     'lodash/callback-binding': 'error',
     'lodash/collection-method-value': 'error',
     'lodash/collection-return': 'error',
@@ -259,6 +260,36 @@ module.exports = {
   },
   overrides: [
     {
+      files: ['ui/**/*Spec.js', 'ui/**/*Spec.jsx'],
+      extends: ['plugin:qunit/recommended', 'plugin:qunit/two'],
+      plugins: ['qunit'],
+      globals: {
+        module: true,
+        test: true,
+        equal: true,
+        ok: true,
+        sandbox: true,
+        sinon: true,
+        deepEqual: true,
+      },
+      env: {
+        qunit: true,
+      },
+      rules: {
+        'func-names': 'off',
+        'prefer-arrow-callback': 'off',
+        'jest/no-identical-title': 'off',
+        'qunit/no-identical-names': 'off',
+        'qunit/no-setup-teardown': 'off',
+        'qunit/no-global-assertions': 'off',
+        'qunit/no-global-module-test': 'off',
+        'qunit/require-expect': 'off',
+        'qunit/no-assert-logical-expression': 'error',
+        'qunit/no-commented-tests': 'error',
+        'qunit/no-compare-relation-boolean': 'error',
+      },
+    },
+    {
       files: require('./jest.config').testMatch,
       plugins: ['jest'],
       env: {
@@ -273,7 +304,7 @@ module.exports = {
       },
     },
     {
-      files: ['ui/**/*', 'spec/**/*', 'public/**/*'],
+      files: ['ui/**/*', 'spec/**/*', 'public/**/*', 'packages/**/*'],
       rules: {
         // Turn off the "absolute-first" rule. Until we get rid of the `compiled/` and `jsx/`
         // stuff and use real realitive paths it will tell you to do the wrong thing

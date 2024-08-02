@@ -64,7 +64,8 @@ module Api::V1::User
         include_root_account = @domain_root_account.trust_exists?
         course_or_section = @context if @context.is_a?(Course) || @context.is_a?(CourseSection)
         sis_context = enrollment || course_or_section || @domain_root_account
-        pseudonym = SisPseudonym.for(user, sis_context, type: :implicit, require_sis: false, root_account: @domain_root_account, in_region: true)
+        type = includes.include?("deleted_pseudonyms") ? :exact : :implicit
+        pseudonym = SisPseudonym.for(user, sis_context, type:, require_sis: false, root_account: @domain_root_account, in_region: true)
         enrollment_json_opts[:sis_pseudonym] = pseudonym if pseudonym&.sis_user_id
         # the sis fields on pseudonym are poorly named -- sis_user_id is
         # the id in the SIS import data, where on every other table
@@ -113,6 +114,7 @@ module Api::V1::User
       if !excludes.include?("personal_info") && @domain_root_account&.enable_profiles? && user.profile
         json[:bio] = user.profile.bio if includes.include?("bio")
         json[:title] = user.profile.title if includes.include?("title")
+        json[:pronunciation] = user.profile.pronunciation if includes.include?("pronunciation") && @domain_root_account.enable_name_pronunciation?
       end
 
       if includes.include?("sections")
@@ -130,7 +132,15 @@ module Api::V1::User
 
       json[:locale] = user.locale if includes.include?("locale")
       json[:effective_locale] = I18n.locale if includes.include?("effective_locale") && user == current_user
-      json[:confirmation_url] = user.communication_channels.email.first.try(:confirmation_url) if includes.include?("confirmation_url")
+
+      if includes.include?("confirmation_url")
+        email_channel = user.communication_channels.email.first
+        if email_channel.present?
+          presenter = CommunicationChannelPresenter.new(email_channel, request)
+          confirmation_url = presenter.confirmation_url
+          json[:confirmation_url] = confirmation_url if confirmation_url.present?
+        end
+      end
 
       if includes.include?("last_login")
         last_login = user.last_login || user.read_attribute(:last_login)
@@ -220,10 +230,11 @@ module Api::V1::User
       display_name: user.short_name,
       avatar_image_url: avatar_url_for_user(user),
       html_url: participant_url,
-      pronouns: user.pronouns
+      pronouns: user.pronouns,
     }
     hash[:avatar_is_fallback] = user.avatar_image_url.nil? if includes.include?(:avatar_is_fallback) && avatars_enabled_for_user?(user)
     hash[:fake_student] = true if user.fake_student?
+    hash[:email] = user.email if includes.include?(:email) && user.email.present?
     hash
   end
 
@@ -323,7 +334,7 @@ module Api::V1::User
       end
       if includes.include?("temporary_enrollment_providers") && enrollment.temporary_enrollment_source_user_id
         provider = api_find(User, enrollment.temporary_enrollment_source_user_id)
-        json[:temporary_enrollment_provider] = user_json(provider, user, session) unless provider.deleted?
+        json[:temporary_enrollment_provider] = user_json(provider, user, session, user_includes) unless provider.deleted?
       end
     end
   end

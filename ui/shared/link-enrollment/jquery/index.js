@@ -79,6 +79,8 @@ window.link_enrollment = (function () {
       $dialog.dialog({
         title: I18n.t('titles.link_to_student', 'Link to Student'),
         width: 400,
+        modal: true,
+        zIndex: 1000,
       })
     },
     updateDialog($dialog, enrollment_id, current_user_id) {
@@ -106,7 +108,7 @@ $(document).ready(function () {
     beforeSubmit(_data) {
       $(this)
         .find('button')
-        .attr('disabled', true)
+        .prop('disabled', true)
         .end()
         .find('.save_button')
         .text(I18n.t('messages.linking_to_student', 'Linking to Student...'))
@@ -114,7 +116,7 @@ $(document).ready(function () {
     success(data) {
       $(this)
         .find('button')
-        .attr('disabled', false)
+        .prop('disabled', false)
         .end()
         .find('.save_button')
         .text(I18n.t('buttons.link', 'Link to Student'))
@@ -128,7 +130,7 @@ $(document).ready(function () {
     error(_data) {
       $(this)
         .find('button')
-        .attr('disabled', false)
+        .prop('disabled', false)
         .find('.save_button')
         .text(I18n.t('errors.link_failed', 'Linking Failed, please try again'))
     },

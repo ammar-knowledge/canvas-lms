@@ -69,6 +69,8 @@ describe('DiscussionEntryContainer', () => {
     editor = User.mock({_id: '5', displayName: 'George Weasley'}),
     isUnread = false,
     isForcedRead = false,
+    createdAt = '2021-01-01T13:00:00-07:00',
+    updatedAt = '2021-02-02T14:00:00-07:00',
     timingDisplay = 'Jan 1 1:00pm',
     editedTimingDisplay = 'Feb 2 2:00pm',
     lastReplyAtDisplay = null,
@@ -88,6 +90,8 @@ describe('DiscussionEntryContainer', () => {
     editor,
     isUnread,
     isForcedRead,
+    createdAt,
+    updatedAt,
     timingDisplay,
     editedTimingDisplay,
     lastReplyAtDisplay,
@@ -132,7 +136,8 @@ describe('DiscussionEntryContainer', () => {
 
     it('should render the edited timestamp', () => {
       const container = setup(defaultProps())
-      expect(container.getByText('Edited by George Weasley Feb 2 2:00pm')).toBeInTheDocument()
+      const editedByTextElement = container.getByTestId('editedByText')
+      expect(editedByTextElement.textContent).toEqual('Edited by George Weasley Feb 2 2:00pm')
     })
 
     it('should render the reply preview', () => {
@@ -140,7 +145,7 @@ describe('DiscussionEntryContainer', () => {
         defaultProps({
           quotedEntry: {
             createdAt: '2021-08-10T12:10:38-06:00',
-            previewMessage:
+            message:
               'Differences of habit and language are nothing at all if our aims are identical and our hearts are open.',
             author: {
               shortName: 'Albus Dumbledore',
@@ -163,6 +168,16 @@ describe('DiscussionEntryContainer', () => {
     it('should not render the attachment when it does not exist', () => {
       const container = setup(defaultProps())
       expect(container.queryByText('288777.jpeg')).not.toBeInTheDocument()
+    })
+
+    it('should render a line if it is not a topic', () => {
+      const container = setup(defaultProps({isTopic: false}))
+      expect(container.queryByTestId('post-separator')).toBeInTheDocument()
+    })
+
+    it('should not render a line if it is a topic', () => {
+      const container = setup(defaultProps())
+      expect(container.queryByTestId('post-separator')).not.toBeInTheDocument()
     })
   })
 })

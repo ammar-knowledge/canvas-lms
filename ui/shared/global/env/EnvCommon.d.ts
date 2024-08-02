@@ -41,6 +41,31 @@ type Role = {
   plural_label: string
 }
 
+type ToolPlacement = 'top_navigation'
+
+export type Tool = {
+  id: string
+  title: string
+  base_url: string
+  icon_url: string
+  pinned?: boolean
+  placement?: ToolPlacement
+}
+
+export type GroupOutcome = {
+  id: string
+  title: string
+  vendor_guid: string
+  url: string
+  subgroups_url: string
+  outcomes_url: string
+  can_edit: boolean
+  import_url: string
+  context_id: string
+  context_type: string
+  description: string
+}
+
 export interface EnvCommon {
   ASSET_HOST: string
   active_brand_config_json_url: string
@@ -64,6 +89,7 @@ export interface EnvCommon {
   current_user_id: string | null
   current_user_global_id: string
   COURSE_ROLES: Role[]
+  COURSE_USERS_PATH?: string
   current_user_roles: string[]
   current_user_is_student: boolean
   current_user_is_admin: boolean
@@ -79,6 +105,7 @@ export interface EnvCommon {
   ACCOUNT_ID: string
   DOMAIN_ROOT_ACCOUNT_ID: string
   ROOT_ACCOUNT_ID: string
+  ROOT_OUTCOME_GROUP: GroupOutcome
   k12: false
   help_link_name: string
   help_link_icon: string
@@ -87,13 +114,14 @@ export interface EnvCommon {
   disable_celebrations: boolean
   disable_keyboard_shortcuts: boolean
   LTI_LAUNCH_FRAME_ALLOWANCES: string[]
+  LTI_TOOL_SCOPES?: {[key: string]: string[]}
   DEEP_LINKING_POST_MESSAGE_ORIGIN: string
   comment_library_suggestions_enabled: boolean
   INCOMPLETE_REGISTRATION: boolean
   SETTINGS: Record<Setting, boolean>
-  FULL_STORY_ENABLED: boolean
   RAILS_ENVIRONMENT: 'development' | 'CD' | 'Beta' | 'Production' | string
   IN_PACED_COURSE: boolean
+  PARSE_LINK_HEADER_THROW_ON_MAXLEN_EXCEEDED?: boolean
   PREFERENCES?: {
     hide_dashcard_color_overlays: boolean
     custom_colors: unknown
@@ -134,7 +162,6 @@ export interface EnvCommon {
     revision: string
   }
 
-  API_GATEWAY_URI?: string
   DATA_COLLECTION_ENDPOINT?: string
 
   /**
@@ -174,6 +201,7 @@ export interface EnvCommon {
   K5_HOMEROOM_COURSE: string
   K5_SUBJECT_COURSE: string
   LOCALE_TRANSLATION_FILE: string
+  DEFAULT_DUE_TIME?: string
 
   FEATURES: Partial<
     Record<
@@ -193,47 +221,65 @@ export interface EnvCommon {
     type?: string
     classes?: string
   }>
+  breadcrumbs: {name: string; url: string | null}[]
+  enhanced_rubrics_enabled?: boolean
+
+  /**
+   * Used by ui/features/top_navigation_tools/react/TopNavigationTools.tsx
+   * and ui/shared/trays/react/ContentTypeExternalToolDrawer.tsx
+   */
+  top_navigation_tools: Tool[]
 }
 
 /**
  * From ApplicationController#JS_ENV_SITE_ADMIN_FEATURES
  */
 export type SiteAdminFeatureId =
-  | 'featured_help_links'
-  | 'account_level_blackout_dates'
   | 'account_calendar_events'
-  | 'instui_nav'
-  | 'render_both_to_do_lists'
-  | 'course_paces_redesign'
+  | 'account_level_blackout_dates'
   | 'course_paces_for_students'
-  | 'explicit_latex_typesetting'
-  | 'media_links_use_attachment_id'
-  | 'permanent_page_links'
-  | 'differentiated_modules'
+  | 'course_paces_redesign'
+  | 'selective_release_backend'
+  | 'selective_release_ui_api'
+  | 'selective_release_edit_page'
   | 'enhanced_course_creation_account_fetching'
+  | 'explicit_latex_typesetting'
+  | 'featured_help_links'
   | 'instui_for_import_page'
-  | 'enhanced_rubrics'
+  | 'instui_nav'
+  | 'media_links_use_attachment_id'
   | 'multiselect_gradebook_filters'
+  | 'permanent_page_links'
+  | 'platform_service_speedgrader'
+  | 'render_both_to_do_lists'
+  | 'instui_header'
+  | 'lti_registrations_discover_page'
+  | 'courses_popout_sisid'
+  | 'dashboard_graphql_integration'
+  | 'speedgrader_studio_media_capture'
 
 /**
  * From ApplicationController#JS_ENV_ROOT_ACCOUNT_FEATURES
  */
 export type RootAccountFeatureId =
-  | 'product_tours'
-  | 'usage_rights_discussion_topics'
-  | 'granular_permissions_manage_users'
+  | 'buttons_and_icons_root_account'
   | 'create_course_subaccount_picker'
+  | 'extended_submission_state'
+  | 'granular_permissions_manage_users'
+  | 'instui_nav'
   | 'lti_deep_linking_module_index_menu_modal'
   | 'lti_dynamic_registration'
   | 'lti_multiple_assignment_deep_linking'
   | 'lti_overwrite_user_url_input_select_content_dialog'
-  | 'buttons_and_icons_root_account'
-  | 'extended_submission_state'
+  | 'mobile_offline_mode'
+  | 'product_tours'
+  | 'rce_transform_loaded_content'
   | 'scheduled_page_publication'
   | 'send_usage_metrics'
-  | 'rce_transform_loaded_content'
-  | 'mobile_offline_mode'
-  | 'instui_nav'
+  | 'usage_rights_discussion_topics'
+  | 'account_level_mastery_scales'
+  | 'non_scoring_rubrics'
+  | 'rubric_criterion_range'
 
 /**
  * From ApplicationController#JS_ENV_BRAND_ACCOUNT_FEATURES
@@ -244,11 +290,7 @@ export type BrandAccountFeatureId = 'embedded_release_notes'
  * Feature id exported in ApplicationController that aren't mentioned in
  * JS_ENV_SITE_ADMIN_FEATURES or JS_ENV_ROOT_ACCOUNT_FEATURES or JS_ENV_BRAND_ACCOUNT_FEATURES
  */
-export type OtherFeatureId =
-  | 'canvas_k6_theme'
-  | 'new_math_equation_handling'
-  | 'learner_passport'
-  | 'learner_passport_r2'
+export type OtherFeatureId = 'canvas_k6_theme' | 'new_math_equation_handling' | 'learner_passport'
 
 /**
  * From ApplicationHelper#set_tutorial_js_env

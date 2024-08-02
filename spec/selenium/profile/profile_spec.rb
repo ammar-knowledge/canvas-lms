@@ -46,8 +46,8 @@ describe "profile" do
   def generate_access_token_with_expiration(date, purpose = "testing")
     f(".add_access_token_link").click
     access_token_form = f("#access_token_form")
-    access_token_form.find_element(:id, "access_token_purpose").send_keys(purpose)
-    access_token_form.find_element(:id, "access_token_permanent_expires_at").send_keys(date) unless date.nil?
+    access_token_form.find_element(:id, "token_purpose").send_keys(purpose)
+    access_token_form.find_element(:id, "token_expires_at").send_keys(date) unless date.nil?
     submit_dialog_form(access_token_form)
     wait_for_ajax_requests
     details_dialog = f("#token_details_dialog")
@@ -109,18 +109,11 @@ describe "profile" do
     end
 
     it "adds a new email address on profile settings page" do
-      @user.account.enable_feature!(:international_sms)
       notification_model(category: "Grading")
       notification_policy_model(notification_id: @notification.id)
 
       get "/profile/settings"
       add_email_link
-
-      f('#communication_channels a[href="#register_sms_number"]').click
-
-      click_option("#communication_channel_sms_country", "United States (+1)")
-      replace_content(f("#register_sms_number #communication_channel_sms_email"), "test@example.com")
-      expect(f('#register_sms_number button[type="submit"]')).to be_displayed
       f('#communication_channels a[href="#register_email_address"]').click
       form = f("#register_email_address")
       test_email = "nobody+1234@example.com"
@@ -207,20 +200,137 @@ describe "profile" do
       end
     end
 
-    it "adds another contact method - sms" do
-      @user.account.enable_feature!(:international_sms)
-      test_cell_number = "8017121011"
-      get "/profile/settings"
-      f(".add_contact_link").click
-      click_option("#communication_channel_sms_country", "United States (+1)")
-      register_form = f("#register_sms_number")
-      register_form.find_element(:css, ".sms_number").send_keys(test_cell_number)
-      click_option("select.user_selected.carrier", "AT&T")
-      driver.action.send_keys(:tab).perform
-      submit_form(register_form)
-      wait_for_ajaximations
-      close_visible_dialog
-      expect(f(".other_channels .path")).to include_text(test_cell_number)
+    describe "adding SMS contact method" do
+      let(:original_region) { Shard.current.database_server.config[:region] }
+
+      after do
+        # reset to original region after each test
+        Shard.current.database_server.config[:region] = original_region
+      end
+
+      # scenario 1A: optional MFA, in US region
+      it "shows the SMS number registration form when MFA is optional and in US region" do
+        # temporarily set to a US region needed for SMS tab to appear
+        Shard.current.database_server.config[:region] = "us-west-2"
+        Account.default.settings[:mfa_settings] = :optional
+        Account.default.save!
+        test_cell_number = "8017121011"
+        get "/profile/settings"
+        f(".add_contact_link").click
+        register_form = f("#register_sms_number")
+        register_form.find_element(:css, ".sms_number").send_keys(test_cell_number)
+        driver.action.send_keys(:tab).perform
+        submit_form(register_form)
+        wait_for_ajaximations
+        close_visible_dialog
+        expect(f(".other_channels .path")).to include_text(test_cell_number)
+      end
+
+      # scenario 1B: optional MFA, NOT in US region
+      it "does not show the SMS number registration form when MFA is optional and not in US region" do
+        # set to a non-US region
+        Shard.current.database_server.config[:region] = "eu-central-1"
+        Account.default.settings[:mfa_settings] = :optional
+        Account.default.save!
+        get "/profile/settings"
+        f(".add_contact_link").click
+        # ensure sms number registration form is not present
+        expect(element_exists?("#register_sms_number")).to be false
+        # ensure email address registration form is shown
+        expect(f("#register_email_address")).to be_present
+      end
+
+      # scenario 2A: MFA disabled, in US region
+      it "does not show the SMS number registration form when MFA is disabled and in US region" do
+        # set to a non-US region
+        Shard.current.database_server.config[:region] = "us-west-2"
+        Account.default.settings[:mfa_settings] = :disabled
+        Account.default.save!
+        get "/profile/settings"
+        f(".add_contact_link").click
+        # ensure sms number registration form is not present
+        expect(element_exists?("#register_sms_number")).to be false
+        # ensure email address registration form is shown
+        expect(f("#register_email_address")).to be_present
+      end
+
+      # scenario 2B: MFA disabled, NOT in US region
+      it "does not show the SMS number registration form when MFA is disabled and not in US region" do
+        # set to a non-US region
+        Shard.current.database_server.config[:region] = "eu-central-1"
+        Account.default.settings[:mfa_settings] = :disabled
+        Account.default.save!
+        get "/profile/settings"
+        f(".add_contact_link").click
+        # ensure sms number registration form is not present
+        expect(element_exists?("#register_sms_number")).to be false
+        # ensure email address registration form is shown
+        expect(f("#register_email_address")).to be_present
+      end
+
+      # scenario 3A: MFA required for admins, in US region
+      it "shows the SMS number registration form when MFA is required for admins and in US region" do
+        # temporarily set to a US region needed for SMS tab to appear
+        Shard.current.database_server.config[:region] = "us-west-2"
+        Account.default.settings[:mfa_settings] = :required_for_admins
+        Account.default.save!
+        test_cell_number = "8017121011"
+        get "/profile/settings"
+        f(".add_contact_link").click
+        register_form = f("#register_sms_number")
+        register_form.find_element(:css, ".sms_number").send_keys(test_cell_number)
+        driver.action.send_keys(:tab).perform
+        submit_form(register_form)
+        wait_for_ajaximations
+        close_visible_dialog
+        expect(f(".other_channels .path")).to include_text(test_cell_number)
+      end
+
+      # scenario 3B: MFA required for admins, NOT in US region
+      it "does not show the SMS number registration form when MFA is required for admins and not in US region" do
+        # set to a non-US region
+        Shard.current.database_server.config[:region] = "eu-central-1"
+        Account.default.settings[:mfa_settings] = :required_for_admins
+        Account.default.save!
+        get "/profile/settings"
+        f(".add_contact_link").click
+        # ensure sms number registration form is not present
+        expect(element_exists?("#register_sms_number")).to be false
+        # ensure email address registration form is shown
+        expect(f("#register_email_address")).to be_present
+      end
+
+      # scenario 4A: MFA required, in US region
+      it "shows the SMS number registration form when MFA is required and in US region" do
+        # temporarily set to a US region needed for SMS tab to appear
+        Shard.current.database_server.config[:region] = "us-west-2"
+        Account.default.settings[:mfa_settings] = :required
+        Account.default.save!
+        test_cell_number = "8017121011"
+        get "/profile/settings"
+        f(".add_contact_link").click
+        register_form = f("#register_sms_number")
+        register_form.find_element(:css, ".sms_number").send_keys(test_cell_number)
+        driver.action.send_keys(:tab).perform
+        submit_form(register_form)
+        wait_for_ajaximations
+        close_visible_dialog
+        expect(f(".other_channels .path")).to include_text(test_cell_number)
+      end
+
+      # scenario 4B: MFA required, NOT in US region
+      it "does not show the SMS number registration form when MFA is required but not in US region" do
+        # set to a non-US region
+        Shard.current.database_server.config[:region] = "eu-central-1"
+        Account.default.settings[:mfa_settings] = :required
+        Account.default.save!
+        get "/profile/settings"
+        f(".add_contact_link").click
+        # ensure sms number registration form is not present
+        expect(element_exists?("#register_sms_number")).to be false
+        # ensure email address registration form is shown
+        expect(f("#register_email_address")).to be_present
+      end
     end
 
     it "adds another contact method - slack" do
@@ -309,7 +419,7 @@ describe "profile" do
     it "views the details of an access token" do
       get "/profile/settings"
       generate_access_token("testing", true)
-      # had to use :visible because it was failing saying element wasn't visible
+      # using :visible because we don't want to grab the template element
       fj("#access_tokens .show_token_link:visible").click
       expect(f("#token_details_dialog")).to be_displayed
     end
@@ -318,7 +428,7 @@ describe "profile" do
       skip_if_safari(:alert)
       get "/profile/settings"
       generate_access_token("testing", true)
-      # had to use :visible because it was failing saying element wasn't visible
+      # using :visible because we don't want to grab the template element
       fj("#access_tokens .delete_key_link:visible").click
       expect(driver.switch_to.alert).not_to be_nil
       driver.switch_to.alert.accept
@@ -331,11 +441,32 @@ describe "profile" do
       @token1 = @user.access_tokens.create! purpose: "token_one"
       @token2 = @user.access_tokens.create! purpose: "token_two"
       get "/profile/settings"
-      fj(".delete_key_link[rel$=#{@token2.id}]").click
+      fj(".delete_key_link[rel$='#{@token2.token_hint}']").click
       expect(driver.switch_to.alert).not_to be_nil
       driver.switch_to.alert.accept
       wait_for_ajaximations
-      check_element_has_focus fj(".delete_key_link[rel$=#{@token1.id}]")
+      check_element_has_focus fj(".delete_key_link[rel$='#{@token1.token_hint}']")
+    end
+
+    context "when access token restrictions are enabled" do
+      before do
+        @course.root_account.enable_feature!(:admin_manage_access_tokens)
+        @course.root_account.settings[:limit_personal_access_tokens] = true
+        @course.root_account.save!
+      end
+
+      it "the new token button is disabled for non-admins" do
+        get "/profile/settings"
+        expect(f(".add_access_token_link")).to be_disabled
+      end
+
+      it "doesn't show the regenerate button for non-admins" do
+        @user.access_tokens.create! purpose: "token_one"
+        get "/profile/settings"
+        # using :visible because we don't want to grab the template element
+        fj("#access_tokens .show_token_link:visible").click
+        expect(element_exists?(".regenerate_token")).to be_falsey
+      end
     end
   end
 
@@ -361,7 +492,9 @@ describe "profile" do
     it "saves admin profile pics setting", priority: "1" do
       site_admin_logged_in
       get "/accounts/#{Account.default.id}/settings"
-      f("#account_services_avatars").click
+      avatars = f("#account_services_avatars")
+      scroll_into_view(avatars)
+      avatars.click
       f('.Button.Button--primary[type="submit"]').click
       wait_for_ajaximations
       expect(is_checked("#account_services_avatars")).to be_truthy
@@ -395,6 +528,19 @@ describe "profile" do
     account.save!
     get "/profile"
     expect(fj("h1:contains('User Profile')").attribute("class")).to eq "screenreader-only"
+  end
+
+  it "renders empty state messages when missing information in profile" do
+    user_logged_in
+    account = Account.default
+    account.settings[:enable_profiles] = true
+    account.settings[:enable_name_pronunciation] = true
+    account.save!
+    get "/profile"
+
+    expect(f("#name_pronunciation_empty_message").text).to eq "No name pronunciation provided"
+    expect(f("#biography_empty_message").text).to eq "No biography has been added"
+    expect(f("#links_empty_message").text).to eq "No links have been added"
   end
 
   describe "profile pictures s3 tests" do
@@ -502,6 +648,160 @@ describe "profile" do
       @course.root_account.enable_feature!(:allow_opt_out_of_inbox)
       get "/profile/settings"
       expect(ff("#disable_inbox").count).to eq 1
+    end
+  end
+
+  describe "MFA buttons behavior" do
+    def element_with_text_exists?(selector, text)
+      ff(selector).any? { |element| element.text.include?(text) }
+    end
+
+    context "when mfa_settings is optional" do
+      before do
+        Account.default.settings[:mfa_settings] = :optional
+        Account.default.save!
+        user_logged_in
+      end
+
+      it "shows specific MFA buttons" do
+        get "/profile/settings"
+        expect(element_exists?("#disable_mfa_link")).to be_falsey
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Disable Multi-Factor Authentication")).to be false
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Reconfigure Multi-Factor Authentication")).to be false
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Set Up Multi-Factor Authentication")).to be true
+        expect(element_exists?("#otp_backup_codes_link")).to be_falsey
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Multi-Factor Authentication Backup Codes")).to be false
+      end
+
+      it "shows specific MFA buttons when user has OTP secret key" do
+        @user.update!(otp_secret_key: SecureRandom.base64(32))
+        get "/profile/settings"
+        expect(element_exists?("#disable_mfa_link")).to be_truthy
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Disable Multi-Factor Authentication")).to be true
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Reconfigure Multi-Factor Authentication")).to be true
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Set Up Multi-Factor Authentication")).to be false
+        expect(element_exists?("#otp_backup_codes_link")).to be_truthy
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Multi-Factor Authentication Backup Codes")).to be true
+      end
+    end
+
+    context "when mfa_settings is disabled" do
+      before do
+        Account.default.settings[:mfa_settings] = :disabled
+        Account.default.save!
+        user_logged_in
+      end
+
+      it "hides all MFA buttons" do
+        get "/profile/settings"
+        expect(element_exists?("#disable_mfa_link")).to be_falsey
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Disable Multi-Factor Authentication")).to be false
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Reconfigure Multi-Factor Authentication")).to be false
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Set Up Multi-Factor Authentication")).to be false
+        expect(element_exists?("#otp_backup_codes_link")).to be_falsey
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Multi-Factor Authentication Backup Codes")).to be false
+      end
+
+      it "hides all MFA buttons when user has OTP secret key" do
+        @user.update!(otp_secret_key: SecureRandom.base64(32))
+        get "/profile/settings"
+        expect(element_exists?("#disable_mfa_link")).to be_falsey
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Disable Multi-Factor Authentication")).to be false
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Reconfigure Multi-Factor Authentication")).to be false
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Set Up Multi-Factor Authentication")).to be false
+        expect(element_exists?("#otp_backup_codes_link")).to be_falsey
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Multi-Factor Authentication Backup Codes")).to be false
+      end
+    end
+
+    context "when mfa_settings is required_for_admins" do
+      before do
+        Account.default.settings[:mfa_settings] = :required_for_admins
+        Account.default.save!
+      end
+
+      context "for non-admin users" do
+        before do
+          user_logged_in
+        end
+
+        it "shows specific MFA buttons" do
+          get "/profile/settings"
+          expect(element_exists?("#disable_mfa_link")).to be_falsey
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Disable Multi-Factor Authentication")).to be false
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Reconfigure Multi-Factor Authentication")).to be false
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Set Up Multi-Factor Authentication")).to be true
+          expect(element_exists?("#otp_backup_codes_link")).to be_falsey
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Multi-Factor Authentication Backup Codes")).to be false
+        end
+
+        it "shows specific MFA buttons when user has OTP secret key" do
+          @user.update!(otp_secret_key: SecureRandom.base64(32))
+          get "/profile/settings"
+          expect(element_exists?("#disable_mfa_link")).to be_truthy
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Disable Multi-Factor Authentication")).to be true
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Reconfigure Multi-Factor Authentication")).to be true
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Set Up Multi-Factor Authentication")).to be false
+          expect(element_exists?("#otp_backup_codes_link")).to be_truthy
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Multi-Factor Authentication Backup Codes")).to be true
+        end
+      end
+
+      context "for admin users" do
+        before do
+          admin_logged_in
+        end
+
+        it "shows specific MFA buttons" do
+          get "/profile/settings"
+          expect(element_exists?("#disable_mfa_link")).to be_falsey
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Disable Multi-Factor Authentication")).to be false
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Reconfigure Multi-Factor Authentication")).to be false
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Set Up Multi-Factor Authentication")).to be true
+          expect(element_exists?("#otp_backup_codes_link")).to be_falsey
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Multi-Factor Authentication Backup Codes")).to be false
+        end
+
+        it "shows specific MFA buttons when user has OTP secret key" do
+          @user.update!(otp_secret_key: SecureRandom.base64(32))
+          get "/profile/settings"
+          expect(element_exists?("#disable_mfa_link")).to be_falsey
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Disable Multi-Factor Authentication")).to be false
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Reconfigure Multi-Factor Authentication")).to be true
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Set Up Multi-Factor Authentication")).to be false
+          expect(element_exists?("#otp_backup_codes_link")).to be_truthy
+          expect(element_with_text_exists?(".btn.button-sidebar-wide", "Multi-Factor Authentication Backup Codes")).to be true
+        end
+      end
+    end
+
+    context "when mfa_settings is required" do
+      before do
+        Account.default.settings[:mfa_settings] = :required
+        Account.default.save!
+        user_logged_in
+      end
+
+      it "shows specific MFA buttons" do
+        get "/profile/settings"
+        expect(element_exists?("#disable_mfa_link")).to be_falsey
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Disable Multi-Factor Authentication")).to be false
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Reconfigure Multi-Factor Authentication")).to be false
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Set Up Multi-Factor Authentication")).to be true
+        expect(element_exists?("#otp_backup_codes_link")).to be_falsey
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Multi-Factor Authentication Backup Codes")).to be false
+      end
+
+      it "shows specific MFA buttons when user has OTP secret key" do
+        @user.update!(otp_secret_key: SecureRandom.base64(32))
+        get "/profile/settings"
+        expect(element_exists?("#disable_mfa_link")).to be_falsey
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Disable Multi-Factor Authentication")).to be false
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Reconfigure Multi-Factor Authentication")).to be true
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Set Up Multi-Factor Authentication")).to be false
+        expect(element_exists?("#otp_backup_codes_link")).to be_truthy
+        expect(element_with_text_exists?(".btn.button-sidebar-wide", "Multi-Factor Authentication Backup Codes")).to be true
+      end
     end
   end
 end

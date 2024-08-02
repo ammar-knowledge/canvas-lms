@@ -105,6 +105,7 @@ export default class ShowEventDetailsDialog {
       delUrl: url,
       isRepeating: !!event.calendarEvent?.series_uuid,
       isSeriesHead: !!event.calendarEvent?.series_head,
+      eventType: event.eventType,
     })
   }
 
@@ -122,6 +123,8 @@ export default class ShowEventDetailsDialog {
         const $dialog = $(reservationOverLimitDialog(error)).dialog({
           resizable: false,
           width: 450,
+          modal: true,
+          zIndex: 1000,
           buttons: error.reschedulable
             ? [
                 {

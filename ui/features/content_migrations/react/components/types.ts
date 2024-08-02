@@ -34,8 +34,14 @@ export type ContentMigrationItemAttachment = {
   url: string
 }
 
+export type ProgressWorkflowState = 'queued' | 'running' | 'completed' | 'failed'
+
+export type StatusPillState = ProgressWorkflowState | 'waiting_for_select'
+
 export type ContentMigrationWorkflowState =
   | 'pre_processing'
+  | 'pre_processed'
+  | 'queued'
   | 'failed'
   | 'waiting_for_select'
   | 'running'
@@ -117,3 +123,9 @@ export type AttachmentProgressResponse = ContentMigrationItem & {
   timeStamp: number
   loaded: number
 }
+
+export type UpdateMigrationItemType = (
+  contentMigrationItemId: string,
+  data?: object,
+  noXHR?: boolean
+) => Promise<ContentMigrationItem | undefined>

@@ -25,6 +25,7 @@ import {Discussion} from '../../graphql/Discussion'
 import {DiscussionEntry} from '../../graphql/DiscussionEntry'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import $ from '@canvas/rails-flash-notifications'
+import doFetchApi from '@canvas/do-fetch-api-effect'
 
 const I18n = useI18nScope('discussion_topics_post')
 
@@ -73,11 +74,9 @@ export const updateDiscussionTopicEntryCounts = (
   }
 }
 
-export const updateDiscussionEntryRootEntryCounts = (cache, result, unreadCountChange) => {
+export const updateDiscussionEntryRootEntryCounts = (cache, discussionEntry, unreadCountChange) => {
   const discussionEntryOptions = {
-    id: btoa(
-      'DiscussionEntry-' + result.data.updateDiscussionEntryParticipant.discussionEntry.rootEntryId
-    ),
+    id: btoa('DiscussionEntry-' + discussionEntry.rootEntryId),
     fragment: DiscussionEntry.fragment,
     fragmentName: 'DiscussionEntry',
   }
@@ -186,7 +185,6 @@ export const addReplyToAllRootEntries = (cache, newDiscussionEntry) => {
       query: DISCUSSION_ENTRY_ALL_ROOT_ENTRIES_QUERY,
       variables: {
         discussionEntryID: newDiscussionEntry.rootEntryId,
-        courseID: window.ENV?.course_id,
       },
     }
     const rootEntry = JSON.parse(JSON.stringify(cache.readQuery(options)))
@@ -280,7 +278,7 @@ export const getOptimisticResponse = ({
   if (quotedEntry && Object.keys(quotedEntry).length !== 0) {
     quotedEntry = {
       createdAt: quotedEntry.createdAt,
-      previewMessage: quotedEntry.previewMessage,
+      message: quotedEntry.message,
       author: {
         shortName: quotedEntry.author.shortName,
         __typename: 'User',
@@ -322,6 +320,7 @@ export const getOptimisticResponse = ({
               id: 'USER_PLACEHOLDER',
               _id: ENV.current_user.id,
               avatarUrl: ENV.current_user.avatar_image_url,
+              htmlUrl: ENV.current_user.html_url,
               displayName: ENV.current_user.display_name,
               courseRoles: [],
               pronouns: null,
@@ -370,10 +369,20 @@ export const getOptimisticResponse = ({
         depth,
         __typename: 'DiscussionEntry',
       },
+      mySubAssignmentSubmissions: [],
       errors: null,
       __typename: 'CreateDiscussionEntryPayload',
     },
   }
+}
+
+// data must contain data response to create discussion entry mutation
+export const getCheckpointSubmission = (data, subAssignmentTag) => {
+  return (
+    data.createDiscussionEntry.mySubAssignmentSubmissions?.find(
+      sub => sub.subAssignmentTag === subAssignmentTag
+    ) || {}
+  )
 }
 
 export const buildQuotedReply = (nodes, previewId) => {
@@ -382,10 +391,10 @@ export const buildQuotedReply = (nodes, previewId) => {
   nodes.every(reply => {
     if (reply._id === previewId) {
       preview = {
-        id: previewId,
+        _id: previewId,
         author: {shortName: getDisplayName(reply)},
         createdAt: reply.createdAt,
-        previewMessage: reply.message,
+        message: reply.message,
       }
       return false
     }
@@ -399,6 +408,17 @@ export const isAnonymous = discussionEntry =>
   discussionEntry.anonymousAuthor !== null &&
   discussionEntry.author === null
 
+const urlParams = new URLSearchParams(window.location.search)
+const hiddenUserId = urlParams.get('hidden_user_id')
+export const hideStudentNames = !!hiddenUserId
+
+export const userNameToShow = (originalName, authorId, course_roles) => {
+  if (hideStudentNames && course_roles?.includes('StudentEnrollment')) {
+    return hiddenUserId === authorId ? I18n.t('This Student') : I18n.t('Discussion Participant')
+  }
+  return originalName
+}
+
 export const getDisplayName = discussionEntry => {
   if (isAnonymous(discussionEntry)) {
     if (discussionEntry.anonymousAuthor.shortName === CURRENT_USER) {
@@ -409,7 +429,10 @@ export const getDisplayName = discussionEntry => {
     }
     return I18n.t('Anonymous %{id}', {id: discussionEntry.anonymousAuthor.id})
   }
-  return discussionEntry.author?.displayName || discussionEntry.author?.shortName
+
+  const author = discussionEntry.author
+  const name = author?.displayName || author?.shortName
+  return userNameToShow(name, author?._id, author?.courseRoles)
 }
 
 export const showErrorWhenMessageTooLong = message => {
@@ -430,3 +453,43 @@ export const showErrorWhenMessageTooLong = message => {
   }
   return false
 }
+
+export const getTranslation = async (
+  text,
+  translateTargetLanguage,
+  setter,
+  setIsTranslating = () => {}
+) => {
+  if (text === undefined || text == null) {
+    return // Do nothing, there is no text to translate
+  }
+
+  const apiPath = `/courses/${ENV.course_id}/translate`
+
+  // Remove any tags from the string to be translated
+  const parsedDocument = new DOMParser().parseFromString(text, 'text/html')
+  const toTranslate = parsedDocument.documentElement.textContent
+
+  try {
+    setIsTranslating(true)
+    const {json} = await doFetchApi({
+      method: 'POST',
+      path: apiPath,
+      body: {
+        inputs: {
+          src_lang: 'en', // TODO: detect source language.
+          tgt_lang: translateTargetLanguage,
+          text: toTranslate,
+        },
+      },
+    })
+    // Join together all the text with a separator, so that the original text remains separate
+    setter([text, translationSeparator, json.translated_text].join(''))
+  } catch (e) {
+    // TODO: Do something with the error message.
+  }
+
+  setIsTranslating(false)
+}
+
+export const translationSeparator = '\n\n----------\n\n\n'

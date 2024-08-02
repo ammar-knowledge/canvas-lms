@@ -28,6 +28,7 @@ class AssignmentOverride < ActiveRecord::Base
   SET_TYPE_COURSE_SECTION = "CourseSection"
   SET_TYPE_GROUP = "Group"
   SET_TYPE_NOOP = "Noop"
+  SET_TYPE_COURSE = "Course"
 
   simply_versioned keep: 10
 
@@ -86,7 +87,7 @@ class AssignmentOverride < ActiveRecord::Base
   end
 
   validate do |record|
-    if [record.assignment, record.quiz, record.context_module, record.wiki_page, record.discussion_topic, record.attachment].all?(&:nil?)
+    if record.overridable.nil?
       record.errors.add :base, "assignment, quiz, module, page, discussion, or file required"
     end
   end
@@ -124,13 +125,19 @@ class AssignmentOverride < ActiveRecord::Base
     end
   end
 
+  validate do |record|
+    if record.context_module? && (record.due_at || record.unlock_at || record.lock_at ||
+      record.due_at_overridden || record.unlock_at_overridden || record.lock_at_overridden)
+      record.errors.add :base, "cannot set dates for context module overrides"
+    end
+  end
+
   after_save :touch_assignment, if: :assignment
   after_save :update_grading_period_grades
   after_save :update_due_date_smart_alerts, if: :update_cached_due_dates?
   after_commit :update_cached_due_dates
 
   def set_not_empty?
-    overridable = assignment || quiz || context_module
     ["CourseSection", "Group", SET_TYPE_NOOP, "Course"].include?(set_type) ||
       (set.any? && overridable.context.current_enrollments.where(user_id: set).exists?)
   end
@@ -138,7 +145,7 @@ class AssignmentOverride < ActiveRecord::Base
   def update_grading_period_grades
     return true unless due_at_overridden && saved_change_to_due_at? && !saved_change_to_id?
 
-    course = assignment&.context || quiz&.context || quiz&.assignment&.context
+    course = overridable&.context || quiz&.assignment&.context
     return true unless course&.grading_periods?
 
     grading_period_was = GradingPeriod.for_date_in_course(date: due_at_before_last_save, course:)
@@ -338,6 +345,10 @@ class AssignmentOverride < ActiveRecord::Base
     set if set_type == "Group"
   end
 
+  def overridable
+    assignment || quiz || context_module || discussion_topic || wiki_page || attachment
+  end
+
   def for_nonactive_enrollment?
     !!@for_nonactive_enrollment
   end
@@ -386,7 +397,7 @@ class AssignmentOverride < ActiveRecord::Base
     return Enrollment.none if overrides.empty? || user.nil?
 
     override = overrides.first
-    (override.assignment || override.quiz || override.context_module).context.enrollments_visible_to(user)
+    override.overridable.context.enrollments_visible_to(user)
   end
 
   OVERRIDDEN_DATES = %i[due_at unlock_at lock_at].freeze
@@ -525,7 +536,7 @@ class AssignmentOverride < ActiveRecord::Base
 
   def root_account_id
     # Use the attribute if available, otherwise fall back to getting it from a parent entity
-    super || assignment&.root_account_id || quiz&.root_account_id || quiz&.assignment&.root_account_id || context_module&.root_account_id || wiki_page&.root_account_id || discussion_topic&.root_account_id || attachment&.root_account_id
+    super || overridable&.root_account_id || quiz&.assignment&.root_account_id
   end
 
   def set_root_account_id

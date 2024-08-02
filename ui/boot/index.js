@@ -24,11 +24,13 @@ import filterUselessConsoleMessages from '../../packages/filter-console-messages
 import moment from 'moment'
 import './initializers/fakeRequireJSFallback'
 import './initializers/ujsLinks'
-import {up as configureDateTimeMomentParser} from './initializers/configureDateTimeMomentParser'
-import {up as configureDateTime} from './initializers/configureDateTime'
+import './initializers/initMutexes'
+import {up as configureDateTimeMomentParser} from '@canvas/datetime/configureDateTimeMomentParser'
+import {up as configureDateTime} from '@canvas/datetime/configureDateTime'
 import {initSentry} from './initializers/initSentry'
 import {up as renderRailsFlashNotifications} from './initializers/renderRailsFlashNotifications'
-import {up as activateCourseMenuToggler} from './initializers/activateCourseMenuToggler'
+import {up as installNodeDecorations} from './initializers/installNodeDecorations'
+import {up as activateCourseMenuToggler} from '@canvas/common/activateCourseMenuToggler'
 
 // Import is required, workaround for ARC-8398
 // eslint-disable-next-line import/no-nodejs-modules
@@ -43,6 +45,9 @@ try {
   console.error('Failed to init Sentry, errors will not be captured', e)
 }
 
+// add our custom method(s) to DOM classes if necessary
+installNodeDecorations()
+
 // we already put a <script> tag for the locale corresponding ENV.MOMENT_LOCALE
 // on the page from rails, so this should not cause a new network request.
 moment().locale(ENV.MOMENT_LOCALE)
@@ -53,9 +58,7 @@ let runOnceAfterLocaleFiles = () => {
   renderRailsFlashNotifications()
   activateCourseMenuToggler()
   import('@canvas/enhanced-user-content')
-    .then(({enhanceTheEntireUniverse}) => {
-      return enhanceTheEntireUniverse()
-    })
+    .then(({enhanceTheEntireUniverse}) => enhanceTheEntireUniverse())
     .catch(e => {
       // eslint-disable-next-line no-console
       console.error('Failed to init @canvas/enhanced-user-content', e)

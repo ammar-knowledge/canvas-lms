@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "atom"
-
 class Wiki < ActiveRecord::Base
   has_many :wiki_pages, dependent: :destroy
   has_one :course
@@ -64,13 +62,12 @@ class Wiki < ActiveRecord::Base
   end
 
   def to_atom
-    Atom::Entry.new do |entry|
-      entry.title     = title
-      entry.updated   = updated_at
-      entry.published = created_at
-      entry.links << Atom::Link.new(rel: "alternate",
-                                    href: "/wikis/#{id}")
-    end
+    {
+      title:,
+      updated: updated_at,
+      published: created_at,
+      link: "/wikis/#{id}"
+    }
   end
 
   def update_default_wiki_page_roles(new_roles, old_roles)
@@ -173,6 +170,9 @@ class Wiki < ActiveRecord::Base
       context.grants_right?(user, session, :manage_wiki_update) && !context.is_a?(Group)
     end
     can :publish_page
+
+    given { |user, session| user && context.is_a?(Course) && context.grants_right?(user, session, :manage_wiki_update) }
+    can :manage_assign_to
   end
 
   def self.wiki_for_context(context)

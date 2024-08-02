@@ -27,20 +27,21 @@ import {Heading} from '@instructure/ui-heading'
 import {IconButton} from '@instructure/ui-buttons'
 import {ToggleDetails} from '@instructure/ui-toggle-details'
 import {
-  IconXLine,
   IconAdminLine,
-  IconCoursesLine,
-  IconGroupLine,
-  IconDashboardLine,
-  IconLockLine,
-  IconQuestionLine,
-  IconInboxLine,
   IconCalendarMonthLine,
   IconClockLine,
+  IconCoursesLine,
+  IconDashboardLine,
+  IconExternalLinkLine,
+  IconGroupLine,
   IconHomeLine,
+  IconInboxLine,
+  IconLockLine,
+  IconQuestionLine,
+  IconXLine,
 } from '@instructure/ui-icons'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import HelpDialog from './HelpDialog/index'
+import HelpDialog from '@canvas/help-dialog'
 import {Link} from '@instructure/ui-link'
 import CoursesList from './lists/CoursesList'
 import GroupsList from './lists/GroupsList'
@@ -49,8 +50,9 @@ import ProfileTabsList from './lists/ProfileTabsList'
 import HistoryList from './lists/HistoryList'
 import {useQuery} from '@canvas/query'
 import {getUnreadCount} from './queries/unreadCountQuery'
-import {getExternalTools} from './utils'
-import type {ExternalTool} from './utils'
+import {filterAndProcessTools, getExternalApps, type ProcessedTool} from './utils'
+import {SVGIcon} from '@instructure/ui-svg-images'
+import {Img} from '@instructure/ui-img'
 
 const I18n = useI18nScope('MobileGlobalMenu')
 
@@ -59,7 +61,6 @@ type Props = {
 }
 
 export default function MobileGlobalMenu(props: Props) {
-  const externalTools = useMemo<ExternalTool[]>(() => getExternalTools(), [])
   const showGroups = useMemo(() => Boolean(document.getElementById('global_nav_groups_link')), [])
   const countsEnabled = Boolean(
     window.ENV.current_user_id && !window.ENV.current_user?.fake_student
@@ -72,6 +73,17 @@ export default function MobileGlobalMenu(props: Props) {
     display_name: string
     avatar_image_url: string
   } = window.ENV.current_user
+
+  const {data: externalToolsData} = useQuery({
+    queryKey: ['external_tools'],
+    queryFn: getExternalApps,
+    staleTime: 2 * 60 * 1000, // two minutes,
+    enabled: true,
+  })
+  const processedTools = useMemo(
+    () => filterAndProcessTools(externalToolsData || []),
+    [externalToolsData]
+  )
 
   const {data: unreadConversationsCount, isSuccess: unreadConversationsCountHasLoaded} = useQuery({
     queryKey: ['unread_count', 'conversations'],
@@ -253,27 +265,24 @@ export default function MobileGlobalMenu(props: Props) {
           </Link>
         </List.Item>
 
-        {externalTools.map(tool => (
-          <List.Item key={tool.href}>
-            <Link href={tool.href || ''} isWithinText={false} display="block">
+        {processedTools.map((tool: ProcessedTool) => (
+          <List.Item key={tool.toolId}>
+            <Link href={tool.href || '#'} isWithinText={false} display="block">
               <Flex>
                 <Flex.Item width="3rem">
-                  {'svgPath' in tool ? (
-                    <svg
-                      version="1.1"
-                      xmlns="http://www.w3.org/2000/svg"
-                      xmlnsXlink="http://www.w3.org/1999/xlink"
+                  {tool.svgPath ? (
+                    <SVGIcon
+                      size="small"
                       viewBox="0 0 64 64"
-                      dangerouslySetInnerHTML={{__html: tool.svgPath}}
-                      width="1em"
-                      height="1em"
-                      aria-hidden="true"
-                      role="presentation"
-                      focusable="false"
-                      style={{fill: 'currentColor', fontSize: 32}}
-                    />
+                      title="svg-external-tool"
+                      color="auto"
+                    >
+                      <path d={tool.svgPath} />
+                    </SVGIcon>
+                  ) : tool.toolImg ? (
+                    <Img width="26px" height="26px" src={tool.toolImg} alt="" />
                   ) : (
-                    <img width="1em" height="1em" src={tool.imgSrc} alt="" />
+                    <IconExternalLinkLine data-testid="IconExternalLinkLine" size="small" />
                   )}
                 </Flex.Item>
                 <Flex.Item>

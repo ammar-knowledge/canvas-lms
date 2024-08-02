@@ -19,13 +19,10 @@
 #
 
 describe RubricsController do
-  before do
-    Account.site_admin.disable_feature!(:enhanced_rubrics)
-  end
-
   describe "GET 'index'" do
     it "requires authorization" do
       course_with_teacher(active_all: true)
+      @course.account.disable_feature!(:enhanced_rubrics)
       get "index", params: { course_id: @course.id }
       assert_unauthorized
     end
@@ -64,6 +61,7 @@ describe RubricsController do
       before do
         course_with_teacher_logged_in(active_all: true)
         @course.complete!
+        @course.account.disable_feature!(:enhanced_rubrics)
       end
 
       it "can access rubrics" do
@@ -78,7 +76,7 @@ describe RubricsController do
       end
 
       it "sets correct permissions with enhanced_rubrics enabled" do
-        Account.site_admin.enable_feature!(:enhanced_rubrics)
+        @course.account.enable_feature!(:enhanced_rubrics)
         get "index", params: { course_id: @course.id }
         expect(assigns[:js_env][:PERMISSIONS][:manage_rubrics]).to be false
       end
@@ -86,8 +84,8 @@ describe RubricsController do
 
     describe "with enhanced_rubrics enabled" do
       before do
-        Account.site_admin.enable_feature!(:enhanced_rubrics)
         course_with_teacher_logged_in(active_all: true)
+        @course.account.enable_feature!(:enhanced_rubrics)
       end
 
       it "can access rubrics" do
@@ -100,6 +98,16 @@ describe RubricsController do
         get "index", params: { course_id: "create" }
 
         expect(response).to render_template("layouts/application")
+      end
+
+      it "sets correct breadcrumbs" do
+        @course.account.enable_feature!(:enhanced_rubrics)
+        get "index", params: { course_id: @course.id }
+        expected_breadcrumbs = [
+          { name: "Unnamed", url: "/courses/#{@course.id}" },
+          { name: "Rubrics", url: "/courses/#{@course.id}/rubrics" },
+        ]
+        expect(assigns[:js_env][:breadcrumbs]).to eq(expected_breadcrumbs)
       end
     end
   end
@@ -216,8 +224,8 @@ describe RubricsController do
     end
 
     it "generates criterion record if enhanced_rubrics is turned on" do
-      Account.site_admin.enable_feature!(:enhanced_rubrics)
       course_with_teacher_logged_in(active_all: true)
+      @course.account.enable_feature!(:enhanced_rubrics)
       assignment = @course.assignments.create!(assignment_valid_attributes)
       create_params = {
         "course_id" => @course.id,
@@ -468,8 +476,8 @@ describe RubricsController do
     end
 
     it "updates the criteria records if changed and enhanced_rubrics is turned on" do
-      Account.site_admin.enable_feature!(:enhanced_rubrics)
       course_with_teacher_logged_in(active_all: true)
+      @course.account.enable_feature!(:enhanced_rubrics)
       assignment = @course.assignments.create!(assignment_valid_attributes)
       create_params = {
         "course_id" => @course.id,
@@ -1051,7 +1059,7 @@ describe RubricsController do
         end
 
         it "sets correct permissions with enhanced_rubrics enabled" do
-          Account.site_admin.enable_feature!(:enhanced_rubrics)
+          @course.account.enable_feature!(:enhanced_rubrics)
           get "show", params: { id: @r.id, course_id: @course.id }
           expect(assigns[:js_env][:PERMISSIONS][:manage_rubrics]).to be false
         end
@@ -1060,7 +1068,7 @@ describe RubricsController do
 
     describe "with enhanced_rubrics enabled" do
       before do
-        Account.site_admin.enable_feature!(:enhanced_rubrics)
+        @course.account.enable_feature!(:enhanced_rubrics)
         course_with_teacher_logged_in(active_all: true)
       end
 

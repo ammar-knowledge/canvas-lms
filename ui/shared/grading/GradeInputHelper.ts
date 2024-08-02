@@ -48,7 +48,7 @@ function percentageFromPoints(points: number, pointsPossible: number): number {
   return toNumber(new Big(points).div(pointsPossible).times(100))
 }
 
-function invalid(value) {
+function invalid(value, options) {
   return {
     enteredAs: null,
     late_policy_status: null,
@@ -56,6 +56,7 @@ function invalid(value) {
     grade: value,
     score: null,
     valid: false,
+    subAssignmentTag: options.subAssignmentTag,
   }
 }
 
@@ -74,7 +75,12 @@ function parseAsGradingScheme(value: number, options): null | GradeInput {
     enteredAs: 'gradingScheme',
     percent: options.pointsPossible ? percentage : 0,
     points: options.pointsPossible ? pointsFromPercentage(percentage, options.pointsPossible) : 0,
-    schemeKey: scoreToGrade(percentage, options.gradingScheme),
+    schemeKey: scoreToGrade(
+      percentage,
+      options.gradingScheme,
+      options.pointsBasedGradingScheme,
+      options.scalingFactor
+    ),
   }
 }
 
@@ -99,7 +105,12 @@ function parseAsPercent(value: string, options): null | GradeInput {
     enteredAs: 'percent',
     percent,
     points,
-    schemeKey: scoreToGrade(percent, options.gradingScheme),
+    schemeKey: scoreToGrade(
+      percent,
+      options.gradingScheme,
+      options.pointsBasedGradingScheme,
+      options.scalingFactor
+    ),
   }
 }
 
@@ -115,7 +126,12 @@ function parseAsPoints(value: string, options): null | GradeInput {
     enteredAs: 'points',
     percent: null,
     points,
-    schemeKey: scoreToGrade(percent, options.gradingScheme),
+    schemeKey: scoreToGrade(
+      percent,
+      options.gradingScheme,
+      options.pointsBasedGradingScheme,
+      options.scalingFactor
+    ),
   }
 }
 
@@ -133,10 +149,11 @@ function parseForGradingScheme(value, options): GradeResult {
       grade: result.schemeKey,
       score: result.points,
       valid: true,
+      subAssignmentTag: options.subAssignmentTag,
     }
   }
 
-  return invalid(value)
+  return invalid(value, options)
 }
 
 function parseForPercent(value, options): GradeResult {
@@ -151,10 +168,11 @@ function parseForPercent(value, options): GradeResult {
       grade: `${result.percent}%`,
       score: result.points,
       valid: true,
+      subAssignmentTag: options.subAssignmentTag,
     }
   }
 
-  return invalid(value)
+  return invalid(value, options)
 }
 
 function parseForPoints(value, options) {
@@ -171,10 +189,11 @@ function parseForPoints(value, options) {
       grade: `${result.points}`,
       score: result.points,
       valid: true,
+      subAssignmentTag: options.subAssignmentTag,
     }
   }
 
-  return invalid(value)
+  return invalid(value, options)
 }
 
 function parseForPassFail(value: string, options: {pointsPossible: number}): GradeResult {
@@ -187,6 +206,7 @@ function parseForPassFail(value: string, options: {pointsPossible: number}): Gra
     grade: cleanValue,
     valid: true,
     score: null,
+    subAssignmentTag: options.subAssignmentTag,
   }
 
   if (cleanValue === 'complete') {
@@ -194,7 +214,7 @@ function parseForPassFail(value: string, options: {pointsPossible: number}): Gra
   } else if (cleanValue === 'incomplete') {
     result.score = 0
   } else {
-    return invalid(value)
+    return invalid(value, options)
   }
 
   return result
@@ -267,6 +287,7 @@ export function parseTextValue(value: string, options): GradeResult {
       grade: null,
       score: null,
       valid: true,
+      subAssignmentTag: options.subAssignmentTag,
     }
   }
 
@@ -278,6 +299,7 @@ export function parseTextValue(value: string, options): GradeResult {
       grade: null,
       score: null,
       valid: true,
+      subAssignmentTag: options.subAssignmentTag,
     }
   }
 
@@ -289,6 +311,7 @@ export function parseTextValue(value: string, options): GradeResult {
       grade: null,
       score: null,
       valid: true,
+      subAssignmentTag: options.subAssignmentTag,
     }
   }
 

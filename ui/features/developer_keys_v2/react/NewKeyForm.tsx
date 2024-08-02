@@ -34,9 +34,9 @@ import React from 'react'
 import Scopes from './Scopes'
 import ToolConfigurationForm from './ToolConfigurationForm'
 import type {AvailableScope} from './reducers/listScopesReducer'
-import type {DeveloperKey} from '../model/DeveloperKey'
+import type {DeveloperKey} from '../model/api/DeveloperKey'
 
-type Props = {
+export type NewKeyFormProps = {
   dispatch: Function
   listDeveloperKeyScopesSet: Function
   isLtiKey: boolean | undefined
@@ -71,14 +71,15 @@ const clientCredentialsAudienceTooltip = I18n.t(
   'Will credentials issued by this key be presented to Canvas or to a peer service (e.g. Canvas Data)?'
 )
 
-export default class NewKeyForm extends React.Component<Props> {
+export default class NewKeyForm extends React.Component<NewKeyFormProps> {
   keyFormRef: HTMLFormElement | null = null
 
   toolConfigRef: ToolConfigurationForm | null = null
 
   state = {
     invalidJson: null,
-    parsedJson: null,
+    jsonString: null,
+    canPrettify: false,
   }
 
   static defaultProps = {
@@ -113,10 +114,11 @@ export default class NewKeyForm extends React.Component<Props> {
     this.props.updateDeveloperKey('test_cluster_only', !this.props.developerKey.test_cluster_only)
   }
 
-  updatePastedJson = (value: string) => {
+  updatePastedJson = (value: string, prettify: boolean = false) => {
     try {
       const settings = JSON.parse(value)
-      this.setState({invalidJson: null, parsedJson: settings})
+      const jsonString = prettify ? JSON.stringify(settings, null, 2) : value
+      this.setState({invalidJson: null, jsonString, canPrettify: !prettify})
 
       if (!this.props.hasRedirectUris) {
         this.props.updateDeveloperKey('redirect_uris', settings.target_link_uri || '')
@@ -125,8 +127,14 @@ export default class NewKeyForm extends React.Component<Props> {
       this.updateToolConfiguration(settings)
     } catch (e) {
       if (e instanceof SyntaxError) {
-        this.setState({invalidJson: value})
+        this.setState({invalidJson: value, canPrettify: false})
       }
+    }
+  }
+
+  prettifyPastedJson = () => {
+    if (this.state.jsonString) {
+      this.updatePastedJson(this.state.jsonString, true)
     }
   }
 
@@ -222,7 +230,6 @@ export default class NewKeyForm extends React.Component<Props> {
                   onChange={e => updateDeveloperKey('notes', e.target.value)}
                   resize="both"
                 />
-                {/* @ts-expect-error */}
                 {ENV.enableTestClusterChecks && !isLtiKey ? (
                   <Checkbox
                     label={I18n.t('Test Cluster Only')}
@@ -277,13 +284,13 @@ export default class NewKeyForm extends React.Component<Props> {
                   toolConfigurationUrl={toolConfigurationUrl}
                   configurationMethod={this.props.configurationMethod}
                   updateConfigurationMethod={this.props.updateConfigurationMethod}
-                  // @ts-expect-error
                   validScopes={ENV.validLtiScopes}
-                  // @ts-expect-error
                   validPlacements={ENV.validLtiPlacements}
                   invalidJson={this.state.invalidJson}
-                  parsedJson={this.state.parsedJson}
+                  jsonString={this.state.jsonString}
                   updatePastedJson={this.updatePastedJson}
+                  canPrettify={this.state.canPrettify}
+                  prettifyPastedJson={this.prettifyPastedJson}
                 />
               ) : (
                 <Scopes

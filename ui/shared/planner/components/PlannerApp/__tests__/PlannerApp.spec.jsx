@@ -18,7 +18,8 @@
 import React from 'react'
 import moment from 'moment-timezone'
 import MockDate from 'mockdate'
-import {shallow, mount} from 'enzyme'
+import {shallow} from 'enzyme'
+import {render} from '@testing-library/react'
 import {PlannerApp, mapStateToProps} from '../index'
 
 const TZ = 'Asia/Tokyo'
@@ -77,12 +78,12 @@ describe('PlannerApp', () => {
   })
 
   it('shows only the loading component when the isLoading prop is true', () => {
-    const wrapper = shallow(<PlannerApp {...getDefaultValues()} isLoading />)
+    const wrapper = shallow(<PlannerApp {...getDefaultValues()} isLoading={true} />)
     expect(wrapper).toMatchSnapshot()
   })
 
   it('shows the loading past indicator when loadingPast prop is true', () => {
-    const wrapper = shallow(<PlannerApp {...getDefaultValues()} loadingPast />)
+    const wrapper = shallow(<PlannerApp {...getDefaultValues()} loadingPast={true} />)
     expect(wrapper).toMatchSnapshot()
   })
 
@@ -93,7 +94,7 @@ describe('PlannerApp', () => {
         timeZone="UTC"
         changeDashboardView={() => {}}
         firstNewActivityDate={moment().add(-1, 'days')}
-        loadingPast
+        loadingPast={true}
       />
     )
     expect(wrapper).toMatchSnapshot()
@@ -115,14 +116,14 @@ describe('PlannerApp', () => {
   })
 
   it('does not show load prior items button when all past items are loaded', () => {
-    const wrapper = shallow(<PlannerApp {...getDefaultValues()} allPastItemsLoaded />)
+    const wrapper = shallow(<PlannerApp {...getDefaultValues()} allPastItemsLoaded={true} />)
     expect(wrapper.find('ShowOnFocusButton')).toHaveLength(0)
   })
 
   describe('focus handling', () => {
     const dae = document.activeElement
     let containerElement = null
-    let wrapper = null
+    const wrapper = null
 
     beforeEach(() => {
       containerElement = document.createElement('div')
@@ -137,18 +138,29 @@ describe('PlannerApp', () => {
 
     it('calls fallbackFocus when the load prior focus button disappears', () => {
       const focusFallback = jest.fn()
-      wrapper = mount(
+      const ref = React.createRef()
+      const wrapper = render(
         <PlannerApp
           {...getDefaultValues()}
           days={[]}
           allPastItemsLoaded={false}
           focusFallback={focusFallback}
+          ref={ref}
         />,
         {attachTo: containerElement}
       )
-      const button = wrapper.find('ShowOnFocusButton button')
-      button.getDOMNode().focus()
-      wrapper.setProps({allPastItemsLoaded: true})
+      const button = wrapper.getByText('Load prior dates')
+      button.focus()
+      wrapper.rerender(
+        <PlannerApp
+          {...getDefaultValues()}
+          days={[]}
+          allPastItemsLoaded={true}
+          focusFallback={focusFallback}
+          ref={ref}
+        />,
+        {attachTo: containerElement}
+      )
       expect(focusFallback).toHaveBeenCalled()
     })
   })

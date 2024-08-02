@@ -38,6 +38,12 @@
     "afrikaans_da0fe6ee": {
         "message": "Afrikaans"
     },
+    "ai_response_9624e8e8": {
+        "message": "Repons AI"
+    },
+    "ai_tools_fda01177": {
+        "message": "Zouti AI"
+    },
     "albanian_21ed929e": {
         "message": "Albanyen"
     },
@@ -76,6 +82,9 @@
     },
     "an_error_occurred_making_a_network_request_d1bda348": {
         "message": "Gen yon erè ki fèt pandan demann rezo a"
+    },
+    "an_error_occurred_processing_your_request_a3a38d84": {
+        "message": "Gen yon erè ki fèt nan tretman demann ou an"
     },
     "an_error_occurred_uploading_your_media_71f1444d": {
         "message": "Gen yon erè ki pase pandan chajman medya ou a."
@@ -347,6 +356,9 @@
     "complex_numbers_a543d004": {
         "message": "Nonm Konplèks"
     },
+    "compose_44c904f4": {
+        "message": "Konpoze"
+    },
     "computer_1d7dfa6f": {
         "message": "Òdinatè"
     },
@@ -359,6 +371,9 @@
     "content_1440204b": {
         "message": "Kontni"
     },
+    "content_in_the_editor_will_be_changed_press_cancel_d5bf3357": {
+        "message": "Kontni ki nan editè a ap chanje. Peze Cancel pou w ka konsève kontni orijinal la."
+    },
     "content_is_still_being_uploaded_if_you_continue_it_8f06d0cb": {
         "message": "Kontni an ap transfere toujou, si w kontinye li pa p entegre jan li ta dwe a."
     },
@@ -370,6 +385,9 @@
     },
     "coproduct_e7838082": {
         "message": "Kopwodui"
+    },
+    "copy_9748f9f": {
+        "message": "Kopye"
     },
     "copyright_holder_66ee111": {
         "message": "Titilè Dwa Otè:"
@@ -548,6 +566,9 @@
     "disjoint_union_e74351a8": {
         "message": "Inyon Disosye"
     },
+    "dislike_14befc48": {
+        "message": "Pa renmen"
+    },
     "display_options_315aba85": {
         "message": "Opsyon Afichaj"
     },
@@ -686,6 +707,15 @@
     "enter_at_least_3_characters_to_search_4f037ee0": {
         "message": "Antre omwen 3 karaktè pou ka chèche"
     },
+    "enter_replacement_text_17631bbc": {
+        "message": "Antre tèks ranplasman an"
+    },
+    "enter_search_text_26cb4459": {
+        "message": "Antre tèks rechèch la"
+    },
+    "enter_text_8b35c65b": {
+        "message": "Antre tèks"
+    },
     "epsilon_54bb8afa": {
         "message": "Epsilon"
     },
@@ -752,6 +782,9 @@
     "failed_getting_file_contents_e9ea19f4": {
         "message": "Echèk rekiperasyon kontni fichye yo"
     },
+    "failed_to_copy_response_d3def551": {
+        "message": "Echwe pou kopye repons"
+    },
     "failed_to_retrieve_content_from_external_tool_5899c213": {
         "message": "Echwe pou rekipere kontni nan zouti ekstèn nan"
     },
@@ -781,6 +814,12 @@
     },
     "filipino_33339264": {
         "message": "Filipin"
+    },
+    "find_8d605019": {
+        "message": "Jwenn"
+    },
+    "find_and_replace_6e345933": {
+        "message": "Jwenn epi Ranplase"
     },
     "finish_bc343002": {
         "message": "Fini"
@@ -947,6 +986,12 @@
     "height_69b03e15": {
         "message": "Wotè"
     },
+    "hello_please_describe_the_modifications_you_would__49b19837": {
+        "message": "Bonjou. Tanpri, dekri chanjman ou ta renmen fè nan konpozisyon ou an."
+    },
+    "hello_please_describe_the_modifications_you_would__600dbbf0": {
+        "message": "Bonjou. Tanpri, dekri chanjman ou ta renmen fè nan seleksyon ou an."
+    },
     "hexagon_d8468e0d": {
         "message": "Egzagòn"
     },
@@ -979,6 +1024,9 @@
     },
     "i_hold_the_copyright_71ee91b1": {
         "message": "Mwen gen dwa dotè a"
+    },
+    "i_m_sorry_but_i_cannot_find_the_ai_s_answer_67569d19": {
+        "message": "Dezole, mwen paka jwenn reponn AI a"
     },
     "icelandic_9d6d35de": {
         "message": "Islandè"
@@ -1057,6 +1105,9 @@
     },
     "indefinite_integral_6623307e": {
         "message": "Entegral Endefini"
+    },
+    "index_of_max_80dcf7a5": {
+        "message": "{ index } de { max }"
     },
     "indigo_2035fc55": {
         "message": "Indigo"
@@ -1364,6 +1415,9 @@
     "miscellaneous_e9818229": {
         "message": "Divès"
     },
+    "modify_6b0b13e3": {
+        "message": "Modifye"
+    },
     "module_90d9fd32": {
         "message": "Modil"
     },
@@ -1430,6 +1484,9 @@
     "next_40e12421": {
         "message": "Pwochen"
     },
+    "next_findtext_9d69f0fe": {
+        "message": "Pwochen { findText }"
+    },
     "no_accessibility_issues_were_detected_f8d3c875": {
         "message": "Nou pa t detekte okenn pwoblèm aksesibilite."
     },
@@ -1486,6 +1543,9 @@
     },
     "no_results_940393cf": {
         "message": "Okenn rezilta."
+    },
+    "no_results_found_58717065": {
+        "message": "Nou pa jwenn rezilta"
     },
     "no_results_found_for_filterterm_ad1b04c8": {
         "message": "Nou pa jwenn rezilta pou { filterTerm }"
@@ -1658,6 +1718,9 @@
     "please_allow_canvas_to_access_your_microphone_and__dc2c3079": {
         "message": "Tanpri pèmèt Canvas gen aksè a mikwofòn e kamera ou a."
     },
+    "please_decribe_what_you_would_like_to_compose_27a51be5": {
+        "message": "Tanpri dekri kisa w ta renmen konpoze."
+    },
     "plus_d43cd4ec": {
         "message": "Plis"
     },
@@ -1685,6 +1748,9 @@
     "preformatted_d0670862": {
         "message": "Prefòmate"
     },
+    "prepend_findtext_append_8e0e769a": {
+        "message": "{ prepend }{ findText }{ append }"
+    },
     "prev_f82cbc48": {
         "message": "Anvan"
     },
@@ -1699,6 +1765,12 @@
     },
     "preview_inline_9787330": {
         "message": "Apèsi an liy"
+    },
+    "previous_bd2ac015": {
+        "message": "Anvan"
+    },
+    "previous_findtext_8dfbfd30": {
+        "message": "Anvan { findText }"
     },
     "prime_917ea60e": {
         "message": "Premye"
@@ -1772,8 +1844,26 @@
     "remove_link_d1f2f4d0": {
         "message": "Elimine Lyen"
     },
+    "replace_all_d3d68b3": {
+        "message": "Ranplase Tout"
+    },
+    "replace_all_findtext_with_replacetext_da574b32": {
+        "message": "Ranplase tout { findText } pa { replaceText }"
+    },
     "replace_e61834a7": {
         "message": "Ranplase"
+    },
+    "replace_findtext_with_replacetext_7b5c7fb3": {
+        "message": "Ranplase { findText } pa { replaceText }"
+    },
+    "replace_with_eeff01ad": {
+        "message": "Ranplase ak"
+    },
+    "replaced_alertfindtext_with_alertreplacetext_de5c1795": {
+        "message": "te ranplase { alertFindText } pa { alertReplaceText }"
+    },
+    "replaced_all_alertfindtext_with_alertreplacetext_83fdfe59": {
+        "message": "Te ranplase tout { alertFindText } pa { alertReplaceText }"
     },
     "reset_95a81614": {
         "message": "Reinisyalize"
@@ -1781,8 +1871,17 @@
     "resize_ec83d538": {
         "message": "Redimansyone"
     },
+    "response_copied_to_clipboard_130d66cd": {
+        "message": "Repons kopye nan près papye"
+    },
     "restore_auto_save_deccd84b": {
         "message": "Restore anrejistreman otomatik?"
+    },
+    "result_index_of_max_7db5ad8b": {
+        "message": "Rezilta { index } sou { max }."
+    },
+    "retry_ebd5f8ba": {
+        "message": "Re eseye"
     },
     "reverse_turnstile_does_not_yield_7558be06": {
         "message": "Tounikè Envèse (pa sede)"
@@ -1942,6 +2041,9 @@
     },
     "shortcut_911d6255": {
         "message": "Rakousi"
+    },
+    "show_all_967a90f0": {
+        "message": "Afiche tout"
     },
     "show_audio_options_b489926b": {
         "message": "Afiche opsyon odyo"
@@ -2498,6 +2600,9 @@
     "view_word_and_character_counts_a743dd0c": {
         "message": "Afiche kantite mo ak karaktè"
     },
+    "waiting_for_response_1efd0c50": {
+        "message": "Ap tann repons"
+    },
     "we_couldn_t_detect_a_working_microphone_connected__ceb71c40": {
         "message": "Nou pa detekte yon mikwo ki an fonksyon sou aparèy ou a."
     },
@@ -2518,6 +2623,9 @@
     },
     "welsh_42ab94b1": {
         "message": "Galwa"
+    },
+    "what_would_you_like_to_do_6dc0d541": {
+        "message": "Kisa w ta renmen fè?"
     },
     "when_markup_is_used_that_visually_formats_items_as_f941fc1b": {
         "message": "Lè yo itilize balizaj pou yo ka fòmate eleman yo vizyèlman tankou lis men ki pa di relasyon lis la, itilizatè yo ka rankontre difikilte pou navige nan enfómasyon yo."
@@ -2548,6 +2656,9 @@
     },
     "wreath_product_200b38ef": {
         "message": "Pwodui Kouwòn"
+    },
+    "writing_assistant_a30ac16a": {
+        "message": "Asistan Redaksyon"
     },
     "xi_149681d0": {
         "message": "Xi"

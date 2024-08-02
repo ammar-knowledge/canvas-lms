@@ -18,7 +18,7 @@
 
 import React from 'react'
 import doFetchApi from '@canvas/do-fetch-api-effect'
-import {render} from '@testing-library/react'
+import {fireEvent, render} from '@testing-library/react'
 import {
   GradingSchemesManagement,
   type GradingSchemesManagementProps,
@@ -43,6 +43,7 @@ describe('Grading Schemes Management Tests', () => {
         contextId="1"
         contextType="Course"
         archivedGradingSchemesEnabled={false}
+        defaultAccountGradingSchemeEnabled={false}
         onGradingSchemesChanged={() => {}}
         {...props}
       />
@@ -96,5 +97,78 @@ describe('Grading Schemes Management Tests', () => {
     expect(course2DeleteButton).not.toBeDisabled()
     expect(account1EditButton).not.toBeDisabled()
     expect(account1DeleteButton).not.toBeDisabled()
+  })
+
+  describe('archived grading schemes', () => {
+    const renderArchivedGradingSchemesManagement = (
+      props: Partial<GradingSchemesManagementProps> = {}
+    ) => {
+      return renderGradingSchemesManagement({archivedGradingSchemesEnabled: true, ...props})
+    }
+
+    it('should render three grading scheme tables, (default, active, archived)', async () => {
+      const {getByTestId} = renderArchivedGradingSchemesManagement()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(getByTestId('grading-scheme-table-archived')).toBeInTheDocument()
+      expect(getByTestId('grading-scheme-table-active')).toBeInTheDocument()
+      expect(getByTestId('grading-scheme-table-default')).toBeInTheDocument()
+    })
+
+    describe('filtering', () => {
+      it('should filter grading schemes by title', async () => {
+        const {getByTestId, queryByTestId} = renderArchivedGradingSchemesManagement()
+        await new Promise(resolve => setTimeout(resolve, 0))
+        const input = getByTestId('grading-scheme-search')
+        fireEvent.change(input, {target: {value: 'Grading Scheme 1'}})
+        AccountGradingSchemes.forEach(scheme => {
+          if (scheme.title === 'Grading Scheme 1') {
+            expect(getByTestId(`grading-scheme-row-${scheme.id}`)).toBeInTheDocument()
+          } else {
+            expect(queryByTestId(`grading-scheme-row-${scheme.id}`)).not.toBeInTheDocument()
+          }
+        })
+        expect(queryByTestId(`grading-scheme-row-`)).toBeInTheDocument()
+      })
+
+      it('shows archived and active schemes that match the filter', async () => {
+        const {getByTestId, queryByTestId} = renderArchivedGradingSchemesManagement()
+        await new Promise(resolve => setTimeout(resolve, 0))
+        const input = getByTestId('grading-scheme-search')
+        fireEvent.change(input, {target: {value: 'Grading Scheme'}})
+        AccountGradingSchemes.forEach(scheme => {
+          if (scheme.title.includes('Grading Scheme')) {
+            expect(getByTestId(`grading-scheme-row-${scheme.id}`)).toBeInTheDocument()
+          } else {
+            expect(queryByTestId(`grading-scheme-row-${scheme.id}`)).not.toBeInTheDocument()
+          }
+        })
+        expect(queryByTestId(`grading-scheme-row-`)).toBeInTheDocument()
+      })
+
+      it('always shows the default grading scheme', async () => {
+        const {getByTestId} = renderArchivedGradingSchemesManagement()
+        await new Promise(resolve => setTimeout(resolve, 0))
+        const input = getByTestId('grading-scheme-search')
+        fireEvent.change(input, {target: {value: 'Carrot Potato Scheme'}})
+        expect(getByTestId('grading-scheme-row-')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('default account grading scheme FF enabled', () => {
+    it('shows the default account grading scheme selector if the context is an account', () => {
+      const {getByText} = renderGradingSchemesManagement({
+        defaultAccountGradingSchemeEnabled: true,
+        contextType: 'Account',
+      })
+      expect(getByText('Account default grading scheme')).toBeInTheDocument()
+    })
+
+    it('does not show the default account grading scheme selector if the context is a course', () => {
+      const {queryByText} = renderGradingSchemesManagement({
+        defaultAccountGradingSchemeEnabled: true,
+      })
+      expect(queryByText('Account default grading scheme')).not.toBeInTheDocument()
+    })
   })
 })

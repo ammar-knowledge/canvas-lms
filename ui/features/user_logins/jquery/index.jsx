@@ -94,12 +94,12 @@ $(function () {
     $form.dialog('close')
   })
   $('#login_information')
-    .delegate('.login_details_link', 'click', function (event) {
+    .on('click', '.login_details_link', function (event) {
       event.preventDefault()
       $(this).parents('tr').find('.login_details').show()
       $(this).hide()
     })
-    .delegate('.edit_pseudonym_link', 'click', function (event) {
+    .on('click', '.edit_pseudonym_link', function (event) {
       event.preventDefault()
       $form.attr('action', $(this).attr('rel')).attr('method', 'PUT')
       const data = $(this)
@@ -142,6 +142,8 @@ $(function () {
           }
           window.canvas_pseudonyms.jqInterface.onCancel()
         },
+        modal: true,
+        zIndex: 1000,
       })
       $form
         .dialog('option', 'title', I18n.t('titles.update_login', 'Update Login'))
@@ -154,7 +156,7 @@ $(function () {
       $form.data('unique_id_text', $unique_id)
       $form.find(':input:visible:first').trigger('focus').trigger('select')
     })
-    .delegate('.delete_pseudonym_link', 'click', function (event) {
+    .on('click', '.delete_pseudonym_link', function (event) {
       event.preventDefault()
       if ($('#login_information .login:visible').length < 2) {
         // eslint-disable-next-line no-alert
@@ -184,10 +186,10 @@ $(function () {
           },
         })
     })
-    .delegate('.add_pseudonym_link', 'click', function (event) {
+    .on('click', '.add_pseudonym_link', function (event) {
       event.preventDefault()
       $('#login_information .login.blank .edit_pseudonym_link').click()
-      window.canvas_pseudonyms.jqInterface.onAdd({ canEditSisUserId: $(this).data('can-manage-sis') })
+      window.canvas_pseudonyms.jqInterface.onAdd({canEditSisUserId: $(this).data('can-manage-sis')})
       $form.attr('action', $(this).attr('rel')).attr('method', 'POST')
       $form.fillFormData({'pseudonym[unique_id]': ''})
       $form

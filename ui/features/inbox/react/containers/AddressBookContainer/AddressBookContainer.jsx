@@ -127,20 +127,6 @@ export const AddressBookContainer = props => {
   }, [loading, data, searchTerm])
 
   useEffect(() => {
-    if (
-      props.activeCourseFilter?.contextID === null &&
-      props.activeCourseFilter?.contextName === null
-    ) {
-      setInputValue('')
-      setFilterHistory([
-        {
-          context: null,
-        },
-      ])
-    }
-  }, [props.activeCourseFilter])
-
-  useEffect(() => {
     props.onInputValueChange(searchTerm)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm])
@@ -213,7 +199,18 @@ export const AddressBookContainer = props => {
   }
 
   useEffect(() => {
-    if (props.activeCourseFilter && !filterHistory[filterHistory.length - 1]?.context) {
+    if (
+      props.activeCourseFilter?.contextID === null &&
+      props.activeCourseFilter?.contextName === null
+    ) {
+      setInputValue('')
+      setFilterHistory([
+        {
+          context: null,
+        },
+      ])
+    }
+    if (props.activeCourseFilter?.contextID && props.activeCourseFilter?.contextName) {
       addFilterHistory({
         context: {
           contextID: props.activeCourseFilter.contextID,
@@ -246,6 +243,7 @@ export const AddressBookContainer = props => {
         _id: u._id,
         id: u.id,
         name: u.shortName,
+        pronouns: u.pronouns,
         commonCoursesInfo: props.includeCommonCourses
           ? getCommonCoursesInformation(u.commonCoursesConnection)
           : [],
@@ -297,6 +295,7 @@ export const AddressBookContainer = props => {
       addFilterHistory({
         context: {contextID: item.id, contextName: item.name, totalRecipientCount: item.userCount},
       })
+      setInputValue('')
     } else if (isSubmenu) {
       addFilterHistory({
         context: null,
@@ -338,6 +337,7 @@ export const AddressBookContainer = props => {
       addressBookMessages={props.addressBookMessages}
       isOnObserverSubmenu={isOnObserverSubmenu()}
       placeholder={props.placeholder}
+      addressBookLabel={props.addressBookLabel}
     />
   )
 }
@@ -383,6 +383,7 @@ AddressBookContainer.propTypes = {
    * placeholder text for AddressBook search text input
    */
   placeholder: PropTypes.string,
+  addressBookLabel: PropTypes.string,
 }
 
 AddressBookContainer.defaultProps = {

@@ -23,21 +23,29 @@ import {humanReadableSize} from '../utils'
 import {showFlashError} from '@canvas/alerts/react/FlashAlert'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import {Button, IconButton} from '@instructure/ui-buttons'
-import {IconSearchLine, IconTroubleLine, IconUploadLine} from '@instructure/ui-icons'
+import {IconButton} from '@instructure/ui-buttons'
+import {IconSearchLine, IconTroubleLine} from '@instructure/ui-icons'
 import {Spinner} from '@instructure/ui-spinner'
 import {Text} from '@instructure/ui-text'
 import {TextInput} from '@instructure/ui-text-input'
-import {TreeBrowser, Collection} from '@instructure/ui-tree-browser'
+import {TreeBrowser} from '@instructure/ui-tree-browser'
 import {View} from '@instructure/ui-view'
 import type {FetchLinkHeader} from '@canvas/do-fetch-api-effect/types'
 import type {onSubmitMigrationFormCallback} from '../types'
+import MigrationFileInput from './file_input'
+
+import type {TreeBrowserProps} from '@instructure/ui-tree-browser'
+
+type Collection = TreeBrowserProps['collections'][0]
+type CollectionClickArgs = TreeBrowserProps['onCollectionClick']
 
 const I18n = useI18nScope('content_migrations_redesign')
 
 type ZipFileImporterProps = {
   onSubmit: onSubmitMigrationFormCallback
   onCancel: () => void
+  fileUploadProgress: number | null
+  isSubmitting: boolean
 }
 
 type Folder = {
@@ -71,7 +79,12 @@ type FetchFoldersResponse = {
   link: FetchLinkHeader
 }
 
-const ZipFileImporter = ({onSubmit, onCancel}: ZipFileImporterProps) => {
+const ZipFileImporter = ({
+  onSubmit,
+  onCancel,
+  fileUploadProgress,
+  isSubmitting,
+}: ZipFileImporterProps) => {
   const [folders, setFolders] = useState<Array<Folder>>([])
   const [folder, setFolder] = useState<Folder | null>(null)
   const fileInput = createRef<HTMLInputElement>()
@@ -80,6 +93,9 @@ const ZipFileImporter = ({onSubmit, onCancel}: ZipFileImporterProps) => {
   const [fileError, setFileError] = useState<boolean>(false)
   const [folderError, setFolderError] = useState<boolean>(false)
 
+  // TODO Remove this function if it's not going to be used, or remove
+  //      this linter rule disable if/when it ever is.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleSelectFile = useCallback(() => {
     const files = fileInput.current?.files
     if (!files) {
@@ -184,7 +200,7 @@ const ZipFileImporter = ({onSubmit, onCancel}: ZipFileImporterProps) => {
     return collection
   }
 
-  const handleCollectionClick = (_id: any, collection: Collection) => {
+  const handleCollectionClick: CollectionClickArgs = (_e, collection) => {
     setFolder(folders.find((f: Folder) => collection.id === parseInt(f.id, 10)) ?? null)
     setFolderError(false)
   }
@@ -226,72 +242,60 @@ const ZipFileImporter = ({onSubmit, onCancel}: ZipFileImporterProps) => {
 
   return (
     <>
-      <View margin="none none x-small none" style={{display: 'block'}}>
-        <label htmlFor="migrationFileUpload">
-          <Text weight="bold">{I18n.t('Source')}</Text>
-        </label>
-      </View>
-      <input
-        id="migrationFileUpload"
-        data-testid="migrationFileUpload"
-        type="file"
-        ref={fileInput}
-        accept=".zip"
-        onChange={handleSelectFile}
-        style={{display: 'none'}}
+      <MigrationFileInput
+        fileUploadProgress={fileUploadProgress}
+        accepts=".zip"
+        onChange={setFile}
+        isSubmitting={isSubmitting}
       />
-      <Button color="secondary" onClick={() => fileInput.current?.click()}>
-        <IconUploadLine />
-        &nbsp;
-        {I18n.t('Choose File')}
-      </Button>
-      <View margin="none none none medium">
-        <Text>{file ? file.name : I18n.t('No file chosen')}</Text>
-      </View>
       {fileError && (
         <p>
           <Text color="danger">{I18n.t('You must select a file to import content from')}</Text>
         </p>
       )}
-      <View as="div" margin="medium none none none" width="100%">
-        {folders.length > 0 ? (
-          <>
-            <TextInput
-              renderLabel={I18n.t('Upload to')}
-              placeholder={I18n.t('Search folders')}
-              value={searchValue}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                setFolder(null)
-                setSearchValue(e.target.value)
-              }}
-              renderBeforeInput={<IconSearchLine inline={false} />}
-              renderAfterInput={renderClearButton()}
-            />
-            <View as="div" height="320px" overflowY="auto" overflowX="visible">
-              <TreeBrowser
-                collections={folderCollection()}
-                items={{}}
-                sortOrder={(a, b) => {
-                  return a.name.localeCompare(b.name)
+      {!isSubmitting && (
+        <View as="div" margin="medium none none none" width="100%">
+          {folders.length > 0 ? (
+            <>
+              <TextInput
+                renderLabel={I18n.t('Upload to')}
+                placeholder={I18n.t('Search folders')}
+                value={searchValue}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  setFolder(null)
+                  setSearchValue(e.target.value)
                 }}
-                onCollectionClick={(id, collection) => {
-                  handleCollectionClick(id, collection)
-                }}
-                selectionType="single"
-                {...treeBrowserParams()}
+                renderBeforeInput={<IconSearchLine inline={false} />}
+                renderAfterInput={renderClearButton()}
               />
-            </View>
-          </>
-        ) : (
-          <Spinner renderTitle={I18n.t('Loading folders')} />
-        )}
-      </View>
+              <View as="div" height="320px" padding="xx-small" overflowY="auto" overflowX="visible">
+                <TreeBrowser
+                  collections={folderCollection()}
+                  items={{}}
+                  sortOrder={(a, b) => {
+                    return a.name.localeCompare(b.name)
+                  }}
+                  onCollectionClick={(id, collection) => {
+                    handleCollectionClick(id, collection)
+                  }}
+                  selectionType="single"
+                  {...treeBrowserParams()}
+                />
+              </View>
+            </>
+          ) : (
+            <Spinner renderTitle={I18n.t('Loading folders')} />
+          )}
+        </View>
+      )}
       {folderError && (
         <p>
           <Text color="danger">{I18n.t('You must select a folder to import content to')}</Text>
         </p>
       )}
       <CommonMigratorControls
+        fileUploadProgress={fileUploadProgress}
+        isSubmitting={isSubmitting}
         canSelectContent={false}
         onSubmit={handleSubmit}
         onCancel={onCancel}

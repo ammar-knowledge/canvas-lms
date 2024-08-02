@@ -24,11 +24,13 @@ import {EnvCourse} from './EnvCourse'
 import {EnvCoursePaces} from './EnvCoursePaces'
 import {EnvGradebook} from './EnvGradebook'
 import {EnvGradingStandards} from './EnvGradingStandards'
+import {EnvDeveloperKeys} from './EnvDeveloperKeys'
 import {EnvPlatformStorage} from './EnvPlatformStorage'
 import {EnvAccounts} from './EnvAccounts'
 import {EnvContextModules} from './EnvContextModules'
 import {EnvWikiPages} from './EnvWikiPages'
 import {EnvContentMigrations} from './ContentMigrations'
+import {EnvDiscussions} from './EnvDiscussions'
 
 /**
  * Top level ENV variable.
@@ -54,7 +56,9 @@ export type GlobalEnv =
         EnvGradingStandards &
         EnvPlatformStorage &
         EnvRce &
+        EnvDeveloperKeys &
         EnvContextModules &
         EnvWikiPages &
-        EnvContentMigrations
+        EnvContentMigrations &
+        EnvDiscussions
     >

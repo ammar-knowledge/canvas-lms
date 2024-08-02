@@ -131,6 +131,7 @@ describe "Module Items API", type: :request do
           "indent" => 0,
           "completion_requirement" => { "type" => "must_submit" },
           "published" => false,
+          "unpublishable" => true,
           "module_id" => @module1.id,
           "quiz_lti" => false
         },
@@ -145,6 +146,7 @@ describe "Module Items API", type: :request do
           "indent" => 0,
           "completion_requirement" => { "type" => "min_score", "min_score" => 10.0 },
           "published" => true,
+          "unpublishable" => true,
           "module_id" => @module1.id,
           "quiz_lti" => false
         },
@@ -159,6 +161,7 @@ describe "Module Items API", type: :request do
           "indent" => 0,
           "completion_requirement" => { "type" => "must_contribute" },
           "published" => true,
+          "unpublishable" => true,
           "module_id" => @module1.id,
           "quiz_lti" => false
         },
@@ -169,6 +172,7 @@ describe "Module Items API", type: :request do
           "title" => @subheader_tag.title,
           "indent" => 0,
           "published" => true,
+          "unpublishable" => true,
           "module_id" => @module1.id,
           "quiz_lti" => false
         },
@@ -182,6 +186,7 @@ describe "Module Items API", type: :request do
           "indent" => 1,
           "completion_requirement" => { "type" => "must_view" },
           "published" => true,
+          "unpublishable" => true,
           "module_id" => @module1.id,
           "new_tab" => nil,
           "quiz_lti" => false
@@ -302,6 +307,7 @@ describe "Module Items API", type: :request do
                            "page_url" => @wiki_page.url,
                            "published" => true,
                            "publish_at" => nil,
+                           "unpublishable" => true,
                            "module_id" => @module2.id,
                            "quiz_lti" => false
                          })
@@ -325,6 +331,7 @@ describe "Module Items API", type: :request do
                            "indent" => 0,
                            "url" => "http://www.example.com/api/v1/courses/#{@course.id}/files/#{@attachment.id}",
                            "published" => false,
+                           "unpublishable" => false,
                            "module_id" => @module2.id,
                            "quiz_lti" => false
                          })
@@ -1918,7 +1925,8 @@ describe "Module Items API", type: :request do
           expect(json["items"][0]["next"]["id"]).to eq quiz_tag.id
         end
 
-        it "does not omit a wiki page item if CYOE is disabled" do
+        it "does not omit a wiki page item if CYOE is disabled and selective release is disabled" do
+          Account.site_admin.disable_feature! :selective_release_backend
           allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(false)
           module_with_page = @course.context_modules.create!(name: "new module")
           assignment = @course.assignments.create!(

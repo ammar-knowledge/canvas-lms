@@ -37,6 +37,12 @@ export const DiscussionEntry = {
       ratingCount
       ratingSum
       subentriesCount
+      editor {
+        ...User
+      }
+      author {
+        ...User
+      }
       attachment {
         ...Attachment
       }
@@ -61,7 +67,7 @@ export const DiscussionEntry = {
       quotedEntry {
         _id
         createdAt
-        previewMessage
+        message
         author {
           shortName
           id
@@ -89,6 +95,7 @@ export const DiscussionEntry = {
       }
       depth
     }
+    ${User.fragment}
     ${Attachment.fragment}
     ${DiscussionEntryPermissions.fragment}
     ${DiscussionEntryVersion.fragment}
@@ -126,7 +133,7 @@ export const DiscussionEntry = {
     parentId: string,
     quotedEntry: shape({
       createdAt: string,
-      previewMessage: string,
+      message: string,
       author: shape({
         shortName: string,
         id: string,

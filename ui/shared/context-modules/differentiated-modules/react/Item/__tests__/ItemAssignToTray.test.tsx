@@ -17,12 +17,28 @@
  */
 
 import React from 'react'
-import {act, fireEvent, render, waitFor} from '@testing-library/react'
+import {act, fireEvent, render, waitFor, screen} from '@testing-library/react'
+import userEvent, {PointerEventsCheckLevel} from '@testing-library/user-event'
 import fetchMock from 'fetch-mock'
 import ItemAssignToTray, {type ItemAssignToTrayProps} from '../ItemAssignToTray'
-import {SECTIONS_DATA, STUDENTS_DATA} from '../../__tests__/mocks'
+import {
+  SECTIONS_DATA,
+  STUDENTS_DATA,
+  FIRST_GROUP_CATEGORY_DATA,
+  SECOND_GROUP_CATEGORY_DATA,
+  ADHOC_WITHOUT_STUDENTS,
+} from '../../__tests__/mocks'
+
+const USER_EVENT_OPTIONS = {pointerEventsCheck: PointerEventsCheckLevel.Never, delay: null}
+
+// Mock the showFlashError that occurs when an itemType is not supported.
+jest.mock('@canvas/alerts/react/FlashAlert', () => ({
+  ...jest.requireActual('@canvas/alerts/react/FlashAlert'),
+  showFlashError: jest.fn(() => jest.fn()),
+}))
 
 describe('ItemAssignToTray', () => {
+  let originalLocation = window.location
   const props: ItemAssignToTrayProps = {
     open: true,
     onClose: () => {},
@@ -37,8 +53,13 @@ describe('ItemAssignToTray', () => {
     timezone: 'UTC',
   }
 
-  const SECTIONS_URL = `/api/v1/courses/${props.courseId}/sections`
-  const STUDENTS_URL = `api/v1/courses/${props.courseId}/users?enrollment_type=student`
+  const FIRST_GROUP_CATEGORY_ID = '2'
+  const SECOND_GROUP_CATEGORY_ID = '3'
+  const FIRST_GROUP_CATEGORY_URL = `/api/v1/group_categories/${FIRST_GROUP_CATEGORY_ID}/groups?per_page=100`
+  const SECOND_GROUP_CATEGORY_URL = `/api/v1/group_categories/${SECOND_GROUP_CATEGORY_ID}/groups?per_page=100`
+  const SECTIONS_URL = /\/api\/v1\/courses\/.+\/sections\?per_page=\d+/
+  const STUDENTS_URL = /\/api\/v1\/courses\/.+\/users\?per_page=\d+&enrollment_type=student/
+  const OVERRIDES_URL = '/api/v1/courses/1/assignments/23/date_details?per_page=100'
 
   const OVERRIDES = [
     {
@@ -75,39 +96,54 @@ describe('ItemAssignToTray', () => {
     ENV.SECTION_LIST = [{id: '4'}, {id: '5'}]
     ENV.POST_TO_SIS = false
     ENV.DUE_DATE_REQUIRED_FOR_ACCOUNT = false
+    originalLocation = window.location
+    // @ts-expect-error
+    delete window.location
+    window.location = {...originalLocation, reload: jest.fn()}
     // an assignment with valid dates and overrides
+    fetchMock.get('/api/v1/courses/1/settings', {conditional_release: false})
     fetchMock
-      .get('/api/v1/courses/1/assignments/23/date_details', {
+      .get(OVERRIDES_URL, {
         id: '23',
         due_at: '2023-10-05T12:00:00Z',
         unlock_at: '2023-10-01T12:00:00Z',
         lock_at: '2023-11-01T12:00:00Z',
         only_visible_to_overrides: false,
+        visible_to_everyone: true,
         overrides: OVERRIDES,
       })
       // an assignment with invalid dates
-      .get('/api/v1/courses/1/assignments/24/date_details', {
+      .get('/api/v1/courses/1/assignments/24/date_details?per_page=100', {
         id: '24',
         due_at: '2023-09-30T12:00:00Z',
         unlock_at: '2023-10-01T12:00:00Z',
         lock_at: '2023-11-01T12:00:00Z',
         only_visible_to_overrides: false,
+        visible_to_everyone: true,
         overrides: [],
       })
       // an assignment with valid dates and no overrides
-      .get('/api/v1/courses/1/assignments/25/date_details', {
+      .get('/api/v1/courses/1/assignments/25/date_details?per_page=100', {
         id: '25',
         due_at: '2023-10-05T12:01:00Z',
         unlock_at: null,
         lock_at: null,
         only_visible_to_overrides: false,
+        visible_to_everyone: true,
         overrides: [],
       })
-      .get('/api/v1/courses/1/quizzes/23/date_details', {})
-    fetchMock.get(STUDENTS_URL, STUDENTS_DATA).get(SECTIONS_URL, SECTIONS_DATA)
+      .get('/api/v1/courses/1/quizzes/23/date_details?per_page=100', {})
+      .get('/api/v1/courses/1/discussion_topics/23/date_details?per_page=100', {})
+      .get('/api/v1/courses/1/pages/23/date_details?per_page=100', {})
+    fetchMock
+      .get(STUDENTS_URL, STUDENTS_DATA)
+      .get(SECTIONS_URL, SECTIONS_DATA)
+      .get(FIRST_GROUP_CATEGORY_URL, FIRST_GROUP_CATEGORY_DATA)
+      .get(SECOND_GROUP_CATEGORY_URL, SECOND_GROUP_CATEGORY_DATA)
   })
 
   afterEach(() => {
+    window.location = originalLocation
     fetchMock.resetHistory()
     fetchMock.restore()
   })
@@ -116,23 +152,74 @@ describe('ItemAssignToTray', () => {
     render(<ItemAssignToTray {...props} {...overrides} />)
 
   it('renders', async () => {
-    const {getByText, getByLabelText, findAllByTestId} = renderComponent()
+    const {getByTestId, getByText, getByLabelText, findAllByTestId} = renderComponent()
     expect(getByText('Item Name')).toBeInTheDocument()
     expect(getByText('Assignment | 10 pts')).toBeInTheDocument()
     expect(getByLabelText('Edit assignment Item Name')).toBeInTheDocument()
     // the tray is mocking an api response that makes 2 cards
     const cards = await findAllByTestId('item-assign-to-card')
     expect(cards).toHaveLength(2)
+    const icon = getByTestId('icon-assignment')
+    expect(icon).toBeInTheDocument()
+  })
+
+  it('does not render header or footer if not a tray', async () => {
+    const {getByTestId, queryByText, queryByLabelText, findAllByTestId} = renderComponent({
+      isTray: false,
+    })
+    expect(queryByText('Item Name')).not.toBeInTheDocument()
+    expect(queryByText('Assignment | 10 pts')).not.toBeInTheDocument()
+    expect(queryByLabelText('Edit assignment Item Name')).not.toBeInTheDocument()
+    expect(queryByText('Save')).not.toBeInTheDocument()
+    // the tray is mocking an api response that makes 2 cards
+    const cards = await findAllByTestId('item-assign-to-card')
+    expect(cards).toHaveLength(2)
   })
 
   it('renders a quiz', () => {
-    const {getByText} = renderComponent({itemType: 'quiz', iconType: 'quiz'})
+    const {getByTestId, getByText} = renderComponent({itemType: 'quiz', iconType: 'quiz'})
     expect(getByText('Quiz | 10 pts')).toBeInTheDocument()
+    const icon = getByTestId('icon-quiz')
+    expect(icon).toBeInTheDocument()
   })
 
   it('renders a new quiz', () => {
-    const {getByText} = renderComponent({itemType: 'lti-quiz', iconType: 'lti-quiz'})
+    const {getByTestId, getByText} = renderComponent({itemType: 'lti-quiz', iconType: 'lti-quiz'})
     expect(getByText('Quiz | 10 pts')).toBeInTheDocument()
+    const icon = getByTestId('icon-lti-quiz')
+    expect(icon).toBeInTheDocument()
+  })
+
+  it('renders a discussion', () => {
+    const {getByTestId, getByText} = renderComponent({
+      itemType: 'discussion',
+      iconType: 'discussion',
+    })
+    expect(getByText('Discussion | 10 pts')).toBeInTheDocument()
+    const icon = getByTestId('icon-discussion')
+    expect(icon).toBeInTheDocument()
+  })
+
+  it('renders a page', () => {
+    const {getByTestId, getByText} = renderComponent({itemType: 'page', iconType: 'page'})
+    expect(getByText('Page | 10 pts')).toBeInTheDocument()
+    const icon = getByTestId('icon-page')
+    expect(icon).toBeInTheDocument()
+  })
+
+  it('renders Save button', () => {
+    const {getByText} = renderComponent({useApplyButton: false})
+    expect(getByText('Save')).toBeInTheDocument()
+  })
+
+  it("renders Save button when it hasn't been passed", () => {
+    const {getByText} = renderComponent()
+    expect(getByText('Save')).toBeInTheDocument()
+  })
+
+  it('renders Apply button', () => {
+    const {getByText} = renderComponent({useApplyButton: true})
+    expect(getByText('Apply')).toBeInTheDocument()
   })
 
   describe('pointsPossible display', () => {
@@ -166,39 +253,23 @@ describe('ItemAssignToTray', () => {
     })
   })
 
-  it('renders times in the given timezone', async () => {
-    const {findAllByText} = renderComponent({itemContentId: '25', timezone: 'America/Denver'})
-
-    const times = await findAllByText('Thursday, October 5, 2023 6:01 AM')
-    expect(times).toHaveLength(2) // screenreader + visible message
-  })
-
-  it('renders times in the given locale', async () => {
-    const {findAllByText} = renderComponent({
-      itemContentId: '25',
-      locale: 'en-GB',
-      timezone: 'America/Denver',
-    })
-    const times = await findAllByText('Thursday, 5 October 2023 06:01')
-    expect(times).toHaveLength(2) // screenreader + visible message
-  })
-
-  it('calls onDismiss when close button is clicked', () => {
-    const onDismiss = jest.fn()
-    const {getByRole} = renderComponent({onDismiss})
+  it('calls onClose when close button is clicked', () => {
+    const onClose = jest.fn()
+    const {getByRole} = renderComponent({onClose})
     getByRole('button', {name: 'Close'}).click()
-    expect(onDismiss).toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalled()
   })
 
   it('adds a card when add button is clicked', async () => {
     fetchMock.get(
-      '/api/v1/courses/1/assignments/23/date_details',
+      OVERRIDES_URL,
       {
         id: '23',
         due_at: '2023-10-05T12:00:00Z',
         unlock_at: '2023-10-01T12:00:00Z',
         lock_at: '2023-11-01T12:00:00Z',
         only_visible_to_overrides: false,
+        visible_to_everyone: true,
         overrides: [],
       },
       {
@@ -212,12 +283,94 @@ describe('ItemAssignToTray', () => {
     expect(getAllByTestId('item-assign-to-card')).toHaveLength(2)
   })
 
-  it.skip('deletes a card when delete button is clicked', async () => {
-    const {getAllByRole, findAllByTestId, getAllByTestId} = renderComponent()
-    const cards = await findAllByTestId('item-assign-to-card')
-    expect(cards).toHaveLength(2)
-    act(() => getAllByRole('button', {name: 'Delete'})[1].click())
-    expect(getAllByTestId('item-assign-to-card')).toHaveLength(1)
+  it('renders blueprint locking info when there are locked dates', async () => {
+    fetchMock.get('/api/v1/courses/1/assignments/31/date_details?per_page=100', {
+      blueprint_date_locks: ['availability_dates'],
+    })
+    const {getAllByText, getByTestId} = renderComponent({itemContentId: '31'})
+    // wait for the cards to render
+    const loadingSpinner = getByTestId('cards-loading')
+    await waitFor(() => {
+      expect(loadingSpinner).not.toBeInTheDocument()
+    })
+
+    expect(
+      getAllByText((_, e) => e?.textContent === 'Locked: Availability Dates')[0]
+    ).toBeInTheDocument()
+  })
+
+  it('renders blueprint locking info when there are locked dates and default cards', async () => {
+    fetchMock.get('/api/v1/courses/1/assignments/31/date_details?per_page=100', {
+      blueprint_date_locks: ['availability_dates'],
+    })
+    const {getAllByText, findAllByTestId} = renderComponent({
+      itemContentId: '31',
+      defaultCards: [
+        {
+          defaultOptions: ['everyone'],
+          key: 'key-card-0',
+          isValid: true,
+          highlightCard: false,
+          hasAssignees: true,
+          due_at: '2023-10-05T12:00:00Z',
+          unlock_at: '2023-10-01T12:00:00Z',
+          lock_at: '2023-11-01T12:00:00Z',
+          selectedAssigneeIds: ['everyone'],
+        },
+      ],
+    })
+    await findAllByTestId('item-assign-to-card')
+    expect(
+      getAllByText((_, e) => e?.textContent === 'Locked: Availability Dates')[0]
+    ).toBeInTheDocument()
+  })
+
+  it('does not render blueprint locking info when locked with unlocked due dates', async () => {
+    fetchMock.get('/api/v1/courses/1/assignments/31/date_details?per_page=100', {
+      blueprint_date_locks: [],
+    })
+    const {getByTestId, queryByText} = renderComponent({itemContentId: '31'})
+
+    // wait for the cards to render
+    const loadingSpinner = getByTestId('cards-loading')
+    await waitFor(() => {
+      expect(loadingSpinner).not.toBeInTheDocument()
+    })
+
+    await expect(queryByText('Locked:')).not.toBeInTheDocument()
+  })
+
+  it('disables add button if there are blueprint-locked dates', async () => {
+    fetchMock.get('/api/v1/courses/1/assignments/31/date_details?per_page=100', {
+      blueprint_date_locks: ['availability_dates'],
+    })
+    const {getByTestId, findAllByText} = renderComponent({itemContentId: '31'})
+    await findAllByText('Locked:')
+    expect(getByTestId('add-card')).toBeDisabled()
+  })
+
+  it('disables add button if there are blueprint-locked dates and default cards', async () => {
+    fetchMock.get('/api/v1/courses/1/assignments/31/date_details?per_page=100', {
+      blueprint_date_locks: ['availability_dates'],
+    })
+    const {getByTestId, findAllByText} = renderComponent({
+      itemContentId: '31',
+      defaultCards: [
+        {
+          defaultOptions: ['everyone'],
+          key: 'key-card-0',
+          isValid: true,
+          highlightCard: false,
+          hasAssignees: true,
+          due_at: '2023-10-05T12:00:00Z',
+          unlock_at: '2023-10-01T12:00:00Z',
+          lock_at: '2023-11-01T12:00:00Z',
+          selectedAssigneeIds: ['everyone'],
+        },
+      ],
+    })
+    await findAllByText('Locked:')
+    expect(getByTestId('add-card')).toBeDisabled()
   })
 
   it('calls onDismiss when the cancel button is clicked', () => {
@@ -227,9 +380,24 @@ describe('ItemAssignToTray', () => {
     expect(onDismiss).toHaveBeenCalled()
   })
 
-  it('does not fetch assignee options when defaultCards are passed', () => {
+  it('fetches assignee options when defaultCards are passed', () => {
+    fetchMock.get(
+      OVERRIDES_URL,
+      {
+        id: '23',
+        due_at: '2023-10-05T12:00:00Z',
+        unlock_at: '2023-10-01T12:00:00Z',
+        lock_at: '2023-11-01T12:00:00Z',
+        only_visible_to_overrides: false,
+        visible_to_everyone: true,
+        overrides: [],
+      },
+      {
+        overwriteRoutes: true,
+      }
+    )
     renderComponent({defaultCards: []})
-    expect(fetchMock.calls('/api/v1/courses/1/assignments/23/date_details').length).toBe(0)
+    expect(fetchMock.calls(OVERRIDES_URL).length).toBe(1)
   })
 
   it('calls customAddCard if passed when a card is added', () => {
@@ -241,26 +409,16 @@ describe('ItemAssignToTray', () => {
   })
 
   describe('AssigneeSelector', () => {
-    it.skip('shows existing overrides as selected options', async () => {
-      const {findAllByTestId} = renderComponent()
-      const sectionOverride = SECTIONS_DATA.find(
-        section => section.id === OVERRIDES[0].course_section_id
-      )!
-      const selectedOptions = await findAllByTestId('assignee_selector_selected_option')
-      expect(selectedOptions).toHaveLength(2)
-      expect(selectedOptions[0]).toHaveTextContent('Everyone else')
-      expect(selectedOptions[1]).toHaveTextContent(sectionOverride?.name)
-    })
-
     it('does not render everyone option if the assignment is set to overrides only', async () => {
       fetchMock.get(
-        '/api/v1/courses/1/assignments/23/date_details',
+        OVERRIDES_URL,
         {
           id: '23',
           due_at: null,
           unlock_at: null,
           lock_at: null,
           only_visible_to_overrides: true,
+          visible_to_everyone: false,
           overrides: OVERRIDES,
         },
         {
@@ -281,13 +439,14 @@ describe('ItemAssignToTray', () => {
 
     it('renders everyone option if there are no overrides', async () => {
       fetchMock.get(
-        '/api/v1/courses/1/assignments/23/date_details',
+        OVERRIDES_URL,
         {
           id: '23',
           due_at: '2023-10-05T12:00:00Z',
           unlock_at: '2023-10-01T12:00:00Z',
           lock_at: '2023-11-01T12:00:00Z',
           only_visible_to_overrides: false,
+          visible_to_everyone: true,
           overrides: [],
         },
         {
@@ -300,29 +459,68 @@ describe('ItemAssignToTray', () => {
       waitFor(() => expect(selectedOptions[0]).toHaveTextContent('Everyone'))
     })
 
-    it('renders everyone option if there are more than 1 card', async () => {
+    it('renders everyone option for item with course and module overrides', async () => {
       fetchMock.get(
-        '/api/v1/courses/1/assignments/23/date_details',
+        OVERRIDES_URL,
         {
           id: '23',
           due_at: '2023-10-05T12:00:00Z',
           unlock_at: '2023-10-01T12:00:00Z',
           lock_at: '2023-11-01T12:00:00Z',
-          only_visible_to_overrides: false,
-          overrides: [],
+          only_visible_to_overrides: true,
+          visible_to_everyone: true,
+          overrides: [
+            {
+              due_at: null,
+              id: undefined,
+              lock_at: null,
+              course_id: 1,
+              unlock_at: null,
+            },
+            {
+              due_at: null,
+              id: undefined,
+              lock_at: null,
+              context_module_id: 1,
+              unlock_at: null,
+            },
+          ],
         },
         {
           overwriteRoutes: true,
         }
       )
-      const {findAllByTestId, getByRole, getAllByTestId} = renderComponent()
-      let selectedOptions = await findAllByTestId('assignee_selector_selected_option')
+      const {findAllByTestId} = renderComponent()
+      const selectedOptions = await findAllByTestId('assignee_selector_selected_option')
       expect(selectedOptions).toHaveLength(1)
-      expect(selectedOptions[0]).toHaveTextContent('Everyone')
-      act(() => getByRole('button', {name: 'Add'}).click())
-      expect(getAllByTestId('item-assign-to-card')).toHaveLength(2)
-      selectedOptions = getAllByTestId('assignee_selector_selected_option')
-      expect(selectedOptions[0]).toHaveTextContent('Everyone else')
+      waitFor(() => expect(selectedOptions[0]).toHaveTextContent('Everyone'))
+    })
+
+    it('renders mastery paths option for noop 1 overrides', async () => {
+      fetchMock.get(
+        '/api/v1/courses/1/settings',
+        {conditional_release: true},
+        {overwriteRoutes: true}
+      )
+      fetchMock.get(
+        OVERRIDES_URL,
+        {
+          overrides: [
+            {
+              due_at: null,
+              id: undefined,
+              lock_at: null,
+              noop_id: 1,
+              unlock_at: null,
+            },
+          ],
+        },
+        {overwriteRoutes: true}
+      )
+      const {findAllByTestId} = renderComponent()
+      const selectedOptions = await findAllByTestId('assignee_selector_selected_option')
+      expect(selectedOptions).toHaveLength(1)
+      waitFor(() => expect(selectedOptions[0]).toHaveTextContent('Mastery Paths'))
     })
 
     it('calls onDismiss when an error occurs while fetching data', async () => {
@@ -330,28 +528,6 @@ describe('ItemAssignToTray', () => {
       const onDismiss = jest.fn()
       renderComponent({onDismiss})
       await waitFor(() => expect(onDismiss).toHaveBeenCalledTimes(1))
-    })
-
-    it.skip('does not allow to use the same assignee in more than one card', async () => {
-      const sectionOverride = SECTIONS_DATA.find(
-        section => section.id === OVERRIDES[0].course_section_id
-      )!
-      const otherSections = SECTIONS_DATA.filter(
-        section => section.id !== OVERRIDES[0].course_section_id
-      )!
-      const {findAllByTestId, getAllByRole} = renderComponent()
-      const assigneeSelectors = await findAllByTestId('assignee_selector')
-      act(() => assigneeSelectors[0].click())
-      const listOptions = getAllByRole('listitem')
-      let sectionOption = listOptions.find(
-        listitem => listitem.textContent === sectionOverride.name
-      )
-      // the option from the second card should not be available in the first card
-      expect(sectionOption).toBeUndefined()
-      otherSections.forEach(section => {
-        sectionOption = listOptions.find(listitem => listitem.textContent === section.name)
-        expect(sectionOption).not.toBeUndefined()
-      })
     })
   })
   describe('on save', () => {
@@ -362,11 +538,12 @@ describe('ItemAssignToTray', () => {
       unlock_at: '2023-10-01T12:00:00Z',
       lock_at: '2023-11-01T12:00:00Z',
       only_visible_to_overrides: false,
+      visible_to_everyone: true,
       overrides: [],
     }
 
     beforeEach(() => {
-      fetchMock.get('/api/v1/courses/1/assignments/23/date_details', DATE_DETAILS_OBJ, {
+      fetchMock.get(OVERRIDES_URL, DATE_DETAILS_OBJ, {
         overwriteRoutes: true,
       })
       fetchMock.put(DATE_DETAILS, {})
@@ -382,14 +559,18 @@ describe('ItemAssignToTray', () => {
       getByRole('button', {name: 'Save'}).click()
       expect((await findAllByText(`${props.itemName} updated`))[0]).toBeInTheDocument()
       const requestBody = fetchMock.lastOptions(DATE_DETAILS)?.body
-      const {id, overrides, only_visible_to_overrides, ...payloadValues} = DATE_DETAILS_OBJ
+      const {id, overrides, only_visible_to_overrides, visible_to_everyone, ...payloadValues} =
+        DATE_DETAILS_OBJ
       const expectedPayload = JSON.stringify({
         ...payloadValues,
+        reply_to_topic_due_at: null,
+        required_replies_due_at: null,
         only_visible_to_overrides,
         assignment_overrides: [
           {
             course_section_id: SECTIONS_DATA[0].id,
             ...payloadValues,
+            unassign_item: false,
           },
         ],
       })
@@ -423,10 +604,312 @@ describe('ItemAssignToTray', () => {
 
       savebtn.click()
       expect(getByText('Please fix errors before continuing')).toBeInTheDocument()
-      expect(fetchMock.lastOptions('/api/v1/courses/1/assignments/24/date_details')?.method).toBe(
-        'GET'
-      )
+      expect(
+        fetchMock.lastOptions('/api/v1/courses/1/assignments/24/date_details?per_page=100')?.method
+      ).toBe('GET')
       expect(onDismissMock).not.toHaveBeenCalled()
+    })
+
+    it('reloads the page after saving', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS)
+      const {getByTestId} = renderComponent()
+      const save = getByTestId('differentiated_modules_save_button')
+      await user.click(save)
+      await waitFor(() => {
+        expect(window.location.reload).toHaveBeenCalled()
+      })
+    })
+
+    it('does not reload the page after saving if onSave is passed', async () => {
+      const user = userEvent.setup(USER_EVENT_OPTIONS)
+      const onSave = jest.fn()
+      const {getByTestId} = renderComponent({onSave})
+      const save = getByTestId('differentiated_modules_save_button')
+      await user.click(save)
+      await waitFor(() => {
+        expect(onSave).toHaveBeenCalled()
+      })
+      expect(window.location.reload).not.toHaveBeenCalled()
+    })
+
+    it('shows loading spinner while saving', async () => {
+      fetchMock.put(DATE_DETAILS, {}, {overwriteRoutes: true, delay: 500})
+      const user = userEvent.setup(USER_EVENT_OPTIONS)
+      const {getByTestId} = renderComponent()
+      const save = getByTestId('differentiated_modules_save_button')
+      await user.click(save)
+      expect(getByTestId('cards-loading')).toBeInTheDocument()
+    })
+
+    it('does not show cards for ADHOC override with no students', async () => {
+      fetchMock.get(OVERRIDES_URL, ADHOC_WITHOUT_STUDENTS, {
+        overwriteRoutes: true,
+      })
+      const {findAllByTestId} = renderComponent()
+      const cards = await findAllByTestId('item-assign-to-card')
+      expect(cards).toHaveLength(1)
+    })
+
+    it('does not include ADHOC overrides without students when saving', async () => {
+      fetchMock.get(OVERRIDES_URL, ADHOC_WITHOUT_STUDENTS, {
+        overwriteRoutes: true,
+      })
+      const user = userEvent.setup(USER_EVENT_OPTIONS)
+      const {findByTestId, findAllByText, findAllByTestId} = renderComponent()
+      const cards = await findAllByTestId('item-assign-to-card')
+      // renders only 1 valid card
+      expect(cards).toHaveLength(1)
+      const save = await findByTestId('differentiated_modules_save_button')
+      await user.click(save)
+      expect((await findAllByText(`${props.itemName} updated`))[0]).toBeInTheDocument()
+      const requestBody = JSON.parse(fetchMock.lastOptions(DATE_DETAILS)?.body)
+      // filters out invalid overrides
+      expect(requestBody.assignment_overrides).toHaveLength(1)
+    })
+  })
+
+  describe('Module Overrides', () => {
+    const DATE_DETAILS_WITHOUT_OVERRIDES = {
+      id: '23',
+      due_at: '2023-10-05T12:00:00Z',
+      unlock_at: '2023-10-01T12:00:00Z',
+      lock_at: '2023-11-01T12:00:00Z',
+      only_visible_to_overrides: false,
+      overrides: [
+        {
+          id: '3',
+          assignment_id: '23',
+          title: 'Sally and Wally',
+          due_at: '2023-10-02T12:00:00Z',
+          all_day: false,
+          all_day_date: '2023-10-02',
+          unlock_at: null,
+          lock_at: null,
+          course_section_id: '4',
+          context_module_id: 1,
+          context_module_name: 'Test Module',
+        },
+      ],
+    }
+
+    const DATE_DETAILS_WITH_OVERRIDES = {
+      ...DATE_DETAILS_WITHOUT_OVERRIDES,
+      overrides: [...OVERRIDES, ...DATE_DETAILS_WITHOUT_OVERRIDES.overrides],
+    }
+
+    it('shows module cards if they are not overridden', async () => {
+      fetchMock.get(OVERRIDES_URL, DATE_DETAILS_WITHOUT_OVERRIDES, {
+        overwriteRoutes: true,
+      })
+      const {getByText, findAllByTestId, getByTestId} = renderComponent()
+      const cards = await findAllByTestId('item-assign-to-card')
+      expect(getByText('Inherited from')).toBeInTheDocument()
+      expect(getByTestId('context-module-text')).toBeInTheDocument()
+      expect(cards).toHaveLength(1)
+    })
+
+    it('does not show overridden module cards', async () => {
+      fetchMock.get(OVERRIDES_URL, DATE_DETAILS_WITH_OVERRIDES, {
+        overwriteRoutes: true,
+      })
+      const {queryByText, findAllByTestId, queryByTestId} = renderComponent()
+      const cards = await findAllByTestId('item-assign-to-card')
+      expect(queryByText('Inherited from')).not.toBeInTheDocument()
+      expect(queryByTestId('context-module-text')).not.toBeInTheDocument()
+      expect(cards).toHaveLength(1)
+    })
+  })
+
+  it('focuses on the add button when deleting a card', async () => {
+    const user = userEvent.setup(USER_EVENT_OPTIONS)
+    const {findAllByTestId, getByTestId} = renderComponent()
+
+    const deleteButton = (await findAllByTestId('delete-card-button'))[1]
+    await user.click(deleteButton)
+
+    const addButton = getByTestId('add-card')
+    expect(addButton).toHaveFocus()
+  })
+
+  it("focuses on the newly-created card's delete button when adding a card", async () => {
+    const user = userEvent.setup(USER_EVENT_OPTIONS)
+    const {findAllByTestId, getByTestId} = renderComponent()
+
+    // wait for the cards to render
+    const loadingSpinner = getByTestId('cards-loading')
+    await waitFor(() => {
+      expect(loadingSpinner).not.toBeInTheDocument()
+    })
+
+    const addButton = getByTestId('add-card')
+    await user.click(addButton)
+    const deleteButtons = await findAllByTestId('delete-card-button')
+    expect(deleteButtons[deleteButtons.length - 1].closest('button')).toHaveFocus()
+  })
+
+  describe('Student Groups', () => {
+    const payload = {
+      id: '23',
+      due_at: '2023-10-05T12:00:00Z',
+      unlock_at: '2023-10-01T12:00:00Z',
+      lock_at: '2023-11-01T12:00:00Z',
+      only_visible_to_overrides: false,
+      group_category_id: FIRST_GROUP_CATEGORY_ID,
+      visible_to_everyone: true,
+      overrides: [],
+    }
+
+    it('displays student groups if the assignmet is a group assignment', async () => {
+      fetchMock.get(OVERRIDES_URL, payload, {
+        overwriteRoutes: true,
+      })
+      const {findByText, findByTestId, getByText} = renderComponent()
+      const assigneeSelector = await findByTestId('assignee_selector')
+      act(() => assigneeSelector.click())
+      await findByText(FIRST_GROUP_CATEGORY_DATA[0].name)
+      FIRST_GROUP_CATEGORY_DATA.forEach(group => {
+        expect(getByText(group.name)).toBeInTheDocument()
+      })
+    })
+
+    it('refreshes the group options if the group category is overridden', async () => {
+      fetchMock.get(OVERRIDES_URL, payload, {
+        overwriteRoutes: true,
+      })
+      const {findByText, findByTestId, getByText, queryByText, rerender} = renderComponent()
+      const assigneeSelector = await findByTestId('assignee_selector')
+      act(() => assigneeSelector.click())
+      await findByText(FIRST_GROUP_CATEGORY_DATA[0].name)
+      SECOND_GROUP_CATEGORY_DATA.forEach(group => {
+        expect(queryByText(group.name)).not.toBeInTheDocument()
+      })
+      rerender(<ItemAssignToTray {...props} defaultGroupCategoryId={SECOND_GROUP_CATEGORY_ID} />)
+      await findByText(SECOND_GROUP_CATEGORY_DATA[0].name)
+      SECOND_GROUP_CATEGORY_DATA.forEach(group => {
+        expect(getByText(group.name)).toBeInTheDocument()
+      })
+    })
+  })
+
+  it('fetches overrides and assignee options only once', async () => {
+    const urls = [STUDENTS_URL, SECTIONS_URL, OVERRIDES_URL]
+    const {rerender, findAllByTestId} = renderComponent()
+    const assigneeSelectors = await findAllByTestId('assignee_selector')
+    expect(assigneeSelectors[0]).toBeInTheDocument()
+    urls.forEach(url => expect(fetchMock.calls(url).length).toBe(1))
+    rerender(<ItemAssignToTray {...props} open={false} />)
+    rerender(<ItemAssignToTray {...props} open={true} />)
+    urls.forEach(url => expect(fetchMock.calls(url).length).toBe(1))
+  })
+
+  describe('in a paced course', () => {
+    beforeEach(() => {
+      ENV.IN_PACED_COURSE = true
+    })
+
+    afterEach(() => {
+      ENV.IN_PACED_COURSE = false
+    })
+
+    it('shows the course pacing notice', () => {
+      const {getByTestId} = renderComponent()
+      expect(getByTestId('CoursePacingNotice')).toBeInTheDocument()
+    })
+
+    it('does not request existing overrides', () => {
+      renderComponent()
+      expect(fetchMock.calls(OVERRIDES_URL).length).toBe(0)
+    })
+
+    it('does not fetch assignee options', () => {
+      renderComponent()
+      expect(fetchMock.calls(STUDENTS_URL).length).toBe(0)
+      expect(fetchMock.calls(SECTIONS_URL).length).toBe(0)
+    })
+  })
+
+  describe('required due dates', () => {
+    beforeEach(() => {
+      global.ENV = {
+        ...global.ENV,
+        DUE_DATE_REQUIRED_FOR_ACCOUNT: true,
+      }
+    })
+
+    it('validates if required due dates are set before applying changes', async () => {
+      const {getByTestId, findAllByTestId, getByText, getAllByText} = renderComponent({
+        postToSIS: true,
+      })
+      // wait until the cards are loaded
+      const cards = await findAllByTestId('item-assign-to-card')
+      expect(cards[0]).toBeInTheDocument()
+
+      const addCardBtn = getByTestId('add-card')
+      act(() => addCardBtn.click())
+
+      getByTestId('differentiated_modules_save_button').click()
+
+      expect(getAllByText('Please add a due date')[0]).toBeInTheDocument()
+      expect(getByText('Please fix errors before continuing')).toBeInTheDocument()
+      // tray stays open
+      expect(getByText('Assignment | 10 pts')).toBeInTheDocument()
+    })
+  })
+
+  it('fetches and combines multiple pages of overrides', async () => {
+    const page1 = {
+      id: '23',
+      overrides: [
+        {id: '1', title: 'Override 1'},
+        {id: '2', title: 'Override 2'},
+      ],
+    }
+    const response1 = {
+      body: page1,
+      headers: {
+        Link: '</api/v1/courses/1/assignments/23/date_details?page=2&per_page=100>; rel="next"',
+      },
+    }
+
+    const page2 = {
+      id: '23',
+      overrides: [
+        {id: '3', title: 'Override 3'},
+        {id: '4', title: 'Override 4'},
+      ],
+    }
+    const response2 = {
+      body: page2,
+      headers: {
+        Link: '</api/v1/courses/1/assignments/23/date_details?page=3&per_page=100>; rel="next"',
+      },
+    }
+
+    const page3 = {
+      id: '23',
+      overrides: [{id: '5', title: 'Override 5'}],
+    }
+    const response3 = {
+      body: page3,
+    }
+
+    fetchMock.get(OVERRIDES_URL, response1, {overwriteRoutes: true})
+    fetchMock.get(`/api/v1/courses/1/assignments/23/date_details?page=2&per_page=100`, response2)
+    fetchMock.get(`/api/v1/courses/1/assignments/23/date_details?page=3&per_page=100`, response3)
+
+    const {findAllByTestId} = renderComponent()
+
+    await waitFor(async () => {
+      expect(fetchMock.calls(OVERRIDES_URL).length).toBe(1)
+
+      expect(
+        fetchMock.calls(`/api/v1/courses/1/assignments/23/date_details?page=2&per_page=100`).length
+      ).toBe(1)
+      expect(
+        fetchMock.calls(`/api/v1/courses/1/assignments/23/date_details?page=3&per_page=100`).length
+      ).toBe(1)
+      const cards = await findAllByTestId('item-assign-to-card')
+      expect(cards).toHaveLength(5)
     })
   })
 })

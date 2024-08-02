@@ -16,22 +16,22 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react'
+import {MockedProvider} from '@apollo/react-testing'
 import {fireEvent, render, waitFor, within} from '@testing-library/react'
 import {
   mockAssignmentAndSubmission,
-  mockSubmission,
   mockQuery,
+  mockSubmission,
 } from '@canvas/assignments/graphql/studentMocks'
-import {MockedProvider} from '@apollo/react-testing'
-import {initializeReaderButton} from '../../../../../shared/immersive-reader/ImmersiveReader'
-import React from 'react'
-import StudentViewContext from '../Context'
-import StudentContent from '../StudentContent'
+import {initializeReaderButton} from '@canvas/immersive-reader/ImmersiveReader'
 import {SubmissionMocks} from '@canvas/assignments/graphql/student/Submission'
 import {AssignmentMocks} from '@canvas/assignments/graphql/student/Assignment'
-import ContextModuleApi from '../../apis/ContextModuleApi'
 import {RUBRIC_QUERY, SUBMISSION_COMMENT_QUERY} from '@canvas/assignments/graphql/student/Queries'
 import injectGlobalAlertContainers from '@canvas/util/react/testing/injectGlobalAlertContainers'
+import StudentViewContext from '../Context'
+import StudentContent from '../StudentContent'
+import ContextModuleApi from '../../apis/ContextModuleApi'
 
 injectGlobalAlertContainers()
 
@@ -328,7 +328,7 @@ describe('Assignment Student Content View', () => {
   })
 
   it('does not render the attempt select if there is no submission', async () => {
-    const props = await mockAssignmentAndSubmission({Submission: null})
+    const props = await mockAssignmentAndSubmission({Query: {submission: null}})
     props.allSubmissions = [{id: '1', _id: '1'}]
     const {queryByTestId} = render(
       <MockedProvider>
@@ -579,7 +579,7 @@ describe('Assignment Student Content View', () => {
         SubmissionCommentConnection: {nodes: []},
       }
       const result = await mockQuery(SUBMISSION_COMMENT_QUERY, overrides, variables)
-      const mocks = [
+      return [
         {
           request: {
             query: SUBMISSION_COMMENT_QUERY,
@@ -588,22 +588,18 @@ describe('Assignment Student Content View', () => {
           result,
         },
       ]
-      return mocks
     }
 
-    // https://instructure.atlassian.net/browse/USERS-385
-
-    it.skip('renders Comments', async () => {
-      // To be unskipped in EVAL-1679
+    it('renders Comments', async () => {
       const mocks = await makeMocks()
       const props = await mockAssignmentAndSubmission()
-      const {getByText} = render(
+      const {findByText} = render(
         <MockedProvider mocks={mocks}>
           <StudentContent {...props} />
         </MockedProvider>
       )
-      fireEvent.click(getByText('Add Comment'))
-      await waitFor(() => expect(getByText('Send Comment')).toBeInTheDocument())
+      fireEvent.click(await findByText(/add comment/i))
+      expect(await findByText(/attempt 1 feedback/i)).toBeInTheDocument()
     })
 
     it('renders spinner while lazy loading comments', async () => {
@@ -811,13 +807,29 @@ describe('Assignment Student Content View', () => {
     })
 
     it('shows the unread comments badge if there are unread comments', async () => {
-      const props = await mockAssignmentAndSubmission({Submission: {unreadCommentCount: 1}})
+      const props = await mockAssignmentAndSubmission({
+        Submission: {unreadCommentCount: 1, feedbackForCurrentAttempt: true},
+      })
       const {getByTestId} = render(
         <MockedProvider>
           <StudentContent {...props} />
         </MockedProvider>
       )
+      expect(getByTestId('view_feedback_button')).toHaveTextContent('View Feedback')
       expect(getByTestId('unread_comments_badge')).toBeInTheDocument()
+    })
+
+    it('does not show unread comments if the assignment grade is not posted', async () => {
+      const props = await mockAssignmentAndSubmission({
+        Submission: {unreadCommentCount: 1, feedbackForCurrentAttempt: false},
+      })
+      props.submission.gradingStatus = 'needs_grading'
+      const {queryByTestId} = render(
+        <MockedProvider>
+          <StudentContent {...props} />
+        </MockedProvider>
+      )
+      expect(queryByTestId('unread_comments_badge')).not.toBeInTheDocument()
     })
 
     it('does not show the unread comments badge if there are no unread comments', async () => {
@@ -986,13 +998,16 @@ describe('Assignment Student Content View', () => {
     })
 
     it('shows the unread comments badge if peerReviewModeEnabled is set to false', async () => {
-      const props = await mockAssignmentAndSubmission({Submission: {unreadCommentCount: 1}})
+      const props = await mockAssignmentAndSubmission({
+        Submission: {unreadCommentCount: 1, feedbackForCurrentAttempt: true},
+      })
       props.assignment.env.peerReviewModeEnabled = false
       const {getByTestId} = render(
         <MockedProvider>
           <StudentContent {...props} />
         </MockedProvider>
       )
+      expect(getByTestId('view_feedback_button')).toHaveTextContent('View Feedback')
       expect(getByTestId('unread_comments_badge')).toBeInTheDocument()
     })
   })
@@ -1008,7 +1023,7 @@ describe('Assignment Student Content View', () => {
     })
 
     it('is not rendered when no submission object is present', async () => {
-      const props = await mockAssignmentAndSubmission({Submission: null})
+      const props = await mockAssignmentAndSubmission({Query: {submission: null}})
       props.allSubmissions = [{id: '1', _id: '1'}]
       const {queryByTestId} = render(
         <MockedProvider>
@@ -1267,7 +1282,7 @@ describe('Assignment Student Content View', () => {
     })
 
     it('is not rendered when no submission object is present', async () => {
-      const props = await mockAssignmentAndSubmission({Submission: null})
+      const props = await mockAssignmentAndSubmission({Query: {submission: null}})
       props.allSubmissions = [{id: '1', _id: '1'}]
       const {queryByTestId} = render(
         <MockedProvider>

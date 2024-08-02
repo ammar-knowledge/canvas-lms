@@ -39,7 +39,7 @@ const I18n = useI18nScope('discussion_posts')
 export const DiscussionEdit = props => {
   const rceRef = useRef()
   const [rceContent, setRceContent] = useState(false)
-  const [includeQuotedReply, setIncludeQuotedReply] = useState(!!props.quotedEntry?.previewMessage)
+  const [includeQuotedReply, setIncludeQuotedReply] = useState(!!props.quotedEntry?.message)
   const textAreaId = useRef(`message-body-${props.rceIdentifier}`)
   const [anonymousAuthorState, setAnonymousAuthorState] = useState(
     !!props.discussionAnonymousState && props.canReplyAnonymously
@@ -81,7 +81,7 @@ export const DiscussionEdit = props => {
       }}
       data-testid="DiscussionEdit-container"
     >
-      {props.quotedEntry?.previewMessage && (
+      {props.quotedEntry?.message && (
         <span className="discussions-include-reply">
           <View as="div" margin="0 0 small 0">
             <Checkbox
@@ -94,7 +94,7 @@ export const DiscussionEdit = props => {
               }}
             />
           </View>
-          <ReplyPreview {...props.quotedEntry} />
+          {!props.isEdit && <ReplyPreview {...props.quotedEntry} />}
         </span>
       )}
       {props.discussionAnonymousState && props.canReplyAnonymously && !props.isEdit && (
@@ -129,6 +129,7 @@ export const DiscussionEdit = props => {
             height={300}
             defaultContent={props.value}
             mirroredAttrs={{'data-testid': 'message-body'}}
+            resourceType={props.isAnnouncement ? 'announcement.reply' : 'discussion_topic.reply'}
           />
         </span>
         <Responsive
@@ -192,7 +193,7 @@ export const DiscussionEdit = props => {
                         )
                         props.onSubmit(
                           rceContent,
-                          includeQuotedReply ? props.quotedEntry.id : null,
+                          includeQuotedReply ? props.quotedEntry._id : null,
                           attachment,
                           anonymousAuthorState
                         )
@@ -202,7 +203,7 @@ export const DiscussionEdit = props => {
                     color="primary"
                     data-testid="DiscussionEdit-submit"
                     key="rce-reply-button"
-                    interaction={attachmentToUpload ? 'disabled' : 'enabled'}
+                    interaction={(attachmentToUpload || props.isSubmitting) ? 'disabled' : 'enabled'}
                   >
                     <Text size="medium">{props.isEdit ? I18n.t('Save') : I18n.t('Reply')}</Text>
                   </Button>
@@ -218,7 +219,8 @@ export const DiscussionEdit = props => {
                     setAttachmentToUpload={setAttachmentToUpload}
                     attachmentToUpload={attachmentToUpload}
                     responsiveQuerySizes={responsiveQuerySizes}
-                    isGradedDiscussion={isGradedDiscussion}
+                    attachmentFolderId={ENV?.DISCUSSION?.ATTACHMENTS_FOLDER_ID}
+                    checkContextQuota={!isGradedDiscussion}
                     canAttach={ENV.can_attach_entries}
                   />
                 </View>
@@ -234,7 +236,8 @@ export const DiscussionEdit = props => {
                       setAttachmentToUpload={setAttachmentToUpload}
                       attachmentToUpload={attachmentToUpload}
                       responsiveQuerySizes={responsiveQuerySizes}
-                      isGradedDiscussion={isGradedDiscussion}
+                      attachmentFolderId={ENV?.DISCUSSION?.ATTACHMENTS_FOLDER_ID}
+                      checkContextQuota={!isGradedDiscussion}
                       canAttach={ENV.can_attach_entries}
                     />
                   </View>
@@ -263,6 +266,8 @@ DiscussionEdit.propTypes = {
   isEdit: PropTypes.bool,
   quotedEntry: PropTypes.object,
   onInit: PropTypes.func,
+  isAnnouncement: PropTypes.bool.isRequired,
+  isSubmitting: PropTypes.bool
 }
 
 DiscussionEdit.defaultProps = {

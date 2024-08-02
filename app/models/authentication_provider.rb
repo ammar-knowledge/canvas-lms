@@ -49,7 +49,7 @@ class AuthenticationProvider < ActiveRecord::Base
     case type_name
     when "cas", "ldap", "saml"
       const_get(type_name.upcase)
-    when "apple", "clever", "facebook", "google", "microsoft", "saml_idp_discovery", "twitter"
+    when "apple", "clever", "facebook", "google", "microsoft", "saml_idp_discovery"
       const_get(type_name.classify)
     when "canvas"
       Canvas
@@ -59,6 +59,8 @@ class AuthenticationProvider < ActiveRecord::Base
       LinkedIn
     when "openid_connect"
       OpenIDConnect
+    when "twitter"
+      Twitter
     else
       super
     end
@@ -92,7 +94,11 @@ class AuthenticationProvider < ActiveRecord::Base
     t("Login with %{provider}", provider: display_name)
   end
 
-  scope :active, -> { where("workflow_state <> 'deleted'") }
+  def self.supports_autoconfirmed_email?
+    true
+  end
+
+  scope :active, -> { where.not(workflow_state: "deleted") }
   belongs_to :account
   include ::Canvas::RootAccountCacher
   has_many :pseudonyms, inverse_of: :authentication_provider
@@ -136,6 +142,10 @@ class AuthenticationProvider < ActiveRecord::Base
 
   def self.login_button?
     Rails.root.join("app/views/shared/svg/_svg_icon_#{sti_name}.svg").exist?
+  end
+
+  def login_attribute_for_pseudonyms
+    nil
   end
 
   def destroy
@@ -260,12 +270,19 @@ class AuthenticationProvider < ActiveRecord::Base
     time_zone
   ].freeze
 
-  def provision_user(unique_id, provider_attributes = {})
+  def provision_user(unique_ids, provider_attributes = {})
     User.transaction(requires_new: true) do
+      if unique_ids.is_a?(Hash)
+        unique_id = unique_ids[login_attribute]
+      else
+        unique_id = unique_ids
+        unique_ids = {}
+      end
       pseudonym = account.pseudonyms.build
       pseudonym.user = User.create!(name: unique_id) { |u| u.workflow_state = "registered" }
       pseudonym.authentication_provider = self
       pseudonym.unique_id = unique_id
+      pseudonym.unique_ids = unique_ids
       pseudonym.save!
       apply_federated_attributes(pseudonym, provider_attributes, purpose: :provisioning)
       pseudonym
@@ -323,8 +340,16 @@ class AuthenticationProvider < ActiveRecord::Base
 
         cc = user.communication_channels.email.by_path(value).first
         cc ||= user.communication_channels.email.new(path: value)
-        cc.workflow_state = "active"
-        cc.save! if cc.changed?
+        if self.class.supports_autoconfirmed_email? && federated_attributes.dig("email", "autoconfirm")
+          cc.workflow_state = "active"
+          autoconfirm = true
+        elsif cc.new_record?
+          cc.workflow_state = "unconfirmed"
+        end
+        if cc.changed?
+          cc.save!
+          cc.send_confirmation!(pseudonym.account) unless autoconfirm
+        end
       when "locale"
         # convert _ to -, be lenient about case, and perform fallbacks
         value = value.tr("_", "-")
@@ -384,6 +409,9 @@ class AuthenticationProvider < ActiveRecord::Base
 
   private
 
+  BOOLEAN_ATTRIBUTE_PROPERTIES = %w[provisioning_only autoconfirm].freeze
+  private_constant :BOOLEAN_ATTRIBUTE_PROPERTIES
+
   def validate_federated_attributes
     bad_keys = federated_attributes.keys - CANVAS_ALLOWED_FEDERATED_ATTRIBUTES
     unless bad_keys.empty?
@@ -393,17 +421,27 @@ class AuthenticationProvider < ActiveRecord::Base
 
     # normalize values to { attribute: <attribute>, provisioning_only: true|false }
     federated_attributes.each_key do |key|
-      case federated_attributes[key]
+      case (attr = federated_attributes[key])
       when String
-        federated_attributes[key] = { "attribute" => federated_attributes[key], "provisioning_only" => false }
+        attr = federated_attributes[key] = { "attribute" => federated_attributes[key], "provisioning_only" => false }
+        attr["autoconfirm"] = false if key == "email"
       when Hash
-        bad_keys = federated_attributes[key].keys - ["attribute", "provisioning_only"]
+        bad_keys = attr.keys - ["attribute", "provisioning_only"]
+        bad_keys.delete("autoconfirm") if key == "email"
         unless bad_keys.empty?
           errors.add(:federated_attributes, "unrecognized key #{bad_keys.join(", ")} in #{key} attribute definition")
           return
         end
-        federated_attributes[key]["provisioning_only"] =
-          ::Canvas::Plugin.value_to_boolean(federated_attributes[key]["provisioning_only"])
+        unless attr.key?("attribute")
+          errors.add(:federated_attributes, "missing key attribute in #{key} attribute definition")
+          return
+        end
+
+        BOOLEAN_ATTRIBUTE_PROPERTIES.each do |prop|
+          next if prop == "autoconfirm" && key != "email"
+
+          attr[prop] = ::Canvas::Plugin.value_to_boolean(attr[prop])
+        end
       else
         errors.add(:federated_attributes, "invalid attribute definition for #{key}")
         return

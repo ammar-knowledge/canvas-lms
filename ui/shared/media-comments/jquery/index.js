@@ -191,7 +191,7 @@ $.mediaComment.upload_delegate = {
     }
     $('#media_upload_progress').css('visibility', 'visible').progressbar({value: 1})
     $('#media_upload_submit')
-      .attr('disabled', true)
+      .prop('disabled', true)
       .text(I18n.t('messages.submitting', 'Submitting Media File...'))
     $('#' + type + '_upload')[0].upload()
   },
@@ -210,7 +210,7 @@ $.mediaComment.upload_delegate = {
     const file = $('#' + type + '_upload')[0].getFiles()[0]
     $('#media_upload_settings .icon').attr('src', '/images/file-' + type + '.png')
     $('#media_upload_submit').show()
-    $('#media_upload_submit').attr('disabled', !file)
+    $('#media_upload_submit').prop('disabled', !file)
     $('#media_upload_settings').css('visibility', file ? 'visible' : 'hidden')
     $('#media_upload_title').val(file.title)
     $('#media_upload_display_title').text(file.title)
@@ -311,10 +311,11 @@ $.mediaComment.init = function (mediaType, opts) {
         }
         $('#video_record_title,#audio_record_title').val(defaultTitle)
         $dialog.dialog({
-          title: I18n.t('titles.record_upload_media_comment', 'Record/Upload Media Comment'),
+          title: I18n.t('Studio Capture'),
           width: 560,
           height: 475,
           modal: true,
+          zIndex: 1000,
         })
         $dialog.dialog('option', 'close', () => {
           $('#audio_record').before("<div id='audio_record'/>").remove()
@@ -612,11 +613,12 @@ $.mediaComment.init = function (mediaType, opts) {
         const $div = $('<div/>').attr('id', 'media_comment_dialog')
         $div.text(I18n.t('messages.loading', 'Loading...'))
         $div.dialog({
-          title: I18n.t('titles.record_upload_media_comment', 'Record/Upload Media Comment'),
+          title: I18n.t('Studio Capture'),
           resizable: false,
           width: 470,
           height: 300,
           modal: true,
+          zIndex: 1000,
         })
 
         // **********************************************************************
@@ -698,7 +700,7 @@ $(document).ready(function () {
       .removeClass('with_volume')
     $('#media_upload_submit')
       .text(I18n.t('buttons.submit', 'Submit Media File'))
-      .attr('disabled', true)
+      .prop('disabled', true)
     $('#media_upload_settings').css('visibility', 'hidden')
     $('#media_upload_progress')
       .css('visibility', 'hidden')

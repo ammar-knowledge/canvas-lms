@@ -5471,6 +5471,35 @@ describe Course do
         expect(@course.enrollment_visibility_level_for(@student1, @course.section_visibilities_for(@student1), require_message_permission: true)).to be :restricted
       end
     end
+
+    context "section_visibilities_for" do
+      before :once do
+        @course.root_account.enable_feature!(:temporary_enrollments)
+        temporary_enrollment_pairing = TemporaryEnrollmentPairing.create!(root_account: @course.root_account, created_by: @teacher)
+        @temp_enrollment = @course.enroll_teacher(
+          @teacher,
+          section: @other_section,
+          temporary_enrollment_source_user_id: @ta.id,
+          temporary_enrollment_pairing_id: temporary_enrollment_pairing.id,
+          limit_privileges_to_course_section: true,
+          allow_multiple_enrollments: true
+        )
+      end
+
+      it "filters out sections from non active temporary enrolments" do
+        @temp_enrollment.enrollment_state.update(state: "inactive")
+
+        section_ids = @course.section_visibilities_for(@teacher).pluck(:course_section_id)
+        expect(section_ids).to match_array([@course.default_section.id])
+      end
+
+      it "returns temp enrollment section if enrollment_state of that is active" do
+        @temp_enrollment.enrollment_state.update(state: "active")
+
+        section_ids = @course.section_visibilities_for(@teacher).pluck(:course_section_id)
+        expect(section_ids).to match_array([@course.default_section.id, @other_section.id])
+      end
+    end
   end
 
   context "enrollments" do
@@ -5552,7 +5581,7 @@ describe Course do
       e1.conclude
       @course.sync_homeroom_enrollments
       expect(@course.enrollments.where(user_id: @student.id).size).to eq 2
-      e2 = @course.enrollments.where(user_id: @student.id, role_id: role.id).take
+      e2 = @course.enrollments.find_by(user_id: @student.id, role_id: role.id)
       expect(e2.role_id).to eq role.id
       expect(e2.start_at).to eq e1.start_at
       expect(e2.end_at).to eq e1.end_at
@@ -6840,9 +6869,9 @@ describe Course do
       expect(@course.modules_visible_to(@teacher).pluck(:name)).to contain_exactly("published 1", "published 2", "unpublished")
     end
 
-    context "when the differentiated_modules flag is enabled" do
+    context "when the selective_release_backend flag is enabled" do
       before :once do
-        Account.site_admin.enable_feature! :differentiated_modules
+        Account.site_admin.enable_feature! :selective_release_backend
         @m2.assignment_overrides.create!
       end
 
@@ -7947,6 +7976,16 @@ describe Course do
           expect(crs.restrict_quantitative_data).to be true
         end
 
+        it "creates course account association for newly created courses when account setting is true and locked" do
+          @sub_account = Account.create(parent_account: @root, name: "English")
+          @root.settings[:restrict_quantitative_data] = { locked: true, value: true }
+          @root.save!
+
+          crs = Course.create!(account: @sub_account)
+          associated = @sub_account.associated_courses.first
+          expect(associated.id).to eq crs.id
+        end
+
         it "does not set restrict_quantitative_data for newly created courses when account setting is true and not locked" do
           Account.default.settings[:restrict_quantitative_data] = { locked: false, value: true }
           Account.default.save!
@@ -8213,6 +8252,33 @@ describe Course do
     it "records deleted_at" do
       course_model
       expect { @course.destroy }.to change { @course.reload.deleted_at }.from(nil).to be_truthy
+    end
+  end
+
+  describe "#all_dates" do
+    let(:calendar_event_start_date) { 1.day.from_now }
+    let(:calendar_event_end_date) { 2.days.from_now }
+    let(:assignment_due_at_date) { 3.days.from_now }
+    let(:context_module_unlock_at_date) { 4.days.from_now }
+
+    before do
+      @course = Account.default.courses.build
+      @course.save!
+      @course.calendar_events.create!(title: "an event",
+                                      start_at: calendar_event_start_date,
+                                      end_at: calendar_event_end_date)
+      @course.assignments.create!(due_at: assignment_due_at_date)
+      cm = @course.context_modules.build(name: "some module", unlock_at: context_module_unlock_at_date)
+      cm.save!
+    end
+
+    it "should return all dates" do
+      dates = @course.all_dates
+
+      expect(dates).to include(calendar_event_start_date.to_date)
+      expect(dates).to include(calendar_event_end_date.to_date)
+      expect(dates).to include(assignment_due_at_date.to_date)
+      expect(dates).to include(context_module_unlock_at_date.to_date)
     end
   end
 end

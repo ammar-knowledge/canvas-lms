@@ -26,7 +26,7 @@ module Lti
       resource_selection
     ].freeze
 
-    def initialize(tool:, context:, user:, launch_type:, placement: nil)
+    def initialize(tool:, context:, user:, session_id:, launch_type:, placement: nil)
       raise ArgumentError, "context must be a Course, Account, or Group" unless [Course, Account, Group].include? context.class
       raise ArgumentError, "launch_type must be one of #{LAUNCH_TYPES.join(", ")}" unless LAUNCH_TYPES.include?(launch_type.to_sym)
 
@@ -36,28 +36,36 @@ module Lti
       @user = user
       @launch_type = launch_type
       @placement = placement
+      @session_id = session_id
     end
 
     def call
       return unless @context.root_account.feature_enabled?(:lti_log_launches)
+      return unless Account.site_admin.feature_enabled?(:lti_log_launches_site_admin)
 
       PandataEvents.send_event(:lti_launch, log_data, for_user_id: @user&.global_id)
     end
 
     def log_data
       {
-        tool_id: @tool.tool_id,
+        unified_tool_id: @tool.unified_tool_id,
+        tool_id: @tool.id.to_s,
+        tool_provided_id: @tool.tool_id,
         tool_domain: @tool.domain,
         tool_url: @tool.url, # this could get really long
         tool_name: @tool.name,
         tool_version: @tool.lti_version,
         tool_client_id: @tool.global_developer_key_id.to_s,
+        account_id: account_for_context.id.to_s,
+        root_account_uuid: @context.root_account.uuid,
         launch_type: @launch_type,
         message_type:,
         placement: @placement,
-        context_id: @context.global_id.to_s,
+        context_id: @context.id.to_s,
         context_type: @context.class.name,
-        user_id: @user&.global_id&.to_s,
+        user_id: Shard.relative_id_for(@user&.id, @user&.shard, Shard.current).to_s,
+        session_id: @session_id,
+        shard_id: Shard.current.id.to_s,
         user_relationship:
       }
     end
@@ -85,7 +93,11 @@ module Lti
       relationships =
         case @context
         when Group
-          user_group_relationship(@context) + user_course_relationship(@context.context) + user_account_relationship(@context.context.account)
+          if @context.context.is_a?(Course)
+            user_group_relationship(@context) + user_course_relationship(@context.context) + user_account_relationship(@context.context.account)
+          else
+            user_group_relationship(@context) + user_account_relationship(@context.context)
+          end
         when Course
           user_course_relationship(@context) + user_account_relationship(@context.account)
         when Account
@@ -107,6 +119,21 @@ module Lti
 
     def user_account_relationship(account)
       account.account_users_for(@user).map(&:role).pluck(:name)
+    end
+
+    def account_for_context
+      case @context
+      when Account
+        @context
+      when Course
+        @context.account
+      when Group
+        if @context.context.is_a?(Course)
+          @context.context.account
+        else
+          @context.context
+        end
+      end
     end
   end
 end

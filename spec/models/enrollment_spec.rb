@@ -187,6 +187,39 @@ describe Enrollment do
     end
   end
 
+  describe "#enrollment_state" do
+    let_once(:enrollment) { enrollment_model }
+
+    context "when called on a new record" do
+      it "raises an error" do
+        expect { described_class.new.enrollment_state }
+          .to raise_error(RuntimeError, "cannot call enrollment_state on a new record")
+      end
+    end
+
+    context "when enrollment_state exists" do
+      let(:enrollment_state) { EnrollmentState.find_by(enrollment_id: enrollment) }
+
+      it "returns the existing enrollment_state" do
+        expect(enrollment.enrollment_state).to eq(enrollment_state)
+      end
+    end
+
+    context "when enrollment enrollment_state association is nil" do
+      let(:non_stale_enrollment_state) { EnrollmentState.find_by(enrollment_id: enrollment) }
+
+      before do
+        allow_any_instance_of(ActiveRecord::Associations::HasOneAssociation).to receive(:reload)
+      end
+
+      it "returns the non-stale enrollment_state" do
+        enrollment.association(:enrollment_state).target = nil
+
+        expect(enrollment.enrollment_state).to eq(non_stale_enrollment_state)
+      end
+    end
+  end
+
   describe "#destroy" do
     context "with overrides" do
       before(:once) do
@@ -994,19 +1027,15 @@ describe Enrollment do
           expect(@enrollment.graded_at).to eq score.updated_at
         end
 
-        it "uses the graded_at attribute if no associated score object exists" do
-          expect(@enrollment.graded_at).to eq @enrollment.read_attribute(:graded_at)
-        end
-
         it "ignores grading period scores" do
           @enrollment.scores.create!(current_score: 80.3, grading_period: period)
-          expect(@enrollment.graded_at).to eq @enrollment.read_attribute(:graded_at)
+          expect(@enrollment.graded_at).to be_nil
         end
 
         it "ignores soft-deleted scores" do
           score = @enrollment.scores.create!(current_score: 80.3)
           score.destroy
-          expect(@enrollment.graded_at).to eq @enrollment.read_attribute(:graded_at)
+          expect(@enrollment.graded_at).to be_nil
         end
       end
 
@@ -1563,11 +1592,11 @@ describe Enrollment do
 
   context "atom" do
     it "uses the course and user name to derive a title" do
-      expect(@enrollment.to_atom.title).to eql("#{@enrollment.user.name} in #{@enrollment.course.name}")
+      expect(@enrollment.to_atom[:title]).to eql("#{@enrollment.user.name} in #{@enrollment.course.name}")
     end
 
     it "links to the enrollment" do
-      link_path = @enrollment.to_atom.links.first.to_s
+      link_path = @enrollment.to_atom[:link]
       expect(link_path).to eql("/courses/#{@enrollment.course.id}/enrollments/#{@enrollment.id}")
     end
   end
@@ -3049,6 +3078,23 @@ describe Enrollment do
 
       expect(@enrollment).to be_valid
       expect { @enrollment2.save! }.to raise_error("Validation failed: Associated user Cannot observe observer observing self")
+    end
+
+    it "allows existing observer enrollment cycles to be deleted" do
+      u1 = User.create!
+      u2 = User.create!
+      course = Course.create!
+
+      e1 = ObserverEnrollment.create!(course:, user: u1, associated_user_id: u2.id)
+      e2 = ObserverEnrollment.create!(course:, user: u2)
+      ObserverEnrollment.where(id: e2).update_all(associated_user_id: u1.id) # bypass the validation
+
+      expect(e1).not_to be_valid
+
+      e1.destroy
+
+      expect(e1).to be_valid
+      expect(e1).to be_deleted
     end
 
     context "sharding" do

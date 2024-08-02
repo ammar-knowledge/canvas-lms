@@ -68,7 +68,7 @@ describe AccessToken do
     end
 
     context "when an access token argument is provided" do
-      subject { AccessToken.authenticate(token.full_token, AccessToken::TOKEN_TYPES.crypted_token, token) }
+      subject { AccessToken.authenticate(token.full_token, :crypted_token, token) }
 
       let(:token) { AccessToken.create!(user: user_model) }
       let(:user) { user_model }
@@ -212,6 +212,11 @@ describe AccessToken do
       @at.save
 
       expect(@at.reload.usable?(:crypted_refresh_token)).to be false
+    end
+
+    it "is not usable if pending" do
+      @at.update!(workflow_state: "pending")
+      expect(@at.reload.usable?).to be false
     end
   end
 

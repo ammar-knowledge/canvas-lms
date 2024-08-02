@@ -27,7 +27,7 @@ import Quiz from '@canvas/quizzes/backbone/models/Quiz'
 import PublishButtonView from '@canvas/publish-button-view'
 import QuizLogAuditingEventDumper from '@canvas/quiz-log-auditing/jquery/dump_events'
 import CyoeStats from '@canvas/conditional-release-stats/react/index'
-import '@canvas/datetime/jquery' /* dateString, time_field, datetime_field */
+import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
 import 'jqueryui/dialog'
 import '@canvas/util/jquery/fixDialogButtons'
 import '@canvas/rails-flash-notifications'
@@ -233,9 +233,10 @@ $(document).ready(function () {
             .submit()
         },
       },
+      zIndex: 1000,
     })
 
-    $lock_at.datetime_field()
+    renderDatetimeField($lock_at)
   })
 
   $('#lock_this_quiz_now_link').ifExists($link => {
@@ -253,7 +254,7 @@ $(document).ready(function () {
     beforeSubmit(_data) {
       $(this)
         .find('button')
-        .attr('disabled', true)
+        .prop('disabled', true)
         .text(I18n.t('buttons.publishing', 'Publishing...'))
     },
     success(_data) {

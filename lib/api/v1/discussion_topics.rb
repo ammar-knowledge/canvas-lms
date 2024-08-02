@@ -47,6 +47,7 @@ module Api::V1::DiscussionTopics
     sort_by_rating
     is_section_specific
     anonymous_state
+    summary_enabled
   ].freeze
 
   # Public: DiscussionTopic methods to serialize.
@@ -62,7 +63,13 @@ module Api::V1::DiscussionTopics
     return {} unless root_topic_ids.present?
 
     fields_with_id = fields.unshift(:id)
-    root_topics_array = DiscussionTopic.select(fields_with_id).find(root_topic_ids)
+    root_topics_array = if fields_with_id.delete(:delayed_post_at)
+                          with_correct_unlock_at = DiscussionTopic.select("COALESCE(unlock_at, delayed_post_at) AS delayed_post_at", fields_with_id).find(root_topic_ids)
+                          fields_with_id << :delayed_post_at
+                          with_correct_unlock_at
+                        else
+                          DiscussionTopic.select(fields_with_id).find(root_topic_ids)
+                        end
     root_topics_array.index_by(&:id)
   end
 
@@ -80,7 +87,8 @@ module Api::V1::DiscussionTopics
     if opts[:root_topic_fields]&.length
       root_topics = get_root_topic_data(topics, opts[:root_topic_fields])
     end
-    if opts[:include_sections_user_count] && context
+    # ignore :include_sections_user_count for non-course contexts like groups
+    if opts[:include_sections_user_count] && context && context.is_a?(Course)
       opts[:context_user_count] = GuardRail.activate(:secondary) { context.enrollments.not_fake.active_or_pending_by_date_ignoring_access.distinct.count(:user_id) }
     end
 
@@ -97,6 +105,7 @@ module Api::V1::DiscussionTopics
     )
 
     DiscussionTopic.preload_subentry_counts(topics)
+    DatesOverridable.preload_override_data_for_objects([*topics, *topics.filter_map(&:assignment)])
     opts[:use_preload] = true
     topics.each_with_object([]) do |topic, result|
       if topic.visible_for?(user)
@@ -133,7 +142,7 @@ module Api::V1::DiscussionTopics
     )
 
     opts[:user_can_moderate] = context.grants_right?(user, session, :moderate_forum) if opts[:user_can_moderate].nil?
-    permissions = opts[:skip_permissions] ? [] : %i[attach update reply delete]
+    permissions = opts[:skip_permissions] ? [] : %i[attach update reply delete manage_assign_to]
     json = api_json(topic, user, session, { only: ALLOWED_TOPIC_FIELDS, methods: ALLOWED_TOPIC_METHODS }, permissions)
 
     json.merge!(serialize_additional_topic_fields(topic, context, user, opts))
@@ -141,7 +150,9 @@ module Api::V1::DiscussionTopics
     if (hold = topic.subscription_hold(user, session))
       json[:subscription_hold] = hold
     end
-
+    if topic.checkpoints?
+      json[:reply_to_entry_required_count] = topic.reply_to_entry_required_count
+    end
     if opts[:include_assignment] && topic.assignment
       excludes = opts[:exclude_assignment_description] ? ["description"] : []
       json[:assignment] = assignment_json(topic.assignment,
@@ -154,7 +165,8 @@ module Api::V1::DiscussionTopics
                                             include_overrides: opts[:include_overrides] }.merge(opts[:assignment_opts]))
     end
 
-    if opts[:include_sections_user_count] && !topic.is_section_specific
+    # ignore :include_sections_user_count for non-course contexts like groups
+    if opts[:include_sections_user_count] && !topic.is_section_specific && context.is_a?(Course)
       json[:user_count] = opts[:context_user_count] || GuardRail.activate(:secondary) { context.enrollments.not_fake.active_or_pending_by_date_ignoring_access.count }
     end
 

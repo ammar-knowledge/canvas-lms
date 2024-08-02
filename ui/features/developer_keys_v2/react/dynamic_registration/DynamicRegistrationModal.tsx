@@ -64,7 +64,7 @@ export const DynamicRegistrationModal = (props: DynamicRegistrationModalProps) =
             />
             <Heading>{I18n.t('Register App')}</Heading>
           </Modal.Header>
-          <DynamicRegistrationModalBody />
+          <DynamicRegistrationModalBody contextId={props.contextId} />
           <Modal.Footer>
             <DynamicRegistrationModalFooter {...props} />
           </Modal.Footer>
@@ -87,12 +87,14 @@ const addParams = (url: string, params: Record<string, string>) => {
   Object.entries(params).forEach(([key, value]) => {
     u.searchParams.set(key, value)
   })
-  return u.toString()
+  return encodeURIComponent(u.toString())
 }
 
-type DynamicRegistrationModalBodyProps = {}
+type DynamicRegistrationModalBodyProps = {
+  contextId: string
+}
 
-const DynamicRegistrationModalBody = (_props: DynamicRegistrationModalBodyProps) => {
+const DynamicRegistrationModalBody = ({contextId}: DynamicRegistrationModalBodyProps) => {
   const state = useDynamicRegistrationState(s => s.state)
   const setUrl = useDynamicRegistrationState(s => s.setUrl)
   switch (state.tag) {
@@ -115,15 +117,20 @@ const DynamicRegistrationModalBody = (_props: DynamicRegistrationModalBodyProps)
       )
     case 'registering':
       return (
-        <iframe
-          src={addParams(state.dynamicRegistrationUrl, {
-            openid_configuration: state.registrationToken.oidc_configuration_url,
-            registration_token: state.registrationToken.token,
-          })}
-          style={{width: '100%', height: '600px', border: '0', display: 'block'}}
-          title={I18n.t('Register App')}
-          data-testid="dynamic-reg-modal-iframe"
-        />
+        <Modal.Body padding="none">
+          <iframe
+            src={
+              `/api/lti/accounts/${contextId}/dr_iframe?url=` +
+              addParams(state.dynamicRegistrationUrl, {
+                openid_configuration: state.registrationToken.oidc_configuration_url,
+                registration_token: state.registrationToken.token,
+              })
+            }
+            style={{width: '100%', height: '600px', border: '0', display: 'block'}}
+            title={I18n.t('Register App')}
+            data-testid="dynamic-reg-modal-iframe"
+          />
+        </Modal.Body>
       )
     case 'loading_registration':
       return (
@@ -201,9 +208,9 @@ const DynamicRegistrationModalFooter = (props: DynamicRegistrationModalFooterPro
             }
             onClick={() => {
               loadingRegistrationToken()
-              getRegistrationToken()
+              getRegistrationToken(props.contextId, state.dynamicRegistrationUrl)
                 .then(token => {
-                  register(token)
+                  register(props.contextId, token)
                 })
                 .catch(err => {
                   error(err instanceof Error ? err : undefined)
@@ -267,6 +274,7 @@ const DynamicRegistrationModalFooter = (props: DynamicRegistrationModalFooterPro
             onClick={() => {
               // eslint-disable-next-line promise/catch-or-return
               closeAndSaveOverlay(
+                props.contextId,
                 state.registration,
                 state.overlayStore.getState().state.registration
               ).then(onFinish)

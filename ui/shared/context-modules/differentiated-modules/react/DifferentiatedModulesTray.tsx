@@ -28,10 +28,11 @@ import {IconModuleSolid} from '@instructure/ui-icons'
 import {calculatePanelHeight} from '../utils/miscHelpers'
 import type {Module} from './types'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import type {AssigneeOption} from './AssigneeSelector'
 import type {SettingsPanelState} from './settingsReducer'
 import {createModule, updateModule} from './SettingsPanel'
 import {type OptionValue, updateModuleAssignees} from './AssignToPanel'
+import CoursePacingNotice from '@canvas/due-dates/react/CoursePacingNotice'
+import {AssigneeOption} from './Item/types'
 
 const I18n = useI18nScope('differentiated_modules')
 
@@ -88,7 +89,7 @@ function Header({
           <IconModuleSolid size="x-small" />
         </Flex.Item>
         <Flex.Item margin="0 0 0 small">
-          <Heading data-testid="header-label" as="h3">
+          <Heading data-testid="header-label" level="h2">
             {headerLabel}
           </Heading>
         </Flex.Item>
@@ -114,6 +115,7 @@ function Body({
   trayRef,
   ...settingsProps
 }: DifferentiatedModulesTrayProps & {trayRef: React.RefObject<HTMLElement>}) {
+  const isPacedCourse = ENV.IN_PACED_COURSE
   const [selectedTab, setSelectedTab] = useState<string | undefined>(initialTab)
   const changes = useRef<Set<string>>(new Set())
   const settingsData = useRef<SettingsPanelState | null>(null)
@@ -212,22 +214,28 @@ function Body({
             isSelected={selectedTab === ASSIGN_TO_ID}
             padding="none"
           >
-            <AssignToPanel
-              bodyHeight={bodyHeight}
-              footerHeight={footerHeight}
-              courseId={courseId}
-              moduleId={moduleId}
-              mountNodeRef={trayRef}
-              moduleElement={moduleElement}
-              onDismiss={onDismiss}
-              updateParentData={(newAssignToData, changed) => {
-                assignToData.current = newAssignToData
-                changed && changes.current.add(ASSIGN_TO_ID)
-              }}
-              defaultOption={assignToData.current?.selectedOption}
-              defaultAssignees={assignToData.current?.selectedAssignees}
-              onDidSubmit={handleSubmitMissingTabs}
-            />
+            {isPacedCourse ? (
+              <View padding="small medium" as="div">
+                <CoursePacingNotice courseId={courseId} />
+              </View>
+            ) : (
+              <AssignToPanel
+                bodyHeight={bodyHeight}
+                footerHeight={footerHeight}
+                courseId={courseId}
+                moduleId={moduleId}
+                mountNodeRef={trayRef}
+                moduleElement={moduleElement}
+                onDismiss={onDismiss}
+                updateParentData={(newAssignToData, changed) => {
+                  assignToData.current = newAssignToData
+                  changed && changes.current.add(ASSIGN_TO_ID)
+                }}
+                defaultOption={assignToData.current?.selectedOption}
+                defaultAssignees={assignToData.current?.selectedAssignees}
+                onDidSubmit={handleSubmitMissingTabs}
+              />
+            )}
           </Tabs.Panel>
         </Tabs>
       )}

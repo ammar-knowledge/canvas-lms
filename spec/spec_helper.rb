@@ -344,7 +344,7 @@ module RenderWithHelpers
       file = args.shift
       args = [{ template: file }] + args
     end
-    super(*args)
+    super
   end
 end
 RSpec::Rails::ViewExampleGroup::ExampleMethods.prepend(RenderWithHelpers)
@@ -418,7 +418,7 @@ RSpec.configure do |config|
   config.fail_if_no_examples = true
   config.use_transactional_fixtures = true
   config.use_instantiated_fixtures = false
-  config.fixture_path = Rails.root.join("spec/fixtures")
+  config.fixture_paths = [Rails.root.join("spec/fixtures")]
   config.infer_spec_type_from_file_location!
   config.raise_errors_for_deprecations!
   config.color = true
@@ -475,9 +475,7 @@ RSpec.configure do |config|
 
   config.around do |example|
     Rails.logger.info "STARTING SPEC #{example.full_description}"
-    SpecTimeLimit.enforce(example) do
-      example.run
-    end
+    SpecTimeLimit.enforce(example, &example)
   end
 
   def reset_all_the_things!
@@ -635,7 +633,7 @@ RSpec.configure do |config|
   end
 
   def fixture_file_upload(path, mime_type = nil, binary = false)
-    Rack::Test::UploadedFile.new(File.join(RSpec.configuration.fixture_path, path), mime_type, binary)
+    Rack::Test::UploadedFile.new(file_fixture(path), mime_type, binary)
   end
 
   def default_uploaded_data

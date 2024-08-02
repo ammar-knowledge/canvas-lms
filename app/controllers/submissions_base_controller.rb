@@ -22,6 +22,7 @@ class SubmissionsBaseController < ApplicationController
   include GradebookSettingsHelpers
   include AssignmentsHelper
   include AssessmentRequestHelper
+  include SubmissionsHelper
 
   include Api::V1::Rubric
   include Api::V1::SubmissionComment
@@ -175,6 +176,7 @@ class SubmissionsBaseController < ApplicationController
                                                                       except: [:quiz_submission, :submission_history]
                                                                     }).merge(except: submission_json_exclusions, permissions:)
           json_args[:methods] << :provisional_grade_id if provisional
+          json_args[:methods].delete(:submission_comments)
 
           submissions_json = @submissions.map do |submission|
             submission_json = submission.as_json(json_args)
@@ -196,8 +198,9 @@ class SubmissionsBaseController < ApplicationController
           flash[:error] = @error_message
 
           error_json = { base: @error_message }
-          error_json[:error_code] = error.error_code if error
-          error_status = error&.status_code || :bad_request
+
+          error_json[:error_code] = error.error_code if error.respond_to?(:error_code)
+          error_status = (error.respond_to?(:status_code) && error.status_code) || :bad_request
 
           format.html { render :show, id: @assignment.context.id }
           format.json { render json: { errors: error_json }, status: error_status }
@@ -247,7 +250,7 @@ class SubmissionsBaseController < ApplicationController
   private
 
   def update_student_entered_score(score)
-    new_score = (score.present? && score != "null") ? score.to_f.round(2) : nil
+    new_score = sanitize_student_entered_score(score)
     # TODO: fix this by making the callback optional
     # intentionally skipping callbacks here to fix a bug where entering a
     # what-if grade for a quiz can put the submission back in a 'pending review' state

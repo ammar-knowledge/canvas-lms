@@ -25,28 +25,26 @@ class Types::DiscussionTopicContextType < Types::BaseEnum
   value "Group"
 end
 
-class Types::DiscussionTopicAnonymousStateType < Types::BaseEnum
-  graphql_name "DiscussionTopicAnonymousStateType"
-  description "Anonymous states for discussionTopics"
-  value "partial_anonymity"
-  value "full_anonymity"
-  value "off"
-end
-
 class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
+  include Api
+  include Api::V1::AssignmentOverride
+
   graphql_name "CreateDiscussionTopic"
 
+  argument :discussion_type, Types::DiscussionTopicDiscussionType, required: false
   argument :is_announcement, Boolean, required: false
   argument :is_anonymous_author, Boolean, required: false
   argument :anonymous_state, Types::DiscussionTopicAnonymousStateType, required: false
-  argument :context_id, ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Context")
+  argument :context_id, GraphQL::Schema::Object::ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Context")
   argument :context_type, Types::DiscussionTopicContextType, required: true
-  argument :assignment, Mutations::AssignmentCreate, required: false
-  argument :checkpoints, [Mutations::DiscussionCheckpoints], required: false
+  argument :assignment, Mutations::AssignmentBase::AssignmentCreate, required: false
+  argument :ungraded_discussion_overrides, [Mutations::AssignmentBase::AssignmentOverrideCreateOrUpdate], required: false
 
   # most arguments inherited from DiscussionBase
 
   def resolve(input:)
+    @current_user = current_user
+
     discussion_topic_context = find_context(input)
     return validation_error(I18n.t("Invalid context")) unless discussion_topic_context
 
@@ -94,6 +92,7 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
     discussion_topic.context_type = input[:context_type]
     discussion_topic.user = current_user
     discussion_topic.workflow_state = (input[:published] || is_announcement) ? "active" : "unpublished"
+    discussion_topic.discussion_type = input[:discussion_type] || DiscussionTopic::DiscussionTypes::THREADED
 
     verify_authorized_action!(discussion_topic, :create)
 
@@ -103,20 +102,23 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
       discussion_topic.anonymous_state = anonymous_state
     end
 
-    set_sections(input[:specific_sections], discussion_topic)
-    invalid_sections = verify_specific_section_visibilities(discussion_topic) || []
+    if (!input.key?(:ungraded_discussion_overrides) && !Account.site_admin.feature_enabled?(:selective_release_ui_api)) || is_announcement
+      # TODO: deprecate discussion_topic_section_visibilities for assignment_overrides LX-1498
+      set_sections(input[:specific_sections], discussion_topic)
+      invalid_sections = verify_specific_section_visibilities(discussion_topic) || []
 
-    unless invalid_sections.empty?
-      return validation_error(I18n.t("You do not have permissions to modify discussion for section(s) %{section_ids}", section_ids: invalid_sections.join(", ")))
+      unless invalid_sections.empty?
+        return validation_error(I18n.t("You do not have permissions to modify discussion for section(s) %{section_ids}", section_ids: invalid_sections.join(", ")))
+      end
     end
 
     process_common_inputs(input, is_announcement, discussion_topic)
-    process_future_date_inputs(input[:delayed_post_at], input[:lock_at], discussion_topic)
+    process_future_date_inputs(input.slice(:delayed_post_at, :lock_at), discussion_topic)
     process_locked_parameter(input[:locked], discussion_topic)
 
     if input.key?(:assignment) && input[:assignment].present?
       working_assignment = Mutations::CreateAssignment.new(object:, context:, field: nil)
-                                                      &.resolve(input: input[:assignment])
+                                                      &.resolve(input: input[:assignment], submittable: discussion_topic)
 
       if working_assignment[:errors].present?
         return validation_error(working_assignment[:errors])
@@ -129,13 +131,14 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
         return validation_error(I18n.t("If checkpoints are defined, forCheckpoints: true must be provided to the discussion topic assignment.")) unless input.dig(:assignment, :for_checkpoints)
 
         input[:checkpoints].each do |checkpoint|
-          dates = checkpoint[:dates]&.map(&:to_object)
+          dates = checkpoint[:dates]
 
           Checkpoints::DiscussionCheckpointCreatorService.call(
             discussion_topic:,
             checkpoint_label: checkpoint[:checkpoint_label],
             points_possible: checkpoint[:points_possible],
-            dates:
+            dates:,
+            replies_required: checkpoint[:replies_required]
           )
         end
       end
@@ -143,6 +146,11 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
 
     discussion_topic.saved_by = :assignment if discussion_topic.assignment.present?
     return errors_for(discussion_topic) unless discussion_topic.save!
+
+    if input.key?(:ungraded_discussion_overrides)
+      overrides = input[:ungraded_discussion_overrides] || []
+      update_ungraded_discussion(discussion_topic, overrides)
+    end
 
     { discussion_topic: }
   rescue Checkpoints::DiscussionCheckpointError => e

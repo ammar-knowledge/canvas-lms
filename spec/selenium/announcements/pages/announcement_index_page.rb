@@ -46,7 +46,19 @@ class AnnouncementIndex
 
     # ---------------------- Controls ----------------------
     def filter_dropdown
-      f('select[name="filter-dropdown"]')
+      f('input[name="filter-dropdown"]')
+    end
+
+    def filter_dropdown_btn
+      f("button[data-testid='toggle-filter-menu']")
+    end
+
+    def filter_dropdown_item(item)
+      f("span[data-testid='menu-filter-#{item}']")
+    end
+
+    def left_nav_bar
+      f("#left-side")
     end
 
     def filter_item(item_name)
@@ -95,6 +107,10 @@ class AnnouncementIndex
       f("h3", announcement(title))
     end
 
+    def announcement_header_title(title)
+      fj("h1:contains('#{title}')").text
+    end
+
     def announcement_checkbox(title)
       f('input[type="checkbox"] + label', announcement(title))
     end
@@ -122,7 +138,12 @@ class AnnouncementIndex
     # ---------------------- Actions ----------------------
     def select_filter(filter_name)
       filter_dropdown.click
-      filter_item(filter_name).click
+      click_option(filter_dropdown, filter_name)
+    end
+
+    def select_filter_from_menu(filter_name)
+      filter_dropdown_btn.click
+      filter_dropdown_item(filter_name).click
     end
 
     def enter_search(title)

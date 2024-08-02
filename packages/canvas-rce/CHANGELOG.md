@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 5.13.3 - 2024-07-22
+
+### Fixed
+
+- Icon Maker tray now stays open while an image upload modal is present
+
+## 5.13.2 - 2024-06-26
+
+### Changed
+
+- Removed polyfill.io reference from README
+
+## 5.13.1 - 2024-06-03
+
+### Changed
+
+- Re-added file verifiers as a stop gap to non-Canvas contexts to allow
+  New Quiz item banks to properly share course files
+
+### Fixed
+
+- A11y checker tray refusing to close in New Quizzes
+- Find and Replace Tray now translated correctly
+
+## 5.13.0 - 2024-05-14
+
+### Added
+
+- Find and Replace Tray
+- Support for Bahasa Indonesia Language and Irish (Gaeilge) Language
+- Support for tools to always be present in toolbar
+- LTI enhancements
+
+### Changed
+
+- Limited list of fonts to self-hosted and websafe
+- Preferred HTML editor stored in localstorage
+- Stopped adding aria-hidden to RCE’s parent label
+
+### Fixed
+
+- Focus properly restored after closing a11y checker
+- Allow non relative video srcs when editing captions
+- Enhanced user content now translated correctly
+
 ## 5.12.2 - 2024-01-31
 
 ### Changed
@@ -35,7 +80,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove use of InferType
 - Show media captions in New Quizzes
 - Bump Instui to 8.49
-
 
 ## 5.11.1 - 2023-10-12
 

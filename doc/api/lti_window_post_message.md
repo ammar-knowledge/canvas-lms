@@ -70,6 +70,65 @@ Returning postMessage includes the following properties:
 window.parent.postMessage({subject: 'lti.capabilities'}, '*')
 ```
 
+## lti.getPageContent
+
+Responds with an html object containing page content. This will contain all markup and children elements of the main content area of the page. Some content may be filtered from this response. The scope `https://canvas.instructure.com/lti/page_content/show` is required to use this functionality.
+
+**Required properties:**
+
+- subject: "lti.getPageContent"
+
+```js
+window.parent.postMessage({subject: 'lti.getPageContent'}, '*')
+```
+
+Returning postMessage includes the following properties:
+
+- subject: "lti.getPageContent"
+- pageContent: a string containing HTML
+
+```js
+{
+  subject: 'lti.getPageContent.response',
+  content: '<div>...</div>'
+}
+```
+
+## lti.getPageSettings
+
+Responds with an object containing page settings. This includes the current locale, time zome, contrast settings, url to the active branding configuration file, and the width of the parent (Canvas) window.
+This is the same json file url provided by the [Brand Configs API](https://canvas.instructure.com/doc/api/brand_configs.html).
+
+**Required properties:**
+
+- subject: "lti.getPageSettings"
+
+```js
+window.parent.postMessage({subject: 'lti.getPageSettings'}, '*')
+```
+
+Returning postMessage includes the following properties:
+
+- subject: "lti.getPageSettings"
+- pageSettings: an object containing the following keys:
+  - locale
+  - time_zone
+  - use_high_contrast
+  - active_brand_config_json_url
+  - window_width
+
+```js
+{
+  pageSettings: {
+    locale: 'en',
+    time_zone: 'Etc/UTC',
+    use_high_contrast: false,
+    active_brand_config_json_url: 'https://du11hjcvx0uqb.cloudfront.net/dist/brandable_css/default/variables-7dd4b80918af0e0218ec0229e4bd5873.json',
+    window_width: 1024
+  }
+}
+```
+
 ## lti.put_data
 
 Stores the provided `value` at the provided `key` in Canvas's [localstorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage),

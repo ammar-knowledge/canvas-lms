@@ -120,7 +120,7 @@ ValidatedFormView.prototype.submit = function (event, sendFunc) {
   const data = this.getFormData()
   const errors = this.validateBeforeSave(data, {})
   if (keys(errors).length === 0) {
-    disablingDfd = new $.Deferred()
+    disablingDfd = this.disablingDfd ?? new $.Deferred()
     saveDfd = this.saveFormData(data)
     // eslint-disable-next-line promise/catch-or-return
     saveDfd.then(this.onSaveSuccess.bind(this), this.onSaveFail.bind(this))
@@ -168,17 +168,11 @@ ValidatedFormView.prototype.submit = function (event, sendFunc) {
       .value()
     first_error = assignmentFieldErrors[0] || dateOverrideErrors[0]
     this.findField(first_error).focus()
-    let errorsToShow = errors
-    if (this.constructor.name === 'WikiPageEditView' && window.ENV.FEATURES.permanent_page_links) {
-      // Let the IntsUI TextInput component show the title errors
-      const {title, ...newErrors} = errors
-      errorsToShow = newErrors
-    }
     // short timeout to ensure alerts are properly read after focus change
     return window.setTimeout(
       (function (_this) {
         return function () {
-          _this.showErrors(errorsToShow)
+          _this.showErrors(errors)
           return null
         }
       })(this),

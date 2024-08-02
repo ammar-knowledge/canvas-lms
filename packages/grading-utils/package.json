@@ -1,6 +1,6 @@
 {
   "name": "@instructure/grading-utils",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Grading utilities for Instructure apps.",
   "owner": "EVAL",
   "main": "src/index.js",
@@ -10,6 +10,9 @@
   "author": "Instructure, Inc",
   "license": "AGPL-3.0",
   "dependencies": {
-    "big.js": "^5.2.2"
+    "big.js": "^6.2.1"
+  },
+  "devDependencies": {
+    "@types/big.js": "^6.2.2"
   }
 }

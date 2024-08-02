@@ -39,6 +39,8 @@ export interface EnvAssignmentsA2StudentView {
   originality_reports_for_a2_enabled: boolean
   restrict_quantitative_data: boolean
   grading_scheme: any
+  points_based: boolean
+  scaling_factor: number
 
   // Peer review data
   peer_review_available: boolean

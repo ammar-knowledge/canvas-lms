@@ -18,6 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+require "feedjira"
 require_relative "../lti_1_3_spec_helper"
 require_relative "../helpers/k5_common"
 
@@ -58,21 +59,17 @@ describe UsersController do
     let_once(:user) { user_factory(active_all: true) }
     before do
       account.account_users.create!(user:)
+      allow(Lti::LogService).to receive(:new) do
+        double("Lti::LogService").tap { |s| allow(s).to receive(:call) }
+      end
       user_session(user)
     end
 
     context "ENV.LTI_TOOL_FORM_ID" do
-      it "with the lti_unique_tool_form_ids flag on, sets a random id" do
-        account.enable_feature!(:lti_unique_tool_form_ids)
+      it "sets a random id" do
         expect(controller).to receive(:random_lti_tool_form_id).and_return("1")
         allow(controller).to receive(:js_env).with(anything).and_call_original
         expect(controller).to receive(:js_env).with(LTI_TOOL_FORM_ID: "1")
-        get :external_tool, params: { id: tool.id, user_id: user.id }
-      end
-
-      it "with the lti_unique_tool_form_ids flag off, does not set a random it" do
-        account.disable_feature!(:lti_unique_tool_form_ids)
-        expect(controller).not_to receive(:js_env).with(LTI_TOOL_FORM_ID: anything)
         get :external_tool, params: { id: tool.id, user_id: user.id }
       end
     end
@@ -122,6 +119,18 @@ describe UsersController do
       end
     end
 
+    it "logs the launch" do
+      get :external_tool, params: { id: tool.id, user_id: user.id }
+      expect(Lti::LogService).to have_received(:new).with(
+        tool:,
+        context: account,
+        user:,
+        session_id: nil,
+        placement: :user_navigation,
+        launch_type: :direct_link
+      )
+    end
+
     context "using LTI 1.3 when specified" do
       include_context "lti_1_3_spec_helper"
 
@@ -131,16 +140,12 @@ describe UsersController do
       let(:developer_key) { DeveloperKey.create! }
 
       before do
-        Lti::LaunchDebugLogger.enable!(account, 1)
-
         allow(SecureRandom).to receive(:hex).and_return(verifier)
         tool.use_1_3 = true
         tool.developer_key = developer_key
         tool.save!
         get :external_tool, params: { id: tool.id, user_id: user.id }
       end
-
-      after { Lti::LaunchDebugLogger.disable!(account) }
 
       it "creates a login message" do
         expect(assigns[:lti_launch].params.keys).to match_array %w[
@@ -161,7 +166,7 @@ describe UsersController do
       end
 
       it "caches the LTI 1.3 launch" do
-        expect(cached_launch["https://purl.imsglobal.org/spec/lti/claim/message_type"]).to eq "LtiResourceLinkRequest"
+        expect(cached_launch["post_payload"]["https://purl.imsglobal.org/spec/lti/claim/message_type"]).to eq "LtiResourceLinkRequest"
       end
 
       it "does not use the oidc_initiation_url as the resource_url" do
@@ -180,12 +185,6 @@ describe UsersController do
         it "uses the oidc_initiation_url as the resource_url" do
           expect(assigns[:lti_launch].resource_url).to eq oidc_initiation_url
         end
-      end
-
-      it "includes debug_trace in the lti_message_hint (if enabled for the account)" do
-        message_hint = JSON::JWT.decode(assigns[:lti_launch].params["lti_message_hint"], :skip_verification)
-        expect(message_hint["debug_trace"]).to be_a(String)
-        expect(message_hint["debug_trace"]).to_not be_empty
       end
     end
   end
@@ -877,7 +876,7 @@ describe UsersController do
                                    user: { name: "happy gilmore", terms_of_use: "1", self_enrollment_code: @course.self_enrollment_code + " ", initial_enrollment_type: "student" },
                                    self_enrollment: "1" }
           expect(response).to be_successful
-          u = User.where(name: "happy gilmore").take
+          u = User.find_by(name: "happy gilmore")
           expect(u.root_account_ids).to eq [Account.default.id]
         end
 
@@ -2113,23 +2112,22 @@ describe UsersController do
 
     it "includes absolute path for rel='self' link" do
       get "public_feed", params: { feed_code: @user.feed_code }, format: "atom"
-      feed = Atom::Feed.load_feed(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed).not_to be_nil
-      expect(feed.links.first.rel).to match(/self/)
-      expect(feed.links.first.href).to match(%r{http://})
+      expect(feed.feed_url).to match(%r{http://})
     end
 
     it "includes an author for each entry" do
       get "public_feed", params: { feed_code: @user.feed_code }, format: "atom"
-      feed = Atom::Feed.load_feed(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed).not_to be_nil
       expect(feed.entries).not_to be_empty
-      expect(feed.entries.all? { |e| e.authors.present? }).to be_truthy
+      expect(feed.entries.all? { |e| e.author.present? }).to be_truthy
     end
 
     it "excludes unpublished things" do
       get "public_feed", params: { feed_code: @user.feed_code }, format: "atom"
-      feed = Atom::Feed.load_feed(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed.entries.size).to eq 3
 
       @as.unpublish
@@ -2137,7 +2135,7 @@ describe UsersController do
       @dt.unpublish! # yes, you really have to shout to unpublish a discussion topic :(
 
       get "public_feed", params: { feed_code: @user.feed_code }, format: "atom"
-      feed = Atom::Feed.load_feed(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed.entries.size).to eq 0
     end
 
@@ -2150,13 +2148,13 @@ describe UsersController do
       @topic.assignment.update_attribute :only_visible_to_overrides, true
 
       get "public_feed", params: { feed_code: @user.feed_code }, format: "atom"
-      feed = Atom::Feed.load_feed(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed.entries.map(&:id).join(" ")).not_to include @as2.asset_string
       expect(feed.entries.map(&:id).join(" ")).not_to include @topic.asset_string
 
       @course.enroll_student(@student, section: @other_section, enrollment_state: "active", allow_multiple_enrollments: true)
       get "public_feed", params: { feed_code: @user.feed_code }, format: "atom"
-      feed = Atom::Feed.load_feed(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed.entries.map(&:id).join(" ")).to include @as2.asset_string
       expect(feed.entries.map(&:id).join(" ")).to include @topic.asset_string
     end
@@ -2308,6 +2306,18 @@ describe UsersController do
       expect(response).to render_template("users/show")
     end
 
+    it "404s, but still shows, on a deleted user for admins" do
+      course_with_teacher(active_all: 1, user: user_with_pseudonym)
+
+      account_admin_user
+      user_session(@admin)
+      @teacher.destroy
+
+      get "show", params: { id: @teacher.id }
+      expect(response).to have_http_status :not_found
+      expect(response).to render_template("users/show")
+    end
+
     it "responds to JSON request" do
       account = Account.create!
       course_with_student(active_all: true, account:)
@@ -2356,6 +2366,34 @@ describe UsersController do
 
       get "show", params: { account_id: Account.default.id, id: @teacher.id }
       expect(response).to have_http_status :ok
+    end
+
+    context "cross-shard deleted users" do
+      specs_require_sharding
+
+      before do
+        @shard1.activate do
+          course_with_teacher(active_all: 1, user: user_with_pseudonym)
+        end
+        Account.default.pseudonyms.create!(user: @teacher, unique_id: "teacher-shard1")
+        user_with_pseudonym
+        account_admin_user(user: @user, active_all: true)
+        user_session(@admin)
+        @teacher.remove_from_root_account(Account.default)
+      end
+
+      it "shows a deleted user from the account context if they have a deleted pseudonym for that account" do
+        get "show", params: { account_id: Account.default.id, id: @teacher.id }
+
+        expect(response).to have_http_status :ok
+      end
+
+      it "does not give login ID for another account in json format" do
+        get "show", params: { account_id: Account.default.id, id: @teacher.id, format: :json }
+
+        expect(response).to have_http_status :ok
+        expect(response.parsed_body["login_id"]).to be_nil
+      end
     end
 
     it "does not show a deleted user from an account the user doesn't have access to" do
@@ -2490,16 +2528,14 @@ describe UsersController do
       kaltura_client
     end
 
-    let(:media_source_fetcher) do
-      media_source_fetcher = instance_double(MediaSourceFetcher)
-      expect(MediaSourceFetcher).to receive(:new).with(kaltura_client).and_return(media_source_fetcher)
-      media_source_fetcher
-    end
+    let(:media_source_fetcher) { instance_double(MediaSourceFetcher) }
 
     before do
       account = Account.create!
       course_with_student(active_all: true, account:)
       user_session(@student)
+
+      expect(MediaSourceFetcher).to receive(:new).with(kaltura_client).and_return(media_source_fetcher)
     end
 
     it "passes type and media_type params down to the media fetcher" do
@@ -3309,8 +3345,17 @@ describe UsersController do
     let(:user2) { user_with_pseudonym(active_all: true) }
     let(:admin) { account_admin_user(active_all: true)  }
 
-    before do
+    def add_mobile_access_token(user)
       user.access_tokens.create!
+
+      @sns_client = double
+      allow(DeveloperKey).to receive(:sns).and_return(@sns_client)
+      expect(@sns_client).to receive(:create_platform_endpoint).and_return(endpoint_arn: "arn")
+      user.access_tokens.each_with_index { |ac, i| ac.notification_endpoints.create!(token: "token #{i}") }
+    end
+
+    before do
+      add_mobile_access_token(user)
     end
 
     it "rejects unauthenticated users" do
@@ -3337,10 +3382,23 @@ describe UsersController do
 
     it "allows admin to expire mobile sessions" do
       user_session(admin)
+      starting_notification_endpoints_count = user.notification_endpoints.count
+      expect(starting_notification_endpoints_count).to be > 0
       delete "expire_mobile_sessions", format: :json
 
       expect(response).to have_http_status :ok
       expect(user.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
+      expect(user.reload.notification_endpoints.count).to be < starting_notification_endpoints_count
+    end
+
+    it "allows admin to expire mobile sessions for one user" do
+      add_mobile_access_token(user2)
+      user_session(admin)
+      delete "expire_mobile_sessions", params: { id: user.id }, format: :json
+
+      expect(response).to have_http_status :ok
+      expect(user.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
+      expect(user2.reload.access_tokens.take.permanent_expires_at).to be_nil
     end
 
     it "only expires access tokens associated to mobile app developer keys" do

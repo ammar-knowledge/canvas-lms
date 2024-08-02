@@ -33,6 +33,26 @@
 class SecurityController < ApplicationController
   skip_before_action :load_user
 
+  def self.messages_supported
+    Lti::ResourcePlacement::PLACEMENTS_BY_MESSAGE_TYPE.keys
+                                                      .map do |message_type|
+      {
+        type: message_type,
+        placements: placements_supported(message_type)
+      }.with_indifferent_access
+    end
+  end
+
+  def self.placements_supported(message_type)
+    (
+      Lti::ResourcePlacement::PLACEMENTS_BY_MESSAGE_TYPE[message_type]
+      .reject { |p| p == :resource_selection }
+      .map { |p| Lti::ResourcePlacement.add_extension_prefix(p) }
+    ) + [Lti::ResourcePlacement::CONTENT_AREA] + (
+      (message_type == LtiAdvantage::Messages::DeepLinkingRequest::MESSAGE_TYPE) ? [Lti::ResourcePlacement::RICH_TEXT_EDITOR] : []
+    )
+  end
+
   # @API Show all available JWKs used by Canvas for signing.
   #
   # @returns JWKs
@@ -83,9 +103,8 @@ class SecurityController < ApplicationController
     render json: {
       issuer: Canvas::Security.config["lti_iss"],
       authorization_endpoint: lti_authorize_redirect_url(host: Lti::Oidc.auth_domain(account_domain)),
-      # TODO: use a path helper for this when this path gets created
-      registration_endpoint: "#{HostUrl.protocol}://#{account_domain}/api/lti/registrations",
-      jwks_uri: oauth2_jwks_url(host: Lti::Oidc.auth_domain(account_domain)),
+      registration_endpoint: create_lti_registration_url(host: account_domain),
+      jwks_uri: lti_jwks_url(host: Lti::Oidc.auth_domain(account_domain)),
       token_endpoint: oauth2_token_url(host: Lti::Oidc.auth_domain(account_domain)),
       token_endpoint_auth_methods_supported: ["private_key_jwt"],
       token_endpoint_auth_signing_alg_values_supported: ["RS256"],
@@ -108,16 +127,10 @@ class SecurityController < ApplicationController
     {
       product_family_code: "canvas",
       version: canvas_ims_product_version,
-      messages_supported: Lti::ResourcePlacement::PLACEMENTS_BY_MESSAGE_TYPE.keys
-                                                                            .map do |message_type|
-                            {
-                              type: message_type,
-                              placements: Lti::ResourcePlacement::PLACEMENTS_BY_MESSAGE_TYPE[message_type].reject { |p| p == :resource_selection }
-                            }
-                          end,
+      messages_supported: SecurityController.messages_supported,
       variables: Lti::VariableExpander.expansion_keys,
       "https://canvas.instructure.com/lti/account_name": account.name,
       "https://canvas.instructure.com/lti/account_lti_guid": account.lti_guid
-    }
+    }.with_indifferent_access
   end
 end

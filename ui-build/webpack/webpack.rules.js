@@ -62,13 +62,13 @@ exports.webpack5Workaround =
   }
 
 exports.css = {
-  test: /\.css$/,
-  use: ['style-loader', 'css-loader'],
+  test: /\.css$/i,
+  type: 'css',
 }
 
 exports.images = {
-  test: /\.(png|svg|gif)$/,
-  loader: 'file-loader',
+  test: /\.(png|jpe?g|svg|gif)$/i,
+  type: 'asset/resource',
 }
 
 exports.fonts = {
@@ -80,13 +80,16 @@ const browserTargets = {
   browsers: 'last 2 versions',
 }
 
+const isCrystalballEnabled = process.env.CRYSTALBALL_MAP === '1'
+
 exports.swc = [
   {
     test: /\.(j|t)s$/,
     include: [resolve(canvasDir, 'ui'), ...globPlugins('app/{jsx,coffeescripts}/')],
     exclude: /(node_modules)/,
     use: {
-      loader: 'swc-loader',
+      // we can use rspack's builtin:swc-loader later when it supports SWC plugins
+      loader: isCrystalballEnabled ? 'swc-loader' : 'builtin:swc-loader',
       options: {
         parseMap: true,
         sourceMaps: true,
@@ -95,11 +98,13 @@ exports.swc = [
           parser: {
             syntax: 'typescript',
           },
-          experimental: {
-            plugins: [
-              process.env.CRYSTALBALL_MAP === '1' && ['swc-plugin-coverage-instrument', {}],
-            ].filter(Boolean),
-          },
+          ...(isCrystalballEnabled
+            ? {
+                experimental: {
+                  plugins: [['swc-plugin-coverage-instrument', {}]].filter(Boolean),
+                },
+              }
+            : undefined),
         },
         env: {
           targets: browserTargets,
@@ -112,7 +117,8 @@ exports.swc = [
     include: [resolve(canvasDir, 'ui'), ...globPlugins('app/{jsx,coffeescripts}/')],
     exclude: /(node_modules)/,
     use: {
-      loader: 'swc-loader',
+      // we can use rspack's builtin:swc-loader later when it supports SWC plugins
+      loader: isCrystalballEnabled ? 'swc-loader' : 'builtin:swc-loader',
       options: {
         parseMap: true,
         sourceMaps: true,
@@ -122,15 +128,30 @@ exports.swc = [
             syntax: 'typescript',
             tsx: true,
           },
-          experimental: {
-            plugins: [
-              process.env.CRYSTALBALL_MAP === '1' && ['swc-plugin-coverage-instrument', {}],
-            ].filter(Boolean),
-          },
+          ...(isCrystalballEnabled
+            ? {
+                experimental: {
+                  plugins: [['swc-plugin-coverage-instrument', {}]].filter(Boolean),
+                },
+              }
+            : undefined),
         },
         env: {
           targets: browserTargets,
         },
+        // Our coverage plugin gets really upset about the transform field, even
+        // if it's just react: {development: false, refresh: false}, so we only
+        // include it in development mode when crystalball is disabled.
+        ...(process.env.NODE_ENV === 'development' && !isCrystalballEnabled
+          ? {
+              transform: {
+                react: {
+                  development: process.env.NODE_ENV === 'development',
+                  refresh: process.env.NODE_ENV === 'development',
+                },
+              },
+            }
+          : {}),
       },
     },
   },
@@ -161,12 +182,7 @@ exports.emberHandlebars = {
 // i.e. process.env.CRYSTALBALL_MAP === '1'
 exports.istanbul = {
   test: /\.(js|jsx|ts|tsx)$/,
-  include: [
-    resolve(canvasDir, 'ui'),
-    resolve(canvasDir, 'spec/javascripts/jsx'),
-    resolve(canvasDir, 'spec/coffeescripts'),
-    ...globPlugins('app/{jsx,coffeescripts}/'),
-  ],
+  include: [resolve(canvasDir, 'ui'), ...globPlugins('app/{jsx,coffeescripts}/')],
   exclude: [/test\//, /spec/],
   use: {
     loader: 'coverage-istanbul-loader',

@@ -32,7 +32,7 @@ import {Button, IconButton} from '@instructure/ui-buttons'
 import CalendarConferenceWidget from '@canvas/calendar-conferences/react/CalendarConferenceWidget'
 import filterConferenceTypes from '@canvas/calendar-conferences/filterConferenceTypes'
 import getConferenceType from '@canvas/calendar-conferences/getConferenceType'
-import * as tz from '@canvas/datetime'
+import * as tz from '@instructure/moment-utils'
 import moment from 'moment'
 import commonEventFactory from '@canvas/calendar/jquery/CommonEvent/index'
 import fcUtil from '@canvas/calendar/jquery/fcUtil'
@@ -67,7 +67,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
   const [title, setTitle] = useState(event.title || '')
   const [context, setContext] = useState(event.contextInfo || event.allPossibleContexts[0])
   const [location, setLocation] = useState(event.location_name || '')
-  const [date, setDate] = useState(tz.parse(event.startDate().format('ll'), timezone))
+  const [date, setDate] = useState(tz.parse(event.startDate().format('YYYY-MM-DD'), timezone))
   const [startTime, setStartTime] = useState(initTime(event.calendarEvent?.start_at))
   const [endTime, setEndTime] = useState(initTime(event.calendarEvent?.end_at))
   const [rrule, setRRule] = useState(event.object.rrule ? event.object.rrule : null)
@@ -311,7 +311,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
       'calendar_event[blackout_date]': isBlackout,
     }
 
-    if (rrule) params['calendar_event[rrule]'] = rrule
+    params['calendar_event[rrule]'] = rrule
 
     if (canUpdateConference()) {
       if (webConference && shouldEnableConferenceField()) {
@@ -385,7 +385,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
         params['calendar_event[context_code]'] = context.asset_string
       }
 
-      if (event.calendarEvent?.series_uuid) {
+      if (event.calendarEvent?.series_uuid && rrule) {
         const which = await renderUpdateCalendarEventDialog(event)
         if (which === undefined) return
         params.which = which

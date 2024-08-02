@@ -20,7 +20,7 @@
 group :test do
   gem "rails-controller-testing", "1.0.5"
 
-  gem "dotenv", "~> 2.8", require: false
+  gem "dotenv", "~> 3.0", require: false
   gem "brakeman", "~> 6.0", require: false
   gem "simplecov-rcov", "~> 0.3", require: false
   gem "puma", "~> 6.3", require: false
@@ -44,8 +44,6 @@ group :test do
   gem "escape_code", "0.2", require: false
   gem "luminosity_contrast", "0.2.1"
   gem "pact", "~> 1.57", require: false
-    # needed so that bundler-multilock will allow us to use the Rack 3 compatible version with Rails 7.1, without complaining about version mismatches
-    gem "pact-mock_service", ($canvas_rails == "7.1") ? ">= 3.12" : "3.11.2"
   gem "pact-messages", "0.2.0"
   # pinned to 1.72 due to contract tests breaking with the following versions
   gem "pact_broker-client", "1.72"
@@ -56,9 +54,6 @@ group :test do
   gem "flakey_spec_catcher", "~> 0.12", require: false
   gem "factory_bot", "~> 6.3", require: false
   gem "stormbreaker", "~> 1.0", require: false
-
-  # performance tools for instrumenting rspec tests
-  gem "stackprof", "~> 0.2"
 
   gem "crystalball", github: "wrapbook/crystalball", require: false
 end

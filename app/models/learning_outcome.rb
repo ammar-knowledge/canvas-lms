@@ -23,7 +23,6 @@ class LearningOutcome < ActiveRecord::Base
   include Workflow
   include MasterCourses::Restrictor
   restrict_columns :state, [:workflow_state]
-  self.ignored_columns += %i[migration_id_2 vendor_guid_2 root_account_id]
 
   belongs_to :context, polymorphic: [:account, :course]
   has_many :learning_outcome_results
@@ -507,6 +506,27 @@ class LearningOutcome < ActiveRecord::Base
 
   def updateable_rubrics?
     updateable_rubrics.exists?
+  end
+
+  def fetch_outcome_copies
+    sql = <<~SQL.squish
+      WITH RECURSIVE parents AS (
+        SELECT id, copied_from_outcome_id
+        FROM #{LearningOutcome.quoted_table_name} WHERE id = #{id}
+        UNION
+        SELECT lo.id, lo.copied_from_outcome_id FROM #{LearningOutcome.quoted_table_name} lo
+        JOIN parents p ON lo.id = p.copied_from_outcome_id
+      ), children AS (
+        SELECT id, copied_from_outcome_id
+        FROM parents
+        UNION
+        SELECT lo.id, lo.copied_from_outcome_id
+        FROM #{LearningOutcome.quoted_table_name} lo
+        JOIN children c ON lo.copied_from_outcome_id = c.id
+      )
+      SELECT DISTINCT id FROM children order by id desc
+    SQL
+    LearningOutcome.joins("JOIN (#{sql}) children ON children.id = #{LearningOutcome.quoted_table_name}.id").pluck(:id)
   end
 
   private

@@ -348,8 +348,9 @@ export const CourseHeaderOptions = forwardRef(
         data-method="post"
         renderIcon={<IconStudentViewLine />}
         margin="0 0 0 x-small"
+        data-testid="student-view-btn"
       >
-        {I18n.t('Student View')}
+        {I18n.t('View as Student')}
       </Button>
     )
 
@@ -451,7 +452,9 @@ export function K5Course({
   isMasterCourse,
   showImmersiveReader,
   gradingScheme,
+  pointsBasedGradingScheme,
   restrictQuantitativeData,
+  scalingFactor,
 }) {
   const initialObservedId = observedUsersList.find(o => o.id === savedObservedId(currentUser.id))
     ? savedObservedId(currentUser.id)
@@ -667,7 +670,9 @@ export function K5Course({
             outcomeProficiency={outcomeProficiency}
             observedUserId={showObserverOptions ? observedUserId : null}
             gradingScheme={gradingScheme}
+            pointsBasedGradingScheme={pointsBasedGradingScheme}
             restrictQuantitativeData={restrictQuantitativeData}
+            scalingFactor={scalingFactor}
           />
         )}
         <ResourcesPage
@@ -732,7 +737,9 @@ K5Course.propTypes = {
   isMasterCourse: PropTypes.bool.isRequired,
   showImmersiveReader: PropTypes.bool.isRequired,
   gradingScheme: PropTypes.array,
+  pointsBasedGradingScheme: PropTypes.bool,
   restrictQuantitativeData: PropTypes.bool,
+  scalingFactor: PropTypes.number,
 }
 
 const WrappedK5Course = connect(mapStateToProps)(K5Course)

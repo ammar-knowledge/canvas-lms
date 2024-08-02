@@ -113,8 +113,14 @@ export default function getTranslations(locale) {
           case 'fr-CA':
             p = import('./translations/locales/fr_CA')
             break
+          case 'ga':
+            p = import('./translations/locales/ga')
+            break
           case 'he':
             p = import('./translations/locales/he')
+            break
+          case 'hi':
+            p = import('./translations/locales/hi')
             break
           case 'ht':
             p = import('./translations/locales/ht')
@@ -293,7 +299,9 @@ export function getLocaleList() {
     'fi',
     'fr',
     'fr-CA',
+    'ga',
     'he',
+    'hi',
     'ht',
     'hu',
     'hu-HU',

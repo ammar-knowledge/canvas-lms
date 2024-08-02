@@ -23,8 +23,16 @@ module QuizzesEditPage
     "[data-testid='manage-assign-to']"
   end
 
+  def pending_changes_pill_selector
+    "[data-testid='pending_changes_pill']"
+  end
+
   def quiz_save_button_selector
     ".save_quiz_button"
+  end
+
+  def post_to_sis_checkbox_selector
+    "#quiz_post_to_sis"
   end
 
   # ---------------------------------Elements-----------------------------------
@@ -41,12 +49,20 @@ module QuizzesEditPage
     f(manage_assign_to_button_selector)
   end
 
+  def pending_changes_pill
+    f(pending_changes_pill_selector)
+  end
+
   def quiz_edit_form
     "form#quiz_options_form"
   end
 
   def quiz_save_button
     f(quiz_save_button_selector)
+  end
+
+  def post_to_sis_checkbox
+    f(post_to_sis_checkbox_selector)
   end
 
   # ---------------------------------Methods------------------------------------
@@ -59,6 +75,10 @@ module QuizzesEditPage
     quiz_save_button.click
   end
 
+  def pending_changes_pill_exists?
+    element_exists?(pending_changes_pill_selector)
+  end
+
   def retrieve_quiz_due_date_table_row(row_item)
     row_elements = f(".assignment_dates").find_elements(:tag_name, "tr")
     row_elements.detect { |i| i.text.include?(row_item) }
@@ -67,5 +87,9 @@ module QuizzesEditPage
   def submit_page
     wait_for_new_page_load { click_quiz_save_button }
     expect(driver.current_url).not_to include("edit")
+  end
+
+  def click_post_to_sis_checkbox
+    post_to_sis_checkbox.click
   end
 end

@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {render, screen} from '@testing-library/react'
+import {render, screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import CommonMigratorControls from '../common_migrator_controls'
 
@@ -32,15 +32,18 @@ describe('CommonMigratorControls', () => {
   beforeAll(() => {
     window.ENV.QUIZZES_NEXT_ENABLED = true
     window.ENV.NEW_QUIZZES_MIGRATION_DEFAULT = false
+    window.ENV.SHOW_BP_SETTINGS_IMPORT_OPTION = true
   })
 
   afterEach(() => jest.clearAllMocks())
 
-  it('calls onSubmit with import_quizzes_next', () => {
+  it('calls onSubmit with import_quizzes_next', async () => {
     renderComponent({canImportAsNewQuizzes: true})
 
-    userEvent.click(screen.getByRole('checkbox', {name: /Import existing quizzes as New Quizzes/}))
-    userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
+    await userEvent.click(
+      screen.getByRole('checkbox', {name: /Import existing quizzes as New Quizzes/})
+    )
+    await userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -49,13 +52,13 @@ describe('CommonMigratorControls', () => {
     )
   })
 
-  it('calls onSubmit with overwrite_quizzes', () => {
+  it('calls onSubmit with overwrite_quizzes', async () => {
     renderComponent({canOverwriteAssessmentContent: true})
 
-    userEvent.click(
+    await userEvent.click(
       screen.getByRole('checkbox', {name: /Overwrite assessment content with matching IDs/})
     )
-    userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
+    await userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -64,11 +67,11 @@ describe('CommonMigratorControls', () => {
     )
   })
 
-  it('calls onSubmit with date_shift_options', () => {
+  it('calls onSubmit with date_shift_options', async () => {
     renderComponent({canAdjustDates: true})
 
-    userEvent.click(screen.getByRole('checkbox', {name: 'Adjust events and due dates'}))
-    userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
+    await userEvent.click(screen.getByRole('checkbox', {name: 'Adjust events and due dates'}))
+    await userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -84,16 +87,32 @@ describe('CommonMigratorControls', () => {
     )
   })
 
-  it('calls onSubmit with selective_import', () => {
+  it('calls onSubmit with selective_import', async () => {
     renderComponent({canSelectContent: true})
 
-    userEvent.click(screen.getByRole('radio', {name: 'Select specific content'}))
-    userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
+    await userEvent.click(screen.getByRole('radio', {name: 'Select specific content'}))
+    await userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
 
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({selective_import: true}))
   })
 
-  it('calls onSubmit with all data', () => {
+  it('calls onSubmit with import_blueprint_settings', async () => {
+    const {getByLabelText} = renderComponent({canSelectContent: true, canImportBPSettings: true})
+
+    await userEvent.click(getByLabelText(/All content/))
+    await userEvent.click(
+      await screen.getByRole('checkbox', {name: 'Import Blueprint Course settings'})
+    )
+    await userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settings: expect.objectContaining({import_blueprint_settings: true}),
+      })
+    )
+  })
+
+  it('calls onSubmit with all data', async () => {
     renderComponent({
       canSelectContent: true,
       canImportAsNewQuizzes: true,
@@ -101,8 +120,8 @@ describe('CommonMigratorControls', () => {
       canAdjustDates: true,
     })
 
-    userEvent.click(screen.getByRole('radio', {name: 'Select specific content'}))
-    userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
+    await userEvent.click(screen.getByRole('radio', {name: 'Select specific content'}))
+    await userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
 
     expect(onSubmit).toHaveBeenCalledWith({
       adjust_dates: {
@@ -123,9 +142,73 @@ describe('CommonMigratorControls', () => {
     })
   })
 
-  it('calls onCancel', () => {
+  it('calls onCancel', async () => {
     renderComponent()
-    userEvent.click(screen.getByRole('button', {name: 'Cancel'}))
+    await userEvent.click(screen.getByRole('button', {name: 'Cancel'}))
     expect(onCancel).toHaveBeenCalled()
+  })
+
+  it('disable all common fields while uploading', async () => {
+    renderComponent({isSubmitting: true, canSelectContent: true})
+    expect(screen.getByRole('radio', {name: 'Select specific content'})).toBeInTheDocument()
+    expect(screen.getByRole('radio', {name: /All content/})).toBeDisabled()
+    expect(screen.getByRole('radio', {name: 'Select specific content'})).toBeDisabled()
+    expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled()
+    expect(screen.getByRole('button', {name: /Adding.../})).toBeDisabled()
+  })
+
+  it('disable "events and due" dates optional fields while uploading', async () => {
+    const props = {
+      canSelectContent: true,
+      canImportBPSettings: true,
+      canAdjustDates: true,
+      canOverwriteAssessmentContent: true,
+      canImportAsNewQuizzes: true,
+    }
+    const {rerender, getByLabelText, getByRole} = renderComponent(props)
+    await userEvent.click(getByRole('checkbox', {name: 'Adjust events and due dates'}))
+    rerender(
+      <CommonMigratorControls
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+        {...props}
+        isSubmitting={true}
+        fileUploadProgress={10}
+      />
+    )
+    expect(getByRole('radio', {name: 'Shift dates'})).toBeInTheDocument()
+    expect(getByRole('radio', {name: 'Shift dates'})).toBeDisabled()
+    expect(getByRole('radio', {name: 'Remove dates'})).toBeDisabled()
+    expect(getByLabelText('Select original beginning date')).toBeDisabled()
+    expect(getByLabelText('Select new beginning date')).toBeDisabled()
+    expect(getByLabelText('Select original end date')).toBeDisabled()
+    expect(getByLabelText('Select new end date')).toBeDisabled()
+    expect(getByRole('button', {name: 'Add substitution'})).toBeDisabled()
+  })
+  it('disable other optional fields while uploading', async () => {
+    const props = {
+      canSelectContent: true,
+      canImportBPSettings: true,
+      canAdjustDates: true,
+      canOverwriteAssessmentContent: true,
+      canImportAsNewQuizzes: true,
+    }
+    const {rerender, getByLabelText, getByRole} = renderComponent(props)
+    await userEvent.click(getByLabelText(/All content/))
+    await userEvent.click(getByRole('checkbox', {name: 'Import Blueprint Course settings'}))
+    rerender(
+      <CommonMigratorControls
+        onSubmit={onSubmit}
+        onCancel={onCancel}
+        {...props}
+        isSubmitting={true}
+        fileUploadProgress={10}
+      />
+    )
+    expect(getByRole('checkbox', {name: 'Import Blueprint Course settings'})).toBeDisabled()
+    expect(getByRole('checkbox', {name: /Import existing quizzes as New Quizzes/})).toBeDisabled()
+    expect(
+      getByRole('checkbox', {name: /Overwrite assessment content with matching IDs/})
+    ).toBeDisabled()
   })
 })

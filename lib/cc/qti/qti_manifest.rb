@@ -85,7 +85,7 @@ module CC
               path = if att.context_type == "AssessmentQuestion"
                        "assessment_questions#{att.full_display_path}"
                      else
-                       att.full_display_path.sub("course files/", "")
+                       att.full_display_path.sub("course files", "web_resources")
                      end
               zipper.add_attachment_to_zip(att, @exporter.zip_file, path)
 
@@ -96,12 +96,6 @@ module CC
               ) do |res|
                 res.file(href: path)
               end
-            end
-
-            begin
-              Resource.new(self, manifest_node, resources).add_media_objects(@html_exporter)
-            rescue
-              add_error(I18n.t("course_exports.errors.resources", "Failed to link some resources."), $!)
             end
           end
         end # manifest

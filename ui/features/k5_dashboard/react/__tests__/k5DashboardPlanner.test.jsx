@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {act, render, waitFor} from '@testing-library/react'
+import {act, render as testingLibraryRender, waitFor} from '@testing-library/react'
 import K5Dashboard from '../K5Dashboard'
 import moxios from 'moxios'
 import {cloneDeep} from 'lodash'
@@ -31,6 +31,7 @@ import {
 } from './mocks'
 import {fetchShowK5Dashboard} from '@canvas/observer-picker/react/utils'
 import {enableFetchMocks} from 'jest-fetch-mock'
+import {QueryProvider} from '@canvas/query'
 
 enableFetchMocks()
 
@@ -38,6 +39,8 @@ jest.mock('@canvas/observer-picker/react/utils', () => ({
   ...jest.requireActual('@canvas/observer-picker/react/utils'),
   fetchShowK5Dashboard: jest.fn(),
 }))
+
+const render = children => testingLibraryRender(<QueryProvider>{children}</QueryProvider>)
 
 const currentUserId = defaultProps.currentUser.id
 const moxiosWait = () => new Promise(resolve => moxios.wait(resolve))
@@ -92,8 +95,7 @@ describe('K5Dashboard Schedule Section', () => {
     expect(header).toBeInTheDocument()
   })
 
-  // LF-1169 - remove or rewrite to remove spies on imports
-  it.skip('renders an "jump to navigation" button at the bottom of the schedule tab', async () => {
+  it('renders an "jump to navigation" button at the bottom of the schedule tab', async () => {
     const {findByTestId} = render(
       <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />
     )
@@ -106,8 +108,7 @@ describe('K5Dashboard Schedule Section', () => {
     expect(jumpToNavButton).not.toBeVisible()
   })
 
-  // LF-1169 - remove or rewrite to remove spies on imports
-  it.skip('allows navigating to next/previous weeks if there are plannable items in the future/past', async () => {
+  it('allows navigating to next/previous weeks if there are plannable items in the future/past', async () => {
     const {findByTestId, getByTestId} = render(
       <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />
     )

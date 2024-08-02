@@ -32,9 +32,15 @@ import round from '@canvas/round'
 import $ from 'jquery'
 import GradingPeriodsAPI from '@canvas/grading/jquery/gradingPeriodsApi'
 import SisValidationHelper from '@canvas/sis/SisValidationHelper'
-import '@canvas/datetime/jquery'
-import * as tz from '@canvas/datetime'
+import {
+  dateString,
+  timeString,
+  unfudgeDateForProfileTimezone,
+  isMidnight,
+} from '@instructure/moment-utils'
+import * as tz from '@instructure/moment-utils'
 import {encodeQueryString} from '@canvas/query-string-encoding'
+import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
 
 const I18n = useI18nScope('CreateAssignmentView')
 
@@ -95,7 +101,7 @@ CreateAssignmentView.prototype.onSaveSuccess = function () {
 
 CreateAssignmentView.prototype.getFormData = function () {
   const data = CreateAssignmentView.__super__.getFormData.apply(this, arguments)
-  const unfudged = $.unfudgeDateForProfileTimezone(data.due_at)
+  const unfudged = unfudgeDateForProfileTimezone(data.due_at)
   if (unfudged != null) {
     data.due_at = this._getDueAt(unfudged)
   }
@@ -224,23 +230,23 @@ CreateAssignmentView.prototype.openAgain = function () {
       },
     })
   } else if (!timeField.hasClass('hasDatepicker')) {
-    timeField.datetime_field()
+    renderDatetimeField(timeField)
     return timeField.change(function (e) {
       let newDate
       const trimmedInput = $.trim(e.target.value)
       newDate = timeField.data('unfudged-date')
       newDate = trimmedInput === '' ? null : newDate
-      if (tz.isMidnight(newDate)) {
+      if (isMidnight(newDate)) {
         if (ENV.DEFAULT_DUE_TIME) {
           newDate = tz.parse(tz.format(newDate, '%F ' + ENV.DEFAULT_DUE_TIME))
         } else {
           newDate = tz.changeToTheSecondBeforeMidnight(newDate)
         }
       }
-      const dateStr = $.dateString(newDate, {
+      const dateStr = dateString(newDate, {
         format: 'medium',
       })
-      const timeStr = $.timeString(newDate)
+      const timeStr = timeString(newDate)
       return timeField.data('inputdate', newDate).val(dateStr + ' ' + timeStr)
     })
   }

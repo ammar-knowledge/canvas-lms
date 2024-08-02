@@ -19,8 +19,6 @@
 #
 
 class Folder < ActiveRecord::Base
-  self.ignored_columns += %i[last_lock_at last_unlock_at]
-
   def self.name_order_by_clause(table = nil)
     col = table ? "#{table}.name" : "name"
     best_unicode_collation_key(col)
@@ -361,7 +359,7 @@ class Folder < ActiveRecord::Base
     folder = nil
     context.shard.activate do
       Folder.unique_constraint_retry do
-        folder = context.folders.active.where(unique_type:).take
+        folder = context.folders.active.find_by(unique_type:)
         folder ||= context.folders.create!(unique_type:,
                                            name: default_name_proc.call,
                                            parent_folder_id: Folder.root_folders(context).first,
@@ -424,6 +422,8 @@ class Folder < ActiveRecord::Base
   end
 
   def self.unfiled_folder(context)
+    return unless context.respond_to?(:folders)
+
     folder = context.folders.where(parent_folder_id: Folder.root_folders(context).first, workflow_state: "visible", name: "unfiled").first
     unless folder
       folder = context.folders.build(parent_folder: Folder.root_folders(context).first, name: "unfiled")
@@ -589,6 +589,7 @@ class Folder < ActiveRecord::Base
       next_clear_cache = next_lock_change
       if next_clear_cache.present? && next_clear_cache < (Time.zone.now + AdheresToPolicy::Cache::CACHE_EXPIRES_IN)
         delay(run_at: next_clear_cache, singleton: "clear_permissions_cache_#{global_id}").clear_permissions_cache
+        delay(run_at: next_clear_cache, singleton: "clear_active_users_cache_#{global_id}").clear_active_users_cache
       end
     end
   end
@@ -596,6 +597,10 @@ class Folder < ActiveRecord::Base
   def clear_downstream_permissions
     active_file_attachments.touch_all
     active_sub_folders.each(&:clear_permissions_cache)
+  end
+
+  def clear_active_users_cache
+    context.active_users.each(&:clear_caches) if context.is_a?(Course)
   end
 
   def next_lock_change

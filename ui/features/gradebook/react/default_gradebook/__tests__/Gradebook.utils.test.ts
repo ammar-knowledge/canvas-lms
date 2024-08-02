@@ -29,12 +29,14 @@ import {
   getDefaultSettingKeyForColumnType,
   getGradeAsPercent,
   getStudentGradeForColumn,
+  idArraysEqual,
   isGradedOrExcusedSubmissionUnposted,
   maxAssignmentCount,
   onGridKeyDown,
   otherGradingPeriodAssignmentIds,
   sectionList,
   getLabelForFilter,
+  formatGradingPeriodTitleForDisplay,
 } from '../Gradebook.utils'
 import {isDefaultSortOrder, localeSort} from '../Gradebook.sorting'
 import {createGradebook} from './GradebookSpecHelper'
@@ -43,6 +45,7 @@ import type {FilterPreset, Filter} from '../gradebook.d'
 import type {SlickGridKeyboardEvent} from '../grid.d'
 import type {Submission, Student, Enrollment} from '../../../../../api.d'
 import {enrollment, student, enrollmentFilter, appliedFilters, student2} from './fixtures'
+import type {CamelizedGradingPeriod} from '@canvas/grading/grading'
 
 const unsubmittedSubmission: Submission = {
   anonymous_id: 'dNq5T',
@@ -155,6 +158,24 @@ describe('getStudentGradeForColumn', () => {
     const grade = getStudentGradeForColumn(student, 'total_grade')
     expect(grade.score).toStrictEqual(null)
     expect(grade.possible).toStrictEqual(0)
+  })
+})
+
+describe('idArraysEqual', () => {
+  it('returns true when passed two sets of ids with the same contents', () => {
+    expect(idArraysEqual(['1', '2'], ['1', '2'])).toStrictEqual(true)
+  })
+
+  it('returns true when passed two sets of ids with the same contents in different order', () => {
+    expect(idArraysEqual(['2', '1'], ['1', '2'])).toStrictEqual(true)
+  })
+
+  it('returns true when passed two empty arrays', () => {
+    expect(idArraysEqual([], [])).toStrictEqual(true)
+  })
+
+  it('returns false when passed two different sets of ids', () => {
+    expect(idArraysEqual(['1'], ['1', '2'])).toStrictEqual(false)
   })
 })
 
@@ -747,5 +768,43 @@ describe('filterStudentBySectionFn', () => {
       const result = getLabelForFilter(endFilter, [], [], [], [], {}, [])
       expect(result).toEqual('End Date 12/16/2023')
     })
+  })
+})
+
+describe('formatGradingPeriodTitleForDisplay', () => {
+  ENV.GRADEBOOK_OPTIONS = {grading_periods_filter_dates_enabled: true}
+  const gp: CamelizedGradingPeriod = {
+    id: '1',
+    title: 'GP1',
+    startDate: new Date('2021-01-01'),
+    endDate: new Date('2021-01-31'),
+    closeDate: new Date('2021-02-01'),
+    isClosed: false,
+    isLast: false,
+    weight: 1,
+  }
+
+  it('returns null if handed a null grading period', () => {
+    const result = formatGradingPeriodTitleForDisplay(null)
+    expect(result).toBeNull()
+  })
+
+  it('returns null if handed an undefined grading period', () => {
+    const result = formatGradingPeriodTitleForDisplay(undefined)
+    expect(result).toBeNull()
+  })
+
+  // TODO: remove "with the feature flag" from the test description when the feature flag is removed
+  it('returns the grading period title with the start, end, and close dates with the feature flag', () => {
+    ENV.GRADEBOOK_OPTIONS = {grading_periods_filter_dates_enabled: true}
+    const result = formatGradingPeriodTitleForDisplay(gp)
+    expect(result).toEqual('GP1: 1/1/21 - 1/31/21 | 2/1/21')
+  })
+
+  // TODO: remove this test when we remove the feature flag
+  it('returns only the grading period title without the feature flag', () => {
+    ENV.GRADEBOOK_OPTIONS = {grading_periods_filter_dates_enabled: false}
+    const result = formatGradingPeriodTitleForDisplay(gp)
+    expect(result).toEqual('GP1')
   })
 })

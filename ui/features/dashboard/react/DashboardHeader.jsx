@@ -21,7 +21,7 @@ import ReactDOM from 'react-dom'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import axios from '@canvas/axios'
 import classnames from 'classnames'
-import {bool, func, string, object, oneOf} from 'prop-types'
+import {bool, func, string, object, oneOf, arrayOf} from 'prop-types'
 import {
   initializePlanner,
   loadPlannerDashboard,
@@ -43,6 +43,8 @@ import {fetchShowK5Dashboard} from '@canvas/observer-picker/react/utils'
 import {View} from '@instructure/ui-view'
 import {Heading} from '@instructure/ui-heading'
 import {Flex} from '@instructure/ui-flex'
+import {Button} from '@instructure/ui-buttons'
+import {dateString, datetimeString, timeString} from '@canvas/datetime/date-functions'
 
 const I18n = useI18nScope('dashboard')
 
@@ -51,7 +53,7 @@ const [show, hide] = ['block', 'none'].map(displayVal => id => {
   if (el) el.style.display = displayVal
 })
 
-const observerMode = () => ENV.current_user_roles?.includes('observer')
+export const observerMode = () => ENV.current_user_roles?.includes('observer')
 
 /**
  * This component renders the header and the to do sidebar for the user
@@ -66,6 +68,10 @@ class DashboardHeader extends React.Component {
     env: object,
     loadDashboardSidebar: func,
     responsiveSize: oneOf(['small', 'medium', 'large']),
+    startNewCourseVisible: bool,
+    viewGradesUrl: string,
+    preloadedCards: arrayOf(object) || null, // Card[]
+    refetchDashboardCards: func || null,
   }
 
   static defaultProps = {
@@ -100,9 +106,9 @@ class DashboardHeader extends React.Component {
         srFlashMessage: this.props.screenReaderFlashMessage,
         convertApiUserContent: apiUserContent.convert,
         dateTimeFormatters: {
-          dateString: $.dateString,
-          timeString: $.timeString,
-          datetimeString: $.datetimeString,
+          dateString,
+          timeString,
+          datetimeString,
         },
         externalFallbackFocusable: this.menuButtonFocusable,
         observedUser,
@@ -147,9 +153,9 @@ class DashboardHeader extends React.Component {
     loadPlannerDashboard()
   }
 
-  loadCardDashboard(observedUserId) {
+  loadCardDashboard(observedUserId, preloadedCards) {
     // I put this in so I can spy on the imported function in a spec :'(
-    this.cardDashboardLoader.loadCardDashboard(undefined, observedUserId)
+    this.cardDashboardLoader.loadCardDashboard(undefined, observedUserId, preloadedCards)
   }
 
   loadStreamItemDashboard(observedUserId) {
@@ -201,7 +207,7 @@ class DashboardHeader extends React.Component {
           showFlashAlert({message: I18n.t('Failed initializing dashboard'), type: 'error'})
         })
     } else if (newView === 'cards') {
-      this.loadCardDashboard(this.state.selectedObserveeId)
+      this.loadCardDashboard(this.state.selectedObserveeId, this.props.preloadedCards)
     } else if (newView === 'activity') {
       this.loadStreamItemDashboard(this.state.selectedObserveeId)
     }
@@ -239,6 +245,7 @@ class DashboardHeader extends React.Component {
 
   handleChangeObservedUser(id) {
     if (id !== this.state.selectedObserveeId) {
+      this.props.refetchDashboardCards && this.props.refetchDashboardCards()
       fetchShowK5Dashboard(id)
         .then(response => {
           if (!response.show_k5_dashboard) {
@@ -305,10 +312,7 @@ class DashboardHeader extends React.Component {
     })
   }
 
-  render() {
-    const canEnableElementaryDashboard =
-      this.props.allowElementaryDashboard &&
-      (!observerMode() || this.state.selectedObserveeId === ENV.current_user_id)
+  renderLegacy(canEnableElementaryDashboard) {
     return (
       <div className={classnames(this.props.responsiveSize, 'ic-Dashboard-header__layout')}>
         <Flex direction="row" alignItems="center" justifyItems="space-between" width="100%">
@@ -355,10 +359,126 @@ class DashboardHeader extends React.Component {
       </div>
     )
   }
+
+  renderResponsiveContent(canEnableElementaryDashboard) {
+    let responsiveSize = this.props.responsiveSize
+    if (observerMode() && responsiveSize == 'large') {
+      responsiveSize = 'medium'
+    }
+
+    return (
+      <div style={{backgroundColor: 'white', paddingBottom: 'small'}}>
+        <Flex
+          margin="0 0 medium"
+          as="div"
+          direction={this.props.responsiveSize == 'large' ? 'row' : 'column'}
+          withVisualDebug={false}
+          alignItems="stretch"
+        >
+          <Flex.Item
+            shouldGrow={true}
+            shouldShrink={false}
+            margin={this.props.responsiveSize == 'large' ? '0' : '0 0 medium 0'}
+          >
+            <Heading level="h1" margin="0 0 small 0">
+              {I18n.t('Dashboard')}
+            </Heading>
+          </Flex.Item>
+          <Flex.Item
+            overflowY="visible"
+            margin={this.props.responsiveSize == 'large' ? 'x-small 0 0 0' : '0'}
+          >
+            <Flex
+              gap="small"
+              withVisualDebug={false}
+              direction={this.props.responsiveSize == 'small' ? 'column-reverse' : 'row'}
+            >
+              {observerMode() && (
+                <Flex.Item overflowY="visible">
+                  <ObserverOptions
+                    currentUser={ENV.current_user}
+                    currentUserRoles={ENV.current_user_roles}
+                    observedUsersList={ENV.OBSERVED_USERS_LIST}
+                    canAddObservee={ENV.CAN_ADD_OBSERVEE}
+                    handleChangeObservedUser={id => this.handleChangeObservedUser(id)}
+                  />
+                </Flex.Item>
+              )}
+              <Flex.Item overflowY="visible">
+                <div id="DashboardOptionsMenu_Container">
+                  <DashboardOptionsMenu
+                    view={this.state.currentDashboard}
+                    planner_enabled={this.props.planner_enabled}
+                    onDashboardChange={this.changeDashboard}
+                    menuButtonRef={ref => {
+                      this.menuButtonFocusable = ref
+                    }}
+                    canEnableElementaryDashboard={canEnableElementaryDashboard}
+                    responsiveSize={this.props.responsiveSize}
+                  />
+                </div>
+              </Flex.Item>
+              <span
+                style={{
+                  display:
+                    this.props.planner_enabled && this.state.currentDashboard == 'planner'
+                      ? 'block'
+                      : 'none',
+                }}
+              >
+                <Flex.Item overflowY="visible">
+                  <span id="dashboard-planner-header" />
+                  <span id="dashboard-planner-header-aux" />
+                </Flex.Item>
+              </span>
+              {this.props.startNewCourseVisible && (
+                <Flex.Item overflowY="visible">
+                  <Button
+                    display={this.props.responsiveSize == 'small' ? 'block' : 'inline-block'}
+                    onclick={() => {}}
+                    id="start_new_course"
+                    aria-controls="new_course_form"
+                  >
+                    {I18n.t('Start a New Course')}
+                  </Button>
+                </Flex.Item>
+              )}
+              {this.state.currentDashboard != 'planner' && (
+                <Flex.Item overflowY="visible">
+                  <Button
+                    id="ic-Dashboard-header__view_grades_button"
+                    display={this.props.responsiveSize == 'small' ? 'block' : 'inline-block'}
+                    href={this.props.viewGradesUrl}
+                  >
+                    {I18n.t('View Grades')}
+                  </Button>
+                </Flex.Item>
+              )}
+            </Flex>
+          </Flex.Item>
+        </Flex>
+      </div>
+    )
+  }
+
+  render() {
+    const canEnableElementaryDashboard =
+      this.props.allowElementaryDashboard &&
+      (!observerMode() || this.state.selectedObserveeId === ENV.current_user_id)
+
+    if (!ENV.FEATURES?.instui_header) {
+      return this.renderLegacy(canEnableElementaryDashboard)
+    }
+
+    return this.renderResponsiveContent(canEnableElementaryDashboard)
+  }
 }
 
 export {DashboardHeader}
-export default responsiviser()(DashboardHeader)
+export default responsiviser()(
+  DashboardHeader,
+  ENV.FEATURES?.instui_header ? {small: '(max-width: 62em)', medium: '(max-width: 86em)'} : null
+)
 
 // extract this out to a property so tests can override it and not have to mock
 // out the timers in every single test.
@@ -386,24 +506,33 @@ function loadDashboardSidebar(observedUserId) {
       const container = document.querySelector('.Sidebar__TodoListContainer')
       if (container) renderToDoSidebar(container)
 
-      const startButton = document.getElementById('start_new_course')
-      const modalContainer = document.getElementById('create_course_modal_container')
-      if (startButton && modalContainer && ENV.FEATURES?.create_course_subaccount_picker) {
-        startButton.addEventListener('click', () => {
-          ReactDOM.render(
-            <CreateCourseModal
-              isModalOpen={true}
-              setModalOpen={isOpen => {
-                if (!isOpen) ReactDOM.unmountComponentAtNode(modalContainer)
-              }}
-              permissions={ENV.CREATE_COURSES_PERMISSIONS.PERMISSION}
-              restrictToMCCAccount={ENV.CREATE_COURSES_PERMISSIONS.RESTRICT_TO_MCC_ACCOUNT}
-              isK5User={false} // can't be k5 user if classic dashboard is showing
-            />,
-            modalContainer
-          )
-        })
-      }
+      loadStartNewCourseHandler()
     })
   )
+}
+
+function loadStartNewCourseHandler() {
+  const startButton = document.getElementById('start_new_course')
+  if (ENV.FEATURES?.instui_header && startButton) {
+    // class name cannot be added to the Button component
+    $(startButton).addClass('element_toggler')
+  }
+
+  const modalContainer = document.getElementById('create_course_modal_container')
+  if (startButton && modalContainer && ENV.FEATURES?.create_course_subaccount_picker) {
+    startButton.addEventListener('click', () => {
+      ReactDOM.render(
+        <CreateCourseModal
+          isModalOpen={true}
+          setModalOpen={isOpen => {
+            if (!isOpen) ReactDOM.unmountComponentAtNode(modalContainer)
+          }}
+          permissions={ENV.CREATE_COURSES_PERMISSIONS.PERMISSION}
+          restrictToMCCAccount={ENV.CREATE_COURSES_PERMISSIONS.RESTRICT_TO_MCC_ACCOUNT}
+          isK5User={false} // can't be k5 user if classic dashboard is showing
+        />,
+        modalContainer
+      )
+    })
+  }
 }

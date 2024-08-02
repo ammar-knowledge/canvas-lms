@@ -32,6 +32,7 @@ import AccountsTreeStore from '../store/AccountsTreeStore'
 import {showFlashAlert, showFlashError} from '@canvas/alerts/react/FlashAlert'
 import preventDefault from '@canvas/util/preventDefault'
 import {flatten} from 'lodash'
+import {clearDashboardCache} from '../../../../shared/dashboard-card/dashboardCardQueries'
 
 const I18n = useI18nScope('account_course_user_search')
 
@@ -74,7 +75,7 @@ export default function NewCourseModal({terms, children}) {
       return
     }
 
-    const successHandler = (createdCourse) => {
+    const successHandler = createdCourse => {
       closeModal()
       showFlashAlert({
         type: 'success',
@@ -86,9 +87,14 @@ export default function NewCourseModal({terms, children}) {
           </Text>
         ),
       })
+      if (window?.ENV?.FEATURES?.dashboard_graphql_integration) {
+        clearDashboardCache()
+      }
     }
 
-    const errorHandler = showFlashError(I18n.t('Something went wrong creating the course. Please try again.'))
+    const errorHandler = showFlashError(
+      I18n.t('Something went wrong creating the course. Please try again.')
+    )
 
     CoursesStore.create({course: data}, successHandler, errorHandler)
   }

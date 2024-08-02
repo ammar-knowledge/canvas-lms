@@ -60,6 +60,11 @@ module Lti::IMS
   #            "description": "Indicate to Canvas the status of the grading process. A value of PendingManual will require intervention by a grader. Values of NotReady, Failed, and Pending will cause the scoreGiven to be ignored. FullyGraded values will require no action. Possible values are NotReady, Failed, Pending, PendingManual, FullyGraded",
   #            "example": "FullyGraded",
   #            "type": "string"
+  #          },
+  #          "submission": {
+  #            "description": "Contains metadata about the submission attempt, like submittedAt: Date and time that the submission was originally created - should use ISO8601-formatted date with subsecond precision.",
+  #            "example": { "submittedAt": "2017-04-14T18:54:36.736+00:00" },
+  #            "type": "object"
   #          }
   #       }
   #     }
@@ -146,12 +151,15 @@ module Lti::IMS
     #
     # @argument scoreMaximum [Number]
     #   Maximum possible score for this result; it must be present if scoreGiven is present.
-    #   Returns 412 if not present when scoreGiven is present.
+    #   Returns 422 if not present when scoreGiven is present.
     #
     # @argument comment [String]
     #   Comment visible to the student about this score.
     #
-    # @argument submittedAt [String]
+    # @argument submission [Optional, Object]
+    #  Contains metadata about the submission attempt. Supported fields listed below.
+    #
+    # @argument submission[submittedAt] [Optional, String]
     #  Date and time that the submission was originally created. Should use ISO8601-formatted date with subsecond precision.
     #
     # @argument https://canvas.instructure.com/lti/submission [Optional, Object]
@@ -173,7 +181,7 @@ module Lti::IMS
     #   (EXTENSION field) submission data (URL or body text). Only used for submission_types basic_lti_launch, online_text_entry, online_url. Ignored if content_items are provided.
     #
     # @argument https://canvas.instructure.com/lti/submission[submitted_at] [Optional, String]
-    #   (EXTENSION field) Date and time that the submission was originally created. Should use ISO8601-formatted date with subsecond precision. This should match the date and time that the original submission happened in Canvas.
+    #   (EXTENSION field) Date and time that the submission was originally created. Should use ISO8601-formatted date with subsecond precision. This should match the date and time that the original submission happened in Canvas. Use of submission.submittedAt is preferred.
     #
     # @argument https://canvas.instructure.com/lti/submission[content_items] [Optional, Array]
     #   (EXTENSION field) Files that should be included with the submission. Each item should contain `type: file`, and a url pointing to the file. It can also contain a title, and an explicit MIME type if needed (otherwise, MIME type will be inferred from the title or url). If any items are present, submission_type will be online_upload.
@@ -191,7 +199,9 @@ module Lti::IMS
     #     "scoreGiven": 83,
     #     "scoreMaximum": 100,
     #     "comment": "This is exceptional work.",
-    #     "submittedAt": "2017-04-14T18:54:36.736+00:00"
+    #     "submission": {
+    #       "submittedAt": "2017-04-14T18:54:36.736+00:00"
+    #     },
     #     "activityProgress": "Completed",
     #     "gradingProgress": "FullyGraded",
     #     "userId": "5323497",
@@ -251,8 +261,7 @@ module Lti::IMS
         # 5xx and other unexpected errors
         return render_error(err_message, :internal_server_error)
       end
-
-      submit_homework(attachments) if new_submission?
+      submit_homework(attachments) if new_submission? && activity_started?
       update_or_create_result
       json[:resultUrl] = result_url
 
@@ -262,7 +271,7 @@ module Lti::IMS
     private
 
     def old_create
-      submit_homework if new_submission? && !has_content_items?
+      submit_homework if new_submission? && !has_content_items? && activity_started?
       update_or_create_result
       json = { resultUrl: result_url }
 
@@ -287,7 +296,7 @@ module Lti::IMS
     end
 
     REQUIRED_PARAMS = %i[userId activityProgress gradingProgress timestamp].freeze
-    OPTIONAL_PARAMS = %i[scoreGiven scoreMaximum comment submittedAt].freeze
+    OPTIONAL_PARAMS = [:scoreGiven, :scoreMaximum, :comment, :submittedAt, submission: %i[submittedAt]].freeze
     EXTENSION_PARAMS = [
       :new_submission,
       :preserve_score,
@@ -309,7 +318,7 @@ module Lti::IMS
         update_params = params.permit(REQUIRED_PARAMS + OPTIONAL_PARAMS,
                                       Lti::Result::AGS_EXT_SUBMISSION => EXTENSION_PARAMS).transform_keys do |k|
           k.to_s.underscore
-        end.except(:timestamp, :user_id, :score_given, :score_maximum, :submitted_at).to_unsafe_h
+        end.except(:timestamp, :user_id, :score_given, :score_maximum, :submitted_at, :submission).to_unsafe_h
         update_params[:extensions] = extract_extensions(update_params)
         update_params.merge(result_score: params[:scoreGiven], result_maximum: params[:scoreMaximum])
       end
@@ -338,7 +347,7 @@ module Lti::IMS
     end
 
     def verify_valid_submitted_at
-      submitted_at = params[:submittedAt] || params.dig(Lti::Result::AGS_EXT_SUBMISSION, :submitted_at)
+      submitted_at = params.dig(:submission, :submittedAt) || top_level_submitted_at || params.dig(Lti::Result::AGS_EXT_SUBMISSION, :submitted_at)
       submitted_at_date = parse_timestamp(submitted_at)
 
       if submitted_at.present? && submitted_at_date.nil?
@@ -504,14 +513,10 @@ module Lti::IMS
         end
 
         progress_url =
-          if line_item.root_account.feature_enabled?(:consistent_ags_ids_based_on_account_principal_domain)
-            lti_progress_show_url(
-              host: line_item.root_account.environment_specific_domain,
-              id: preflight_json[:progress][:id]
-            )
-          else
-            lti_progress_show_url(id: preflight_json[:progress][:id])
-          end
+          lti_progress_show_url(
+            host: line_item.root_account.environment_specific_domain,
+            id: preflight_json[:progress][:id]
+          )
 
         {
           json: {
@@ -566,16 +571,12 @@ module Lti::IMS
     end
 
     def result_url
-      if line_item.root_account.feature_enabled?(:consistent_ags_ids_based_on_account_principal_domain)
-        lti_result_show_url(
-          host: line_item.root_account.environment_specific_domain,
-          course_id: context.id,
-          line_item_id: line_item.id,
-          id: result.id
-        )
-      else
-        lti_result_show_url(course_id: context.id, line_item_id: line_item.id, id: result.id)
-      end
+      lti_result_show_url(
+        host: line_item.root_account.environment_specific_domain,
+        course_id: context.id,
+        line_item_id: line_item.id,
+        id: result.id
+      )
     end
 
     def submission_type
@@ -597,8 +598,14 @@ module Lti::IMS
     end
 
     def submitted_at
-      submitted_at = params[:submittedAt] || scores_params.dig(:extensions, Lti::Result::AGS_EXT_SUBMISSION, :submitted_at)
+      submitted_at = params.dig(:submission, :submittedAt) || top_level_submitted_at || scores_params.dig(:extensions, Lti::Result::AGS_EXT_SUBMISSION, :submitted_at)
       parse_timestamp(submitted_at)
+    end
+
+    def top_level_submitted_at
+      return nil if @domain_root_account.feature_enabled?(:lti_ags_remove_top_submitted_at)
+
+      params[:submittedAt]
     end
 
     def file_content_items
@@ -615,6 +622,10 @@ module Lti::IMS
       parsed = Time.zone.iso8601(t) rescue nil
       parsed ||= (Time.zone.parse(t) rescue nil) if Setting.get("enforce_iso8601_for_lti_scores", "false") == "false"
       parsed
+    end
+
+    def activity_started?
+      params[:activityProgress] != "Initialized"
     end
   end
 end

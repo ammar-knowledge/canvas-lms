@@ -54,6 +54,10 @@ class EnrollmentState < ActiveRecord::Base
     !state_is_current? || (state_valid_until && state_valid_until < Time.now)
   end
 
+  def active?
+    state == "active"
+  end
+
   def ensure_current_state
     GuardRail.activate(:primary) do
       retry_count = 0
@@ -168,10 +172,13 @@ class EnrollmentState < ActiveRecord::Base
       elsif global_start_at < now
         if enrollment.temporary_enrollment?
           ending_enrollment_state = enrollment.temporary_enrollment_pairing&.ending_enrollment_state
-
           case ending_enrollment_state
-          when "completed", "inactive"
-            self.state = ending_enrollment_state
+          when "completed"
+            enrollment.conclude
+            self.state = "completed"
+          when "inactive"
+            enrollment.deactivate
+            self.state = "inactive"
           when "deleted", nil
             enrollment.destroy
           end

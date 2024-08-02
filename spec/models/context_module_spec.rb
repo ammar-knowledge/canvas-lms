@@ -236,24 +236,38 @@ describe ContextModule do
 
   describe "update_assignment_submissions" do
     before :once do
-      Account.site_admin.enable_feature!(:differentiated_modules)
+      Account.site_admin.enable_feature!(:selective_release_backend)
       course_module
       @student1 = student_in_course(active_all: true, name: "Student 1").user
       @assignment = @course.assignments.create!(title: "some assignment")
+      @quiz = @course.quizzes.create!(title: "some quiz", quiz_type: "assignment")
+      @discussion = @course.discussion_topics.create!(title: "some discussion")
+      @discussion.assignment = @course.assignments.create!
+      @discussion.save!
       @module.add_item({ id: @assignment.id, type: "assignment" })
+      @module.add_item({ id: @quiz.id, type: "quiz" })
+      @module.add_item({ id: @discussion.id, type: "discussion_topic" })
     end
 
-    it "correctly updates submissions after delete" do
+    it "correctly updates submissions after delete for all items with assignments" do
       adhoc_override = @module.assignment_overrides.create!(set_type: "ADHOC")
       adhoc_override.assignment_override_students.create!(user: @student1)
 
-      @module.update_assignment_submissions(@module.current_assignments_and_quizzes)
+      @module.update_assignment_submissions(@module.current_items_with_assignment)
       @assignment.submissions.reload
+      @quiz.assignment.submissions.reload
+      @discussion.assignment.submissions.reload
       expect(@assignment.submissions.length).to eq 1
+      expect(@quiz.assignment.submissions.length).to eq 1
+      expect(@discussion.assignment.submissions.length).to eq 1
 
       @module.destroy!
       @assignment.submissions.reload
+      @quiz.assignment.submissions.reload
+      @discussion.assignment.submissions.reload
       expect(@assignment.submissions.length).to eq 2
+      expect(@quiz.assignment.submissions.length).to eq 2
+      expect(@discussion.assignment.submissions.length).to eq 2
     end
   end
 
@@ -1519,6 +1533,11 @@ describe ContextModule do
       expect(cm.completion_events).to eq [:publish_final_grade]
     end
 
+    it "serializes an empty string" do
+      cm = ContextModule.new(completion_events: "")
+      expect(cm.completion_events).to eq []
+    end
+
     it "generates methods correctly" do
       cm = ContextModule.new
       expect(cm.publish_final_grade?).to be_falsey
@@ -1555,10 +1574,10 @@ describe ContextModule do
         expect(@module.content_tags_visible_to(@student_2).map(&:content).include?(@assignment)).to be_falsey
       end
 
-      it "alsoes have the right assignment_and_quiz_visibilities" do
-        expect(@teacher.assignment_and_quiz_visibilities(@course)[:assignment_ids].include?(@assignment.id)).to be_truthy
-        expect(@student_1.assignment_and_quiz_visibilities(@course)[:assignment_ids].include?(@assignment.id)).to be_truthy
-        expect(@student_2.assignment_and_quiz_visibilities(@course)[:assignment_ids].include?(@assignment.id)).to be_falsey
+      it "has the right learning_object_visibilities" do
+        expect(@teacher.learning_object_visibilities(@course)[:assignment_ids].include?(@assignment.id)).to be_truthy
+        expect(@student_1.learning_object_visibilities(@course)[:assignment_ids].include?(@assignment.id)).to be_truthy
+        expect(@student_2.learning_object_visibilities(@course)[:assignment_ids].include?(@assignment.id)).to be_falsey
       end
 
       it "properly returns differentiated assignments for teacher even without update rights" do
@@ -1857,7 +1876,28 @@ describe ContextModule do
     expect(m.grants_right?(@teacher, :manage_course_content_delete)).to be false
   end
 
+  it "only loads visibility and progression information once when calculating prerequisites with selective_release_backend on" do
+    Account.site_admin.enable_feature!(:selective_release_backend)
+    course_factory(active_all: true)
+    student_in_course(course: @course)
+    m1 = @course.context_modules.create!(name: "m1")
+    m2 = @course.context_modules.create!(name: "m2", prerequisites: [{ id: m1.id, type: "context_module", name: m1.name }])
+
+    [m1, m2].each do |m|
+      assmt = @course.assignments.create!(title: "assmt", submission_types: "online_text_entry")
+      assmt.submit_homework(@student, body: "bloop")
+      tag = m.add_item({ id: assmt.id, type: "assignment" })
+      m.update_attribute(:completion_requirements, { tag.id => { type: "must_submit" } })
+    end
+
+    expect(AssignmentVisibility::AssignmentVisibilityService).to receive(:visible_assignment_ids_in_course_by_user).once.and_call_original
+    expect(ContextModuleProgressions::Finder).to receive(:find_or_create_for_context_and_user).once.and_call_original
+
+    m2.evaluate_for(@student)
+  end
+
   it "only loads visibility and progression information once when calculating prerequisites" do
+    Account.site_admin.disable_feature!(:selective_release_backend)
     course_factory(active_all: true)
     student_in_course(course: @course)
     m1 = @course.context_modules.create!(name: "m1")

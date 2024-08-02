@@ -590,7 +590,6 @@ class LearnerPassportController < ApplicationController
 
   def index
     js_env[:FEATURES][:learner_passport] = @domain_root_account.feature_enabled?(:learner_passport)
-    js_env[:FEATURES][:learner_passport_r2] = @domain_root_account.feature_enabled?(:learner_passport_r2)
 
     # hide the breadcrumbs application.html.erb renders
     render html: "<style>.ic-app-nav-toggle-and-crumbs.no-print {display: none;}</style>".html_safe,
@@ -833,7 +832,7 @@ class LearnerPassportController < ApplicationController
     return render json: { message: "Pathway not found" }, status: :not_found if pathway.nil?
 
     pathway.replace(JSON.parse(params[:pathway]).transform_keys(&:to_sym))
-    pathway[:published] = (params[:draft] == "true") ? nil : Date.today.to_s
+    pathway[:published] = (params[:draft] == "true") ? nil : Time.zone.today.to_s
     Rails.cache.write(current_pathways_key, current_pathways, expires_in: CACHE_EXPIRATION)
 
     render json: pathway

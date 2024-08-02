@@ -17,6 +17,14 @@ confetti_for_valid_links:
     a course and no issues are found.
   applies_to: RootAccount
 
+bbb_avatar:
+  state: 'hidden'
+  display_name: 'Send user avatar to BigBlueButton'
+  description: |-
+    Adds a new admin setting to the BigBlueButton plugin to allow
+    sending of user avatars upon joining conference.
+  applies_to: RootAccount
+
 react_discussions_post:
   state: hidden
   beta: true
@@ -29,6 +37,15 @@ react_discussions_post:
       For full details, please see the *Discussions/Announcements Redesign user group*
       in the Canvas Community
   applies_to: Course
+
+discussions_reporting:
+  state: hidden
+  beta: true
+  display_name: Discussions Redesign - Reporting
+  description: |-
+    This feature flag enables Discussions Reporting inside the new
+    Discussions Redesign work.
+  applies_to: RootAccount
 
 draft_discussions:
   state: hidden
@@ -73,16 +90,6 @@ bbb_modal_update:
     and they'll be able to update/sync conference attendees as new attendees are
     added or removed.
   applies_to: SiteAdmin
-
-react_inbox:
-  state: hidden
-  display_name: Update Inbox page to use react/instui
-  description: |-
-    This refactor will make this page more maintainable
-  applies_to: RootAccount
-  environments:
-    development:
-      state: on # enable for local development
 
 react_inbox_labels:
   state: hidden
@@ -136,3 +143,9 @@ discussion_checkpoints:
     response and replies are then graded separately, and those grades are
     combined to form a final discussion grade.
   applies_to: RootAccount
+
+inbox_settings:
+  state: hidden
+  applies_to: SiteAdmin
+  display_name: Inbox Settings - QW Updates
+  description: Gives users access to new optional features like setting a default signature that will be added at the end of outgoing messages and setting an autoresponder.

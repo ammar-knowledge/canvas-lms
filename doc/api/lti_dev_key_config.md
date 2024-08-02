@@ -234,6 +234,12 @@ also found in the placements sub-menu in the left-navigation of this documentati
       "privacy_level": "public",
       "settings": {
         "text": "Launch The Best Tool",
+        "labels": {
+          "en": "Launch The Best Tool",
+          "en-AU": "G'day, Launch The Best Tool",
+          "es": "Lanzar la mejor herramienta",
+          "zh-Hans": "启动最佳工具"
+        },
         "icon_url": "https://some.icon.url/tool-level.png",
         "selection_height": 800,
         "selection_width": 800,
@@ -336,7 +342,7 @@ also found in the placements sub-menu in the left-navigation of this documentati
 
       <td class="param-desc">
 
-<p>A description of the tool</p>
+<p>A description of the tool.</p>
 
       </td>
     </tr>
@@ -397,7 +403,7 @@ also found in the placements sub-menu in the left-navigation of this documentati
 
 <p>The <a href="https://www.imsglobal.org/spec/security/v1p0#step-1-third-party-initiated-login" target="_blank">target_link_uri</a> that Canvas should pass in the to the login initiation endpoint. This allows tools to determine which redirect_uri to pass Canvas in the authorization redirect request and should be <a href="https://www.imsglobal.org/spec/lti/v1p3/impl#verify-the-target_link_uri" target="_blank">verified during the final
 launch</a>. This can be set at the tool-level, or within the "placements" JSON
-object for placement-specific target_link_uri's</p>
+object for placement-specific target_link_uri's.</p>
 
       </td>
     </tr>
@@ -448,8 +454,7 @@ object for placement-specific target_link_uri's</p>
 
       <td class="param-desc">
 
-<p>The set of Canvas extensions, including placements, that the tool should use
-</p>
+<p>The set of Canvas extensions, including placements, that the tool should use.</p>
 
       </td>
     </tr>
@@ -467,7 +472,7 @@ object for placement-specific target_link_uri's</p>
 
       <td class="param-desc">
 
-<p>The domain Canvas should use to match clicked LTI links against. This is recommended if <a href="file.content_item.html">deep linking</a> is used</p>.
+<p>The domain Canvas should use to match clicked LTI links against. This is recommended if <a href="file.content_item.html">deep linking</a> is used.</p>
 
       </td>
     </tr>
@@ -485,7 +490,7 @@ object for placement-specific target_link_uri's</p>
 
       <td class="param-desc">
 
-<p>Allows tools to set a unique identifier for the tool.</p>.
+<p>Allows tools to set a unique identifier for the tool.</p>
 
       </td>
     </tr>
@@ -503,7 +508,7 @@ object for placement-specific target_link_uri's</p>
 
       <td class="param-desc">
 
-<p>The LMS platform that the extensions belong to. This should always be set to "canvas.instructure.com" for cloud-hosted Canvas</p>
+<p>The LMS platform that the extensions belong to. This should always be set to "canvas.instructure.com" for cloud-hosted Canvas.</p>
 
       </td>
     </tr>
@@ -552,6 +557,43 @@ object for placement-specific target_link_uri's</p>
       </td>
     </tr>
 
+<!-- text -->
+
+    <tr class="request-param ">
+      <td>text</td>
+      <td>
+
+      </td>
+      <td>string</td>
+
+
+
+      <td class="param-desc">
+
+<p>The default text to show for this tool. Can be set within "settings" for the tool-level display text, or within "placements" object for placement-specific display text.</p>
+
+      </td>
+    </tr>
+
+<!-- labels -->
+
+    <tr class="request-param ">
+      <td>labels</td>
+      <td>
+
+      </td>
+      <td>JSON object</td>
+
+
+
+      <td class="param-desc">
+
+<p>An object for translations of the "text", used to support internationalization (i18n) / localization (l10n). If the user's Canvas interface is set to one of the languages listed, the tool will display the translated text in place of the value in the "text" field. More specific locales ("en-AU") are preferred over less specific ones ("en").  Can be set within "settings" or individual placements.
+</p>
+
+      </td>
+    </tr>
+
 <!-- icon_url -->
 
     <tr class="request-param ">
@@ -596,24 +638,6 @@ object for placement-specific target_link_uri's</p>
       <td class="param-desc">
 
 <p>The display width of the iframe. This may be ignored or overridden for some LTI placements due to other UI requirements set by Canvas. Tools are advised to experiment with this setting to see what makes the most sense for their application.</p>
-
-<!-- text -->
-
-      </td>
-    </tr>
-
-    <tr class="request-param ">
-      <td>text</td>
-      <td>
-
-      </td>
-      <td>string</td>
-
-
-
-      <td class="param-desc">
-
-<p>The default text to show for this tool. Can be set within "settings" for the tool-level display text, or within "placements" object for placement-specific display text.</p>
 
       </td>
     </tr>

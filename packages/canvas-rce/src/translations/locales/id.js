@@ -17,6 +17,7 @@
  */
 
 import formatMessage from '../../format-message'
+import '../tinymce/id'
 
 const locale = {
   "access_the_pretty_html_editor_37168efe": {
@@ -37,6 +38,8 @@ const locale = {
   "adjacent_links_with_the_same_url_should_be_a_singl_7a1f7f6c": {
     "message": "Tautan berdekatan dengan URL yang sama harus berupa tautan tunggal."
   },
+  "ai_response_9624e8e8": { "message": "Respons AI" },
+  "ai_tools_fda01177": { "message": "Alat AI" },
   "aleph_f4ffd155": { "message": "Aleph" },
   "align_11050992": { "message": "Selaraskan" },
   "alignment_and_lists_5cebcb69": { "message": "Tugas dan Daftar" },
@@ -54,6 +57,9 @@ const locale = {
   },
   "an_error_occurred_making_a_network_request_d1bda348": {
     "message": "Kesalahan terjadi saat membuat permintaan jaringan"
+  },
+  "an_error_occurred_processing_your_request_a3a38d84": {
+    "message": "Terjadi kesalahan saat memproses permintaan Anda"
   },
   "an_error_occurred_uploading_your_media_71f1444d": {
     "message": "Terjadi kesalahan saat mengunggah media Anda."
@@ -186,16 +192,21 @@ const locale = {
   "column_e1ae5c64": { "message": "Kolom" },
   "column_group_1c062368": { "message": "Grup kolom" },
   "complex_numbers_a543d004": { "message": "Bilangan Kompleks" },
+  "compose_44c904f4": { "message": "Tulis" },
   "computer_1d7dfa6f": { "message": "Komputer" },
   "congruent_5a244acd": { "message": "Kongruen" },
   "contains_311f37b7": { "message": "Memuat" },
   "content_1440204b": { "message": "Konten" },
+  "content_in_the_editor_will_be_changed_press_cancel_d5bf3357": {
+    "message": "Konten di dalam editor akan berubah. Tekan Batal untuk mempertahankan konten orisinal."
+  },
   "content_is_still_being_uploaded_if_you_continue_it_8f06d0cb": {
     "message": "Konten sedang diunggah, jika Anda melanjutkan, ini tidak akan tertanam dengan benar."
   },
   "content_subtype_5ce35e88": { "message": "Subtipe Jenis" },
   "content_type_2cf90d95": { "message": "Jenis Konten" },
   "coproduct_e7838082": { "message": "Produk bersama" },
+  "copy_9748f9f": { "message": "Salin" },
   "copyright_holder_66ee111": { "message": "Pemegang Hak Cipta:" },
   "could_not_insert_content_itemtype_items_are_not_cu_638dfecd": {
     "message": "Tidak bisa memasukkan konten: Item \"{ itemType }\" saat ini tidak didukung di Canvas."
@@ -266,6 +277,7 @@ const locale = {
   "discussions_a5f96392": { "message": "Diskusi" },
   "discussions_index_6c36ced": { "message": "Indeks Diskusi" },
   "disjoint_union_e74351a8": { "message": "Disjoint Union" },
+  "dislike_14befc48": { "message": "Tidak Sukai" },
   "display_options_315aba85": { "message": "Opsi Tampilan" },
   "display_text_link_opens_in_a_new_tab_75e9afc9": {
     "message": "Tampilkan Tautan Teks (Terbuka di tab baru)"
@@ -329,6 +341,9 @@ const locale = {
   "enter_at_least_3_characters_to_search_4f037ee0": {
     "message": "Masukkan setidaknya 3 karakter untuk mencari"
   },
+  "enter_replacement_text_17631bbc": { "message": "masukkan teks pengganti" },
+  "enter_search_text_26cb4459": { "message": "mauskkan teks pencarian" },
+  "enter_text_8b35c65b": { "message": "Masukkan teks" },
   "epsilon_54bb8afa": { "message": "Epsilon" },
   "epsilon_variant_d31f1e77": { "message": "Epsilon (Varian)" },
   "equals_sign_c51bdc58": { "message": "Tanda Sama Dengan" },
@@ -356,6 +371,7 @@ const locale = {
   "failed_getting_file_contents_e9ea19f4": {
     "message": "Gagal mengambil konten file"
   },
+  "failed_to_copy_response_d3def551": { "message": "Gagal menyalin respons" },
   "failed_to_retrieve_content_from_external_tool_5899c213": {
     "message": "Gagal mengambil konten dari alat eksternal"
   },
@@ -373,6 +389,8 @@ const locale = {
   },
   "files_c300e900": { "message": "File" },
   "files_index_af7c662b": { "message": "Indeks File" },
+  "find_8d605019": { "message": "Temukan" },
+  "find_and_replace_6e345933": { "message": "Temukan dan Ganti" },
   "finish_bc343002": { "message": "Selesai" },
   "fix_heading_hierarchy_f60884c4": { "message": "Perbaiki hierarki heading" },
   "flat_music_76d5a5c3": { "message": "Datar (Musik)" },
@@ -441,6 +459,12 @@ const locale = {
   "health_icon_8d292eb5": { "message": "Ikon Kesehatan" },
   "hearts_suit_e50e04ca": { "message": "Hati (Suit)" },
   "height_69b03e15": { "message": "Tinggi" },
+  "hello_please_describe_the_modifications_you_would__49b19837": {
+    "message": "Halo. Silakan jelaskan modifikasi yang Anda inginkan untuk membuat komposisi Anda."
+  },
+  "hello_please_describe_the_modifications_you_would__600dbbf0": {
+    "message": "Halo. Silakan jelaskan modifikasi yang Anda inginkan untuk membuat pilihan Anda."
+  },
   "hexagon_d8468e0d": { "message": "Heksagon" },
   "hide_description_bfb5502e": { "message": "Sembunyikan deskripsi" },
   "hide_title_description_caf092ef": {
@@ -456,6 +480,9 @@ const locale = {
     "message": "Saya telah mendapat izin untuk menggunakan file ini."
   },
   "i_hold_the_copyright_71ee91b1": { "message": "Saya memiliki hak cipta" },
+  "i_m_sorry_but_i_cannot_find_the_ai_s_answer_67569d19": {
+    "message": "Maaf, saya tidak dapat menemukan jawaban AI"
+  },
   "icon_215a1dc6": { "message": "Ikon" },
   "icon_8168b2f8": { "message": "ikon" },
   "icon_color_b86dd6d6": { "message": "Ikon Warna" },
@@ -495,6 +522,7 @@ const locale = {
   "in_element_of_19ca2f33": { "message": "Pada (Elemen Dari)" },
   "increase_indent_6af90f7c": { "message": "Tambah Indent" },
   "indefinite_integral_6623307e": { "message": "Integral Tidak Definit" },
+  "index_of_max_80dcf7a5": { "message": "{ index } dari { max }" },
   "indigo_2035fc55": { "message": "Indigo" },
   "inference_fed5c960": { "message": "Inferensi" },
   "infinity_7a10f206": { "message": "Tak Terhingga" },
@@ -638,6 +666,7 @@ const locale = {
   "minus_plus_3461f637": { "message": "Minus/Plus" },
   "misc_3b692ea7": { "message": "Lain-lain" },
   "miscellaneous_e9818229": { "message": "Lain-Lain" },
+  "modify_6b0b13e3": { "message": "Modifikasi" },
   "module_90d9fd32": { "message": "Modul" },
   "modules_c4325335": { "message": "Modul" },
   "moving_image_to_crop_directionword_6f66cde2": {
@@ -668,6 +697,7 @@ const locale = {
   "nested_less_than_27d17e58": { "message": "Terpasang Kurang Dari" },
   "new_quiz_34aacba6": { "message": "Kuis Baru" },
   "next_40e12421": { "message": "Berikutnya" },
+  "next_findtext_9d69f0fe": { "message": "{ findText } Selanjutnya" },
   "no_accessibility_issues_were_detected_f8d3c875": {
     "message": "Masalah aksesabilitas tidak terdeteksi."
   },
@@ -697,6 +727,7 @@ const locale = {
   "no_quizzes_created_yet_1a2370b9": { "message": "Kuis belum dibuat." },
   "no_quizzes_found_c80c537a": { "message": "Kuis tidak ditemukan." },
   "no_results_940393cf": { "message": "Tidak ada hasil." },
+  "no_results_found_58717065": { "message": "Hasil tidak ditemukan" },
   "no_results_found_for_filterterm_ad1b04c8": {
     "message": "Hasil tidak ditemukan untuk { filterTerm }"
   },
@@ -774,6 +805,9 @@ const locale = {
   "please_allow_canvas_to_access_your_microphone_and__dc2c3079": {
     "message": "Silakan izinkan Canvas untuk mengakses mikrofon dan webcam Anda."
   },
+  "please_decribe_what_you_would_like_to_compose_27a51be5": {
+    "message": "Silakan jelaskan apa yang Anda ingin buat."
+  },
   "plus_d43cd4ec": { "message": "Plus" },
   "plus_minus_f8be2e83": { "message": "Plus/Minus" },
   "posted_when_a578f5ab": { "message": "Diposting: { when }" },
@@ -781,11 +815,16 @@ const locale = {
   "precedes_196b9aef": { "message": "Mendahului" },
   "precedes_equal_20701e84": { "message": "Mendahului Sama Dengan" },
   "preformatted_d0670862": { "message": "Dipraformat" },
+  "prepend_findtext_append_8e0e769a": {
+    "message": "{ prepend }{ findText }{ append }"
+  },
   "prev_f82cbc48": { "message": "Sblm" },
   "preview_53003fd2": { "message": "Pratinjau" },
   "preview_a3f8f854": { "message": "PRATINJAU" },
   "preview_in_overlay_ed772c46": { "message": "Pratinjau dalam overlay" },
   "preview_inline_9787330": { "message": "Pratinjau inline" },
+  "previous_bd2ac015": { "message": "Sebelumnya" },
+  "previous_findtext_8dfbfd30": { "message": "{ findText } Sebelumnya" },
   "prime_917ea60e": { "message": "Prima" },
   "prime_numbers_13464f61": { "message": "Bilangan Prima" },
   "product_39cf144f": { "message": "Produk" },
@@ -814,10 +853,31 @@ const locale = {
   "religion_icon_246e0be1": { "message": "Ikon Agama" },
   "remove_heading_style_5fdc8855": { "message": "Hapus gaya heading" },
   "remove_link_d1f2f4d0": { "message": "Hapus Tautan" },
+  "replace_all_d3d68b3": { "message": "Ganti Semua" },
+  "replace_all_findtext_with_replacetext_da574b32": {
+    "message": "Ganti semua { findText } dengan { replaceText }"
+  },
   "replace_e61834a7": { "message": "Ganti" },
+  "replace_findtext_with_replacetext_7b5c7fb3": {
+    "message": "Ganti { findText } dengan { replaceText }"
+  },
+  "replace_with_eeff01ad": { "message": "Ganti dengan" },
+  "replaced_alertfindtext_with_alertreplacetext_de5c1795": {
+    "message": "Mengganti { alertFindText } dengan { alertReplaceText }"
+  },
+  "replaced_all_alertfindtext_with_alertreplacetext_83fdfe59": {
+    "message": "Mengganti semua { alertFindText } dengan { alertReplaceText }"
+  },
   "reset_95a81614": { "message": "Atur Ulang" },
   "resize_ec83d538": { "message": "Ubah Ukuran" },
+  "response_copied_to_clipboard_130d66cd": {
+    "message": "Respons disalin ke clipboard"
+  },
   "restore_auto_save_deccd84b": { "message": "Pulihkan simpan otomatis?" },
+  "result_index_of_max_7db5ad8b": {
+    "message": "Hasil { index } dari { max }."
+  },
+  "retry_ebd5f8ba": { "message": "Coba lagi" },
   "reverse_turnstile_does_not_yield_7558be06": {
     "message": "Kembalikan Turnstile (Tidak Menghasilkan)"
   },
@@ -896,6 +956,7 @@ const locale = {
     "message": "Shift-O untuk membuka editor pretty html."
   },
   "shortcut_911d6255": { "message": "Pintasan" },
+  "show_all_967a90f0": { "message": "Tampilkan semua" },
   "show_audio_options_b489926b": { "message": "Tampilkan opsi audio" },
   "show_image_options_1e2ecc6b": { "message": "Tampilkan opsi gambar" },
   "show_link_options_545338fd": { "message": "Tampilkan opsi tautan" },
@@ -1186,6 +1247,7 @@ const locale = {
   "view_word_and_character_counts_a743dd0c": {
     "message": "Lihat jumlah kata dan karakter"
   },
+  "waiting_for_response_1efd0c50": { "message": "Menunggu respons" },
   "we_couldn_t_detect_a_working_microphone_connected__ceb71c40": {
     "message": "Kami tidak dapat mendeteksi mikrofon yang berfungsi yang tersambung ke perangkat Anda."
   },
@@ -1199,6 +1261,9 @@ const locale = {
   "webcam_fe91b20f": { "message": "Webcam" },
   "webpages_should_only_have_a_single_h1_which_is_aut_dc99189e": {
     "message": "Halaman web hanya boleh memiliki H1 tunggal, yang secara otomatis digunakan oleh judul halaman. Heading pertama pada konten Anda harus berupa H2."
+  },
+  "what_would_you_like_to_do_6dc0d541": {
+    "message": "Apa yang Anda ingin lakukan?"
   },
   "when_markup_is_used_that_visually_formats_items_as_f941fc1b": {
     "message": "Saat markup digunakan yang secara visual memformat item sebagai daftar tetapi tidak mengindikasikan hubungan daftar, pengguna dapat kesulitan dalam menavigasikan informasi."
@@ -1214,6 +1279,7 @@ const locale = {
   "word_count_c77fe3a6": { "message": "Jumlah Kata" },
   "words_b448b7d5": { "message": "Kata" },
   "wreath_product_200b38ef": { "message": "Produk Wreath" },
+  "writing_assistant_a30ac16a": { "message": "Asisten Penulisan" },
   "xi_149681d0": { "message": "Xi" },
   "yes_dde87d5": { "message": "Ya" },
   "you_have_unsaved_changes_in_the_icon_maker_tray_do_e8cf5f1b": {

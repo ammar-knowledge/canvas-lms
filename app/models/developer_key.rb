@@ -34,6 +34,7 @@ class DeveloperKey < ActiveRecord::Base
   belongs_to :account
   belongs_to :root_account, class_name: "Account"
   belongs_to :service_user, class_name: "User"
+  belongs_to :lti_registration, class_name: "Lti::Registration", inverse_of: :developer_key, dependent: :destroy
 
   has_many :page_views
   has_many :access_tokens, -> { where(workflow_state: "active") }
@@ -42,8 +43,8 @@ class DeveloperKey < ActiveRecord::Base
 
   has_one :tool_consumer_profile, class_name: "Lti::ToolConsumerProfile", inverse_of: :developer_key
   has_one :tool_configuration, class_name: "Lti::ToolConfiguration", dependent: :destroy, inverse_of: :developer_key
-  has_one :lti_registration, class_name: "Lti::IMS::Registration", dependent: :destroy, inverse_of: :developer_key
-  serialize :scopes, Array
+  has_one :ims_registration, class_name: "Lti::IMS::Registration", dependent: :destroy, inverse_of: :developer_key
+  serialize :scopes, type: Array
 
   before_validation :normalize_public_jwk_url
   before_validation :normalize_scopes
@@ -55,10 +56,12 @@ class DeveloperKey < ActiveRecord::Base
   before_save :protect_default_key
   before_save :set_require_scopes
   before_save :set_root_account
+  after_create :create_lti_registration
+  after_create :create_default_account_binding
   after_save :clear_cache
   after_update :invalidate_access_tokens_if_scopes_removed!
   after_update :destroy_external_tools!, if: :destroy_external_tools?
-  after_create :create_default_account_binding
+  after_update :update_lti_registration
 
   validates_as_url :redirect_uri, :oidc_initiation_url, :public_jwk_url, allowed_schemes: nil
   validate :validate_redirect_uris
@@ -67,6 +70,7 @@ class DeveloperKey < ActiveRecord::Base
   validate :validate_flag_combinations
 
   attr_reader :private_jwk
+  attr_accessor :skip_lti_sync, :current_user
 
   scope :nondeleted, -> { where("workflow_state<>'deleted'") }
   scope :not_active, -> { where("workflow_state<>'active'") } # search for deleted & inactive keys
@@ -96,8 +100,6 @@ class DeveloperKey < ActiveRecord::Base
     state :deleted
   end
 
-  self.ignored_columns += %i[oidc_login_uri tool_id]
-
   # https://stackoverflow.com/a/2500819
   alias_method :referenced_tool_configuration, :tool_configuration
 
@@ -124,11 +126,11 @@ class DeveloperKey < ActiveRecord::Base
 
   def redirect_uris=(value)
     value = value.split if value.is_a?(String)
-    super(value)
+    super
   end
 
-  def lti_registration?
-    lti_registration.present?
+  def ims_registration?
+    ims_registration.present?
   end
 
   def validate_redirect_uris
@@ -254,8 +256,9 @@ class DeveloperKey < ActiveRecord::Base
     return true if account_id.blank?
     return true if target_account.id == account_id
 
-    # Include the federated parent unless we are the federated parent
-    target_account.account_chain_ids(include_federated_parent_id: !target_account.primary_settings_root_account?).include?(account_id)
+    include_federated_parent_id = !target_account.root_account.primary_settings_root_account?
+
+    target_account.account_chain_ids(include_federated_parent_id:).include?(account_id)
   end
 
   def account_name
@@ -298,10 +301,11 @@ class DeveloperKey < ActiveRecord::Base
 
     # Search for bindings in the account chain starting with the highest account,
     # and include consortium parent if necessary
-    accounts = binding_account.account_chain(include_federated_parent: !binding_account.primary_settings_root_account?).reverse
+    include_federated_parent = !binding_account.root_account.primary_settings_root_account?
+    accounts = binding_account.account_chain(include_federated_parent:).reverse
     binding = DeveloperKeyAccountBinding.find_in_account_priority(accounts, self)
 
-    # If no explicity set bindings were found check for 'allow' bindings
+    # If no explicitly set bindings were found check for 'allow' bindings
     binding ||= DeveloperKeyAccountBinding.find_in_account_priority(accounts.reverse, self, explicitly_set: false)
 
     binding
@@ -398,10 +402,43 @@ class DeveloperKey < ActiveRecord::Base
   end
 
   def tool_configuration
-    lti_registration.presence || referenced_tool_configuration
+    ims_registration.presence || referenced_tool_configuration
   end
 
   private
+
+  def create_lti_registration
+    return unless is_lti_key?
+    return if skip_lti_sync
+    return if tool_configuration.blank?
+
+    lti_registration = Lti::Registration.new(developer_key: self,
+                                             account: account || Account.site_admin,
+                                             created_by: current_user,
+                                             updated_by: current_user,
+                                             admin_nickname: name,
+                                             name: tool_configuration.settings["title"],
+                                             workflow_state:,
+                                             ims_registration:,
+                                             skip_lti_sync: true)
+    lti_registration.save!
+  end
+
+  def update_lti_registration
+    return unless is_lti_key?
+    return if skip_lti_sync
+
+    if lti_registration.blank?
+      create_lti_registration
+      return
+    end
+
+    lti_registration.update!(name: tool_configuration.settings["title"],
+                             admin_nickname: name,
+                             updated_by: current_user,
+                             workflow_state:,
+                             skip_lti_sync: true)
+  end
 
   def validate_lti_fields
     return unless is_lti_key?
@@ -616,6 +653,10 @@ class DeveloperKey < ActiveRecord::Base
 
   def validate_scopes!
     return true if scopes.empty?
+
+    scopes.map! do |scope|
+      (scope == TokenScopes::LTI_PAGE_CONTENT_SHOW_SCOPE_DEPRECATED) ? TokenScopes::LTI_PAGE_CONTENT_SHOW_SCOPE : scope
+    end
 
     invalid_scopes = scopes - TokenScopes.all_scopes
     return true if invalid_scopes.empty?

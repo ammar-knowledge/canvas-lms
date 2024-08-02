@@ -30,6 +30,7 @@ import {showFlashAlert, showFlashError} from '@canvas/alerts/react/FlashAlert'
 import {generateAssignmentOverridesPayload, updateModuleUI} from '../utils/assignToHelper'
 import type {AssignmentOverride} from './types'
 import LoadingOverlay from './LoadingOverlay'
+import type {FormMessage} from '@instructure/ui-form-field'
 
 const I18n = useI18nScope('differentiated_modules')
 
@@ -70,6 +71,11 @@ const CUSTOM_OPTION: Option = {
   getDescription: () => I18n.t('Assign module to individuals or sections.'),
 }
 
+const EMPTY_ASSIGNEE_ERROR_MESSAGE: FormMessage = {
+  text: I18n.t('A student or section must be selected'),
+  type: 'error',
+}
+
 export const updateModuleAssignees = ({
   courseId,
   moduleId,
@@ -88,9 +94,14 @@ export const updateModuleAssignees = ({
     body: payload,
   })
     .then(() => {
-      showFlashAlert({
-        type: 'success',
-        message: I18n.t('Module access updated successfully.'),
+      // add the alert in the next event cycle so that the alert is added to the DOM's aria-live
+      // region after focus changes, thus preventing the focus change from interrupting the alert
+      setTimeout(() => {
+        showFlashAlert({
+          type: 'success',
+          message: I18n.t('Module access updated successfully.'),
+          politeness: 'polite',
+        })
       })
       updateModuleUI(moduleElement, payload)
     })
@@ -123,6 +134,9 @@ export default function AssignToPanel({
   )
   const [isLoading, setIsLoading] = useState(false)
   const changed = useRef(false)
+  const [suppressEmptyAssigneeError, setSuppressEmptyAssigneeError] = useState(true)
+  const [errors, setErrors] = useState<FormMessage[]>([])
+  const assigneeSelectorRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     // If defaultOption and defaultAssignees are passed, there is no need to fetch the data again.
@@ -171,13 +185,28 @@ export default function AssignToPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const visibleErrors = errors.filter(error => {
+    // hide empty assignee error on initial load
+    if (error === EMPTY_ASSIGNEE_ERROR_MESSAGE) {
+      return !suppressEmptyAssigneeError
+    }
+    return true
+  })
+  const hasErrors = errors.length > 0
+  const hasVisibleErrors = visibleErrors.length > 0
+
   const handleSave = useCallback(() => {
+    setSuppressEmptyAssigneeError(false)
+    if (hasErrors) {
+      assigneeSelectorRef.current?.focus()
+      return
+    }
     setIsLoading(true)
     // eslint-disable-next-line promise/catch-or-return
     updateModuleAssignees({courseId, moduleId, moduleElement, selectedAssignees})
       .finally(() => setIsLoading(false))
       .then(() => (onDidSubmit ? onDidSubmit() : onDismiss()))
-  }, [courseId, moduleElement, moduleId, onDidSubmit, onDismiss, selectedAssignees])
+  }, [hasErrors, courseId, moduleId, moduleElement, selectedAssignees, onDidSubmit, onDismiss])
 
   const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const value = (event.target as HTMLInputElement).value
@@ -194,18 +223,35 @@ export default function AssignToPanel({
     [selectedOption, selectedAssignees, updateParentData]
   )
 
+  // cannot handle in onSelect because of infinite rerenders due to messages prop
+  useEffect(() => {
+    const newErrors = []
+    if (selectedOption === CUSTOM_OPTION.value && selectedAssignees.length === 0) {
+      newErrors.push(EMPTY_ASSIGNEE_ERROR_MESSAGE)
+    }
+    setErrors(newErrors)
+  }, [selectedAssignees, selectedOption])
+
+  const handleBlur = () => {
+    setSuppressEmptyAssigneeError(false)
+  }
+
   return (
-    <Flex direction="column" justifyItems="start">
+    <Flex direction="column">
       <LoadingOverlay showLoadingOverlay={isLoading} mountNode={mountNodeRef.current} />
       <Flex.Item padding="medium medium small" size={bodyHeight}>
-        <Flex direction="column" justifyItems="start">
+        <Flex direction="column">
           <Flex.Item>
             <Text>{I18n.t('By default, this module is visible to everyone.')}</Text>
           </Flex.Item>
           <Flex.Item overflowX="hidden" margin="small 0 0 0">
-            <RadioInputGroup description={I18n.t('Set Visibility')} name="access_type">
+            <RadioInputGroup
+              description={I18n.t('Set Visibility')}
+              name="access_type"
+              data-testid="assign-to-panel-radio-group"
+            >
               {[EVERYONE_OPTION, CUSTOM_OPTION].map(option => (
-                <Flex key={option.value} justifyItems="start">
+                <Flex key={option.value} margin="0 xx-small 0 0">
                   <Flex.Item align="start">
                     <View as="div" margin="xx-small">
                       <RadioInput
@@ -217,26 +263,33 @@ export default function AssignToPanel({
                       />
                     </View>
                   </Flex.Item>
-                  <Flex.Item>
-                    <View as="div" margin="none">
+                  <Flex.Item shouldGrow={true} shouldShrink={true}>
+                    <View as="div">
                       <Text>{option.getLabel()}</Text>
                     </View>
-                    <View as="div" margin="none x-large none none">
+                    <View as="div">
                       <Text color="secondary" size="small">
                         {option.getDescription()}
                       </Text>
                     </View>
                     {option.value === CUSTOM_OPTION.value &&
                       selectedOption === CUSTOM_OPTION.value && (
-                        <View as="div" margin="small x-large none none">
+                        <View as="div" margin="small 0 0">
                           <ModuleAssignments
+                            inputRef={el => (assigneeSelectorRef.current = el)}
+                            messages={visibleErrors}
                             courseId={courseId}
                             onSelect={assignees => {
+                              // i.e., if there's existing assignees and the user is removing all of them
+                              if (selectedAssignees.length > 0 && assignees.length === 0) {
+                                setSuppressEmptyAssigneeError(false)
+                              }
                               setSelectedAssignees(assignees)
                               changed.current = true
                             }}
                             defaultValues={selectedAssignees}
                             onDismiss={onDismiss}
+                            onBlur={handleBlur}
                           />
                         </View>
                       )}
@@ -249,6 +302,7 @@ export default function AssignToPanel({
       </Flex.Item>
       <Flex.Item margin="auto none none none" size={footerHeight}>
         <Footer
+          hasErrors={hasVisibleErrors}
           saveButtonLabel={moduleId ? I18n.t('Save') : I18n.t('Add Module')}
           onDismiss={onDismiss}
           onUpdate={handleSave}

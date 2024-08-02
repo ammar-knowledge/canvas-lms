@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "atom"
-
 class DiscussionEntry < ActiveRecord::Base
   # The maximum discussion entry threading depth that is allowed
   MAX_DEPTH = 50
@@ -256,11 +254,11 @@ class DiscussionEntry < ActiveRecord::Base
   def update_topic_submission
     if discussion_topic.for_assignment?
       entries = discussion_topic.discussion_entries.where(user_id:, workflow_state: "active")
-      submission = discussion_topic.assignment.submissions.where(user_id:).take
+      submission = discussion_topic.assignment.submissions.find_by(user_id:)
       return unless submission
 
       if entries.any?
-        submission_date = entries.order(:created_at).limit(1).pluck(:created_at).first
+        submission_date = entries.order(:created_at).limit(1).pick(:created_at)
         if submission_date > created_at
           submission.submitted_at = submission_date
           submission.save!
@@ -324,7 +322,7 @@ class DiscussionEntry < ActiveRecord::Base
     given { |user| self.user && self.user == user }
     can :read
 
-    given { |user| self.user && self.user == user && discussion_topic.available_for?(user) && discussion_topic.can_participate_in_course?(user) }
+    given { |user| self.user && self.user == user && discussion_topic.available_for?(user) && discussion_topic.can_participate_in_course?(user) && !discussion_topic.comments_disabled? && discussion_topic.threaded? }
     can :reply
 
     given { |user| self.user && self.user == user && discussion_topic.available_for?(user) && context.user_can_manage_own_discussion_posts?(user) && discussion_topic.can_participate_in_course?(user) }
@@ -336,11 +334,17 @@ class DiscussionEntry < ActiveRecord::Base
     given { |user, session| !discussion_topic.is_announcement && context.grants_right?(user, session, :read_forum) && discussion_topic.visible_for?(user) }
     can :read
 
-    given { |user, session| discussion_topic.is_announcement && context.grants_right?(user, session, :participate_as_student) && discussion_topic.visible_for?(user) && !discussion_topic.locked_for?(user, check_policies: true) }
+    given { |user, session| discussion_topic.is_announcement && context.grants_right?(user, session, :participate_as_student) && discussion_topic.visible_for?(user) && !discussion_topic.locked_for?(user, check_policies: true) && !discussion_topic.comments_disabled? }
     can :create
 
     given { |user, session| context.grants_right?(user, session, :post_to_forum) && !discussion_topic.locked_for?(user) && discussion_topic.visible_for?(user) }
-    can :reply and can :create and can :read
+    can :read
+
+    given { |user, session| context.grants_right?(user, session, :post_to_forum) && !discussion_topic.locked_for?(user) && discussion_topic.visible_for?(user) && !discussion_topic.comments_disabled? && discussion_topic.threaded? }
+    can :reply
+
+    given { |user, session| context.grants_right?(user, session, :post_to_forum) && !discussion_topic.locked_for?(user) && discussion_topic.visible_for?(user) && !discussion_topic.comments_disabled? }
+    can :create
 
     given { |user, session| context.grants_right?(user, session, :post_to_forum) && discussion_topic.visible_for?(user) }
     can :read
@@ -349,13 +353,22 @@ class DiscussionEntry < ActiveRecord::Base
     can :attach
 
     given { |user, session| !discussion_topic.root_topic_id && context.grants_right?(user, session, :moderate_forum) && !discussion_topic.locked_for?(user, check_policies: true) }
-    can :update and can :delete and can :reply and can :create and can :read and can :attach
+    can :update and can :delete and can :read and can :attach
+
+    given { |user, session| !discussion_topic.root_topic_id && context.grants_right?(user, session, :moderate_forum) && !discussion_topic.locked_for?(user, check_policies: true) && !discussion_topic.comments_disabled? && discussion_topic.threaded? }
+    can :reply
+
+    given { |user, session| !discussion_topic.root_topic_id && context.grants_right?(user, session, :moderate_forum) && !discussion_topic.locked_for?(user, check_policies: true) && !discussion_topic.comments_disabled? }
+    can :create
 
     given { |user, session| !discussion_topic.root_topic_id && context.grants_right?(user, session, :moderate_forum) }
     can :update and can :delete and can :read
 
     given { |user, session| discussion_topic.root_topic&.context&.grants_right?(user, session, :moderate_forum) && !discussion_topic.locked_for?(user, check_policies: true) }
-    can :update and can :delete and can :reply and can :create and can :read and can :attach
+    can :update and can :delete and can :read and can :attach
+
+    given { |user, session| discussion_topic.root_topic&.context&.grants_right?(user, session, :moderate_forum) && !discussion_topic.locked_for?(user, check_policies: true) && !discussion_topic.comments_disabled? }
+    can :reply and can :create
 
     given { |user, session| discussion_topic.root_topic&.context&.grants_right?(user, session, :moderate_forum) }
     can :update and can :delete and can :read
@@ -387,22 +400,23 @@ class DiscussionEntry < ActiveRecord::Base
 
   def to_atom(opts = {})
     author_name = user.present? ? user.name : t("atom_no_author", "No Author")
-    Atom::Entry.new do |entry|
-      subject = [discussion_topic.title]
-      subject << discussion_topic.context.name if opts[:include_context]
-      entry.title = if parent_id
-                      t "#subject_reply_to", "Re: %{subject}", subject: subject.to_sentence
-                    else
-                      subject.to_sentence
-                    end
-      entry.authors << Atom::Person.new(name: author_name)
-      entry.updated   = updated_at
-      entry.published = created_at
-      entry.id        = "tag:#{HostUrl.default_host},#{created_at.strftime("%Y-%m-%d")}:/discussion_entries/#{feed_code}"
-      entry.links << Atom::Link.new(rel: "alternate",
-                                    href: "http://#{HostUrl.context_host(discussion_topic.context)}/#{discussion_topic.context_prefix}/discussion_topics/#{discussion_topic_id}")
-      entry.content = Atom::Content::Html.new(message)
-    end
+    subject = [discussion_topic.title]
+    subject << discussion_topic.context.name if opts[:include_context]
+    title = if parent_id
+              t "#subject_reply_to", "Re: %{subject}", subject: subject.to_sentence
+            else
+              subject.to_sentence
+            end
+
+    {
+      title:,
+      author: author_name,
+      updated: updated_at,
+      published: created_at,
+      id: "tag:#{HostUrl.default_host},#{created_at.strftime("%Y-%m-%d")}:/discussion_entries/#{feed_code}",
+      link: "http://#{HostUrl.context_host(discussion_topic.context)}/#{discussion_topic.context_prefix}/discussion_topics/#{discussion_topic_id}",
+      content: message
+    }
   end
 
   delegate :context, to: :discussion_topic
@@ -573,7 +587,7 @@ class DiscussionEntry < ActiveRecord::Base
   end
 
   def broadcast_report_notification(report_type)
-    return unless context.feature_enabled?(:react_discussions_post)
+    return unless root_account.feature_enabled?(:discussions_reporting)
 
     to_list = context.instructors_in_charge_of(user_id)
 

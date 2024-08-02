@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "atom"
-
 class Enrollment < ActiveRecord::Base
   SIS_TYPES = {
     "TeacherEnrollment" => "teacher",
@@ -28,6 +26,8 @@ class Enrollment < ActiveRecord::Base
     "StudentEnrollment" => "student",
     "ObserverEnrollment" => "observer"
   }.freeze
+
+  self.ignored_columns += ["graded_at"]
 
   include Workflow
 
@@ -107,9 +107,9 @@ class Enrollment < ActiveRecord::Base
   end
 
   def cant_observe_observer
-    if course.enrollments.where(type: "ObserverEnrollment",
-                                user_id: associated_user_id,
-                                associated_user_id: user_id).exists?
+    if !deleted? && course.enrollments.where(type: "ObserverEnrollment",
+                                             user_id: associated_user_id,
+                                             associated_user_id: user_id).exists?
       errors.add(:associated_user_id, "Cannot observe observer observing self")
     end
   end
@@ -443,11 +443,12 @@ class Enrollment < ActiveRecord::Base
   end
 
   def update_linked_enrollments(restore: false)
+    restorable_states = %w[inactive deleted completed]
     observers.each do |observer|
       enrollment = restore ? linked_enrollment_for(observer) : active_linked_enrollment_for(observer)
       if enrollment
         enrollment.update_from(self)
-      elsif restore || (saved_change_to_workflow_state? && ["inactive", "deleted"].include?(workflow_state_before_last_save))
+      elsif restore || (saved_change_to_workflow_state? && restorable_states.include?(workflow_state_before_last_save))
         create_linked_enrollment_for(observer)
       end
     end
@@ -761,7 +762,9 @@ class Enrollment < ActiveRecord::Base
       association(:enrollment_state).reload
       result = super
     end
-    result.enrollment = self # ensure reverse association
+    # ensure we have an enrollment state object present with a reverse association
+    result ||= create_enrollment_state
+    result.enrollment = self
     result
   end
 
@@ -1062,7 +1065,7 @@ class Enrollment < ActiveRecord::Base
   end
 
   def self.recompute_due_dates_and_scores(user_id)
-    Course.where(id: StudentEnrollment.where(user_id:).distinct.pluck(:course_id)).each do |course|
+    Course.where(id: StudentEnrollment.where(user_id:).distinct.select(:course_id)).each do |course|
       SubmissionLifecycleManager.recompute_users_for_course([user_id], course, nil, update_grades: true)
     end
   end
@@ -1210,14 +1213,7 @@ class Enrollment < ActiveRecord::Base
   end
 
   def graded_at
-    score = find_score
-    if score.present?
-      score.updated_at
-    else
-      # TODO: drop the graded_at column after the data fixup to populate
-      # the scores table completes
-      read_attribute(:graded_at)
-    end
+    find_score&.updated_at
   end
 
   def self.typed_enrollment(type)
@@ -1289,13 +1285,12 @@ class Enrollment < ActiveRecord::Base
   end
 
   def to_atom
-    Atom::Entry.new do |entry|
-      entry.title     = t("#enrollment.title", "%{user_name} in %{course_name}", user_name:, course_name:)
-      entry.updated   = updated_at
-      entry.published = created_at
-      entry.links << Atom::Link.new(rel: "alternate",
-                                    href: "/courses/#{course.id}/enrollments/#{id}")
-    end
+    {
+      title: t("#enrollment.title", "%{user_name} in %{course_name}", user_name:, course_name:),
+      updated: updated_at,
+      published: created_at,
+      link: "/courses/#{course.id}/enrollments/#{id}"
+    }
   end
 
   set_policy do

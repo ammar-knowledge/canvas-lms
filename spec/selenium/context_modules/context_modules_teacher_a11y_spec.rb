@@ -21,12 +21,14 @@ require_relative "../helpers/context_modules_common"
 require_relative "../helpers/public_courses_context"
 require_relative "page_objects/modules_index_page"
 require_relative "page_objects/modules_settings_tray"
+require_relative "../../helpers/selective_release_common"
 
 describe "context modules" do
   include_context "in-process server selenium tests"
   include ContextModulesCommon
   include ModulesIndexPage
   include ModulesSettingsTray
+  include SelectiveReleaseCommon
 
   context "as a teacher", priority: "1" do
     before(:once) do
@@ -64,7 +66,7 @@ describe "context modules" do
     end
 
     it "creates a new module using enter key", priority: "2" do
-      Account.site_admin.disable_feature! :differentiated_modules
+      Account.site_admin.disable_feature! :selective_release_ui_api
       get "/courses/#{@course.id}/modules"
       add_form = new_module_form
       replace_content(add_form.find_element(:id, "context_module_name"), "module 1")
@@ -92,12 +94,13 @@ describe "context modules" do
             close_button = div.find_element(:css, ".ui-dialog-titlebar-close.ui-corner-all")
           end
         end
+
         check_element_has_focus(close_button)
       end
     end
 
     it "retains focus when deleting prerequisites without differentiated modules" do
-      Account.site_admin.disable_feature! :differentiated_modules
+      Account.site_admin.disable_feature! :selective_release_ui_api
 
       modules = create_modules(2)
       get "/courses/#{@course.id}/modules"
@@ -121,7 +124,6 @@ describe "context modules" do
     end
 
     it "retains focus when deleting prerequisites with different modules" do
-      skip("LF-960 Waiting for updates to a11y issues found for new tray")
       differentiated_modules_on
       modules = create_modules(3)
       go_to_modules
@@ -138,7 +140,7 @@ describe "context modules" do
       check_element_has_focus(remove_prerequisite_button[0])
       click_remove_prerequisite_button(0)
 
-      check_element_has_focus(add_prerequisite_button)
+      check_element_has_focus(add_prerequisites_button)
     end
 
     it "adds a title attribute to the text header" do
@@ -284,7 +286,7 @@ describe "context modules" do
 
     context "Keyboard Accessibility only for non-differentiated modules modals", priority: "1" do
       before :once do
-        Account.site_admin.disable_feature! :differentiated_modules
+        Account.site_admin.disable_feature! :selective_release_ui_api
         modules = create_modules(2, true)
         modules[0].add_item({ id: @assignment.id, type: "assignment" })
         modules[0].add_item({ id: @assignment2.id, type: "assignment" })

@@ -69,6 +69,7 @@ const AssignmentTable = ({
   handleRubricReadStateChange,
   setSubmissionAssignmentId,
   submissionAssignmentId,
+  hideTotalRow = false,
 }) => {
   const {assignmentSortBy} = React.useContext(GradeSummaryContext)
   const [calculateOnlyGradedAssignments, setCalculateOnlyGradedAssignments] = useState(true)
@@ -85,6 +86,8 @@ const AssignmentTable = ({
       activeWhatIfScores
     )
   )
+  const overrideGrade =
+    queryData?.usersConnection?.nodes[0]?.enrollments[0]?.grades?.overrideGrade || null
 
   useEffect(() => {
     const grades = calculateCourseGrade(
@@ -208,17 +211,19 @@ const AssignmentTable = ({
                   )
                 : null
             })}
-        {totalRow(
-          queryData,
-          calculateOnlyGradedAssignments,
-          getCurrentOrFinalGrade(
-            getGradingPeriodID() === '0',
+        {!hideTotalRow &&
+          totalRow(
+            queryData,
             calculateOnlyGradedAssignments,
-            courseGrades?.current,
-            courseGrades?.final,
-            activeWhatIfScores
-          )
-        )}
+            getCurrentOrFinalGrade(
+              getGradingPeriodID() === '0',
+              calculateOnlyGradedAssignments,
+              courseGrades?.current,
+              courseGrades?.final,
+              activeWhatIfScores
+            ),
+            overrideGrade
+          )}
       </Table.Body>
     </Table>
   )
@@ -228,8 +233,10 @@ AssignmentTable.propTypes = {
   queryData: PropTypes.object,
   layout: PropTypes.string,
   handleReadStateChange: PropTypes.func,
+  handleRubricReadStateChange: PropTypes.func,
   setSubmissionAssignmentId: PropTypes.func,
   submissionAssignmentId: PropTypes.string,
+  hideTotalRow: PropTypes.bool,
 }
 
 export default AssignmentTable

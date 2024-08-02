@@ -52,7 +52,7 @@ describe Submission do
   describe "inferred values" do
     subject do
       submission.infer_values
-      submission.workflow_state
+      submission.state
     end
 
     let(:student) { @student }
@@ -61,20 +61,20 @@ describe Submission do
     describe "workflow_state" do
       context "when current state is unsubmitted and submitted_at is present" do
         before do
-          submission.workflow_state = Submission.workflow_states.unsubmitted
+          submission.workflow_state = "unsubmitted"
           submission.submission_type = "online_text_entry"
           submission.submitted_at = Time.zone.now
         end
 
-        it { is_expected.to eq Submission.workflow_states.submitted }
+        it { is_expected.to be :submitted }
       end
 
       context "when current state is submitted and has_submission is false" do
         before do
-          submission.workflow_state = Submission.workflow_states.submitted
+          submission.workflow_state = "submitted"
         end
 
-        it { is_expected.to eq Submission.workflow_states.unsubmitted }
+        it { is_expected.to be :unsubmitted }
       end
 
       context "when grade and score are present and grade matches current submission" do
@@ -87,23 +87,23 @@ describe Submission do
           allow(submission).to receive(:grade_matches_current_submission).and_return(true)
         end
 
-        it { is_expected.to eq Submission.workflow_states.graded }
+        it { is_expected.to be :graded }
       end
 
       context "when submission_type is online_quiz and latest submission is pending review" do
         before do
-          submission.workflow_state = Submission.workflow_states.pending_review
+          submission.workflow_state = "pending_review"
           submission.submission_type = "online_quiz"
 
           allow(submission).to receive(:quiz_submission).and_return(double("QuizSubmission", "pending_review?" => true))
         end
 
-        it { is_expected.to eq Submission.workflow_states.pending_review }
+        it { is_expected.to be :pending_review }
       end
 
       context "when workflow state is pending_review" do
         before do
-          submission.workflow_state = Submission.workflow_states.pending_review
+          submission.workflow_state = "pending_review"
         end
 
         context "and the submission was graded by quizzes" do
@@ -112,7 +112,27 @@ describe Submission do
             submission.cached_quiz_lti = true
           end
 
-          it { is_expected.to eq Submission.workflow_states.pending_review }
+          it { is_expected.to be :pending_review }
+
+          context "and the submission was manually given a late policy status of missing" do
+            before do
+              submission.grader_id = @teacher.id
+              submission.cached_quiz_lti = true
+              submission.late_policy_status = "missing"
+            end
+
+            it { is_expected.to be :pending_review }
+          end
+
+          context "and the submission was manually given a late policy status of late" do
+            before do
+              submission.grader_id = @teacher.id
+              submission.cached_quiz_lti = true
+              submission.late_policy_status = "late"
+            end
+
+            it { is_expected.to be :pending_review }
+          end
         end
       end
 
@@ -132,7 +152,7 @@ describe Submission do
 
         it "marks the submission as needing review" do
           submission.infer_values
-          expect(submission.workflow_state).to eq Submission.workflow_states.pending_review
+          expect(submission).to be_pending_review
         end
       end
     end
@@ -147,6 +167,40 @@ describe Submission do
     it "can provide an additional method with singular form (no array)" do
       params = Submission.json_serialization_full_parameters(methods: :missing)
       expect(params[:methods]).to include :missing
+    end
+  end
+
+  describe "#tool_default_query_params" do
+    context "new quiz submissions" do
+      before do
+        @course.context_external_tools.create!(
+          name: "Quizzes.Next",
+          consumer_key: "test_key",
+          shared_secret: "test_secret",
+          tool_id: "Quizzes 2",
+          url: "http://example.com/launch"
+        )
+
+        @assignment.quiz_lti!
+        @assignment.save!
+      end
+
+      let(:submission) { @assignment.submissions.find_by!(user: @student) }
+
+      it "returns grade_by_question_enabled: true when grade by question is enabled" do
+        @teacher.update!(preferences: { enable_speedgrader_grade_by_question: true })
+        query_params = submission.tool_default_query_params(@teacher)
+        expect(query_params[:grade_by_question_enabled]).to be true
+      end
+
+      it "returns grade_by_question_enabled: false when grade by question is disabled" do
+        query_params = submission.tool_default_query_params(@teacher)
+        expect(query_params[:grade_by_question_enabled]).to be false
+      end
+    end
+
+    it "returns an empty array for a non-new-quiz submission" do
+      expect(submission.tool_default_query_params(@teacher)).to be_empty
     end
   end
 
@@ -386,7 +440,7 @@ describe Submission do
 
   describe "update_quiz_submission" do
     before do
-      submission.workflow_state = Submission.workflow_states.pending_review
+      submission.workflow_state = "pending_review"
       submission.submission_type = "online_quiz"
     end
 
@@ -1069,6 +1123,34 @@ describe Submission do
         expect { submission.update!(score: 3, late_policy_status: "missing") }.to change {
           submission.score
         }.from(5).to(3)
+      end
+
+      it "deducts nothing if the submission is for a checkpointed discussion" do
+        @course.root_account.enable_feature!(:discussion_checkpoints)
+        cd = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed topic")
+
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: cd,
+          checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+          dates: [{ type: "everyone", due_at: 3.hours.ago(@date) }],
+          points_possible: 5
+        )
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: cd,
+          checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+          dates: [{ type: "everyone", due_at: 3.hours.ago(@date) }],
+          points_possible: 5,
+          replies_required: 1
+        )
+        cd_submission = cd.assignment.submissions.find_by!(user: @student)
+
+        Timecop.freeze(@date) do
+          cd.discussion_entries.create!(user: @student, message: "reply to topic")
+          cd.discussion_entries.create!(user: @student, message: "reply to entry", parent_id: cd.discussion_entries.first.id)
+          cd_submission.score = 10
+          cd_submission.save!
+          expect(cd_submission.points_deducted).to be_nil
+        end
       end
     end
 
@@ -1772,6 +1854,34 @@ describe Submission do
         ActiveRecord::Associations.preload([version].map(&:model), :originality_reports)
       end.not_to raise_error
     end
+
+    it "retries if there is a conflict with an existing version number" do
+      submission_spec_model
+      version = Version.find_by(versionable: @submission)
+
+      allow(@submission.versions).to receive(:create).and_call_original
+      called_times = 0
+      expect(@submission.versions).to receive(:create) { |attributes|
+        called_times += 1
+        # This is a hacky way of mimicing a bug where two responses, received very quickly,
+        # would create a RecordNotUnique error when the tried to increment the version
+        # number at the same time.
+        v = Version.create(
+          **attributes,
+          versionable_id: version.versionable_id,
+          versionable_type: version.versionable_type
+        )
+        v.update_attribute(:number, version.number) if called_times == 1
+        v
+      }.twice
+
+      submission_versions = @submission.versions.count
+      @submission.with_versioning(explicit: true) do
+        @submission.broadcast_group_submission
+      end
+
+      expect(@submission.versions.count).to eq(submission_versions + 1)
+    end
   end
 
   it "ensures the media object exists" do
@@ -1930,7 +2040,7 @@ describe Submission do
   context "broadcast policy" do
     context "Submission Notifications" do
       before :once do
-        Notification.create(name: "Assignment Submitted")
+        Notification.create(name: "Assignment Submitted", category: "TestImmediately")
         Notification.create(name: "Assignment Resubmitted")
         Notification.create(name: "Assignment Submitted Late")
         Notification.create(name: "Group Assignment Submitted Late")
@@ -1957,16 +2067,15 @@ describe Submission do
         normal_ta = user_factory(active_all: true, active_cc: true)
         @course.enroll_user(normal_ta, "TaEnrollment", enrollment_state: "active")
 
-        n = Notification.where(name: "Assignment Submitted").first
-        n.update(category: "TestImmediately")
-        [limited_ta, normal_ta].each do |ta|
-          NotificationPolicy.create(notification: n, communication_channel: ta.communication_channel, frequency: "immediately")
-        end
+        Notification.where(name: "Assignment Submitted").first
+
         @assignment.workflow_state = "published"
         @assignment.update(due_at: Time.now + 1000)
 
         submission_spec_model(user: @student, submit_homework: true)
-        expect(@submission.messages_sent["Assignment Submitted"].map(&:user)).to eq [normal_ta]
+
+        expect(@submission.messages_sent["Assignment Submitted"].map(&:user)).not_to include(limited_ta)
+        expect(@submission.messages_sent["Assignment Submitted"].map(&:user)).to include(normal_ta)
       end
 
       it "sends the correct message when an assignment is turned in late" do
@@ -2363,6 +2472,26 @@ describe Submission do
       it "returns true when their submission is not posted and assignment automatically posts" do
         @assignment.ensure_post_policy(post_manually: false)
         expect(@submission.grants_right?(@student, :read_grade)).to be true
+      end
+    end
+
+    describe "can :comment" do
+      before(:once) do
+        @course = Course.create!
+        @student = @course.enroll_user(User.create!, "StudentEnrollment", enrollment_state: "active").user
+        @assignment = @course.assignments.create!
+        @submission = @assignment.submissions.find_by(user: @student)
+      end
+
+      it "allows students to comment on own submission" do
+        expect(@submission.grants_right?(@student, :comment)).to be true
+      end
+
+      it "does not allow students in limited access accounts to comment on submissions" do
+        @course.root_account.enable_feature!(:allow_limited_access_for_students)
+        @course.account.settings[:enable_limited_access_for_students] = true
+        @course.account.save!
+        expect(@submission.grants_right?(@student, :comment)).to be false
       end
     end
   end
@@ -3651,13 +3780,40 @@ describe Submission do
     end
   end
 
-  context "#external_tool_url" do
-    let(:submission) { Submission.new }
-    let(:lti_submission) { @assignment.submit_homework @user, submission_type: "basic_lti_launch", url: "http://www.example.com" }
+  describe "#not_submitted?" do
+    let(:submission) { @assignment.submissions.find_by(user: @student) }
 
-    context 'submission_type of "basic_lti_launch"' do
+    it "returns true if the workflow state is unsubmitted (same as unsubmitted?)" do
+      expect(submission).to be_unsubmitted
+      expect(submission).to be_not_submitted
+    end
+
+    it "returns true if the student has been graded but has not submitted (different from unsubmitted?)" do
+      @assignment.grade_student(@student, grade: 3, grader: @teacher)
+      expect(submission).not_to be_unsubmitted
+      expect(submission).to be_not_submitted
+    end
+
+    it "returns false if the student has submitted (same as unsubmitted?)" do
+      @assignment.submit_homework(@student, body: "hi")
+      expect(submission).not_to be_unsubmitted
+      expect(submission).not_to be_not_submitted
+    end
+  end
+
+  describe "#external_tool_url" do
+    let(:submission) { Submission.new }
+    let(:lti_submission) { @assignment.submit_homework(@user, submission_type: "basic_lti_launch", url: "http://www.example.com") }
+
+    context "submission_type of 'basic_lti_launch'" do
       it "returns a url containing the submitted url" do
         expect(lti_submission.external_tool_url).to eq(lti_submission.url)
+      end
+
+      it "accepts query params to be included in the URL" do
+        url = lti_submission.external_tool_url(query_params: { foo: false })
+        query_params = Rack::Utils.parse_query(URI(url).query)
+        expect(query_params["foo"]).to eq("false")
       end
     end
 
@@ -5243,7 +5399,7 @@ describe Submission do
     it "does not blow up if web snapshotting fails" do
       sub = submission_spec_model
       expect(CutyCapt).to receive(:enabled?).and_return(true)
-      expect(CutyCapt).to receive(:snapshot_attachment_for_url).with(sub.url).and_return(nil)
+      expect(CutyCapt).to receive(:snapshot_attachment_for_url).with(sub.url, context: sub).and_return(nil)
       sub.get_web_snapshot
     end
   end
@@ -6998,31 +7154,62 @@ describe Submission do
     end
   end
 
-  describe "#comments_excluding_drafts_for" do
+  context "draft comments" do
     before do
       @teacher = course_with_user("TeacherEnrollment", course: @course, name: "Teacher", active_all: true).user
       ta = course_with_user("TaEnrollment", course: @course, name: "First Ta", active_all: true).user
-      student = course_with_user("StudentEnrollment", course: @course, name: "Student", active_all: true).user
-      assignment = @course.assignments.create!(name: "plain assignment")
-      assignment.ensure_post_policy(post_manually: true)
-      @submission = assignment.submissions.find_by(user: student)
-      @student_comment = @submission.add_comment(author: student, comment: "Student comment")
+      @student = course_with_user("StudentEnrollment", course: @course, name: "Student", active_all: true).user
+      @assignment = @course.assignments.create!(name: "plain assignment")
+      @assignment.ensure_post_policy(post_manually: true)
+      @submission = @assignment.submissions.find_by(user: @student)
+      @student_comment = @submission.add_comment(author: @student, comment: "Student comment")
       @teacher_comment = @submission.add_comment(author: @teacher, comment: "Teacher comment", draft_comment: true)
       @ta_comment = @submission.add_comment(author: ta, comment: "Ta comment")
     end
 
-    it "returns non-draft comments, filtering out draft comments" do
-      comments = @submission.comments_excluding_drafts_for(@teacher)
-      expect(comments).to include @student_comment, @ta_comment
-      expect(comments).not_to include @teacher_comment
-    end
+    describe "#comments_excluding_drafts_for" do
+      it "doesn't blow up when the submission has no course" do
+        @submission.course = nil
+        expect { @submission.comments_excluding_drafts_for(@teacher) }.not_to raise_error
+      end
 
-    context "when comments are preloaded" do
       it "returns non-draft comments, filtering out draft comments" do
-        preloaded_submission = Submission.where(id: @submission.id).preload(:submission_comments).first
-        comments = preloaded_submission.comments_excluding_drafts_for(@teacher)
+        comments = @submission.comments_excluding_drafts_for(@teacher)
         expect(comments).to include @student_comment, @ta_comment
         expect(comments).not_to include @teacher_comment
+      end
+
+      it "does not return hidden comments if the user is a student and the comment has not been posted" do
+        hidden_comment = @submission.add_comment(author: @teacher, comment: "Hidden comment", hidden: true)
+        @assignment.ensure_post_policy(post_manually: false)
+        comments = @submission.comments_excluding_drafts_for(@student)
+        expect(comments).not_to include hidden_comment
+      end
+
+      context "when comments are preloaded" do
+        it "returns non-draft comments, filtering out draft comments" do
+          preloaded_submission = Submission.where(id: @submission.id).preload(:submission_comments).first
+          comments = preloaded_submission.comments_excluding_drafts_for(@teacher)
+          expect(comments).to include @student_comment, @ta_comment
+          expect(comments).not_to include @teacher_comment
+        end
+      end
+    end
+
+    describe "#comments_including_drafts_for" do
+      it "returns draft comments, filtering out draft comments" do
+        comments = @submission.comments_including_drafts_for(@teacher)
+        expect(comments).to include @student_comment, @ta_comment
+        expect(comments).to include @teacher_comment
+      end
+
+      context "when comments are preloaded" do
+        it "returns non-draft comments, filtering out draft comments" do
+          preloaded_submission = Submission.where(id: @submission.id).preload(:submission_comments).first
+          comments = preloaded_submission.comments_including_drafts_for(@teacher)
+          expect(comments).to include @student_comment, @ta_comment
+          expect(comments).to include @teacher_comment
+        end
       end
     end
   end
@@ -8843,6 +9030,19 @@ describe Submission do
     end
 
     describe "#handle_posted_at_changed" do
+      describe "when an studen that is also admin posts an submission" do
+        it "unmutes the assignment if all submissions are now posted" do
+          admin = account_admin_user(account: @account, name: "default admin")
+          @course.enroll_student(admin)
+          assignment = @course.assignments.create!(
+            title: "some assignment",
+            workflow_state: "published"
+          )
+          submission_model(user: admin, assignment:, body: "first student submission text")
+          expect { assignment.reload }.not_to raise_error
+        end
+      end
+
       context "when posting an individual submission" do
         context "when post policies are enabled" do
           it "unmutes the assignment if all submissions are now posted" do
@@ -8938,6 +9138,11 @@ describe Submission do
   describe "word_count" do
     it "returns the word count" do
       submission.update(body: "test submission")
+      expect(submission.word_count).to eq 2
+    end
+
+    it "returns the word count if body is split up by <br> tags" do
+      submission.update(body: "test<br>submission")
       expect(submission.word_count).to eq 2
     end
 

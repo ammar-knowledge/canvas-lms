@@ -239,19 +239,49 @@ describe "Api::V1::Assignment" do
 
           @c1 = assignment.sub_assignments.create!(context: assignment.context, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC, points_possible: 5, due_at: 2.days.from_now)
           @c2 = assignment.sub_assignments.create!(context: assignment.context, sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY, points_possible: 5, due_at: 5.days.from_now)
+
+          @student = @assignment.course.enroll_student(User.create!, enrollment_state: "active").user
+          @students = [@student]
+          @assignment.course.enroll_teacher(@teacher, enrollment_state: "active")
+
+          create_adhoc_override_for_assignment(@c1, @students, due_at: 2.days.from_now)
+          create_adhoc_override_for_assignment(@c2, @students, due_at: 2.days.from_now)
         end
 
-        it "returns the checkpoints attribute with the correct values" do
-          json = api.assignment_json(assignment, user, session, { include_checkpoints: true })
+        it "returns the checkpoints attribute with the correct values for student" do
+          json = api.assignment_json(assignment, @student, session, { include_checkpoints: true })
           checkpoints = json["checkpoints"]
+          first_checkpoint = checkpoints.find { |c| c[:tag] == CheckpointLabels::REPLY_TO_TOPIC }
+          second_checkpoint = checkpoints.find { |c| c[:tag] == CheckpointLabels::REPLY_TO_ENTRY }
 
           expect(json["has_sub_assignments"]).to be_truthy
 
           expect(checkpoints).to be_present
           expect(checkpoints.pluck(:tag)).to match_array [@c1.sub_assignment_tag, @c2.sub_assignment_tag]
           expect(checkpoints.pluck(:points_possible)).to match_array [@c1.points_possible, @c2.points_possible]
-          expect(checkpoints.pluck(:due_at)).to match_array [@c1.due_at, @c2.due_at]
+          expect(checkpoints.pluck(:due_at)).to match_array [@c1.assignment_overrides.first.due_at, @c2.assignment_overrides.first.due_at]
           expect(checkpoints.pluck(:only_visible_to_overrides)).to match_array [@c1.only_visible_to_overrides, @c2.only_visible_to_overrides]
+          expect(first_checkpoint[:overrides].length).to eq 0
+          expect(second_checkpoint[:overrides].length).to eq 0
+        end
+
+        it "returns the checkpoints attribute with the correct values" do
+          json = api.assignment_json(assignment, @teacher, session, { include_checkpoints: true })
+          checkpoints = json["checkpoints"]
+          first_checkpoint = checkpoints.find { |c| c[:tag] == CheckpointLabels::REPLY_TO_TOPIC }
+          second_checkpoint = checkpoints.find { |c| c[:tag] == CheckpointLabels::REPLY_TO_ENTRY }
+
+          expect(json["has_sub_assignments"]).to be_truthy
+
+          expect(checkpoints).to be_present
+          expect(checkpoints.pluck(:tag)).to match_array [@c1.sub_assignment_tag, @c2.sub_assignment_tag]
+          expect(checkpoints.pluck(:points_possible)).to match_array [@c1.points_possible, @c2.points_possible]
+          expect(checkpoints.pluck(:due_at)).to match_array [@c1.assignment_overrides.first.due_at, @c2.assignment_overrides.first.due_at]
+          expect(checkpoints.pluck(:only_visible_to_overrides)).to match_array [@c1.only_visible_to_overrides, @c2.only_visible_to_overrides]
+          expect(first_checkpoint[:overrides].length).to eq 1
+          expect(second_checkpoint[:overrides].length).to eq 1
+          expect(second_checkpoint[:overrides].first[:assignment_id]).to eq @c2.id
+          expect(second_checkpoint[:overrides].first[:student_ids]).to match_array @students.map(&:id)
         end
       end
     end
@@ -320,6 +350,41 @@ describe "Api::V1::Assignment" do
       end
     end
 
+    context "include_all_dates" do
+      describe "checkpointed assignments" do
+        before do
+          @student1 = student_in_course(course: @course, active_all: true).user
+          @course.root_account.enable_feature!(:discussion_checkpoints)
+
+          @topic = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+          Checkpoints::DiscussionCheckpointCreatorService.call(
+            discussion_topic: @topic,
+            checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+            dates: [{ type: "everyone", due_at: 2.days.from_now }, { type: "override", set_type: "ADHOC", student_ids: [@student1.id], due_at: 3.days.from_now }],
+            points_possible: 4
+          )
+
+          Checkpoints::DiscussionCheckpointCreatorService.call(
+            discussion_topic: @topic,
+            checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+            dates: [{ type: "everyone", due_at: 3.days.from_now }, { type: "override", set_type: "ADHOC", student_ids: [@student1.id], due_at: 10.days.from_now }],
+            points_possible: 7
+          )
+        end
+
+        it "returns all_dates associated with a checkpointed assignment's sub_assignments" do
+          json = api.assignment_json(@topic.assignment, @teacher, session, { include_all_dates: true, include_discussion_topic: false, override_dates: false })
+
+          # Should return dates for sub_assignment overrides and the checkpointed due dates
+          expect(json["all_dates"].length).to eq 4
+          due_dates = @topic.assignment.sub_assignments.flat_map do |sub_assignment|
+            [sub_assignment.due_at] + sub_assignment.assignment_overrides.pluck(:due_at)
+          end
+          expect(json["all_dates"].pluck(:due_at)).to contain_exactly(*due_dates)
+        end
+      end
+    end
+
     context "for a quiz" do
       before do
         @assignment = assignment_model
@@ -340,7 +405,7 @@ describe "Api::V1::Assignment" do
       overrides = assignment.assignment_overrides
       json = api.assignment_json(assignment, user, session, { overrides: })
       expect(json).to be_a(Hash)
-      expect(json["overrides"].first.keys.sort).to eq %w[assignment_id id title student_ids].sort
+      expect(json["overrides"].first.keys.sort).to eq %w[assignment_id id title student_ids unassign_item].sort
     end
 
     it "excludes descriptions when exclude_response_fields flag is passed and includes 'description'" do
@@ -942,6 +1007,94 @@ describe "Api::V1::Assignment" do
       api.update_api_assignment(assignment, params, user_model)
 
       expect(assignment.workflow_state).to eq "failed_to_clone_outcome_alignment"
+    end
+  end
+
+  describe "#create_api_assignment" do
+    subject do
+      api.create_api_assignment(assignment, assignment_create_params, user, assignment.context)
+      Assignment.last
+    end
+
+    let_once(:tool) { external_tool_1_3_model(context: account, developer_key:) }
+    let_once(:assignment_create_params) do
+      ActionController::Parameters.new(
+        name: "New Assignment",
+        submission_types: ["external_tool"],
+        external_tool_tag_attributes: {
+          url: tool.url
+        }
+      )
+    end
+    let_once(:assignment) { Assignment.new(context: course) }
+    let_once(:course) { course_model }
+    let_once(:account) { assignment.root_account }
+    let_once(:developer_key) { dev_key_model_1_3(account:) }
+    let_once(:user) { user_model }
+
+    context "external tool url" do
+      it "creates the assignment with the passed in URL" do
+        expect { subject }.to change { Assignment.count }.by(1)
+        expect(subject.external_tool_tag.content).to eq tool
+      end
+
+      it "still creates the assignment if the URL is not passed in" do
+        assignment_create_params[:external_tool_tag_attributes].delete(:url)
+        expect { subject }.to change { Assignment.count }.by(1)
+      end
+    end
+
+    context "external tool title" do
+      let(:title) { "title" }
+      let(:assignment_create_params) do
+        ActionController::Parameters.new(
+          name: "New Assignment",
+          submission_types: ["external_tool"],
+          external_tool_tag_attributes: {
+            url: tool.url,
+            title:
+          }
+        )
+      end
+
+      it "sets the resource link title to the passed in value" do
+        expect(subject.primary_resource_link.title).to eq title
+      end
+
+      it "doesn't set the resource link title if an empty string is passed in" do
+        assignment_create_params[:external_tool_tag_attributes][:title] = ""
+
+        expect(subject.primary_resource_link.title).to be_nil
+      end
+
+      it "doesn't set the resource link title if it's not passed in" do
+        assignment_create_params[:external_tool_tag_attributes].delete(:title)
+
+        expect(subject.primary_resource_link.title).to be_nil
+      end
+    end
+
+    context "external tool custom_params" do
+      let(:custom_params) { { "custom_param" => "value" } }
+      let(:assignment_create_params) do
+        ActionController::Parameters.new(
+          name: "New Assignment",
+          submission_types: ["external_tool"],
+          external_tool_tag_attributes: {
+            url: tool.url,
+            custom_params:
+          }
+        )
+      end
+
+      it "creates the assignment if the custom params are valid" do
+        expect(subject.primary_resource_link.custom).to eq custom_params
+      end
+
+      it "doesn't create the assignment if the custom params are invalid" do
+        assignment_create_params[:external_tool_tag_attributes][:custom_params] = "invalid"
+        expect { subject }.not_to change { Assignment.count }
+      end
     end
   end
 

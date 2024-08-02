@@ -45,10 +45,10 @@ export default function RowScore({gradingScheme, name, possible, score, weight}:
 
     if (displayAsScaledPoints && possible) {
       const scaledPossible = I18n.n(scalingFactor, {
-        precision: 1,
+        precision: 2,
       })
       const scaledScore = I18n.n(scoreToScaledPoints(score || 0, possible, scalingFactor), {
-        precision: 1,
+        precision: 2,
       })
 
       scoreText = `${scaledScore} / ${scaledPossible}`
@@ -60,7 +60,15 @@ export default function RowScore({gradingScheme, name, possible, score, weight}:
   const letterGradeScore = isPercentInvalid
     ? '-'
     : gradingScheme
-    ? GradeFormatHelper.replaceDashWithMinus(getLetterGrade(possible, score, gradingScheme.data))
+    ? GradeFormatHelper.replaceDashWithMinus(
+        getLetterGrade(
+          possible,
+          score,
+          gradingScheme.data,
+          gradingScheme.pointsBased,
+          gradingScheme.scalingFactor
+        )
+      )
     : '-'
 
   const weightText = weight ? I18n.n(weight, {percentage: true}) : '-'

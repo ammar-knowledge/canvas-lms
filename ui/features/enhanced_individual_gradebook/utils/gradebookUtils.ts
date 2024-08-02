@@ -25,7 +25,7 @@ import type {
 } from '@canvas/grading/grading.d'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import round from '@canvas/round'
-import * as tz from '@canvas/datetime'
+import * as tz from '@instructure/moment-utils'
 import userSettings from '@canvas/user-settings'
 
 import {ApiCallStatus, GradebookSortOrder} from '../types'
@@ -263,7 +263,8 @@ export function submitterPreviewText(submission: GradebookUserSubmissionDetails)
 
 export function outOfText(
   assignment: AssignmentConnection,
-  submission: GradebookUserSubmissionDetails
+  submission: GradebookUserSubmissionDetails,
+  pointsBasedGradingScheme: boolean
 ): string {
   const {gradingType, pointsPossible} = assignment
 
@@ -272,10 +273,17 @@ export function outOfText(
   } else if (gradingType === 'gpa_scale') {
     return ''
   } else if (gradingType === 'letter_grade' || gradingType === 'pass_fail') {
-    return I18n.t('(%{score} out of %{points})', {
-      points: I18n.n(pointsPossible),
-      score: submission.enteredScore ?? ' -',
-    })
+    if (pointsBasedGradingScheme) {
+      return I18n.t('(%{score} out of %{points})', {
+        points: I18n.n(pointsPossible, {precision: 2}),
+        score: I18n.n(submission.enteredScore, {precision: 2}) ?? ' -',
+      })
+    } else {
+      return I18n.t('(%{score} out of %{points})', {
+        points: I18n.n(pointsPossible),
+        score: submission.enteredScore ?? ' -',
+      })
+    }
   } else if (pointsPossible === null || pointsPossible === undefined) {
     return I18n.t('No points possible')
   } else {
@@ -406,14 +414,16 @@ export function scoreToScaledPoints(score: number, pointsPossible: number, scali
 export function getLetterGrade(
   possible?: number,
   score?: number,
-  gradingStadards?: GradingStandard[] | null
+  gradingStandards?: GradingStandard[] | null,
+  pointsBased?: boolean,
+  gradingStandardScalingFactor?: number
 ) {
-  if (!gradingStadards || !gradingStadards.length || !possible || !score) {
+  if (!gradingStandards || !gradingStandards.length || !possible || !score) {
     return '-'
   }
   const rawPercentage = scoreToPercentage(score, possible)
   const percentage = parseFloat(Number(rawPercentage).toPrecision(4))
-  return scoreToGrade(percentage, gradingStadards)
+  return scoreToGrade(percentage, gradingStandards, pointsBased, gradingStandardScalingFactor)
 }
 
 type CalculateGradesForUserProps = {

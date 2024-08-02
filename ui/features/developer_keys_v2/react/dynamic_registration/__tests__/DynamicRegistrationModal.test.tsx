@@ -20,8 +20,9 @@ import React from 'react'
 
 import {DynamicRegistrationModal} from '../DynamicRegistrationModal'
 import {useDynamicRegistrationState} from '../DynamicRegistrationState'
-import type {LtiRegistration} from 'features/developer_keys_v2/model/LtiRegistration'
+import type {LtiRegistration} from '../../../model/LtiRegistration'
 import {createRegistrationOverlayStore} from '../../RegistrationSettings/RegistrationOverlayState'
+import type {Configuration} from '../../../model/api/LtiToolConfiguration'
 
 describe('DynamicRegistrationModal', () => {
   let error: (...data: any[]) => void
@@ -63,7 +64,7 @@ describe('DynamicRegistrationModal', () => {
     it('forwards users to the tool', async () => {
       useDynamicRegistrationState.getState().open('http://localhost?foo=bar')
       useDynamicRegistrationState.getState().loadingRegistrationToken()
-      useDynamicRegistrationState.getState().register({
+      useDynamicRegistrationState.getState().register('1', {
         oidc_configuration_url: 'http://canvas.instructure.com',
         token: 'abc',
         uuid: '123',
@@ -73,11 +74,41 @@ describe('DynamicRegistrationModal', () => {
       expect(iframe).toBeInTheDocument()
       expect(iframe).toHaveAttribute(
         'src',
-        'http://localhost/?foo=bar&openid_configuration=http%3A%2F%2Fcanvas.instructure.com&registration_token=abc'
+        '/api/lti/accounts/1/dr_iframe?url=http%3A%2F%2Flocalhost%2F%3Ffoo%3Dbar%26openid_configuration%3Dhttp%253A%252F%252Fcanvas.instructure.com%26registration_token%3Dabc'
       )
     })
 
     it('brings up the confirmation screen', async () => {
+      const tool_configuration: Configuration = {
+        custom_fields: {},
+        description: 'test',
+        icon_url: 'http://localhost',
+        is_lti_key: true,
+        oidc_initiation_url: 'http://localhost',
+        public_jwk_url: 'http://localhost',
+        scopes: [],
+        extensions: [
+          {
+            platform: 'canvas.instructure.com',
+            settings: {
+              text: 'Lti Tool',
+              icon_url: 'http://localhost',
+              placements: [
+                {
+                  enabled: true,
+                  icon_url: 'http://localhost',
+                  message_type: 'LtiDeepLinkingRequest',
+                  placement: 'course_navigation',
+                  target_link_uri: 'http://localhost',
+                  text: 'test',
+                },
+              ],
+            },
+          },
+        ],
+        title: 'test',
+        target_link_uri: 'http://localhost',
+      }
       const registration: LtiRegistration = {
         application_type: 'web',
         client_name: 'test',
@@ -110,6 +141,8 @@ describe('DynamicRegistrationModal', () => {
           ],
           target_link_uri: 'http://localhost',
         },
+        tool_configuration,
+        default_configuration: tool_configuration,
         overlay: null,
         response_types: ['id_token'],
         scopes: [],

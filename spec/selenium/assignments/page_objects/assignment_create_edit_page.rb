@@ -27,12 +27,32 @@ class AssignmentCreateEditPage
       "[data-testid='manage-assign-to']"
     end
 
+    def pending_changes_pill_selector
+      "[data-testid='pending_changes_pill']"
+    end
+
     def submission_type_selector
       "#assignment_submission_type"
     end
 
     def text_entry_submission_type_toggle_selector
       "#assignment_text_entry"
+    end
+
+    def group_category_checkbox_selector
+      "#has_group_category"
+    end
+
+    def group_categories_selector
+      "#assignment_group_category_id option"
+    end
+
+    def error_box_selector
+      ".error_text"
+    end
+
+    def post_to_sis_checkbox_selector
+      "#assignment_post_to_sis"
     end
 
     # Selectors
@@ -104,6 +124,18 @@ class AssignmentCreateEditPage
       f("input.datePickerDateField.DueDateInput")
     end
 
+    def group_category_checkbox
+      f(group_category_checkbox_selector)
+    end
+
+    def group_categories
+      ff(group_categories_selector)
+    end
+
+    def error_boxes
+      ff(error_box_selector)
+    end
+
     # Moderated Grading Options
     def select_grader_dropdown
       f("select[name='final_grader_id']")
@@ -139,6 +171,14 @@ class AssignmentCreateEditPage
 
     def text_entry_submission_type_toggle
       f(text_entry_submission_type_toggle_selector)
+    end
+
+    def pending_changes_pill
+      f(pending_changes_pill_selector)
+    end
+
+    def post_to_sis_checkbox
+      f(post_to_sis_checkbox_selector)
     end
 
     # Methods & Actions
@@ -200,6 +240,24 @@ class AssignmentCreateEditPage
 
     def select_submission_type(type, select_by = :text)
       click_option(submission_type, type, select_by)
+    end
+
+    def pending_changes_pill_exists?
+      element_exists?(pending_changes_pill_selector)
+    end
+
+    def click_group_category_assignment_check
+      group_category_checkbox.click
+    end
+
+    def select_assignment_group_category(id)
+      options = group_categories
+      option_element = id.blank? ? options.first : options[id]
+      option_element.click
+    end
+
+    def click_post_to_sis_checkbox
+      post_to_sis_checkbox.click
     end
   end
 end

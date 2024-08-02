@@ -21,7 +21,7 @@
 class DeveloperKeysController < ApplicationController
   before_action :set_key, only: [:update, :destroy]
   before_action :require_manage_developer_keys
-  before_action :require_root_account, only: [:index, :create]
+  before_action :require_root_account, only: %i[index create]
 
   include Api::V1::DeveloperKey
 
@@ -33,7 +33,7 @@ class DeveloperKeysController < ApplicationController
           accountEndpoint: api_v1_account_developer_keys_path(@context),
           enableTestClusterChecks: DeveloperKey.test_cluster_checks_enabled?,
           validLtiScopes: TokenScopes::LTI_SCOPES,
-          validLtiPlacements: Lti::ResourcePlacement.valid_placements(@domain_root_account),
+          validLtiPlacements: Lti::ResourcePlacement.public_placements(@domain_root_account),
           includesFeatureFlagEnabled: Account.site_admin.feature_enabled?(:developer_key_support_includes)
         )
 
@@ -59,6 +59,7 @@ class DeveloperKeysController < ApplicationController
 
   def create
     @key = DeveloperKey.new(developer_key_params)
+    @key.current_user = @current_user
     @key.account = @context if params[:account_id] && @context != Account.site_admin
     if @key.save
       render json: developer_key_json(@key, @current_user, session, account_context)
@@ -123,7 +124,7 @@ class DeveloperKeysController < ApplicationController
 
     # query for parent keys is most likely cross-shard,
     # so doesn't fit into the scope cases above
-    if params[:inherited].present? && !@context.primary_settings_root_account?
+    if params[:inherited].present? && !@context.root_account.primary_settings_root_account?
       federated_parent = @context.account_chain(include_federated_parent: true).last
       parent_keys = DeveloperKey
                     .shard(federated_parent.shard)

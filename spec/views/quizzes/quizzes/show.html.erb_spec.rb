@@ -19,8 +19,11 @@
 #
 
 require_relative "../../views_helper"
+require_relative "../../../helpers/selective_release_common"
 
 describe "quizzes/quizzes/show" do
+  include SelectiveReleaseCommon
+
   it "renders" do
     course_with_student
     view_context
@@ -73,7 +76,7 @@ describe "quizzes/quizzes/show" do
   end
 
   it "shows assign to button if flag is on" do
-    Account.site_admin.enable_feature!(:differentiated_modules)
+    Account.site_admin.enable_feature!(:selective_release_ui_api)
     course_with_teacher(active_all: true)
     assign(:quiz, @course.quizzes.create!)
 
@@ -84,6 +87,7 @@ describe "quizzes/quizzes/show" do
   end
 
   it "does not show assign to button if flag is off" do
+    differentiated_modules_off
     course_with_teacher(active_all: true)
     assign(:quiz, @course.quizzes.create!)
 

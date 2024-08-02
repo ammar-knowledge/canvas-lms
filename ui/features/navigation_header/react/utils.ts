@@ -17,30 +17,57 @@
  */
 
 import {useScope as useI18nScope} from '@canvas/i18n'
+import axios from '@canvas/axios'
 
 const I18n = useI18nScope('Navigation')
 
-type CommonProperties = {
-  href: string | null | undefined
-  isActive: boolean
+export type ExternalTool = {
+  href: string | null
+  imgSrc?: string | null
   label: string
+  svgPath?: string | null
 }
 
-type SvgTool = CommonProperties & {svgPath: string}
-type ImgTool = CommonProperties & {imgSrc: string}
-
-export type ExternalTool = SvgTool | ImgTool
+export const getExternalApps = async (): Promise<ExternalTool[]> => {
+  const {data: tools} = await axios.get(
+    `/api/v1/accounts/${window.ENV.ACCOUNT_ID}/lti_apps?per_page=50`
+  )
+  if (!Array.isArray(tools)) return []
+  return (
+    await Promise.all(
+      tools.map(async (tool: any) => {
+        if (!tool.context || !tool.context_id || !tool.app_id) {
+          return null
+        }
+        const {data: detailsData} = await axios.get(
+          `/api/v1/${tool.context.toLowerCase()}s/${tool.context_id}/external_tools/${tool.app_id}`
+        )
+        const globalNavigation = detailsData?.global_navigation
+        const customFields = detailsData?.custom_fields
+        if (!globalNavigation?.label) {
+          return null
+        }
+        return {
+          href: (customFields?.url ?? globalNavigation?.url) || null,
+          imgSrc: globalNavigation.icon_url || null,
+          label: globalNavigation.label,
+          svgPath: globalNavigation.icon_svg_path_64 || null,
+        } as ExternalTool
+      })
+    )
+  ).filter((app): app is ExternalTool => app !== null)
+}
 
 export function getExternalTools(): ExternalTool[] {
   return Array.from(document.querySelectorAll('.globalNavExternalTool')).map(el => {
     const svg = el.querySelector('svg')
     return {
-      href: el.querySelector('a')?.getAttribute('href'),
-      isActive: el.classList.contains('ic-app-header__menu-list-item--active'),
+      href: el.querySelector('a')?.getAttribute('href') || null,
       label: (el.querySelector('.menu-item__text') as HTMLDivElement)?.innerText || '',
-      ...(svg
-        ? {svgPath: svg.innerHTML}
-        : {imgSrc: (el.querySelector('img') as HTMLImageElement)?.getAttribute('src') || ''}),
+      svgPath: svg?.innerHTML || null,
+      imgSrc: svg
+        ? null
+        : (el.querySelector('img') as HTMLImageElement)?.getAttribute('src') || null,
     }
   })
 }
@@ -78,8 +105,9 @@ const ACTIVE_ROUTE_REGEX =
   /^\/(courses|groups|accounts|grades|calendar|conversations|profile)|^#history/
 export function getActiveItem(): ActiveTray | '' {
   const path = window.location.pathname
+  const toolId = window.location.search.split('toolId=')
   const matchData = path.match(EXTERNAL_TOOLS_REGEX) || path.match(ACTIVE_ROUTE_REGEX)
-  return (matchData && (matchData[1] as ActiveTray)) || ''
+  return (toolId && (toolId[1] as ActiveTray)) ?? (matchData && (matchData[1] as ActiveTray)) ?? ''
 }
 
 export function getTrayLabel(type: string | null) {
@@ -114,4 +142,59 @@ export function getTrayPortal() {
     document.body.appendChild(portal)
   }
   return portal
+}
+
+export function sideNavReducer(state: any, action: {type: any; payload?: any}) {
+  switch (action.type) {
+    case 'SET_ACTIVE_TRAY':
+      return {
+        ...state,
+        activeTray: action.payload,
+        isTrayOpen: !!action.payload,
+        previousSelectedNavItem: action.payload
+          ? state.selectedNavItem
+          : state.previousSelectedNavItem,
+      }
+    case 'SET_SELECTED_NAV_ITEM':
+      return {
+        ...state,
+        selectedNavItem: action.payload,
+      }
+    case 'SET_IS_TRAY_OPEN':
+      return {
+        ...state,
+        isTrayOpen: action.payload,
+      }
+    case 'RESET_ACTIVE_TRAY':
+      return {
+        ...state,
+        activeTray: null,
+        selectedNavItem: state.previousSelectedNavItem,
+      }
+    default:
+      return state
+  }
+}
+
+export interface ProcessedTool {
+  href: string | null
+  label: string
+  svgPath?: string | null
+  toolId: string
+  toolImg?: string | null
+}
+
+export function filterAndProcessTools(tools: ExternalTool[] | null | undefined): ProcessedTool[] {
+  if (tools == null) {
+    return []
+  }
+  return tools
+    .filter(tool => tool.label?.trim())
+    .map(tool => ({
+      href: tool.href || null,
+      label: tool.label,
+      svgPath: tool.svgPath || null,
+      toolId: tool.label.toLowerCase().replaceAll(' ', '-'),
+      toolImg: tool.imgSrc || null,
+    }))
 }

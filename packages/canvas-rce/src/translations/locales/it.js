@@ -40,6 +40,8 @@ const locale = {
   "adjacent_links_with_the_same_url_should_be_a_singl_7a1f7f6c": {
     "message": "I link adiacenti con lo stesso URL devono essere un singolo link."
   },
+  "ai_response_9624e8e8": { "message": "Risposta IA" },
+  "ai_tools_fda01177": { "message": "Strumenti IA" },
   "aleph_f4ffd155": { "message": "Aleph" },
   "align_11050992": { "message": "Allinea" },
   "alignment_and_lists_5cebcb69": { "message": "Allineamento ed elenchi" },
@@ -57,6 +59,9 @@ const locale = {
   },
   "an_error_occurred_making_a_network_request_d1bda348": {
     "message": "Si è verificato un errore durante la creazione di una richiesta di rete"
+  },
+  "an_error_occurred_processing_your_request_a3a38d84": {
+    "message": "Si è verificato un errore durante l’elaborazione della richiesta"
   },
   "an_error_occurred_uploading_your_media_71f1444d": {
     "message": "Si è verificato un errore durante il caricamento dei file multimediali."
@@ -195,16 +200,21 @@ const locale = {
   "column_e1ae5c64": { "message": "Colonna" },
   "column_group_1c062368": { "message": "Gruppo di colonne" },
   "complex_numbers_a543d004": { "message": "Numeri complessi" },
+  "compose_44c904f4": { "message": "Componi" },
   "computer_1d7dfa6f": { "message": "Computer" },
   "congruent_5a244acd": { "message": "Congruente" },
   "contains_311f37b7": { "message": "Contiene" },
   "content_1440204b": { "message": "Contenuto" },
+  "content_in_the_editor_will_be_changed_press_cancel_d5bf3357": {
+    "message": "Il contenuto nell’editor sarà modificato. Per mantenere il contenuto originale, premere Annulla."
+  },
   "content_is_still_being_uploaded_if_you_continue_it_8f06d0cb": {
     "message": "Il contenuto è ancora in fase di caricamento, se continui non sarà incorporato correttamente."
   },
   "content_subtype_5ce35e88": { "message": "Sottocategoria di contenuto" },
   "content_type_2cf90d95": { "message": "Tipo di contenuto" },
   "coproduct_e7838082": { "message": "Coprodotto" },
+  "copy_9748f9f": { "message": "Copia" },
   "copyright_holder_66ee111": { "message": "Titolare del copyright:" },
   "could_not_insert_content_itemtype_items_are_not_cu_638dfecd": {
     "message": "Impossibile inserire il contenuto: Gli elementi \"{ itemType }\" non sono attualmente supportati in Canvas."
@@ -277,6 +287,7 @@ const locale = {
   "discussions_a5f96392": { "message": "Discussioni" },
   "discussions_index_6c36ced": { "message": "Indice discussioni" },
   "disjoint_union_e74351a8": { "message": "Unione non contigua" },
+  "dislike_14befc48": { "message": "Non mi piace" },
   "display_options_315aba85": { "message": "Visualizza opzioni" },
   "display_text_link_opens_in_a_new_tab_75e9afc9": {
     "message": "Visualizza collegamento testuale (Si apre in una nuova scheda)"
@@ -340,6 +351,11 @@ const locale = {
   "enter_at_least_3_characters_to_search_4f037ee0": {
     "message": "Inserisci almeno 3 caratteri per la ricerca"
   },
+  "enter_replacement_text_17631bbc": {
+    "message": "inserisci testo di sostituzione"
+  },
+  "enter_search_text_26cb4459": { "message": "inserisci testo di ricerca" },
+  "enter_text_8b35c65b": { "message": "Inserisci testo" },
   "epsilon_54bb8afa": { "message": "Epsilon" },
   "epsilon_variant_d31f1e77": { "message": "Epsilon (variante)" },
   "equals_sign_c51bdc58": { "message": "Segno uguale" },
@@ -365,6 +381,9 @@ const locale = {
   "failed_getting_file_contents_e9ea19f4": {
     "message": "Impossibile ottenere contenuto file"
   },
+  "failed_to_copy_response_d3def551": {
+    "message": "Impossibile copiare risposta"
+  },
   "failed_to_retrieve_content_from_external_tool_5899c213": {
     "message": "Impossibile recuperare il contenuto dallo strumento esterno"
   },
@@ -382,6 +401,8 @@ const locale = {
   },
   "files_c300e900": { "message": "File" },
   "files_index_af7c662b": { "message": "Indice file" },
+  "find_8d605019": { "message": "Trova" },
+  "find_and_replace_6e345933": { "message": "Trova e sostituisci" },
   "finish_bc343002": { "message": "Termina" },
   "fix_heading_hierarchy_f60884c4": {
     "message": "Correggi gerarchia intestazioni"
@@ -454,6 +475,12 @@ const locale = {
   "health_icon_8d292eb5": { "message": "Icona Salute" },
   "hearts_suit_e50e04ca": { "message": "Cuori (seme)" },
   "height_69b03e15": { "message": "Altezza" },
+  "hello_please_describe_the_modifications_you_would__49b19837": {
+    "message": "Ciao. Descrivi le modifiche che vuoi apportare al tuo testo."
+  },
+  "hello_please_describe_the_modifications_you_would__600dbbf0": {
+    "message": "Ciao. Descrivi le modifiche che vuoi apportare alla tua selezione."
+  },
   "hexagon_d8468e0d": { "message": "Esagono" },
   "hide_description_bfb5502e": { "message": "Nascondi descrizione" },
   "hide_title_description_caf092ef": {
@@ -470,6 +497,9 @@ const locale = {
   },
   "i_hold_the_copyright_71ee91b1": {
     "message": "Sono il proprietario del copyright"
+  },
+  "i_m_sorry_but_i_cannot_find_the_ai_s_answer_67569d19": {
+    "message": "Spiacente, impossibile trovare la risposta dell’IA"
   },
   "icon_215a1dc6": { "message": "Icona" },
   "icon_8168b2f8": { "message": "icona" },
@@ -510,6 +540,7 @@ const locale = {
   "in_element_of_19ca2f33": { "message": "In (elemento di)" },
   "increase_indent_6af90f7c": { "message": "Aumenta rientro" },
   "indefinite_integral_6623307e": { "message": "Integrale indefinito" },
+  "index_of_max_80dcf7a5": { "message": "{ index } di { max }" },
   "indigo_2035fc55": { "message": "Indaco" },
   "inference_fed5c960": { "message": "Inferenza" },
   "infinity_7a10f206": { "message": "Infinità" },
@@ -657,6 +688,7 @@ const locale = {
   "minus_plus_3461f637": { "message": "Meno/Più" },
   "misc_3b692ea7": { "message": "Varie" },
   "miscellaneous_e9818229": { "message": "Varie" },
+  "modify_6b0b13e3": { "message": "Modifica" },
   "module_90d9fd32": { "message": "Modulo" },
   "modules_c4325335": { "message": "Moduli" },
   "moving_image_to_crop_directionword_6f66cde2": {
@@ -687,6 +719,7 @@ const locale = {
   "nested_less_than_27d17e58": { "message": "Nidificato minore di" },
   "new_quiz_34aacba6": { "message": "Nuovo quiz" },
   "next_40e12421": { "message": "Successivo" },
+  "next_findtext_9d69f0fe": { "message": "Successivo { findText }" },
   "no_accessibility_issues_were_detected_f8d3c875": {
     "message": "Nessun problema di accessibilità rilevato."
   },
@@ -724,6 +757,7 @@ const locale = {
   },
   "no_quizzes_found_c80c537a": { "message": "Nessun quiz trovato." },
   "no_results_940393cf": { "message": "Nessun risultato." },
+  "no_results_found_58717065": { "message": "Nessun risultato trovato" },
   "no_results_found_for_filterterm_ad1b04c8": {
     "message": "Nessun risultato trovato per { filterTerm }"
   },
@@ -805,6 +839,9 @@ const locale = {
   "please_allow_canvas_to_access_your_microphone_and__dc2c3079": {
     "message": "Consenti a Canvas di accedere al tuo microfono e alla tua webcam."
   },
+  "please_decribe_what_you_would_like_to_compose_27a51be5": {
+    "message": "Descrivi cosa vorresti scrivere."
+  },
   "plus_d43cd4ec": { "message": "Più" },
   "plus_minus_f8be2e83": { "message": "Più/Meno" },
   "posted_when_a578f5ab": { "message": "Postato: { when }" },
@@ -812,11 +849,16 @@ const locale = {
   "precedes_196b9aef": { "message": "Precede" },
   "precedes_equal_20701e84": { "message": "Precede uguale" },
   "preformatted_d0670862": { "message": "Preformattato" },
+  "prepend_findtext_append_8e0e769a": {
+    "message": "{ prepend }{ findText }{ append }"
+  },
   "prev_f82cbc48": { "message": "Precedente" },
   "preview_53003fd2": { "message": "Anteprima" },
   "preview_a3f8f854": { "message": "ANTEPRIMA" },
   "preview_in_overlay_ed772c46": { "message": "Anteprima in sovrapposizione" },
   "preview_inline_9787330": { "message": "Anteprima inline" },
+  "previous_bd2ac015": { "message": "Precedente" },
+  "previous_findtext_8dfbfd30": { "message": "Precedente { findText }" },
   "prime_917ea60e": { "message": "Primo" },
   "prime_numbers_13464f61": { "message": "Numeri primi" },
   "product_39cf144f": { "message": "Prodotto" },
@@ -847,12 +889,33 @@ const locale = {
   "religion_icon_246e0be1": { "message": "Icona Religione" },
   "remove_heading_style_5fdc8855": { "message": "Rimuovi stile intestazione" },
   "remove_link_d1f2f4d0": { "message": "Rimuovi link" },
+  "replace_all_d3d68b3": { "message": "Sostituisci tutto" },
+  "replace_all_findtext_with_replacetext_da574b32": {
+    "message": "Sostituisci tutto { findText } con { replaceText }"
+  },
   "replace_e61834a7": { "message": "Sostituisci" },
+  "replace_findtext_with_replacetext_7b5c7fb3": {
+    "message": "Sostituisci { findText } con { replaceText }"
+  },
+  "replace_with_eeff01ad": { "message": "Sostituisci con" },
+  "replaced_alertfindtext_with_alertreplacetext_de5c1795": {
+    "message": "{ alertFindText } sostituito con { alertReplaceText }"
+  },
+  "replaced_all_alertfindtext_with_alertreplacetext_83fdfe59": {
+    "message": "Tutto { alertFindText } sostituito con { alertReplaceText }"
+  },
   "reset_95a81614": { "message": "Reimposta" },
   "resize_ec83d538": { "message": "Ridimensiona" },
+  "response_copied_to_clipboard_130d66cd": {
+    "message": "Risposta copiata negli appunti"
+  },
   "restore_auto_save_deccd84b": {
     "message": "Ripristinare salvataggio automatico?"
   },
+  "result_index_of_max_7db5ad8b": {
+    "message": "Risultato { index } di { max }."
+  },
+  "retry_ebd5f8ba": { "message": "Riprova" },
   "reverse_turnstile_does_not_yield_7558be06": {
     "message": "Barra verticale con barra orizzontale inversa (non si piega)"
   },
@@ -937,6 +1000,7 @@ const locale = {
     "message": "Maiusc+O per aprire l’editor html sicuro."
   },
   "shortcut_911d6255": { "message": "Scorciatoia" },
+  "show_all_967a90f0": { "message": "Mostra tutto" },
   "show_audio_options_b489926b": { "message": "Mostra opzioni audio" },
   "show_image_options_1e2ecc6b": { "message": "Mostra opzioni immagine" },
   "show_link_options_545338fd": { "message": "Mostra opzioni link" },
@@ -1247,6 +1311,7 @@ const locale = {
   "view_word_and_character_counts_a743dd0c": {
     "message": "Visualizza conteggio parole e caratteri"
   },
+  "waiting_for_response_1efd0c50": { "message": "In attesa di risposta" },
   "we_couldn_t_detect_a_working_microphone_connected__ceb71c40": {
     "message": "Impossibile rilevare un microfono funzionante collegato al tuo dispositivo."
   },
@@ -1261,6 +1326,7 @@ const locale = {
   "webpages_should_only_have_a_single_h1_which_is_aut_dc99189e": {
     "message": "Le pagine web devono avere solo un’unica H1, che viene utilizzata automaticamente dal titolo della pagina. La prima intestazione dei contenuti deve essere H2."
   },
+  "what_would_you_like_to_do_6dc0d541": { "message": "Cosa vorresti fare?" },
   "when_markup_is_used_that_visually_formats_items_as_f941fc1b": {
     "message": "Quando viene utilizzato il markup che formatta visivamente gli elementi come elenco ma non indica la relazione tra gli elenchi, gli utenti potrebbero avere difficoltà a spostarsi tra le informazioni."
   },
@@ -1275,6 +1341,7 @@ const locale = {
   "word_count_c77fe3a6": { "message": "Conteggio parole" },
   "words_b448b7d5": { "message": "Parole" },
   "wreath_product_200b38ef": { "message": "Tilde verticale" },
+  "writing_assistant_a30ac16a": { "message": "Assistente scrittura" },
   "xi_149681d0": { "message": "Xi" },
   "yes_dde87d5": { "message": "Sì" },
   "you_have_unsaved_changes_in_the_icon_maker_tray_do_e8cf5f1b": {

@@ -94,15 +94,6 @@ describe Lti::IMS::AuthenticationController do
         sent_params = Rack::Utils.parse_nested_query(subject.query)
         expect(sent_params).to eq params
       end
-
-      context "when Lti::LaunchDebugLogger is enabled for the account" do
-        before { Lti::LaunchDebugLogger.enable!(Account.default, 4) }
-        after { Lti::LaunchDebugLogger.disable!(Account.default) }
-
-        it "adds authredir=1" do
-          expect(subject.query).to match(/lti_message_hint.*&authredir=1/)
-        end
-      end
     end
 
     shared_examples_for "lti_message_hint error" do
@@ -157,7 +148,9 @@ describe Lti::IMS::AuthenticationController do
   end
 
   describe "authorize" do
-    subject { get :authorize, params: }
+    subject(:authorize) do
+      get :authorize, params:
+    end
 
     shared_examples_for "redirect_uri errors" do
       let(:expected_status) { 400 }
@@ -165,7 +158,7 @@ describe Lti::IMS::AuthenticationController do
       it { is_expected.to have_http_status(expected_status) }
 
       it "avoids rendering the redirect_uri form" do
-        expect(subject).not_to render_template("lti/ims/authentication/authorize")
+        expect(authorize).not_to render_template("lti/ims/authentication/authorize")
       end
     end
 
@@ -174,7 +167,7 @@ describe Lti::IMS::AuthenticationController do
       let(:expected_error) { raise "set in example" }
 
       let(:error_object) do
-        subject
+        authorize
         assigns[:oidc_error]
       end
 
@@ -193,93 +186,12 @@ describe Lti::IMS::AuthenticationController do
       end
 
       it "renders the redirect_uri_form" do
-        expect(subject).to render_template("lti/ims/authentication/authorize")
-      end
-    end
-
-    shared_examples_for "logs using the lti launch debug logger" do |min_enabled_level:|
-      let(:extra_expected_debug_log_fields) { {} } # Override in usage if desired
-      let(:extra_debug_trace_fields) { {} } # Override in usage if desired
-
-      let(:lti_message_hint_jwt_params) { super().merge({ debug_trace: "fake debug_trace" }) }
-
-      around do |example|
-        override_dynamic_settings(private: { canvas: { "frontend_data_collection_endpoint" => "fake endpoint" } }) do
-          example.run
-        end
-      end
-
-      context "when log level is less then #{min_enabled_level}" do
-        before do
-          if min_enabled_level > 1
-            Lti::LaunchDebugLogger.enable!(Account.default, min_enabled_level - 1)
-          end
-        end
-
-        after { Lti::LaunchDebugLogger.disable!(Account.default) }
-
-        it "does not log to the front end data collection framework" do
-          expect(Lti::LaunchDebugLogger).to_not receive(:decode_debug_trace)
-          allow(CanvasHttp).to receive(:put).and_call_original
-          subject
-          expect(CanvasHttp).to_not have_received(:put).with(
-            anything,
-            anything,
-            content_type: anything,
-            body: a_string_including("lti_launch_debug_logger")
-          )
-        end
-      end
-
-      context "when log level is at #{min_enabled_level}" do
-        before { Lti::LaunchDebugLogger.enable!(Account.default, min_enabled_level) }
-        after { Lti::LaunchDebugLogger.disable!(Account.default) }
-
-        let(:debug_trace_fields) do
-          {
-            "request_id" => "abc",
-            "cookie_names" => "chocolatechip,peanutbutter"
-          }.merge(extra_debug_trace_fields)
-        end
-
-        it "logs to the front end data collection framework" do
-          expect(Lti::LaunchDebugLogger).to \
-            receive(:decode_debug_trace).with("fake debug_trace").and_return(debug_trace_fields)
-
-          allow(CanvasHttp).to receive(:put).and_call_original
-          subject
-          expect(CanvasHttp).to have_received(:put).at_least(:once).with(
-            "fake endpoint",
-            anything,
-            content_type: "application/json",
-            body: a_string_including("lti_launch_debug_logger")
-          ) do |*_args, body:, **_kwargs|
-            logs = JSON.parse(body)
-            expect(logs).to be_a(Array)
-            expect(logs.length).to eq(1)
-            log = logs.first
-            expect(log["type"]).to eq("lti_launch_debug_logger")
-
-            expect(log["id"]).to match(/\A[0-9a-f-]{16,}\z/)
-            expect(Time.parse(log["time"])).to be_within(60.seconds).of(Time.now)
-            expect(log["state"]).to eq(state)
-            expect(log["host"]).to eq(request.host)
-            expect(log["path"]).to be_present
-            expect(log["user_agent"]).to be_present
-            expect(log["ip"]).to be_present
-            expect(log["session_id"]).to be_present
-
-            expect(log["init_request_id"]).to eq("abc")
-            expect(log["init_cookie_names"]).to eq("chocolatechip,peanutbutter")
-
-            expect(log).to include(extra_expected_debug_log_fields)
-          end
-        end
+        expect(authorize).to render_template("lti/ims/authentication/authorize")
       end
     end
 
     context "when there is a cached LTI 1.3 launch" do
-      subject do
+      def authorize
         get :authorize, params:
       end
 
@@ -297,15 +209,25 @@ describe Lti::IMS::AuthenticationController do
       let(:account) { context.root_account }
       let(:lti_launch) do
         {
-          "aud" => developer_key.global_id,
-          "https://purl.imsglobal.org/spec/lti/claim/deployment_id" => "265:37750cbd4487fb044c4faf195c195b5fb9ed9636",
-          "iss" => "https://canvas.instructure.com",
-          "nonce" => "a854dc79-be3b-476a-b0db-2963a7f4158c",
-          "sub" => "535fa085f22b4655f48cd5a36a9215f64c062838",
-          "picture" => "http://canvas.instructure.com/images/messages/avatar-50.png",
-          "email" => "wdransfield@instructure.com",
-          "name" => "wdransfield@instructure.com",
-          "given_name" => "wdransfield@instructure.com",
+          "post_payload" => {
+            "aud" => developer_key.global_id,
+            "https://purl.imsglobal.org/spec/lti/claim/deployment_id" => "265:37750cbd4487fb044c4faf195c195b5fb9ed9636",
+            "iss" => "https://canvas.instructure.com",
+            "nonce" => "a854dc79-be3b-476a-b0db-2963a7f4158c",
+            "sub" => "535fa085f22b4655f48cd5a36a9215f64c062838",
+            "picture" => "http://canvas.instructure.com/images/messages/avatar-50.png",
+            "email" => "wdransfield@instructure.com",
+            "name" => "wdransfield@instructure.com",
+            "given_name" => "wdransfield@instructure.com",
+            "https://purl.imsglobal.org/spec/lti/claim/lti1p1" => {
+              "oauth_consumer_key" => "fake_consumer_key",
+              "oauth_consumer_key_sign" => "fake_signature"
+            },
+          },
+          "assoc_tool_data" => {
+            "shared_secret" => "fake_shared_secret",
+            "consumer_key" => "fake_consumer_key"
+          }
         }
       end
       let(:verifier) { cache_launch(lti_launch, context) }
@@ -316,65 +238,30 @@ describe Lti::IMS::AuthenticationController do
       end
 
       it "correctly sets the nonce of the launch" do
-        subject
+        authorize
         expect(id_token["nonce"]).to eq nonce
       end
 
       it "generates an id token" do
-        subject
-        expect(id_token.except("nonce")).to eq lti_launch.except("nonce")
+        authorize
+        expect(id_token.except("nonce").except("https://purl.imsglobal.org/spec/lti/claim/lti1p1")).to eq lti_launch["post_payload"].except("nonce").except("https://purl.imsglobal.org/spec/lti/claim/lti1p1")
       end
 
       it "sends the state" do
-        subject
+        authorize
         expect(assigns.dig(:launch_parameters, :state)).to eq state
       end
 
       it "sends the lti_storage_target" do
-        subject
+        authorize
         expect(assigns.dig(:launch_parameters, :lti_storage_target)).to eq Lti::PlatformStorage::FORWARDING_TARGET
-      end
-
-      it_behaves_like "logs using the lti launch debug logger", min_enabled_level: 3 do
-        let(:extra_expected_debug_log_fields) do
-          { "user" => user.global_id }
-        end
-      end
-
-      context "when there is a valid sessionless_source" do
-        before do
-          allow(Lti::LaunchDebugLogger).to \
-            receive(:decode_debug_trace).with("fake_sessionless_source").and_return({ "a" => "b" })
-        end
-
-        it_behaves_like "logs using the lti launch debug logger", min_enabled_level: 3 do
-          let(:extra_debug_trace_fields) do
-            { "path" => "/assignments/1?sessionless_source=fake_sessionless_source" }
-          end
-
-          let(:extra_expected_debug_log_fields) do
-            { "sessionless_a" => "b" }
-          end
-        end
-      end
-
-      context "when there is an invalid sessionless_source" do
-        let(:params) { super().merge(sessionless_source: "fake_sessionless_source") }
-
-        # it still launches successfully and logs what it can
-        before do
-          allow(Lti::LaunchDebugLogger).to \
-            receive(:decode_debug_trace).with("fake_sessionless_source").and_raise(StandardError)
-        end
-
-        it_behaves_like "logs using the lti launch debug logger", min_enabled_level: 3
       end
 
       context "when include_storage_target is false" do
         let(:include_storage_target) { false }
 
         it "does not send the lti_storage_target" do
-          subject
+          authorize
           expect(assigns[:launch_parameters].keys).not_to include(:lti_storage_target)
         end
       end
@@ -388,7 +275,7 @@ describe Lti::IMS::AuthenticationController do
         end
 
         it "launches succesfully" do
-          subject
+          authorize
           expect(id_token["nonce"]).to eq nonce
         end
       end
@@ -407,11 +294,46 @@ describe Lti::IMS::AuthenticationController do
       context "when there there is no current user" do
         before { remove_user_session }
 
-        it_behaves_like "non redirect_uri errors" do
-          subject { get :authorize, params: }
+        context "when the lti_login_required_error_page feature flag is enabled" do
+          before(:once) do
+            Account.site_admin.enable_feature!(:lti_login_required_error_page)
+          end
 
-          let(:expected_message) { "Must have an active user session" }
-          let(:expected_error) { "login_required" }
+          it "renders a friendly error message" do
+            authorize
+            expect(response).to have_http_status :unauthorized
+            expect(response).to render_template("lti/ims/authentication/login_required_error_screen")
+          end
+
+          it "increments the lti.oidc_login_required_error metric" do
+            allow(InstStatsd::Statsd).to receive(:increment)
+            authorize
+            expect(InstStatsd::Statsd).to have_received(:increment).with("lti.oidc_login_required_error", tags: {
+                                                                           account: context.global_id,
+                                                                           client_id: client_id.to_s
+                                                                         })
+          end
+        end
+
+        context "when the lti_login_required_error_page feature flag is disabled" do
+          before(:once) do
+            Account.site_admin.disable_feature!(:lti_login_required_error_page)
+          end
+
+          it_behaves_like "non redirect_uri errors" do
+            def authorize
+              get :authorize, params:
+            end
+
+            let(:expected_message) { "Must have an active user session" }
+            let(:expected_error) { "login_required" }
+          end
+
+          it "does not render a friendly error message" do
+            authorize
+            expect(response).to have_http_status :ok
+            expect(response).not_to render_template("lti/ims/authentication/login_required_error_screen")
+          end
         end
 
         context "and the context is public" do
@@ -423,22 +345,14 @@ describe Lti::IMS::AuthenticationController do
           end
 
           it "generates an id token" do
-            subject
-            expect(id_token.except("nonce")).to eq lti_launch.except("nonce")
-          end
-        end
-
-        it_behaves_like "logs using the lti launch debug logger", min_enabled_level: 1 do
-          let(:extra_expected_debug_log_fields) do
-            {
-              "oidc_errors" => "login_required"
-            }
+            authorize
+            expect(id_token.except("nonce").except("https://purl.imsglobal.org/spec/lti/claim/lti1p1")).to eq lti_launch["post_payload"].except("nonce").except("https://purl.imsglobal.org/spec/lti/claim/lti1p1")
           end
         end
       end
 
       it_behaves_like "an endpoint which uses parent_frame_context to set the CSP header" do
-        # The shared examples require `subject` to make the request -- this is
+        # The shared examples require `authorize` to make the request -- this is
         # already set up above in the parent rspec context
 
         # Make sure user has access in the PFC tool (enrollment in tool's course)
@@ -499,7 +413,7 @@ describe Lti::IMS::AuthenticationController do
         end
       end
 
-      context "when the devloper key is not active" do
+      context "when the developer key is not active" do
         before { developer_key.update!(workflow_state: "inactive") }
 
         it_behaves_like "non redirect_uri errors" do
@@ -526,12 +440,6 @@ describe Lti::IMS::AuthenticationController do
       it_behaves_like "redirect_uri errors" do
         let(:expected_message) { "Invalid redirect_uri" }
       end
-
-      it_behaves_like "logs using the lti launch debug logger", min_enabled_level: 4 do
-        let(:extra_expected_debug_log_fields) do
-          { "error" => a_string_including("Invalid redirect_uri") }
-        end
-      end
     end
 
     context "when the developer key redirect uri contains a query string" do
@@ -548,12 +456,6 @@ describe Lti::IMS::AuthenticationController do
       it_behaves_like "redirect_uri errors" do
         let(:expected_message) { nil }
         let(:expected_status) { 404 }
-      end
-
-      it_behaves_like "logs using the lti launch debug logger", min_enabled_level: 4 do
-        let(:extra_expected_debug_log_fields) do
-          { "error" => a_string_including("ActiveRecord::RecordNotFound") }
-        end
       end
     end
   end

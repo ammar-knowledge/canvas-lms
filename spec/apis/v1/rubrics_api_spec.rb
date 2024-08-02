@@ -28,11 +28,11 @@ describe "Rubrics API", type: :request do
     @account = Account.default
   end
 
-  def create_rubric(context, opts = {})
+  def create_rubric(context, opts = {}, association_context = nil)
     @rubric = Rubric.new(context:)
     @rubric.data = [rubric_data_hash(opts)]
     @rubric.save!
-    @rubric.update_with_association(nil, {}, context, { association_object: context })
+    @rubric.update_with_association(nil, {}, context, { association_object: association_context || context })
   end
 
   def rubric_association_params_for_assignment(assign)
@@ -466,6 +466,83 @@ describe "Rubrics API", type: :request do
         expect(response["rubric_association"]["hide_score_total"]).to eq hide_score_total
       end
     end
+
+    describe "used locations" do
+      before :once do
+        course_with_teacher active_all: true
+        create_rubric(@course)
+      end
+
+      it "returns rubric used locations for course" do
+        @user = account_admin_user
+        user_session(@user)
+        assignment = @course.assignments.create
+        create_rubric(@course, {}, assignment)
+
+        get "/api/v1/courses/#{@course.id}/rubrics/#{@rubric.id}/used_locations", as: :json
+        locations = response.parsed_body
+
+        expect(locations.size).to eq(1)
+        expect(locations.first["id"]).to eq(@course.id)
+        expect(locations.first["assignments"].size).to eq(1)
+        expected_assignments = [{ "id" => assignment.id, "title" => assignment.title }]
+        expect(locations.first["assignments"]).to eq expected_assignments
+      end
+    end
+
+    describe "upload status in a course" do
+      before :once do
+        course_with_teacher active_all: true
+      end
+
+      let_once(:root_account) { @course.root_account }
+
+      it "returns a 404 error if the rubric import does not exist" do
+        @user = account_admin_user
+        user_session(@user)
+        get "/api/v1/courses/#{@course.id}/rubrics/upload/1"
+        expect(response).to have_http_status(:not_found)
+      end
+
+      it "returns a 404 error if there is no latest import" do
+        @user = account_admin_user
+        user_session(@user)
+        get "/api/v1/courses/#{@course.id}/rubrics/upload/latest"
+        expect(response).to have_http_status(:not_found)
+      end
+
+      it "returns the status of the latest import" do
+        @user = account_admin_user
+        user_session(@user)
+        RubricImport.create!(context: @course, user: @user, workflow_state: "failed", root_account:)
+        latest_import = RubricImport.create!(context: @course, user: @user, workflow_state: "succeeded", root_account:)
+        get "/api/v1/courses/#{@course.id}/rubrics/upload/latest"
+        rubric_import = response.parsed_body
+        expect(rubric_import["workflow_state"]).to eq "succeeded"
+        expect(rubric_import["course_id"]).to eq @course.id
+        expect(rubric_import["id"]).to eq latest_import.id
+      end
+
+      it "returns the status of a specific import" do
+        @user = account_admin_user
+        user_session(@user)
+        new_import = RubricImport.create!(context: @course, user: @user, workflow_state: "succeeded", root_account:)
+        get "/api/v1/courses/#{@course.id}/rubrics/upload/#{new_import.id}"
+        rubric_import = response.parsed_body
+        expect(rubric_import["workflow_state"]).to eq "succeeded"
+        expect(rubric_import["course_id"]).to eq @course.id
+        expect(rubric_import["id"]).to eq new_import.id
+      end
+
+      it "returns a 404 error if id parameter does not match the context" do
+        @user = account_admin_user
+        user_session(@user)
+        RubricImport.create!(context: @course, user: @user, workflow_state: "succeeded", root_account: @course.root_account)
+        account_import = RubricImport.create!(context: @course.root_account, user: @user, workflow_state: "succeeded", root_account: @course.root_account)
+        get "/api/v1/courses/#{@course.id}/rubrics/upload/#{account_import.id}"
+        expect(response).to have_http_status(:not_found)
+      end
+    end
   end
 
   describe "account level rubrics" do
@@ -615,6 +692,74 @@ describe "Rubrics API", type: :request do
             expect(json["errors"]["style"].first["message"]).to eq "invalid parameters. Style parameter passed without requesting assessments"
           end
         end
+      end
+    end
+
+    describe "used locations" do
+      before :once do
+        course_with_teacher active_all: true
+        create_rubric(@course)
+      end
+
+      it "returns rubric used locations for course" do
+        @user = account_admin_user
+        user_session(@user)
+        assignment = @course.assignments.create
+        create_rubric(@account, {}, assignment)
+
+        get "/api/v1/accounts/#{@account.id}/rubrics/#{@rubric.id}/used_locations", as: :json
+        locations = response.parsed_body
+
+        expect(locations.size).to eq(1)
+        expect(locations.first["id"]).to eq(@course.id)
+        expect(locations.first["assignments"].size).to eq(1)
+        expected_assignments = [{ "id" => assignment.id, "title" => assignment.title }]
+        expect(locations.first["assignments"]).to eq expected_assignments
+      end
+    end
+
+    describe "upload status in an account" do
+      before :once do
+        course_with_teacher active_all: true
+      end
+
+      let_once(:root_account) { @course.root_account }
+
+      it "returns a 404 error if the rubric import does not exist" do
+        @user = account_admin_user
+        user_session(@user)
+        get "/api/v1/accounts/#{@course.root_account_id}/rubrics/upload/1"
+        expect(response).to have_http_status(:not_found)
+      end
+
+      it "returns a 404 error if there is no latest import" do
+        @user = account_admin_user
+        user_session(@user)
+        get "/api/v1/accounts/#{@course.root_account_id}/rubrics/upload/latest"
+        expect(response).to have_http_status(:not_found)
+      end
+
+      it "returns the status of the latest import" do
+        @user = account_admin_user
+        user_session(@user)
+        RubricImport.create!(context: @course.root_account, user: @user, workflow_state: "failed", root_account:)
+        latest_import = RubricImport.create!(context: @course.root_account, user: @user, workflow_state: "succeeded", root_account:)
+        get "/api/v1/accounts/#{@course.root_account_id}/rubrics/upload/latest"
+        rubric_import = response.parsed_body
+        expect(rubric_import["workflow_state"]).to eq "succeeded"
+        expect(rubric_import["account_id"]).to eq @course.root_account_id
+        expect(rubric_import["id"]).to eq latest_import.id
+      end
+
+      it "returns the status of a specific import" do
+        @user = account_admin_user
+        user_session(@user)
+        new_import = RubricImport.create!(context: @course.root_account, user: @user, workflow_state: "succeeded", root_account:)
+        get "/api/v1/accounts/#{@course.root_account_id}/rubrics/upload/#{new_import.id}"
+        rubric_import = response.parsed_body
+        expect(rubric_import["workflow_state"]).to eq "succeeded"
+        expect(rubric_import["account_id"]).to eq @course.root_account_id
+        expect(rubric_import["id"]).to eq new_import.id
       end
     end
   end

@@ -55,6 +55,8 @@ import AssessmentAuditButton from '../react/AssessmentAuditTray/components/Asses
 import AssessmentAuditTray from '../react/AssessmentAuditTray/index'
 import CommentArea from '../react/CommentArea'
 import GradeLoadingSpinner from '../react/GradeLoadingSpinner'
+import RubricAssessmentTrayWrapper from '../react/RubricAssessmentTrayWrapper'
+import ScreenCaptureIcon from '../react/ScreenCaptureIcon'
 import {originalityReportSubmissionKey} from '@canvas/grading/originalityReportHelper'
 import PostPolicies from '../react/PostPolicies/index'
 import SpeedGraderProvisionalGradeSelector from '../react/SpeedGraderProvisionalGradeSelector'
@@ -86,7 +88,8 @@ import {map, keyBy, values, find, includes, reject, some, isEqual, filter} from 
 import {useScope as useI18nScope} from '@canvas/i18n'
 import natcompare from '@canvas/util/natcompare'
 import qs from 'qs'
-import * as tz from '@canvas/datetime'
+import * as tz from '@instructure/moment-utils'
+import {datetimeString} from '@canvas/datetime/date-functions'
 import userSettings from '@canvas/user-settings'
 import htmlEscape from '@instructure/html-escape'
 import rubricAssessment from '@canvas/rubrics/jquery/rubric_assessment'
@@ -133,7 +136,6 @@ import 'jqueryui/draggable'
 import '@canvas/jquery/jquery.ajaxJSON' /* getJSON, ajaxJSON */
 import '@canvas/jquery/jquery.instructure_forms' /* ajaxJSONFiles */
 import {loadDocPreview} from '@instructure/canvas-rce/es/enhance-user-content/doc_previews'
-import '@canvas/datetime/jquery' /* datetimeString */
 import 'jqueryui/dialog'
 import 'jqueryui/menu'
 import '@canvas/jquery/jquery.instructure_misc_helpers' /* replaceTags */
@@ -144,7 +146,6 @@ import '@canvas/util/templateData'
 import '@canvas/media-comments'
 import '@canvas/media-comments/jquery/mediaCommentThumbnail'
 import '@canvas/rails-flash-notifications'
-import 'jquery-getscrollbarwidth'
 import 'jquery-scroll-to-visible/jquery.scrollTo'
 import 'jquery-selectmenu'
 import '@canvas/jquery/jquery.disableWhileLoading'
@@ -154,6 +155,11 @@ import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 import type {EnvGradebookSpeedGrader} from '@canvas/global/env/EnvGradebook'
 import replaceTags from '@canvas/util/replaceTags'
 import type {GradeStatusUnderscore} from '@canvas/grading/accountGradingStatus'
+import type {
+  RubricAssessmentUnderscore,
+  RubricOutcomeUnderscore,
+  RubricUnderscoreType,
+} from '../react/RubricAssessmentTrayWrapper/utils'
 
 declare global {
   interface Window {
@@ -180,6 +186,7 @@ const SPEED_GRADER_EDIT_STATUS_MENU_SECONDARY_MOUNT_POINT =
   'speed_grader_edit_status_secondary_mount_point'
 const ASSESSMENT_AUDIT_BUTTON_MOUNT_POINT = 'speed_grader_assessment_audit_button_mount_point'
 const ASSESSMENT_AUDIT_TRAY_MOUNT_POINT = 'speed_grader_assessment_audit_tray_mount_point'
+const SCREEN_CAPTURE_ICON_MOUNT_POINT = 'screen-capture-icon-mount-point'
 
 let isAnonymous: boolean
 let anonymousGraders: boolean
@@ -249,6 +256,7 @@ let $assignment_submission_originality_report_url: JQuery
 let $assignment_submission_vericite_report_url: JQuery
 let $assignment_submission_resubmit_to_vericite_url: JQuery
 let $rubric_holder: JQuery
+let $new_screen_capture_indicator_wrapper: JQuery
 let $no_annotation_warning: JQuery
 let $comment_submitted: JQuery
 let $comment_submitted_message: JQuery
@@ -280,6 +288,9 @@ const anonymousAssignmentDetailedReportTooltip = I18n.t(
 
 const HISTORY_PUSH = 'push'
 const HISTORY_REPLACE = 'replace'
+
+const {enhanced_rubrics_enabled} = ENV ?? {}
+type RubricSavedComments = {summary_data?: {saved_comments: Record<string, string[]>}}
 
 function setGradeLoading(studentId: string, loading: boolean) {
   useStore.setState(state => {
@@ -488,18 +499,27 @@ function mergeStudentsAndSubmission() {
     }
 
     case 'submission_status': {
-      const states = {
-        not_graded: 1,
-        resubmitted: 2,
-        not_submitted: 3,
-        graded: 4,
-        not_gradeable: 5,
-      }
       jsonData.studentsWithSubmissions.sort(
         EG.compareStudentsBy(
           student =>
-            student && states[SpeedgraderHelpers.submissionState(student, ENV.grading_role)]
+            student && SpeedgraderHelpers.submissionStateSortingValue(student, ENV.grading_role)
         )
+      )
+      break
+    }
+
+    case 'submission_status_randomize': {
+      jsonData.studentsWithSubmissions = SpeedgraderHelpers.randomizedStudentSorter(
+        jsonData.studentsWithSubmissions,
+        student =>
+          SpeedgraderHelpers.submissionStateSortingValue(student, ENV.grading_role) + Math.random()
+      )
+      break
+    }
+
+    case 'randomize': {
+      jsonData.studentsWithSubmissions = SpeedgraderHelpers.randomizedStudentSorter(
+        jsonData.studentsWithSubmissions
       )
       break
     }
@@ -534,7 +554,19 @@ function handleStudentOrSectionSelected(
 
 function initDropdown() {
   const hideStudentNames = utils.shouldHideStudentNames()
-  $('#hide_student_names').attr('checked', hideStudentNames ? 'checked' : null)
+  $('#hide_student_names').prop('checked', hideStudentNames)
+
+  $('#show_new_sg_ui').on('click', function () {
+    const searchParams = new URLSearchParams(window.location.search)
+
+    if (searchParams.has('platform_sg')) {
+      searchParams.set('platform_sg', 'true')
+
+      const newUrl = window.location.pathname + '?' + searchParams.toString()
+
+      window.location.href = newUrl
+    }
+  })
 
   const optionsArray = window.jsonData.studentsWithSubmissions.map(
     (student: StudentWithSubmission) => {
@@ -565,7 +597,7 @@ function initDropdown() {
     window.jsonData.context.active_course_sections.length > 1 &&
     !window.jsonData.GROUP_GRADING_MODE
   ) {
-    const $selectmenu_list = $selectmenu?.data('selectmenu').list
+    const $selectmenu_list = $selectmenu?.data('ui-selectmenu').list
     const $menu = $('#section-menu')
 
     $menu
@@ -594,7 +626,7 @@ function initDropdown() {
       .find('ul')
       .hide()
       .menu()
-      .delegate('a', 'click mousedown', function (this: HTMLAnchorElement) {
+      .on('click mousedown', 'a', function (_event) {
         EG.changeToSection($(this).data('section-id'))
       })
 
@@ -622,8 +654,7 @@ function initDropdown() {
         $menu.show().css({
           left: $selectmenu_list.css('left'),
           top: $selectmenu_list.css('top'),
-          width:
-            $selectmenu_list.width() - ($selectmenu_list.hasScrollbar() && $.getScrollbarWidth()),
+          width: $selectmenu_list.width(),
           'z-index': Number($selectmenu_list.css('z-index')) + 1,
         })
       })
@@ -682,6 +713,7 @@ function setupHeader() {
           modal: true,
           resizable: false,
           width: 400,
+          zIndex: 1000,
         })
         .fixDialogButtons()
       // FF hack - when reloading the page, firefox seems to "remember" the disabled state of this
@@ -725,7 +757,7 @@ function setupHeader() {
       if (needsReload) {
         $(e.target)
           .find('.submit_button')
-          .attr('disabled', 'true')
+          .prop('disabled', true)
           .text(I18n.t('buttons.saving_settings', 'Saving Settings...'))
       } else {
         this.elements.settings.form.dialog('close')
@@ -935,6 +967,8 @@ function initCommentBox() {
           recognition.stop()
           $(this).dialog('close').remove()
         },
+        modal: true,
+        zIndex: 1000,
       })
       return false
     })
@@ -979,6 +1013,12 @@ function handleSelectedRubricAssessmentChanged({validateEnteredData = true} = {}
     showEditButton = !selectedAssessment || assessmentBelongsToCurrentUser(selectedAssessment)
   }
   $('#rubric_assessments_list_and_edit_button_holder .edit').showIf(showEditButton)
+
+  if (enhanced_rubrics_enabled) {
+    useStore.setState({
+      studentAssessment: (selectedAssessment ?? {}) as RubricAssessmentUnderscore,
+    })
+  }
 }
 
 function initRubricStuff() {
@@ -992,94 +1032,14 @@ function initRubricStuff() {
     EG.toggleFullRubric()
   })
 
-  selectors.get('#rubric_assessments_select').change(() => {
+  $('#rubric_assessments_select').on('change', () => {
     handleSelectedRubricAssessmentChanged()
   })
 
   $('.save_rubric_button').click(function () {
     const $rubric = $(this).parents('#rubric_holder').find('.rubric')
     const data = rubricAssessment.assessmentData($rubric)
-    if (ENV.grading_role === 'moderator' || ENV.grading_role === 'provisional_grader') {
-      data.provisional = '1'
-      if (ENV.grading_role === 'moderator' && EG.current_prov_grade_index === 'final') {
-        data.final = '1'
-      }
-    }
-    if (isAnonymous) {
-      // FIXME: data['rubric_assessment[user_id]'] should not contain anonymous_id,
-      // figure out how to fix the keys elsewhere
-      data[`rubric_assessment[${anonymizableUserId}]`] = data['rubric_assessment[user_id]']
-      delete data['rubric_assessment[user_id]']
-      data.graded_anonymously = true
-    } else {
-      data.graded_anonymously = utils.shouldHideStudentNames()
-    }
-    const url = ENV.update_rubric_assessment_url!
-    const method = 'POST'
-    EG.toggleFullRubric('close')
-
-    const promise = $.ajaxJSON(
-      url,
-      method,
-      data,
-      ///
-      (response: {
-        id: string
-        rubric_association: unknown
-        artifact: unknown
-        related_group_submissions_and_assessments: {
-          rubric_assessments: {
-            rubric_assessment: {id: string}
-          }[]
-        }[]
-      }) => {
-        let found = false
-        if (response && response.rubric_association) {
-          rubricAssessment.updateRubricAssociation($rubric, response.rubric_association)
-          delete response.rubric_association
-        }
-
-        // If the student has a submission, update it with the data returned,
-        // otherwise we need to create a submission for them.
-        const assessedStudent = EG.setOrUpdateSubmission(response.artifact)
-
-        for (let i = 0; i < assessedStudent.rubric_assessments.length; i++) {
-          if (response.id === assessedStudent.rubric_assessments[i].id) {
-            $.extend(true, assessedStudent.rubric_assessments[i], response)
-            found = true
-          }
-        }
-        if (!found) {
-          assessedStudent.rubric_assessments.push(response)
-        }
-
-        // this next part will take care of group submissions, so that when one member of the group gets assessesed then everyone in the group will get that same assessment.
-        $.each(
-          response.related_group_submissions_and_assessments,
-          (_i, submissionAndAssessment) => {
-            // setOrUpdateSubmission returns the student. so we can set student.rubric_assesments
-            // submissionAndAssessment comes back with :include_root => true, so we have to get rid of the root
-            const student = EG.setOrUpdateSubmission(response.artifact)
-            student.rubric_assessments = $.map(
-              submissionAndAssessment.rubric_assessments,
-              ra => ra.rubric_assessment
-            )
-            EG.updateSelectMenuStatus(student)
-          }
-        )
-
-        EG.showGrade()
-        EG.showDiscussion()
-        EG.showRubric()
-        EG.updateStatsInHeader()
-      }
-    )
-
-    $rubric_holder.disableWhileLoading(promise, {
-      buttons: {
-        '.save_rubric_button': 'Saving...',
-      },
-    })
+    EG.saveRubricAssessment(data, $rubric)
   })
 }
 
@@ -1358,7 +1318,7 @@ EG = {
         window.alert(
           I18n.t(
             'alerts.no_students_in_groups_close',
-            "Sorry, submissions for this assignment cannot be graded in Speedgrader because there are no assigned users. Please assign users to this group set and try again. Click 'OK' to close this window."
+            "Sorry, submissions for this assignment cannot be graded in SpeedGrader because there are no assigned users. Please assign users to this group set and try again. Click 'OK' to close this window."
           )
         )
         window.close()
@@ -1367,7 +1327,7 @@ EG = {
         window.alert(
           I18n.t(
             'alerts.no_students_in_groups_back',
-            "Sorry, submissions for this assignment cannot be graded in Speedgrader because there are no assigned users. Please assign users to this group set and try again. Click 'OK' to go back."
+            "Sorry, submissions for this assignment cannot be graded in SpeedGrader because there are no assigned users. Please assign users to this group set and try again. Click 'OK' to go back."
           )
         )
         SpeedgraderHelpers.getHistory().back()
@@ -1523,6 +1483,7 @@ EG = {
             },
           },
         ],
+        zIndex: 1000,
       })
     } else {
       nextStudent(offset)
@@ -1554,7 +1515,6 @@ EG = {
   },
 
   toggleFullRubric(force) {
-    const rubricFull = selectors.get('#rubric_full')
     // if there is no rubric associated with this assignment, then the edit
     // rubric thing should never be shown.  the view should make sure that
     // the edit rubric html is not even there but we also want to make sure
@@ -1563,7 +1523,18 @@ EG = {
       return false
     }
 
-    if (rubricFull.filter(':visible').length || force === 'close') {
+    const isClosed = force === 'close'
+
+    if (enhanced_rubrics_enabled) {
+      const isOpen = isClosed ? false : !useStore.getState().rubricAssessmentTrayOpen
+      useStore.setState({rubricAssessmentTrayOpen: isOpen})
+      this.refreshFullRubric()
+      return
+    }
+
+    const rubricFull = selectors.get('#rubric_full')
+
+    if (rubricFull.filter(':visible').length || isClosed) {
       toggleGradeVisibility(true)
       rubricFull.fadeOut()
       $('.toggle_full_rubric').focus()
@@ -1577,6 +1548,10 @@ EG = {
   },
 
   refreshFullRubric() {
+    if (enhanced_rubrics_enabled) {
+      return
+    }
+
     const rubricFull = selectors.get('#rubric_full')
     if (!window.jsonData.rubric_association) {
       return
@@ -1628,9 +1603,16 @@ EG = {
   updateHistoryForCurrentStudent(behavior) {
     const studentId = this.currentStudent[anonymizableId]
     const stateHash = {[anonymizableStudentId]: studentId}
-    const url = encodeURI(
-      `?assignment_id=${ENV.assignment_id}&${anonymizableStudentId}=${studentId}`
-    )
+
+    // Get the current URL parameters
+    const currentParams = new URLSearchParams(window.location.search)
+
+    // Update or add the assignment_id and student_id parameters
+    currentParams.set('assignment_id', ENV.assignment_id)
+    currentParams.set(anonymizableStudentId, studentId)
+
+    // Construct the new URL
+    const url = `?${currentParams.toString()}`
 
     if (behavior === HISTORY_PUSH) {
       SpeedgraderHelpers.getHistory().pushState(stateHash, '', url)
@@ -1763,7 +1745,7 @@ EG = {
         let submissionComments = this.currentStudent.submission.submission_comments
         if (submissionComments) {
           submissionComments = submissionComments.filter(
-            comment => comment.author_id === ENV.current_user_id
+            comment => comment.author_id?.toString() === ENV.current_user_id
           )
           const lastCommentByUser = submissionComments[submissionComments.length - 1]
           if (lastCommentByUser?.created_at) {
@@ -1772,7 +1754,7 @@ EG = {
           }
         }
       }
-      $reassign_assignment.attr('disabled', disableReassign ? 'disabled' : null)
+      $reassign_assignment.prop('disabled', disableReassign)
       $reassign_assignment.text(redoRequest ? I18n.t('Reassigned') : I18n.t('Reassign Assignment'))
       if (disableReassign) {
         if (redoRequest) {
@@ -1935,6 +1917,118 @@ EG = {
 
     const button = <AssessmentAuditButton onClick={onClick} />
     ReactDOM.render(button, document.getElementById(ASSESSMENT_AUDIT_BUTTON_MOUNT_POINT))
+  },
+
+  setUpRubricAssessmentTrayWrapper() {
+    ReactDOM.render(
+      <RubricAssessmentTrayWrapper
+        rubric={ENV.rubric as RubricUnderscoreType}
+        rubricOutcomeData={ENV.rubric_outcome_data as RubricOutcomeUnderscore[]}
+        onAccessorChange={accessorId => {
+          $('#rubric_assessments_select').val(accessorId)
+          handleSelectedRubricAssessmentChanged()
+        }}
+        onSave={data => {
+          useStore.setState({rubricAssessmentTrayOpen: false})
+          this.saveRubricAssessment(data)
+        }}
+      />,
+      document.getElementById('speed_grader_rubric_assessment_tray_wrapper')
+    )
+  },
+
+  saveRubricAssessment(
+    data: {[key: string]: string | boolean | number},
+    rubricElement?: JQuery<HTMLElement>
+  ) {
+    if (ENV.grading_role === 'moderator' || ENV.grading_role === 'provisional_grader') {
+      data.provisional = '1'
+      if (ENV.grading_role === 'moderator' && EG.current_prov_grade_index === 'final') {
+        data.final = '1'
+      }
+    }
+    if (isAnonymous) {
+      // FIXME: data['rubric_assessment[user_id]'] should not contain anonymous_id,
+      // figure out how to fix the keys elsewhere
+      data[`rubric_assessment[${anonymizableUserId}]`] = data['rubric_assessment[user_id]']
+      delete data['rubric_assessment[user_id]']
+      data.graded_anonymously = true
+    } else {
+      data.graded_anonymously = utils.shouldHideStudentNames()
+    }
+    const url = ENV.update_rubric_assessment_url!
+    const method = 'POST'
+    EG.toggleFullRubric('close')
+
+    const promise = $.ajaxJSON(
+      url,
+      method,
+      data,
+      ///
+      (response: {
+        id: string
+        rubric_association: unknown
+        artifact: unknown
+        related_group_submissions_and_assessments: {
+          rubric_assessments: {
+            rubric_assessment: {id: string}
+          }[]
+        }[]
+      }) => {
+        let found = false
+        if (response && response.rubric_association) {
+          if (!enhanced_rubrics_enabled) {
+            rubricAssessment.updateRubricAssociation(rubricElement, response.rubric_association)
+          } else {
+            const rubricAssociation: RubricSavedComments = response?.rubric_association ?? {}
+            useStore.setState({
+              rubricSavedComments: rubricAssociation?.summary_data?.saved_comments,
+            })
+          }
+          delete response.rubric_association
+        }
+
+        // If the student has a submission, update it with the data returned,
+        // otherwise we need to create a submission for them.
+        const assessedStudent = EG.setOrUpdateSubmission(response.artifact)
+
+        for (let i = 0; i < assessedStudent.rubric_assessments.length; i++) {
+          if (response.id === assessedStudent.rubric_assessments[i].id) {
+            $.extend(true, assessedStudent.rubric_assessments[i], response)
+            found = true
+          }
+        }
+        if (!found) {
+          assessedStudent.rubric_assessments.push(response)
+        }
+
+        // this next part will take care of group submissions, so that when one member of the group gets assessesed then everyone in the group will get that same assessment.
+        $.each(
+          response.related_group_submissions_and_assessments,
+          (_i, submissionAndAssessment) => {
+            // setOrUpdateSubmission returns the student. so we can set student.rubric_assesments
+            // submissionAndAssessment comes back with :include_root => true, so we have to get rid of the root
+            const student = EG.setOrUpdateSubmission(response.artifact)
+            student.rubric_assessments = $.map(
+              submissionAndAssessment.rubric_assessments,
+              ra => ra.rubric_assessment
+            )
+            EG.updateSelectMenuStatus(student)
+          }
+        )
+
+        EG.showGrade()
+        EG.showDiscussion()
+        EG.showRubric()
+        EG.updateStatsInHeader()
+      }
+    )
+
+    $rubric_holder.disableWhileLoading(promise, {
+      buttons: {
+        '.save_rubric_button': 'Saving...',
+      },
+    })
   },
 
   setReadOnly(readonly) {
@@ -2181,7 +2275,7 @@ EG = {
         )
         $vericiteInfo.find('.vericite_resubmit_button').click(function (event) {
           event.preventDefault()
-          $(this).attr('disabled', 'true').text(I18n.t('vericite.resubmitting', 'Resubmitting...'))
+          $(this).prop('disabled', true).text(I18n.t('vericite.resubmitting', 'Resubmitting...'))
 
           $.ajaxJSON(resubmitUrl, 'POST', {}, () => {
             SpeedgraderHelpers.reloadPage()
@@ -2348,7 +2442,7 @@ EG = {
 
       if (!window.jsonData.anonymize_students || isAdmin) {
         studentViewedAtHTML = studentViewedAtTemplate({
-          viewed_at: $.datetimeString(attachment.viewed_at),
+          viewed_at: datetimeString(attachment.viewed_at),
         })
       }
 
@@ -2560,7 +2654,7 @@ EG = {
           selected: selectedIndex === i,
           proxy_submitter: s.proxy_submitter,
           proxy_submitter_label_text: s.proxy_submitter ? ` by ${s.proxy_submitter}` : null,
-          submittedAt: $.datetimeString(s.submitted_at) || noSubmittedAt,
+          submittedAt: datetimeString(s.submitted_at) || noSubmittedAt,
           grade,
         }
       })
@@ -2593,7 +2687,7 @@ EG = {
         delete EG.initialVersion
       }
 
-      $(`#submission_to_view option:eq(${index})`).attr('selected', 'selected')
+      $(`#submission_to_view option:eq(${index})`).prop('selected', true)
       $submission_details.show()
       if (allowsReassignment(currentSubmission)) {
         $reassign_assignment.show()
@@ -2964,7 +3058,7 @@ EG = {
       selectMenu.find('option').remove()
       selectMenuOptions.forEach(option => {
         selectMenu.append(
-          `<option value="${htmlEscape(option.id)}">${htmlEscape(option.name)}</option>`
+          `<option value="${htmlEscape(option.id)}">${htmlEscape(option?.name || '')}</option>`
         )
       })
 
@@ -2982,8 +3076,14 @@ EG = {
       }
 
       selectMenu.val(idToSelect)
-      $('#rubric_assessments_list').showIf(isModerator || selectMenu.find('option').length > 1)
+      const showSelectMenu = isModerator || selectMenu.find('option').length > 1
+      $('#rubric_assessments_list').showIf(showSelectMenu)
 
+      const {hide_points} = (window?.jsonData?.rubric_association ?? {}) as {hide_points: boolean}
+      useStore.setState({
+        rubricAssessors: showSelectMenu ? selectMenuOptions : [],
+        rubricHidePoints: hide_points,
+      })
       handleSelectedRubricAssessmentChanged({validateEnteredData})
     }
   },
@@ -3148,7 +3248,7 @@ EG = {
     // For screenreaders
     spokenComment = comment.comment.replace(/\s+/, ' ')
 
-    comment.posted_at = $.datetimeString(comment.created_at)
+    comment.posted_at = datetimeString(comment.created_at)
 
     hideStudentName =
       opts.hideStudentNames && window.jsonData.studentMap[comment[anonymizableAuthorId]]
@@ -3319,7 +3419,7 @@ EG = {
       }
       reassignAssignmentInProgress = false
     }
-    $reassign_assignment.attr('disabled', 'disabled')
+    $reassign_assignment.prop('disabled', true)
     $reassign_assignment.text(I18n.t('Reassigning ...'))
     $.ajaxJSON(
       url,
@@ -3362,7 +3462,7 @@ EG = {
     const method = 'PUT'
     const formData = {
       'submission[assignment_id]': window.jsonData.id,
-      'submission[group_comment]': $('#submission_group_comment').attr('checked') ? '1' : '0',
+      'submission[group_comment]': $('#submission_group_comment').prop('checked') ? '1' : '0',
       'submission[comment]': $add_a_comment_textarea.val(),
       'submission[draft_comment]': draftComment,
       [`submission[${anonymizableId}]`]: EG.currentStudent[anonymizableId],
@@ -3777,13 +3877,11 @@ EG = {
       fileIndex++
       $('#comment_attachments').append($attachment.show())
     })
-    $comment_attachment_input_blank
-      .find('a')
-      .click(function (this: HTMLAnchorElement, event: JQuery.ClickEvent) {
-        event.preventDefault()
-        $(this).parents('.comment_attachment_input').remove()
-      })
-    $right_side.delegate('.play_comment_link', 'click', function (this: HTMLAnchorElement) {
+    $comment_attachment_input_blank.find('a').on('click', function (event: JQuery.ClickEvent) {
+      event.preventDefault()
+      $(this).parents('.comment_attachment_input').remove()
+    })
+    $right_side.on('click', '.play_comment_link', function (_event) {
       if ($(this).data('media_comment_id')) {
         $(this)
           .parents('.comment')
@@ -3807,6 +3905,17 @@ EG = {
         position: {my: 'left bottom', at: 'left top'},
         tooltipClass: 'center bottom vertical',
       })
+    }
+    if ($new_screen_capture_indicator_wrapper && $new_screen_capture_indicator_wrapper.length) {
+      $new_screen_capture_indicator_wrapper.tooltip({
+        position: {my: 'left-100 bottom', at: 'center top'},
+        tooltipClass: 'center bottom vertical',
+      })
+    }
+    const screenCaptureMountPoint = document.getElementById(SCREEN_CAPTURE_ICON_MOUNT_POINT)
+    if (screenCaptureMountPoint) {
+      const screen_capture_icon = <ScreenCaptureIcon />
+      ReactDOM.render(screen_capture_icon, screenCaptureMountPoint)
     }
   },
 
@@ -4134,6 +4243,14 @@ function setupSpeedGrader(
   EG.jsonReady()
   EG.setInitiallyLoadedStudent()
   EG.setupGradeLoadingSpinner()
+
+  if (enhanced_rubrics_enabled && ENV.rubric) {
+    const rubricAssociation: RubricSavedComments = window.jsonData?.rubric_association ?? {}
+    useStore.setState({
+      rubricSavedComments: rubricAssociation.summary_data?.saved_comments,
+    })
+    EG.setUpRubricAssessmentTrayWrapper()
+  }
 }
 
 function setupSelectors() {
@@ -4176,6 +4293,7 @@ function setupSelectors() {
   $iframe_holder = $('#iframe_holder')
   $left_side = $('#left_side')
   $multiple_submissions = $('#multiple_submissions')
+  $new_screen_capture_indicator_wrapper = $('#new-studio-media-indicator-wrapper')
   $no_annotation_warning = $('#no_annotation_warning')
   $not_gradeable_message = $('#not_gradeable_message')
   $points_deducted = $('#points-deducted')

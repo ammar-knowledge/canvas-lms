@@ -1,3 +1,4 @@
+/* eslint-disable eqeqeq, no-alert */
 /*
  * Copyright (C) 2011 - present Instructure, Inc.
  *
@@ -21,7 +22,8 @@ import $ from 'jquery'
 import Pseudonym from '@canvas/pseudonyms/backbone/models/Pseudonym'
 import AvatarWidget from '@canvas/avatar-dialog-view'
 import '@canvas/jquery/jquery.ajaxJSON'
-import '@canvas/datetime/jquery' /* datetimeString, time_field, datetime_field */
+import {datetimeString} from '@canvas/datetime/date-functions'
+import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
 import '@canvas/jquery/jquery.instructure_forms' /* formSubmit, formErrors, errorBox */
 import 'jqueryui/dialog'
 import '@canvas/util/jquery/fixDialogButtons'
@@ -40,6 +42,17 @@ const $profile_table = $('.profile_table'),
   $default_email_id = $('#default_email_id')
 
 const maximumStringLength = 255
+
+const localizeWorkflowState = function (state) {
+  switch (state) {
+    case 'active':
+      return I18n.t('active')
+    case 'pending':
+      return I18n.t('pending')
+    default:
+      return state
+  }
+}
 
 $edit_settings_link.click(function () {
   $(this).hide()
@@ -62,21 +75,21 @@ $profile_table.find('.cancel_button').click(() => {
     .hide()
     .end()
     .find('#change_password_checkbox')
-    .attr('checked', false)
+    .prop('checked', false)
   return false
 })
 
 $profile_table
   .find('#change_password_checkbox')
   .change(function () {
-    if (!$(this).attr('checked')) {
+    if (!$(this).prop('checked')) {
       $profile_table.find('.change_password_row').hide().find(':password').val('')
     } else {
       $(this).addClass('showing')
       $profile_table.find('.change_password_row').show().find('#old_password').focus().select()
     }
   })
-  .attr('checked', false)
+  .prop('checked', false)
   .change()
 
 $update_profile_form
@@ -239,7 +252,7 @@ $('.delete_pseudonym_link').click(function (event) {
       message: I18n.t('confirms.delete_login', 'Are you sure you want to delete this login?'),
     })
 })
-$('.datetime_field').datetime_field()
+renderDatetimeField($('.datetime_field'))
 $('.expires_field').bind('change keyup', function () {
   $(this).closest('td').find('.hint').showIf(!$(this).val())
 })
@@ -271,7 +284,7 @@ $('#add_access_token_dialog .cancel_button').click(() => {
   $('#add_access_token_dialog').dialog('close')
 })
 $('#access_token_form').formSubmit({
-  object_name: 'access_token',
+  object_name: 'token',
   property_validations: {
     purpose(value) {
       if (!value || value === '') {
@@ -287,24 +300,24 @@ $('#access_token_form').formSubmit({
   beforeSubmit() {
     $(this)
       .find('button')
-      .attr('disabled', true)
+      .prop('disabled', true)
       .filter('.submit_button')
       .text(I18n.t('buttons.generating_token', 'Generating Token...'))
   },
   success(data) {
     $(this)
       .find('button')
-      .attr('disabled', false)
+      .prop('disabled', false)
       .filter('.submit_button')
       .text(I18n.t('buttons.generate_token', 'Generate Token'))
     $('#add_access_token_dialog').dialog('close')
     $('#no_approved_integrations').hide()
     $('#access_tokens_holder').show()
     const $token = $('.access_token.blank:first').clone(true).removeClass('blank')
-    data.created = $.datetimeString(data.created_at) || '--'
-    data.expires =
-      $.datetimeString(data.permanent_expires_at) || I18n.t('token_never_expires', 'never')
+    data.created = datetimeString(data.created_at) || '--'
+    data.expires = datetimeString(data.expires_at) || I18n.t('token_never_expires', 'never')
     data.used = '--'
+    data.workflow_state = localizeWorkflowState(data.workflow_state)
     $token.fillTemplateData({
       data,
       hrefValues: ['id'],
@@ -316,7 +329,7 @@ $('#access_token_form').formSubmit({
   error() {
     $(this)
       .find('button')
-      .attr('disabled', false)
+      .prop('disabled', false)
       .filter('.submit_button')
       .text(I18n.t('errors.generating_token_failed', 'Generating Token Failed'))
   },
@@ -336,28 +349,47 @@ $('#token_details_dialog .regenerate_token').click(function () {
   const $token = $dialog.data('token')
   const url = $dialog.data('token_url')
   const $button = $(this)
-  $button.text(I18n.t('buttons.regenerating_token', 'Regenerating token...')).attr('disabled', true)
+  $button.text(I18n.t('buttons.regenerating_token', 'Regenerating token...')).prop('disabled', true)
   $.ajaxJSON(
     url,
     'PUT',
-    {'access_token[regenerate]': '1'},
+    {'token[regenerate]': '1'},
     data => {
-      data.created = $.datetimeString(data.created_at) || '--'
-      data.expires =
-        $.datetimeString(data.permanent_expires_at) || I18n.t('token_never_expires', 'never')
-      data.used = $.datetimeString(data.last_used_at) || '--'
+      data.created = datetimeString(data.created_at) || '--'
+      data.expires = datetimeString(data.expires_at) || I18n.t('token_never_expires', 'never')
+      data.used = datetimeString(data.last_used_at) || '--'
       data.visible_token = data.visible_token || 'protected'
+      data.workflow_state = localizeWorkflowState(data.workflow_state)
       $dialog
         .fillTemplateData({data})
         .find('.full_token_warning')
         .showIf(data.visible_token.length > 10)
       $token.data('token', data)
-      $button.text(I18n.t('buttons.regenerate_token', 'Regenerate Token')).attr('disabled', false)
+      $token.fillTemplateData({data})
+      $button.text(I18n.t('buttons.regenerate_token', 'Regenerate Token')).prop('disabled', false)
     },
     () => {
       $button
         .text(I18n.t('errors.regenerating_token_failed', 'Regenerating Token Failed'))
-        .attr('disabled', false)
+        .prop('disabled', false)
+    }
+  )
+})
+$('.access_token .activate_token_link').click(function () {
+  const $button = $(this)
+  const url = $button.attr('rel')
+  $button.text(I18n.t('buttons.activating_token', 'activating...')).prop('disabled', true)
+  $.ajaxJSON(
+    url,
+    'POST',
+    {},
+    data => {
+      $button.parentElement.replaceChildren(localizeWorkflowState(data.workflow_state))
+    },
+    () => {
+      $button
+        .text(I18n.t('errors.activating_token_failed', 'Activating Token Failed'))
+        .prop('disabled', false)
     }
   )
 })
@@ -367,6 +399,8 @@ $('.show_token_link').click(function (event) {
   const url = $(this).attr('rel')
   $dialog.dialog({
     width: 700,
+    modal: true,
+    zIndex: 1000,
   })
   const $token = $(this).parents('.access_token')
   $dialog.data('token', $token)
@@ -379,7 +413,7 @@ $('.show_token_link').click(function (event) {
       .showIf(token.visible_token && token.visible_token !== 'protected')
       .find('.regenerate_token')
       .text(I18n.t('buttons.regenerate_token', 'Regenerate Token'))
-      .attr('disabled', false)
+      .prop('disabled', false)
     $dialog
       .find('.loading_message,.error_loading_message')
       .hide()
@@ -400,10 +434,9 @@ $('.show_token_link').click(function (event) {
       'GET',
       {},
       data => {
-        data.created = $.datetimeString(data.created_at) || '--'
-        data.expires =
-          $.datetimeString(data.permanent_expires_at) || I18n.t('token_never_expires', 'never')
-        data.used = $.datetimeString(data.last_used_at) || '--'
+        data.created = datetimeString(data.created_at) || '--'
+        data.expires = datetimeString(data.expires_at) || I18n.t('token_never_expires', 'never')
+        data.used = datetimeString(data.last_used_at) || '--'
         data.visible_token = data.visible_token || 'protected'
         $token.data('token', data)
         tokenLoaded(data)
@@ -418,7 +451,7 @@ $('.add_access_token_link').click(function (event) {
   event.preventDefault()
   $('#access_token_form')
     .find('button')
-    .attr('disabled', false)
+    .prop('disabled', false)
     .filter('.submit_button')
     .text(I18n.t('buttons.generate_token', 'Generate Token'))
   $('#add_access_token_dialog')
@@ -430,6 +463,8 @@ $('.add_access_token_link').click(function (event) {
       open() {
         $(this).closest('.ui-dialog').focus()
       },
+      modal: true,
+      zIndex: 1000,
     })
     .fixDialogButtons()
 })

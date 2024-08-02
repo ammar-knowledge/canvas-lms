@@ -34,7 +34,7 @@ import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import GradebookExportManager from '../../shared/GradebookExportManager'
 import PostGradesApp from '../../SISGradePassback/PostGradesApp'
-import * as tz from '@canvas/datetime'
+import * as tz from '@instructure/moment-utils'
 import DateHelper from '@canvas/datetime/dateHelper'
 import {useScope as useI18nScope} from '@canvas/i18n'
 import '@canvas/rails-flash-notifications'
@@ -363,7 +363,7 @@ export default function EnhancedActionMenu(props: EnhancedActionMenuProps) {
   return (
     <>
       {/* EVAL-3711 Remove Evaluate ICE feature flag */}
-      {window.ENV.FEATURES.instui_nav && !ENV.disable_keyboard_shortcuts && (
+      {window.ENV.FEATURES?.instui_nav && !ENV.disable_keyboard_shortcuts && (
         <Button
           data-testid="keyboard-shortcuts"
           margin="0 small 0 0"

@@ -19,7 +19,7 @@
 import $ from 'jquery'
 import {omit, defer, pick} from 'lodash'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import * as tz from '@canvas/datetime'
+import * as tz from '@instructure/moment-utils'
 import moment from 'moment-timezone'
 import Backbone from '@canvas/backbone'
 import React from 'react'
@@ -32,7 +32,7 @@ import unflatten from 'obj-unflatten'
 import deparam from 'deparam'
 import coupleTimeFields from '@canvas/calendar/jquery/coupleTimeFields'
 import {renderDeleteCalendarEventDialog} from '@canvas/calendar/react/RecurringEvents/DeleteCalendarEventDialog'
-import datePickerFormat from '@canvas/datetime/datePickerFormat'
+import datePickerFormat from '@instructure/moment-utils/datePickerFormat'
 import CalendarConferenceWidget from '@canvas/calendar-conferences/react/CalendarConferenceWidget'
 import filterConferenceTypes from '@canvas/calendar-conferences/filterConferenceTypes'
 import FrequencyPicker, {
@@ -46,6 +46,8 @@ import {
 } from '@canvas/calendar/react/RecurringEvents/FrequencyPicker/utils'
 import {CommonEventShowError} from '@canvas/calendar/jquery/CommonEvent/CommonEvent'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import EditCalendarEventHeader from '../../react/components/EditCalendarEventHeader'
+import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
 
 const I18n = useI18nScope('calendar.edit')
 
@@ -258,6 +260,18 @@ export default class EditCalendarEventView extends Backbone.View {
     }
   }
 
+  renderHeaderComponent() {
+    const title =
+      this.model.id == null
+        ? I18n.t('Create New Calendar Event')
+        : I18n.t('Edit %{title}', {title: this.model.get('title')})
+
+    ReactDOM.render(
+      <EditCalendarEventHeader title={title} />,
+      document.getElementById('header_component_root')
+    )
+  }
+
   renderRecurringEventFrequencyPicker() {
     if (!this.model.get('use_section_dates')) {
       const pickerNode = document.getElementById('recurring_event_frequency_picker')
@@ -299,6 +313,7 @@ export default class EditCalendarEventView extends Backbone.View {
 
   afterRender() {
     this.handleFrequencyChange = this._handleFrequencyChange.bind(this)
+    this.renderHeaderComponent()
     this.renderRecurringEventFrequencyPicker()
     this.showDuplicates(this.model.get('use_section_dates'))
 
@@ -331,10 +346,13 @@ export default class EditCalendarEventView extends Backbone.View {
 
   render() {
     super.render(...arguments)
-    this.$('.date_field').date_field({
+    renderDatetimeField(this.$('.date_field'), {
+      dateOnly: true,
       datepicker: {dateFormat: datePickerFormat(I18n.t('#date.formats.default'))},
     })
-    this.$('.time_field').time_field()
+    renderDatetimeField($('.time_field'), {
+      timeOnly: true,
+    })
     this.$('.date_start_end_row').each((_unused, row) => {
       const date = $('.start_date', row).first()
       const start = $('.start_time', row).first()
@@ -417,6 +435,7 @@ export default class EditCalendarEventView extends Backbone.View {
       delUrl: this.model.url(),
       isRepeating: !!this.model.get('series_uuid'),
       isSeriesHead: !!this.model.get('series_head'),
+      eventType: event.eventType,
     })
   }
 
@@ -481,7 +500,7 @@ export default class EditCalendarEventView extends Backbone.View {
             return true
           }
         },
-        labelFn(input) {
+        labelFn(_index, input) {
           return $(input).parents('.date_start_end_row').prev('label').text()
         },
         success: $dialog => {
@@ -554,7 +573,7 @@ export default class EditCalendarEventView extends Backbone.View {
   async saveEvent(eventData) {
     RichContentEditor.closeRCE(this.$('textarea'))
 
-    if (this.model.get('series_uuid')) {
+    if (this.model.get('series_uuid') && this.model.get('rrule')) {
       const which = await renderUpdateCalendarEventDialog(this.model.attributes)
       if (which === undefined) return
       this.model.set('which', which)
@@ -643,10 +662,7 @@ export default class EditCalendarEventView extends Backbone.View {
     }
 
     data.important_dates = this.$el.find('#calendar_event_important_dates').prop('checked')
-
-    if (this.model.get('rrule')) {
-      data.rrule = this.model.get('rrule')
-    }
+    data.rrule = this.model.get('rrule')
     return data
   }
 

@@ -57,7 +57,7 @@
     <%= t("This assignment does not count toward the final grade.") %>
   </div>
 <% end %>
-<div id="assignment_show" class="assignment content_underline_links">
+<div id="assignment_show" class="assignment content_underline_links" data-lti-page-content="true">
   <% if can_do(@context, @current_user, :read_as_admin) %>
     <div class='assignment-title'>
       <div class='title-content'>
@@ -71,9 +71,8 @@
           data-id='<%= @assignment.id %>'
           class='btn <%= "published" if @assignment.published? %> <%= "disabled" unless assignment_publishing_enabled?(@assignment, @current_user) %>'>
         </button>
-        <% if @context.grants_any_right?(@current_user, :manage_assignments_edit) && Account.site_admin.feature_enabled?(:differentiated_modules)%>
-          <a
-            href="#<%= @assignment.id %>"
+        <% if @assignment.grants_right?(@current_user, :manage_assign_to) && Account.site_admin.feature_enabled?(:selective_release_ui_api) %>
+          <button
             class='btn assign-to-link'
             data-assignment-name="<%= @assignment.title %>"
             data-assignment-context-id="<%= @assignment.context_id %>"
@@ -81,7 +80,7 @@
             data-assignment-points-possible="<%= @assignment.points_possible %>"
           >
             <i class='icon-permissions'></i> <%= t('Assign To') %>
-          </a>
+          </button>
         <% end %>
         <% if @context.grants_any_right?(@current_user, :manage_assignments, :manage_assignments_edit) %>
           <a href="<%= edit_polymorphic_path([@context, @assignment]) %>" class='btn edit_assignment_link<%= ' disabled' unless can_do(@assignment, @current_user, :update) %>'>
@@ -112,7 +111,7 @@
             <% if @can_link_to_speed_grader %>
               <li id="speed-grader-link-container" role="presentation" class='<%= "hidden" unless @assignment.published? %>'>
                 <a href="<%= context_url(@context, :speed_grader_context_gradebook_url, :assignment_id => @assignment.id) %>" class="speed-grader-link-assignment icon-speed-grader">
-                  <%= t(:speed_grader, "SpeedGrader™") %>
+                  <%= t(:speed_grader, "SpeedGrader") %>
                 </a>
               </li>
             <% end %>
@@ -158,6 +157,10 @@
 
   <div class="clear"></div>
 
+  <% if @current_user_submission&.has_submission? && @domain_root_account&.feature_enabled?(:lti_before_assignment_results) %>
+  <div id="assignment_external_tools"></div>
+  <% end %>
+
   <% description = @assignment.description.present? ? public_user_content(@assignment.description) : t("No additional details were added for this assignment.") %>
 
   <% if @assignment.annotated_document? %>
@@ -168,7 +171,7 @@
     </div>
   <% end %>
 
-  <div class="description user_content <%= can_do(@context, @current_user, :read_as_admin) ? "teacher-version" : "" %>"><%= description %></div>
+  <div class="description user_content <%= can_do(@context, @current_user, :read_as_admin) ? "teacher-version" : "" %>" data-resource-type="assignment.body" data-resource-id=<%= @assignment.id %>><%= description %></div>
 
   <% if can_do(@context, @current_user, :read_as_admin) %>
     <!--Teacher view-->
@@ -224,7 +227,7 @@
       </fieldset>
     </form>
 
-    <% if @context.account.feature_enabled?(:course_paces) && @context.enable_course_paces? && @assignment.context_module_tags.length > 0 %>
+    <% if @context.account.feature_enabled?(:course_paces) && @context.enable_course_paces? && @assignment.context_module_tags.size > 0 %>
       <div id="course_paces_due_date_notice"></div>
     <% else %>
       <table class="ic-Table assignment_dates">

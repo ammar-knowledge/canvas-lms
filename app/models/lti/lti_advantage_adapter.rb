@@ -123,7 +123,7 @@ module Lti
     # app/controllers/lti/ims/authentication_controller.rb
     def generate_post_payload_for_student_context_card(student_id:)
       @opts[:student_id] = student_id
-      login_request(resource_link_request.generate_post_payload)
+      login_request(resource_link_request.to_cached_hash)
     end
 
     # Generates a login request pointing to a general-use
@@ -170,19 +170,25 @@ module Lti
     def generate_lti_params
       if resource_type&.to_sym == :course_assignments_menu &&
          !@context.root_account.feature_enabled?(:lti_multiple_assignment_deep_linking)
-        return resource_link_request.generate_post_payload
+        return resource_link_request.to_cached_hash
       end
 
       if resource_type&.to_sym == :module_index_menu_modal &&
          !@context.root_account.feature_enabled?(:lti_deep_linking_module_index_menu_modal)
-        return resource_link_request.generate_post_payload
+        return resource_link_request.to_cached_hash
       end
 
       message_type = @tool.extension_setting(resource_type, :message_type)
+      unless Lti::ResourcePlacement.supported_message_type?(resource_type, message_type)
+        e = Lti::InvalidMessageTypeForPlacementError.new
+        CanvasErrors.capture(e, { tags: { developer_key_id: @tool.global_developer_key_id } }, :error)
+        # We explicitly want to stop the launch at this point.
+        raise e
+      end
       if message_type == LtiAdvantage::Messages::DeepLinkingRequest::MESSAGE_TYPE
-        deep_linking_request.generate_post_payload
+        deep_linking_request.to_cached_hash
       else
-        resource_link_request.generate_post_payload
+        resource_link_request.to_cached_hash
       end
     end
 
@@ -209,7 +215,6 @@ module Lti
       Canvas::Security.create_jwt(
         {
           verifier:,
-          debug_trace: @opts[:lti_launch_debug_logger]&.generate_debug_trace,
           canvas_domain: @opts[:domain],
           context_type: @context.class,
           context_id: @context.global_id,

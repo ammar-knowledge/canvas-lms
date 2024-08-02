@@ -47,14 +47,13 @@
     INST = <%= benchmark("rendering INST") { raw(inst_env.to_json) } %>;
     ENV = <%= benchmark("rendering ENV") { raw(render_js_env) } %>;
     BRANDABLE_CSS_HANDLEBARS_INDEX = <%= benchmark("rendering BRANDABLE_CSS_HANDLEBARS_INDEX") { raw(BrandableCSS.handlebars_index_json) } %>
+    REMOTES = <%= benchmark("rendering REMOTES") { raw(remote_env.to_json) } %>;
   </script>
   <%= benchmark("include_head_js") { include_head_js } %>
   <% @xhrs_to_prefetch_from_controller&.each do |(args, kwargs)| -%>
     <%= prefetch_xhr(*args, **kwargs) %>
   <% end -%>
   <% if @include_recaptcha %><script src="https://www.google.com/recaptcha/api.js?render=explicit&hl=<%= I18n.locale %>" async></script><% end %>
-  <% if fullstory_enabled_for_session?(session) %><% end %>
-  <%= render :partial => "shared/fullstory_snippet" %>
   <% if load_heap? %><%= render :partial => "shared/heap_js" %><% end %>
   <% if load_hotjar? %><%= render :partial => "shared/hotjar_js" %><% end %>
 </head>

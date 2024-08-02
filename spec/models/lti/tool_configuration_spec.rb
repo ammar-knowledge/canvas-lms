@@ -37,6 +37,17 @@ module Lti
     let(:tool_configuration) { described_class.new(settings:) }
     let(:developer_key) { DeveloperKey.create }
 
+    def make_placement(type, message_type, extra = {})
+      {
+        "target_link_uri" => "http://example.com/launch?placement=#{type}",
+        "text" => "Test Title",
+        "message_type" => message_type,
+        "icon_url" => "https://static.thenounproject.com/png/131630-211.png",
+        "placement" => type.to_s,
+        **extra
+      }
+    end
+
     describe "validations" do
       subject { tool_configuration.save }
 
@@ -48,17 +59,28 @@ module Lti
 
         it { is_expected.to be true }
 
-        context "with a valid submission_type_selection_launch_points" do
+        context "with a description property at the submission_type_selection placement" do
           let(:settings) do
-            super().tap do |c|
-              c["extensions"].first["settings"]["submission_type_selection_launch_points"] = [
-                {
-                  "target_link_uri" => "http://example.com/launch?placement=submission_type_selection",
-                  "title" => "Test Title",
-                  "icon_url" => "https://static.thenounproject.com/png/131630-211.png",
-                  "description" => "Test Description"
-                }
-              ]
+            super().tap do |res|
+              res["extensions"].first["settings"]["placements"] << make_placement(
+                :submission_type_selection,
+                "LtiDeepLinkingRequest",
+                "description" => "Test Description"
+              )
+            end
+          end
+
+          it { is_expected.to be true }
+        end
+
+        context "with a require_resource_selection property at the submission_type_selection placement" do
+          let(:settings) do
+            super().tap do |res|
+              res["extensions"].first["settings"]["placements"] << make_placement(
+                :submission_type_selection,
+                "LtiDeepLinkingRequest",
+                "require_resource_selection" => true
+              )
             end
           end
 
@@ -67,50 +89,51 @@ module Lti
       end
 
       context "with non-matching schema" do
-        let(:settings) do
-          s = super()
-          s.delete("target_link_uri")
-          s
-        end
-
         before do
           tool_configuration.developer_key = developer_key
         end
 
-        it { is_expected.to be false }
+        context "a missing target_link_uri" do
+          let(:settings) do
+            s = super()
+            s.delete("target_link_uri")
+            s
+          end
 
-        it "is contains a message about missing target_link_uri" do
-          tool_configuration.valid?
-          expect(tool_configuration.errors[:configuration].first.message).to include("target_link_uri,")
-        end
-      end
+          it { is_expected.to be false }
 
-      context "with an invalid submission_type_selection_launch_points" do
-        let(:settings) do
-          s = super()
-          s["extensions"].first["settings"]["placements"] << {
-            "placement" => "submission_type_selection",
-            "message_type" => "LtiResourceLinkRequest",
-            "submission_type_selection_launch_points" => [{
-              # Invalid target_link_uri
-              "target_link_uri" => "",
-              "title" => 4,
-              "icon_url" => "https://static.thenounproject.com/png/131630-211.png",
-              "description" => "Test Description"
-            }]
-          }
-          s
+          it "contains a message about a missing target_link_uri" do
+            tool_configuration.valid?
+            expect(tool_configuration.errors[:configuration].first.message).to include("target_link_uri,")
+          end
         end
 
-        before do
-          tool_configuration.developer_key = developer_key
+        context "when the submission_type_selection description is longer than 255 characters" do
+          let(:settings) do
+            super().tap do |s|
+              s["extensions"].first["settings"]["placements"] << make_placement(
+                :submission_type_selection,
+                "LtiDeepLinkingRequest",
+                "description" => "a" * 256
+              )
+            end
+          end
+
+          it { is_expected.to be false }
         end
 
-        it { is_expected.to be false }
+        context "when the submission_type_selection require_resource_selection is of the wrong type" do
+          let(:settings) do
+            super().tap do |s|
+              s["extensions"].first["settings"]["placements"] << make_placement(
+                :submission_type_selection,
+                "LtiDeepLinkingRequest",
+                "require_resource_selection" => "true"
+              )
+            end
+          end
 
-        it "contains a message about invalid submission_type_selection placement" do
-          tool_configuration.valid?
-          expect(tool_configuration.errors[:configuration].first.message).to include("submission_type_selection")
+          it { is_expected.to be false }
         end
       end
 
@@ -162,6 +185,25 @@ module Lti
         before { tool_configuration.disabled_placements = ["invalid_placement", "account_navigation"] }
 
         it { is_expected.to be false }
+      end
+
+      context "when one of the configured placements has an unsupported message_type" do
+        before do
+          tool_configuration.developer_key = developer_key
+          tool_configuration.settings["extensions"].first["settings"]["placements"] = [
+            {
+              "placement" => "account_navigation",
+              "message_type" => "LtiDeepLinkingRequest",
+            }
+          ]
+        end
+
+        it { is_expected.to be false }
+
+        it "includes a friendly error message" do
+          subject
+          expect(tool_configuration.errors[:placements].first.message).to include("does not support message type")
+        end
       end
 
       context "when extensions have non-Canvas platform" do
@@ -273,6 +315,83 @@ module Lti
         it "does not call update_external_tools! on the developer key" do
           expect(developer_key).not_to receive(:update_external_tools!)
           subject
+        end
+      end
+    end
+
+    describe "after_save" do
+      let(:unified_tool_id) { "unified_tool_id_12345" }
+
+      subject { tool_configuration }
+
+      before do
+        tool_configuration.developer_key = developer_key
+      end
+
+      context "update_unified_tool_id FF is on" do
+        before do
+          tool_configuration.developer_key.root_account.enable_feature!(:update_unified_tool_id)
+        end
+
+        it "calls the LearnPlatform::GlobalApi service and update the unified_tool_id attribute" do
+          allow(LearnPlatform::GlobalApi).to receive(:get_unified_tool_id).and_return(unified_tool_id)
+          subject.save
+          run_jobs
+          expect(LearnPlatform::GlobalApi).to have_received(:get_unified_tool_id).with(
+            { lti_domain: settings["extensions"].first["domain"],
+              lti_name: settings["title"],
+              lti_tool_id: settings["extensions"].first["tool_id"],
+              lti_url: settings["target_link_uri"],
+              lti_version: "1.3" }
+          )
+          tool_configuration.reload
+          expect(tool_configuration.unified_tool_id).to eq(unified_tool_id)
+        end
+
+        it "starts a background job to update the unified_tool_id" do
+          expect do
+            subject.save
+          end.to change(Delayed::Job, :count).by(1)
+        end
+
+        context "when the configuration is already existing" do
+          before do
+            subject.save
+            run_jobs
+          end
+
+          context "when the configuration's settings changed" do
+            it "calls the LearnPlatform::GlobalApi service" do
+              allow(LearnPlatform::GlobalApi).to receive(:get_unified_tool_id)
+              subject.settings["title"] = "new title"
+              subject.save
+              run_jobs
+              expect(LearnPlatform::GlobalApi).to have_received(:get_unified_tool_id)
+            end
+          end
+
+          context "when the configuration's privacy_level changed" do
+            it "does not call the LearnPlatform::GlobalApi service" do
+              allow(LearnPlatform::GlobalApi).to receive(:get_unified_tool_id)
+              subject.privacy_level = "new privacy_level"
+              subject.save
+              run_jobs
+              expect(LearnPlatform::GlobalApi).not_to have_received(:get_unified_tool_id)
+            end
+          end
+        end
+      end
+
+      context "update_unified_tool_id FF is off" do
+        before do
+          tool_configuration.developer_key.root_account.disable_feature!(:update_unified_tool_id)
+        end
+
+        it "does not call the LearnPlatform::GlobalApi service" do
+          allow(LearnPlatform::GlobalApi).to receive(:get_unified_tool_id)
+          subject
+          run_jobs
+          expect(LearnPlatform::GlobalApi).not_to have_received(:get_unified_tool_id)
         end
       end
     end
@@ -648,6 +767,78 @@ module Lti
 
       it "returns the appropriate placements" do
         expect(subject).to eq(settings["extensions"].first["settings"]["placements"])
+      end
+    end
+
+    describe "domain" do
+      subject { tool_configuration.domain }
+
+      it { is_expected.to eq(settings["extensions"].first["domain"]) }
+    end
+
+    describe "verify_placements" do
+      subject { tool_configuration.verify_placements }
+
+      before do
+        tool_configuration.developer_key = developer_key
+        tool_configuration.save!
+      end
+
+      context "when the lti_placement_restrictions feature flag is disabled" do
+        before do
+          Account.site_admin.disable_feature!(:lti_placement_restrictions)
+        end
+
+        it { is_expected.to be_nil }
+      end
+
+      %w[submission_type_selection top_navigation].each do |placement|
+        context "when the lti_placement_restrictions feature flag is enabled" do
+          before do
+            Account.site_admin.enable_feature!(:lti_placement_restrictions)
+          end
+
+          it "returns nil when there are no #{placement} placements" do
+            expect(subject).to be_nil
+          end
+
+          context "when the configuration has a #{placement} placement" do
+            let(:tool_configuration) do
+              super().tap do |tc|
+                tc.settings["extensions"].first["settings"]["placements"] <<
+                  make_placement(placement, "LtiResourceLinkRequest")
+              end
+            end
+
+            it { is_expected.to include("Warning").and include(placement) }
+
+            context "when the tool is allowed to use the #{placement} placement through it's dev key" do
+              before do
+                Setting.set("#{placement}_allowed_dev_keys", tool_configuration.developer_key.global_id.to_s)
+              end
+
+              it { is_expected.to be_nil }
+            end
+
+            context "when the tool is allowed to use the #{placement} placement through it's domain" do
+              before do
+                Setting.set("#{placement}_allowed_launch_domains", tool_configuration.domain)
+              end
+
+              it { is_expected.to be_nil }
+            end
+
+            context "when the tool has no domain and domain list is containing an empty space" do
+              before do
+                allow(tool_configuration).to receive_messages(domain: "", developer_key_id: nil)
+                Setting.set("#{placement}_allowed_launch_domains", ", ,,")
+                Setting.set("#{placement}_allowed_dev_keys", ", ,,")
+              end
+
+              it { is_expected.to include("Warning").and include(placement) }
+            end
+          end
+        end
       end
     end
 

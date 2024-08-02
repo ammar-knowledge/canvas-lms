@@ -24,18 +24,13 @@ module Canvas::Security
   # whether we should allow a given login attempt
   #
   # "allow_login_attempt" returns false if there have been too
-  # many recent failed attempts for the provided pseudonym. Failed attempts are tracked
-  # by both (pseudonym) and (pseudonym, requesting_ip) , with the latter having
-  # a lower threshold. This way a malicious user can't trivially lock out
-  # another user by just making a bunch of bogus requests, they'll be blocked
-  # themselves first. A distributed attack would still succeed in locking out
-  # the user.
+  # many recent failed attempts for the provided pseudonym. Failed attempts
+  # are tracked by pseudonym.
   #
-  # in redis this is stored as a hash :
-  # { 'unique_id' => pseudonym.unique_id, # for debugging
+  # in redis this is stored as a hash:
+  # for debugging purposes, the key is "login_attempts:<global_id>"
+  # { 'unique_id' => pseudonym.unique_id,
   #   'total' => <total failed attempts>,
-  #   some_ip => <failed attempts for this ip>,
-  #   some_other_ip => <failed attempts for this ip>,
   #   ...
   # }
   module LoginRegistry
@@ -44,6 +39,12 @@ module Canvas::Security
     def self.redis
       Canvas.redis
     end
+
+    WARNING_ATTEMPTS = {
+      remaining_attempts_2: 2,
+      remaining_attempts_1: 1,
+      final_attempt: 0,
+    }.freeze
 
     ##
     # this is the expected interface for the rest of the application.
@@ -54,31 +55,61 @@ module Canvas::Security
     # identifier as the first parameter and making sure it IS the global id?
     #
     # @param [Pseudonym] pseudonym Pseudonym model instance with global_id and unique_id methods
-    # @param [String] remote_ip the IP the login attempt originated from
     # @param [Boolean] valid_password whether the provided credentials were valid for this user
     #
-    # @return [:too_many_attempts, :too_recent_login, nil] :too_many_attempts if login is prohibited, nil if it's fine to proceed
-    def self.audit_login(pseudonym, remote_ip, valid_password)
-      return :too_many_attempts unless allow_login_attempt?(pseudonym, remote_ip)
+    # @return [:too_many_attempts, :too_recent_login, nil] :too_many_attempts if login is prohibited,
+    # :too_recent_login if too many successful logins in succession, nil if it's fine to proceed
+    def self.audit_login(pseudonym, valid_password)
+      if pseudonym&.account&.allow_login_suspension?
+        attempt = allow_login_attempt?(pseudonym)
+
+        return attempt if WARNING_ATTEMPTS.key?(attempt)
+      else
+        return :too_many_attempts unless allow_login_attempt?(pseudonym)
+      end
 
       if valid_password
         return :too_recent_login if recently_logged_in?(pseudonym)
 
         successful_login!(pseudonym)
       else
-        failed_login!(pseudonym, remote_ip)
+        failed_login!(pseudonym)
       end
       nil
     end
 
-    def self.allow_login_attempt?(pseudonym, ip)
+    def self.allow_login_attempt?(pseudonym)
       return true unless Canvas.redis_enabled? && pseudonym
 
-      ip.present? || ip = "no_ip"
-      total_allowed = Setting.get("login_attempts_total", "20").to_i
-      ip_allowed = Setting.get("login_attempts_per_ip", "10").to_i
-      total, from_this_ip = redis.hmget(login_attempts_key(pseudonym), "total", ip, failsafe: nil)
-      (!total || total.to_i < total_allowed) && (!from_this_ip || from_this_ip.to_i < ip_allowed)
+      max_attempts_hard_limit = Canvas::Security::PasswordPolicy::MAX_LOGIN_ATTEMPTS.to_i
+      max_attempts = pseudonym.account.password_policy[:maximum_login_attempts].to_i
+
+      # if the lower or upper bound setting is invalid, fall back to the default value
+      if max_attempts <= 0 || max_attempts > max_attempts_hard_limit
+        max_attempts = Canvas::Security::PasswordPolicy::DEFAULT_LOGIN_ATTEMPTS.to_i
+      end
+
+      total, _count = redis.hmget(login_attempts_key(pseudonym), "total", failsafe: nil)
+      total = total.to_i
+
+      if pseudonym.account.allow_login_suspension?
+        return :final_attempt if total > max_attempts
+
+        difference = (max_attempts - total).abs
+        case difference
+        when 3
+          failed_login!(pseudonym)
+          return :remaining_attempts_2
+        when 2
+          failed_login!(pseudonym)
+          return :remaining_attempts_1
+        when 1
+          pseudonym.suspend! if pseudonym.active?
+          return :final_attempt
+        end
+      end
+
+      total < max_attempts
     end
 
     def self.recently_logged_in?(pseudonym)
@@ -104,7 +135,7 @@ module Canvas::Security
     end
 
     # log a failed login attempt
-    def self.failed_login!(pseudonym, ip)
+    def self.failed_login!(pseudonym)
       return unless Canvas.redis_enabled? && pseudonym
 
       key = login_attempts_key(pseudonym)
@@ -112,14 +143,13 @@ module Canvas::Security
       redis.pipelined(key, failsafe: nil) do |pipeline|
         pipeline.hset(key, "unique_id", pseudonym.unique_id)
         pipeline.hincrby(key, "total", 1)
-        pipeline.hincrby(key, ip, 1) if ip.present?
         pipeline.expire(key, exptime)
       end
     end
 
     # returns time in seconds
-    def self.time_until_login_allowed(pseudonym, ip)
-      if allow_login_attempt?(pseudonym, ip)
+    def self.time_until_login_allowed(pseudonym)
+      if allow_login_attempt?(pseudonym)
         0
       else
         redis.ttl(login_attempts_key(pseudonym), failsafe: 0)

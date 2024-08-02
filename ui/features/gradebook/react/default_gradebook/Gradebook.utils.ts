@@ -46,7 +46,6 @@ import type {
 import type {
   Assignment,
   AssignmentGroup,
-  GradingPeriod,
   MissingSubmission,
   Module,
   Section,
@@ -61,6 +60,7 @@ import type {GridColumn, SlickGridKeyboardEvent} from './grid'
 import {columnWidths} from './initialState'
 import SubmissionStateMap from '@canvas/grading/SubmissionStateMap'
 import type {GradeStatus} from '@canvas/grading/accountGradingStatus'
+import type {CamelizedGradingPeriod} from '@canvas/grading/grading'
 
 const I18n = useI18nScope('gradebook')
 
@@ -81,7 +81,7 @@ export function compareAssignmentDueDates(assignment1: GridColumn, assignment2: 
 
 export function ensureAssignmentVisibility(assignment: Assignment, submission: Submission) {
   if (
-    assignment?.only_visible_to_overrides &&
+    assignment?.visible_to_everyone === false &&
     !assignment.assignment_visibility.includes(submission.user_id)
   ) {
     return assignment.assignment_visibility.push(submission.user_id)
@@ -136,6 +136,10 @@ export function getGradeAsPercent(grade: {score?: number | null; possible: numbe
 
 export function getStudentGradeForColumn(student: GradebookStudent, field: string) {
   return student[field] || {score: null, possible: 0}
+}
+
+export function idArraysEqual(idArray1: string[], idArray2: string[]): boolean {
+  return [...idArray1].sort().join() === [...idArray2].sort().join()
 }
 
 export function htmlDecode(input?: string): string | null {
@@ -338,7 +342,7 @@ export const getCustomStatusIdStrings = (customStatuses: GradeStatus[]): CustomS
 export const getLabelForFilter = (
   filter: Filter,
   assignmentGroups: Pick<AssignmentGroup, 'id' | 'name'>[],
-  gradingPeriods: Pick<GradingPeriod, 'id' | 'title'>[],
+  gradingPeriods: CamelizedGradingPeriod[],
   modules: Pick<Module, 'id' | 'name'>[],
   sections: Pick<Section, 'id' | 'name'>[],
   studentGroupCategories: StudentGroupCategoryMap,
@@ -358,7 +362,10 @@ export const getLabelForFilter = (
     return assignmentGroups.find(a => a.id === filter.value)?.name || I18n.t('Assignment Group')
   } else if (filter.type === 'grading-period') {
     if (filter.value === '0') return I18n.t('All Grading Periods')
-    return gradingPeriods.find(g => g.id === filter.value)?.title || I18n.t('Grading Period')
+    return (
+      formatGradingPeriodTitleForDisplay(gradingPeriods.find(g => g.id === filter.value)) ||
+      I18n.t('Grading Period')
+    )
   } else if (filter.type === 'student-group') {
     const studentGroups: StudentGroup[] = Object.values(studentGroupCategories)
       .map((c: StudentGroupCategory) => c.groups)
@@ -448,9 +455,14 @@ export function buildStudentColumn(
   gradebookColumnSizeSetting: string,
   defaultWidth: number
 ): GridColumn {
-  const studentColumnWidth = gradebookColumnSizeSetting
+  let studentColumnWidth = gradebookColumnSizeSetting
     ? parseInt(gradebookColumnSizeSetting, 10)
     : defaultWidth
+  if (Number.isNaN(studentColumnWidth)) {
+    studentColumnWidth = defaultWidth
+    // eslint-disable-next-line no-console
+    console.warn('invalid student column width')
+  }
   return {
     cssClass: 'meta-cell primary-column student',
     headerCssClass: 'primary-column student',
@@ -576,8 +588,13 @@ export function escapeStudentContent(student: Student) {
   const unescapedFirstName = student.first_name
   const unescapedLastName = student.last_name
 
-  // TODO: selectively escape fields
-  const escapedStudent: Student = htmlEscape<Student>(student)
+  for (const key in student) {
+    if (Object.prototype.hasOwnProperty.call(student, key)) {
+      ;(student as any)[key] = htmlEscape((student as any)[key])
+    }
+  }
+  const escapedStudent: Student = student
+
   escapedStudent.name = unescapedName
   escapedStudent.sortable_name = unescapedSortableName
   escapedStudent.first_name = unescapedFirstName
@@ -797,4 +814,32 @@ export const filterAssignmentsBySubmissionsFn = (
     )
     return result
   }
+}
+export function formatGradingPeriodTitleForDisplay(
+  gradingPeriod:
+    | Pick<CamelizedGradingPeriod, 'title' | 'startDate' | 'endDate' | 'closeDate'>
+    | undefined
+    | null
+) {
+  if (!gradingPeriod) return null
+
+  let title = gradingPeriod.title
+
+  if (ENV.GRADEBOOK_OPTIONS?.grading_periods_filter_dates_enabled) {
+    const formatter = Intl.DateTimeFormat(I18n.currentLocale(), {
+      year: '2-digit',
+      month: 'numeric',
+      day: 'numeric',
+      timeZone: ENV.TIMEZONE,
+    })
+
+    title = I18n.t('%{title}: %{start} - %{end} | %{closed}', {
+      title: gradingPeriod.title,
+      start: formatter.format(gradingPeriod.startDate),
+      end: formatter.format(gradingPeriod.endDate),
+      closed: formatter.format(gradingPeriod.closeDate),
+    })
+  }
+
+  return title
 }

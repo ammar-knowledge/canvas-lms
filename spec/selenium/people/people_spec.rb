@@ -18,6 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require_relative "../common"
+require_relative "pages/course_people_modal"
 
 describe "people" do
   include_context "in-process server selenium tests"
@@ -192,6 +193,24 @@ describe "people" do
       user_session(@student_1)
       get "/courses/#{@course.id}/users"
       expect(f("#content")).not_to contain_link("Student Interactions Report")
+    end
+
+    it "does not display resend invitation dropdown item for a student when the granular add student permission is disabled" do
+      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
+      RoleOverride.create!(context: Account.default, permission: "add_student_to_course", role: teacher_role, enabled: false)
+      get "/courses/#{@course.id}/users"
+      open_dropdown_menu("tr[id=user_#{@student_1.id}]")
+      expect_no_dropdown_item("resendInvitation", "#user_#{@student_1.id}")
+    end
+
+    it "displays the resend invitation dropdown item for student with dual roles with granular permissions enabled for one of the roles" do
+      enroll_ta(@student_1)
+      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
+      RoleOverride.create!(context: Account.default, permission: "add_student_to_course", role: teacher_role, enabled: false)
+      RoleOverride.create!(context: Account.default, permission: "add_ta_to_course", role: teacher_role, enabled: true)
+      get "/courses/#{@course.id}/users"
+      open_dropdown_menu("tr[id=user_#{@student_1.id}]")
+      expect(dropdown_item_visible?("resendInvitation", "tr[id=user_#{@student_1.id}]")).to be true
     end
 
     context "when the deprecate_faculty_journal flag is disabled" do
@@ -547,11 +566,7 @@ describe "people" do
       get "/courses/#{@course.id}/users"
       f(".StudentEnrollment .icon-more").click
       fln("Edit Sections").click
-      f(".token_input.browsable").click
-      section_input_element = driver.find_element(:name, "token_capture")
-      section_input_element.send_keys("section2")
-      f(".last.context").click
-      wait_for_ajaximations
+      CoursePeople.select_from_section_autocomplete("section2")
       ff(".ui-button-text")[1].click
       wait_for_ajaximations
       expect(ff(".StudentEnrollment")[0]).to include_text("section2")
@@ -564,7 +579,7 @@ describe "people" do
       get "/courses/#{@course.id}/users"
       f(".StudentEnrollment .icon-more").click
       fln("Edit Sections").click
-      fln("Remove user from section2").click
+      find_button("Remove user from section2").click
       ff(".ui-button-text")[1].click
       wait_for_ajaximations
       expect(ff(".StudentEnrollment")[0]).not_to include_text("section2")
@@ -576,11 +591,7 @@ describe "people" do
       get "/courses/#{@course.id}/users"
       f(".DesignerEnrollment .icon-more").click
       fln("Edit Sections").click
-      f(".token_input.browsable").click
-      section_input_element = driver.find_element(:name, "token_capture")
-      section_input_element.send_keys("section2")
-      f(".last.context").click
-      wait_for_ajaximations
+      CoursePeople.select_from_section_autocomplete("section2")
       ff(".ui-button-text")[1].click
       wait_for_ajaximations
       expect(ff(".DesignerEnrollment")[0]).to include_text("section2")
@@ -616,19 +627,16 @@ describe "people" do
       expect(f("#user_sections li.cannot_remove").text).to include @course.default_section.name
 
       # add another section (not via SIS) and ensure it remains editable
-      f(".token_input.browsable").click
-      section_input_element = driver.find_element(:name, "token_capture")
-      section_input_element.send_keys("section2")
-      f(".last.context").click
-      wait_for_ajaximations
-      expect(f("a[title='Remove user from section2']")).not_to be_nil
+      CoursePeople.select_from_section_autocomplete("section2")
+      find_button("Remove user from section2")
+      expect(find_button("Remove user from section2")).not_to be_nil
       f(".ui-dialog-buttonset .btn-primary").click
       wait_for_ajaximations
 
       ff(".icon-more")[1].click
       fln("Edit Sections").click
       expect(f("#user_sections li.cannot_remove").text).to include @course.default_section.name
-      expect(f("a[title='Remove user from section2']")).not_to be_nil
+      expect(find_button("Remove user from section2")).not_to be_nil
     end
   end
 

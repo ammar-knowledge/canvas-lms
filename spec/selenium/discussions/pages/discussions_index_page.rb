@@ -40,11 +40,19 @@ class DiscussionsIndex
 
     # ---------------------- Controls ----------------------
     def filter_dropdown
-      f('select[name="filter-dropdown"]')
+      f('input[name="filter-dropdown"]')
     end
 
-    def filter_item(item_name)
-      fj("option:contains(\"#{item_name}\")")
+    def filter_dropdown_btn
+      f("button[data-testid='toggle-filter-menu']")
+    end
+
+    def filter_dropdown_item(item)
+      f("span[data-testid='menu-filter-#{item}']")
+    end
+
+    def left_nav_bar
+      f("#left-side")
     end
 
     def search_box
@@ -78,6 +86,10 @@ class DiscussionsIndex
 
     def discussion_title_css(title)
       ".ic-discussion-row:contains('#{title}')"
+    end
+
+    def discussion_header_title(title)
+      fj("h1:contains('#{title}')").text
     end
 
     def discussion_title(title)
@@ -158,6 +170,10 @@ class DiscussionsIndex
       f("#duplicate-discussion-menu-option")
     end
 
+    def assign_to_menu_option
+      f("#assignTo-discussion-menu-option")
+    end
+
     def create_discussions_checkbox
       fj("label:contains('Create discussion')")
     end
@@ -181,7 +197,12 @@ class DiscussionsIndex
     # ---------------------- Actions ----------------------
     def select_filter(filter_name)
       filter_dropdown.click
-      filter_item(filter_name).click
+      click_option(filter_dropdown, filter_name)
+    end
+
+    def select_filter_from_menu(filter_name)
+      filter_dropdown_btn.click
+      filter_dropdown_item(filter_name).click
     end
 
     def enter_search(title)
@@ -214,6 +235,11 @@ class DiscussionsIndex
       duplicate_menu_option.click
     end
 
+    def click_assign_to_menu_option(title)
+      discussion_menu(title).click
+      assign_to_menu_option.click
+    end
+
     def click_confirm_delete
       confirm_delete_button.click
     end
@@ -228,6 +254,10 @@ class DiscussionsIndex
     end
 
     def click_create_discussions_checkbox
+      create_discussions_checkbox.click
+    end
+
+    def click_assign_to_discussions_setting
       create_discussions_checkbox.click
     end
 

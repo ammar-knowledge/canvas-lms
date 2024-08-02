@@ -25,7 +25,7 @@ import authenticity_token from '@canvas/authenticity-token'
 import htmlEscape, {raw} from '@instructure/html-escape'
 import './jquery.ajaxJSON' /* ajaxJSON, defaultAjaxError */
 import './jquery.disableWhileLoading'
-import '@canvas/datetime/jquery' /* date_field, time_field, datetime_field */
+import 'jqueryui/datepicker'
 import './jquery.instructure_misc_helpers' /* /\$\.uniq/ */
 import '@canvas/rails-flash-notifications'
 import 'jquery-scroll-to-visible/jquery.scrollTo'
@@ -402,7 +402,7 @@ $.ajaxJSONFiles = function (url, submit_type, formData, files, success, error, o
   for (const idx in formData) {
     if (!fileNames[idx]) {
       const $input = $(document.createElement('input'))
-      $input.attr('type', 'hidden').attr('name', idx).attr('value', formData[idx])
+      $input.attr('type', 'hidden').attr('name', idx).prop('value', formData[idx])
       $newForm.append($input)
     }
   }
@@ -756,9 +756,9 @@ $.fn.fillFormData = function (data, opts) {
             $obj.val(val.toString())
             // eslint-disable-next-line eqeqeq
           } else if ($obj.val() == data[name]) {
-            $obj.attr('checked', true)
+            $obj.prop('checked', true)
           } else {
-            $obj.attr('checked', false)
+            $obj.prop('checked', false)
           }
           if ($obj && $obj.change && options.call_change) {
             $obj.change()
@@ -786,7 +786,7 @@ $.fn.getFormData = function (options) {
     .each(function () {
       const $input = $(this),
         inputType = $input.attr('type')
-      if ((inputType === 'radio' || inputType === 'checkbox') && !$input.attr('checked')) return
+      if ((inputType === 'radio' || inputType === 'checkbox') && !$input.prop('checked')) return
       let val = $input.val()
       if ($input.hasClass('datetime_field_enabled')) {
         val = $input.data('iso8601')

@@ -135,6 +135,11 @@ module Api::V1::Assignment
 
     if opts[:override_dates] && !assignment.new_record?
       assignment = assignment.overridden_for(user)
+      if assignment.has_sub_assignments?
+        assignment.sub_assignments = assignment.sub_assignments.map do |sub_assignment|
+          sub_assignment.overridden_for(user)
+        end
+      end
     end
 
     fields = assignment.new_record? ? API_ASSIGNMENT_NEW_RECORD_FIELDS : API_ALLOWED_ASSIGNMENT_OUTPUT_FIELDS
@@ -172,7 +177,7 @@ module Api::V1::Assignment
 
     if opts[:include_checkpoints] && assignment.root_account.feature_enabled?(:discussion_checkpoints)
       hash["has_sub_assignments"] = assignment.has_sub_assignments?
-      hash["checkpoints"] = assignment.sub_assignments.map { |sub_assignment| Checkpoint.new(sub_assignment).as_json }
+      hash["checkpoints"] = assignment.sub_assignments.map { |sub_assignment| Checkpoint.new(sub_assignment, user).as_json }
     end
 
     if opts[:overrides].present?
@@ -245,8 +250,9 @@ module Api::V1::Assignment
       tool_attributes = {
         "url" => external_tool_tag.url,
         "new_tab" => external_tool_tag.new_tab,
+        "external_data" => external_tool_tag.external_data,
         "resource_link_id" => assignment.lti_resource_link_id,
-        "external_data" => external_tool_tag.external_data
+        "resource_link_title" => assignment.primary_resource_link&.title
       }
       tool_attributes.merge!(external_tool_tag.attributes.slice("content_type", "content_id")) if external_tool_tag.content_id
       tool_attributes["custom_params"] = assignment.primary_resource_link&.custom
@@ -353,16 +359,23 @@ module Api::V1::Assignment
       )
     end
 
-    if opts[:include_all_dates] && assignment.assignment_overrides
-      override_count = if assignment.assignment_overrides.loaded?
-                         assignment.assignment_overrides.count(&:active?)
-                       else
-                         assignment.assignment_overrides.active.count
-                       end
-      if override_count < ALL_DATES_LIMIT
-        hash["all_dates"] = assignment.dates_hash_visible_to(user)
-      else
-        hash["all_dates_count"] = override_count
+    if opts[:include_all_dates]
+      overrides = assignment.has_sub_assignments? ? assignment.sub_assignment_overrides : assignment.assignment_overrides
+
+      if overrides
+        override_count = overrides.loaded? ? overrides.count(&:active?) : overrides.active.count
+
+        if assignment.has_sub_assignments? && override_count < ALL_DATES_LIMIT
+          hash["all_dates"] = []
+
+          assignment.sub_assignments.each do |sub_assignment|
+            hash["all_dates"].concat(sub_assignment.dates_hash_visible_to(user))
+          end
+        elsif override_count < ALL_DATES_LIMIT
+          hash["all_dates"] = assignment.dates_hash_visible_to(user)
+        else
+          hash["all_dates_count"] = override_count
+        end
       end
     end
 
@@ -395,6 +408,7 @@ module Api::V1::Assignment
     end
 
     hash["only_visible_to_overrides"] = value_to_boolean(assignment.only_visible_to_overrides)
+    hash["visible_to_everyone"] = assignment.visible_to_everyone
 
     if opts[:include_visibility]
       hash["assignment_visibility"] = (opts[:assignment_visibilities] || assignment.students_with_visibility.pluck(:id).uniq).map(&:to_s)
@@ -1105,7 +1119,11 @@ module Api::V1::Assignment
     end
 
     if external_tool_tag_attributes&.include?(:url)
-      assignment.lti_resource_link_url = external_tool_tag_attributes[:url]
+      assignment.lti_resource_link_url = external_tool_tag_attributes[:url].presence
+    end
+
+    if external_tool_tag_attributes&.include?(:title)
+      assignment.lti_resource_link_title = external_tool_tag_attributes[:title].presence
     end
 
     if assignment.external_tool?

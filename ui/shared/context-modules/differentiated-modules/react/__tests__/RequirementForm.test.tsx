@@ -69,7 +69,7 @@ describe('RequirementForm', () => {
 
   it('calls onAddRequirement with the first requirement free module item when the add button is clicked', () => {
     const {getByText} = renderComponent()
-    getByText('Requirement').click()
+    getByText('Add Requirement').click()
     expect(props.onAddRequirement).toHaveBeenCalledWith({
       ...props.moduleItems[2],
       type: 'view',
@@ -81,5 +81,17 @@ describe('RequirementForm', () => {
       requirements: props.moduleItems.map(moduleItem => ({...moduleItem, type: 'view'})),
     })
     expect(queryByText('Requirement')).not.toBeInTheDocument()
+    expect(queryByText('Add Requirement')).not.toBeInTheDocument()
+  })
+
+  it('ignores invalid items', () => {
+    const requirements = props.moduleItems.map(moduleItem => ({...moduleItem, type: 'view'}))
+    const moduleItems = [...props.moduleItems, {id: '4', name: '', resource: undefined}]
+    const {queryByText} = renderComponent({
+      requirements,
+      moduleItems,
+    })
+    expect(queryByText('Requirement')).not.toBeInTheDocument()
+    expect(queryByText('Add Requirement')).not.toBeInTheDocument()
   })
 })

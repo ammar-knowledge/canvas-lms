@@ -26,6 +26,9 @@ module ApplicationHelper
   include Canvas::LockExplanation
   include DatadogRumHelper
   include NewQuizzesFeaturesHelper
+  include HeapHelper
+
+  BYTE_UNITS = %w[B KB MB GB TB PB EB ZB YB].freeze
 
   def context_user_name_display(user)
     name = user.try(:short_name) || user.try(:name)
@@ -36,11 +39,12 @@ module ApplicationHelper
     return nil unless user
     return context_user_name_display(user) if user.respond_to?(:short_name)
 
-    user_id = user.is_a?(OpenObject) ? user.id : user
+    user_id = user.is_a?(User) ? user.id : user
     Rails
       .cache
       .fetch(["context_user_name", context, user_id].cache_key, { expires_in: 15.minutes }) do
-        context_user_name_display(User.find(user_id))
+        user = User.find_by(id: user_id)
+        user && context_user_name_display(user)
       end
   end
 
@@ -195,7 +199,7 @@ module ApplicationHelper
     # if there is a moment locale besides english set, put a script tag for it
     # so it is loaded and ready before we run any of our app code
     if js_env[:MOMENT_LOCALE] && js_env[:MOMENT_LOCALE] != "en"
-      paths << ::Canvas::Cdn.registry.scripts_for(
+      paths += ::Canvas::Cdn.registry.scripts_for(
         "moment/locale/#{js_env[:MOMENT_LOCALE]}"
       )
     end
@@ -515,6 +519,13 @@ module ApplicationHelper
     global_inst_object
   end
 
+  def remote_env(hash = nil)
+    @remote_env ||= {}
+    @remote_env.merge!(hash) if hash
+
+    @remote_env
+  end
+
   def editor_buttons
     # called outside of Lti::ContextToolFinder to make sure that
     # @context is non-nil and also a type of Context that would have
@@ -531,9 +542,14 @@ module ApplicationHelper
         # force the YAML to be deserialized before caching, since it's expensive
         tools.each(&:settings)
       end
+
+    # Default tool icons need to have a hostname (cannot just be a path)
+    # because they are used externally via ServicesApiController endpoints
+    default_icon_base_url = "#{request.protocol}#{request.host_with_port}"
+
     ContextExternalTool
       .shard(@context.shard)
-      .editor_button_json(cached_tools.dup, @context, @current_user, session)
+      .editor_button_json(cached_tools.dup, @context, @current_user, session, default_icon_base_url)
   end
 
   def nbsp
@@ -922,15 +938,15 @@ module ApplicationHelper
   end
 
   def dashboard_url(opts = {})
-    return super(opts) if opts[:login_success] || opts[:become_user_id] || @domain_root_account.nil?
+    return super if opts[:login_success] || opts[:become_user_id] || @domain_root_account.nil?
 
-    custom_dashboard_url || super(opts)
+    custom_dashboard_url || super
   end
 
   def dashboard_path(opts = {})
-    return super(opts) if opts[:login_success] || opts[:become_user_id] || @domain_root_account.nil?
+    return super if opts[:login_success] || opts[:become_user_id] || @domain_root_account.nil?
 
-    custom_dashboard_url || super(opts)
+    custom_dashboard_url || super
   end
 
   def custom_dashboard_url
@@ -1135,6 +1151,8 @@ module ApplicationHelper
   end
 
   def planner_enabled?
+    return false if @current_user&.student_in_limited_access_account?
+
     !!@current_user&.has_student_enrollment? ||
       (@current_user&.roles(@domain_root_account)&.include?("observer") && k5_user?) ||
       !!@current_user&.roles(@domain_root_account)&.include?("observer") # TODO: ensure observee is a student?
@@ -1402,19 +1420,33 @@ module ApplicationHelper
     hash[:DEFAULT_DUE_TIME] = context.default_due_time if context&.default_due_time.present? && context.root_account.feature_enabled?(:default_due_time)
   end
 
-  def find_heap_application_id
-    DynamicSettings.find(tree: :private)[:heap_app_id, failsafe: nil]
-  end
-
-  def load_heap?
-    find_heap_application_id && @domain_root_account&.feature_enabled?(:send_usage_metrics)
-  end
-
   def load_hotjar?
     # Only load hotjar UX survey tool for the Learner Passport prototype
     # Skip it in production and development environments, include it for Beta & CD
     controller.controller_name == "learner_passport" &&
       Canvas.environment !~ /(production|development)/ &&
       @domain_root_account&.feature_enabled?(:learner_passport)
+  end
+
+  def number_to_human_size_mb(number, options = {})
+    return "0 #{BYTE_UNITS[0]}" unless number.present?
+
+    base = (options[:base] || 1000).to_f
+
+    if number.to_i < base
+      exponent = 0
+    else
+      max_exp = BYTE_UNITS.size - 1
+      exponent = (Math.log(number) / Math.log(base)).to_i
+      exponent = max_exp if exponent > max_exp
+    end
+
+    number /= base**exponent
+
+    formatted_number = number.round(options[:precision] || 2) if options[:round]
+
+    formatted_number ||= number.truncate(options[:precision] || 2)
+
+    "#{formatted_number} #{BYTE_UNITS[exponent]}"
   end
 end

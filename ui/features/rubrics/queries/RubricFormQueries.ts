@@ -28,13 +28,52 @@ const RUBRIC_QUERY = gql`
     rubric(id: $id) {
       id: _id
       title
+      hasRubricAssociations
       hidePoints
+      buttonDisplay
+      ratingOrder
+      freeFormCriterionComments
       workflowState
+      pointsPossible
+      unassessed
+      criteria {
+        id: _id
+        ratings {
+          description
+          longDescription
+          points
+          id: _id
+        }
+        outcome {
+          displayName
+          title
+        }
+        learningOutcomeId
+        masteryPoints
+        points
+        longDescription
+        description
+        criterionUseRange
+      }
     }
   }
 `
 
-export type RubricQueryResponse = Pick<Rubric, 'id' | 'title' | 'criteria' | 'hidePoints'>
+export type RubricQueryResponse = Pick<
+  Rubric,
+  | 'id'
+  | 'title'
+  | 'criteria'
+  | 'hidePoints'
+  | 'freeFormCriterionComments'
+  | 'pointsPossible'
+  | 'buttonDisplay'
+  | 'ratingOrder'
+  | 'workflowState'
+> & {
+  unassessed: boolean
+  hasRubricAssociations: boolean
+}
 
 type FetchRubricResponse = {
   rubric: RubricQueryResponse
@@ -50,10 +89,41 @@ export const fetchRubric = async (id?: string): Promise<RubricQueryResponse | nu
 }
 
 export const saveRubric = async (rubric: RubricFormProps): Promise<RubricQueryResponse> => {
-  const {id, title, hidePoints, accountId, courseId} = rubric
+  const {
+    id,
+    title,
+    hidePoints,
+    freeFormCriterionComments,
+    accountId,
+    courseId,
+    ratingOrder,
+    buttonDisplay,
+    workflowState,
+  } = rubric
   const urlPrefix = accountId ? `/accounts/${accountId}` : `/courses/${courseId}`
   const url = `${urlPrefix}/rubrics/${id ?? ''}`
   const method = id ? 'PATCH' : 'POST'
+
+  const criteria = rubric.criteria.map(criterion => {
+    return {
+      id: criterion.id,
+      description: criterion.description,
+      long_description: criterion.longDescription,
+      points: criterion.points,
+      outcome: {
+        display_name: criterion.outcome?.displayName,
+        title: criterion.outcome?.title,
+      },
+      learning_outcome_id: criterion.learningOutcomeId,
+      criterion_use_range: criterion.criterionUseRange,
+      ratings: criterion.ratings.map(rating => ({
+        description: rating.description,
+        long_description: rating.longDescription,
+        points: rating.points,
+        id: rating.id,
+      })),
+    }
+  })
 
   const response = await fetch(url, {
     method,
@@ -66,6 +136,11 @@ export const saveRubric = async (rubric: RubricFormProps): Promise<RubricQueryRe
       rubric: {
         title,
         hide_points: hidePoints,
+        free_form_comments: freeFormCriterionComments,
+        criteria,
+        button_display: buttonDisplay,
+        rating_order: ratingOrder,
+        workflow_state: workflowState,
       },
       rubric_association: {
         association_id: accountId ?? courseId,
@@ -89,5 +164,12 @@ export const saveRubric = async (rubric: RubricFormProps): Promise<RubricQueryRe
     title: savedRubric.title,
     hidePoints: savedRubric.hide_points,
     criteria: savedRubric.criteria,
+    pointsPossible: savedRubric.points_possible,
+    buttonDisplay: savedRubric.button_display,
+    ratingOrder: savedRubric.rating_order,
+    freeFormCriterionComments: savedRubric.free_form_criterion_comments,
+    workflowState: savedRubric.workflow_state,
+    unassessed: rubric.unassessed,
+    hasRubricAssociations: rubric.hasRubricAssociations,
   }
 }

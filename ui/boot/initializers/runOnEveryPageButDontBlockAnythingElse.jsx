@@ -23,18 +23,18 @@
 // the critical code to display a page will be executed sooner
 
 import $ from 'jquery'
-
+import 'jquery-migrate'
 // modules that do their own thing on every page that simply need to be required
 import './addBrowserClasses'
 import '@canvas/media-comments'
-import './activateReminderControls'
+import '@canvas/common/activateReminderControls'
 import './expandAdminLinkMenusOnClick'
-import './activateElementToggler'
+import '@canvas/common/activateElementToggler'
 import './toggleICSuperToggleWidgetsOnEnterKeyEvent'
-import './loadInlineMediaComments'
+import '@canvas/common/loadInlineMediaComments'
 import './ping'
-import './markBrokenImages'
-import './activateLtiThumbnailLauncher'
+import '@canvas/common/markBrokenImages'
+import '@canvas/common/activateLtiThumbnailLauncher'
 import './sanitizeCSSOverflow'
 
 if (ENV.page_view_update_url) {
