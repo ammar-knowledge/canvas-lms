@@ -141,7 +141,7 @@ class CanvasImportedHtmlConverter < CanvasLinkMigrator::ImportedHtmlConverter
       item = item_key[:item]
       item_updates = {}
       field_links.each do |field, links|
-        html = item.read_attribute(field)
+        html = item[field]
         if LinkReplacer.sub_placeholders!(html, links)
           item_updates[field] = html
         end
@@ -160,7 +160,9 @@ class CanvasImportedHtmlConverter < CanvasLinkMigrator::ImportedHtmlConverter
   end
 
   def rewrite_item_version!(item)
-    if (version = (item.current_version rescue nil))
+    return unless item.is_a?(SimplyVersioned::InstanceMethods)
+
+    if (version = item.current_version)
       # if there's a current version of this thing, it has placeholders
       # in it.  rather than replace them in the yaml, which is finnicky, let's just
       # make sure the current version is represented by the current model state

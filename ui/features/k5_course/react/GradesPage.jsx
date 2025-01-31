@@ -17,7 +17,7 @@
  */
 
 import React, {useState, useCallback, useEffect, useRef} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 
 import {Tabs} from '@instructure/ui-tabs'
@@ -32,7 +32,7 @@ import GradeDetails from './GradeDetails'
 import IndividualStudentMastery from '@canvas/grade-summary'
 import {outcomeProficiencyShape} from '@canvas/grade-summary/react/IndividualStudentMastery/shapes'
 
-const I18n = useI18nScope('course_grades_page')
+const I18n = createI18nScope('course_grades_page')
 
 export const GradesPage = ({
   courseId,
@@ -80,7 +80,7 @@ export const GradesPage = ({
   useEffect(() => {
     if (error) {
       showFlashError(I18n.t('Failed to load grading periods for %{courseName}', {courseName}))(
-        error
+        error,
       )
       setError(null)
     }
@@ -89,7 +89,7 @@ export const GradesPage = ({
   useEffect(() => {
     if (enrollments.length > 0 && observedUserId && observedUserRef.current !== observedUserId) {
       const enrollment = enrollments.find(
-        e => e.user_id === observedUserId && e.type !== 'observer'
+        e => e.user_id === observedUserId && e.type !== 'observer',
       )
       setCurrentGradingPeriodId(enrollment?.current_grading_period_id)
       setAllowTotalsForAllPeriods(enrollment?.totals_for_all_grading_periods_option)

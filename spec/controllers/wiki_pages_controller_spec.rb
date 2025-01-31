@@ -38,6 +38,23 @@ describe WikiPagesController do
       expect(response).to be_successful
       expect(assigns[:js_env][:DISPLAY_SHOW_ALL_LINK]).to be(true)
     end
+
+    it "suppresses text editor preferences with block editor FF off" do
+      @user.set_preference(:text_editor_preference, "block_editor")
+      @course.account.enable_feature!(:block_editor)
+      get "index", params: { course_id: @course.id }
+      expect(assigns[:js_env][:text_editor_preference]).to eq "block_editor"
+      @course.account.disable_feature!(:block_editor)
+      get "index", params: { course_id: @course.id }
+      expect(assigns[:js_env].keys).not_to include(:text_editor_preference)
+    end
+
+    it "sets up js_env for the block editor" do
+      @course.account.enable_feature!(:block_editor)
+      get "index", params: { course_id: @course.id }
+      expect(response).to be_successful
+      expect(assigns[:js_env][:FEATURES][:BLOCK_EDITOR]).to be(true)
+    end
   end
 
   context "with page" do
@@ -52,100 +69,68 @@ describe WikiPagesController do
         user_session(@student)
       end
 
-      context "with selective_release_backend enabled" do
-        before do
-          Account.site_admin.enable_feature! :selective_release_backend
-        end
-
-        context "regular pages" do
-          it "allows access by default" do
-            expect(response).to have_http_status :ok
-          end
-
-          it "does not allow access if page has only_visible_to_overrides=true" do
-            @page.update!(only_visible_to_overrides: true)
-            expect(response).to be_redirect
-            expect(response.location).to eq course_wiki_pages_url(@course)
-          end
-
-          it "allows access if only_visible_to_overrides=true but the user has an override" do
-            override = @page.assignment_overrides.create!
-            override.assignment_override_students.create!(user: @student)
-            expect(response).to have_http_status :ok
-          end
-
-          it "does not allow access if page has only_visible_to_overrides=false but user does not have module override" do
-            @page.update!(only_visible_to_overrides: false)
-            module1 = @course.context_modules.create!(name: "module1")
-            module1.add_item(id: @page.id, type: "wiki_page")
-            module1.assignment_overrides.create!(set_type: "ADHOC")
-
-            expect(response).to be_redirect
-            expect(response.location).to eq course_wiki_pages_url(@course)
-          end
-
-          it "allows access if page has only_visible_to_overrides=false and user does have module override" do
-            @page.update!(only_visible_to_overrides: false)
-            module1 = @course.context_modules.create!(name: "module1")
-            module1.add_item(id: @page.id, type: "wiki_page")
-
-            adhoc_override = module1.assignment_overrides.create!(set_type: "ADHOC")
-            adhoc_override.assignment_override_students.create!(user: @student)
-
-            expect(response).to have_http_status :ok
-          end
-        end
-
-        context "pages with an assignment" do
-          before do
-            assignment = @course.assignments.create!(
-              submission_types: "wiki_page",
-              only_visible_to_overrides: true
-            )
-            @page.assignment = assignment
-            @page.save!
-          end
-
-          it "does not allow access if assignment has only_visible_to_overrides=true" do
-            expect(response).to be_redirect
-            expect(response.location).to eq course_wiki_pages_url(@course)
-          end
-
-          it "allows access if assignment has only_visible_to_overrides=true but the user has an override" do
-            override = @page.assignment.assignment_overrides.create!
-            override.assignment_override_students.create!(user: @student)
-            expect(response).to have_http_status :ok
-          end
-
-          it "allows access if assignment has only_visible_to_overrides=false" do
-            @page.assignment.update!(only_visible_to_overrides: false)
-            expect(response).to have_http_status :ok
-          end
-        end
-      end
-
-      context "with selective_release_backend disabled" do
-        before do
-          Account.site_admin.disable_feature!(:selective_release_backend)
-          @assignment = @course.assignments.create!(submission_types: "wiki_page")
-          @page.assignment = @assignment
-          @page.save!
-        end
-
+      context "regular pages" do
         it "allows access by default" do
           expect(response).to have_http_status :ok
         end
 
-        it "does not allow access if assignment has only_visible_to_overrides=true and conditional release is enabled" do
-          allow(ConditionalRelease::Service).to receive(:service_configured?).and_return(true)
-          @course.update!(conditional_release: true)
-          @assignment.update!(only_visible_to_overrides: true)
+        it "does not allow access if page has only_visible_to_overrides=true" do
+          @page.update!(only_visible_to_overrides: true)
           expect(response).to be_redirect
           expect(response.location).to eq course_wiki_pages_url(@course)
         end
 
-        it "allows access if assignment has only_visible_to_overrides=true but conditional release is disabled" do
-          @assignment.update!(only_visible_to_overrides: true)
+        it "allows access if only_visible_to_overrides=true but the user has an override" do
+          override = @page.assignment_overrides.create!
+          override.assignment_override_students.create!(user: @student)
+          expect(response).to have_http_status :ok
+        end
+
+        it "does not allow access if page has only_visible_to_overrides=false but user does not have module override" do
+          @page.update!(only_visible_to_overrides: false)
+          module1 = @course.context_modules.create!(name: "module1")
+          module1.add_item(id: @page.id, type: "wiki_page")
+          module1.assignment_overrides.create!(set_type: "ADHOC")
+
+          expect(response).to be_redirect
+          expect(response.location).to eq course_wiki_pages_url(@course)
+        end
+
+        it "allows access if page has only_visible_to_overrides=false and user does have module override" do
+          @page.update!(only_visible_to_overrides: false)
+          module1 = @course.context_modules.create!(name: "module1")
+          module1.add_item(id: @page.id, type: "wiki_page")
+
+          adhoc_override = module1.assignment_overrides.create!(set_type: "ADHOC")
+          adhoc_override.assignment_override_students.create!(user: @student)
+
+          expect(response).to have_http_status :ok
+        end
+      end
+
+      context "pages with an assignment" do
+        before do
+          assignment = @course.assignments.create!(
+            submission_types: "wiki_page",
+            only_visible_to_overrides: true
+          )
+          @page.assignment = assignment
+          @page.save!
+        end
+
+        it "does not allow access if assignment has only_visible_to_overrides=true" do
+          expect(response).to be_redirect
+          expect(response.location).to eq course_wiki_pages_url(@course)
+        end
+
+        it "allows access if assignment has only_visible_to_overrides=true but the user has an override" do
+          override = @page.assignment.assignment_overrides.create!
+          override.assignment_override_students.create!(user: @student)
+          expect(response).to have_http_status :ok
+        end
+
+        it "allows access if assignment has only_visible_to_overrides=false" do
+          @page.assignment.update!(only_visible_to_overrides: false)
           expect(response).to have_http_status :ok
         end
       end
@@ -180,7 +165,7 @@ describe WikiPagesController do
 
         before do
           @page.wiki_page_lookups.create!(slug: "an-old-url")
-          allow(InstStatsd::Statsd).to receive(:increment)
+          allow(InstStatsd::Statsd).to receive(:distributed_increment)
         end
 
         it "redirects to current page url" do
@@ -190,12 +175,12 @@ describe WikiPagesController do
 
         it "emits wikipage.show.page_url_resolved to statsd when finding a page from a stale URL" do
           get "show", params: { course_id: @course.id, id: "an-old-url" }
-          expect(InstStatsd::Statsd).to have_received(:increment).once.with("wikipage.show.page_url_resolved")
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).once.with("wikipage.show.page_url_resolved")
         end
 
         it "does not emit wikipage.show.page_url_resolved to statsd when using the current page URL" do
           get "show", params: { course_id: @course.id, id: @page.url }
-          expect(InstStatsd::Statsd).not_to have_received(:increment).with("wikipage.show.page_url_resolved")
+          expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("wikipage.show.page_url_resolved")
         end
       end
     end
@@ -255,7 +240,7 @@ describe WikiPagesController do
 
   describe "metrics" do
     before do
-      allow(InstStatsd::Statsd).to receive(:increment).and_call_original
+      allow(InstStatsd::Statsd).to receive(:distributed_increment).and_call_original
     end
 
     context "show" do
@@ -264,7 +249,7 @@ describe WikiPagesController do
           course_with_teacher_logged_in(active_all: true)
           bad_page_url = "something-that-doesnt-really-exist"
           get "show", params: { course_id: @course.id, id: bad_page_url }
-          expect(InstStatsd::Statsd).to have_received(:increment).with("wikipage.show.page_does_not_exist.with_edit_rights")
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("wikipage.show.page_does_not_exist.with_edit_rights")
         end
 
         it "does not increment the count metric when page is deleted" do
@@ -272,7 +257,7 @@ describe WikiPagesController do
           @page = @course.wiki_pages.create!(title: "delete me")
           @page.update(workflow_state: "deleted")
           get "show", params: { course_id: @course.id, id: @page.url }
-          expect(InstStatsd::Statsd).not_to have_received(:increment).with("wikipage.show.page_does_not_exist.with_edit_rights")
+          expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("wikipage.show.page_does_not_exist.with_edit_rights")
         end
       end
 
@@ -281,7 +266,7 @@ describe WikiPagesController do
           course_with_student_logged_in(active_all: true)
           bad_page_url = "something-else-that-doesnt-really-exist"
           get "show", params: { course_id: @course.id, id: bad_page_url }
-          expect(InstStatsd::Statsd).to have_received(:increment).with("wikipage.show.page_does_not_exist.without_edit_rights")
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("wikipage.show.page_does_not_exist.without_edit_rights")
         end
 
         it "does not increment the count metric when page is deleted" do
@@ -289,7 +274,7 @@ describe WikiPagesController do
           @page = @course.wiki_pages.create!(title: "delete me too")
           @page.update(workflow_state: "deleted")
           get "show", params: { course_id: @course.id, id: @page.url }
-          expect(InstStatsd::Statsd).not_to have_received(:increment).with("wikipage.show.page_does_not_exist.without_edit_rights")
+          expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("wikipage.show.page_does_not_exist.without_edit_rights")
         end
       end
     end

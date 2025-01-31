@@ -614,7 +614,7 @@ describe ContentTag do
     Setting.set("touch_personal_space", "10")
     course_factory
     mod = @course.context_modules.create!
-    recent = Time.now
+    recent = Time.zone.now
     ContextModule.where(id: mod).update_all(updated_at: recent)
     Timecop.travel(recent + 1.second) do
       ContextModule.transaction do
@@ -1060,7 +1060,6 @@ describe ContentTag do
 
   describe "#update_module_item_submissions" do
     before do
-      Account.site_admin.enable_feature!(:selective_release_backend)
       course_factory
       @student1 = student_in_course(active_all: true, name: "Student 1").user
       @student2 = student_in_course(active_all: true, name: "Student 2").user

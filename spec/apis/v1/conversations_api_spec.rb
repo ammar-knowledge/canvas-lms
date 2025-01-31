@@ -449,7 +449,7 @@ describe ConversationsController, type: :request do
 
     context "sent scope" do
       it "sorts by last authored date" do
-        expected_times = 5.times.to_a.reverse.map { |h| Time.parse((Time.now.utc - h.hours).to_s) }
+        expected_times = 5.times.to_a.reverse.map { |h| Time.zone.parse((Time.now.utc - h.hours).to_s) }
         Timecop.travel(expected_times[0]) do
           @c1 = conversation(@bob)
         end
@@ -2369,7 +2369,7 @@ describe ConversationsController, type: :request do
       end
 
       conversation_ids = conversations.map { |c| c.conversation.id }
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
       json = api_call(:put,
                       "/api/v1/conversations",
                       { controller: "conversations", action: "batch_update", format: "json" },
@@ -2377,7 +2377,7 @@ describe ConversationsController, type: :request do
       run_jobs
       progress = Progress.find(json["id"])
       expect(progress.message.to_s).to include "#{conversation_ids.size} conversations processed"
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.unarchived.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.unarchived.legacy")
     end
 
     it "unarchives conversations by marking as unread" do
@@ -2386,7 +2386,7 @@ describe ConversationsController, type: :request do
       end
 
       conversation_ids = conversations.map { |c| c.conversation.id }
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
       json = api_call(:put,
                       "/api/v1/conversations",
                       { controller: "conversations", action: "batch_update", format: "json" },
@@ -2394,7 +2394,7 @@ describe ConversationsController, type: :request do
       run_jobs
       progress = Progress.find(json["id"])
       expect(progress.message.to_s).to include "#{conversation_ids.size} conversations processed"
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.unarchived.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.unarchived.legacy")
     end
 
     it "destroys conversations" do
@@ -2538,7 +2538,7 @@ describe ConversationsController, type: :request do
                    "/api/v1/conversations/#{conv.id}/delete_for_all",
                    { controller: "conversations", action: "delete_for_all", format: "json", id: conv.id.to_s },
                    { domain_root_account: Account.site_admin })
-      assert_status(401)
+      assert_forbidden
 
       account_admin_user
       Account.default.pseudonyms.create!(unique_id: "admin", user: @user)
@@ -2546,14 +2546,14 @@ describe ConversationsController, type: :request do
                    "/api/v1/conversations/#{conv.id}/delete_for_all",
                    { controller: "conversations", action: "delete_for_all", format: "json", id: conv.id.to_s },
                    {})
-      assert_status(401)
+      assert_forbidden
 
       @user = @me
       raw_api_call(:delete,
                    "/api/v1/conversations/#{conv.id}/delete_for_all",
                    { controller: "conversations", action: "delete_for_all", format: "json", id: conv.id.to_s },
                    {})
-      assert_status(401)
+      assert_forbidden
 
       expect(@me.all_conversations.size).to be 1
       expect(@joe.conversations.size).to be 1

@@ -28,10 +28,11 @@ import CanvasSelect from '@canvas/instui-bindings/react/Select'
 import type {Requirement, ModuleItem} from './types'
 import {requirementTypesForResource} from '../utils/miscHelpers'
 import {groupBy} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('differentiated_modules')
+const I18n = createI18nScope('differentiated_modules')
 
+// @ts-expect-error
 const resourceLabelMap: Record<ModuleItem['resource'], string> = {
   assignment: I18n.t('Assignments'),
   quiz: I18n.t('Quizzes'),
@@ -72,11 +73,12 @@ export default function RequirementSelector({
   const removeButton = useRef<Element | null>(null)
   const dropdown = useRef<HTMLInputElement | null>(null)
   const requirementTypeOptions = useMemo(() => {
-    const requirementTypes = requirementTypesForResource(requirement.resource)
+    const requirementTypes = requirementTypesForResource(requirement)
     return requirementTypes.map(type => {
       return {type, label: requirementTypeLabelMap[type]}
     })
-  }, [requirement.resource])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requirement.resource, requirement.graded])
 
   const options = useMemo(() => groupBy(moduleItems, 'resource'), [moduleItems])
 
@@ -112,7 +114,6 @@ export default function RequirementSelector({
         <View as="div" padding="0 0 small 0">
           <CanvasSelect
             id={`requirement-item-${index}`}
-            // @ts-expect-error
             inputRef={el => (dropdown.current = el)}
             value={requirement.name}
             label={<ScreenReaderContent>{I18n.t('Select Module Item')}</ScreenReaderContent>}
@@ -124,7 +125,9 @@ export default function RequirementSelector({
             {/* @ts-expect-error */}
             {Object.keys(options).map((resource: ModuleItem['resource']) => {
               return (
+                // @ts-expect-error
                 <CanvasSelect.Group key={resource} label={resourceLabelMap[resource]}>
+                  {/* @ts-expect-error */}
                   {options[resource].map((moduleItem: ModuleItem) => (
                     <CanvasSelect.Option
                       id={moduleItem.id}
@@ -159,6 +162,7 @@ export default function RequirementSelector({
           <Flex padding="small 0">
             <Flex.Item shouldShrink={true}>
               <NumberInput
+                allowStringValue={true}
                 value={requirement.minimumScore}
                 width="4rem"
                 showArrows={false}
@@ -166,7 +170,7 @@ export default function RequirementSelector({
                 onChange={event => {
                   onUpdateRequirement(
                     {...requirement, minimumScore: event.target.value} as Requirement,
-                    index
+                    index,
                   )
                 }}
               />

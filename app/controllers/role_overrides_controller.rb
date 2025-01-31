@@ -295,7 +295,6 @@ class RoleOverridesController < ApplicationController
   #     create_forum                     -- [STADo] Discussions - create
   #     generate_observer_pairing_code   -- [ tado] Users - Generate observer pairing codes for students
   #     import_outcomes                  -- [ TaDo] Learning Outcomes - import
-  #     lti_add_edit                     -- [ TAD ] LTI - add / edit / delete
   #     manage_account_banks             -- [ td  ] Item Banks - manage account
   #     share_banks_with_subaccounts     -- [ tad ] Item Banks - share with subaccounts
   #     manage_assignments               -- [ TADo] Assignments and Quizzes - add / edit / delete (deprecated)
@@ -329,7 +328,6 @@ class RoleOverridesController < ApplicationController
   #         manage_sections_edit         -- [ TaD ] Course Sections - edit
   #         manage_sections_delete       -- [ TaD ] Course Sections - delete
   #     manage_students                  -- [ TAD ] Users - manage students in courses
-  #     manage_user_notes                -- [ TA  ] Faculty Journal - manage entries
   #     manage_rubrics                   -- [ TAD ] Rubrics - add / edit / delete
   #     Manage Pages granular permissions
   #         manage_wiki_create           -- [ TADo] Pages - create

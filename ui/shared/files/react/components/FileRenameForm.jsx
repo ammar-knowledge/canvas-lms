@@ -22,9 +22,9 @@ import FileRenameForm from './LegacyFileRenameForm'
 import Modal from '@canvas/modal'
 import ModalContent from '@canvas/modal/react/content'
 import ModalButtons from '@canvas/modal/react/buttons'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('file_rename_form')
+const I18n = createI18nScope('file_rename_form')
 
 FileRenameForm.buildContent = function () {
   const {onRenameFileMessage, onLockFileMessage} = this.props
@@ -37,7 +37,7 @@ FileRenameForm.buildContent = function () {
           {onRenameFileMessage?.(nameToUse) ||
             I18n.t(
               'An item named "%{name}" already exists in this location. Do you want to replace the existing file?',
-              {name: nameToUse}
+              {name: nameToUse},
             )}
         </p>
       </div>
@@ -49,7 +49,7 @@ FileRenameForm.buildContent = function () {
         onLockFileMessage?.(nameToUse) ||
         I18n.t(
           'A locked item named "%{name}" already exists in this location. Please enter a new name.',
-          {name: nameToUse}
+          {name: nameToUse},
         )
     } else {
       renameMessage = I18n.t('Change "%{name}" to', {name: nameToUse})
@@ -59,9 +59,17 @@ FileRenameForm.buildContent = function () {
       <div ref="bodyContent">
         <p>{renameMessage}</p>
         <form onSubmit={this.handleFormSubmit}>
-          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
-          <label className="file-rename-form__form-label">{I18n.t('Name')}</label>
-          <input className="input-block-level" type="text" defaultValue={nameToUse} ref="newName" />
+          <label className="file-rename-form__form-label" htmlFor="renameFileInput">
+            {I18n.t('Name')}
+          </label>
+          <input
+            id="renameFileInput"
+            className="input-block-level"
+            type="text"
+            defaultValue={nameToUse}
+            ref="newName"
+            aria-label={I18n.t('File name')}
+          />
         </form>
       </div>
     )
@@ -115,7 +123,7 @@ FileRenameForm.buildButtons = function () {
           onClick={this.handleSkipClick}
         >
           {I18n.t('Skip')}
-        </button>
+        </button>,
       )
     }
   } else {

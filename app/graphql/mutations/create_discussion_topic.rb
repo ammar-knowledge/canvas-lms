@@ -28,16 +28,17 @@ end
 class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
   include Api
   include Api::V1::AssignmentOverride
+  include DiscussionTopicsHelper
 
   graphql_name "CreateDiscussionTopic"
 
+  argument :anonymous_state, Types::DiscussionTopicAnonymousStateType, required: false
+  argument :assignment, Mutations::AssignmentBase::AssignmentCreate, required: false
+  argument :context_id, GraphQL::Schema::Object::ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Context")
+  argument :context_type, Types::DiscussionTopicContextType, required: true
   argument :discussion_type, Types::DiscussionTopicDiscussionType, required: false
   argument :is_announcement, Boolean, required: false
   argument :is_anonymous_author, Boolean, required: false
-  argument :anonymous_state, Types::DiscussionTopicAnonymousStateType, required: false
-  argument :context_id, GraphQL::Schema::Object::ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Context")
-  argument :context_type, Types::DiscussionTopicContextType, required: true
-  argument :assignment, Mutations::AssignmentBase::AssignmentCreate, required: false
   argument :ungraded_discussion_overrides, [Mutations::AssignmentBase::AssignmentOverrideCreateOrUpdate], required: false
 
   # most arguments inherited from DiscussionBase
@@ -84,6 +85,15 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
 
     is_announcement = input[:is_announcement] || false
 
+    if input[:checkpoints].present?
+      # If discussion topic has checkpoints, the sum of possible points cannot exceed the max for the assignment
+      err_message = validate_possible_points_with_checkpoints(input)
+      return validation_error(err_message) unless err_message.nil?
+
+      # If discussion topic has checkpoints, it cannot also be assigned to a group category
+      return validation_error(I18n.t("Group discussions cannot have checkpoints.")) if input[:group_category_id].present?
+    end
+
     # TODO: On update, we load here instead of creating a new one.
     discussion_topic = is_announcement ? Announcement.new : DiscussionTopic.new
 
@@ -102,7 +112,7 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
       discussion_topic.anonymous_state = anonymous_state
     end
 
-    if (!input.key?(:ungraded_discussion_overrides) && !Account.site_admin.feature_enabled?(:selective_release_ui_api)) || is_announcement
+    if is_announcement
       # TODO: deprecate discussion_topic_section_visibilities for assignment_overrides LX-1498
       set_sections(input[:specific_sections], discussion_topic)
       invalid_sections = verify_specific_section_visibilities(discussion_topic) || []
@@ -115,6 +125,7 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
     process_common_inputs(input, is_announcement, discussion_topic)
     process_future_date_inputs(input.slice(:delayed_post_at, :lock_at), discussion_topic)
     process_locked_parameter(input[:locked], discussion_topic)
+    save_lock_preferences(input[:locked], discussion_topic)
 
     if input.key?(:assignment) && input[:assignment].present?
       working_assignment = Mutations::CreateAssignment.new(object:, context:, field: nil)
@@ -123,12 +134,17 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
       if working_assignment[:errors].present?
         return validation_error(working_assignment[:errors])
       elsif working_assignment.present?
-        discussion_topic.assignment = working_assignment&.[](:assignment)
+        created_assignment = working_assignment[:assignment]
+
+        discussion_topic.assignment = created_assignment
+        discussion_topic.lock_at = created_assignment.lock_at unless input[:lock_at]
+        discussion_topic.unlock_at = created_assignment.unlock_at unless input[:unlock_at]
       end
 
       # Assignment must be present to set checkpoints
       if input[:checkpoints]&.count == DiscussionTopic::REQUIRED_CHECKPOINT_COUNT
         return validation_error(I18n.t("If checkpoints are defined, forCheckpoints: true must be provided to the discussion topic assignment.")) unless input.dig(:assignment, :for_checkpoints)
+        return validation_error(I18n.t("If RQD is enabled, checkpoints cannot be created")) if discussion_topic_context.is_a?(Course) && discussion_topic_context.settings[:restrict_quantitative_data]
 
         input[:checkpoints].each do |checkpoint|
           dates = checkpoint[:dates]

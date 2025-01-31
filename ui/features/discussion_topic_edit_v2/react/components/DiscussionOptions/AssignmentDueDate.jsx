@@ -18,13 +18,13 @@
 
 import React, {useState, useEffect, useRef, useContext} from 'react'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {DateTimeInput} from '@instructure/ui-date-time-input'
 import {FormFieldGroup} from '@instructure/ui-form-field'
 import {AssignedTo} from './AssignedTo'
 import {DiscussionDueDatesContext} from '../../util/constants'
 
-const I18n = useI18nScope('discussion_create')
+const I18n = createI18nScope('discussion_create')
 
 export const AssignmentDueDate = ({
   initialAssignedInformation,
@@ -129,7 +129,7 @@ export const AssignmentDueDate = ({
             const newInfo = {
               ...assignedInformation,
               assignedList: assignedInformation.assignedList.filter(
-                option => option !== dismissedOption
+                option => option !== dismissedOption,
               ),
             }
             setAssignedInformation(newInfo)
@@ -207,8 +207,8 @@ AssignmentDueDate.propTypes = {
       PropTypes.shape({
         assetCode: PropTypes.string.isRequired,
         label: PropTypes.string.isRequired,
-      })
-    )
+      }),
+    ),
   ).isRequired,
   initialAssignedInformation: PropTypes.shape({
     dueDateId: PropTypes.string,

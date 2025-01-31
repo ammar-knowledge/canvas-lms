@@ -196,7 +196,6 @@ describe "people" do
     end
 
     it "does not display resend invitation dropdown item for a student when the granular add student permission is disabled" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
       RoleOverride.create!(context: Account.default, permission: "add_student_to_course", role: teacher_role, enabled: false)
       get "/courses/#{@course.id}/users"
       open_dropdown_menu("tr[id=user_#{@student_1.id}]")
@@ -205,26 +204,11 @@ describe "people" do
 
     it "displays the resend invitation dropdown item for student with dual roles with granular permissions enabled for one of the roles" do
       enroll_ta(@student_1)
-      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
       RoleOverride.create!(context: Account.default, permission: "add_student_to_course", role: teacher_role, enabled: false)
       RoleOverride.create!(context: Account.default, permission: "add_ta_to_course", role: teacher_role, enabled: true)
       get "/courses/#{@course.id}/users"
       open_dropdown_menu("tr[id=user_#{@student_1.id}]")
       expect(dropdown_item_visible?("resendInvitation", "tr[id=user_#{@student_1.id}]")).to be true
-    end
-
-    context "when the deprecate_faculty_journal flag is disabled" do
-      before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-      it "has a working Faculty Journal menu option" do
-        a = Account.default
-        a.enable_user_notes = true
-        a.save!
-        get "/courses/#{@course.id}/users"
-        open_dropdown_menu("tr[id=user_#{@student_1.id}]")
-        wait_for_new_page_load { f("a[href='/users/#{@student_1.id}/user_notes']").click }
-        expect(fj("h1:contains('Faculty Journal for #{@student_1.name}')")).to be_present
-      end
     end
 
     it "focuses on the + Group Set button after the tabs" do
@@ -275,7 +259,8 @@ describe "people" do
       end
       open_student_group_dialog
       replace_and_proceed f("#new-group-set-name"), "new group"
-      fxpath("//input[@data-testid='checkbox-allow-self-signup']/..").click
+      f("body").send_keys(:tab)
+      f("span[data-testid='allow-self-signup-wrapper'] div div").click
       force_click('[data-testid="initial-group-count"]')
       f('[data-testid="initial-group-count"]').send_keys("4")
       f(%(button[data-testid="group-set-save"])).click
@@ -292,7 +277,8 @@ describe "people" do
       end
       open_student_group_dialog
       replace_and_proceed f("#new-group-set-name"), "new group"
-      fxpath("//input[@data-testid='checkbox-allow-self-signup']/..").click
+      f("body").send_keys(:tab)
+      f("span[data-testid='allow-self-signup-wrapper'] div div").click
       force_click('[data-testid="initial-group-count"]')
       f('[data-testid="group-member-limit"]').send_keys("1")
       f(%(button[data-testid="group-set-save"])).click
@@ -422,6 +408,18 @@ describe "people" do
       wait_for_ajaximations
       expect(f(".conclude_enrollment_link")).to be_displayed
     end
+
+    it "does not show selection checkboxes for teachers when differentiation_tags feature flag is OFF" do
+      Account.site_admin.disable_feature!(:differentiation_tags)
+      get "/courses/#{@course.id}/users/"
+      expect(f("body")).not_to contain_jqcss("input[id^='select-user-']")
+    end
+
+    it "shows selection checkboxes for teachers when differentiation_tags feature flag is ON" do
+      Account.site_admin.enable_feature!(:differentiation_tags)
+      get "/courses/#{@course.id}/users/"
+      expect(f("body")).to contain_jqcss("input[id^='select-user-']")
+    end
   end
 
   context "people as a TA" do
@@ -433,20 +431,18 @@ describe "people" do
       user_session @ta
     end
 
-    it "validates that the TA cannot delete / conclude or reset course" do
-      @course.root_account.disable_feature!(:granular_permissions_manage_courses)
+    it "does not show selection checkboxes for tas even when differentiation_tags feature flag is ON (they do not have differentiation tag permission by default)" do
+      Account.site_admin.enable_feature!(:differentiation_tags)
+      get "/courses/#{@course.id}/users/"
+      expect(f("body")).not_to contain_jqcss("input[id^='select-user-']")
+    end
+
+    it "validates that the TA cannot delete or reset course" do
       get "/courses/#{@course.id}/settings"
       expect(f("#content")).not_to contain_css(".delete_course_link")
       expect(f("#content")).not_to contain_css(".reset_course_content_button")
       get "/courses/#{@course.id}/confirm_action?event=conclude"
       expect(f("#unauthorized_message")).to include_text("Access Denied")
-    end
-
-    it "validates that the TA cannot delete or reset course (granular permissions)" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
-      get "/courses/#{@course.id}/settings"
-      expect(f("#content")).not_to contain_css(".delete_course_link")
-      expect(f("#content")).not_to contain_css(".reset_course_content_button")
     end
 
     # TODO: reimplement per CNVS-29609, but make sure we're testing at the right level
@@ -911,5 +907,56 @@ describe "people" do
     refresh_page
 
     expect(f("#courses")).to_not contain_css(".unenroll_link")
+  end
+
+  context "Differentiation Tags" do
+    context "Differentiation tags Tray" do
+      before :once do
+        course_with_teacher active_user: true, active_course: true, active_enrollment: true, name: "Mrs. Commanderson"
+        @student = create_user("student@test.com")
+        enroll_student(@student)
+        Account.default.enable_feature!(:differentiation_tags)
+      end
+
+      before do
+        user_session @teacher
+      end
+
+      it "renders the Manage Tags Button if the FF is on" do
+        get "/courses/#{@course.id}/users"
+        expect(fj("button:contains('Manage Tags')")).to be_displayed
+      end
+
+      it "does not render the Manage Tags Button if the FF is off" do
+        Account.default.disable_feature!(:differentiation_tags)
+        get "/courses/#{@course.id}/users"
+        expect(f("body")).not_to contain_jqcss("button:contains('Manage Tags')")
+      end
+
+      it "does not render the Manage Tags Button if the user does not have permissions (as a TA)" do
+        course_with_ta(active_all: true)
+        user_session @ta
+        get "/courses/#{@course.id}/users"
+        expect(f("body")).not_to contain_jqcss("button:contains('Manage Tags')")
+      end
+
+      it "opens the Tray when the Manage Tags Button is clicked" do
+        get "/courses/#{@course.id}/users"
+        fj("button:contains('Manage Tags')").click
+        expect(fj("h2:contains('Manage Tags')")).to be_displayed
+      end
+
+      it "closes the Tray when the close button is clicked" do
+        get "/courses/#{@course.id}/users"
+        fj("button:contains('Manage Tags')").click
+        wait_for_ajaximations
+        expect(fj("h2:contains('Manage Tags')")).to be_displayed
+        fj("button:contains('Close Differentiation Tag Tray')").click
+        wait_for_ajaximations
+        expect(f("body")).not_to contain_jqcss("h2:contains('Manage Tags')")
+        # Verify that focus returns to the element that opened the Tray
+        check_element_has_focus(fj("button:contains('Manage Tags')"))
+      end
+    end
   end
 end

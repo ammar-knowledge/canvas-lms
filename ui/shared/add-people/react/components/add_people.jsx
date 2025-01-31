@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {bool, func, shape, arrayOf, oneOfType} from 'prop-types'
 import {Modal} from '@instructure/ui-modal'
@@ -37,7 +37,7 @@ import PeopleReadyList from './people_ready_list'
 import PeopleValidationIssues from './people_validation_issues'
 import APIError from './api_error'
 
-const I18n = useI18nScope('add_people')
+const I18n = createI18nScope('add_people')
 
 const PEOPLESEARCH = 'peoplesearch'
 const PEOPLEREADYLIST = 'peoplereadylist'
@@ -95,7 +95,7 @@ export default class AddPeople extends React.Component {
       arrayOf(
         shape({
           enrollment: shape(newUserShape),
-        })
+        }),
       ),
     ]), // it IS used in componentWillReceiveProps.
   }
@@ -276,7 +276,7 @@ export default class AddPeople extends React.Component {
         readyForNext = this.props.inputParams.nameList.length > 0
         panelLabel = I18n.t('User search panel')
         panelDescription = I18n.t(
-          'Use this panel to search for people you wish to add to this course.'
+          'Use this panel to search for people you wish to add to this course.',
         )
         break
       case PEOPLEVALIDATIONISSUES:
@@ -294,7 +294,7 @@ export default class AddPeople extends React.Component {
         readyForNext = arePeopleValidationIssuesResolved(this.props)
         panelLabel = I18n.t('User vaildation issues panel')
         panelDescription = I18n.t(
-          'Use this panel to resolve duplicate results or people not found with your search.'
+          'Use this panel to resolve duplicate results or people not found with your search.',
         )
         break
       case PEOPLEREADYLIST:

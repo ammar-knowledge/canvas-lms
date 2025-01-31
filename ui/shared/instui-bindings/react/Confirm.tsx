@@ -18,7 +18,7 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Button} from '@instructure/ui-buttons'
 import {View} from '@instructure/ui-view'
 import Modal from './InstuiModal'
@@ -52,7 +52,7 @@ export type ConfirmProps = {
 }
 
 export function confirmDanger(
-  confirmProps: Omit<ConfirmProps, 'confirmButtonColor'>
+  confirmProps: Omit<ConfirmProps, 'confirmButtonColor'>,
 ): Promise<boolean> {
   return confirm({
     ...confirmProps,
@@ -77,14 +77,15 @@ export function confirm(confirmProps: ConfirmProps): Promise<boolean> {
       alertContainer.removeChild(container)
       resolve(false)
     }
+
     ReactDOM.render(
       <ConfirmationModal {...confirmProps} onConfirm={handleConfirm} onCancel={handleCancel} />,
-      container
+      container,
     )
   })
 }
 
-const I18n = useI18nScope('modal')
+const I18n = createI18nScope('modal')
 
 type ConfirmationModalProps = ConfirmProps & {
   onConfirm: () => void
@@ -138,7 +139,7 @@ function getConfirmContainer() {
     confirmContainer.id = messageHolderId
     confirmContainer.setAttribute(
       'style',
-      'position: fixed; top: 0; left: 0; width: 100%; z-index: 100000;'
+      'position: fixed; top: 0; left: 0; width: 100%; z-index: 100000;',
     )
     document.body.appendChild(confirmContainer)
   }

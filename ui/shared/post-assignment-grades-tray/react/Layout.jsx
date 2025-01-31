@@ -24,11 +24,11 @@ import {FormFieldGroup} from '@instructure/ui-form-field'
 import {Heading} from '@instructure/ui-heading'
 import {View} from '@instructure/ui-view'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import FormContent from './FormContent'
 
-const I18n = useI18nScope('post_assignment_grades_tray')
+const I18n = createI18nScope('post_assignment_grades_tray')
 
 export default function Layout({
   assignment: {anonymousGrading, gradesPublished},
@@ -44,13 +44,14 @@ export default function Layout({
   sections,
   selectedSectionIds,
   unpostedCount,
+  showSectionValidation,
 }) {
   return (
     <>
       {!gradesPublished && (
         <Alert margin="x-small" variant="warning">
           {I18n.t(
-            'Posting grades is not allowed because grades have not been released for this assignment.'
+            'Posting grades is not allowed because grades have not been released for this assignment.',
           )}
         </Alert>
       )}
@@ -64,7 +65,7 @@ export default function Layout({
       {gradesPublished && anonymousGrading && (
         <Alert margin="x-small" variant="info">
           {I18n.t(
-            'When posting grades for this anonymous assignment, grades will be posted for everyone assigned this item. Anonymity will be removed.'
+            'When posting grades for this anonymous assignment, grades will be posted for everyone assigned this item. Anonymity will be removed.',
           )}
         </Alert>
       )}
@@ -93,6 +94,7 @@ export default function Layout({
           sections={sections}
           selectedSectionIds={selectedSectionIds}
           unpostedCount={unpostedCount}
+          showSectionValidation={showSectionValidation}
         />
       </FormFieldGroup>
     </>

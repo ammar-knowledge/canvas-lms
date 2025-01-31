@@ -17,19 +17,20 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {colors} from '@instructure/canvas-theme'
 import {View} from '@instructure/ui-view'
 import {IconButton} from '@instructure/ui-buttons'
 import {Text} from '@instructure/ui-text'
 
-const I18n = useI18nScope('rubrics-assessment-tray')
+const I18n = createI18nScope('rubrics-assessment-tray')
 
-const {licorice, tiara} = colors
+const {shamrock, tiara} = colors
 type RatingButtonProps = {
   buttonDisplay: string
   isPreviewMode: boolean
   isSelected: boolean
+  isSelfAssessmentSelected: boolean
   selectedArrowDirection: 'up' | 'right'
   onClick: () => void
 }
@@ -37,10 +38,11 @@ export const RatingButton = ({
   buttonDisplay,
   isPreviewMode,
   isSelected,
+  isSelfAssessmentSelected,
   selectedArrowDirection,
   onClick,
 }: RatingButtonProps) => {
-  const unselectedColor = isPreviewMode ? tiara : licorice
+  const unselectedColor = isPreviewMode ? tiara : shamrock
   const selectedText = isSelected ? I18n.t('Selected') : ''
 
   return (
@@ -62,15 +64,17 @@ export const RatingButton = ({
           color="primary-inverse"
           onClick={onClick}
           readOnly={isPreviewMode}
+          data-testid={`rubric-rating-button-${buttonDisplay}`}
           cursor={isPreviewMode ? 'not-allowed' : 'pointer'}
           themeOverride={{
             largeFontSize: '1rem',
             borderWidth: isSelected ? '3px' : '1px',
-            primaryInverseBorderColor: isSelected ? licorice : 'rgb(219, 219, 219)',
-            primaryInverseColor: isSelected ? licorice : unselectedColor,
+            primaryInverseBorderColor: isSelected ? shamrock : 'rgb(219, 219, 219)',
+            primaryInverseColor: isSelected ? shamrock : unselectedColor,
           }}
         >
           <Text size="medium">{buttonDisplay}</Text>
+          {isSelfAssessmentSelected && <SelectedSelfAssessment buttonDisplay={buttonDisplay} />}
         </IconButton>
         {isSelected && <SelectedRatingArrow direction={selectedArrowDirection} />}
       </View>
@@ -99,7 +103,7 @@ const SelectedRatingArrow = ({direction}: SelectedRatingArrowProps) => {
     outerTriangleStyle.right = '0px'
     outerTriangleStyle.borderTop = '6px solid transparent'
     outerTriangleStyle.borderBottom = '6px solid transparent'
-    outerTriangleStyle.borderLeft = `6px solid ${licorice}`
+    outerTriangleStyle.borderLeft = `6px solid ${shamrock}`
     outerTriangleStyle.transform = 'translateY(-50%)'
     innerTriangleSmallStyle.top = '50%'
     innerTriangleSmallStyle.right = '4px'
@@ -112,7 +116,7 @@ const SelectedRatingArrow = ({direction}: SelectedRatingArrowProps) => {
     outerTriangleStyle.top = '-5px'
     outerTriangleStyle.borderLeft = '6px solid transparent'
     outerTriangleStyle.borderRight = '6px solid transparent'
-    outerTriangleStyle.borderBottom = `6px solid ${licorice}`
+    outerTriangleStyle.borderBottom = `6px solid ${shamrock}`
     outerTriangleStyle.transform = 'translateX(-50%)'
     innerTriangleSmallStyle.left = '46%'
     innerTriangleSmallStyle.top = '-1px'
@@ -127,5 +131,21 @@ const SelectedRatingArrow = ({direction}: SelectedRatingArrowProps) => {
       <div style={outerTriangleStyle} data-testid="rubric-rating-button-selected" />
       <div style={innerTriangleSmallStyle} />
     </>
+  )
+}
+
+const SelectedSelfAssessment = ({buttonDisplay}: {buttonDisplay: string}) => {
+  return (
+    <div
+      data-testid={`rubric-rating-button-self-assessment-selected-${buttonDisplay}`}
+      style={{
+        position: 'absolute',
+        inset: '6px',
+        backgroundColor: 'transparent',
+        border: `2px dashed ${shamrock}`,
+        borderRadius: '4px',
+        pointerEvents: 'none',
+      }}
+    />
   )
 }

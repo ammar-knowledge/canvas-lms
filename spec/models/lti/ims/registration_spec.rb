@@ -38,7 +38,7 @@ module Lti::IMS
     let(:scopes) { [] }
 
     let(:registration) do
-      r = Registration.new({
+      Registration.new({
         redirect_uris:,
         initiate_login_uri:,
         client_name:,
@@ -48,12 +48,12 @@ module Lti::IMS
         tos_uri:,
         policy_uri:,
         lti_tool_configuration:,
-        scopes:
+        scopes:,
+        developer_key:,
+        lti_registration: developer_key.lti_registration
       }.compact)
-      r.developer_key = developer_key
-      r
     end
-    let(:developer_key) { DeveloperKey.create }
+    let(:developer_key) { lti_developer_key_model }
 
     it "is soft_deleted when destroy is called" do
       registration.destroy
@@ -172,6 +172,16 @@ module Lti::IMS
           let(:scopes) { ["asdf"] }
 
           it { is_expected.to be false }
+        end
+      end
+
+      context "multiple errors" do
+        let(:scopes) { ["asdf"] }
+        let(:policy_uri) { "asdf" }
+
+        it do
+          expect(registration.valid?).to be false
+          expect(registration.errors.size).to eq 2
         end
       end
     end
@@ -437,19 +447,6 @@ module Lti::IMS
             expect(subject.find { |p| p[:placement] == "course_navigation" }).to eq(canvas_placement_hash.merge(placement: "course_navigation", default: "disabled", selection_width: 200, selection_height: 300))
             expect(subject.count { |p| p[:default] == "disabled" }).to be(1)
           end
-
-          it "prefers the default_enabled value from the overlay" do
-            lti_tool_configuration[:messages].first[Registration::COURSE_NAV_DEFAULT_ENABLED_EXTENSION] = true
-            registration.registration_overlay["placements"] = [{ "type" => "course_navigation", "default" => "disabled" }]
-
-            expect(subject.find { |p| p[:placement] == "course_navigation" }[:default]).to eq("disabled")
-          end
-
-          it "uses the overlay value for a placement when the placement has the canvas URL prefix and the overlay does not" do
-            other_icon_url = "http://example.com/other_icon.png"
-            registration.registration_overlay["placements"] = [{ "type" => "assignment_edit", "icon_url" => other_icon_url }]
-            expect(subject.find { |p| p[:placement] == "assignment_edit" }[:icon_url]).to eq(other_icon_url)
-          end
         end
       end
 
@@ -526,8 +523,8 @@ module Lti::IMS
         end
       end
 
-      describe "importable_configuration" do
-        subject { registration.importable_configuration }
+      describe "deployment_configuration" do
+        subject { registration.lti_registration.deployment_configuration }
         let(:lti_tool_configuration) do
           {
             domain: "example.com",
@@ -553,48 +550,13 @@ module Lti::IMS
               "custom_fields" => {
                 "global_foo" => "global_bar"
               },
-              "description" => nil,
               "domain" => "example.com",
-              "extensions" => [{
-                "domain" => "example.com",
-                "platform" => "canvas.instructure.com",
-                "privacy_level" => "anonymous",
-                "settings" => {
-                  "icon_url" => registration.logo_uri,
-                  "placements" => [
-                    {
-                      "custom_fields" => { "foo" => "bar" },
-                      "enabled" => true,
-                      "icon_url" => "http://example.com/icon.png",
-                      "message_type" => "LtiResourceLinkRequest",
-                      "placement" => "global_navigation",
-                      "target_link_uri" => "http://example.com/launch"
-                    },
-                    {
-                      "custom_fields" => { "foo" => "bar" },
-                      "enabled" => true,
-                      "icon_url" => "http://example.com/icon.png",
-                      "message_type" => "LtiResourceLinkRequest",
-                      "placement" => "course_navigation",
-                      "target_link_uri" => "http://example.com/launch"
-                    }
-                  ],
-                  "platform" => "canvas.instructure.com",
-                  "text" => "Example Tool"
-                },
-                "tool_id" => nil
-              }],
               "lti_version" => "1.3",
               "oidc_initiation_url" => "http://example.com/login",
-              "platform" => "canvas.instructure.com",
               "privacy_level" => "anonymous",
               "public_jwk_url" => "http://example.com/jwks",
               "scopes" => [],
-              "target_link_uri" => nil,
               "title" => "Example Tool",
-              "tool_id" => nil,
-              "unified_tool_id" => nil,
-              "url" => nil,
               "settings" => {
                 "course_navigation" => {
                   "custom_fields" => { "foo" => "bar" },
@@ -631,7 +593,6 @@ module Lti::IMS
                     "target_link_uri" => "http://example.com/launch"
                   }
                 ],
-                "platform" => "canvas.instructure.com",
                 "text" => "Example Tool"
               },
             }
@@ -641,7 +602,7 @@ module Lti::IMS
     end
 
     describe "#new_external_tool" do
-      subject { registration.new_external_tool(context) }
+      subject { registration.developer_key.lti_registration.new_external_tool(context) }
 
       let(:lti_tool_configuration) do
         {
@@ -694,9 +655,14 @@ module Lti::IMS
       end
 
       context "when existing_tool is provided" do
-        subject { registration.new_external_tool(context, existing_tool:) }
+        subject { lti_registration.new_external_tool(context, existing_tool:) }
 
-        let(:existing_tool) { registration.new_external_tool(context) }
+        let(:lti_registration) { registration.developer_key.lti_registration }
+        let(:existing_tool) { lti_registration.new_external_tool(context) }
+
+        before do
+          lti_registration.ims_registration = registration
+        end
 
         context "and existing tool is disabled" do
           let(:state) { "disabled" }
@@ -785,7 +751,7 @@ module Lti::IMS
       end
 
       context "placements" do
-        subject { registration.new_external_tool(context).settings["course_navigation"] }
+        subject { registration.developer_key.lti_registration.new_external_tool(context).settings["course_navigation"] }
 
         it "uses the correct icon url" do
           expect(subject["icon_url"]).to eq icon_uri
@@ -813,27 +779,26 @@ module Lti::IMS
       end
     end
 
-    describe "registration_configuration" do
-      subject { registration.registration_configuration }
+    describe "internal_lti_configuration" do
+      subject { registration.internal_lti_configuration }
 
       context "when no explicit tool_id is set" do
         it "formats the configuration correctly with tool_id being nil" do
           config = registration.lti_tool_configuration.with_indifferent_access
           expect(subject).to eq(
             {
-              name: registration.client_name,
-              description: config[:description],
+              title: registration.client_name,
               domain: config[:domain],
-              custom_fields: config[:custom_parameters],
-              target_link_uri: config[:target_link_uri],
               privacy_level: registration.privacy_level,
-              icon_url: registration.logo_uri,
               oidc_initiation_url: registration.initiate_login_uri,
               redirect_uris: registration.redirect_uris,
               public_jwk_url: registration.jwks_uri,
-              scopes: registration.overlaid_scopes,
+              scopes: registration.scopes,
               placements: registration.placements,
-              tool_id: nil
+              launch_settings: {
+                icon_url: "http://example.com/logo.png",
+                text: registration.client_name,
+              }
             }.with_indifferent_access
           )
         end
@@ -853,18 +818,18 @@ module Lti::IMS
           config = registration.lti_tool_configuration.with_indifferent_access
           expect(subject).to eq(
             {
-              name: registration.client_name,
-              description: config[:description],
+              title: registration.client_name,
               domain: config[:domain],
-              custom_fields: config[:custom_parameters],
-              target_link_uri: config[:target_link_uri],
               privacy_level: registration.privacy_level,
-              icon_url: registration.logo_uri,
               oidc_initiation_url: registration.initiate_login_uri,
               redirect_uris: registration.redirect_uris,
               public_jwk_url: registration.jwks_uri,
-              scopes: registration.overlaid_scopes,
+              scopes: registration.scopes,
               placements: registration.placements,
+              launch_settings: {
+                icon_url: "http://example.com/logo.png",
+                text: registration.client_name,
+              },
               tool_id: "ToolV2"
             }.with_indifferent_access
           )

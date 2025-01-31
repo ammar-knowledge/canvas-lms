@@ -39,6 +39,9 @@ describe "Module Items API", type: :request do
     @subheader_tag = @module1.add_item(type: "context_module_sub_header", title: "external resources")
     @subheader_tag.publish! if @subheader_tag.unpublished?
 
+    @assignment_percentage = @course.assignments.create!(name: "percentage 60", submission_types: ["online_text_entry"], points_possible: 20)
+    @assignment_percentage_tag = @module1.add_item(id: @assignment_percentage.id, type: "assignment")
+
     @external_url_tag = @module1.add_item(type: "external_url",
                                           url: "http://example.com/lolcats",
                                           title: "pls view",
@@ -49,11 +52,12 @@ describe "Module Items API", type: :request do
       @assignment_tag.id => { type: "must_submit" },
       @quiz_tag.id => { type: "min_score", min_score: 10 },
       @topic_tag.id => { type: "must_contribute" },
-      @external_url_tag.id => { type: "must_view" }
+      @external_url_tag.id => { type: "must_view" },
+      @assignment_percentage_tag.id => { type: "min_percentage", min_percentage: 60 }
     }
     @module1.save!
 
-    @christmas = Time.zone.local(Time.now.year + 1, 12, 25, 7, 0)
+    @christmas = Time.zone.local(Time.zone.now.year + 1, 12, 25, 7, 0)
     @module2 = @course.context_modules.create!(name: "do not open until christmas",
                                                unlock_at: @christmas,
                                                require_sequential_progress: true)
@@ -177,11 +181,26 @@ describe "Module Items API", type: :request do
           "quiz_lti" => false
         },
         {
+          "type" => "Assignment",
+          "id" => @assignment_percentage_tag.id,
+          "content_id" => @assignment_percentage.id,
+          "html_url" => "http://www.example.com/courses/#{@course.id}/modules/items/#{@assignment_percentage_tag.id}",
+          "position" => 5,
+          "url" => "http://www.example.com/api/v1/courses/#{@course.id}/assignments/#{@assignment_percentage.id}",
+          "title" => @assignment_percentage_tag.title,
+          "indent" => 0,
+          "completion_requirement" => { "type" => "min_percentage", "min_percentage" => 60.0 },
+          "published" => true,
+          "unpublishable" => true,
+          "module_id" => @module1.id,
+          "quiz_lti" => false
+        },
+        {
           "type" => "ExternalUrl",
           "id" => @external_url_tag.id,
           "html_url" => "http://www.example.com/api/v1/courses/#{@course.id}/module_item_redirect/#{@external_url_tag.id}",
           "external_url" => @external_url_tag.url,
-          "position" => 5,
+          "position" => 6,
           "title" => @external_url_tag.title,
           "indent" => 1,
           "completion_requirement" => { "type" => "must_view" },
@@ -646,7 +665,7 @@ describe "Module Items API", type: :request do
       it "inserts into correct position" do
         @quiz_tag.destroy
         tags = @module1.content_tags.active
-        expect(tags.map(&:position)).to eq [1, 3, 4, 5]
+        expect(tags.map(&:position)).to eq [1, 3, 4, 5, 6]
 
         json = api_call(:post,
                         "/api/v1/courses/#{@course.id}/modules/#{@module1.id}/items",
@@ -668,7 +687,7 @@ describe "Module Items API", type: :request do
 
         tags.each(&:reload)
         # 2 is deleted; 3 is the new one, that displaced the others to 4-6
-        expect(tags.map(&:position)).to eq [1, 4, 5, 6]
+        expect(tags.map(&:position)).to eq [1, 4, 5, 6, 7]
       end
 
       it "inserts into correct position if created out of order" do
@@ -987,7 +1006,7 @@ describe "Module Items API", type: :request do
         expect(json["position"]).to eq 2
 
         tags.each(&:reload)
-        expect(tags.map(&:position)).to eq [2, 1, 3, 4, 5]
+        expect(tags.map(&:position)).to eq [2, 1, 3, 4, 5, 6]
 
         json = api_call(:put,
                         "/api/v1/courses/#{@course.id}/modules/#{@module1.id}/items/#{@assignment_tag.id}",
@@ -1002,7 +1021,7 @@ describe "Module Items API", type: :request do
         expect(json["position"]).to eq 4
 
         tags.each(&:reload)
-        expect(tags.map(&:position)).to eq [4, 1, 2, 3, 5]
+        expect(tags.map(&:position)).to eq [4, 1, 2, 3, 5, 6]
       end
 
       context "set_completion_requirement" do
@@ -1175,7 +1194,7 @@ describe "Module Items API", type: :request do
 
           expect(@module1.reload.content_tags.map(&:id)).not_to include @assignment_tag.id
           expect(@module1.updated_at).to be > old_updated_ats[0]
-          expect(@module1.completion_requirements.size).to eq 3
+          expect(@module1.completion_requirements.size).to eq 4
           expect(@module1.completion_requirements.detect { |req| req[:id] == @assignment_tag.id }).to be_nil
 
           expect(@module2.reload.updated_at).to be > old_updated_ats[1]
@@ -1202,7 +1221,7 @@ describe "Module Items API", type: :request do
 
           expect(@module1.reload.content_tags.map(&:id)).not_to include @assignment_tag.id
           expect(@module1.updated_at).to be > old_updated_ats[0]
-          expect(@module1.completion_requirements.size).to eq 3
+          expect(@module1.completion_requirements.size).to eq 4
           expect(@module1.completion_requirements.detect { |req| req[:id] == @assignment_tag.id }).to be_nil
 
           expect(@module2.reload.content_tags.sort_by(&:position).map(&:id)).to eq [@wiki_page_tag.id, @assignment_tag.id, @attachment_tag.id]
@@ -1340,7 +1359,7 @@ describe "Module Items API", type: :request do
                         asset_type: "ModuleItem",
                         asset_id: @external_url_tag.to_param)
         expect(json["items"].size).to be 1
-        expect(json["items"][0]["prev"]["id"]).to eq @topic_tag.id
+        expect(json["items"][0]["prev"]["id"]).to eq @assignment_percentage_tag.id
         expect(json["items"][0]["current"]["id"]).to eq @external_url_tag.id
         expect(json["items"][0]["next"]["id"]).to eq @wiki_page_tag.id
         expect(json["modules"].pluck("id").sort).to eq [@module1.id, @module2.id].sort
@@ -1366,7 +1385,7 @@ describe "Module Items API", type: :request do
                           course_id: @course.to_param,
                           asset_type: "ModuleItem",
                           asset_id: @quiz_tag.to_param)
-          expect(json["items"].first["next"]["id"]).to eq @external_url_tag.id
+          expect(json["items"].first["next"]["id"]).to eq @assignment_percentage_tag.id
         end
 
         it "still shows visible section-specific discussions" do
@@ -1521,7 +1540,7 @@ describe "Module Items API", type: :request do
                         asset_id: @topic.to_param)
         expect(json["items"].size).to be 1
         expect(json["items"][0]["prev"]["id"]).to eql @quiz_tag.id
-        expect(json["items"][0]["next"]["id"]).to eql @external_url_tag.id
+        expect(json["items"][0]["next"]["id"]).to eql @assignment_percentage_tag.id
       end
 
       context "with duplicate items" do
@@ -1608,7 +1627,7 @@ describe "Module Items API", type: :request do
       end
 
       it "requires a student_id specified" do
-        call_select_mastery_path @assignment_tag, 100, nil, expected_status: 401
+        call_select_mastery_path @assignment_tag, 100, nil, expected_status: 403
       end
 
       it "requires an assignment_set_id specified" do
@@ -1925,41 +1944,6 @@ describe "Module Items API", type: :request do
           expect(json["items"][0]["next"]["id"]).to eq quiz_tag.id
         end
 
-        it "does not omit a wiki page item if CYOE is disabled and selective release is disabled" do
-          Account.site_admin.disable_feature! :selective_release_backend
-          allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(false)
-          module_with_page = @course.context_modules.create!(name: "new module")
-          assignment = @course.assignments.create!(
-            name: "some assignment",
-            submission_types: ["online_text_entry"],
-            points_possible: 20
-          )
-          module_with_page.add_item(id: assignment.id, type: "assignment")
-          page = @course.wiki_pages.create!(title: "some page")
-          page.assignment = @course.assignments.create!(
-            name: "hidden page",
-            submission_types: ["wiki_page"],
-            only_visible_to_overrides: true
-          )
-          page.save!
-          page_tag = module_with_page.add_item(id: page.id, type: "wiki_page")
-          quiz = @course.quizzes.create!(title: "some quiz")
-          quiz.publish!
-          module_with_page.add_item(id: quiz.id, type: "quiz")
-          json = api_call(
-            :get,
-            "/api/v1/courses/#{@course.id}/" \
-            "module_item_sequence?asset_type=Assignment&asset_id=#{assignment.id}",
-            controller: "context_module_items_api",
-            action: "item_sequence",
-            format: "json",
-            course_id: @course.to_param,
-            asset_type: "Assignment",
-            asset_id: assignment.to_param
-          )
-          expect(json["items"][0]["next"]["id"]).to eq page_tag.id
-        end
-
         it "includes model data merge from Canvas" do
           json = api_call(:get,
                           "/api/v1/courses/#{@course.id}/modules/#{@cyoe_module2.id}/items?include[]=mastery_paths",
@@ -2109,7 +2093,7 @@ describe "Module Items API", type: :request do
                  id: @assignment_tag.id.to_s },
                { module_item: { title: "new name" } },
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "disallows create" do
@@ -2122,7 +2106,7 @@ describe "Module Items API", type: :request do
                  module_id: @module1.id.to_s },
                { module_item: { title: "new name" } },
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "disallows destroy" do
@@ -2136,7 +2120,7 @@ describe "Module Items API", type: :request do
                  id: @assignment_tag.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "does not show module item completion for other students" do
@@ -2153,7 +2137,7 @@ describe "Module Items API", type: :request do
                  module_id: @module1.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
 
       api_call(:get,
                "/api/v1/courses/#{@course.id}/modules/#{@module1.id}/items/#{@assignment_tag.id}?student_id=#{student.id}",
@@ -2166,7 +2150,7 @@ describe "Module Items API", type: :request do
                  student_id: student.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     context "mark_as_done" do
@@ -2418,7 +2402,7 @@ describe "Module Items API", type: :request do
                    id: @assignment_tag.id.to_s },
                  { student_id: other_student.id, assignment_set_id: 100 },
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
 
       context "in a course that is public to auth users" do
@@ -2495,7 +2479,7 @@ describe "Module Items API", type: :request do
                  module_id: @module1.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       api_call(:get,
                "/api/v1/courses/#{@course.id}/modules/#{@module2.id}/items/#{@attachment_tag.id}",
                { controller: "context_module_items_api",
@@ -2506,7 +2490,7 @@ describe "Module Items API", type: :request do
                  id: @attachment_tag.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       api_call(:get,
                "/api/v1/courses/#{@course.id}/module_item_redirect/#{@external_url_tag.id}",
                { controller: "context_module_items_api",
@@ -2516,7 +2500,7 @@ describe "Module Items API", type: :request do
                  id: @external_url_tag.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       api_call(:put,
                "/api/v1/courses/#{@course.id}/modules/#{@module1.id}/items/#{@assignment_tag.id}",
                { controller: "context_module_items_api",
@@ -2527,7 +2511,7 @@ describe "Module Items API", type: :request do
                  id: @assignment_tag.id.to_s },
                { module_item: { title: "new name" } },
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       api_call(:post,
                "/api/v1/courses/#{@course.id}/modules/#{@module1.id}/items",
                { controller: "context_module_items_api",
@@ -2537,7 +2521,7 @@ describe "Module Items API", type: :request do
                  module_id: @module1.id.to_s },
                { module_item: { title: "new name" } },
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       api_call(:delete,
                "/api/v1/courses/#{@course.id}/modules/#{@module1.id}/items/#{@assignment_tag.id}",
                { controller: "context_module_items_api",
@@ -2548,7 +2532,7 @@ describe "Module Items API", type: :request do
                  id: @assignment_tag.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       allow(ConditionalRelease::Service).to receive(:enabled_in_context?).and_return(true)
       api_call(:post,
                "/api/v1/courses/#{@course.id}/modules/#{@module1.id}/items/#{@assignment_tag.id}/select_mastery_path",
@@ -2560,7 +2544,7 @@ describe "Module Items API", type: :request do
                  id: @assignment_tag.id.to_s },
                { assignment_set_id: 100 },
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
   end
 end

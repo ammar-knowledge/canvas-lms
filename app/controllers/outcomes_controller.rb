@@ -48,7 +48,7 @@ class OutcomesController < ApplicationController
       PERMISSIONS: {
         manage_outcomes: @context.grants_right?(@current_user, session, :manage_outcomes),
         manage_rubrics: @context.grants_right?(@current_user, session, :manage_rubrics),
-        can_manage_courses: @context.grants_any_right?(@current_user, session, :manage_courses, :manage_courses_admin),
+        can_manage_courses: @context.grants_right?(@current_user, session, :manage_courses_admin),
         import_outcomes: @context.grants_right?(@current_user, session, :import_outcomes),
         manage_proficiency_scales:
           @context.grants_right?(@current_user, session, :manage_proficiency_scales),
@@ -160,7 +160,7 @@ class OutcomesController < ApplicationController
   def list
     return unless authorized_action(@context, @current_user, :manage_outcomes)
 
-    @account_contexts = @context.associated_accounts rescue []
+    @account_contexts = @context.associated_accounts
     @current_outcomes = @context.linked_learning_outcomes
     @outcomes = Canvas::ICU.collate_by(@context.available_outcomes, &:title)
     if params[:unused]
@@ -173,7 +173,7 @@ class OutcomesController < ApplicationController
   def add_outcome
     return unless authorized_action(@context, @current_user, :manage_outcomes)
 
-    @account_contexts = @context.associated_accounts.uniq rescue []
+    @account_contexts = @context.associated_accounts.uniq
     codes = @account_contexts.map(&:asset_string)
     @outcome = LearningOutcome.for_context_codes(codes).find(params[:learning_outcome_id])
     @group = @context.learning_outcome_groups.find(params[:learning_outcome_group_id])
@@ -226,7 +226,7 @@ class OutcomesController < ApplicationController
     if @result.artifact.is_a?(Submission)
       @submission = @result.artifact
       redirect_to named_context_url(@result.context, :context_assignment_submission_url, @submission.assignment_id, @submission.user_id)
-    elsif @result.artifact.is_a?(RubricAssessment) && @result.artifact.artifact && @result.artifact.artifact.is_a?(Submission)
+    elsif @result.artifact.is_a?(RubricAssessment) && @result.artifact.artifact.is_a?(Submission)
       @submission = @result.artifact.artifact
       redirect_to named_context_url(@result.context, :context_assignment_submission_url, @submission.assignment_id, @submission.user_id)
     elsif @result.artifact.is_a?(Quizzes::QuizSubmission) && @result.associated_asset

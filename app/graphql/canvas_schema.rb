@@ -22,6 +22,7 @@ class CanvasSchema < GraphQL::Schema
   query Types::QueryType
   mutation Types::MutationType
   trace_with GraphQL::Tracing::CallLegacyTracers
+  trace_with GraphQL::Tracing::SentryTrace
 
   use GraphQL::Batch
 
@@ -114,14 +115,17 @@ class CanvasSchema < GraphQL::Schema
                 Types::ModuleSubHeaderType,
                 Types::InternalSettingType]
 
-  def self.for_federation
-    @federatable_schema ||= Class.new(CanvasSchema) do
-      include ApolloFederation::Schema
+  # GraphQL tuning and defensive settings
+  max_depth GraphQLTuning.max_depth
+  validate_max_errors GraphQLTuning.validate_max_errors
+  max_query_string_tokens GraphQLTuning.max_query_string_tokens
 
-      # TODO: once https://github.com/Gusto/apollo-federation-ruby/pull/135 is
-      # merged and published, we can update the `apollo-federation` gem and
-      # remove this line
-      query Types::QueryType
-    end
+  query_analyzer(CanvasAntiabuseAnalyzer)
+
+  if Rails.env.development?
+    max_complexity GraphQLTuning.max_complexity
+    default_page_size GraphQLTuning.default_page_size
+    default_max_page_size GraphQLTuning.default_max_page_size
+    query_analyzer(LogQueryComplexity)
   end
 end

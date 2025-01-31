@@ -23,7 +23,7 @@ describe Lti::LtiAdvantageAdapter do
   include_context "lti_1_3_spec_helper"
   include Lti::RedisMessageClient
 
-  let!(:lti_user_id) { Lti::Asset.opaque_identifier_for(@student) }
+  let!(:lti_user_id) { Lti::V1p1::Asset.opaque_identifier_for(@student) }
   let(:return_url) { "http://www.platform.com/return_url" }
   let(:user) { @student }
   let(:opts) { { resource_type: "course_navigation", domain: "test.com" } }
@@ -83,11 +83,15 @@ describe Lti::LtiAdvantageAdapter do
   end
 
   describe "#generate_post_payload_for_student_context_card" do
-    let(:login_message) { adapter.generate_post_payload_for_student_context_card(student_id:) }
-    let(:student_id) { "123" }
+    let(:login_message) { adapter.generate_post_payload_for_student_context_card(student:) }
+    let(:student) { @student }
 
     it "includes extension lti_student_id claim in the id_token" do
-      expect(params["post_payload"]["https://www.instructure.com/lti_student_id"]).to eq(student_id)
+      expect(params["post_payload"]["https://www.instructure.com/lti_student_id"]).to eq(@student.global_id.to_s)
+    end
+
+    it "includes extension student_context claim in the id_token" do
+      expect(params["post_payload"]["https://www.instructure.com/student_context"]).to eq({ "id" => @student.lti_id })
     end
   end
 
@@ -165,9 +169,30 @@ describe Lti::LtiAdvantageAdapter do
         canvas_region
         canvas_environment
         client_id
-        deployment_id
+        lti_deployment_id
         lti_storage_target
       ]
+    end
+
+    context "when lti_deployment_id_in_login_request FF is off" do
+      before do
+        course.root_account.disable_feature!(:lti_deployment_id_in_login_request)
+      end
+
+      it "creates a login message" do
+        expect(login_message.keys).to match_array %w[
+          iss
+          login_hint
+          target_link_uri
+          lti_message_hint
+          canvas_region
+          canvas_environment
+          client_id
+          deployment_id
+          lti_deployment_id
+          lti_storage_target
+        ]
+      end
     end
 
     context "lti_storage_target parameter" do
@@ -226,7 +251,7 @@ describe Lti::LtiAdvantageAdapter do
         allow(ApplicationController).to receive(:test_cluster_name).and_return("beta")
       end
 
-      it 'sets "canvas_enviroment" to "beta"' do
+      it 'sets "canvas_environment" to "beta"' do
         expect(login_message["canvas_environment"]).to eq "beta"
       end
     end
@@ -236,7 +261,7 @@ describe Lti::LtiAdvantageAdapter do
         allow(ApplicationController).to receive(:test_cluster_name).and_return("test")
       end
 
-      it 'sets "canvas_enviroment" to "test"' do
+      it 'sets "canvas_environment" to "test"' do
         expect(login_message["canvas_environment"]).to eq "test"
       end
     end
@@ -263,8 +288,19 @@ describe Lti::LtiAdvantageAdapter do
       expect(login_message["client_id"]).to eq tool.global_developer_key_id
     end
 
-    it "includes the deployment_id" do
-      expect(login_message["deployment_id"]).to eq tool.deployment_id
+    it "includes the lti_deployment_id" do
+      expect(login_message["lti_deployment_id"]).to eq tool.deployment_id
+    end
+
+    context "when the lti_deployment_id_in_login_request FF is off" do
+      before do
+        course.root_account.disable_feature!(:lti_deployment_id_in_login_request)
+      end
+
+      it "includes both the lti_deployment_id and deployment_id" do
+        expect(login_message["lti_deployment_id"]).to eq tool.deployment_id
+        expect(login_message["deployment_id"]).to eq tool.deployment_id
+      end
     end
 
     context "when the user has a past lti context id" do

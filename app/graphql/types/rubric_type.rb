@@ -62,10 +62,15 @@ module Types
       Loaders::RubricAssociationsLoader.for.load(object.id)
     end
 
+    field :rubric_association_for_context, RubricAssociationType, null: true
+    def rubric_association_for_context
+      object.rubric_associations.where(context: object.context).first
+    end
+
     field :button_display, String, null: false
     field :hide_points, Boolean, null: true
-    field :rating_order, String, null: false
     field :points_possible, Float, null: true
+    field :rating_order, String, null: false
     field :title, String, null: true
     field :workflow_state, String, null: false
   end

@@ -16,8 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useEffect, useState} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import React, {useEffect, useState, useRef} from 'react'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {colors} from '@instructure/canvas-theme'
 import {View} from '@instructure/ui-view'
 import {Flex} from '@instructure/ui-flex'
@@ -25,25 +25,27 @@ import {Text} from '@instructure/ui-text'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {TextArea} from '@instructure/ui-text-area'
 import {possibleString, possibleStringRange} from '../Points'
-import type {RubricAssessmentData, RubricCriterion, UpdateAssessmentData} from '../types/rubric'
-import {Grid} from '@instructure/ui-grid'
+import type {
+  RubricAssessmentData,
+  RubricCriterion,
+  RubricSubmissionUser,
+  UpdateAssessmentData,
+} from '../types/rubric'
 import {TextInput} from '@instructure/ui-text-input'
 import {Checkbox} from '@instructure/ui-checkbox'
 import {CommentLibrary} from './CommentLibrary'
 import {CriteriaReadonlyComment} from './CriteriaReadonlyComment'
 import {Button} from '@instructure/ui-buttons'
-import {
-  escapeNewLineText,
-  htmlEscapeCriteriaLongDescription,
-  rangingFrom,
-  findCriterionMatchingRatingIndex,
-} from './utils/rubricUtils'
+import {escapeNewLineText, rangingFrom, findCriterionMatchingRatingId} from './utils/rubricUtils'
 import {OutcomeTag} from './OutcomeTag'
+import {LongDescriptionModal} from './LongDescriptionModal'
+import {Link} from '@instructure/ui-link'
+import {SelfAssessmentComment} from './SelfAssessmentComment'
 
-const I18n = useI18nScope('rubrics-assessment-tray')
-const {licorice, tiara} = colors
+const I18n = createI18nScope('rubrics-assessment-tray')
+const {shamrock, tiara} = colors
 
-type TraditionalViewProps = {
+export type TraditionalViewProps = {
   criteria: RubricCriterion[]
   hidePoints: boolean
   isPreviewMode: boolean
@@ -53,8 +55,12 @@ type TraditionalViewProps = {
   rubricAssessmentData: RubricAssessmentData[]
   rubricTitle: string
   rubricSavedComments?: Record<string, string[]>
+  selfAssessment?: RubricAssessmentData[]
+  submissionUser?: RubricSubmissionUser
   onUpdateAssessmentData: (params: UpdateAssessmentData) => void
+  validationErrors?: string[]
 }
+
 export const TraditionalView = ({
   criteria,
   hidePoints,
@@ -65,10 +71,24 @@ export const TraditionalView = ({
   rubricAssessmentData,
   rubricTitle,
   rubricSavedComments,
+  selfAssessment,
+  submissionUser,
   onUpdateAssessmentData,
+  validationErrors,
 }: TraditionalViewProps) => {
+  const pointsColumnWidth = hidePoints ? 0 : 8.875
+  const criteriaColumnWidth = 11.25
+  const maxRatingsCount = Math.max(...criteria.map(criterion => criterion.ratings.length))
+  const ratingsColumnMinWidth = 8.5 * maxRatingsCount
+  const gridMinWidth = `${pointsColumnWidth + criteriaColumnWidth + ratingsColumnMinWidth}rem`
+
   return (
-    <View as="div" margin="0 0 small 0" data-testid="rubric-assessment-traditional-view">
+    <View
+      as="div"
+      margin="0 0 small 0"
+      data-testid="rubric-assessment-traditional-view"
+      minWidth={gridMinWidth}
+    >
       <View
         as="div"
         width="100%"
@@ -122,7 +142,10 @@ export const TraditionalView = ({
 
       {criteria.map((criterion, index) => {
         const criterionAssessment = rubricAssessmentData.find(
-          data => data.criterionId === criterion.id
+          data => data.criterionId === criterion.id,
+        )
+        const criterionSelfAssessment = selfAssessment?.find(
+          data => data.criterionId === criterion.id,
         )
 
         const isLastIndex = criteria.length - 1 === index
@@ -130,10 +153,11 @@ export const TraditionalView = ({
         return (
           <CriterionRow
             // we use the array index because rating may not have an id
-            /* eslint-disable-next-line react/no-array-index-key */
+
             key={`criterion-${criterion.id}-${index}`}
             criterion={criterion}
             criterionAssessment={criterionAssessment}
+            criterionSelfAssessment={criterionSelfAssessment}
             ratingOrder={ratingOrder}
             rubricSavedComments={rubricSavedComments?.[criterion.id] ?? []}
             isLastIndex={isLastIndex}
@@ -142,6 +166,10 @@ export const TraditionalView = ({
             onUpdateAssessmentData={onUpdateAssessmentData}
             isFreeFormCriterionComments={isFreeFormCriterionComments}
             hidePoints={hidePoints}
+            ratingsColumnMinWidth={ratingsColumnMinWidth}
+            validationErrors={validationErrors}
+            shouldFocusFirstRating={validationErrors?.[0] === criterion.id}
+            submissionUser={submissionUser}
           />
         )
       })}
@@ -152,14 +180,19 @@ export const TraditionalView = ({
 type CriterionRowProps = {
   criterion: RubricCriterion
   criterionAssessment?: RubricAssessmentData
+  criterionSelfAssessment?: RubricAssessmentData
   hidePoints: boolean
   isPreviewMode: boolean
   isPeerReview?: boolean
   isLastIndex: boolean
   isFreeFormCriterionComments: boolean
   onUpdateAssessmentData: (params: UpdateAssessmentData) => void
+  ratingsColumnMinWidth: number
   ratingOrder: string
   rubricSavedComments: string[]
+  validationErrors?: string[]
+  shouldFocusFirstRating?: boolean
+  submissionUser?: RubricSubmissionUser
 }
 const CriterionRow = ({
   criterion,
@@ -170,24 +203,27 @@ const CriterionRow = ({
   isPeerReview,
   isFreeFormCriterionComments,
   onUpdateAssessmentData,
+  ratingsColumnMinWidth,
   ratingOrder,
   rubricSavedComments,
+  validationErrors,
+  shouldFocusFirstRating = false,
+  criterionSelfAssessment,
+  submissionUser,
 }: CriterionRowProps) => {
   const [hoveredRatingIndex, setHoveredRatingIndex] = useState<number>()
   const [commentText, setCommentText] = useState<string>(criterionAssessment?.comments ?? '')
   const [pointTextInput, setPointTextInput] = useState('')
   const [isSaveCommentChecked, setIsSaveCommentChecked] = useState(false)
+  const [isLongDescriptionOpen, setIsLongDescriptionOpen] = useState(false)
 
   const criterionRatings = [...criterion.ratings]
   if (ratingOrder === 'ascending') {
     criterionRatings.reverse()
   }
 
-  const selectedRatingIndex = findCriterionMatchingRatingIndex(
-    criterionRatings,
-    criterionAssessment?.points,
-    criterion.criterionUseRange
-  )
+  const hasValidationError = validationErrors?.includes(criterion.id)
+  const firstRatingRef = useRef<HTMLElement | null>(null)
 
   const updateAssessmentData = (params: Partial<UpdateAssessmentData>) => {
     const updatedCriterionAssessment: UpdateAssessmentData = {
@@ -199,6 +235,12 @@ const CriterionRow = ({
   }
 
   useEffect(() => {
+    if (shouldFocusFirstRating && firstRatingRef.current) {
+      firstRatingRef.current.focus()
+    }
+  }, [shouldFocusFirstRating])
+
+  useEffect(() => {
     setCommentText(criterionAssessment?.comments ?? '')
     setPointTextInput(criterionAssessment?.points?.toString() ?? '')
   }, [criterionAssessment, isFreeFormCriterionComments])
@@ -207,31 +249,40 @@ const CriterionRow = ({
     const points = Number(value)
 
     if (!value.trim().length || Number.isNaN(points)) {
-      updateAssessmentData({points: undefined})
+      updateAssessmentData({points: undefined, ratingId: undefined})
       return
     }
 
-    const selectedRating = criterionRatings.find(rating => rating.points === points)
-
     updateAssessmentData({
       points,
-      description: selectedRating?.description,
+      ratingId: undefined,
     })
   }
 
   const hideComments =
     isFreeFormCriterionComments || (isPreviewMode && !criterionAssessment?.comments?.length)
 
+  const selectedRatingId = findCriterionMatchingRatingId(
+    criterion.ratings,
+    criterion.criterionUseRange,
+    criterionAssessment,
+  )
+  const selectedSelfAssessmentRatingId = findCriterionMatchingRatingId(
+    criterion.ratings,
+    criterion.criterionUseRange,
+    criterionSelfAssessment,
+  )
+
   return (
     <View as="div" maxWidth="100%">
-      <Flex>
-        <Flex.Item width="11.2rem" align="start">
+      <Flex alignItems="stretch">
+        <Flex.Item width="11.25rem" align="stretch">
           <View
             as="div"
             padding="xxx-small x-small"
             borderWidth="small 0 small small"
-            height="13.75rem"
-            overflowY="auto"
+            height="100%"
+            maxWidth="11.25rem"
           >
             {criterion.learningOutcomeId && (
               <View as="div" margin="0 0 small 0">
@@ -242,12 +293,18 @@ const CriterionRow = ({
               <Text weight="bold">{criterion.outcome?.displayName || criterion.description}</Text>
             </View>
             <View as="div" margin="small 0 0 0">
-              <Text
-                as="span"
-                size="small"
-                themeOverride={{paragraphMargin: '0'}}
-                dangerouslySetInnerHTML={htmlEscapeCriteriaLongDescription(criterion)}
-              />
+              {criterion.longDescription?.trim() && (
+                <>
+                  <Link onClick={() => setIsLongDescriptionOpen(true)} display="block">
+                    <Text size="x-small">{I18n.t('view longer description')}</Text>
+                  </Link>
+                  <LongDescriptionModal
+                    longDescription={criterion.longDescription}
+                    onClose={() => setIsLongDescriptionOpen(false)}
+                    open={isLongDescriptionOpen}
+                  />
+                </>
+              )}
             </View>
             {criterion.learningOutcomeId && (
               <View as="div" margin="xxx-small 0 0 0">
@@ -262,209 +319,249 @@ const CriterionRow = ({
         </Flex.Item>
         {isFreeFormCriterionComments ? (
           <Flex.Item shouldGrow={true} shouldShrink={true} align="start">
-            <View height="13.75rem">
-              <Grid>
-                <Grid.Row colSpacing="none">
-                  <Grid.Col>
-                    <View
-                      as="div"
-                      height="13.75rem"
-                      padding="x-small small 0 small"
-                      borderWidth="small"
-                      overflowY="auto"
-                    >
-                      <Flex direction="column">
-                        {!isPreviewMode && !isPeerReview && rubricSavedComments.length > 0 && (
-                          <>
-                            <Flex.Item>
-                              <Text weight="bold">{I18n.t('Comment Library')}</Text>
-                            </Flex.Item>
-                            <Flex.Item margin="x-small 0 0 0" shouldGrow={true}>
-                              <CommentLibrary
-                                rubricSavedComments={rubricSavedComments}
-                                criterionId={criterion.id}
-                                setCommentText={setCommentText}
-                                updateAssessmentData={updateAssessmentData}
-                              />
-                            </Flex.Item>
-                          </>
-                        )}
-                        <Flex.Item
-                          margin={rubricSavedComments.length > 0 ? 'medium 0 0 0' : '0 0 0 0'}
-                        >
-                          <Text weight="bold">{I18n.t('Comment')}</Text>
-                        </Flex.Item>
-                        <Flex.Item margin="x-small 0 0 0" shouldGrow={true}>
-                          <TextArea
-                            label={
-                              <ScreenReaderContent>
-                                {I18n.t('Criterion Comment')}
-                              </ScreenReaderContent>
-                            }
-                            readOnly={isPreviewMode}
-                            data-testid={`free-form-comment-area-${criterion.id}`}
-                            width="100%"
-                            height="38px"
-                            value={commentText}
-                            onChange={e => setCommentText(e.target.value)}
-                            onBlur={e => updateAssessmentData({comments: e.target.value})}
-                          />
-                        </Flex.Item>
-                        {!isPeerReview && !isPreviewMode && (
-                          <Flex.Item margin="medium 0 x-small 0" shouldGrow={true}>
-                            <Checkbox
-                              checked={isSaveCommentChecked}
-                              label={I18n.t('Save this comment for reuse')}
-                              size="small"
-                              data-testid={`save-comment-checkbox-${criterion.id}`}
-                              onChange={e => {
-                                updateAssessmentData({saveCommentsForLater: !!e.target.checked})
-                                setIsSaveCommentChecked(!!e.target.checked)
-                              }}
-                            />
-                          </Flex.Item>
-                        )}
-                      </Flex>
+            <View
+              as="div"
+              padding="x-small small 0 small"
+              borderWidth={hasValidationError ? 'medium' : 'small'}
+              borderColor={hasValidationError ? 'danger' : 'primary'}
+              borderRadius={hasValidationError ? 'medium' : 'small'}
+            >
+              <Flex direction="column">
+                {!isPreviewMode && !isPeerReview && rubricSavedComments.length > 0 && (
+                  <>
+                    <Flex.Item>
+                      <Text weight="bold">{I18n.t('Comment Library')}</Text>
+                    </Flex.Item>
+                    <Flex.Item margin="x-small 0 0 0" shouldGrow={true}>
+                      <CommentLibrary
+                        rubricSavedComments={rubricSavedComments}
+                        criterionId={criterion.id}
+                        setCommentText={setCommentText}
+                        updateAssessmentData={updateAssessmentData}
+                      />
+                    </Flex.Item>
+                  </>
+                )}
+                <Flex.Item margin={rubricSavedComments.length > 0 ? 'medium 0 0 0' : '0 0 0 0'}>
+                  <Text weight="bold">{I18n.t('Comment')}</Text>
+                </Flex.Item>
+                <Flex.Item
+                  margin="x-small 0 0 0"
+                  shouldGrow={true}
+                  overflowX="hidden"
+                  overflowY="hidden"
+                >
+                  {isPreviewMode ? (
+                    <View as="div" margin="0 0 0 0" height="48px">
+                      <Text>{commentText}</Text>
                     </View>
-                  </Grid.Col>
-                </Grid.Row>
-              </Grid>
+                  ) : (
+                    <TextArea
+                      label={
+                        <ScreenReaderContent>{I18n.t('Criterion Comment')}</ScreenReaderContent>
+                      }
+                      data-testid={`free-form-comment-area-${criterion.id}`}
+                      width="100%"
+                      height="38px"
+                      value={commentText}
+                      onChange={e => setCommentText(e.target.value)}
+                      onBlur={e => updateAssessmentData({comments: e.target.value})}
+                    />
+                  )}
+                </Flex.Item>
+                {!isPeerReview && !isPreviewMode && (
+                  <Flex.Item margin="medium 0 x-small 0" shouldGrow={true}>
+                    <Checkbox
+                      checked={isSaveCommentChecked}
+                      label={I18n.t('Save this comment for reuse')}
+                      size="small"
+                      data-testid={`save-comment-checkbox-${criterion.id}`}
+                      onChange={e => {
+                        updateAssessmentData({saveCommentsForLater: !!e.target.checked})
+                        setIsSaveCommentChecked(!!e.target.checked)
+                      }}
+                    />
+                  </Flex.Item>
+                )}
+              </Flex>
             </View>
           </Flex.Item>
         ) : (
-          <Flex.Item shouldGrow={true} shouldShrink={true} align="start">
-            <View height="13.75rem">
-              <Grid>
-                <Grid.Row colSpacing="none">
-                  {criterionRatings.map((rating, index) => {
-                    const isHovered = hoveredRatingIndex === index
-                    const isSelected = selectedRatingIndex === index
-                    const isLastIndex = criterionRatings.length - 1 === index
+          <Flex.Item as="div" width="100%" shouldGrow={true} shouldShrink={true} align="stretch">
+            <View
+              as="div"
+              padding="0"
+              margin="0"
+              height="100%"
+              borderWidth={hasValidationError ? 'medium' : 'none'}
+              borderColor={hasValidationError ? 'danger' : 'transparent'}
+              borderRadius="medium"
+            >
+              <Flex alignItems="stretch" height="100%">
+                {criterionRatings.map((rating, index) => {
+                  const isHovered = hoveredRatingIndex === index
+                  const isSelected = rating.id && selectedRatingId === rating.id
+                  const isSelfAssessmentSelected =
+                    rating.id && selectedSelfAssessmentRatingId === rating.id
+                  const isLastRatingIndex = criterionRatings.length - 1 === index
 
-                    const borderColor = isHovered || isSelected ? 'brand' : 'primary'
+                  const borderColor = isHovered || isSelected ? 'brand' : 'primary'
 
-                    const onClickRating = (ratingIndex: number) => {
-                      if (selectedRatingIndex === ratingIndex) {
-                        updateAssessmentData({points: undefined})
-                      } else {
-                        updateAssessmentData({
-                          points: rating.points,
-                          description: rating.description,
-                        })
-                      }
+                  const onClickRating = (ratingId: string) => {
+                    if (selectedRatingId === ratingId) {
+                      updateAssessmentData({
+                        points: undefined,
+                        ratingId: undefined,
+                      })
+                    } else {
+                      updateAssessmentData({
+                        points: rating.points,
+                        ratingId,
+                      })
                     }
+                  }
 
-                    const min = criterion.criterionUseRange
-                      ? rangingFrom(criterionRatings, index, ratingOrder)
-                      : undefined
+                  const min = criterion.criterionUseRange
+                    ? rangingFrom(criterionRatings, index, ratingOrder)
+                    : undefined
 
-                    const primaryBorderColor = `${tiara} ${
-                      isLastIndex ? tiara : 'transparent'
-                    } ${tiara} ${tiara}`
+                  const primaryBorderColor = `${tiara} ${
+                    isLastRatingIndex ? tiara : 'transparent'
+                  } ${tiara} ${tiara}`
 
-                    return (
+                  return (
+                    <Flex.Item
+                      align="stretch"
+                      shouldGrow={true}
                       // we use the array index because rating may not have an id
-                      /* eslint-disable-next-line react/no-array-index-key */
-                      <Grid.Col key={`criterion-${criterion.id}-ratings-${index}`}>
+
+                      key={`criterion-${criterion.id}-ratings-${index}`}
+                      width={ratingsColumnMinWidth / criterionRatings.length + 'rem'}
+                    >
+                      <View
+                        as="div"
+                        borderColor={borderColor}
+                        borderWidth="small"
+                        height="100%"
+                        padding="0"
+                        margin="0"
+                        themeOverride={{
+                          borderColorBrand: shamrock,
+                          borderColorPrimary: primaryBorderColor,
+                        }}
+                        elementRef={ref => {
+                          if (index === 0) {
+                            firstRatingRef.current = ref as HTMLElement
+                          }
+                        }}
+                      >
                         <View
-                          as="div"
-                          borderColor={borderColor}
+                          as="button"
+                          disabled={isPreviewMode}
+                          tabIndex={0}
+                          background="transparent"
+                          height="100%"
+                          width="100%"
                           borderWidth="small"
-                          height="13.75rem"
-                          padding="0"
-                          margin="0"
+                          borderColor={borderColor}
+                          overflowX="hidden"
+                          overflowY="hidden"
+                          cursor={isPreviewMode ? 'not-allowed' : 'pointer'}
+                          padding="xxx-small x-small 0 x-small"
+                          position="relative"
+                          onMouseOver={() => setHoveredRatingIndex(isPreviewMode ? -1 : index)}
+                          onMouseOut={() => setHoveredRatingIndex(undefined)}
+                          onClick={() => onClickRating(rating.id)}
                           themeOverride={{
-                            borderColorBrand: licorice,
-                            borderColorPrimary: primaryBorderColor,
+                            borderWidthSmall: '0.125rem',
+                            borderColorBrand: shamrock,
+                            borderColorPrimary: 'transparent',
                           }}
+                          data-testid={`traditional-criterion-${criterion.id}-ratings-${index}`}
                         >
-                          <View
-                            as="button"
-                            disabled={isPreviewMode}
-                            tabIndex={0}
-                            background="transparent"
-                            height="100%"
-                            width="100%"
-                            borderWidth="small"
-                            borderColor={borderColor}
-                            overflowY="auto"
-                            overflowX="hidden"
-                            cursor={isPreviewMode ? 'not-allowed' : 'pointer'}
-                            padding="xxx-small x-small 0 x-small"
-                            onMouseOver={() => setHoveredRatingIndex(isPreviewMode ? -1 : index)}
-                            onMouseOut={() => setHoveredRatingIndex(undefined)}
-                            onClick={() => onClickRating(index)}
-                            themeOverride={{
-                              borderWidthSmall: '0.125rem',
-                              borderColorBrand: licorice,
-                              borderColorPrimary: 'transparent',
-                            }}
-                            data-testid={`traditional-criterion-${criterion.id}-ratings-${index}`}
-                          >
-                            <Flex direction="column" height="100%">
-                              <Flex.Item>
-                                <Text weight="bold">{rating.description}</Text>
-                              </Flex.Item>
-                              <Flex.Item margin="small 0 0 0" shouldGrow={true} textAlign="start">
-                                <View as="div" maxHeight="9.531rem">
+                          {isSelfAssessmentSelected && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                inset: '2px',
+                                backgroundColor: 'transparent',
+                                color: shamrock,
+                                border: '2px dashed #0B874B',
+                                borderRadius: '4px',
+                                pointerEvents: 'none',
+                              }}
+                            />
+                          )}
+                          <Flex direction="column" height="100%" alignItems="stretch">
+                            <Flex.Item>
+                              <Text weight="bold">{rating.description}</Text>
+                            </Flex.Item>
+                            <Flex.Item margin="small 0 0 0" shouldGrow={true} textAlign="start">
+                              <View as="div">
+                                <Text
+                                  size="small"
+                                  dangerouslySetInnerHTML={escapeNewLineText(
+                                    rating.longDescription,
+                                  )}
+                                />
+                              </View>
+                            </Flex.Item>
+                            <Flex.Item>
+                              <View
+                                as="div"
+                                textAlign="end"
+                                position="relative"
+                                padding="0 0 x-small 0"
+                                overflowX="hidden"
+                                overflowY="hidden"
+                                minHeight="1.875rem"
+                              >
+                                <View>
                                   <Text
                                     size="small"
-                                    dangerouslySetInnerHTML={escapeNewLineText(
-                                      rating.longDescription
-                                    )}
-                                  />
+                                    weight="bold"
+                                    data-testid={`traditional-criterion-${criterion.id}-ratings-${index}-points`}
+                                  >
+                                    {!hidePoints &&
+                                      (min != null
+                                        ? possibleStringRange(min, rating.points)
+                                        : possibleString(rating.points))}
+                                  </Text>
                                 </View>
-                              </Flex.Item>
-                              <Flex.Item>
-                                <View
-                                  as="div"
-                                  textAlign="end"
-                                  position="relative"
-                                  padding="0 0 x-small 0"
-                                  overflowX="hidden"
-                                  overflowY="hidden"
-                                  minHeight="1.875rem"
-                                >
-                                  <View>
-                                    <Text
-                                      size="small"
-                                      weight="bold"
-                                      data-testid={`traditional-criterion-${criterion.id}-ratings-${index}-points`}
-                                    >
-                                      {!hidePoints &&
-                                        (min != null
-                                          ? possibleStringRange(min, rating.points)
-                                          : possibleString(rating.points))}
-                                    </Text>
-                                  </View>
 
-                                  {isSelected && (
-                                    <div
-                                      data-testid={`traditional-criterion-${criterion.id}-ratings-${index}-selected`}
-                                      style={{
-                                        position: 'absolute',
-                                        bottom: '0',
-                                        height: '0',
-                                        width: '0',
-                                        left: '50%',
-                                        borderLeft: '12px solid transparent',
-                                        borderRight: '12px solid transparent',
-                                        borderBottom: `12px solid ${licorice}`,
-                                        transform: 'translateX(-50%)',
-                                      }}
-                                    />
-                                  )}
-                                </View>
-                              </Flex.Item>
-                            </Flex>
-                          </View>
+                                {isSelected && (
+                                  <div
+                                    data-testid={`traditional-criterion-${criterion.id}-ratings-${index}-selected`}
+                                    style={{
+                                      position: 'absolute',
+                                      bottom: '0',
+                                      height: '0',
+                                      width: '0',
+                                      left: '50%',
+                                      borderLeft: '12px solid transparent',
+                                      borderRight: '12px solid transparent',
+                                      borderBottom: `12px solid ${shamrock}`,
+                                      transform: 'translateX(-50%)',
+                                    }}
+                                  />
+                                )}
+                              </View>
+                            </Flex.Item>
+                          </Flex>
                         </View>
-                      </Grid.Col>
-                    )
-                  })}
-                </Grid.Row>
-              </Grid>
+                      </View>
+                    </Flex.Item>
+                  )
+                })}
+              </Flex>
             </View>
+            {hasValidationError && (
+              <View as="div" padding="small" borderWidth="0 0 small 0">
+                <Text size="small" color="danger">
+                  {I18n.t('Select a rating')}
+                </Text>
+              </View>
+            )}
           </Flex.Item>
         )}
         {!hidePoints && (
@@ -473,27 +570,38 @@ const CriterionRow = ({
               as="div"
               padding="xxx-small x-small"
               borderWidth="small small small 0"
-              height="13.75rem"
-              overflowY="auto"
+              height="100%"
             >
               <Flex direction="column" height="100%">
                 <div style={{display: 'flex', alignItems: 'center'}}>
                   <Flex.Item margin="small 0 0 0">
-                    <TextInput
-                      renderLabel={
-                        <ScreenReaderContent>{I18n.t('Criterion Score')}</ScreenReaderContent>
-                      }
-                      readOnly={isPreviewMode}
-                      data-testid={`criterion-score-${criterion.id}`}
-                      placeholder="--"
-                      width="3.375rem"
-                      height="2.375rem"
-                      value={pointTextInput}
-                      onChange={e => setPointTextInput(e.target.value)}
-                      onBlur={e => setPoints(e.target.value)}
-                    />
+                    {!isPreviewMode && !criterion.ignoreForScoring && (
+                      <TextInput
+                        autoComplete="off"
+                        renderLabel={
+                          <ScreenReaderContent>{I18n.t('Criterion Score')}</ScreenReaderContent>
+                        }
+                        readOnly={isPreviewMode}
+                        data-testid={`criterion-score-${criterion.id}`}
+                        placeholder="--"
+                        width="3.375rem"
+                        height="2.375rem"
+                        value={pointTextInput}
+                        onChange={e => setPointTextInput(e.target.value)}
+                        onBlur={e => setPoints(e.target.value)}
+                      />
+                    )}
                   </Flex.Item>
                   <Flex.Item margin="small 0 0 x-small">
+                    {criterion.ignoreForScoring ? (
+                      <Text>--</Text>
+                    ) : (
+                      isPreviewMode && (
+                        <Text data-testid={`criterion-score-${criterion.id}-readonly`}>
+                          {pointTextInput}
+                        </Text>
+                      )
+                    )}
                     <Text>{'/' + possibleString(criterion.points)}</Text>
                   </Flex.Item>
                 </div>
@@ -510,6 +618,12 @@ const CriterionRow = ({
           borderWidth={`0 small ${isLastIndex ? 'small' : '0'} small`}
           themeOverride={{paddingMedium: '1.125rem'}}
         >
+          <SelfAssessmentComment
+            margin="0 0 small 0"
+            selfAssessment={criterionSelfAssessment}
+            user={submissionUser}
+            submittedAtAlignment="start"
+          />
           <Flex>
             {isPreviewMode ? (
               <Flex.Item shouldGrow={true}>

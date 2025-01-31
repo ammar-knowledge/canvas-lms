@@ -21,7 +21,7 @@ import {render, cleanup, screen} from '@testing-library/react'
 import SimilarityScore from '../SimilarityScore'
 
 describe('SimilarityScore', () => {
-  let defaultProps = {
+  const defaultProps = {
     hasAdditionalData: false,
     reportUrl: '/my_superlative_report',
     similarityScore: 60,
@@ -72,7 +72,7 @@ describe('SimilarityScore', () => {
     it('displays a message indicating the submission is pending', () => {
       mountComponent({status: 'pending'})
       expect(
-        screen.getByText(/Submission is being processed by plagiarism service/)
+        screen.getByText(/Submission is being processed by plagiarism service/),
       ).toBeInTheDocument()
     })
   })
@@ -80,14 +80,14 @@ describe('SimilarityScore', () => {
   it('displays a message indicating additional reports exist when hasAdditionalData is true', () => {
     mountComponent({hasAdditionalData: true})
     expect(
-      screen.getByText(/This submission has plagiarism data for multiple attachments./)
+      screen.getByText(/This submission has plagiarism data for multiple attachments./),
     ).toBeInTheDocument()
   })
 
   it('does not display a message indicating additional reports exist when hasAdditionalData is false', () => {
     mountComponent()
     expect(
-      screen.queryByText('This submission has plagiarism data for multiple attachments.')
+      screen.queryByText('This submission has plagiarism data for multiple attachments.'),
     ).not.toBeInTheDocument()
   })
 })

@@ -41,7 +41,7 @@ type StatusBarFeature =
   | 'fullscreen'
   | 'resize_handle'
 
-export const RCEVariantValues = ['full', 'lite', 'text-only'] as const
+export const RCEVariantValues = ['full', 'lite', 'text-only', 'text-block'] as const
 
 export type RCEVariant = (typeof RCEVariantValues)[number]
 
@@ -104,6 +104,10 @@ export function getToolbarForVariant(
         name: formatMessage('Lists'),
         items: ['bullist'],
       },
+      {
+        name: formatMessage('Miscellaneous'),
+        items: ['instructure_equation'],
+      },
     ]
   }
 
@@ -116,6 +120,38 @@ export function getToolbarForVariant(
       {
         name: formatMessage('Content'),
         items: ['instructure_links'],
+      },
+    ]
+  }
+
+  if (variant === 'text-block') {
+    return [
+      {
+        name: formatMessage('Styles'),
+        items: ['fontsizeselect', 'formatselect'],
+      },
+      {
+        name: formatMessage('Formatting'),
+        items: [
+          'bold',
+          'italic',
+          'underline',
+          'instructure_color',
+          'inst_subscript',
+          'inst_superscript',
+        ],
+      },
+      {
+        name: formatMessage('Content'),
+        items: ['instructure_links', 'instructure_documents'],
+      },
+      {
+        name: formatMessage('Alignment and Lists'),
+        items: ['align', 'bullist', 'inst_indent', 'inst_outdent'],
+      },
+      {
+        name: formatMessage('Miscellaneous'),
+        items: ['removeformat', 'instructure_equation'],
       },
     ]
   }
@@ -169,6 +205,10 @@ export function getStatusBarFeaturesForVariant(
   if (variant === 'lite' || variant === 'text-only') {
     return ['keyboard_shortcuts', 'a11y_checker', 'word_count']
   }
+  if (variant === 'text-block') {
+    return []
+  }
+
   const full_features: StatusBarFeature[] = [
     'keyboard_shortcuts',
     'a11y_checker',

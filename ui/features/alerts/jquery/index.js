@@ -1,4 +1,3 @@
-/* eslint-disable eqeqeq */
 /*
  * Copyright (C) 2011 - present Instructure, Inc.
  *
@@ -17,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import htmlEscape from '@instructure/html-escape'
 import '@canvas/jquery/jquery.ajaxJSON'
@@ -26,7 +25,7 @@ import replaceTags from '@canvas/util/replaceTags'
 import 'jquery-tinypubsub' // /\.publish/
 import 'jqueryui/button'
 
-const I18n = useI18nScope('alerts')
+const I18n = createI18nScope('alerts')
 
 $(function () {
   const $list = $('.alerts_list')
@@ -66,7 +65,7 @@ $(function () {
     // see placeholder in _alerts.html.erb
     contentHtml = contentHtml.replace(
       '%{count}',
-      "<span class='displaying'></span><input type='text' name='alert[criteria][][threshold]' class='editing' size='2'></input>"
+      "<span class='displaying'></span><input type='text' name='alert[criteria][][threshold]' class='editing' size='2'></input>",
     )
     $element.html(contentHtml)
     if (element === 'li') {
@@ -83,7 +82,7 @@ $(function () {
     const $element = createElement(recipient, element, 'label', ENV.ALERTS.POSSIBLE_RECIPIENTS)
     if (element === 'li') {
       $element.prepend(
-        $("<input type='hidden' name='alert[recipients][]' />").prop('value', recipient)
+        $("<input type='hidden' name='alert[recipients][]' />").prop('value', recipient),
       )
     }
     return $element
@@ -102,7 +101,7 @@ $(function () {
       criterion_type,
       element,
       element === 'li' ? 'label' : 'option',
-      ENV.ALERTS.POSSIBLE_CRITERIA
+      ENV.ALERTS.POSSIBLE_CRITERIA,
     )
     if (element === 'li') {
       if (!threshold) {
@@ -116,12 +115,12 @@ $(function () {
       $element.prepend(
         $("<input type='hidden' name='alert[criteria][][criterion_type]' />").prop(
           'value',
-          criterion_type
-        )
+          criterion_type,
+        ),
       )
       if (id) {
         $element.prepend(
-          $("<input type='hidden' name='alert[criteria][][id]' />").prop('value', id)
+          $("<input type='hidden' name='alert[criteria][][id]' />").prop('value', id),
         )
       }
     }
@@ -328,7 +327,7 @@ $(function () {
         },
         data => {
           $alert.formErrors(data)
-        }
+        },
       )
       return false
     })

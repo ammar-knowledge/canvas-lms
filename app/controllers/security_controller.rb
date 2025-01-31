@@ -53,18 +53,27 @@ class SecurityController < ApplicationController
     )
   end
 
+  def self.notice_types_supported
+    Lti::Pns::NoticeTypes::ALL
+  end
+
+  def self.key_storages_by_path
+    {
+      "/internal/services/jwks" => CanvasSecurity::ServicesJwt::KeyStorage,
+      "/login/oauth2/jwks" => Canvas::OAuth::KeyStorage,
+      "/api/lti/security/jwks" => Lti::KeyStorage
+    }
+  end
+
   # @API Show all available JWKs used by Canvas for signing.
   #
   # @returns JWKs
   def jwks
-    key_storage = case request.path
-                  when "/internal/services/jwks"
-                    CanvasSecurity::ServicesJwt::KeyStorage
-                  when "/login/oauth2/jwks"
-                    Canvas::OAuth::KeyStorage
-                  when "/api/lti/security/jwks"
-                    Lti::KeyStorage
-                  end
+    key_storage = self.class.key_storages_by_path[request.path]
+    unless key_storage
+      return render json: { message: "page not found" }, status: :not_found
+    end
+
     public_keyset = key_storage.public_keyset
 
     if params.include?(:rotation_check)
@@ -108,7 +117,8 @@ class SecurityController < ApplicationController
       token_endpoint: oauth2_token_url(host: Lti::Oidc.auth_domain(account_domain)),
       token_endpoint_auth_methods_supported: ["private_key_jwt"],
       token_endpoint_auth_signing_alg_values_supported: ["RS256"],
-      scopes_supported: TokenScopes::LTI_SCOPES.keys,
+      scopes_supported:
+        ["openid"] + TokenScopes.public_lti_scopes_urls_for_account(account),
       response_types_supported: ["id_token"],
       id_token_signing_alg_values_supported: ["RS256"],
       # TODO: this list can probably be dynamic, with admins choosing the scopes they want to admit to this tool
@@ -124,13 +134,15 @@ class SecurityController < ApplicationController
   end
 
   def lti_platform_configuration(account)
+    notice_types_supported = SecurityController.notice_types_supported if account.feature_enabled?(:platform_notification_service)
     {
       product_family_code: "canvas",
       version: canvas_ims_product_version,
       messages_supported: SecurityController.messages_supported,
+      notice_types_supported:,
       variables: Lti::VariableExpander.expansion_keys,
       "https://canvas.instructure.com/lti/account_name": account.name,
       "https://canvas.instructure.com/lti/account_lti_guid": account.lti_guid
-    }.with_indifferent_access
+    }.with_indifferent_access.compact
   end
 end

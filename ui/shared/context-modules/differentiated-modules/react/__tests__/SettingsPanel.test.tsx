@@ -170,6 +170,7 @@ describe('SettingsPanel', () => {
       {
         lockUntilChecked: false,
         moduleName: 'Week 12',
+        moduleNameDirty: true,
         nameInputMessages: [],
         lockUntilInputMessages: [],
         prerequisites: [],
@@ -179,7 +180,7 @@ describe('SettingsPanel', () => {
         requirements: [],
         unlockAt: '',
       },
-      true
+      true,
     )
   })
 
@@ -191,6 +192,7 @@ describe('SettingsPanel', () => {
       {
         lockUntilChecked: false,
         moduleName: 'Week 1',
+        moduleNameDirty: false,
         nameInputMessages: [],
         lockUntilInputMessages: [],
         prerequisites: [],
@@ -200,7 +202,7 @@ describe('SettingsPanel', () => {
         requirements: [],
         unlockAt: '',
       },
-      false
+      false,
     )
   })
 
@@ -211,6 +213,7 @@ describe('SettingsPanel', () => {
 
     beforeEach(() => {
       jest.clearAllMocks()
+      // @ts-expect-error
       doFetchApi.mockReset()
     })
 
@@ -226,6 +229,7 @@ describe('SettingsPanel', () => {
     })
 
     it('makes a request to the modules update endpoint', async () => {
+      // @ts-expect-error
       doFetchApi.mockResolvedValue({response: {ok: true}, json: {}})
       const {getByRole, findByTestId} = renderComponent()
       getByRole('button', {name: 'Save'}).click()
@@ -235,11 +239,12 @@ describe('SettingsPanel', () => {
           path: '/courses/1/modules/1',
           method: 'PUT',
           body: expect.anything(),
-        })
+        }),
       )
     })
 
     it('formats the form state for the request body', () => {
+      // @ts-expect-error
       doFetchApi.mockResolvedValue({response: {ok: true}, json: {}})
       const {getByRole} = renderComponent()
       getByRole('button', {name: 'Save'}).click()
@@ -247,6 +252,7 @@ describe('SettingsPanel', () => {
     })
 
     it('updates the modules page UI', async () => {
+      // @ts-expect-error
       doFetchApi.mockResolvedValue({response: {ok: true}, json: {}})
       const {getByRole} = renderComponent()
       getByRole('button', {name: 'Save'}).click()
@@ -256,6 +262,7 @@ describe('SettingsPanel', () => {
     })
 
     it('shows a flash alert on success', async () => {
+      // @ts-expect-error
       doFetchApi.mockResolvedValue({response: {ok: true}, json: {}})
       const {getByRole} = renderComponent()
       getByRole('button', {name: 'Save'}).click()
@@ -270,6 +277,7 @@ describe('SettingsPanel', () => {
 
     it('shows a flash alert on failure', async () => {
       const e = new Error('error')
+      // @ts-expect-error
       doFetchApi.mockRejectedValue(e)
       const {getByRole} = renderComponent()
       getByRole('button', {name: 'Save'}).click()
@@ -282,6 +290,7 @@ describe('SettingsPanel', () => {
     })
 
     it('calls the render function on the re-lock dialog', async () => {
+      // @ts-expect-error
       doFetchApi.mockResolvedValue({response: {ok: true}, json: {}})
       const {getByRole} = renderComponent()
       getByRole('button', {name: 'Save'}).click()
@@ -291,6 +300,7 @@ describe('SettingsPanel', () => {
     it('calls onDidSubmit instead of onDismiss if passed', async () => {
       const onDidSubmitMock = jest.fn()
       const onDismissMock = jest.fn()
+      // @ts-expect-error
       doFetchApi.mockResolvedValue({response: {ok: true}, json: {}})
       const {getByRole, findByTestId} = renderComponent({
         onDidSubmit: onDidSubmitMock,
@@ -302,11 +312,35 @@ describe('SettingsPanel', () => {
       expect(onDidSubmitMock).toHaveBeenCalled()
       expect(onDismissMock).not.toHaveBeenCalled()
     })
+
+    it('calls updateParentData with moduleNameDirty state', async () => {
+      const updateParentDataMock = jest.fn()
+      const {unmount, findByTestId} = renderComponent({updateParentData: updateParentDataMock})
+      await userEvent.type(await findByTestId('module-name-input'), '2')
+      unmount()
+      expect(updateParentDataMock).toHaveBeenCalledWith(
+        {
+          lockUntilChecked: false,
+          moduleName: 'Week 12',
+          moduleNameDirty: true,
+          nameInputMessages: [],
+          lockUntilInputMessages: [],
+          prerequisites: [],
+          publishFinalGrade: false,
+          requireSequentialProgress: false,
+          requirementCount: 'all',
+          requirements: [],
+          unlockAt: '',
+        },
+        true,
+      )
+    })
   })
 
   describe('on create', () => {
     it('calls addModuleUI when module is created', async () => {
       const addModuleUI = jest.fn()
+      // @ts-expect-error
       doFetchApi.mockResolvedValue({response: {ok: true}, json: {}})
       const {getByRole, findByTestId} = renderComponent({moduleId: undefined, addModuleUI})
       getByRole('button', {name: 'Add Module'}).click()
@@ -324,6 +358,7 @@ describe('SettingsPanel', () => {
     it('calls onDidSubmit instead of onDismiss if passed', async () => {
       const onDidSubmitMock = jest.fn()
       const onDismissMock = jest.fn()
+      // @ts-expect-error
       doFetchApi.mockResolvedValue({response: {ok: true}, json: {}})
       const {getByRole, findByTestId} = renderComponent({
         moduleId: undefined,

@@ -49,7 +49,7 @@ describe('GradingSchemeTable', () => {
         archiveOrUnarchiveScheme={archiveOrUnarchiveScheme}
         defaultAccountGradingSchemeEnabled={false}
         {...props}
-      />
+      />,
     )
     return {
       ...funcs,
@@ -155,11 +155,18 @@ describe('GradingSchemeTable', () => {
     expect(openDuplicateModal).toHaveBeenCalledWith(AccountGradingSchemeCards[0].gradingScheme)
   })
 
-  it('should call the openDeleteModal function when the delete button is clicked', () => {
-    const {getByTestId, openDeleteModal} = renderGradingSchemeTable()
+  it('should call the openDeleteModal function when the delete button is clicked', async () => {
+    const gradingScheme = {
+      ...AccountGradingSchemeCards[0].gradingScheme,
+      assessed_assignment: false,
+      used_as_default: false
+    }
+    const {getByTestId, openDeleteModal} = renderGradingSchemeTable({
+      gradingSchemeCards: [{gradingScheme, editing: false}]
+    })
     const deleteButton = getByTestId('grading-scheme-1-delete-button')
-    deleteButton.click()
-    expect(openDeleteModal).toHaveBeenCalledWith(AccountGradingSchemeCards[0].gradingScheme)
+    await userEvent.click(deleteButton)
+    expect(openDeleteModal).toHaveBeenCalledWith(gradingScheme)
   })
 
   it('should call the archiveOrUnarchiveScheme function when the archive button is clicked', () => {
@@ -167,7 +174,7 @@ describe('GradingSchemeTable', () => {
     const archiveButton = getByTestId('grading-scheme-1-archive-button')
     archiveButton.click()
     expect(archiveOrUnarchiveScheme).toHaveBeenCalledWith(
-      AccountGradingSchemeCards[0].gradingScheme
+      AccountGradingSchemeCards[0].gradingScheme,
     )
   })
 
@@ -192,20 +199,18 @@ describe('GradingSchemeTable', () => {
       await userEvent.hover(archiveButton)
       expect(
         getByText(
-          "You can't archive this grading scheme because it is set as a default for a course or account."
-        )
+          "You can't archive this grading scheme because it is set as a default for a course or account.",
+        ),
       ).toBeInTheDocument()
     })
 
     it('should display the tooltip over the delete button if disabled', async () => {
-      const {getByText, getByTestId} = renderGradingSchemeTable({
+      const {getByTestId, getByText} = renderGradingSchemeTable({
         defaultAccountGradingSchemeEnabled: true,
       })
       const deleteButton = getByTestId('grading-scheme-3-delete-button')
       await userEvent.hover(deleteButton)
-      expect(
-        getByText("You can't delete this grading scheme because it is in use.")
-      ).toBeInTheDocument()
+      expect(getByText("You can't delete this grading scheme because it is in use.")).toBeInTheDocument()
     })
 
     it('should display "Show Locations Used" as the Locations Used text', () => {

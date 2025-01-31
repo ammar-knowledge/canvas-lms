@@ -21,11 +21,9 @@ require_relative "../common"
 require_relative "../../conditional_release_spec_helper"
 require_relative "../assignments/page_objects/assignments_index_page"
 require_relative "page_objects/conditional_release_objects"
-require_relative "../../helpers/selective_release_common"
 
 describe "native canvas conditional release" do
   include AssignmentsIndexPage
-  include SelectiveReleaseCommon
 
   include_context "in-process server selenium tests"
   before(:once) do
@@ -39,21 +37,6 @@ describe "native canvas conditional release" do
   end
 
   context "Pages as part of Mastery Paths" do
-    it "shows Allow in Mastery Paths for a Page when feature enabled" do
-      differentiated_modules_off
-      get "/courses/#{@course.id}/pages/new/edit"
-      expect(ConditionalReleaseObjects.conditional_content_exists?).to be(true)
-    end
-
-    it "does not show Allow in Mastery Paths when feature disabled" do
-      differentiated_modules_off
-      account = Account.default
-      account.settings[:conditional_release] = { value: false }
-      account.save!
-      get "/courses/#{@course.id}/pages/new/edit"
-      expect(ConditionalReleaseObjects.conditional_content_exists?).to be(false)
-    end
-
     it "is not included in the assignments page" do
       page_title = "MP Page to Verify"
       @new_page = @course.wiki_pages.create!(title: page_title)
@@ -197,10 +180,10 @@ describe "native canvas conditional release" do
       ConditionalReleaseObjects.conditional_release_link.click
 
       ConditionalReleaseObjects.replace_mastery_path_scores(ConditionalReleaseObjects.division_cutoff1, "70", "")
-      expect(ConditionalReleaseObjects.must_not_be_empty_exists?).to be(true)
+      expect(ConditionalReleaseObjects.scoring_input_error[0].text).to include("Please enter a score")
 
       ConditionalReleaseObjects.replace_mastery_path_scores(ConditionalReleaseObjects.division_cutoff1, "", "35")
-      expect(ConditionalReleaseObjects.these_scores_are_out_of_order_exists?).to be(true)
+      expect(ConditionalReleaseObjects.scoring_input_error[0].text).to include("Please adjust score order")
     end
 
     it "does not show error setting middle range to 0" do
@@ -210,10 +193,7 @@ describe "native canvas conditional release" do
       replace_content(ConditionalReleaseObjects.division_cutoff1, "2")
       replace_content(ConditionalReleaseObjects.division_cutoff2, "0")
 
-      expect(ConditionalReleaseObjects.must_not_be_empty_exists?).to be(false)
-      expect(ConditionalReleaseObjects.these_scores_are_out_of_order_exists?).to be(false)
-      expect(ConditionalReleaseObjects.must_be_a_number_exists?).to be(false)
-      expect(ConditionalReleaseObjects.number_is_too_small_exists?).to be(false)
+      expect(element_exists?(ConditionalReleaseObjects.scoring_input_error_selector)).to be_falsey
     end
   end
 

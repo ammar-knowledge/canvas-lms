@@ -1,50 +1,4 @@
 ---
-buttons_and_icons_root_account:
-  state: allowed
-  applies_to: RootAccount
-  display_name: RCE Icon Maker
-  description: |-
-    Manage a library of custom icons from the RCE.
-  environments:
-    production:
-      state: hidden
-
-explicit_latex_typesetting:
-  state: hidden
-  display_name: Explicit LaTeX Typesetting
-  description: |-
-    Instead of typesetting LaTeX anywhere, only typeset LaTeX where
-    it is explicitly enabled.
-  applies_to: SiteAdmin
-
-rce_transform_loaded_content:
-  state: hidden
-  display_name: Transform RCE Content on Load
-  description: |-
-    Transforms absolute URLs to relative URLs and removes extraneous attributes from RCE content on load.
-    Needed for the RCE to function fully in New Quizzes.
-  applies_to: RootAccount
-  environments:
-    development:
-      state: allowed_on
-    beta:
-      state: allowed_on
-    ci:
-      state: allowed_on
-
-media_links_use_attachment_id:
-  state: hidden
-  display_name: Use Attachment IDs in Media Links
-  description: |-
-    Use attachment ids in media links so that users are always pointed to the correct instance of media
-    instead of the original
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on
-    development:
-      state: allowed_on
-
 assignments_2_student:
   state: hidden
   display_name: Assignment Enhancements - Student
@@ -64,15 +18,6 @@ assignments_2_teacher:
   environments:
     production:
       state: disabled
-
-auto_show_cc:
-  type: setting
-  state: allowed
-  display_name: Auto Show Closed Captions
-  description: |-
-    Automatically show closed captions in the user's current
-    language (if available) when playing canvas media.
-  applies_to: User
 
 confetti_branding:
   state: 'hidden'
@@ -96,6 +41,19 @@ course_paces:
     development:
       state: allowed_on
     beta:
+      state: allowed_on
+    ci:
+      state: allowed_on
+
+course_paces_skip_selected_days:
+  state: hidden
+  display_name: 'Course Pacing Skip Selected Days'
+  description: Course pacing removes support for exclude weekends field and add the 
+        ability to select specific days of the week.
+  applies_to: RootAccount
+  beta: true
+  environments:
+    development:
       state: allowed_on
     ci:
       state: allowed_on
@@ -142,39 +100,10 @@ course_paces_redesign:
   description: Enable the redesigned course pacing user experience.
   applies_to: SiteAdmin
 
-deprecate_faculty_journal:
-  state: hidden
-  display_name: 'Faculty Journal Deprecation'
-  description: Enable the deprecation of the faculty journal functionality.
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on
-    development:
-      state: allowed_on
-
 blueprint_line_item_support:
   state: hidden
   display_name: 'Blueprint Resource ID Support'
   description: Allows blueprint courses to keep track of assignment's resource id changes.
-  applies_to: SiteAdmin
-
-permanent_page_links:
-  state: hidden
-  display_name: 'Permanent Page Links'
-  description: |-
-    When the title to a page is changed, old links to that page will link to the correct page.
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on
-    development:
-      state: allowed_on
-
-authenticated_iframe_content:
-  state: hidden
-  display_name: 'Authenticated IFrame Content'
-  description: This flag changes the way RCE content is loaded in iframes to proxy the request through canvas.
   applies_to: SiteAdmin
 
 content_migration_asset_map_v2:
@@ -190,70 +119,12 @@ instui_for_import_page:
     If enabled, the course import page will use InstUI components
   applies_to: SiteAdmin
 
-selective_release_backend:
-  state: hidden
-  display_name: Selective Release - Backend Changes
-  description: |-
-    Selective Release is a feature that allows modules and module items to
-    be assigned to specific individuals and groups. This is the first of two flags
-    that must be enabled to use this feature. When this flag is enabled, the
-    transparent backend changes that support assigning modules and module items will
-    be enabled. As long as no module-type AssignmentOverrides exist, enabling this
-    feature is backwards-compatible, and exists to ensure that the backend changes
-    are performant.
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on # enable for automated testings builds and local testing
-    development:
-      state: allowed_on # enable for local development
-
-selective_release_ui_api:
-  state: hidden
-  display_name: Selective Release - UI/API Changes
-  description: |-
-    Selective Release is a feature that allows modules and module items to
-    be assigned to specific individuals and groups. The selective_release_backend
-    flag MUST be enabled before this flag can be enabled. When this flag is enabled,
-    the UI and API that allow users to create module-type AssignmentOverrides will be
-    enabled, and thus the feature will be fully functional.
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on # enable for automated testings builds and local testing
-    development:
-      state: allowed_on # enable for local development
-
-selective_release_edit_page:
-  state: hidden
-  display_name: Selective Release - Edit Page
-  description: |-
-    If enabled, with selective release the edit page for assignments, quizzes, pages,
-    and discussions will have the assign to functionality directly in the page instead
-    of in a tray.
-  applies_to: SiteAdmin
-
 differentiated_files:
   state: hidden
   display_name: Selective Release - Files
   description: |-
     If enabled, files become assignable to specific individuals and groups using the
     same interface that other learning object use.
-  applies_to: SiteAdmin
-
-learner_passport:
-  state: hidden
-  applies_to: RootAccount
-  root_opt_in: true
-  display_name: Learner Passport Prototype
-  description: An in-progress working prototype of the Learner Passport feature.
-
-precise_link_replacements:
-  state: hidden
-  display_name: Precise link replacement on content migrations
-  description: |-
-    Apply link replacement logic to a select list of
-    elements only, as opposed to all texts
   applies_to: SiteAdmin
 
 observer_appointment_groups:
@@ -269,32 +140,12 @@ observer_appointment_groups:
     development:
       state: allowed_on
 
-block_editor:
-  applies_to: Account
-  state: hidden
-  display_name: Block Editor
-  description: |-
-    Enable the new block editor for the rich content editor.
-  beta: true
-
 instui_header:
   state: hidden
   display_name: Use InstUI new headers
   description: |-
     If enabled, pages will use the new InstUI headers
   applies_to: SiteAdmin
-
-rce_find_replace:
-  state: hidden
-  display_name: Find and Replace RCE Plugin
-  description: |-
-    Enable a plugin which can find and replace content when editing in an RCE
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on
-    development:
-      state: allowed_on
 
 dashboard_graphql_integration:
   state: hidden
@@ -303,3 +154,32 @@ dashboard_graphql_integration:
     Integrate GraphQL queries and mutations for the Dashboard to improve loading speed
     and simplify data fetching logic.
   applies_to: SiteAdmin
+
+modules_page_hide_blueprint_lock_icon_for_children:
+  state: hidden
+  display_name: Hide Blueprint Lock Icon on child course Modules Page
+  description: |-
+    If enabled, the blueprint lock icon will be hidden on the modules page. This is a performance hack and should only
+    be used for customers with a large number of content items (2000+) in a course.
+  applies_to: Account
+
+modules_teacher_module_selection:
+  state: hidden
+  display_name: Allow teachers to select a single module to show on the modules page for teachers
+  description: |-
+    If enabled, teachers will be able to a single module to show on the modules page for teachers.
+  applies_to: Account
+
+modules_student_module_selection:
+  state: hidden
+  display_name: Allow teachers to select a single module to show on the modules page for students
+  description: |-
+    If enabled, teachers will be able to a single module to show on the modules page for students.
+  applies_to: Account
+
+calendar_events_api_pagination_enhancements:
+  state: hidden
+  display_name: Calendar Events API Pagination Enhancements
+  description: |-
+    Improves API pagination handling for assignment events on user calendar.
+  applies_to: RootAccount

@@ -27,14 +27,14 @@ import {Tabs} from '@instructure/ui-tabs'
 import {IconModuleSolid} from '@instructure/ui-icons'
 import {calculatePanelHeight} from '../utils/miscHelpers'
 import type {Module} from './types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import type {SettingsPanelState} from './settingsReducer'
 import {createModule, updateModule} from './SettingsPanel'
 import {type OptionValue, updateModuleAssignees} from './AssignToPanel'
 import CoursePacingNotice from '@canvas/due-dates/react/CoursePacingNotice'
-import {AssigneeOption} from './Item/types'
+import type {AssigneeOption} from './Item/types'
 
-const I18n = useI18nScope('differentiated_modules')
+const I18n = createI18nScope('differentiated_modules')
 
 const SETTINGS_ID = 'settings'
 const ASSIGN_TO_ID = 'assign-to'
@@ -66,7 +66,7 @@ function Header({
   moduleId?: string
   moduleElement: HTMLDivElement
   onDismiss: () => void
-  headerLabel: String
+  headerLabel: string
 }) {
   const customOnDismiss = useCallback(() => {
     if (!moduleId) {
@@ -127,11 +127,11 @@ function Body({
   const footerHeight = '63'
   const panelHeight = useMemo(
     (): string => calculatePanelHeight(moduleId !== undefined),
-    [moduleId]
+    [moduleId],
   )
   const bodyHeight = useMemo(
     (): string => `calc(${panelHeight} - ${footerHeight}px)`,
-    [panelHeight]
+    [panelHeight],
   )
 
   const handleSubmitMissingTabs = () => {
@@ -141,7 +141,6 @@ function Body({
       assignToData.current &&
       moduleId
     ) {
-      // eslint-disable-next-line promise/catch-or-return
       updateModuleAssignees({
         courseId,
         moduleId,
@@ -154,7 +153,7 @@ function Body({
       settingsData.current
     ) {
       const performRequest = moduleId === undefined ? createModule : updateModule
-      // eslint-disable-next-line promise/catch-or-return
+
       performRequest({
         moduleId,
         moduleElement,
@@ -200,7 +199,7 @@ function Body({
               mountNodeRef={trayRef}
               updateParentData={(newSettingsData, changed) => {
                 settingsData.current = newSettingsData
-                changed && changes.current.add(SETTINGS_ID)
+                if (changed) changes.current.add(SETTINGS_ID)
               }}
               onDidSubmit={handleSubmitMissingTabs}
               {...settingsProps}
@@ -229,7 +228,7 @@ function Body({
                 onDismiss={onDismiss}
                 updateParentData={(newAssignToData, changed) => {
                   assignToData.current = newAssignToData
-                  changed && changes.current.add(ASSIGN_TO_ID)
+                  if (changed) changes.current.add(ASSIGN_TO_ID)
                 }}
                 defaultOption={assignToData.current?.selectedOption}
                 defaultAssignees={assignToData.current?.selectedAssignees}

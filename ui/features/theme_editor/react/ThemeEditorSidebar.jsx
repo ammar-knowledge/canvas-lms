@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {useState} from 'react'
 import {bool, func, object} from 'prop-types'
 import {Tabs} from '@instructure/ui-tabs'
@@ -25,7 +25,7 @@ import types from '@canvas/theme-editor/react/PropTypes'
 import ThemeEditorAccordion from './ThemeEditorAccordion'
 import ThemeEditorFileUpload from './ThemeEditorFileUpload'
 
-const I18n = useI18nScope('theme_editor')
+const I18n = createI18nScope('theme_editor')
 
 export default function ThemeEditorSidebar(props) {
   const [selected, setSelected] = useState('tab-panel-edit')
@@ -68,7 +68,7 @@ export default function ThemeEditorSidebar(props) {
               <div>
                 <p className="Theme__editor-upload-warning_text-emphasis">
                   {I18n.t(
-                    'Custom CSS and Javascript may cause accessibility issues or conflicts with future Canvas updates!'
+                    'Custom CSS and Javascript may cause accessibility issues or conflicts with future Canvas updates!',
                   )}
                 </p>
                 <p
@@ -77,7 +77,7 @@ export default function ThemeEditorSidebar(props) {
                       'Before implementing custom CSS or Javascript, please refer to *our documentation*.',
                       {
                         wrappers: ['<a href="' + customCssLink + '" target="_blank">$1</a>'],
-                      }
+                      },
                     ),
                   }}
                 />
@@ -115,7 +115,7 @@ export default function ThemeEditorSidebar(props) {
           <div className="Theme__editor-upload-overrides">
             <div className="Theme__editor-upload-overrides_header">
               {I18n.t(
-                'File(s) will be included when user content is displayed within the Canvas iOS or Android apps, and in third-party apps built on our API.'
+                'File(s) will be included when user content is displayed within the Canvas iOS or Android apps, and in third-party apps built on our API.',
               )}
             </div>
 

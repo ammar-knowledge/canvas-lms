@@ -20,26 +20,26 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import {CreateCourseModal} from '@canvas/create-course-modal/react/CreateCourseModal'
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ready from '@instructure/ready'
 
-const I18n = useI18nScope('course_list')
+const I18n = createI18nScope('course_list')
 
 function success(target) {
   const courseName = target[0].dataset.courseName
   const favorited_tooltip = I18n.t(
     'favorited_tooltip',
     'Click to remove %{course_name} from the courses menu.',
-    {course_name: courseName}
+    {course_name: courseName},
   )
   const nonfavorite_tooltip = I18n.t(
     'nonfavorited_tooltip',
     'Click to add %{course_name} to the courses menu.',
-    {course_name: courseName}
+    {course_name: courseName},
   )
   const notfavoritable_tooltip = I18n.t(
     '%{course_name} cannot be added to the courses menu unless the course is active.',
-    {course_name: courseName}
+    {course_name: courseName},
   )
 
   if (target.hasClass('course-list-favorite-course')) {
@@ -95,7 +95,7 @@ ready(() => {
             restrictToMCCAccount={ENV.CREATE_COURSES_PERMISSIONS.RESTRICT_TO_MCC_ACCOUNT}
             isK5User={ENV.K5_USER}
           />,
-          container
+          container,
         )
       })
     }

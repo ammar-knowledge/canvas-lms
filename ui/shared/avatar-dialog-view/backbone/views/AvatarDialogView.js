@@ -16,7 +16,7 @@
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 //
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import {each, isString, defer, find, partial, isArray} from 'lodash'
 import DialogBaseView from '@canvas/dialog-base-view'
@@ -26,7 +26,7 @@ import GravatarView from './GravatarView'
 import {completeUpload} from '@canvas/upload-file'
 import template from '../../jst/avatarDialog.handlebars'
 
-const I18n = useI18nScope('profile')
+const I18n = createI18nScope('profile')
 
 export default class AvatarDialogView extends DialogBaseView {
   static initClass() {
@@ -151,10 +151,10 @@ export default class AvatarDialogView extends DialogBaseView {
         const message = isString(errors.base)
           ? errors.base
           : isArray(errors.base)
-          ? errors.base.reduce(errorReducer, '')
-          : I18n.t(
-              'Your profile photo could not be uploaded. You may have exceeded your upload limit.'
-            )
+            ? errors.base.reduce(errorReducer, '')
+            : I18n.t(
+                'Your profile photo could not be uploaded. You may have exceeded your upload limit.',
+              )
 
         $.flashError(message)
         return this.enableSelectButton()
@@ -203,7 +203,7 @@ export default class AvatarDialogView extends DialogBaseView {
             errors: {
               base: I18n.t('Profile photo save failed too many times'),
             },
-          })
+          }),
         )
       }
     })

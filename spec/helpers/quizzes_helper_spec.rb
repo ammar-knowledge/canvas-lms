@@ -38,7 +38,7 @@ describe QuizzesHelper do
       quiz = Quizzes::Quiz.new(context: @course)
       quiz.workflow_state = "available"
       quiz.last_edited_at = 10.minutes.ago
-      quiz.published_at   = Time.now
+      quiz.published_at   = Time.zone.now
 
       allow(self).to receive(:can_publish).and_return(true)
       expect(needs_unpublished_warning?(quiz)).to be_falsey
@@ -55,7 +55,7 @@ describe QuizzesHelper do
     it "is true if quiz has unpublished changes" do
       quiz = Quizzes::Quiz.new(context: @course)
       quiz.workflow_state = "available"
-      quiz.last_edited_at = Time.now
+      quiz.last_edited_at = Time.zone.now
       quiz.published_at   = 10.minutes.ago
 
       allow(self).to receive(:can_publish).and_return(true)
@@ -497,7 +497,7 @@ describe QuizzesHelper do
     end
   end
 
-  context "#point_value_for_input" do
+  describe "#point_value_for_input" do
     let(:user_answer) { @user_answer }
     let(:question) { { points_possible: 5 } }
     let(:quiz) { @quiz }
@@ -531,7 +531,7 @@ describe QuizzesHelper do
     end
   end
 
-  context "#comment_get" do
+  describe "#comment_get" do
     it "returns _html field if present" do
       comment = comment_get({ foo_html: "<div>Foo</div>", foo: "Bar" }, "foo")
       expect(comment).to eq "<div>Foo</div>"

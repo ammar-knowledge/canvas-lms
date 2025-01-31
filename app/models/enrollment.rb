@@ -45,8 +45,8 @@ class Enrollment < ActiveRecord::Base
   has_one :enrollment_state, dependent: :destroy, inverse_of: :enrollment
 
   has_many :role_overrides, as: :context, inverse_of: :context
-  has_many :pseudonyms, primary_key: :user_id, foreign_key: :user_id
-  has_many :course_account_associations, foreign_key: "course_id", primary_key: "course_id"
+  has_many :pseudonyms, primary_key: :user_id, foreign_key: :user_id, inverse_of: false
+  has_many :course_account_associations, foreign_key: "course_id", primary_key: "course_id", inverse_of: false
   has_many :scores, -> { active }
 
   validates :user_id, :course_id, :type, :root_account_id, :course_section_id, :workflow_state, :role_id, presence: true
@@ -295,12 +295,18 @@ class Enrollment < ActiveRecord::Base
 
   scope :all_student, lambda {
                         eager_load(:course)
-                          .where("(enrollments.type = 'StudentEnrollment'
-              AND enrollments.workflow_state IN ('invited', 'active', 'completed')
-              AND courses.workflow_state IN ('available', 'completed')) OR
-              (enrollments.type = 'StudentViewEnrollment'
-              AND enrollments.workflow_state = 'active'
-              AND courses.workflow_state != 'deleted')")
+                          .where("
+                            (
+                              enrollments.type = 'StudentEnrollment'
+                              AND enrollments.workflow_state IN ('invited', 'active', 'completed')
+                            )
+                              OR
+                            (
+                              enrollments.type = 'StudentViewEnrollment'
+                              AND enrollments.workflow_state = 'active'
+                            )
+                          ")
+                          .merge(Course.active)
                       }
 
   scope :not_deleted, lambda {
@@ -311,13 +317,13 @@ class Enrollment < ActiveRecord::Base
   scope :not_fake, -> { where("enrollments.type<>'StudentViewEnrollment'") }
 
   scope :temporary_enrollment_recipients_for_provider, lambda { |user|
-    joins(:course).where(temporary_enrollment_source_user_id: user,
-                         courses: { workflow_state: %w[available claimed created] })
+    active.joins(:course).where(temporary_enrollment_source_user_id: user,
+                                courses: { workflow_state: %w[available claimed created] })
   }
 
   scope :temporary_enrollments_for_recipient, lambda { |user|
-    joins(:course).where(user_id: user, courses: { workflow_state: %w[available claimed created] })
-                  .where.not(temporary_enrollment_source_user_id: nil)
+    active.joins(:course).where(user_id: user, courses: { workflow_state: %w[available claimed created] })
+          .where.not(temporary_enrollment_source_user_id: nil)
   }
 
   def self.readable_types
@@ -543,7 +549,7 @@ class Enrollment < ActiveRecord::Base
 
   def conclude
     self.workflow_state = "completed"
-    self.completed_at = Time.now
+    self.completed_at = Time.zone.now
     save
   end
 
@@ -613,7 +619,7 @@ class Enrollment < ActiveRecord::Base
 
   def assert_section
     self.course_section = course.default_section if !course_section_id && course
-    self.root_account_id ||= course.root_account_id rescue nil
+    self.root_account_id ||= course&.root_account_id
   end
 
   def course_name(display_user = nil)
@@ -623,7 +629,7 @@ class Enrollment < ActiveRecord::Base
   def short_name(length = nil, display_user = nil)
     return @short_name if @short_name
 
-    @short_name = course_section.display_name if course_section && root_account && root_account.show_section_name_as_course_name
+    @short_name = course_section.display_name if course_section && root_account&.show_section_name_as_course_name
     @short_name ||= course_name(display_user)
     @short_name = @short_name[0..length] if length
     @short_name
@@ -717,9 +723,7 @@ class Enrollment < ActiveRecord::Base
     # this method was written by Alan Smithee
     user.shard.activate do
       if user.favorites.where(context_type: "Course").exists? # only add a favorite if they've ever favorited anything even if it's no longer in effect
-        Favorite.unique_constraint_retry do
-          user.favorites.where(context_type: "Course", context_id: course).first_or_create!
-        end
+        Favorite.create_or_find_by(user:, context: course)
       end
     end
   end
@@ -862,7 +866,7 @@ class Enrollment < ActiveRecord::Base
   end
 
   def completed_at
-    if (date = read_attribute(:completed_at))
+    if (date = super)
       date
     elsif !new_record? && completed?
       enrollment_state.state_started_at
@@ -927,7 +931,7 @@ class Enrollment < ActiveRecord::Base
     can_remove = [StudentEnrollment].include?(self.class) &&
                  context.grants_right?(user, session, :manage_students) &&
                  context.id == (context.is_a?(Course) ? course_id : course_section_id)
-    can_remove || context.grants_right?(user, session, manage_admin_users_perm)
+    can_remove || context.grants_right?(user, session, :allow_course_admin_actions)
   end
 
   # Determine if a user has permissions to delete this enrollment.
@@ -940,14 +944,8 @@ class Enrollment < ActiveRecord::Base
   def can_be_deleted_by(user, context, session)
     return context.grants_right?(user, session, :use_student_view) if fake_student?
 
-    if root_account.feature_enabled? :granular_permissions_manage_users
-      can_remove = can_delete_via_granular(user, session, context)
-      can_remove &&= user_id != user.id || context.account.grants_right?(user, session, :allow_course_admin_actions)
-    else
-      can_remove = context.grants_right?(user, session, :manage_admin_users) && !student?
-      can_remove ||= [StudentEnrollment, ObserverEnrollment].include?(self.class) && context.grants_right?(user, session, :manage_students)
-      can_remove &&= user_id != user.id || context.account.grants_right?(user, session, :manage_admin_users)
-    end
+    can_remove = can_delete_via_granular(user, session, context)
+    can_remove &&= user_id != user.id || context.account.grants_right?(user, session, :allow_course_admin_actions)
     can_remove && context.id == (context.is_a?(Course) ? course_id : course_section_id)
   end
 
@@ -955,12 +953,10 @@ class Enrollment < ActiveRecord::Base
     invited? || creation_pending?
   end
 
-  def email
-    user.email rescue t("#enrollment.default_email", "No Email")
-  end
+  delegate :email, to: :user
 
   def user_name
-    read_attribute(:user_name) || user.name rescue t("#enrollment.default_user_name", "Unknown User")
+    has_attribute?("user_name") ? self["user_name"] : user.name
   end
 
   def context
@@ -1050,8 +1046,8 @@ class Enrollment < ActiveRecord::Base
   # stale! And once you've added the call, add the condition to the comment
   # here for future enlightenment.
 
-  def self.recompute_final_score(*args, **kwargs)
-    GradeCalculator.recompute_final_score(*args, **kwargs)
+  def self.recompute_final_score(*, **)
+    GradeCalculator.recompute_final_score(*, **)
   end
 
   # This method is intended to not duplicate work for a single user.
@@ -1182,7 +1178,7 @@ class Enrollment < ActiveRecord::Base
 
   def cached_score_or_grade(current_or_final, score_or_grade, posted_or_unposted, id_opts = nil)
     score = find_score(id_opts)
-    method = +"#{current_or_final}_#{score_or_grade}"
+    method = "#{current_or_final}_#{score_or_grade}"
     method.prepend("unposted_") if posted_or_unposted == :unposted
     score&.send(method)
   end
@@ -1294,7 +1290,7 @@ class Enrollment < ActiveRecord::Base
   end
 
   set_policy do
-    given { |user, session| course.grants_any_right?(user, session, :manage_students, manage_admin_users_perm, :read_roster) }
+    given { |user, session| course.grants_any_right?(user, session, :manage_students, :allow_course_admin_actions, :read_roster) }
     can :read
 
     given { |user| self.user == user }
@@ -1411,15 +1407,15 @@ class Enrollment < ActiveRecord::Base
   def assign_uuid
     # DON'T use ||=, because that will cause an immediate save to the db if it
     # doesn't already exist
-    self.uuid = CanvasSlug.generate_securish_uuid unless read_attribute(:uuid)
+    self.uuid = CanvasSlug.generate_securish_uuid unless self["uuid"]
   end
   protected :assign_uuid
 
   def uuid
-    unless read_attribute(:uuid)
+    unless super
       update_attribute(:uuid, CanvasSlug.generate_securish_uuid)
     end
-    read_attribute(:uuid)
+    super
   end
 
   def self.limit_privileges_to_course_section!(course, user, limit)
@@ -1485,7 +1481,7 @@ class Enrollment < ActiveRecord::Base
   end
 
   def total_activity_time
-    read_attribute(:total_activity_time).to_i
+    super.to_i
   end
 
   def touch_graders_if_needed
@@ -1581,10 +1577,6 @@ class Enrollment < ActiveRecord::Base
       user_id: user,
       type: Array.wrap(types)
     ).where.not(id:).where.not(workflow_state: :deleted)
-  end
-
-  def manage_admin_users_perm
-    root_account.feature_enabled?(:granular_permissions_manage_users) ? :allow_course_admin_actions : :manage_admin_users
   end
 
   def can_delete_via_granular(user, session, context)

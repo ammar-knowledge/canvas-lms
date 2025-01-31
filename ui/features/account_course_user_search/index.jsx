@@ -18,7 +18,7 @@
 
 import $ from 'jquery'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {createRoot} from 'react-dom/client'
 import App from './react/index'
 import router from './react/router'
 import configureStore from './react/store/configureStore'
@@ -71,12 +71,14 @@ ready(() => {
   initializeTopNavPortal({getBreadCrumbSetter: setFunction})
 
   const content = document.getElementById('content')
+  const root = createRoot(content)
+
   store.subscribe(() => {
     const tabState = store.getState().tabList
     const selectedTab = tabState.tabs[tabState.selected]
     updateDocumentTitleBreadcrumbAndActiveTab(selectedTab, () => setBreadCrumb)
 
-    ReactDOM.render(<App {...props} />, content)
+    root.render(<App {...props} />)
   })
 
   router.start(store)

@@ -100,7 +100,23 @@
 #           "description": "(Optional) An explanation of why this is locked for the user. Present when locked_for_user is true.",
 #           "example": "This page is locked until September 1 at 12:00am",
 #           "type": "string"
-#         }
+#         },
+#         "editor": {
+#           "description": "The editor used to create and edit this page. May be one of 'rce' or 'block_editor'.",
+#           "example": "rce",
+#           "type": "string",
+#           "allowableValues": {
+#             "values": [
+#               "rce",
+#               "block_editor"
+#             ]
+#           }
+#         },
+#         "block_editor_attributes": {
+#           "description": "The block editor attributes for this page. (optionally included, and only if this is a block editor created page)",
+#           "example": { "id": 278, "version": "0.2", "blocks": "{...block json here...}"},
+#           "type": "object"
+#          }
 #       }
 #     }
 #
@@ -161,7 +177,7 @@ class WikiPagesApiController < ApplicationController
   before_action :require_wiki_page, except: %i[create update update_front_page index check_title_availability]
   before_action :was_front_page, except: [:index, :check_title_availability]
   before_action only: %i[show update destroy revisions show_revision revert] do
-    check_differentiated_assignments(@page) if @context.conditional_release? || Account.site_admin.feature_enabled?(:selective_release_backend)
+    check_differentiated_assignments(@page)
   end
 
   include Api::V1::WikiPage
@@ -256,6 +272,7 @@ class WikiPagesApiController < ApplicationController
   #
   # @argument include[] [String, "body"]
   #   - "enrollments": Optionally include the page body with each Page.
+  #   If this is a block_editor page, returns the block_editor_attributes.
   #
   # @example_request
   #     curl -H 'Authorization: Bearer <token>' \
@@ -360,7 +377,6 @@ class WikiPagesApiController < ApplicationController
       assign_todo_date
       if !update_params.is_a?(Symbol) && @page.update(update_params) && process_front_page
         log_asset_access(@page, "wiki", @wiki, "participate")
-        apply_assignment_parameters(assignment_params, @page) if @context.conditional_release? && !Account.site_admin.feature_enabled?(:selective_release_ui_api)
         render json: wiki_page_json(@page, @current_user, session)
       else
         render json: @page.errors, status: update_params.is_a?(Symbol) ? update_params : :bad_request
@@ -448,7 +464,6 @@ class WikiPagesApiController < ApplicationController
       if !update_params.is_a?(Symbol) && @page.update(update_params) && process_front_page
         log_asset_access(@page, "wiki", @wiki, "participate")
         @page.context_module_action(@current_user, @context, :contributed)
-        apply_assignment_parameters(assignment_params, @page) if @context.conditional_release? && !Account.site_admin.feature_enabled?(:selective_release_ui_api)
         render json: wiki_page_json(@page, @current_user, session)
       else
         render json: @page.errors, status: update_params.is_a?(Symbol) ? update_params : :bad_request
@@ -643,7 +658,7 @@ class WikiPagesApiController < ApplicationController
   def get_update_params(allowed_fields = Set[])
     # normalize parameters
     wiki_page_params = %w[title body notify_of_update published front_page editing_roles publish_at]
-    wiki_page_params += [block_editor_attributes: [:time, :version, { blocks: [data: strong_anything] }]] if @context.account.feature_enabled?(:block_editor)
+    wiki_page_params += [block_editor_attributes: [:time, :version, { blocks: strong_anything }]] if @context.account.feature_enabled?(:block_editor)
     page_params = params[:wiki_page] ? params[:wiki_page].permit(*wiki_page_params) : {}
 
     if page_params.key?(:published)
@@ -655,6 +670,7 @@ class WikiPagesApiController < ApplicationController
 
     if page_params.key?(:editing_roles)
       editing_roles = page_params[:editing_roles].split(",").map(&:strip)
+      editing_roles = %w[teachers] if @context.is_a?(Course) && @context.horizon_course?
       invalid_roles = editing_roles.reject { |role| %w[teachers students members public].include?(role) }
       unless invalid_roles.empty?
         @page.errors.add(:editing_roles, t(:invalid_editing_roles, "The provided editing roles are invalid"))
@@ -666,13 +682,10 @@ class WikiPagesApiController < ApplicationController
 
     if page_params.key?(:front_page)
       @set_as_front_page = value_to_boolean(page_params.delete(:front_page))
+      @set_as_front_page = false if @context.is_a?(Course) && @context.horizon_course?
       @set_front_page = true if @was_front_page != @set_as_front_page
     end
     change_front_page = !!@set_front_page
-
-    if page_params.key?(:block_editor_attributes)
-      page_params[:block_editor_attributes][:root_account_id] = @context.root_account_id
-    end
 
     # check user permissions
     rejected_fields = Set[]

@@ -17,8 +17,8 @@
  */
 
 import React, {useContext, useState, useEffect} from 'react'
-import {useQuery, useMutation} from 'react-apollo'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useQuery, useMutation} from '@apollo/client'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
 import GenericErrorPage from '@canvas/generic-error-page'
 import errorShipUrl from '@canvas/images/ErrorShip.svg'
@@ -40,7 +40,7 @@ import AssignmentTable from './AssignmentTable'
 import {getGradingPeriodID} from './utils'
 import {GradeSummaryContext} from './context'
 
-const I18n = useI18nScope('grade_summary')
+const I18n = createI18nScope('grade_summary')
 
 const GradeSummaryContainer = () => {
   const {setOnFailure, setOnSuccess} = useContext(AlertManagerContext)
@@ -79,8 +79,8 @@ const GradeSummaryContainer = () => {
               one: 'Read state Changed!',
               other: 'Read states Changed!',
             },
-            {count: '1000'}
-          )
+            {count: '1000'},
+          ),
         )
         setSubmissionIdsForUpdate([])
       }
@@ -101,8 +101,8 @@ const GradeSummaryContainer = () => {
               one: 'Rubric read state Changed!',
               other: 'Rubric read states Changed!',
             },
-            {count: '1000'}
-          )
+            {count: '1000'},
+          ),
         )
         setSubmissionIdsForRubricUpdate([])
       }
@@ -170,8 +170,8 @@ const GradeSummaryContainer = () => {
     const arr = [...submissionIdsForUpdate, submissionID]
     setSubmissionIdsForUpdate(
       arr.filter(
-        (item, index) => item !== null && item !== undefined && arr.indexOf(item) === index
-      )
+        (item, index) => item !== null && item !== undefined && arr.indexOf(item) === index,
+      ),
     )
   }
 
@@ -180,8 +180,8 @@ const GradeSummaryContainer = () => {
     const arr = [...submissionIdsForRubricUpdate, submissionID]
     setSubmissionIdsForRubricUpdate(
       arr.filter(
-        (item, index) => item !== null && item !== undefined && arr.indexOf(item) === index
-      )
+        (item, index) => item !== null && item !== undefined && arr.indexOf(item) === index,
+      ),
     )
   }
 

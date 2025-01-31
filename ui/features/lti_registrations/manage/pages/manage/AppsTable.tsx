@@ -17,28 +17,31 @@
  */
 
 import * as tz from '@instructure/moment-utils'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Alert} from '@instructure/ui-alerts'
 import {IconButton} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
 import {IconMoreLine, IconSearchLine} from '@instructure/ui-icons'
-import {Link} from '@instructure/ui-link'
 import {Menu} from '@instructure/ui-menu'
 import {Responsive, type ResponsivePropsObject} from '@instructure/ui-responsive'
 import {Table} from '@instructure/ui-table'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import React from 'react'
-import {Link as RouterLink} from 'react-router-dom'
 import type {PaginatedList} from '../../api/PaginatedList'
 import type {AppsSortDirection, AppsSortProperty} from '../../api/registrations'
-import type {LtiRegistration} from '../../model/LtiRegistration'
+import {isForcedOn, type LtiRegistration} from '../../model/LtiRegistration'
 import {useManageSearchParams, type ManageSearchParams} from './ManageSearchParams'
 import {colors} from '@instructure/canvas-theme'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import {Tooltip} from '@instructure/ui-tooltip'
 import {Pagination} from '@instructure/ui-pagination'
-import {MANAGE_APPS_PAGE_LIMIT} from './ManagePageLoadingState'
+import {MANAGE_APPS_PAGE_LIMIT, refreshRegistrations} from './ManagePageLoadingState'
+import {
+  openEditDynamicRegistrationWizard,
+  openEditManualRegistrationWizard,
+} from '../../registration_wizard/RegistrationWizardModalState'
+import {alert} from '@canvas/instui-bindings/react/Alert'
 
 type CallbackWithRegistration = (registration: LtiRegistration) => void
 
@@ -52,7 +55,7 @@ export type AppsTableProps = {
   page: number
 }
 
-const I18n = useI18nScope('lti_registrations')
+const I18n = createI18nScope('lti_registrations')
 
 type Column = {
   id: string
@@ -62,11 +65,43 @@ type Column = {
   sortable?: boolean
   render: (
     registration: LtiRegistration,
-    callbacks: {deleteApp: CallbackWithRegistration}
+    callbacks: {deleteApp: CallbackWithRegistration},
   ) => React.ReactNode
 }
 
 const ellispsisStyles = {overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}
+
+const renderEditButton = (r: LtiRegistration) => {
+  const imsRegistrationId = r.ims_registration_id
+  const manualConfigurationId = r.manual_configuration_id
+  if (r.inherited) {
+    return null
+  } else if (imsRegistrationId) {
+    return (
+      <Menu.Item
+        onClick={() => {
+          openEditDynamicRegistrationWizard(imsRegistrationId)
+        }}
+      >
+        {I18n.t('Edit App')}
+      </Menu.Item>
+    )
+  } else if (manualConfigurationId && !r.inherited && window.ENV.FEATURES.lti_registrations_next) {
+    return (
+      <Menu.Item
+        onClick={() => {
+          openEditManualRegistrationWizard(r.id, () => {
+            refreshRegistrations()
+          })
+        }}
+      >
+        {I18n.t('Edit App')}
+      </Menu.Item>
+    )
+  } else {
+    return null
+  }
+}
 
 const Columns: ReadonlyArray<Column> = [
   {
@@ -96,10 +131,7 @@ const Columns: ReadonlyArray<Column> = [
           />
         )}
         <div style={ellispsisStyles} title={r.name}>
-          {/* TODO: comment these in when we have a manage app screen */}
-          {/* <Link to={`/manage/${r.id}`} as={RouterLink} isWithinText={false}> */}
           {r.name}
-          {/* </Link> */}
         </div>
       </Flex>
     ),
@@ -135,49 +167,64 @@ const Columns: ReadonlyArray<Column> = [
     header: I18n.t('Installed By'),
     width: '132px',
     sortable: true,
-    render: r =>
-      r.created_by ? (
-        <div style={ellispsisStyles}>{r.created_by.short_name}</div>
-      ) : (
-        <div>
-          <Tooltip renderTip={I18n.t('Historical data lacks records for "installed by."')}>
-            <div style={{fontStyle: 'oblique'}}>{I18n.t('N/A')}</div>
-          </Tooltip>
-        </div>
-      ),
+    render: r => {
+      if (r.created_by === 'Instructure') {
+        return <div style={ellispsisStyles}>{I18n.t('Instructure')}</div>
+      } else if (r.created_by) {
+        return <div style={ellispsisStyles}>{r.created_by.short_name}</div>
+      } else {
+        return (
+          <div>
+            <Tooltip renderTip={I18n.t('Historical data lacks records for "installed by."')}>
+              <div style={{fontStyle: 'oblique', textAlign: 'center'}}>{I18n.t('N/A')}</div>
+            </Tooltip>
+          </div>
+        )
+      }
+    },
   },
   {
     id: 'updated_by',
     header: I18n.t('Updated By'),
     width: '132px',
     sortable: true,
-    render: r =>
-      r.updated_by ? (
-        <div style={ellispsisStyles}>{r.updated_by.short_name}</div>
-      ) : (
-        <div>
-          <Tooltip renderTip={I18n.t('Historical data lacks records for "updated by."')}>
-            <div style={{fontStyle: 'oblique'}}>{I18n.t('N/A')}</div>
-          </Tooltip>
-        </div>
-      ),
+    render: r => {
+      if (r.updated_by === 'Instructure') {
+        return <div style={ellispsisStyles}>{I18n.t('Instructure')}</div>
+      } else if (r.updated_by) {
+        return <div style={ellispsisStyles}>{r.updated_by.short_name}</div>
+      } else {
+        return (
+          <div>
+            <Tooltip renderTip={I18n.t('Historical data lacks records for "updated by."')}>
+              <div style={{fontStyle: 'oblique', textAlign: 'center'}}>{I18n.t('N/A')}</div>
+            </Tooltip>
+          </div>
+        )
+      }
+    },
   },
   {
     id: 'on',
     header: I18n.t('On/Off'),
     width: '96px',
     sortable: true,
-    render: r => <div>{r.workflow_state === 'active' ? I18n.t('On') : I18n.t('Off')}</div>,
+    render: r => (
+      <div>{r.account_binding?.workflow_state === 'on' ? I18n.t('On') : I18n.t('Off')}</div>
+    ),
   },
   {
     id: 'actions',
     width: '80px',
     render: (r, {deleteApp}) => {
-      const developer_key_id = r.developer_key_id
+      const developerKeyId = r.developer_key_id
+
       return (
         <Menu
+          data-testid={`actions-menu-${r.id}`}
           trigger={
             <IconButton
+              data-testid={`actions-menu-${r.id}`}
               withBackground={false}
               withBorder={false}
               screenReaderLabel={I18n.t('More Registration Options')}
@@ -186,19 +233,21 @@ const Columns: ReadonlyArray<Column> = [
             </IconButton>
           }
         >
-          {developer_key_id ? (
+          {developerKeyId ? (
             <Menu.Item
               onClick={async () => {
                 try {
-                  await navigator.clipboard.writeText(developer_key_id)
+                  await navigator.clipboard.writeText(developerKeyId)
                   showFlashAlert({
                     type: 'info',
-                    message: I18n.t('Client ID copied'),
+                    message: I18n.t('Client ID copied (%{id})', {id: developerKeyId}),
                   })
                 } catch (error) {
                   showFlashAlert({
                     type: 'error',
-                    message: I18n.t('There was an issue copying the client ID'),
+                    message: I18n.t('There was an issue copying the client ID (%{id})', {
+                      id: developerKeyId,
+                    }),
                   })
                 }
               }}
@@ -206,15 +255,45 @@ const Columns: ReadonlyArray<Column> = [
               {I18n.t('Copy Client ID')}
             </Menu.Item>
           ) : null}
-          <Menu.Item
-            themeOverride={{
-              labelColor: colors.textDanger,
-              activeBackground: colors.backgroundDanger,
+          {renderEditButton(r)}
+          {isForcedOn(r) ? (
+            <Menu.Item
+              themeOverride={{
+                labelColor: colors.textDanger,
+                activeBackground: colors.backgroundDanger,
+              }}
+              onClick={() => {
+                alert({
+                  message: I18n.t('This App is locked on, and cannot be deleted.'),
+                  title: I18n.t('Delete App'),
+                  okButtonLabel: I18n.t('Ok'),
+                })
+              }}
+            >
+              {I18n.t('Delete App')}
+            </Menu.Item>
+          ) : (
+            <Menu.Item
+              themeOverride={{
+                labelColor: colors.textDanger,
+                activeBackground: colors.backgroundDanger,
+              }}
+              onClick={() => deleteApp(r)}
+            >
+              {I18n.t('Delete App')}
+            </Menu.Item>
+          )}
+
+          {/* <Menu.Item
+            onClick={() => {
+              confirm({
+                message: JSON.stringify(r, null, 2),
+                title: I18n.t('Registration Details'),
+              })
             }}
-            onClick={() => deleteApp(r)}
           >
-            {I18n.t('Delete App')}
-          </Menu.Item>
+            Details
+          </Menu.Item> */}
         </Menu>
       )
     },
@@ -225,7 +304,7 @@ const renderHeaderRow = (props: {
   sort: AppsSortProperty
   dir: AppsSortDirection
   updateSearchParams: (
-    params: Partial<Record<keyof ManageSearchParams, string | undefined>>
+    params: Partial<Record<keyof ManageSearchParams, string | undefined>>,
   ) => void
 }) => (
   <Table.Row>
@@ -306,7 +385,7 @@ const AppsTableResponsiveWrapper = React.memo(
         )}
       </Responsive>
     )
-  }
+  },
 )
 
 type AppsTableInnerProps = {
@@ -367,7 +446,6 @@ export const AppsTableInner = React.memo((props: AppsTableInnerProps) => {
           >
             {Array.from(Array(Math.ceil(apps.total / MANAGE_APPS_PAGE_LIMIT))).map((_, i) => (
               <Pagination.Page
-                // eslint-disable-next-line react/no-array-index-key
                 key={i}
                 current={i === page - 1}
                 onClick={() => {

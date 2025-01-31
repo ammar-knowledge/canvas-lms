@@ -53,15 +53,15 @@ describe "Translation" do
     allow(DynamicSettings).to receive(:find).with(tree: :private).and_return({ "sagemaker.yml" => { "endpoint_name" => "translation-endpoint" }.to_yaml })
 
     # Mock statsd to allow it to receive what we expect
-    allow(InstStatsd::Statsd).to receive(:increment)
+    allow(InstStatsd::Statsd).to receive(:distributed_increment)
 
     # Mock the runtime and the credential provider
-    @runtime_mock = instance_double("Aws::SageMakerRuntime::Client")
+    @runtime_mock = instance_double(Aws::SageMakerRuntime::Client)
     allow(Canvas::AwsCredentialProvider).to receive(:new).and_return(MockCredentials.new)
     allow(Aws::SageMakerRuntime::Client).to receive(:new).and_return(@runtime_mock)
 
     # Mock the response that the runtime returns.
-    @mock_response = instance_double("Response")
+    @mock_response = instance_double(Aws::SageMakerRuntime::Types::InvokeEndpointOutput)
     allow(@mock_response).to receive(:body).and_return(MockResponse.new)
     allow(@runtime_mock).to receive(:invoke_endpoint).and_return(@mock_response)
 
@@ -93,7 +93,7 @@ describe "Translation" do
 
     it "increments the translation metric" do
       Translation.create(tgt_lang: "en", text: "¿Dónde está el baño?")
-      expect(InstStatsd::Statsd).to have_received(:increment).with("translation.create.es.en")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("translation.create.es.en")
     end
   end
 
@@ -152,6 +152,22 @@ describe "Translation" do
     it "does not match" do
       @user.locale = "en"
       expect(Translation.language_matches_user_locale?(@user, "¿Dónde está el baño?")).to be_falsey
+    end
+  end
+
+  describe ":translate_html" do
+    it "translates HTML" do
+      allow(Translation).to receive(:create).and_return("fake")
+      text = "<p>Hello mom!</p><p>I am a person</p>"
+      expected = "<p>fake</p><p>fake</p>"
+      expect(Translation.translate_html(html_string: text)).to eq(expected)
+    end
+
+    it "translates HTML but leaves whitespace-only strings" do
+      allow(Translation).to receive(:create).and_return("fake")
+      text = "<p>Hello mom!</p><p>&nbsp;</p>"
+      not_expected = "<p>fake</p><p>fake</p>"
+      expect(Translation.translate_html(html_string: text)).to_not eq(not_expected)
     end
   end
 end

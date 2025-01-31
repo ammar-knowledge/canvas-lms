@@ -21,15 +21,16 @@ RSpec.shared_context "lti_1_3_tool_configuration_spec_helper", shared_context: :
   let(:target_link_uri) { "http://lti13testtool.docker/blti_launch" }
 
   let(:tool_configuration) do
-    Lti::ToolConfiguration.create!(
+    developer_key.tool_configuration || Lti::ToolConfiguration.create!(
       developer_key:,
+      lti_registration: developer_key.lti_registration,
       settings: settings.merge(public_jwk: tool_config_public_jwk),
       privacy_level: "public"
-    )
+    ).tap(&:transform!)
   end
 
   let(:tool_config_public_jwk) { public_jwk }
-
+  let(:extension_privacy_level) { "public" }
   let(:public_jwk) do
     {
       "kty" => "RSA",
@@ -51,16 +52,17 @@ RSpec.shared_context "lti_1_3_tool_configuration_spec_helper", shared_context: :
       "target_link_uri" => target_link_uri,
       "custom_fields" => { "has_expansion" => "$Canvas.user.id", "no_expansion" => "foo" },
       "public_jwk" => public_jwk,
+      "public_jwk_url" => "http://example.com/jwks",
       "oidc_initiation_url" => oidc_initiation_url,
+      "oidc_initiation_urls" => { "us-east-1" => "http://example.com" },
       "scopes" => scopes,
       "extensions" => [
         {
           "platform" => "canvas.instructure.com",
-          "privacy_level" => "public",
+          "privacy_level" => extension_privacy_level,
           "tool_id" => "LTI 1.3 Test Tool",
-          "domain" => "http://lti13testtool.docker",
+          "domain" => "lti13testtool.docker",
           "settings" => {
-            "domain" => "lti13testtool.docker",
             "icon_url" => "https://static.thenounproject.com/png/131630-200.png",
             "selection_height" => 500,
             "selection_width" => 500,
@@ -87,6 +89,52 @@ RSpec.shared_context "lti_1_3_tool_configuration_spec_helper", shared_context: :
               }
             ]
           }
+        }
+      ]
+    }
+  end
+
+  # functionally equivalent to `settings` above, but in the
+  # InternalLtiConfiguration format
+  let(:internal_configuration) do
+    {
+      title: "LTI 1.3 Tool",
+      description: "1.3 Tool",
+      target_link_uri:,
+      custom_fields: { has_expansion: "$Canvas.user.id", no_expansion: "foo" },
+      public_jwk: public_jwk.deep_symbolize_keys,
+      public_jwk_url: "http://example.com/jwks",
+      oidc_initiation_url:,
+      oidc_initiation_urls: { "us-east-1": "http://example.com" },
+      redirect_uris: [target_link_uri],
+      scopes:,
+      domain: "lti13testtool.docker",
+      tool_id: "LTI 1.3 Test Tool",
+      privacy_level: "public",
+      launch_settings: {
+        icon_url: "https://static.thenounproject.com/png/131630-200.png",
+        selection_height: 500,
+        selection_width: 500,
+        text: "LTI 1.3 Test Tool Extension text",
+      },
+      placements: [
+        {
+          placement: "course_navigation",
+          enabled: true,
+          message_type: "LtiResourceLinkRequest",
+          canvas_icon_class: "icon-pdf",
+          icon_url: "https://static.thenounproject.com/png/131630-211.png",
+          text: "LTI 1.3 Test Tool Course Navigation",
+          target_link_uri: "http://lti13testtool.docker/launch?placement=course_navigation",
+        },
+        {
+          placement: "account_navigation",
+          enabled: true,
+          message_type: "LtiResourceLinkRequest",
+          canvas_icon_class: "icon-lti",
+          icon_url: "https://static.thenounproject.com/png/131630-211.png",
+          text: "LTI 1.3 Test Tool Course Navigation",
+          target_link_uri: "http://lti13testtool.docker/launch?placement=account_navigation",
         }
       ]
     }

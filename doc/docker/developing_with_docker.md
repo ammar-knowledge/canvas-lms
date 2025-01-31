@@ -174,80 +174,30 @@ docker-compose exec web pry-remote --wait
 $ docker-compose exec web bundle exec rspec spec
 ```
 
-## Running javascript tests
-
-First off, there's some general JS testing info in
-[testing_javascript.md](https://github.com/instructure/canvas-lms/blob/master/doc/testing_javascript.md).
-That will guide you on running JS tests natively.  To run them in docker, read on.
-
-First add `docker-compose/js-tests.override.yml` to your `COMPOSE_FILE` var in
-`.env`. Then prepare that container with:
-
-```
-docker-compose run --rm js-tests yarn install
-```
-
-If you run into issues with `yarn install`, either during initial setup or after
-updating master, try to fix it with a `nuke_node`:
-
-```
-docker-compose run --rm js-tests ./script/nuke_node.sh
-docker-compose run --rm js-tests yarn install
-```
-
-### QUnit Karma Tests in Headless Chrome
-
-Run all QUnit tests in watch mode with:
-
-```
-docker-compose up js-tests
-```
-
-Or, if you're iterating on something and want to just run a targeted test file
-in watch mode, set the `JSPEC_PATH` env var, e.g.:
-
-```
-export JSPEC_PATH=spec/coffeescripts/util/deparamSpec.js
-docker-compose up js-tests
-```
-
-To run a targeted test without watch mode:
-
-```
-docker-compose run --rm -e JSPEC_PATH=spec/coffeescripts/util/deparamSpec.js js-tests yarn test:karma:headless
-```
-
 ### Jest Tests
 
 Run all Jest tests with:
 
 ```
-docker-compose run --rm js-tests yarn test:jest
+docker-compose run --rm webpack yarn test:jest
 ```
 
 Or run a targeted subset of tests:
 
 ```
-docker-compose run --rm js-tests yarn test:jest ui/features/speed_grader/react/__tests__/CommentArea.test.js
+docker-compose run --rm webpack yarn test:jest ui/features/speed_grader/react/__tests__/CommentArea.test.js
 ```
 
 To run a targeted subset of tests in watch mode, use `test:jest:watch` and
 specify the paths to the test files as one or more arguments, e.g.:
 
 ```
-docker-compose run --rm js-tests yarn test:jest:watch ui/features/speed_grader/react/__tests__/CommentArea.test.js
+docker-compose run --rm webpack yarn test:jest:watch ui/features/speed_grader/react/__tests__/CommentArea.test.js
 ```
 
 ## Selenium
 
 To enable Selenium: Add `docker-compose/selenium.override.yml` to your `COMPOSE_FILE` var in `.env`.
-
-For M1 Mac users using Chrome, the official selenium images are not ARM compatible so a standalone chromium image must be used.
-In the selenium.override.yml file, replace the image with the following below.
-
-```sh
-image: seleniarm/standalone-chromium:latest
-```
 
 The container used to run the selenium browser is only started when spinning up
 all docker-compose containers, or when specified explicitly. The selenium
@@ -261,11 +211,7 @@ docker-compose up -d selenium-hub
 
 With the container running, you should be able to open a VNC session:
 
-```sh
-open vnc://secret:secret@seleniumff.docker          (firefox)
-open vnc://secret:secret@seleniumch.docker:5901     (chrome)
-open vnc://secret:secret@seleniumedge.docker:5902   (edge)
-```
+<http://127.0.0.1:7900/?autoconnect=1&resize=scale&password=secret>
 
 Now just run your choice of selenium specs:
 
@@ -306,13 +252,11 @@ colorized rails log and a browser screenshot taken at the time of the failure.
 ## Extra Services
 
 ### Mail Catcher
+Mail Catcher is used to both send and view email in a development environment.
 
-To enable Mail Catcher: Add `docker-compose/mailcatcher.override.yml` to your `COMPOSE_FILE` var in `.env`.
+To enable Mail Catcher: Add `docker-compose/mailcatcher.override.yml` to your `COMPOSE_FILE` var in `.env`. Then you can `docker compose up mailcatcher`.
 
-Email is often sent through background jobs if you spin up the `jobs` container.
-If you would like to test or preview any notifications, simply trigger the email
-through its normal actions, and it should immediately show up in the emulated
-webmail inbox available here: http://mail.canvas.docker/
+Email is often sent through background jobs in the jobs container. If you would like to test or preview any notifications, simply trigger the email through its normal actions, and it should immediately show up in the emulated webmail inbox available here: <http://mail.canvas.docker>
 
 ### Canvas RCE API
 

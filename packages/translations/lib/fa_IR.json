@@ -134,6 +134,9 @@
     "collaborations_5c56c15f": {
         "message": "همکاری ها"
     },
+    "color_a363e1b0": {
+        "message": "رنگ"
+    },
     "computer_1d7dfa6f": {
         "message": "کامپیوتر"
     },
@@ -190,6 +193,9 @@
     },
     "deep_purple_bb3e2907": {
         "message": "ارغوانی پر رنگ"
+    },
+    "default_9db103d": {
+        "message": "پیش فرض"
     },
     "delimiters_4db4840d": {
         "message": "جداکننده ها"
@@ -664,6 +670,9 @@
     },
     "submit_a3cc6859": {
         "message": "ارسال"
+    },
+    "submitting_b90fac62": {
+        "message": "در حال ارسال..."
     },
     "swahili_5caeb4ba": {
         "message": "سواحیلی"

@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 5.14.2 - 2024-11-26
+
+- Added an icon to find and replace tray error
+
+## 5.14.1 - 2024-10-28
+
+### Changed
+
+- Forward along access token and inst_ui parameters from file URLs.
+
+## 5.14.0 - 2024-10-18
+
+### Added
+
+- New optional media player for upload previews
+
+### Fixed
+
+- Keyboard trap when switching to the HTML Editor
+
+### Changed
+
+- Upgraded React to 18
+
+## 5.13.7 - 2024-10-28
+
+### Changed
+
+- Forward along access token and inst_ui parameters from file URLs.
+
+## 5.13.6 - 2024-09-25
+
+### Fixed
+
+- File links with data-canvas-previewable='false' will no longer try to preview
+- Change backgroundless buttons to "primary" theme color to be more visible
+- Fix LTI tool scrolling issue on small iOS devices
+- Adding missing translation strings
+- Fixed some types of non-Canvas files from trying to preview like Canvas files
+
+### Changed
+
+- Allow links with data-old-link to replace the existing src or href with the contents
+  of the data-old-link attribute
+- Added IDs to multiple objects missing IDs
+- Add loading spinners to image uploads
+
+## 5.13.5 - 2024-09-25
+
+### Fixed
+
+- File links with data-canvas-previewable='false' will no longer try to preview
+- Change backgroundless buttons to "primary" theme color to be more visible
+- Fix LTI tool scrolling issue on small iOS devices
+- Adding missing translation strings
+- Fixed some types of non-Canvas files from trying to preview like Canvas files
+
+### Changed
+
+- Allow links with data-old-link to replace the existing src or href with the contents
+  of the data-old-link attribute
+- Added IDs to multiple objects missing IDs
+- Add loading spinners to image uploads
+
+## 5.13.5 - 2024-08-12
+
+### Fixed
+
+- RCE "Lato Extended" now properly uses the "Lato Extended" font
+
+## 5.13.4 - 2024-08-12
+
+### Changed
+
+- Icon Maker tray now stays open until the user closes it with the close button
+
 ## 5.13.3 - 2024-07-22
 
 ### Fixed

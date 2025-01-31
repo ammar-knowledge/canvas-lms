@@ -96,8 +96,8 @@ describe Importers::CalendarEventImporter do
         migration_id: "42",
         title: "event title",
         description: "the event description",
-        start_at: Time.now,
-        end_at: Time.now + 2.hours,
+        start_at: Time.zone.now,
+        end_at: 2.hours.from_now,
         attachment_type: "external_url",
         attachment_value: "http://example.com"
       }

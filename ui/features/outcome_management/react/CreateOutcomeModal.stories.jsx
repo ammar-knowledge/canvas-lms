@@ -17,8 +17,8 @@
  */
 
 import React from 'react'
-import {MockedProvider} from '@apollo/react-testing'
-import {createCache} from '@canvas/apollo'
+import {MockedProvider} from '@apollo/client/testing'
+import {createCache} from '@canvas/apollo-v3'
 import CreateOutcomeModal from './CreateOutcomeModal'
 import OutcomesContext from '@canvas/outcomes/react/contexts/OutcomesContext'
 import {smallOutcomeTree} from '@canvas/outcomes/mocks/Management'

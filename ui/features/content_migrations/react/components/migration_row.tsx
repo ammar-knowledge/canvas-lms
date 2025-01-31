@@ -36,10 +36,10 @@ import {CompletionProgressBar} from './completion_progress_bar'
 import {SourceLink} from './source_link'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 import {timeout} from './utils'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {ContentSelectionModal} from './content_selection_modal'
 
-const I18n = useI18nScope('content_migrations_redesign')
+const I18n = createI18nScope('content_migrations_redesign')
 
 const done_states = ['completed', 'failed', 'waiting_for_select']
 
@@ -79,7 +79,7 @@ const mapProgress = (cm_workflow_state: ContentMigrationWorkflowState): StatusPi
 
 const MigrationRow = ({migration, view, updateMigrationItem}: ContentMigrationsRowProps) => {
   const [statusPillState, setStatusPillState] = useState<StatusPillState>(
-    mapProgress(migration.workflow_state)
+    mapProgress(migration.workflow_state),
   )
 
   const fetchProgress = useCallback(async () => {
@@ -111,6 +111,8 @@ const MigrationRow = ({migration, view, updateMigrationItem}: ContentMigrationsR
     }
   }, [fetchProgress, migration.progress_url, migration.workflow_state])
 
+  migration.migration_type_title ||= I18n.t('Content Migration')
+
   return view === 'condensed'
     ? condensedMarkup(migration, updateMigrationItem, statusPillState)
     : extendedMarkup(migration, updateMigrationItem, statusPillState)
@@ -120,7 +122,7 @@ MigrationRow.displayName = 'Row'
 const extendedMarkup = (
   migration: ContentMigrationItem,
   updateMigrationItem: UpdateMigrationItemType,
-  statusPillState: StatusPillState
+  statusPillState: StatusPillState,
 ) => {
   const cellPaddingStyle = {padding: '1.1rem 0rem'}
   return (
@@ -167,7 +169,7 @@ const extendedMarkup = (
 const condensedMarkup = (
   migration: ContentMigrationItem,
   updateMigrationItem: UpdateMigrationItemType,
-  statusPillState: StatusPillState
+  statusPillState: StatusPillState,
 ) => {
   return (
     <Flex.Item key={migration.id}>

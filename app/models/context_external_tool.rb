@@ -27,6 +27,8 @@ class ContextExternalTool < ActiveRecord::Base
   has_many :context_external_tool_placements, autosave: true
   has_many :lti_resource_links, class_name: "Lti::ResourceLink"
   has_many :progresses, as: :context, inverse_of: :context
+  has_many :lti_notice_handlers, class_name: "Lti::NoticeHandler"
+  has_many :lti_asset_processors, class_name: "Lti::AssetProcessor"
 
   belongs_to :context, polymorphic: [:course, :account]
   belongs_to :developer_key
@@ -128,25 +130,19 @@ class ContextExternalTool < ActiveRecord::Base
   end
 
   set_policy do
-    #################### Begin legacy permission block #########################
     given do |user, session|
-      !context.root_account.feature_enabled?(:granular_permissions_manage_lti) &&
-        context.grants_right?(user, session, :lti_add_edit)
-    end
-    can :read and can :update and can :delete and can :update_manually
-    ##################### End legacy permission block ##########################
-
-    given do |user, session|
-      context.root_account.feature_enabled?(:granular_permissions_manage_lti) &&
-        context.grants_right?(user, session, :manage_lti_edit)
+      context.grants_right?(user, session, :manage_lti_edit)
     end
     can :read and can :update and can :update_manually
 
     given do |user, session|
-      context.root_account.feature_enabled?(:granular_permissions_manage_lti) &&
-        context.grants_right?(user, session, :manage_lti_delete)
+      context.grants_right?(user, session, :manage_lti_delete)
     end
     can :read and can :delete
+  end
+
+  def related_account
+    account || course&.account
   end
 
   class << self
@@ -231,7 +227,7 @@ class ContextExternalTool < ActiveRecord::Base
     def editor_button_json(tools, context, user, session, default_tool_icon_base_url)
       tools.select! { |tool| visible?(tool.editor_button["visibility"], user, context, session) }
       markdown = Redcarpet::Markdown.new(Redcarpet::Render::HTML.new({ link_attributes: { target: "_blank" } }))
-      always_on_ids = Setting.get("rce_always_on_developer_key_ids", "").split(",").map(&:to_i)
+      on_by_default_ids = ContextExternalTool.on_by_default_ids
       tools.map do |tool|
         canvas_icon_class = tool.editor_button(:canvas_icon_class)
         icon_url = tool.editor_button(:icon_url)
@@ -251,7 +247,7 @@ class ContextExternalTool < ActiveRecord::Base
           width: tool.editor_button(:selection_width),
           height: tool.editor_button(:selection_height),
           use_tray: tool.editor_button(:use_tray) == "true",
-          always_on: always_on_ids.include?(tool.global_developer_key_id),
+          on_by_default: tool.on_by_default?(on_by_default_ids),
           description: if tool.description
                          Sanitize.clean(markdown.render(tool.description), CanvasSanitize::SANITIZE)
                        else
@@ -259,6 +255,10 @@ class ContextExternalTool < ActiveRecord::Base
                        end
         }
       end
+    end
+
+    def on_by_default_ids
+      Setting.get("rce_always_on_developer_key_ids", "").split(",").reject(&:empty?).map(&:to_i)
     end
 
     private
@@ -303,7 +303,7 @@ class ContextExternalTool < ActiveRecord::Base
   end
 
   def deployment_id
-    "#{id}:#{Lti::Asset.opaque_identifier_for(context)}"[0..254]
+    "#{id}:#{Lti::V1p1::Asset.opaque_identifier_for(context)}"[0..254]
   end
 
   def content_migration_configured?
@@ -317,7 +317,11 @@ class ContextExternalTool < ActiveRecord::Base
     val = calculate_extension_setting(type, property)
     if property == :icon_url
       # make sure it's a valid url
-      return nil if val && (URI.parse(val) rescue nil).nil?
+      begin
+        URI.parse(val) if val
+      rescue URI::InvalidURIError
+        return nil
+      end
 
       # account for beta and test overrides
       return url_with_environment_overrides(val)
@@ -495,7 +499,7 @@ class ContextExternalTool < ActiveRecord::Base
   private :validate_url
 
   def settings
-    read_or_initialize_attribute(:settings, {}.with_indifferent_access)
+    self["settings"] ||= {}.with_indifferent_access
   end
 
   def label_for(key, lang = nil)
@@ -503,7 +507,7 @@ class ContextExternalTool < ActiveRecord::Base
     labels = settings[key] && settings[key][:labels]
     (labels && labels[lang]) ||
       (labels && lang && labels[lang.split("-").first]) ||
-      (settings[key] && settings[key][:text]) ||
+      settings.dig(key, :text).presence ||
       default_label(lang)
   end
 
@@ -512,7 +516,7 @@ class ContextExternalTool < ActiveRecord::Base
     default_labels = settings[:labels]
     (default_labels && default_labels[lang]) ||
       (default_labels && lang && default_labels[lang.split("-").first]) ||
-      settings[:text] || name || "External Tool"
+      settings[:text].presence || name || "External Tool"
   end
 
   def check_for_xml_error
@@ -687,7 +691,7 @@ class ContextExternalTool < ActiveRecord::Base
   end
 
   def not_selectable=(bool)
-    write_attribute(:not_selectable, Canvas::Plugin.value_to_boolean(bool))
+    super(Canvas::Plugin.value_to_boolean(bool))
   end
 
   def selectable
@@ -695,10 +699,17 @@ class ContextExternalTool < ActiveRecord::Base
   end
 
   def shared_secret=(val)
-    write_attribute(:shared_secret, val) unless val.blank?
+    super unless val.blank?
   end
 
   def display_type(extension_type)
+    if ["global_navigation", "analytics_hub"].include?(extension_type.to_s)
+      if Lti::AppUtil::TOOL_DISPLAY_TEMPLATES.key?(settings.dig(extension_type, :display_type))
+        return extension_setting(extension_type, :display_type) || "full_width"
+      else
+        return "full_width"
+      end
+    end
     extension_setting(extension_type, :display_type) || "in_context"
   end
 
@@ -1044,6 +1055,18 @@ class ContextExternalTool < ActiveRecord::Base
     )
   end
 
+  def can_access_content_tag?(content_tag)
+    return false unless content_tag.is_a?(ContentTag)
+    return true if content_tag.content == self
+    return false unless use_1_3? && developer_key
+
+    # LTI 1.3: dev key ids match
+    context = content_tag.context
+    context = context.context if context.is_a?(Assignment)
+
+    developer_key_id == ContextExternalTool.from_content_tag(content_tag, context)&.developer_key_id
+  end
+
   def self.contexts_to_search(context, include_federated_parent: false)
     case context
     when Course
@@ -1085,6 +1108,10 @@ class ContextExternalTool < ActiveRecord::Base
 
   def self.find_external_tool_by_id(id, context)
     where(id:, context: contexts_to_search(context)).first
+  end
+
+  def self.find_external_tool_client_id(id, context)
+    where(id:, context: contexts_to_search(context)).pluck(:developer_key_id).map { Shard.global_id_for _1 }
   end
 
   # Order of precedence: Basic LTI defines precedence as first
@@ -1416,7 +1443,7 @@ class ContextExternalTool < ActiveRecord::Base
 
     shard.activate do
       lti_context_id = context_id_for(asset, shard)
-      Lti::Asset.set_asset_context_id(asset, lti_context_id, context:)
+      Lti::V1p1::Asset.set_asset_context_id(asset, lti_context_id, context:)
     end
   end
 
@@ -1590,7 +1617,11 @@ class ContextExternalTool < ActiveRecord::Base
     return false unless developer_key&.internal_service?
     return false unless launch_url
 
-    domain = URI.parse(launch_url).host rescue nil
+    begin
+      domain = URI.parse(launch_url).host
+    rescue URI::InvalidURIError
+      # ignore
+    end
     return false unless domain
 
     internal_tool_domain_allowlist.any? { |d| domain.end_with?(".#{d}") || domain == d }
@@ -1643,7 +1674,6 @@ class ContextExternalTool < ActiveRecord::Base
   # id, and the tool name
   def default_icon_path
     Rails.application.routes.url_helpers.lti_tool_default_icon_path(
-      id: global_developer_key_id || global_id,
       name:
     )
   end
@@ -1658,8 +1688,12 @@ class ContextExternalTool < ActiveRecord::Base
       allowed_domains.include?(domain) ||
       allowed_domains.any? do |allowed_domain|
         # wildcard domains: allowed_domain "*.foo.com" -> domain.end_with? ".foo.com"
-        allowed_domain.start_with?("*.") && domain.end_with?(allowed_domain[1..])
+        allowed_domain.start_with?("*.") && domain&.end_with?(allowed_domain[1..])
       end
+  end
+
+  def on_by_default?(on_by_default_ids)
+    on_by_default_ids.include?(global_developer_key_id)
   end
 
   private
@@ -1681,13 +1715,11 @@ class ContextExternalTool < ActiveRecord::Base
 
   def clear_tool_domain_cache
     if saved_change_to_domain? || saved_change_to_url? || saved_change_to_workflow_state?
-      context.clear_tool_domain_cache
+      context&.clear_tool_domain_cache
     end
   end
 
   def update_unified_tool_id
-    return unless context.root_account.feature_enabled?(:update_unified_tool_id)
-
     unified_tool_id = if use_1_3? && (utid = developer_key.tool_configuration.unified_tool_id)
                         utid
                       else

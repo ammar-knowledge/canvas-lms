@@ -20,7 +20,7 @@ import ReactDOM from 'react-dom'
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query'
 import SectionSelector from '../../react/SectionSelector'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import {map, reject, difference, filter, includes, extend as lodashExtend} from 'lodash'
 import DialogBaseView from '@canvas/dialog-base-view'
@@ -29,7 +29,7 @@ import editSectionsViewTemplate from '../../jst/EditSectionsView.handlebars'
 import '@canvas/rails-flash-notifications'
 import '@canvas/jquery/jquery.disableWhileLoading'
 
-const I18n = useI18nScope('course_settings')
+const I18n = createI18nScope('course_settings')
 
 export default class EditSectionsView extends DialogBaseView {
   static initClass() {
@@ -47,7 +47,7 @@ export default class EditSectionsView extends DialogBaseView {
     this.$el.html(
       editSectionsViewTemplate({
         sectionsUrl: ENV.SEARCH_URL,
-      })
+      }),
     )
     super.render()
     return this
@@ -57,7 +57,7 @@ export default class EditSectionsView extends DialogBaseView {
     const enrollments = this.model.sectionEditableEnrollments()
 
     const excludeSections = enrollments.map(enrollment => {
-      const section = ENV.CONTEXTS.sections[enrollment.course_section_id]
+      const section = ENV.SECTIONS.find(s => s.id === enrollment.course_section_id)
 
       return {
         id: section.id,
@@ -71,10 +71,9 @@ export default class EditSectionsView extends DialogBaseView {
       <QueryClientProvider client={new QueryClient()}>
         <SectionSelector courseId={ENV.current_context.id} initialSections={excludeSections} />
       </QueryClientProvider>,
-      document.getElementById('react_section_input')
+      document.getElementById('react_section_input'),
     )
   }
-
 
   update(e) {
     let url
@@ -106,14 +105,14 @@ export default class EditSectionsView extends DialogBaseView {
         $.ajaxJSON(url, 'POST', data, newEnrollment => {
           lodashExtend(newEnrollment, {can_be_removed: true})
           return newEnrollments.push(newEnrollment)
-        })
+        }),
       )
     }
 
     // delete old section enrollments
     const sectionsToRemove = difference(currentIds, sectionIds)
     const enrollmentsToRemove = filter(this.model.sectionEditableEnrollments(), en =>
-      includes(sectionsToRemove, en.course_section_id)
+      includes(sectionsToRemove, en.course_section_id),
     )
     for (const en of Array.from(enrollmentsToRemove)) {
       url = `${ENV.COURSE_ROOT_URL}/unenroll/${en.id}`
@@ -125,18 +124,18 @@ export default class EditSectionsView extends DialogBaseView {
         .done(() => {
           this.updateEnrollments(newEnrollments, enrollmentsToRemove)
           return $.flashMessage(
-            I18n.t('flash.sections', 'Section enrollments successfully updated')
+            I18n.t('flash.sections', 'Section enrollments successfully updated'),
           )
         })
         .fail(() =>
           $.flashError(
             I18n.t(
               'flash.sectionError',
-              "Something went wrong updating the user's sections. Please try again later."
-            )
-          )
+              "Something went wrong updating the user's sections. Please try again later.",
+            ),
+          ),
         )
-        .always(() => this.close())
+        .always(() => this.close()),
     )
   }
 }

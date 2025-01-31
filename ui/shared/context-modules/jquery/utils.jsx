@@ -19,8 +19,8 @@
 import $ from 'jquery'
 import {some} from 'lodash'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {createRoot} from 'react-dom/client'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ModuleFile from '@canvas/files/backbone/models/ModuleFile'
 import PublishCloud from '@canvas/files/react/components/PublishCloud'
 import PublishableModuleItem from '../backbone/models/PublishableModuleItem'
@@ -30,8 +30,9 @@ import ContentTypeExternalToolTray from '@canvas/trays/react/ContentTypeExternal
 import {ltiState} from '@canvas/lti/jquery/messages'
 import {addDeepLinkingListener} from '@canvas/deep-linking/DeepLinking'
 import ExternalToolModalLauncher from '@canvas/external-tools/react/components/ExternalToolModalLauncher'
+import {getResourceTypes} from '@canvas/util/resourceTypeUtil'
 
-const I18n = useI18nScope('context_modulespublic')
+const I18n = createI18nScope('context_modulespublic')
 
 const content_type_map = {
   page: 'wiki_page',
@@ -46,7 +47,7 @@ export function scrollTo($thing, time = 500) {
     {
       scrollTop: $thing.offset().top,
     },
-    time
+    time,
   )
 }
 
@@ -144,10 +145,9 @@ export function initPublishButton($el, data) {
     const fileFauxView = {
       render: () => {
         const model = $el.data('view').model
-        ReactDOM.render(
-          <PublishCloud {...props} model={model} disabled={model.get('disabled')} />,
-          $el[0]
-        )
+
+        const root = createRoot($el[0])
+        root.render(<PublishCloud {...props} model={model} disabled={model.get('disabled')} />)
         // to look disable, we need to add the class here
         $el[0].classList[model.get('disabled') ? 'add' : 'remove']('disabled')
       },
@@ -219,7 +219,7 @@ export function setExpandAllButton() {
 
   $('#expand_collapse_all').attr(
     'aria-label',
-    someVisible ? I18n.t('Collapse All Modules') : I18n.t('Expand All Modules')
+    someVisible ? I18n.t('Collapse All Modules') : I18n.t('Expand All Modules'),
   )
   $('#expand_collapse_all').data('expand', !someVisible)
   $('#expand_collapse_all').attr('aria-expanded', someVisible ? 'true' : 'false')
@@ -240,7 +240,7 @@ export function setExpandAllButtonHandler() {
 
     $(this).attr(
       'aria-label',
-      shouldExpand ? I18n.t('Collapse All Modules') : I18n.t('Expand All Modules')
+      shouldExpand ? I18n.t('Collapse All Modules') : I18n.t('Expand All Modules'),
     )
     $(this).data('expand', !shouldExpand)
     $(this).attr('aria-expanded', shouldExpand ? 'true' : 'false')
@@ -335,8 +335,8 @@ export function updateProgressionState($module) {
 
     const completed = some(
       reqs_met,
-      // eslint-disable-next-line eqeqeq
-      req => req.id == mod_id && $mod_item.hasClass(req.type + '_requirement')
+
+      req => req.id == mod_id && $mod_item.hasClass(req.type + '_requirement'),
     )
     if (completed) {
       $mod_item.addClass('completed_item')
@@ -351,7 +351,6 @@ export function updateProgressionState($module) {
     } else {
       let incomplete_req = null
       for (const idx in incomplete_reqs) {
-        // eslint-disable-next-line eqeqeq
         if (incomplete_reqs[idx].id == mod_id) {
           incomplete_req = incomplete_reqs[idx]
         }
@@ -365,7 +364,7 @@ export function updateProgressionState($module) {
             I18n.t('You scored a %{score}.', {score: incomplete_req.score}) +
               ' ' +
               criterionMessage($mod_item) +
-              '.'
+              '.',
           )
         } else {
           // hasn't been scored yet
@@ -554,28 +553,18 @@ function setExternalToolTray(tool, moduleData, placement = 'module_index_menu', 
     }
   }
 
-  ReactDOM.render(
+  const root = createRoot($('#external-tool-mount-point')[0])
+  root.render(
     <ContentTypeExternalToolTray
       tool={tool}
       placement={placement}
-      acceptedResourceTypes={[
-        'assignment',
-        'audio',
-        'discussion_topic',
-        'document',
-        'image',
-        'module',
-        'quiz',
-        'page',
-        'video',
-      ]}
+      acceptedResourceTypes={getResourceTypes()}
       targetResourceType="module"
       allowItemSelection={placement === 'module_index_menu'}
       selectableItems={moduleData}
       onDismiss={handleDismiss}
       open={tool !== null}
     />,
-    $('#external-tool-mount-point')[0]
   )
 }
 
@@ -597,7 +586,8 @@ function setExternalToolModal({
     returnFocusTo.focus()
   }
 
-  ReactDOM.render(
+  const root = createRoot($('#external-tool-mount-point')[0])
+  root.render(
     <ExternalToolModalLauncher
       tool={tool}
       launchType={launchType}
@@ -608,7 +598,6 @@ function setExternalToolModal({
       onRequestClose={handleDismiss}
       contextModuleId={contextModuleId}
     />,
-    $('#external-tool-mount-point')[0]
   )
 }
 

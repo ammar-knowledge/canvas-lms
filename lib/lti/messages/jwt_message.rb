@@ -66,23 +66,25 @@ module Lti::Messages
       add_context_claims! if include_claims?(:context)
       add_tool_platform_claims! if include_claims?(:tool_platform)
       add_launch_presentation_claims! if include_claims?(:launch_presentation)
+      add_platform_notification_service_claims! if include_platform_notification_service_claims?
       add_i18n_claims! if include_claims?(:i18n)
       add_roles_claims! if include_claims?(:roles)
       add_custom_params_claims! if include_claims?(:custom_params)
       add_assignment_and_grade_service_claims! if include_assignment_and_grade_service_claims?
       add_names_and_roles_service_claims! if include_names_and_roles_service_claims?
-      add_lti11_legacy_user_id!
+      add_lti11_legacy_user_id! if include_claims?(:lti11_legacy_user_id)
       add_lti1p1_claims! if include_lti1p1_claims?
       add_extension("placement", @opts[:resource_type])
       add_extension("lti_student_id", @opts[:student_id].to_s) if @opts[:student_id].present?
-
-      @expander.expand_variables!(@message.extensions)
+      add_extension("student_context", { "id" => @opts[:student_lti_id] }) if @opts[:student_lti_id].present?
+      @expander&.expand_variables!(@message.extensions)
       @message.validate! if validate_launch
       @message
     end
 
     def to_cached_hash
-      post_payload = generate_post_payload_message.to_h
+      without_validation_fields = Account.site_admin.feature_enabled?(:remove_unwanted_lti_validation_claims)
+      post_payload = generate_post_payload_message.to_h(without_validation_fields:)
       assoc_tool_data = {
         shared_secret: associated_1_1_tool&.shared_secret,
         consumer_key: associated_1_1_tool&.consumer_key
@@ -113,7 +115,7 @@ module Lti::Messages
       @message.iss = Canvas::Security.config["lti_iss"]
       @message.nonce = SecureRandom.uuid
       @message.sub = @user&.lookup_lti_id(@context) if include_sub_claim?
-      @message.target_link_uri = target_link_uri
+      @message.target_link_uri = target_link_uri if include_claims?(:target_link_uri)
     end
 
     def include_sub_claim?
@@ -127,7 +129,7 @@ module Lti::Messages
     end
 
     def add_context_claims!
-      @message.context.id = Lti::Asset.opaque_identifier_for(@context)
+      @message.context.id = Lti::V1p1::Asset.opaque_identifier_for(@context)
       @message.context.label = @context.course_code if @context.respond_to?(:course_code)
       @message.context.title = @context.name
       @message.context.type = [Lti::SubstitutionsHelper::LIS_V2_ROLE_MAP[@context.class] || @context.class.to_s]
@@ -159,7 +161,11 @@ module Lti::Messages
     end
 
     def add_roles_claims!
-      @message.roles = expand_variable("$com.instructure.User.allRoles").split ","
+      @message.roles = if @expander.present?
+                         expand_variable("$com.instructure.User.allRoles").split ","
+                       else
+                         Lti::SubstitutionsHelper.new(@context, @context.root_account, @user, @tool).all_roles("lti1_3").split ","
+                       end
     end
 
     def add_custom_params_claims!
@@ -213,6 +219,13 @@ module Lti::Messages
         @tool.developer_key.scopes.intersect?(TokenScopes::LTI_AGS_SCOPES)
     end
 
+    # Follows 1EdTech Platform Notification Spec (not final/public as of Oct 2024)
+    def include_platform_notification_service_claims?
+      include_claims?(:platform_notification_service) &&
+        @tool.developer_key.scopes.include?(TokenScopes::LTI_PNS_SCOPE) &&
+        @tool.root_account.feature_enabled?(:platform_notification_service)
+    end
+
     # Follows the spec at https://www.imsglobal.org/spec/lti-ags/v2p0/#assignment-and-grade-service-claim
     # see ResourceLinkRequest#add_line_item_url_to_ags_claim! for adding the 'lineitem' properties
     def add_assignment_and_grade_service_claims!
@@ -222,6 +235,28 @@ module Lti::Messages
         @expander.controller.lti_line_item_index_url(
           host: @context.root_account.environment_specific_domain, course_id: course_id_for_ags_url
         )
+    end
+
+    def add_platform_notification_service_claims!
+      @message.platform_notification_service.service_versions = ["1.0"]
+      @message.platform_notification_service.platform_notification_service_url = notification_service_url
+
+      @message.platform_notification_service.scope = [TokenScopes::LTI_PNS_SCOPE]
+      @message.platform_notification_service.notice_types_supported = Lti::Pns::NoticeTypes::ALL
+    end
+
+    def notification_service_url
+      if @expander&.controller.present?
+        @expander.controller.lti_notice_handlers_url(
+          host: @context.root_account.environment_specific_domain,
+          context_external_tool_id: @tool.id
+        )
+      else
+        Rails.application.routes.url_helpers.lti_notice_handlers_url(
+          context_external_tool_id: @tool.id,
+          host: @context.root_account.environment_specific_domain
+        )
+      end
     end
 
     def associated_1_1_tool

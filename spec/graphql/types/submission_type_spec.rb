@@ -48,6 +48,21 @@ describe Types::SubmissionType do
     expect(submission_type.resolve("_id", current_user: other_student)).to be_nil
   end
 
+  describe "last_commented_by_user_at" do
+    it "returns the timestamp of the last comment by the current user" do
+      now = Time.zone.now
+      Timecop.freeze(3.hours.ago(now)) { @submission.submission_comments.create!(comment: "hi from teacher", author: @teacher) }
+      Timecop.freeze(2.hours.ago(now)) { @submission.submission_comments.create!(comment: "hi sooner from teacher", author: @teacher) }
+      Timecop.freeze(1.hour.ago(now)) { @submission.submission_comments.create!(comment: "hi soonest from student", author: @student) }
+
+      expect(submission_type.resolve("lastCommentedByUserAt")).to eq 2.hours.ago(now).iso8601
+    end
+
+    it "returns null if the user has no comments" do
+      expect(submission_type.resolve("lastCommentedByUserAt")).to be_nil
+    end
+  end
+
   describe "posted" do
     it "returns the posted status of the submission" do
       @submission.update!(posted_at: nil)
@@ -75,6 +90,19 @@ describe Types::SubmissionType do
       @submission.update!(posted_at: now)
       posted_at = Time.zone.parse(submission_type.resolve("postedAt"))
       expect(posted_at).to eq now
+    end
+  end
+
+  describe "external_tool_url" do
+    it "returns the URL for an LTI submission" do
+      @assignment.update!(submission_types: "external_tool")
+      @submission.update!(url: "https://example.com", submission_type: "basic_lti_launch")
+      expect(submission_type.resolve("externalToolUrl")).to eq "https://example.com"
+    end
+
+    it "returns nil if the submission has a URL but is not an LTI submission" do
+      @submission.update!(url: "https://example.com")
+      expect(submission_type.resolve("externalToolUrl")).to be_nil
     end
   end
 
@@ -129,6 +157,105 @@ describe Types::SubmissionType do
 
     it "returns the custom grade status" do
       expect(submission_type.resolve("customGradeStatus")).to eq "foo"
+    end
+  end
+
+  describe "status_tag" do
+    let(:status_tag) { submission_type.resolve("statusTag") }
+
+    it "returns 'custom' when the submission has a custom grade status" do
+      custom_grade_status = @submission.root_account.custom_grade_statuses.create!(
+        name: "Potato",
+        color: "#FFE8E5",
+        created_by: @teacher
+      )
+
+      @submission.update!(custom_grade_status:)
+      expect(status_tag).to eq "custom"
+    end
+
+    it "returns 'excused' when the submission is excused" do
+      @submission.update!(excused: true)
+      expect(status_tag).to eq "excused"
+    end
+
+    it "returns 'late' when the submission is marked late" do
+      @submission.update!(late_policy_status: :late)
+      expect(status_tag).to eq "late"
+    end
+
+    it "returns 'late' when the submission is naturally late" do
+      @assignment.update!(due_at: 1.day.ago)
+      @assignment.submit_homework(@student, body: "foo")
+      expect(status_tag).to eq "late"
+    end
+
+    it "returns 'extended' when the submission is extended" do
+      @submission.update!(late_policy_status: :extended)
+      expect(status_tag).to eq "extended"
+    end
+
+    it "returns 'missing' when the submission is marked missing" do
+      @submission.update!(late_policy_status: :missing)
+      expect(status_tag).to eq "missing"
+    end
+
+    it "returns 'missing' when the submission is naturally missing" do
+      @assignment.update!(due_at: 1.day.ago)
+      # graded submission's aren't considered missing, so we need to ungrade it
+      @submission.update!(score: nil, grader: nil)
+      expect(status_tag).to eq "missing"
+    end
+
+    it "returns 'none' when the submission is marked 'none'" do
+      @assignment.update!(due_at: 1.day.ago)
+      @assignment.submit_homework(@student, body: "foo")
+      # the submission is naturally late, but marked as "none"
+      @submission.update!(late_policy_status: :none)
+      expect(status_tag).to eq "none"
+    end
+
+    it "returns 'none' when the submission has no special status" do
+      expect(status_tag).to eq "none"
+    end
+  end
+
+  describe "status" do
+    let(:status) { submission_type.resolve("status") }
+
+    it "returns the custom status name when the submission has a custom grade status" do
+      custom_grade_status = @submission.root_account.custom_grade_statuses.create!(
+        name: "Potato",
+        color: "#FFE8E5",
+        created_by: @teacher
+      )
+
+      @submission.update!(custom_grade_status:)
+      expect(status).to eq "Potato"
+    end
+
+    it "returns 'Excused' when the submission is excused" do
+      @submission.update!(excused: true)
+      expect(status).to eq "Excused"
+    end
+
+    it "returns 'Late' when the submission is late" do
+      @submission.update!(late_policy_status: :late)
+      expect(status).to eq "Late"
+    end
+
+    it "returns 'Extended' when the submission is extended" do
+      @submission.update!(late_policy_status: :extended)
+      expect(status).to eq "Extended"
+    end
+
+    it "returns 'Missing' when the submission is missing" do
+      @submission.update!(late_policy_status: :missing)
+      expect(status).to eq "Missing"
+    end
+
+    it "returns 'None' when the submission has no special status" do
+      expect(status).to eq "None"
     end
   end
 
@@ -875,7 +1002,7 @@ describe Types::SubmissionType do
       end
     end
 
-    context "whent the assignment is a discussion topic" do
+    context "when the assignment is a discussion topic" do
       before do
         @assignment.update!(submission_types: "discussion_topic")
         @discussion_topic = @assignment.discussion_topic
@@ -883,7 +1010,7 @@ describe Types::SubmissionType do
 
       it "returns the preview URL for the discussion topic" do
         @discussion_topic.discussion_entries.create!(user: @student, message: "I have a lot to say about this topic")
-        expect(preview_url).to eq "http://test.host/courses/#{@course.id}/discussion_topics/#{@discussion_topic.id}?embed=true"
+        expect(preview_url).to eq "http://test.host/courses/#{@course.id}/discussion_topics/#{@discussion_topic.id}?embed=true&persist=1&student_id=#{@student.id}"
       end
     end
   end
@@ -891,7 +1018,23 @@ describe Types::SubmissionType do
   describe "wordCount" do
     it "returns the word count" do
       @submission.update!(body: "word " * 100)
+      run_jobs
       expect(submission_type.resolve("wordCount")).to eq 100
+    end
+  end
+
+  describe "anonymous grading" do
+    before do
+      @assignment.update!(anonymous_grading: true)
+      @submission.update!(posted_at: nil)
+    end
+
+    it "returns the anonymous id" do
+      expect(submission_type.resolve("anonymousId")).to eq @submission.anonymous_id
+    end
+
+    it "does not show the user to a grader when an assignment is actively anonymous" do
+      expect(submission_type.resolve("userId")).to be_nil
     end
   end
 end

@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {View} from '@instructure/ui-view'
 import {Text} from '@instructure/ui-text'
@@ -32,14 +32,16 @@ import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 
 declare const window: Window & {ENV: GlobalEnv}
 
-const I18n = useI18nScope('CoursesTray')
+const I18n = createI18nScope('CoursesTray')
 
 export default function CoursesTray() {
   const showSplitList = (window.ENV.current_user_roles || []).includes('teacher')
   const {data, isLoading, isSuccess} = useQuery<Course[], Error>({
     queryKey: ['courses'],
     queryFn: coursesQuery,
-    fetchAtLeastOnce: true,
+    meta: {
+      fetchAtLeastOnce: true,
+    },
     refetchOnMount: false,
     select: courses => courses.filter(hideHomeroomCourseIfK5Student),
   })
@@ -86,10 +88,10 @@ export default function CoursesTray() {
       <Text as="div">
         {k5User
           ? I18n.t(
-              'Welcome to your subjects! To customize the list of subjects, click on the "All Subjects" link and star the subjects to display.'
+              'Welcome to your subjects! To customize the list of subjects, click on the "All Subjects" link and star the subjects to display.',
             )
           : I18n.t(
-              'Welcome to your courses! To customize the list of courses, click on the "All Courses" link and star the courses to display.'
+              'Welcome to your courses! To customize the list of courses, click on the "All Courses" link and star the courses to display.',
             )}
       </Text>
     </View>

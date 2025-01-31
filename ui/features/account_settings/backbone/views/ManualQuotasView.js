@@ -16,7 +16,7 @@
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import Course from '@canvas/courses/backbone/models/Course'
 import Group from '@canvas/groups/backbone/models/Group'
 import ValidatedFormView from '@canvas/forms/backbone/views/ValidatedFormView'
@@ -24,7 +24,7 @@ import htmlEscape from '@instructure/html-escape'
 import template from '../../jst/ManualQuotas.handlebars'
 import '@canvas/rails-flash-notifications'
 
-const I18n = useI18nScope('accounts')
+const I18n = createI18nScope('accounts')
 
 class ManualQuotasView extends ValidatedFormView {
   constructor(...args) {
@@ -162,7 +162,7 @@ class ManualQuotasView extends ValidatedFormView {
             message: I18n.t(
               'find_not_authorized',
               'You are not authorized to access that %{type}',
-              {type: model.type}
+              {type: model.type},
             ),
           },
         ],

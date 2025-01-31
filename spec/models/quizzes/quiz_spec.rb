@@ -129,7 +129,7 @@ describe Quizzes::Quiz do
       quiz = nil
       Timecop.freeze(5.minutes.ago) do
         quiz = @course.quizzes.create! title: "hello"
-        quiz.published_at = Time.now
+        quiz.published_at = Time.zone.now
         quiz.publish!
         expect(quiz.unpublished_changes?).to be_falsey
       end
@@ -144,7 +144,7 @@ describe Quizzes::Quiz do
       quiz = nil
       Timecop.freeze(5.minutes.ago) do
         quiz = @course.quizzes.create! title: "hello"
-        quiz.published_at = Time.now
+        quiz.published_at = Time.zone.now
         quiz.publish!
         expect(quiz.unpublished_changes?).to be_falsey
       end
@@ -297,13 +297,12 @@ describe Quizzes::Quiz do
   it_behaves_like "Canvas::DraftStateValidations"
 
   it "infers the times if none given" do
-    q = factory_with_protected_attributes(@course.quizzes,
-                                          title: "new quiz",
-                                          due_at: "Sep 3 2008 12:00am",
-                                          lock_at: "Sep 3 2008 12:00am",
-                                          unlock_at: "Sep 3 2008 12:00am",
-                                          quiz_type: "assignment",
-                                          workflow_state: "available")
+    q = @course.quizzes.create!(title: "new quiz",
+                                due_at: "Sep 3 2008 12:00am",
+                                lock_at: "Sep 3 2008 12:00am",
+                                unlock_at: "Sep 3 2008 12:00am",
+                                quiz_type: "assignment",
+                                workflow_state: "available")
     due_at = q.due_at
     expect(q.due_at).to eq Time.parse("Sep 3 2008 12:00am UTC")
     lock_at = q.lock_at
@@ -442,7 +441,7 @@ describe Quizzes::Quiz do
     a = @course.assignments.create!(title: "some assignment", points_possible: 5)
     expect(a.points_possible).to be(5.0)
     expect(a.submission_types).not_to eql("online_quiz")
-    a.update_attribute(:created_at, Time.now - (40 * 60))
+    a.update_attribute(:created_at, Time.zone.now - (40 * 60))
     q = @course.quizzes.build(assignment_id: a.id, title: "some quiz", points_possible: 10)
     q.workflow_state = "available"
     expect(q.assignment).to receive(:save_without_broadcasting!).at_least(:once)
@@ -458,7 +457,7 @@ describe Quizzes::Quiz do
     a.unmute!
     expect(a.points_possible).to be(5.0)
     expect(a.submission_types).not_to eql("online_quiz")
-    a.update_attribute(:created_at, Time.now - (40 * 60))
+    a.update_attribute(:created_at, Time.zone.now - (40 * 60))
     q = @course.quizzes.build(assignment_id: a.id, title: "some quiz", points_possible: 10)
     q.workflow_state = "available"
     q.notify_of_update = 1
@@ -622,7 +621,7 @@ describe Quizzes::Quiz do
     q.generate_quiz_data
     q.save
     expect(q.quiz_data).not_to be_nil
-    data = q.quiz_data rescue nil
+    data = q.quiz_data
     expect(data).not_to be_nil
   end
 
@@ -2276,7 +2275,7 @@ describe Quizzes::Quiz do
       end
     end
 
-    context "#unlock_at time has not yet occurred" do
+    describe "#unlock_at time has not yet occurred" do
       before do
         quiz.unlock_at = 1.hour.from_now
       end
@@ -2288,7 +2287,7 @@ describe Quizzes::Quiz do
       it { is_expected.to have_key :unlock_at }
     end
 
-    context "#unlock_at time has passed" do
+    describe "#unlock_at time has passed" do
       before do
         quiz.unlock_at = 1.hour.ago
       end
@@ -2296,7 +2295,7 @@ describe Quizzes::Quiz do
       it { is_expected.to be false }
     end
 
-    context "#lock_at time as passed" do
+    describe "#lock_at time as passed" do
       before do
         quiz.lock_at = 1.hour.ago
       end
@@ -2308,7 +2307,7 @@ describe Quizzes::Quiz do
       it { is_expected.to have_key :lock_at }
     end
 
-    context "#lock_at time has not yet occurred" do
+    describe "#lock_at time has not yet occurred" do
       before do
         quiz.lock_at = 1.hour.from_now
       end
@@ -2489,11 +2488,11 @@ describe Quizzes::Quiz do
     end
 
     it "returns quizzes due between the given dates" do
-      expect(@course.quizzes.due_between_with_overrides(2.days.ago, Time.now)).to include(@quiz)
+      expect(@course.quizzes.due_between_with_overrides(2.days.ago, Time.zone.now)).to include(@quiz)
     end
 
     it "returns quizzes with overrides between the given dates" do
-      expect(@course.quizzes.due_between_with_overrides(Time.now, 2.days.from_now)).to include(@quiz)
+      expect(@course.quizzes.due_between_with_overrides(Time.zone.now, 2.days.from_now)).to include(@quiz)
     end
 
     it "excludes quizzes that don't meet either criterion" do

@@ -57,7 +57,7 @@ class AccountNotification < ActiveRecord::Base
     return unless account.root_account?
 
     roles = account_notification_roles.map(&:role_name)
-    return if roles.count > 0 && (roles & ["StudentEnrollment", "ObserverEnrollment"]).none?
+    return if roles.count > 0 && !roles.intersect?(["StudentEnrollment", "ObserverEnrollment"])
 
     thresholds = ObserverAlertThreshold.active.where(observer: User.of_account(account), alert_type: "institution_announcement")
                                        .where.not(id: ObserverAlert.where(context: self).select(:observer_alert_threshold_id))
@@ -68,9 +68,7 @@ class AccountNotification < ActiveRecord::Base
                            context: self,
                            alert_type: "institution_announcement",
                            action_date: start_at,
-                           title: I18n.t('Institution announcement: "%{announcement_title}"', {
-                                           announcement_title: subject
-                                         }))
+                           title: subject)
     end
   end
 

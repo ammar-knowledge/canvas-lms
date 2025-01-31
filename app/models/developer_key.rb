@@ -27,6 +27,9 @@ class DeveloperKey < ActiveRecord::Base
     end
   end
 
+  CONFIDENTIAL_CLIENT_TYPE = "confidential"
+  PUBLIC_CLIENT_TYPE = "public"
+
   include CustomValidations
   include Workflow
 
@@ -63,6 +66,7 @@ class DeveloperKey < ActiveRecord::Base
   after_update :destroy_external_tools!, if: :destroy_external_tools?
   after_update :update_lti_registration
 
+  validates :client_type, inclusion: { in: [PUBLIC_CLIENT_TYPE, CONFIDENTIAL_CLIENT_TYPE] }
   validates_as_url :redirect_uri, :oidc_initiation_url, :public_jwk_url, allowed_schemes: nil
   validate :validate_redirect_uris
   validate :validate_public_jwk
@@ -100,6 +104,8 @@ class DeveloperKey < ActiveRecord::Base
     state :deleted
   end
 
+  DEFAULT_KEY_NAME = "User-Generated"
+
   # https://stackoverflow.com/a/2500819
   alias_method :referenced_tool_configuration, :tool_configuration
 
@@ -107,6 +113,14 @@ class DeveloperKey < ActiveRecord::Base
   def destroy
     self.workflow_state = "deleted"
     save
+  end
+
+  def confidential_client?
+    client_type == CONFIDENTIAL_CLIENT_TYPE
+  end
+
+  def public_client?
+    client_type == PUBLIC_CLIENT_TYPE
   end
 
   def usable?
@@ -175,11 +189,11 @@ class DeveloperKey < ActiveRecord::Base
   end
 
   class << self
-    def default
-      get_special_key("User-Generated")
+    def default(create_if_missing: true)
+      get_special_key(DeveloperKey::DEFAULT_KEY_NAME, create_if_missing:)
     end
 
-    def get_special_key(default_key_name)
+    def get_special_key(default_key_name, create_if_missing: true)
       Shard.birth.activate do
         @special_keys ||= {}
 
@@ -190,6 +204,7 @@ class DeveloperKey < ActiveRecord::Base
           key = DeveloperKey.where(id: key_id).first
         end
         return @special_keys[default_key_name] = key if key
+        return nil unless create_if_missing
 
         key = DeveloperKey.create!(name: default_key_name)
         key.developer_key_account_bindings.update_all(workflow_state: "on")
@@ -370,7 +385,10 @@ class DeveloperKey < ActiveRecord::Base
   end
 
   def tokens_expire_in
-    return nil unless mobile_app?
+    return nil unless mobile_app? || public_client?
+
+    # By default, public clients have a two-hour rolling refresh window
+    return Setting.get("public_client_token_ttl", "120").to_f.minutes if public_client?
 
     sessions_settings = Canvas::Plugin.find("sessions").settings || {}
     sessions_settings[:mobile_timeout]&.to_f&.minutes
@@ -395,10 +413,7 @@ class DeveloperKey < ActiveRecord::Base
   # For now we will only allow this pattern for internal services in the
   # site admin account.
   def site_admin_service_auth?
-    Account.site_admin.feature_enabled?(:site_admin_service_auth) &&
-      service_user.present? &&
-      internal_service? &&
-      site_admin?
+    internal_service? && site_admin? && service_user.present?
   end
 
   def tool_configuration
@@ -410,17 +425,18 @@ class DeveloperKey < ActiveRecord::Base
   def create_lti_registration
     return unless is_lti_key?
     return if skip_lti_sync
-    return if tool_configuration.blank?
+    return if lti_registration.present?
 
     lti_registration = Lti::Registration.new(developer_key: self,
                                              account: account || Account.site_admin,
                                              created_by: current_user,
                                              updated_by: current_user,
                                              admin_nickname: name,
-                                             name: tool_configuration.settings["title"],
+                                             name: tool_configuration&.settings&.dig("title") || "Unnamed tool",
                                              workflow_state:,
                                              ims_registration:,
-                                             skip_lti_sync: true)
+                                             skip_lti_sync: true,
+                                             manual_configuration: referenced_tool_configuration)
     lti_registration.save!
   end
 
@@ -433,11 +449,12 @@ class DeveloperKey < ActiveRecord::Base
       return
     end
 
-    lti_registration.update!(name: tool_configuration.settings["title"],
+    lti_registration.update!(name: tool_configuration&.settings&.dig("title") || "Unnamed tool",
                              admin_nickname: name,
                              updated_by: current_user,
                              workflow_state:,
-                             skip_lti_sync: true)
+                             skip_lti_sync: true,
+                             manual_configuration: referenced_tool_configuration)
   end
 
   def validate_lti_fields
@@ -511,7 +528,7 @@ class DeveloperKey < ActiveRecord::Base
     tags = { method: }
     latency = (Time.zone.now.to_i - start_time) * 1000 # ms for DD
 
-    InstStatsd::Statsd.increment("#{stat_prefix}.count", tags:)
+    InstStatsd::Statsd.distributed_increment("#{stat_prefix}.count", tags:)
     InstStatsd::Statsd.timing("#{stat_prefix}.latency", latency, tags:)
 
     if exception
@@ -573,7 +590,7 @@ class DeveloperKey < ActiveRecord::Base
       ContextExternalTool.where(id: tool_ids).preload(:context).each do |tool|
         next unless tool.context
 
-        tool_configuration.new_external_tool(
+        lti_registration.new_external_tool(
           tool.context,
           existing_tool: tool
         ).save
@@ -623,12 +640,19 @@ class DeveloperKey < ActiveRecord::Base
   end
 
   def validate_public_jwk
-    return true if public_jwk.blank?
+    return if public_jwk.blank?
 
-    jwk_errors = Schemas::Lti::PublicJwk.simple_validation_errors(public_jwk)
-    return true if jwk_errors.blank?
+    if Account.site_admin.feature_enabled?(:lti_report_multiple_schema_validation_errors)
+      jwk_errors = Schemas::Lti::PublicJwk.simple_validation_errors(public_jwk)
+      return if jwk_errors.nil?
 
-    errors.add :public_jwk, jwk_errors
+      jwk_errors.each { |error| errors.add :public_jwk, error }
+    else
+      jwk_errors = Schemas::Lti::PublicJwk.simple_validation_first_error(public_jwk)
+      return if jwk_errors.blank?
+
+      errors.add :public_jwk, jwk_errors
+    end
   end
 
   def invalidate_access_tokens_if_scopes_removed!
@@ -654,14 +678,10 @@ class DeveloperKey < ActiveRecord::Base
   def validate_scopes!
     return true if scopes.empty?
 
-    scopes.map! do |scope|
-      (scope == TokenScopes::LTI_PAGE_CONTENT_SHOW_SCOPE_DEPRECATED) ? TokenScopes::LTI_PAGE_CONTENT_SHOW_SCOPE : scope
-    end
-
     invalid_scopes = scopes - TokenScopes.all_scopes
     return true if invalid_scopes.empty?
 
-    errors[:scopes] << "cannot contain #{invalid_scopes.join(", ")}"
+    errors.add(:scopes, "cannot contain #{invalid_scopes.join(", ")}")
   end
 
   def site_admin?

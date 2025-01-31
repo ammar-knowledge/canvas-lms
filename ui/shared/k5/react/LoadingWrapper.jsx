@@ -46,10 +46,13 @@ export default function LoadingWrapper({
   persistInCache = true,
 }) {
   const generateKey = index => `skeleton-${id}-${index}`
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const wasLoading = useRef(false)
   const skeletons = []
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const [skeletonsToRender, setSkeletonsToRender] = useState()
 
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     if (isLoading !== wasLoading.current) {
       const cacheKey = `loading-skeletons-${id}-num`
@@ -69,13 +72,13 @@ export default function LoadingWrapper({
         setSkeletonsToRender(
           !allowZeroSkeletons && skeletonsNumtoRender === 0
             ? SKELETONS_IF_ZERO
-            : skeletonsNumtoRender
+            : skeletonsNumtoRender,
         )
       } else if (persistInCache && !Number.isNaN(skeletonsNum)) {
         try {
           localStorage.setItem(cacheKey, skeletonsNum)
         } catch (e) {
-          // eslint-disable-next-line no-console
+           
           console.warn("Unable to save to localStorage, likely because it's out of space.")
         }
       }
@@ -99,7 +102,7 @@ export default function LoadingWrapper({
         >
           <LoadingSkeleton width="100%" height="100%" screenReaderLabel={screenReaderLabel} />
         </View>
-      )
+      ),
     )
   }
 

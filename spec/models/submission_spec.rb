@@ -212,7 +212,7 @@ describe Submission do
 
     it { is_expected.to be_blank }
 
-    it "sets an anoymous_id on validation" do
+    it "sets an anonymous_id on validation" do
       submission.validate
       expect(submission.anonymous_id).to be_present
     end
@@ -540,7 +540,7 @@ describe Submission do
     end
 
     it "does not truncate seconds off of cached due dates" do
-      time = DateTime.parse("2018-12-24 23:59:59")
+      time = Time.zone.parse("2018-12-24 23:59:59")
       @assignment.update_attribute(:due_at, time)
       submission = @assignment.submissions.find_by!(user: @user)
       expect(submission.cached_due_date.to_i).to eq time.to_i
@@ -848,6 +848,112 @@ describe Submission do
       expect { submission.update!(custom_grade_status: nil) }.not_to change {
         submission.excused?
       }.from(true)
+    end
+  end
+
+  describe "#status_tag" do
+    before do
+      @assignment.update!(submission_types: "online_text_entry")
+      @submission = @assignment.submissions.find_by!(user: @student)
+    end
+
+    it "returns :custom when the submission has a custom grade status" do
+      custom_grade_status = @submission.root_account.custom_grade_statuses.create!(
+        name: "Potato",
+        color: "#FFE8E5",
+        created_by: @course.teachers.take
+      )
+
+      @submission.update!(custom_grade_status:)
+      expect(@submission.status_tag).to eq :custom
+    end
+
+    it "returns :excused when the submission is excused" do
+      @submission.update!(excused: true)
+      expect(@submission.status_tag).to eq :excused
+    end
+
+    it "returns :late when the submission is marked late" do
+      @submission.update!(late_policy_status: :late)
+      expect(@submission.status_tag).to eq :late
+    end
+
+    it "returns :late when the submission is naturally late" do
+      @assignment.update!(due_at: 1.day.ago)
+      @assignment.submit_homework(@submission.user, body: "foo")
+      @submission.reload
+      expect(@submission.status_tag).to eq :late
+    end
+
+    it "returns :extended when the submission is extended" do
+      @submission.update!(late_policy_status: :extended)
+      expect(@submission.status_tag).to eq :extended
+    end
+
+    it "returns :missing when the submission is marked missing" do
+      @submission.update!(late_policy_status: :missing)
+      expect(@submission.status_tag).to eq :missing
+    end
+
+    it "returns :missing when the submission is naturally missing" do
+      @assignment.update!(due_at: 1.day.ago)
+      @submission.update!(score: nil, grader: nil)
+      @submission.reload
+      expect(@submission.status_tag).to eq :missing
+    end
+
+    it "returns :none when the submission is marked none" do
+      @assignment.update!(due_at: 1.day.ago)
+      @assignment.submit_homework(@submission.user, body: "foo")
+      # the submission is naturally late, but marked as "none"
+      @submission.update!(late_policy_status: :none)
+      expect(@submission.status_tag).to eq :none
+    end
+
+    it "returns :none when the submission has no special status" do
+      expect(@submission.status_tag).to eq :none
+    end
+  end
+
+  describe "status" do
+    before do
+      @assignment.update!(submission_types: "online_text_entry")
+      @submission = @assignment.submissions.find_by!(user: @student)
+    end
+
+    it "returns the custom status name when the submission has a custom grade status" do
+      custom_grade_status = @submission.root_account.custom_grade_statuses.create!(
+        name: "Potato",
+        color: "#FFE8E5",
+        created_by: @course.teachers.take
+      )
+
+      @submission.update!(custom_grade_status:)
+      expect(@submission.status).to eq "Potato"
+    end
+
+    it "returns 'Excused' when the submission is excused" do
+      @submission.update!(excused: true)
+      expect(@submission.status).to eq "Excused"
+    end
+
+    it "returns 'Late' when the submission is late" do
+      @submission.update!(late_policy_status: :late)
+      expect(@submission.status).to eq "Late"
+    end
+
+    it "returns 'Extended' when the submission is extended" do
+      @submission.update!(late_policy_status: :extended)
+      expect(@submission.status).to eq "Extended"
+    end
+
+    it "returns 'Missing' when the submission is missing" do
+      @submission.update!(late_policy_status: :missing)
+      expect(@submission.status).to eq "Missing"
+    end
+
+    it "returns 'None' when the submission has no special status" do
+      expect(@submission.status).to eq "None"
     end
   end
 
@@ -1863,7 +1969,7 @@ describe Submission do
       called_times = 0
       expect(@submission.versions).to receive(:create) { |attributes|
         called_times += 1
-        # This is a hacky way of mimicing a bug where two responses, received very quickly,
+        # This is a hacky way of mimicking a bug where two responses, received very quickly,
         # would create a RecordNotUnique error when the tried to increment the version
         # number at the same time.
         v = Version.create(
@@ -1964,12 +2070,12 @@ describe Submission do
 
     it "moves mastery path along on force audit if appropriate" do
       expect(ConditionalRelease::Rule).to receive(:is_trigger_assignment?).with(submission.assignment).once
-      submission.update! score: 1, workflow_state: :graded, posted_at: Time.now
+      submission.update! score: 1, workflow_state: :graded, posted_at: Time.zone.now
       submission.grade_change_audit(force_audit: true)
     end
   end
 
-  context "#graded_anonymously" do
+  describe "#graded_anonymously" do
     it "saves when grade changed and set explicitly" do
       submission_spec_model
       expect(@submission.graded_anonymously).to be_falsey
@@ -2050,7 +2156,7 @@ describe Submission do
 
       it "sends the correct message when an assignment is turned in on-time" do
         @assignment.workflow_state = "published"
-        @assignment.update(due_at: Time.now + 1000)
+        @assignment.update(due_at: 15.minutes.from_now)
 
         submission_spec_model(user: @student, submit_homework: true)
         expect(@submission.messages_sent.keys).to eq ["Assignment Submitted"]
@@ -2070,7 +2176,7 @@ describe Submission do
         Notification.where(name: "Assignment Submitted").first
 
         @assignment.workflow_state = "published"
-        @assignment.update(due_at: Time.now + 1000)
+        @assignment.update(due_at: 15.minutes.from_now)
 
         submission_spec_model(user: @student, submit_homework: true)
 
@@ -2080,7 +2186,7 @@ describe Submission do
 
       it "sends the correct message when an assignment is turned in late" do
         @assignment.workflow_state = "published"
-        @assignment.update(due_at: Time.now - 1000)
+        @assignment.update(due_at: Time.zone.now - 1000)
 
         submission_spec_model(user: @student, submit_homework: true)
         expect(@submission.messages_sent.keys).to eq ["Assignment Submitted Late"]
@@ -2088,7 +2194,7 @@ describe Submission do
 
       it "sends the correct message when an assignment is resubmitted on-time" do
         @assignment.submission_types = ["online_text_entry"]
-        @assignment.due_at = Time.now + 1000
+        @assignment.due_at = Time.zone.now + 1000
         @assignment.save!
 
         @assignment.submit_homework(@student, body: "lol")
@@ -2098,7 +2204,7 @@ describe Submission do
 
       it "sends the correct message when an assignment is resubmitted late" do
         @assignment.submission_types = ["online_text_entry"]
-        @assignment.due_at = Time.now - 1000
+        @assignment.due_at = Time.zone.now - 1000
         @assignment.save!
 
         @assignment.submit_homework(@student, body: "lol")
@@ -2107,7 +2213,7 @@ describe Submission do
       end
 
       it "sends the correct message when a group assignment is submitted late" do
-        @a = assignment_model(course: @context, group_category: "Study Groups", due_at: Time.now - 1000, submission_types: ["online_text_entry"])
+        @a = assignment_model(course: @context, group_category: "Study Groups", due_at: Time.zone.now - 1000, submission_types: ["online_text_entry"])
         @group1 = @a.context.groups.create!(name: "Study Group 1", group_category: @a.group_category)
         @group1.add_user(@student)
         submission = @a.submit_homework @student, submission_type: "online_text_entry", body: "blah"
@@ -2384,7 +2490,7 @@ describe Submission do
 
       it "does not create a grade changed message when theres a quiz attached" do
         Notification.create(name: "Submission Grade Changed")
-        allow(@assignment).to receive_messages(score_to_grade: "10.0", due_at: Time.now - 100)
+        allow(@assignment).to receive_messages(score_to_grade: "10.0", due_at: Time.zone.now - 100)
         submission_spec_model
 
         @quiz = Quizzes::Quiz.create!(context: @course)
@@ -2914,7 +3020,7 @@ describe Submission do
                                                   })
       end
 
-      it "overrites the tii data with the originality data" do
+      it "overwrites the tii data with the originality data" do
         originality_report.originality_report_url = "http://example.com"
         originality_report.save!
         tii_data = {
@@ -3603,14 +3709,14 @@ describe Submission do
 
       it "lets students view the turnitin report after the due date if the visibility setting allows it" do
         @assignment.turnitin_settings[:originality_report_visibility] = "after_due_date"
-        @assignment.due_at = Time.now + 1.day
+        @assignment.due_at = 1.day.from_now
         @assignment.save
         @submission.reload
 
         expect(@submission).not_to be_grants_right(@user, nil, :view_turnitin_report)
         expect(@submission.turnitin_report_url("submission_#{@submission.id}", @user)).to be_nil
 
-        @assignment.due_at = Time.now - 1.day
+        @assignment.due_at = 1.day.ago
         @assignment.save
         @submission.reload
         AdheresToPolicy::Cache.clear
@@ -3844,12 +3950,12 @@ describe Submission do
     usec = submission.submitted_at.usec
     timestamp = "#{time_to_i}.#{usec}".to_f
 
-    quiz_submission.finished_at = Time.at(timestamp)
+    quiz_submission.finished_at = Time.zone.at(timestamp)
     quiz_submission.save
 
     # get the data in a strange state where the quiz_submission.finished_at is
     # microseconds older than the submission (caused the bug in #6048)
-    quiz_submission.finished_at = Time.at(timestamp + 0.00001)
+    quiz_submission.finished_at = Time.zone.at(timestamp + 0.00001)
     quiz_submission.save
 
     # verify the data is weird, to_i says they are equal, but the usecs are off
@@ -4044,7 +4150,7 @@ describe Submission do
     it "is read if other submission fields change" do
       @submission = @assignment.submit_homework(@user)
       @submission.workflow_state = "graded"
-      @submission.graded_at = Time.now
+      @submission.graded_at = Time.zone.now
       @submission.save!
       expect(@submission.read?(@user)).to be_truthy
     end
@@ -4052,7 +4158,7 @@ describe Submission do
     it "mark read/unread" do
       @submission = @assignment.submit_homework(@user)
       @submission.workflow_state = "graded"
-      @submission.graded_at = Time.now
+      @submission.graded_at = Time.zone.now
       @submission.save!
       expect(@submission.read?(@user)).to be_truthy
       @submission.mark_unread(@user)
@@ -4159,7 +4265,7 @@ describe Submission do
     before do
       submission.published_score = 100
       submission.published_grade = "A"
-      submission.graded_at = Time.now
+      submission.graded_at = Time.zone.now
       submission.grade = "B"
       submission.score = 90
       submission.mute
@@ -4293,10 +4399,10 @@ describe Submission do
       @assignment.save!
 
       submission = @quiz_submission.submission.reload
-      submission.write_attribute(:submitted_at, @assignment.due_at + 3.days)
+      submission.submitted_at = @assignment.due_at + 3.days
       expect(submission).to be_past_due
 
-      submission.write_attribute(:submitted_at, @assignment.due_at + 30.seconds)
+      submission.submitted_at = @assignment.due_at + 30.seconds
       expect(submission).not_to be_past_due
     end
   end
@@ -5024,7 +5130,69 @@ describe Submission do
     end
   end
 
+  shared_examples_for "a method which finds versioned originality reports" do |get_reports_fn|
+    def make_attachment(mod)
+      attachment_model(filename: "attachment_#{mod}.doc", context: @student)
+    end
+
+    it "works correctly on originality reports without submission times with multiple text entry or same attachment ids" do
+      reports = []
+      submissions = (1..3).map do |i|
+        sub = @assignment.submit_homework(@student, body: "body #{i}")
+        report = OriginalityReport.create!(attachment: nil, originality_score: i, submission: sub)
+        report.update_columns(submission_time: nil)
+        reports << report
+        sub
+      end
+      attachment = attachment_model(filename: "submission.doc", context: @student)
+      submissions += (1..3).map do |i|
+        sub = @assignment.submit_homework(@student, attachments: [attachment])
+        report = OriginalityReport.create!(attachment:, originality_score: i, submission: sub)
+        report.update_columns(submission_time: nil)
+        reports << report
+        sub
+      end
+
+      versioned_reports = get_reports_fn.call(submissions)
+
+      # Submissions/originality reports without attachments.
+      # Match based on `o.created_at > submitted_at`
+      (0..2).each do |i|
+        expect(versioned_reports[i]).to match_array reports[i..2]
+      end
+
+      # Submissions/originality report with attachment. Match all originality reports with matching attachment
+      (3..5).each do |i|
+        expect(versioned_reports[i]).to match_array reports[3..]
+      end
+    end
+
+    it "works correctly on originality reports with different submission times and same attachment ids (ie. student resubmits a previous attachment from files)" do
+      attachment1 = make_attachment(1)
+      sub1 = @assignment.submit_homework(@student, attachments: [attachment1])
+      report1 = OriginalityReport.create!(attachment: attachment1, originality_score: 1, submission: sub1)
+
+      attachment2 = make_attachment(2)
+      sub2 = @assignment.submit_homework(@student, attachments: [attachment2])
+      report2 = OriginalityReport.create!(attachment: attachment2, originality_score: 2, submission: sub2)
+
+      # the last submission has a resubmission of the first attachment created
+      sub3 = @assignment.submit_homework(@student, attachments: [attachment1])
+      # TII got back to us with a report but no change in score
+      report1.touch
+
+      versioned_reports = get_reports_fn.call([sub1, sub2, sub3])
+      expect(versioned_reports[0]).to eq [report1]
+      expect(versioned_reports[1]).to eq [report2]
+      expect(versioned_reports[2]).to eq [report1]
+    end
+  end
+
   describe "#versioned_originality_reports" do
+    it_behaves_like "a method which finds versioned originality reports", lambda { |submissions|
+      submissions.map(&:versioned_originality_reports)
+    }
+
     it "loads originality reports for the submission" do
       student_in_course(active_all: true)
       attachment = attachment_model(filename: "submission.doc", context: @student)
@@ -5059,38 +5227,17 @@ describe Submission do
 
       expect(submission.versioned_originality_reports).to eq []
     end
-
-    it "works correctly on originality reports without submission times with multiple text entry or same attachment ids" do
-      reports = []
-      submissions = (1..3).map do |i|
-        sub = @assignment.submit_homework(@student, body: "body #{i}")
-        report = OriginalityReport.create!(attachment: nil, originality_score: i, submission: sub)
-        report.update_columns(submission_time: nil)
-        reports << report
-        sub
-      end
-      attachment = attachment_model(filename: "submission.doc", context: @student)
-      submissions += (1..3).map do |i|
-        sub = @assignment.submit_homework(@student, attachments: [attachment])
-        report = OriginalityReport.create!(attachment:, originality_score: i, submission: sub)
-        report.update_columns(submission_time: nil)
-        reports << report
-        sub
-      end
-
-      submissions[0..2].each_with_index do |s, i|
-        expect(s.versioned_originality_reports).to match_array reports[i..2]
-      end
-      submissions[3..].each_with_index do |s, i|
-        expect(s.versioned_originality_reports).to match_array reports[(i + 3)..]
-      end
-    end
   end
 
   describe "#bulk_load_versioned_originality_reports" do
     before :once do
       student_in_course(active_all: true)
     end
+
+    it_behaves_like "a method which finds versioned originality reports", lambda { |submissions|
+      Submission.bulk_load_versioned_originality_reports(submissions)
+      submissions.map(&:versioned_originality_reports)
+    }
 
     it "bulk loads originality reports for many submissions at once" do
       originality_reports = []
@@ -5167,33 +5314,6 @@ describe Submission do
       Submission.bulk_load_versioned_originality_reports(submissions)
       submissions.each do |s|
         expect(s.versioned_originality_reports).to eq []
-      end
-    end
-
-    it "works correctly on originality reports without submission times with multiple text entry or same attachment ids" do
-      reports = []
-      submissions = (1..3).map do |i|
-        sub = @assignment.submit_homework(@student, body: "body #{i}")
-        report = OriginalityReport.create!(attachment: nil, originality_score: i, submission: sub)
-        report.update_columns(submission_time: nil)
-        reports << report
-        sub
-      end
-      attachment = attachment_model(filename: "submission.doc", context: @student)
-      submissions += (1..3).map do |i|
-        sub = @assignment.submit_homework(@student, attachments: [attachment])
-        report = OriginalityReport.create!(attachment:, originality_score: i, submission: sub)
-        report.update_columns(submission_time: nil)
-        reports << report
-        sub
-      end
-
-      Submission.bulk_load_versioned_originality_reports(submissions)
-      submissions[0..2].each_with_index do |s, i|
-        expect(s.versioned_originality_reports).to match_array reports[i..2]
-      end
-      submissions[3..].each_with_index do |s, i|
-        expect(s.versioned_originality_reports).to match_array reports[(i + 3)..]
       end
     end
   end
@@ -5351,7 +5471,7 @@ describe Submission do
   describe "#assign_assessor" do
     def peer_review_assignment
       assignment = @course.assignments.build(title: "Peer review",
-                                             due_at: Time.now - 1.day,
+                                             due_at: 1.day.ago,
                                              points_possible: 5,
                                              submission_types: "online_text_entry")
       assignment.peer_reviews_assigned = true
@@ -5771,6 +5891,29 @@ describe Submission do
                                          })
           expect(submission.submission_comments.last).to be_hidden
         end
+      end
+    end
+
+    context "with the cache" do
+      specs_require_cache(:redis_cache_store)
+
+      it "updates submissions with an assignment override shortly after updating the override" do
+        assignment = @course.assignments.create!(points_possible: 10, only_visible_to_overrides: true)
+        # Force the course wide cache to be set. In the normal course of process_bulk_update, the front end would get
+        # called to queue the delayed job update. In that flow, the cache gets set for the course, and assignment
+        # without specific users. This next line is to mimic that behavior for testing.
+        AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(course_ids: @course, assignment_ids: assignment)
+        assignment.assignment_overrides.create!(set_type: "CourseSection", set: @course.course_sections.first)
+
+        Submission.process_bulk_update(@progress, @course, nil, @teacher, {
+                                         assignment.id.to_s => {
+                                           @u1.id => { posted_grade: 5 },
+                                           @u2.id => { posted_grade: 10 }
+                                         }
+                                       })
+
+        expect(assignment.submission_for_student(@u1).grade).to eql "5"
+        expect(assignment.submission_for_student(@u2).grade).to eql "10"
       end
     end
   end
@@ -7305,23 +7448,23 @@ describe Submission do
     end
 
     it "shows teacher all comments" do
-      comments = @submission.visible_submission_comments_for(@teacher)
+      comments = @submission.reload.visible_submission_comments_for(@teacher)
       expect(comments).to match_array([@student_comment, @teacher_comment, @first_ta_comment])
     end
 
     it "shows ta all comments" do
-      comments = @submission.visible_submission_comments_for(@first_ta)
+      comments = @submission.reload.visible_submission_comments_for(@first_ta)
       expect(comments).to match_array([@student_comment, @teacher_comment, @first_ta_comment])
     end
 
     it "shows student all comments, when submission is posted" do
       @submission.update!(posted_at: Time.zone.now)
-      comments = @submission.visible_submission_comments_for(@student)
+      comments = @submission.reload.visible_submission_comments_for(@student)
       expect(comments).to match_array([@student_comment, @teacher_comment, @first_ta_comment])
     end
 
     it "shows student only their own comment, when submission is unposted" do
-      comments = @submission.visible_submission_comments_for(@student)
+      comments = @submission.reload.visible_submission_comments_for(@student)
       expect(comments).to match_array([@student_comment])
     end
 
@@ -7354,12 +7497,12 @@ describe Submission do
         end
 
         it "shows the submitting student their own comments and any peer review comments" do
-          comments = @submission.visible_submission_comments_for(@student)
+          comments = @submission.reload.visible_submission_comments_for(@student)
           expect(comments).to match_array([@peer_review_comment, @student_comment, @alternate_assessment_comment])
         end
 
         it "shows a peer-reviewing student only their own comments" do
-          comments = @submission.visible_submission_comments_for(@student2)
+          comments = @submission.reload.visible_submission_comments_for(@student2)
           expect(comments).to match_array([@peer_review_comment])
         end
       end
@@ -7370,12 +7513,12 @@ describe Submission do
         end
 
         it "shows the submitting student comments from all users" do
-          comments = @submission.visible_submission_comments_for(@student)
+          comments = @submission.reload.visible_submission_comments_for(@student)
           expect(comments).to match_array([@peer_review_comment, @student_comment, @teacher_comment])
         end
 
         it "shows a peer-reviewing student only their own comments" do
-          comments = @submission.visible_submission_comments_for(@student2)
+          comments = @submission.reload.visible_submission_comments_for(@student2)
           expect(comments).to match_array([@peer_review_comment])
         end
       end
@@ -7400,7 +7543,7 @@ describe Submission do
       end
 
       it "returns comments scoped to that group" do
-        comments = @submission.visible_submission_comments_for(@teacher)
+        comments = @submission.reload.visible_submission_comments_for(@teacher)
         expect(comments).to match_array([@student_comment, @student2_comment])
       end
 
@@ -7430,17 +7573,17 @@ describe Submission do
         end
 
         it "shows a peer reviewer only their own comments" do
-          comments = @submission.visible_submission_comments_for(@student2)
+          comments = @submission.reload.visible_submission_comments_for(@student2)
           expect(comments).to match_array([@peer_review_comment])
         end
 
         it "shows all comments to the submitting student" do
-          comments = @submission.visible_submission_comments_for(@student)
+          comments = @submission.reload.visible_submission_comments_for(@student)
           expect(comments).to match_array([@peer_review_comment, @student_comment, @teacher_comment])
         end
 
         it "shows all comments to a teacher" do
-          comments = @submission.visible_submission_comments_for(@teacher)
+          comments = @submission.reload.visible_submission_comments_for(@teacher)
           expect(comments).to match_array([@peer_review_comment, @student_comment, @teacher_comment])
         end
       end
@@ -7542,7 +7685,7 @@ describe Submission do
       context "when graders can view other graders' comments" do
         context "when grades are unpublished" do
           it "shows final grader all submission comments" do
-            comments = @submission.visible_submission_comments_for(@teacher)
+            comments = @submission.reload.visible_submission_comments_for(@teacher)
             expect(comments).to match_array([
                                               @student_comment,
                                               @first_ta_comment,
@@ -7553,7 +7696,7 @@ describe Submission do
           end
 
           it "shows provisional grader all submission comments" do
-            comments = @submission.visible_submission_comments_for(@first_ta)
+            comments = @submission.reload.visible_submission_comments_for(@first_ta)
             expect(comments).to match_array([
                                               @student_comment,
                                               @first_ta_comment,
@@ -7564,12 +7707,12 @@ describe Submission do
           end
 
           it "shows student only their own comments" do
-            comments = @submission.visible_submission_comments_for(@student)
+            comments = @submission.reload.visible_submission_comments_for(@student)
             expect(comments).to match_array([@student_comment])
           end
 
           it "shows admins all submission comments" do
-            comments = @submission.visible_submission_comments_for(@admin)
+            comments = @submission.reload.visible_submission_comments_for(@admin)
             expect(comments).to match_array([
                                               @student_comment,
                                               @first_ta_comment,
@@ -7588,7 +7731,7 @@ describe Submission do
           end
 
           it "shows final grader all submission comments" do
-            comments = @submission.visible_submission_comments_for(@teacher)
+            comments = @submission.reload.visible_submission_comments_for(@teacher)
             expect(comments.pluck(:comment)).to match_array([
                                                               "Student comment",
                                                               "First Ta comment",
@@ -7599,7 +7742,7 @@ describe Submission do
           end
 
           it "shows provisional grader all submission comments" do
-            comments = @submission.visible_submission_comments_for(@first_ta)
+            comments = @submission.reload.visible_submission_comments_for(@first_ta)
             expect(comments.pluck(:comment)).to match_array([
                                                               "Student comment",
                                                               "First Ta comment",
@@ -7610,13 +7753,13 @@ describe Submission do
           end
 
           it "shows student only their own comments" do
-            comments = @submission.visible_submission_comments_for(@student)
+            comments = @submission.reload.visible_submission_comments_for(@student)
             expect(comments).to match_array([@student_comment])
           end
 
           it "when grades are posted, shows student their own, chosen grader's, and final grader's comments" do
             @assignment.post_submissions
-            comments = @submission.visible_submission_comments_for(@student)
+            comments = @submission.reload.visible_submission_comments_for(@student)
             expect(comments.pluck(:comment)).to match_array([
                                                               "Student comment",
                                                               "First Ta comment",
@@ -7625,7 +7768,7 @@ describe Submission do
           end
 
           it "shows admins all submission comments" do
-            comments = @submission.visible_submission_comments_for(@admin)
+            comments = @submission.reload.visible_submission_comments_for(@admin)
             expect(comments.pluck(:comment)).to match_array([
                                                               "Student comment",
                                                               "First Ta comment",
@@ -7644,7 +7787,7 @@ describe Submission do
 
         context "when grades are unpublished" do
           it "shows final grader all submission comments" do
-            comments = @submission.visible_submission_comments_for(@teacher)
+            comments = @submission.reload.visible_submission_comments_for(@teacher)
             expect(comments).to match_array([
                                               @student_comment,
                                               @first_ta_comment,
@@ -7655,17 +7798,17 @@ describe Submission do
           end
 
           it "shows provisional grader their own and student's" do
-            comments = @submission.visible_submission_comments_for(@second_ta)
+            comments = @submission.reload.visible_submission_comments_for(@second_ta)
             expect(comments.pluck(:comment)).to match_array(["Student comment", "Second Ta comment"])
           end
 
           it "shows student only their own comments" do
-            comments = @submission.visible_submission_comments_for(@student)
+            comments = @submission.reload.visible_submission_comments_for(@student)
             expect(comments).to match_array([@student_comment])
           end
 
           it "shows admins all submission comments" do
-            comments = @submission.visible_submission_comments_for(@admin)
+            comments = @submission.reload.visible_submission_comments_for(@admin)
             expect(comments).to match_array([
                                               @student_comment,
                                               @first_ta_comment,
@@ -7684,7 +7827,7 @@ describe Submission do
           end
 
           it "shows final grader all submission comments" do
-            comments = @submission.visible_submission_comments_for(@teacher)
+            comments = @submission.reload.visible_submission_comments_for(@teacher)
             expect(comments.pluck(:comment)).to match_array([
                                                               "Student comment",
                                                               "First Ta comment",
@@ -7695,7 +7838,7 @@ describe Submission do
           end
 
           it "shows provisional grader their own, student's, chosen grader's, and final grader's comments" do
-            comments = @submission.visible_submission_comments_for(@second_ta)
+            comments = @submission.reload.visible_submission_comments_for(@second_ta)
             expect(comments.pluck(:comment)).to match_array([
                                                               "Student comment",
                                                               "First Ta comment",
@@ -7705,13 +7848,13 @@ describe Submission do
           end
 
           it "shows student only their own comments" do
-            comments = @submission.visible_submission_comments_for(@student)
+            comments = @submission.reload.visible_submission_comments_for(@student)
             expect(comments).to match_array([@student_comment])
           end
 
           it "when grades are posted, shows student own, chosen grader's, and final grader's comments" do
             @assignment.post_submissions
-            comments = @submission.visible_submission_comments_for(@student)
+            comments = @submission.reload.visible_submission_comments_for(@student)
             expect(comments.pluck(:comment)).to match_array([
                                                               "Student comment",
                                                               "First Ta comment",
@@ -7720,7 +7863,7 @@ describe Submission do
           end
 
           it "shows admins all submission comments" do
-            comments = @submission.visible_submission_comments_for(@admin)
+            comments = @submission.reload.visible_submission_comments_for(@admin)
             expect(comments.pluck(:comment)).to match_array([
                                                               "Student comment",
                                                               "First Ta comment",
@@ -7968,6 +8111,41 @@ describe Submission do
     it "returns false for submission with nil submission_type" do
       @submission.submission_type = nil
       expect(@submission.needs_grading?).to be false
+    end
+  end
+
+  describe "#checkpoints_needs_grading?" do
+    before(:once) do
+      @course = course_model
+      @course.root_account.enable_feature!(:discussion_checkpoints)
+      @student = student_in_course(course: @course, active_all: true).user
+      @topic = DiscussionTopic.create_graded_topic!(course: @course, title: "graded topic")
+      @topic.create_checkpoints(reply_to_topic_points: 3, reply_to_entry_points: 7)
+    end
+
+    it "returns true if one sub_assigment(REPLY_TO_ENTRY) needs grading" do
+      @topic.reply_to_topic_checkpoint.submit_homework(@student, submission_type: "discussion_topic")
+      @topic.assignment.grade_student(@student, grader: @teacher, score: 7, sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY)
+
+      expect(Submission.where(user_id: @student.id, assignment_id: @topic.assignment_id).first.checkpoints_needs_grading?).to be true
+    end
+
+    it "returns true if one sub_assigment(REPLY_TO_TOPIC) needs grading" do
+      @topic.assignment.grade_student(@student, grader: @teacher, score: 3, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+      @topic.reply_to_entry_checkpoint.submit_homework(@student, submission_type: "discussion_topic")
+
+      expect(Submission.where(user_id: @student.id, assignment_id: @topic.assignment_id).first.checkpoints_needs_grading?).to be true
+    end
+
+    it "returns false if one sub_assigments has been graded(other is unsubmitted)" do
+      @topic.assignment.grade_student(@student, grader: @teacher, score: 3, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+      expect(Submission.where(user_id: @student.id, assignment_id: @topic.assignment_id).first.checkpoints_needs_grading?).to be false
+    end
+
+    it "returns false if both sub_assigments have been graded" do
+      @topic.assignment.grade_student(@student, grader: @teacher, score: 3, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+      @topic.assignment.grade_student(@student, grader: @teacher, score: 7, sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY)
+      expect(Submission.where(user_id: @student.id, assignment_id: @topic.assignment_id).first.checkpoints_needs_grading?).to be false
     end
   end
 
@@ -8418,7 +8596,7 @@ describe Submission do
   end
 
   describe "#filter_attributes_for_user" do
-    let(:user) { instance_double("User", id: 1) }
+    let(:user) { instance_double(User, id: 1) }
     let(:session) { {} }
     let(:submission) { @assignment.submissions.build(user_id: 2) }
 
@@ -8702,7 +8880,7 @@ describe Submission do
     it { is_expected.to validate_numericality_of(:extra_attempts).is_greater_than_or_equal_to(0).allow_nil }
 
     describe "#extra_attempts_can_only_be_set_on_online_uploads" do
-      it "does not allowe extra_attempts to be set for non online upload submission types" do
+      it "does not allow extra_attempts to be set for non online upload submission types" do
         submission = @assignment.submissions.first
 
         %w[online_upload online_url online_text_entry].each do |submission_type|
@@ -9030,7 +9208,7 @@ describe Submission do
     end
 
     describe "#handle_posted_at_changed" do
-      describe "when an studen that is also admin posts an submission" do
+      describe "when an student that is also admin posts an submission" do
         it "unmutes the assignment if all submissions are now posted" do
           admin = account_admin_user(account: @account, name: "default admin")
           @course.enroll_student(admin)
@@ -9136,40 +9314,8 @@ describe Submission do
   end
 
   describe "word_count" do
-    it "returns the word count" do
-      submission.update(body: "test submission")
-      expect(submission.word_count).to eq 2
-    end
-
-    it "returns the word count if body is split up by <br> tags" do
-      submission.update(body: "test<br>submission")
-      expect(submission.word_count).to eq 2
-    end
-
-    it "returns nil if there is no body" do
-      expect(submission.body).to be_nil
-      expect(submission.word_count).to be_nil
-    end
-
-    it "returns nil if it's a quiz submission" do
-      submission.update(submission_type: "online_quiz", body: "test submission")
-      expect(submission.submission_type).to eq "online_quiz"
-      expect(submission.body).not_to be_nil
-      expect(submission.word_count).to be_nil
-    end
-
-    it "returns 0 if the body is empty" do
-      submission.update(body: "")
-      expect(submission.word_count).to eq 0
-    end
-
-    it "ignores HTML tags" do
-      submission.update(body: "<span>test <div></div>submission</span> <p></p>")
-      expect(submission.word_count).to eq 2
-      submission.instance_variable_set :@word_count, nil
-      submission.update(body: '<p>This is my submission, which has&nbsp;<strong>some bold&nbsp;<em>italic text</em> in</strong> it.</p>
-        <p>A couple paragraphs, and maybe super<sup>script</sup>.&nbsp;</p>')
-      expect(submission.word_count).to eq 18
+    before do
+      @submission = @assignment.submissions.find_by(user: @student)
     end
 
     it "sums word counts of attachments if there are any" do
@@ -9179,7 +9325,106 @@ describe Submission do
       attachment2 = attachment_model(uploaded_data: stub_file_data("submission.txt", submission_text, "text/plain"), context: @student)
       sub = @assignment.submit_homework(@student, attachments: [attachment1, attachment2])
       run_jobs
-      expect(sub.word_count).to eq 12
+      expect(sub.reload.word_count).to eq 12
+    end
+
+    context "when calculating word count on-the-fly" do
+      before { Account.site_admin.disable_feature!(:use_body_word_count) }
+
+      it "returns the word count" do
+        @submission.update(body: "test submission")
+        expect(@submission.word_count).to eq 2
+      end
+
+      it "returns the word count if body is split up by <br> tags" do
+        @submission.update(body: "test<br>submission")
+        expect(@submission.word_count).to eq 2
+      end
+
+      it "returns nil if there is no body" do
+        expect(@submission.body).to be_nil
+        expect(@submission.word_count).to be_nil
+      end
+
+      it "returns nil if it's a quiz submission" do
+        @submission.update(submission_type: "online_quiz", body: "test submission")
+        expect(@submission.submission_type).to eq "online_quiz"
+        expect(@submission.body).not_to be_nil
+        expect(@submission.word_count).to be_nil
+      end
+
+      it "returns 0 if the body is empty" do
+        @submission.update(body: "")
+        expect(@submission.word_count).to eq 0
+      end
+
+      it "ignores HTML tags" do
+        @submission.update(body: "<span>test <div></div>submission</span> <p></p>")
+        expect(@submission.word_count).to eq 2
+        @submission.instance_variable_set :@word_count, nil
+        @submission.update(body: '<p>This is my submission, which has&nbsp;<strong>some bold&nbsp;<em>italic text</em> in</strong> it.</p>
+          <p>A couple paragraphs, and maybe super<sup>script</sup>.&nbsp;</p>')
+        expect(@submission.reload.word_count).to eq 18
+      end
+    end
+
+    context "when the use_body_word_count feature is enabled" do
+      let(:word_count) do
+        run_jobs
+        @submission.reload.word_count
+      end
+
+      it "falls back to calculating on-the-fly if body_word_count is nil" do
+        @submission.update_columns(body: "two words")
+        run_jobs
+        @submission.reload
+        expect(@submission.body_word_count).to be_nil
+        expect(@submission.word_count).to eq 2
+      end
+
+      it "sets the word_count to 0 if an exception is thrown when trying to calculate the count" do
+        # stubbing this way (instead of expect(submission)...) because the method is called on an object in a delayed job.
+        expect_any_instance_of(Submission).to receive(:calc_body_word_count).and_raise("Kaboom")
+        @submission.update(body: "submission body that can't be parsed for some reason (usually because it's too big)")
+        expect(word_count).to eq 0
+      end
+
+      it "returns the word count" do
+        @submission.update(body: "test submission")
+        expect(word_count).to eq 2
+      end
+
+      it "returns the word count if body is split up by <br> tags" do
+        @submission.update(body: "test<br>submission")
+        expect(word_count).to eq 2
+      end
+
+      it "returns nil if there is no body" do
+        expect(@submission.body).to be_nil
+        expect(word_count).to be_nil
+      end
+
+      it "returns nil if it's a quiz submission" do
+        @submission.update(submission_type: "online_quiz", body: "test submission")
+        expect(@submission.submission_type).to eq "online_quiz"
+        expect(@submission.body).not_to be_nil
+        expect(word_count).to be_nil
+      end
+
+      it "returns 0 if the body is empty" do
+        @submission.update(body: "")
+        expect(word_count).to eq 0
+      end
+
+      it "ignores HTML tags" do
+        @submission.update(body: "<span>test <div></div>submission</span> <p></p>")
+        expect(word_count).to eq 2
+        @submission.instance_variable_set :@word_count, nil
+        @submission.update(body: '<p>This is my submission, which has&nbsp;<strong>some bold&nbsp;<em>italic text</em> in</strong> it.</p>
+          <p>A couple paragraphs, and maybe super<sup>script</sup>.&nbsp;</p>')
+        run_jobs
+        expect(@submission.reload.word_count).to eq 18
+      end
     end
   end
 
@@ -9189,14 +9434,14 @@ describe Submission do
     describe "creating a new submission" do
       subject(:submission) { @assignment.submissions.new user: User.create, workflow_state: "submitted" }
 
-      it "invalidates submited count cache if submitted" do
+      it "invalidates submitted count cache if submitted" do
         Rails.cache.write(["submitted_count", @assignment].cache_key, "test")
         expect(Rails.cache.exist?(["submitted_count", @assignment].cache_key)).to be(true)
         subject.run_callbacks :create
         expect(Rails.cache.exist?(["submitted_count", @assignment].cache_key)).to be(false)
       end
 
-      it "does not invalidate submitted count cache if unsubmtted" do
+      it "does not invalidate submitted count cache if unsubmitted" do
         Rails.cache.write(["submitted_count", @assignment].cache_key, "test")
         expect(Rails.cache.exist?(["submitted_count", @assignment].cache_key)).to be(true)
         subject.workflow_state = "unsubmitted"
@@ -9213,7 +9458,7 @@ describe Submission do
         expect(Rails.cache.exist?(["graded_count", @assignment].cache_key)).to be(false)
       end
 
-      it "does not invalidate graded count cache if unsubmtted" do
+      it "does not invalidate graded count cache if unsubmitted" do
         Rails.cache.write(["graded_count", @assignment].cache_key, "test")
         expect(Rails.cache.exist?(["graded_count", @assignment].cache_key)).to be(true)
         subject.run_callbacks :create
@@ -9224,7 +9469,7 @@ describe Submission do
     describe "updating a submission" do
       subject(:submission) { @assignment.submissions.first }
 
-      it "invalidates submited count cache if submitted" do
+      it "invalidates submitted count cache if submitted" do
         Rails.cache.write(["submitted_count", @assignment].cache_key, "test")
         expect(Rails.cache.exist?(["submitted_count", @assignment].cache_key)).to be(true)
         subject.workflow_state = "submitted"
@@ -9232,7 +9477,7 @@ describe Submission do
         expect(Rails.cache.exist?(["submitted_count", @assignment].cache_key)).to be(false)
       end
 
-      it "does not invalidate submitted count cache if unsubmtted" do
+      it "does not invalidate submitted count cache if unsubmitted" do
         Rails.cache.write(["submitted_count", @assignment].cache_key, "test")
         expect(Rails.cache.exist?(["submitted_count", @assignment].cache_key)).to be(true)
         subject.workflow_state = "unsubmitted"
@@ -9249,7 +9494,7 @@ describe Submission do
         expect(Rails.cache.exist?(["graded_count", @assignment].cache_key)).to be(false)
       end
 
-      it "does not invalidate graded count cache if unsubmtted" do
+      it "does not invalidate graded count cache if unsubmitted" do
         Rails.cache.write(["graded_count", @assignment].cache_key, "test")
         expect(Rails.cache.exist?(["graded_count", @assignment].cache_key)).to be(true)
         subject.workflow_state = "submitted"
@@ -9328,7 +9573,7 @@ describe Submission do
     it "calls Statsd when a classic quiz is manually graded" do
       expect(InstStatsd::Statsd).to receive(:gauge).once.with("submission.manually_graded.grading_time", 600.0, 1.0, tags: { quiz_type: "classic_quiz" })
 
-      now = Time.now
+      now = Time.zone.now
       Timecop.freeze(now) do
         quiz_with_graded_submission([{ question_data: { :name => "question 1", :points_possible => 10, "question_type" => "essay_question" } }])
       end
@@ -9342,7 +9587,7 @@ describe Submission do
     it "calls Statsd when a new quiz is manually graded" do
       expect(InstStatsd::Statsd).to receive(:gauge).once.with("submission.manually_graded.grading_time", 300.0, 1.0, tags: { quiz_type: "new_quiz" })
 
-      now = Time.now
+      now = Time.zone.now
       Timecop.freeze(now) do
         quiz_with_graded_submission([{ question_data: { :name => "question 1", :points_possible => 10, "question_type" => "essay_question" } }])
       end
@@ -9363,7 +9608,7 @@ describe Submission do
     it "does not call Statsd when a submission is updated" do
       expect(InstStatsd::Statsd).not_to receive(:gauge)
 
-      now = Time.now
+      now = Time.zone.now
       Timecop.freeze(now) do
         quiz_with_graded_submission([{ question_data: { :name => "question 1", :points_possible => 10, "question_type" => "essay_question" } }])
       end
@@ -9378,7 +9623,7 @@ describe Submission do
     it "does not call Statsd when the time between submission and grading is less than 30 seconds" do
       expect(InstStatsd::Statsd).not_to receive(:gauge)
 
-      now = Time.now
+      now = Time.zone.now
       Timecop.freeze(now) do
         quiz_with_graded_submission([{ question_data: { :name => "question 1", :points_possible => 10, "question_type" => "essay_question" } }])
       end

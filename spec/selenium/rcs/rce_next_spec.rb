@@ -1261,6 +1261,7 @@ describe "RCE next tests", :ignore_js_errors do
       end
 
       it "displays lti icon with a tool enabled for the course", :ignore_js_errors do
+        skip("INTEROP-8846")
         page_title = "Page1"
         create_wiki_page_with_embedded_image(page_title)
 
@@ -1272,6 +1273,7 @@ describe "RCE next tests", :ignore_js_errors do
       # we are now only using the menu button regardless of presence/absence
       # of mru data in local storage
       it "displays the lti tool modal", :ignore_js_errors do
+        skip("INTEROP-8846")
         page_title = "Page1"
         create_wiki_page_with_embedded_image(page_title)
 
@@ -1290,6 +1292,7 @@ describe "RCE next tests", :ignore_js_errors do
       end
 
       it "displays the lti tool modal, reprise", :ignore_js_errors do
+        skip("INTEROP-8846")
         page_title = "Page1"
         create_wiki_page_with_embedded_image(page_title)
 
@@ -1387,7 +1390,7 @@ describe "RCE next tests", :ignore_js_errors do
         fj('button:contains("Save")').click
         wait_for_ajaximations
         expect(f(".show-content.user_content p span").attribute("style")).to eq(
-          'font-family: "Balsamiq Sans", lato, "Helvetica Neue", Helvetica, Arial, sans-serif;'
+          'font-family: "Balsamiq Sans", "Lato Extended", "Helvetica Neue", Helvetica, Arial, sans-serif;'
         )
       end
 
@@ -1400,7 +1403,7 @@ describe "RCE next tests", :ignore_js_errors do
         fj('button:contains("Save")').click
         wait_for_ajaximations
         expect(f(".show-content.user_content p span").attribute("style")).to eq(
-          'font-family: "Architects Daughter", lato, "Helvetica Neue", Helvetica, Arial, sans-serif;'
+          'font-family: "Architects Daughter", "Lato Extended", "Helvetica Neue", Helvetica, Arial, sans-serif;'
         )
       end
     end
@@ -1518,7 +1521,9 @@ describe "RCE next tests", :ignore_js_errors do
         expect(f(".RceHtmlEditor")).to be_displayed
 
         click_full_screen_button
-        expect(fullscreen_element).to eq(f(".RceHtmlEditor"))
+        wait_for(method: nil, timeout: 5) do
+          expect(fullscreen_element).to eq(f(".RceHtmlEditor"))
+        end
       end
 
       it "remembers preferred html editor" do
@@ -1547,7 +1552,7 @@ describe "RCE next tests", :ignore_js_errors do
         expect_new_page_load { f("#preview_quiz_button").click }
         switch_to_html_view
         expect(f(".RceHtmlEditor")).to be_displayed
-        f(".RceHtmlEditor .CodeMirror textarea").send_keys(quiz_content)
+        f(".RceHtmlEditor div[role=\"textbox\"]").send_keys(quiz_content)
         expect_new_page_load { submit_quiz }
         expect(f("#questions .essay_question .quiz_response_text").attribute("innerHTML")).to eq(
           quiz_content
@@ -1695,6 +1700,14 @@ describe "RCE next tests", :ignore_js_errors do
     # rubocop:enable Specs/NoSeleniumWebDriverWait
 
     describe "CanvasContentTray" do
+      it "opens and focuses the close button" do
+        visit_front_page_edit(@course)
+        document_toolbar_menubutton.click
+        course_documents_toolbar_menuitem.click
+        expect(tray_container).to be_displayed
+        expect(content_tray_close_button).to eq(driver.switch_to.active_element)
+      end
+
       it "displays all its dropdowns" do
         visit_front_page_edit(@course)
 

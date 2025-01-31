@@ -21,31 +21,69 @@ import ready from '@instructure/ready'
 import $ from 'jquery'
 import React from 'react'
 import ReactDOM from 'react-dom'
+import DiscussionTopicKeyboardShortcutModal from './react/KeyboardShortcuts/DiscussionTopicKeyboardShortcutModal'
+import {Portal} from '@instructure/ui-portal'
 
-ready(() => {
-  ReactDOM.render(
-    <DiscussionTopicsPost discussionTopicId={ENV.discussion_topic_id} />,
-    $('<div class="discussion-redesign-layout"/>').appendTo('#content')[0]
+function DiscussionPageLayout() {
+  return (
+    <>
+      {!window.ENV.disable_keyboard_shortcuts && (
+        <Portal open={true} mountNode={document.getElementById('content')}>
+          <div id="keyboard-shortcut-modal">
+            <DiscussionTopicKeyboardShortcutModal />
+          </div>
+        </Portal>
+      )}
+      <Portal open={true} mountNode={document.getElementById('content')}>
+        <div id="discussion-redesign-layout" className="discussion-redesign-layout">
+          <DiscussionTopicsPost discussionTopicId={ENV.discussion_topic_id} />
+        </div>
+      </Portal>
+    </>
   )
-  // page style modifiers
-  document.querySelector('body')?.classList.add('full-width')
-  document.querySelector('div.ic-Layout-contentMain')?.classList.remove('ic-Layout-contentMain')
-  document
-    .querySelector('.ic-app-nav-toggle-and-crumbs.no-print')
-    ?.setAttribute('style', 'margin: 0 0 0 24px')
-})
-const urlParams = new URLSearchParams(window.location.search)
-if (ENV.SEQUENCE != null && !urlParams.get('embed')) {
-  // eslint-disable-next-line promise/catch-or-return
+}
+
+const renderFooter = () => {
   import('@canvas/module-sequence-footer').then(() => {
     $(() => {
-      $('<div id="module_sequence_footer" style="margin: 0 16px" />')
+      $(`<div id="module_sequence_footer" style="position: fixed; bottom: 0;  z-index: 100" />`)
         .appendTo('#content')
         .moduleSequenceFooter({
           assetType: 'Discussion',
           assetID: ENV.SEQUENCE.ASSET_ID,
           courseID: ENV.SEQUENCE.COURSE_ID,
         })
+      adjustFooterWidth()
+      new ResizeObserver(adjustFooterWidth).observe(document.getElementById('content'))
     })
   })
 }
+
+export const adjustFooterWidth = () => {
+  const container = $('#module_sequence_footer_container')
+  const footer = $('#module_sequence_footer')
+  if (container.length > 0) {
+    const containerRightPosition = container.css('padding-right')
+    const containerWidth = $(container).width() + 'px'
+
+    footer.css('width', `calc(${containerWidth} - ${containerRightPosition})`) // width with padding
+    footer.css('right', `${containerRightPosition}`)
+  }
+}
+
+ready(() => {
+  setTimeout(() => {
+    ReactDOM.render(<DiscussionPageLayout />, document.getElementById('content'))
+  })
+
+  document.querySelector('body')?.classList.add('full-width')
+  document.querySelector('div.ic-Layout-contentMain')?.classList.remove('ic-Layout-contentMain')
+  document
+    .querySelector('.ic-app-nav-toggle-and-crumbs.no-print')
+    ?.setAttribute('style', 'margin: 0 0 0 24px')
+
+  const urlParams = new URLSearchParams(window.location.search)
+  if (ENV.SEQUENCE != null && !urlParams.get('embed')) {
+    renderFooter()
+  }
+})

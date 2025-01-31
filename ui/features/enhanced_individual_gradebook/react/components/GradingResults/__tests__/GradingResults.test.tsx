@@ -27,40 +27,31 @@ import {
   defaultAssignment,
   gradingResultsDefaultProps,
   defaultGradebookOptions,
+  checkpointedAssignment,
 } from './fixtures'
-import {GRADEBOOK_SUBMISSION_COMMENTS} from '../../../../queries/Queries'
-import {MockedProvider} from '@apollo/react-testing'
 import {executeApiRequest} from '@canvas/do-fetch-api-effect/apiRequest'
-import type {
-  AssignmentConnection,
-  GradebookUserSubmissionDetails,
-} from 'features/enhanced_individual_gradebook/types'
+import type {AssignmentConnection, GradebookUserSubmissionDetails} from '../../../../types'
+import type {GradingType} from '../../../../../../api'
+import {setupCanvasQueries} from '../../__tests__/fixtures'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
 
 jest.mock('@canvas/do-fetch-api-effect/apiRequest', () => ({
   executeApiRequest: jest.fn(),
 }))
 
-const defaultMocks = (result = {data: {}}) => [
-  {
-    request: {
-      query: GRADEBOOK_SUBMISSION_COMMENTS,
-      variables: {},
-    },
-    result,
-  },
-]
-
 const renderGradingResults = (props: GradingResultsComponentProps) => {
   return render(
-    <MockedProvider mocks={defaultMocks()}>
+    <MockedQueryProvider>
       <GradingResults {...props} />
-    </MockedProvider>
+    </MockedQueryProvider>,
   )
 }
 
 describe('Grading Results Tests', () => {
   beforeEach(() => {
     $.subscribe = jest.fn()
+
+    setupCanvasQueries()
   })
   describe('status pills', () => {
     it('renders late pill', () => {
@@ -144,7 +135,7 @@ describe('Grading Results Tests', () => {
       const {getByTestId, getByText} = renderGradingResults(props)
       expect(getByTestId('student_and_assignment_grade_input')).toBeInTheDocument()
       expect(
-        getByText('Student Grade Text Input: (out of 10)', {selector: 'span'})
+        getByText('Student Grade Text Input: (out of 10)', {selector: 'span'}),
       ).toBeInTheDocument()
     })
   })
@@ -432,7 +423,7 @@ describe('Grading Results Tests', () => {
       const {getByTestId} = renderGradingResults(props)
       expect(getByTestId('student_and_assignment_grade_select')).toHaveValue('Ungraded')
       expect(getByTestId('student_and_assignment_grade_out_of_text')).toHaveTextContent(
-        '- out of 10'
+        '- out of 10',
       )
       await userEvent.click(getByTestId('submission-details-button'))
       expect(getByTestId('submission_details_grade_select')).toHaveValue('Ungraded')
@@ -456,7 +447,7 @@ describe('Grading Results Tests', () => {
       const {getByTestId} = renderGradingResults(props)
       expect(getByTestId('student_and_assignment_grade_select')).toHaveValue('Complete')
       expect(getByTestId('student_and_assignment_grade_out_of_text')).toHaveTextContent(
-        '10 out of 10'
+        '10 out of 10',
       )
       await userEvent.click(getByTestId('submission-details-button'))
       expect(getByTestId('submission_details_grade_select')).toHaveValue('Complete')
@@ -479,7 +470,7 @@ describe('Grading Results Tests', () => {
       const {getByTestId} = renderGradingResults(props)
       expect(getByTestId('student_and_assignment_grade_select')).toHaveValue('Incomplete')
       expect(getByTestId('student_and_assignment_grade_out_of_text')).toHaveTextContent(
-        '0 out of 10'
+        '0 out of 10',
       )
       await userEvent.click(getByTestId('submission-details-button'))
       expect(getByTestId('submission_details_grade_select')).toHaveValue('Incomplete')
@@ -558,7 +549,7 @@ describe('Grading Results Tests', () => {
 
       expect(getByTestId('student_and_assignment_grade_select')).toBeInTheDocument()
       expect(
-        getByText('Student Grade Pass-Fail Grade Options: ( - out of 10)', {selector: 'span'})
+        getByText('Student Grade Pass-Fail Grade Options: ( - out of 10)', {selector: 'span'}),
       ).toBeInTheDocument()
     })
   })
@@ -619,7 +610,7 @@ describe('Grading Results Tests', () => {
     it('renders the assignment has been resubmitted text', () => {
       const {getByTestId} = renderGradingResults(props)
       expect(getByTestId('resubmitted_assignment_label')).toHaveTextContent(
-        'This assignment has been resubmitted since it was graded last.'
+        'This assignment has been resubmitted since it was graded last.',
       )
     })
     it('does not render the assignment has been resubmitted text', () => {
@@ -645,6 +636,53 @@ describe('Grading Results Tests', () => {
       }
       const {queryByTestId} = renderGradingResults(modifiedProps)
       expect(queryByTestId('resubmitted_assignment_label')).toBeNull()
+    })
+  })
+  describe('checkpoints', () => {
+    it('renders the grade inputs with the screen reader message when the grading type is points', () => {
+      const props = {
+        ...gradingResultsDefaultProps,
+        assignment: {
+          ...checkpointedAssignment,
+        },
+      }
+
+      const {getByTestId, getByText} = renderGradingResults(props)
+
+      expect(getByTestId('student_and_reply_to_topic_assignment_grade_input')).toBeInTheDocument()
+      expect(getByTestId('student_and_reply_to_entry_assignment_grade_input')).toBeInTheDocument()
+      expect(getByTestId('student_and_assignment_grade_input')).toBeInTheDocument()
+
+      expect(getByText('Reply to Topic: (out of 5)', {selector: 'span'})).toBeInTheDocument()
+      expect(getByText('Required Replies: (out of 15)', {selector: 'span'})).toBeInTheDocument()
+      expect(getByText('Total: (out of 20)', {selector: 'span'})).toBeInTheDocument()
+    })
+
+    it('renders the grade inputs with screen reader message when the grading type is pass fail', () => {
+      const props = {
+        ...gradingResultsDefaultProps,
+        assignment: {
+          ...checkpointedAssignment,
+          gradingType: 'pass_fail' as GradingType,
+        },
+      }
+
+      if (!props.studentSubmissions?.[0]) {
+        throw new Error('studentSubmissions is required')
+      }
+      props.studentSubmissions[0].score = null
+      props.studentSubmissions[0].enteredScore = null
+      props.studentSubmissions[0].enteredGrade = ''
+
+      const {getByTestId, getByText} = renderGradingResults(props)
+
+      expect(getByTestId('student_and_reply_to_topic_assignment_grade_select')).toBeInTheDocument()
+      expect(getByTestId('student_and_reply_to_entry_assignment_grade_select')).toBeInTheDocument()
+      expect(getByTestId('student_and_assignment_grade_select')).toBeInTheDocument()
+
+      expect(getByText('Reply to Topic: ( - out of 5)', {selector: 'span'})).toBeInTheDocument()
+      expect(getByText('Required Replies: ( - out of 15)', {selector: 'span'})).toBeInTheDocument()
+      expect(getByText('Total: ( - out of 20)', {selector: 'span'})).toBeInTheDocument()
     })
   })
 })

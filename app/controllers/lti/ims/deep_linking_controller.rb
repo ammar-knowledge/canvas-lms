@@ -26,13 +26,33 @@ module Lti
       include Lti::IMS::Concerns::DeepLinkingModules
       include Lti::Concerns::ParentFrame
 
-      before_action :require_context
-      before_action :validate_jwt
-      before_action :validate_return_url_data
-      before_action :require_context_update_rights
-      before_action :require_tool
+      before_action :require_context, except: [:deep_linking_cancel]
+      before_action :validate_jwt, except: [:deep_linking_cancel]
+      before_action :validate_return_url_data, except: [:deep_linking_cancel]
+      before_action :require_context_update_rights, except: [:deep_linking_cancel]
+      before_action :require_tool, except: [:deep_linking_cancel]
       before_action :set_extra_csp_frame_ancestor!
-      before_action :set_feature_flag
+
+      def deep_linking_cancel
+        js_env({
+                 deep_link_response: {
+                   placement: params[:placement],
+                   content_items: [],
+                   msg: params[:lti_msg]&.then { t("Message from external tool: %{message}", message: _1.to_s) },
+                   log: params[:lti_log]&.to_s,
+                   errormsg: params[:lti_errormsg]&.then { t("Error message from external tool: %{message}", message: _1.to_s) },
+                   errorlog: params[:lti_errorlog]&.to_s,
+                   reloadpage: false,
+                   moduleCreated: false,
+                   replaceEditorContents: false,
+                 }.compact
+               })
+        if parent_frame_origin
+          js_env({ DEEP_LINKING_POST_MESSAGE_ORIGIN: parent_frame_origin }, true)
+        end
+
+        render :deep_linking_response, layout: "bare"
+      end
 
       def deep_linking_response
         Utils::InstStatsdUtils::Timing.track "lti.deep_linking.response" do
@@ -131,7 +151,7 @@ module Lti
         end
       rescue => e
         code ||= response_code_for_rescue(e) if e
-        InstStatsd::Statsd.increment("canvas.deep_linking_controller.request_error", tags: { code: })
+        InstStatsd::Statsd.distributed_increment("canvas.deep_linking_controller.request_error", tags: { code: })
         raise e
       end
 
@@ -164,12 +184,6 @@ module Lti
         end
 
         render layout: "bare"
-      end
-
-      def set_feature_flag
-        js_env({
-                 deep_linking_use_window_parent: Account.site_admin.feature_enabled?(:deep_linking_use_window_parent)
-               })
       end
 
       def require_context_update_rights

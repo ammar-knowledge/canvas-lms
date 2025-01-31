@@ -24,6 +24,7 @@
   can_direct_share = can_do(@context, @current_user, :direct_share)
   criterion = completion_criteria && completion_criteria.find{|c| c[:id] == module_item.id}
   show_checkpoints = @context.root_account.feature_enabled?(:discussion_checkpoints) && module_item && module_item.content_type == 'DiscussionTopic' && module_item.content.checkpoints?
+  item_restrictions ||= nil
 
   @module_item_image_tags ||= {
     'indent' => "<i class='icon-arrow-right'></i>".html_safe,
@@ -64,7 +65,7 @@
     <% end %>
     <%= module_item.content_type_class(@is_student) if module_item %>
     <%= 'also_assignment' if module_item && module_item.graded? %>
-    indent_<%= module_item.try_rescue(:indent) || '0' %>
+    indent_<%= @context.horizon_course? ? '0' : (module_item.try_rescue(:indent) || '0') %>
     <%= 'progression_requirement' if criterion %>
     <%= criterion[:type] if criterion %>_requirement
     <%= module_item.item_class if module_item %>
@@ -83,8 +84,8 @@
     </div>
     <% end %>
 
-    <span class="type_icon" title="<%= module_item_translated_content_type(module_item, @is_student) %>" role="none">
-      <span class="screenreader-only"><%= module_item_translated_content_type(module_item, @is_student) %></span>
+    <span class="type_icon" title="<%= module_item_translated_content_type(module_item, student: @is_student) %>" role="none">
+      <span class="screenreader-only"><%= module_item_translated_content_type(module_item, student: @is_student) %></span>
       <span class="ig-type-icon" aria-hidden="true">
         <i class="icon-document"></i>
         <i class="icon-paperclip"></i>
@@ -99,32 +100,42 @@
     </span>
 
     <div class="ig-info">
+
+    <% if module_item && module_item.content_type == 'ContextModuleSubHeader' %>
+      <h3 class="module-item-title">
+    <% else %>
       <div class="module-item-title">
+    <% end %>
         <span class="item_name">
+          <% title = module_item&.title %>
           <% if module_item && module_item.content_type == 'ExternalUrl' && module_item.new_tab %>
             <% # FYI, this link gets opened via context_modules_helper.externalUrlLinkClick %>
             <a
-              title="<%= module_item && module_item.title %>"
+              title="<%= title %>"
               class="title external_url_link"
               target="_blank"
               href="<%= module_item.url %>"
               data-item-href="<%= context_url(@context, :context_url) %>/modules/items/<%= module_item.id %>"
             >
-              <%= module_item.title %>
+              <%= title %>
             </a>
           <% elsif !(module_item && module_item.content_type == 'ContextModuleSubHeader') %>
             <a
-              title="<%= module_item && module_item.title %>"
+              title="<%= title %>"
               class="ig-title title item_link"
               href="<%= context_url(@context, :context_url) %>/modules/items/<%= module_item ? module_item.id : "{{ id }}" %>"
               <% if item_data[:mastery_paths] && item_data[:mastery_paths][:locked] %>
               aria-describedby="module-item-locked-<%= module_item && module_item.id %>"
               <% end %>
             >
-              <%= module_item && module_item.title %>
+              <%= title %>
             </a>
+            <% if title && item_restrictions %>
+              🔒
+            <% end %>
           <% end %>
-          <span title="<%= module_item && module_item.title %>" class="title locked_title"><%= module_item && module_item.title %></span>
+
+          <span title="<%= title %>" class="title locked_title"><%= title %></span>
           <span class="points_possible" style="display: none;"><%= round_if_whole(module_item.try_rescue(:assignment).try_rescue(:points_possible)) || nbsp %></span>
           <span class="requirement" style="display: none;">&nbsp;</span>
           <span class="completion_requirement" style="display: none;">&nbsp;</span>
@@ -212,7 +223,11 @@
         </div> <!-- requirement description end -->
         <div class="mc_objectives ig-details__item"></div>
       </div>
-    </div>
+      <% if module_item && module_item.content_type == 'ContextModuleSubHeader' %>
+        </h3>
+      <% else %>
+        </div>
+      <% end %>
     <% if !@can_view %>
       <div class="module-item-status-icon"></div> <%# going to set this in JS-land, not here %>
     <% end %>
@@ -270,7 +285,6 @@
                   <a href="<%= context_url(@context, :context_url) %>/gradebook/speed_grader?assignment_id=<%= module_item&.assignment&.present? ? module_item.assignment.id : "{{ assignment_id }}" %>" title="<%= t('SpeedGrader')%>"><%= @module_item_image_tags['speed_grader'] %> <%= t('SpeedGrader') %></a>
                 </li>
               <% end %>
-              <% if Account.site_admin.feature_enabled?(:selective_release_ui_api) %>
                 <li class="assign-to-option <%= (module_item.present? && (module_item.show_assign_to?) && module_item.content&.grants_right?(@current_user, :manage_assign_to) ) ? "" : "hidden" %>" role="presentation">
                   <a
                     class="module-item-assign-to-link"
@@ -281,12 +295,12 @@
                     data-item-context-id="<%= module_item ? module_item.context_id : '' %>"
                     data-item-content-id="<%= module_item ? module_item.content_id : '' %>"
                     data-item-has-assignment="<%= module_item ? module_item&.assignment&.present? : '' %>"
+                    data-item-has-assignment-checkpoint="<%= module_item ? module_item&.assignment&.has_sub_assignments : '' %>"
                     title="<%= t('Assign this module') %>"
                   >
                     <%= @module_item_image_tags['assign_to'] %> <%= t('Assign To...') %>
                   </a>
                 </li>
-              <% end %>
               <% if @can_add || module_item.nil? %>
                 <li class="dupe-option" role="presentation"><a href="/api/v1<%= context_url(@context, :context_url) %>/modules/items/<%= module_item ? module_item.id : "{{ id }}" %>/duplicate" class="duplicate_item_link" title="<%= t('Duplicate Item') %>"><%= @module_item_image_tags['duplicate'] %> <%= t('Duplicate') %></a></li>
               <% end %>
@@ -298,8 +312,10 @@
                     title="<%= t('Move this item') %>"
                   ><%= @module_item_image_tags["move_to"]%> <%= t("Move to...") %></a>
                 </li>
+                <% unless @context.horizon_course? %>
                 <li role="presentation"><a href="<%= context_url(@context, :context_url) %>/modules/items/<%= module_item ? module_item.id : "{{ id }}" %>" class="outdent_item_link" title="<%= t('Decrease indent') %>"><%= @module_item_image_tags['outdent'] %> <%= t('Decrease indent') %></a></li>
                 <li role="presentation"><a href="<%= context_url(@context, :context_url) %>/modules/items/<%= module_item ? module_item.id : "{{ id }}" %>" class="indent_item_link" title="<%= t('Increase indent') %>"><%= @module_item_image_tags['indent'] %> <%= t('Increase indent') %></a></li>
+                <% end %>
               <%end%>
               <% if can_direct_share && (!module_item || module_item.direct_shareable?) %>
                 <li role="presentation">
@@ -416,7 +432,7 @@
     <div class="context_module_item indent_<%= module_item.try_rescue(:indent) || '0' %>">
       <% checkpoints = [module_item.content.reply_to_topic_checkpoint, module_item.content.reply_to_entry_checkpoint] %>
       <% checkpoints.each do |checkpoint| %>
-        <div class="ig-row" data-testid="checkpoint" style="display: block;">
+        <div class="ig-row" data-testid="checkpoint" style="display: flex; align-items: center;">
           <% left_padding = case module_item.try_rescue(:indent)
             when 1 then "60px"
             when 2 then "80px"
@@ -425,9 +441,16 @@
             when 5 then "140px"
             else "40px"
           end %>
-          <span class="ig-type-icon" aria-hidden="true" style="display: inline-block; font-size: 1.125rem; padding-left: <%= left_padding %>">
+          <span class="ig-type-icon" aria-hidden="true" style="display: inline-block; max-width: 1.75rem; font-size: 1.125rem; padding-left: <%= left_padding %>">
             <i class='icon-arrow-nest'></i>
           </span>
+          <% status = checkpoint.submission_for_student(@current_user)&.submission_status %>
+          <% if status && [:submitted, :resubmitted].include?(status) %>
+            <span class="ig-type-icon" aria-hidden="true" style="display: inline-block; max-width: 1rem; font-size: 1.125rem;">
+              <i class='icon-complete'></i>
+            </span>
+            <span class="screenreader-only"><%= t("submitted")%></span>
+          <% end %>
           <div style="display: inline-block">
             <div class="module-item-title" style="display: block; margin-left: 10px;">
               <span class="item_name">

@@ -26,11 +26,11 @@ import {Menu} from '@instructure/ui-menu'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {TextInput} from '@instructure/ui-text-input'
 import CanvasSelect from '@canvas/instui-bindings/react/Select'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import preventDefault from '@canvas/util/preventDefault'
 import CreateOrUpdateUserModal from './CreateOrUpdateUserModal'
 
-const I18n = useI18nScope('account_course_user_search')
+const I18n = createI18nScope('account_course_user_search')
 
 export default function UsersToolbar(props) {
   const [recipientsFilterChecked, setRecipientFilterChecked] = useState(false)
@@ -153,7 +153,6 @@ export default function UsersToolbar(props) {
                       size="small"
                       checked={props.include_deleted_users}
                       onChange={e =>
-                        // eslint-disable-next-line no-restricted-globals
                         props.onUpdateFilters({include_deleted_users: event.target.checked})
                       }
                       label={I18n.t('Include deleted users in search results')}
@@ -170,11 +169,8 @@ export default function UsersToolbar(props) {
 }
 
 function renderKabobMenu(accountId) {
-  const newCourseAdminGranulars = ENV.FEATURES.granular_permissions_manage_users
   // see accounts_controller#avatars for the showAvatarItem logic
-  const showAvatarItem = newCourseAdminGranulars
-    ? ENV.PERMISSIONS.can_allow_course_admin_actions
-    : ENV.PERMISSIONS.can_manage_admin_users
+  const showAvatarItem = ENV.PERMISSIONS.can_allow_course_admin_actions
   const showGroupsItem = ENV.PERMISSIONS.can_manage_groups // see groups_controller#context_index
   if (showAvatarItem || showGroupsItem) {
     return (
@@ -214,7 +210,7 @@ UsersToolbar.propTypes = {
     shape({
       id: string.isRequired,
       label: string.isRequired,
-    })
+    }),
   ).isRequired,
 }
 

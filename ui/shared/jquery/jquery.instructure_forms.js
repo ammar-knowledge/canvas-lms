@@ -17,7 +17,7 @@
  */
 
 import {send} from '@canvas/rce-command-shim'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import {uniqueId, find, result} from 'lodash'
 import FakeXHR from './FakeXHR'
@@ -41,7 +41,7 @@ function isSafari() {
   )
 }
 
-const I18n = useI18nScope('instructure')
+const I18n = createI18nScope('instructure')
 
 // Intercepts the default form submission process.  Uses the form tag's
 // current action and method attributes to know where to submit to.
@@ -155,7 +155,7 @@ $.fn.formSubmit = function (options) {
         oldHandlers[successOrError] = options[successOrError]
         options[successOrError] = function () {
           loadingPromise[successOrError === 'success' ? 'resolve' : 'reject'].bind(loadingPromise)(
-            ...arguments
+            ...arguments,
           )
           if ($.isFunction(oldHandlers[successOrError])) {
             return oldHandlers[successOrError].apply(this, arguments)
@@ -262,7 +262,7 @@ $.fn.formSubmit = function (options) {
             htmlEscape(id) +
             "' src='about:blank' onload='$(\"#frame_" +
             htmlEscape(id) +
-            '").triggerHandler("form_response_loaded");\'></iframe>'
+            '").triggerHandler("form_response_loaded");\'></iframe>',
         )
           .appendTo('body')
           .find('#frame_' + id),
@@ -351,7 +351,7 @@ $.ajaxJSONPreparedFiles = function (options) {
     file = file.files[0]
     import('@canvas/upload-file')
       .then(({uploadFile: uploadFile_}) =>
-        uploadFile_(uploadUrl, parameters, file, undefined, options.onProgress)
+        uploadFile_(uploadUrl, parameters, file, undefined, options.onProgress),
       )
       .then(data => {
         attachments.push(data)
@@ -377,7 +377,7 @@ $.ajaxJSONPreparedFiles = function (options) {
           'attachment[context_code]': options.context_code,
           'attachment[on_duplicate]': 'rename',
         },
-        options.formDataTarget === 'uploadDataUrl' ? options.formData : {}
+        options.formDataTarget === 'uploadDataUrl' ? options.formData : {},
       )
       if (item.files.length === 1) {
         attrs['attachment[content_type]'] = item.files[0].type
@@ -463,7 +463,7 @@ $.ajaxFileUpload = function (options) {
           }
         },
       },
-      options.binary === false
+      options.binary === false,
     )
   })
 }
@@ -474,7 +474,6 @@ $.httpSuccess = function (r) {
       (!r.status && window.location.protocol === 'file:') ||
       (r.status >= 200 && r.status < 300) ||
       r.status === 304 ||
-      // eslint-disable-next-line eqeqeq
       (isSafari() && r.status == undefined)
     )
   } catch (e) {
@@ -497,7 +496,7 @@ $.sendFormAsBinary = function (options, not_binary) {
           options.progress.call(this, event)
         }
       },
-      false
+      false,
     )
     xhr.upload.addEventListener(
       'error',
@@ -506,7 +505,7 @@ $.sendFormAsBinary = function (options, not_binary) {
           options.error.call(this, 'uploading error', xhr, event)
         }
       },
-      false
+      false,
     )
     xhr.upload.addEventListener(
       'abort',
@@ -515,7 +514,7 @@ $.sendFormAsBinary = function (options, not_binary) {
           options.error.call(this, 'aborted by the user', xhr, event)
         }
       },
-      false
+      false,
     )
   }
   xhr.onreadystatechange = function (event) {
@@ -552,7 +551,6 @@ $.sendFormAsBinary = function (options, not_binary) {
     if (not_binary) {
       xhr.send(body)
     } else if (!xhr.sendAsBinary) {
-      // eslint-disable-next-line no-console
       console.log('xhr.sendAsBinary not supported')
     } else {
       xhr.sendAsBinary(body)
@@ -631,7 +629,6 @@ $.toMultipartForm = function (params, callback) {
         'Content-Type: multipart/mixed; boundary=' +
         innerBoundary +
         '\r\n\r\n'
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for (const _jdx in value) {
         fileList.push(value)
       }
@@ -754,7 +751,6 @@ $.fn.fillFormData = function (data, opts) {
               val = ''
             }
             $obj.val(val.toString())
-            // eslint-disable-next-line eqeqeq
           } else if ($obj.val() == data[name]) {
             $obj.prop('checked', true)
           } else {
@@ -802,10 +798,11 @@ $.fn.getFormData = function (options) {
       const multiValue = attr.match(/\[\]$/)
       if (inputType === 'hidden' && !multiValue) {
         if (
-          $form.find("[name='" + attr + "']").filter(
-            'textarea,:radio:checked,:checkbox:checked,:text,:password,select,:hidden'
-            // eslint-disable-next-line eqeqeq
-          )[0] != $input[0]
+          $form
+            .find("[name='" + attr + "']")
+            .filter(
+              'textarea,:radio:checked,:checkbox:checked,:text,:password,select,:hidden',
+            )[0] != $input[0]
         ) {
           return
         }
@@ -954,7 +951,7 @@ $.fn.validateForm = function (options) {
     options.numbers = $._addObjectName(options.numbers, options.object_name)
     options.property_validations = $._addObjectName(
       options.property_validations,
-      options.object_name
+      options.object_name,
     )
   }
   if (options.required) {
@@ -968,7 +965,7 @@ $.fn.validateForm = function (options) {
         fieldPrompt = fieldPrompt || $form.getFieldLabelString(name)
 
         errors[name].push(
-          I18n.t('errors.required', 'Required field') + (fieldPrompt ? ': ' + fieldPrompt : '')
+          I18n.t('errors.required', 'Required field') + (fieldPrompt ? ': ' + fieldPrompt : ''),
         )
       }
     })
@@ -1014,7 +1011,6 @@ $.fn.validateForm = function (options) {
     })
   }
   let hasErrors = false
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   for (const _err in errors) {
     hasErrors = true
     break
@@ -1166,7 +1162,7 @@ $.fn.errorBox = function (message, scroll, override_position) {
         "<div id='error_box_template' class='error_box errorBox' style=''>" +
           "<div class='error_text' style=''></div>" +
           "<img src='/images/error_bottom.png' class='error_bottom'/>" +
-          '</div>'
+          '</div>',
       ).appendTo('body')
     }
     $.screenReaderFlashError(message)
@@ -1327,7 +1323,7 @@ $.fn.markRequired = function (options) {
         label.append(
           $('<span aria-hidden="true" />')
             .text('*')
-            .attr('title', I18n.t('errors.field_is_required', 'This field is required'))
+            .attr('title', I18n.t('errors.field_is_required', 'This field is required')),
         )
       }
     })

@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {Text} from '@instructure/ui-text'
 import {Checkbox} from '@instructure/ui-checkbox'
@@ -27,8 +27,9 @@ import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {IconUserSolid} from '@instructure/ui-icons'
 import {courseParamsShape, inputParamsShape} from './shapes'
 import {parseNameList, findEmailInEntry, emailValidator} from '../helpers'
+import {Flex} from '@instructure/ui-flex'
 
-const I18n = useI18nScope('PeopleSearch')
+const I18n = createI18nScope('PeopleSearch')
 
 class PeopleSearch extends React.Component {
   static propTypes = {...inputParamsShape, ...courseParamsShape}
@@ -111,14 +112,14 @@ class PeopleSearch extends React.Component {
       case 'sis_user_id':
         exampleText = 'student_2708, student_3693'
         description = I18n.t(
-          'Enter the SIS IDs of the users you would like to add, separated by commas or line breaks'
+          'Enter the SIS IDs of the users you would like to add, separated by commas or line breaks',
         )
         inputLabel = I18n.t('SIS IDs (required)')
         break
       case 'unique_id':
         exampleText = 'lsmith, mfoster'
         description = I18n.t(
-          'Enter the login IDs of the users you would like to add, separated by commas or line breaks'
+          'Enter the login IDs of the users you would like to add, separated by commas or line breaks',
         )
         inputLabel = I18n.t('Login IDs (required)')
         break
@@ -126,7 +127,7 @@ class PeopleSearch extends React.Component {
       default:
         exampleText = 'lsmith@myschool.edu, mfoster@myschool.edu'
         description = I18n.t(
-          'Enter the email addresses of the users you would like to add, separated by commas or line breaks'
+          'Enter the email addresses of the users you would like to add, separated by commas or line breaks',
         )
         inputLabel = I18n.t('Email Addresses (required)')
     }
@@ -182,8 +183,13 @@ class PeopleSearch extends React.Component {
           />
         </fieldset>
         <fieldset className="peoplesearch__selections">
-          <div>
-            <div className="peoplesearch__selection">
+          <Flex
+            wrap="wrap"
+            gap="large"
+            justifyItems="center"
+            data-testid="people-search-role-section-container"
+          >
+            <Flex.Item>
               <CanvasSelect
                 label={I18n.t('Role')}
                 id="peoplesearch_select_role"
@@ -196,8 +202,8 @@ class PeopleSearch extends React.Component {
                   </CanvasSelect.Option>
                 ))}
               </CanvasSelect>
-            </div>
-            <div className="peoplesearch__selection">
+            </Flex.Item>
+            <Flex.Item>
               <CanvasSelect
                 label={I18n.t('Section')}
                 id="peoplesearch_select_section"
@@ -213,8 +219,8 @@ class PeopleSearch extends React.Component {
                   </CanvasSelect.Option>
                 ))}
               </CanvasSelect>
-            </div>
-          </div>
+            </Flex.Item>
+          </Flex>
           <div style={{marginTop: '1em'}}>
             <Checkbox
               key="limit_privileges_to_course_section"

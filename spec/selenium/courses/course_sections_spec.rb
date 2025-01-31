@@ -99,6 +99,49 @@ describe "course sections" do
     expect(@section.end_at).to eq(Date.new(2015, 3, 4))
   end
 
+  describe "edit form validations" do
+    it "validates non-empty course_section name" do
+      edit_name = "  "
+      get "/courses/#{@course.id}/sections/#{@section.id}"
+
+      f(".edit_section_link").click
+      edit_form = f("#edit_section_form")
+      replace_content(edit_form.find_element(:id, "course_section_name"), edit_name)
+      submit_form(edit_form)
+      wait_for_ajaximations
+
+      expect(f("#course_section_name_errors")).to include_text("A section name is required")
+    end
+
+    it "validates course_section name less than 255 characters" do
+      edit_name = "a" * 256
+      get "/courses/#{@course.id}/sections/#{@section.id}"
+
+      f(".edit_section_link").click
+      edit_form = f("#edit_section_form")
+      replace_content(edit_form.find_element(:id, "course_section_name"), edit_name)
+      submit_form(edit_form)
+      wait_for_ajaximations
+
+      expect(f("#course_section_name_errors")).to include_text("Section name is too long")
+    end
+
+    it "validates course_section start_at is before end_at" do
+      start_at = "Mar 7, 2025 at 1pm"
+      end_at = "Feb 19, 2025 at 12am"
+      get "/courses/#{@course.id}/sections/#{@section.id}"
+
+      f(".edit_section_link").click
+      edit_form = f("#edit_section_form")
+      replace_content(edit_form.find_element(:id, "course_section_start_at"), start_at)
+      replace_content(edit_form.find_element(:id, "course_section_end_at"), end_at)
+      submit_form(edit_form)
+      wait_for_ajaximations
+
+      expect(f("#course_section_end_at_errors")).to include_text("End date cannot be before start date")
+    end
+  end
+
   context "account admin" do
     before do
       Account.default.role_overrides.create! role: admin_role, permission: "manage_sis", enabled: true

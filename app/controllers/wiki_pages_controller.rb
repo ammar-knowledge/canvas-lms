@@ -92,14 +92,14 @@ class WikiPagesController < ApplicationController
         wiki_page = @context.wiki_pages.deleted_last.where(url: @page.url).first
         if @page.grants_any_right?(@current_user, session, :update, :update_content)
           flash[:info] = t("notices.create_non_existent_page", 'The page "%{title}" does not exist, but you can create it below', title: @page.title)
-          InstStatsd::Statsd.increment("wikipage.show.page_does_not_exist.with_edit_rights") unless wiki_page&.deleted?
+          InstStatsd::Statsd.distributed_increment("wikipage.show.page_does_not_exist.with_edit_rights") unless wiki_page&.deleted?
           encoded_name = @page_name && CGI.escape(@page_name).tr("+", " ")
           redirect_to polymorphic_url([@context, :wiki_page], id: encoded_name || @page, titleize: params[:titleize], action: :edit)
         else
           flash[:warning] = if wiki_page&.deleted?
                               t("notices.page_deleted", 'The page "%{title}" has been deleted.', title: @page.title)
                             else
-                              InstStatsd::Statsd.increment("wikipage.show.page_does_not_exist.without_edit_rights")
+                              InstStatsd::Statsd.distributed_increment("wikipage.show.page_does_not_exist.without_edit_rights")
                               t("notices.page_does_not_exist", 'The page "%{title}" does not exist.', title: @page.title)
                             end
           redirect_to polymorphic_url([@context, :wiki_pages])
@@ -107,10 +107,9 @@ class WikiPagesController < ApplicationController
         return
       end
 
-      if authorized_action(@page, @current_user, :read) &&
-         ((!@context.conditional_release? && !Account.site_admin.feature_enabled?(:selective_release_backend)) || enforce_assignment_visible(@page))
+      if authorized_action(@page, @current_user, :read) && enforce_assignment_visible(@page)
         if params[:id] != @page.url
-          InstStatsd::Statsd.increment("wikipage.show.page_url_resolved")
+          InstStatsd::Statsd.distributed_increment("wikipage.show.page_url_resolved")
           redirect_to polymorphic_url([@context, :wiki_page], id: @page, titleize: params[:titleize])
         end
         add_crumb(@page.title)
@@ -120,6 +119,7 @@ class WikiPagesController < ApplicationController
         @mark_done = MarkDonePresenter.new(self, @context, params["module_item_id"], @current_user, @page)
         @padless = true
       end
+
       js_bundle :wiki_page_show
       css_bundle :wiki_page
     end
@@ -130,8 +130,7 @@ class WikiPagesController < ApplicationController
       set_master_course_js_env_data(@page, @context)
       js_env(ConditionalRelease::Service.env_for(@context))
       wiki_pages_js_env(@context)
-      if (!ConditionalRelease::Service.enabled_in_context?(@context) && !Account.site_admin.feature_enabled?(:selective_release_backend)) ||
-         enforce_assignment_visible(@page)
+      if enforce_assignment_visible(@page)
         add_crumb(@page.title)
         @padless = true
       end
@@ -143,7 +142,7 @@ class WikiPagesController < ApplicationController
 
   def revisions
     if @page.grants_right?(@current_user, session, :read_revisions)
-      if (!@context.conditional_release? && !Account.site_admin.feature_enabled?(:selective_release_backend)) || enforce_assignment_visible(@page)
+      if enforce_assignment_visible(@page)
         add_crumb(@page.title, polymorphic_url([@context, @page]))
         add_crumb(t("#crumbs.revisions", "Revisions"))
 
@@ -175,13 +174,30 @@ class WikiPagesController < ApplicationController
       wiki_index_menu_tools: external_tools_display_hashes(:wiki_index_menu),
       DISPLAY_SHOW_ALL_LINK: tab_enabled?(context.class::TAB_PAGES, no_render: true) && !@k5_details_view,
       CAN_SET_TODO_DATE: context.grants_any_right?(@current_user, session, :manage_content, :manage_course_content_edit),
-      BLOCK_EDITOR: context.account.feature_enabled?(:block_editor)
     }
+
+    if @context.account.feature_enabled?(:block_editor)
+      @wiki_pages_env[:text_editor_preference] = @current_user&.reload&.get_preference(:text_editor_preference)
+    end
+
+    if context.is_a?(Course)
+      @wiki_pages_env[:VALID_DATE_RANGE] = CourseDateRange.new(context)
+      @wiki_pages_env[:SECTION_LIST] = context.course_sections.active.map do |section|
+        {
+          id: section.id,
+          name: section.name,
+          start_at: section.start_at,
+          end_at: section.end_at,
+          override_course_and_term_dates: section.restrict_enrollments_to_section_dates
+        }
+      end
+    end
     if Account.site_admin.feature_enabled?(:permanent_page_links)
       title_availability_path = context.is_a?(Course) ? api_v1_course_page_title_availability_path : api_v1_group_page_title_availability_path
       @wiki_pages_env[:TITLE_AVAILABILITY_PATH] = title_availability_path
     end
     js_env(@wiki_pages_env)
+    @js_env[:FEATURES][:BLOCK_EDITOR] = true if context.account.feature_enabled?(:block_editor)
     @wiki_pages_env
   end
 end

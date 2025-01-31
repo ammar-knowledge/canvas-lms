@@ -18,24 +18,36 @@
 
 import type {LtiPlacement} from '../../model/LtiPlacement'
 import {ZLtiRegistrationId} from '../../model/LtiRegistrationId'
-import {LtiScopes} from '../../model/LtiScope'
+import {LtiScopes} from '@canvas/lti/model/LtiScope'
 import {ZDeveloperKeyId} from '../../model/developer_key/DeveloperKeyId'
 import type {LtiImsRegistration} from '../../model/lti_ims_registration/LtiImsRegistration'
 import {ZLtiImsRegistrationId} from '../../model/lti_ims_registration/LtiImsRegistrationId'
 import type {LtiConfiguration} from '../../model/lti_tool_configuration/LtiConfiguration'
 import type {DynamicRegistrationWizardService} from '../DynamicRegistrationWizardService'
+import type {Lti1p3RegistrationWizardService} from '../../lti_1p3_registration_form/Lti1p3RegistrationWizardService'
 
-export const mockService = (
-  mocked?: Partial<DynamicRegistrationWizardService>
+export const mockDynamicRegistrationWizardService = (
+  mocked?: Partial<DynamicRegistrationWizardService>,
 ): DynamicRegistrationWizardService => ({
   fetchRegistrationToken: jest.fn(),
   deleteDeveloperKey: jest.fn(),
   getRegistrationByUUID: jest.fn(),
+  getLtiImsRegistrationById: jest.fn(),
   updateDeveloperKeyWorkflowState: jest.fn(),
   updateRegistrationOverlay: jest.fn(),
   updateAdminNickname: jest.fn(),
   ...mocked,
 })
+
+export const mockLti1p3RegistrationWizardService = (
+  mocked?: Partial<Lti1p3RegistrationWizardService>,
+): Lti1p3RegistrationWizardService => ({
+  createLtiRegistration: jest.fn(),
+  updateLtiRegistration: jest.fn(),
+  fetchLtiRegistration: jest.fn(),
+  ...mocked,
+})
+
 export const mockToolConfiguration = (config?: Partial<LtiConfiguration>): LtiConfiguration => ({
   title: '',
   target_link_uri: '',
@@ -49,7 +61,7 @@ export const mockToolConfiguration = (config?: Partial<LtiConfiguration>): LtiCo
 
 export const mockRegistration = (
   reg?: Partial<LtiImsRegistration>,
-  config?: Partial<LtiConfiguration>
+  config?: Partial<LtiConfiguration>,
 ): LtiImsRegistration => ({
   id: ZLtiImsRegistrationId.parse('1'),
   lti_registration_id: ZLtiRegistrationId.parse('1'),

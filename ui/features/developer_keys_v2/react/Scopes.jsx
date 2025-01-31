@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React from 'react'
 
@@ -33,7 +33,7 @@ import {Tooltip} from '@instructure/ui-tooltip'
 
 import ScopesList from './ScopesList'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 
 export default class Scopes extends React.Component {
   state = {filter: ''}
@@ -85,7 +85,7 @@ export default class Scopes extends React.Component {
                 margin="xx-large"
                 readOnly={true}
                 heading={I18n.t(
-                  'When scope enforcement is disabled, tokens have access to all endpoints available to the authorizing user.'
+                  'When scope enforcement is disabled, tokens have access to all endpoints available to the authorizing user.',
                 )}
               />
             )}
@@ -100,7 +100,7 @@ export default class Scopes extends React.Component {
     const {developerKey, updateDeveloperKey} = this.props
     const includeTooltip = I18n.t(
       'Permit usage of all “includes” parameters for this developer key. "Includes"' +
-        ' parameters may grant access to additional data not included in the scopes selected below.'
+        ' parameters may grant access to additional data not included in the scopes selected below.',
     )
 
     return (
@@ -131,7 +131,7 @@ export default class Scopes extends React.Component {
             </Grid.Col>
           ) : null}
         </Grid.Row>
-        {this.props.requireScopes && ENV.includesFeatureFlagEnabled && (
+        {this.props.requireScopes && (
           <Grid.Row>
             <Grid.Col>
               <Checkbox
@@ -166,8 +166,8 @@ Scopes.propTypes = {
       PropTypes.shape({
         resource: PropTypes.string,
         scope: PropTypes.string,
-      })
-    )
+      }),
+    ),
   ).isRequired,
   availableScopesPending: PropTypes.bool.isRequired,
   dispatch: PropTypes.func.isRequired,

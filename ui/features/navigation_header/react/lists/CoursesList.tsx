@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {List} from '@instructure/ui-list'
 import {Link} from '@instructure/ui-link'
 import {useQuery} from '@canvas/query'
@@ -26,13 +26,15 @@ import coursesQuery, {hideHomeroomCourseIfK5Student} from '../queries/coursesQue
 import {Text} from '@instructure/ui-text'
 import {ActiveText} from './utils'
 
-const I18n = useI18nScope('CoursesTray')
+const I18n = createI18nScope('CoursesTray')
 
 export default function CoursesList() {
   const {data, isLoading, isSuccess} = useQuery({
     queryKey: ['courses'],
     queryFn: coursesQuery,
-    fetchAtLeastOnce: true,
+    meta: {
+      fetchAtLeastOnce: true,
+    },
     select: courses => courses.filter(hideHomeroomCourseIfK5Student),
   })
 
@@ -66,7 +68,7 @@ export default function CoursesList() {
                 </ActiveText>
               </Link>
             </List.Item>
-          ))
+          )),
         )}
     </List>
   )

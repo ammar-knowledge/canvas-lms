@@ -27,7 +27,6 @@ describe "course people" do
     course_with_teacher_logged_in limit_privileges_to_course_section: false, active_all: true
     @account = @course.account # for custom roles
     @custom_student_role = custom_student_role("custom stu")
-    Account.default.root_account.disable_feature!(:granular_permissions_manage_users)
   end
 
   def add_user(email, type, section_name = nil)
@@ -55,7 +54,7 @@ describe "course people" do
       keep_trying_until { driver.execute_script("return $('##{input_id}').data('token_input').selector.list.query.search") == text }
       wait_for_ajaximations
       elements = ffj(".autocomplete_menu:visible .list:last ul:last li").map do |e|
-        [e, (e.find_element(:tag_name, :b).text rescue e.text)]
+        [e, e.find_element(:tag_name, :b)&.text || e.text]
       end
       wait_for_ajaximations
       element = elements.detect { |e| e.last == text }
@@ -324,30 +323,6 @@ describe "course people" do
       expect(f("#content")).not_to contain_css(".student_enrollments #user_#{@fake_student.id}")
     end
 
-    context "with granular permissions enabled" do
-      before do
-        @account.root_account.enable_feature!(:granular_permissions_manage_users)
-      end
-
-      it "removes a user from the course" do
-        username = "user@example.com"
-        student_in_course(name: username, role: @custom_student_role)
-        add_section("Section1")
-        @enrollment.course_section = @course_section
-        @enrollment.save!
-
-        go_to_people_page
-        expect(f(".roster")).to include_text(username)
-
-        remove_user(@student)
-        expect(f(".roster")).not_to include_text(username)
-      end
-
-      it "adds a user without custom role to another section" do
-        add_user_to_second_section
-      end
-    end
-
     context "multiple enrollments" do
       it "links an observer enrollment when other enrollment types exist" do
         course_with_student course: @course, active_all: true, name: "teh student"
@@ -398,21 +373,6 @@ describe "course people" do
           send :"custom_#{base_type}_role", "custom"
           add_user(user.name, "custom")
           expect(f("#user_#{user.id} .admin-links")).not_to be_nil
-        end
-      end
-
-      context "with granular permissions enabled" do
-        before do
-          @account.root_account.enable_feature!(:granular_permissions_manage_users)
-        end
-
-        %w[student teacher ta designer observer].each do |base_type|
-          it "allows adding custom #{base_type} enrollments" do
-            user = user_with_pseudonym(active_all: true, username: "#{base_type}@example.com", name: "#{base_type}@example.com")
-            send :"custom_#{base_type}_role", "custom"
-            add_user(user.name, "custom")
-            expect(f("#user_#{user.id} .admin-links")).not_to be_nil
-          end
         end
       end
     end

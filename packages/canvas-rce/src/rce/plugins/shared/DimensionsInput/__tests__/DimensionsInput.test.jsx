@@ -17,9 +17,9 @@
  */
 
 import React from 'react'
-import {render, screen, within} from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 
-import DimensionsInput, {useDimensionsState} from '..'
+import DimensionsInput, { useDimensionsState } from '..'
 import DimensionsInputDriver from './DimensionsInputDriver'
 
 const W_AND_H_NAN_ERROR = 'Width and height must be numbers'
@@ -61,23 +61,28 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
   })
 
   function SpecComponent() {
-    const {minHeight, minWidth, minPercentage} = props
-    dimensionsState = useDimensionsState(initialState, {minHeight, minWidth, minPercentage})
+    const { minHeight, minWidth, minPercentage } = props
+    dimensionsState = useDimensionsState(initialState, { minHeight, minWidth, minPercentage })
 
     return <DimensionsInput dimensionsState={dimensionsState} {...props} />
   }
 
   function renderComponent() {
-    component = render(<SpecComponent />, {container: $container})
+    component = render(<SpecComponent />, { container: $container })
     dimensions = new DimensionsInputDriver($container)
   }
 
   function buildMinDimensionsError() {
-    return `Must be at least ${props.minWidth} x ${props.minHeight}px`
+    return `Pixels must be at least ${props.minWidth} x ${props.minHeight}px`
   }
 
   function buildMinPercentageError() {
-    return `Must be at least ${props.minPercentage}%`
+    return `Percentage must be at least ${props.minPercentage}%`
+  }
+
+  function currentMessageText() {
+    const message = component.getByTestId('message')
+    return within(message).getAllByText(/.*/)[0]?.textContent
   }
 
   describe('"Pixels" radio button', () => {
@@ -140,7 +145,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('displays a validation error with the field', () => {
-          expect(dimensions.messageTexts).toEqual([buildMinDimensionsError()])
+          expect(currentMessageText()).toEqual(buildMinDimensionsError())
         })
 
         it('sets the dimensions state as invalid', () => {
@@ -273,14 +278,14 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('displays a validation error with the field', () => {
-          expect(dimensions.messageTexts).toEqual([W_AND_H_NAN_ERROR])
+          expect(currentMessageText()).toEqual(W_AND_H_NAN_ERROR)
         })
       })
 
       describe('when the value is less than the minimum', () => {
         it('displays a validation error with the field', () => {
           dimensions.width.setValue(props.minWidth - 1)
-          expect(dimensions.messageTexts).toEqual([buildMinDimensionsError()])
+          expect(currentMessageText()).toEqual(buildMinDimensionsError())
         })
 
         it('sets the dimensions state as invalid', () => {
@@ -296,7 +301,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -311,7 +316,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('displays a validation error with the field', () => {
-          expect(dimensions.messageTexts).toEqual([buildMinDimensionsError()])
+          expect(currentMessageText()).toEqual(buildMinDimensionsError())
         })
 
         it('sets the dimensions state as invalid', () => {
@@ -368,7 +373,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -404,7 +409,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -520,7 +525,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -558,7 +563,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -614,7 +619,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('displays a validation error with the field', () => {
-          expect(dimensions.messageTexts).toEqual([buildMinDimensionsError()])
+          expect(currentMessageText()).toEqual(buildMinDimensionsError())
         })
 
         it('sets the dimensions state as invalid', () => {
@@ -747,7 +752,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('displays a validation error with the field', () => {
-          expect(dimensions.messageTexts).toEqual([W_AND_H_NAN_ERROR])
+          expect(currentMessageText()).toEqual(W_AND_H_NAN_ERROR)
         })
       })
 
@@ -758,7 +763,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('displays a validation error with the field', () => {
-          expect(dimensions.messageTexts).toEqual([buildMinDimensionsError()])
+          expect(currentMessageText()).toEqual(buildMinDimensionsError())
         })
 
         it('sets the dimensions state as invalid', () => {
@@ -773,7 +778,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -788,7 +793,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('displays a validation error with the field', () => {
-          expect(dimensions.messageTexts).toEqual([buildMinDimensionsError()])
+          expect(currentMessageText()).toEqual(buildMinDimensionsError())
         })
 
         it('sets the dimensions state as invalid', () => {
@@ -845,7 +850,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -883,7 +888,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -999,7 +1004,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -1037,7 +1042,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -1157,7 +1162,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('displays a validation error with the field', () => {
-          expect(dimensions.messageTexts).toEqual([PERCENTAGE_NAN_ERROR])
+          expect(currentMessageText()).toEqual(PERCENTAGE_NAN_ERROR)
         })
       })
 
@@ -1168,7 +1173,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('displays a validation error with the field', () => {
-          expect(dimensions.messageTexts).toEqual([buildMinPercentageError()])
+          expect(currentMessageText()).toEqual(buildMinPercentageError())
         })
 
         it('sets the dimensions state as invalid', () => {
@@ -1183,7 +1188,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -1198,7 +1203,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('displays a validation error with the field', () => {
-          expect(dimensions.messageTexts).toEqual([buildMinPercentageError()])
+          expect(currentMessageText()).toEqual(buildMinPercentageError())
         })
 
         it('sets the dimensions state as invalid', () => {
@@ -1255,7 +1260,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -1279,7 +1284,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -1352,7 +1357,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -1376,7 +1381,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
         })
 
         it('removes the validation error from the field', () => {
-          expect(dimensions.messageTexts).toEqual([ASPECT_MESSAGE])
+          expect(currentMessageText()).toEqual(ASPECT_MESSAGE)
         })
 
         it('sets the dimensions state as valid', () => {
@@ -1414,7 +1419,8 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
     })
 
     it('The radio input group for Percentage and Pixels is displayed', () => {
-      const radioInputGroup = screen.getByRole('group', {name: /Dimension Type/i})
+      const radioInputGroup = screen.getByRole('radiogroup', { name: /Dimension Type/i })
+
       expect(radioInputGroup).toBeVisible()
     })
     it('The "Percentage" radio input is checked', () => {
@@ -1436,7 +1442,7 @@ describe('RCE > Plugins > Shared > DimensionsInput', () => {
       renderComponent()
     })
     it('The radio input group for Percentage and Pixels is not displayed', () => {
-      const radioInputGroup = screen.queryByRole('group', {name: /Dimension Type/i})
+      const radioInputGroup = screen.queryByRole('group', { name: /Dimension Type/i })
       expect(radioInputGroup).toBeNull()
     })
     it('The custom text description is displayed', () => {

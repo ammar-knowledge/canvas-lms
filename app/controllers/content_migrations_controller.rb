@@ -152,8 +152,7 @@ class ContentMigrationsController < ApplicationController
       js_env UPLOAD_LIMIT: Attachment.quota_available(@context)
       js_env QUESTION_BANKS: @context.assessment_question_banks.except(:preload).select([:title, :id]).active
       js_env(SHOW_BP_SETTINGS_IMPORT_OPTION: MasterCourses::MasterTemplate.blueprint_eligible?(@context) &&
-        @context.account.grants_any_right?(@current_user, session, :manage_courses, :manage_courses_admin) &&
-        @context.account.grants_right?(@current_user, :manage_master_courses))
+        @context.account.grants_all_rights?(@current_user, session, :manage_courses_admin, :manage_master_courses))
 
       # These values are used based on the same logic as ui/features/content_migrations/setup.js do.
       js_env(QUIZZES_NEXT_ENABLED: new_quizzes_enabled?)
@@ -161,6 +160,10 @@ class ContentMigrationsController < ApplicationController
       js_env(NEW_QUIZZES_MIGRATION: new_quizzes_migration_enabled?)
       js_env(NEW_QUIZZES_MIGRATION_DEFAULT: new_quizzes_migration_default)
       js_env(NEW_QUIZZES_MIGRATION_REQUIRED: new_quizzes_require_migration?)
+      js_env(NEW_QUIZZES_UNATTACHED_BANK_MIGRATIONS: new_quizzes_unattached_bank_migrations_enabled?)
+
+      js_env(OLD_START_DATE: datetime_string(@context.start_at, :verbose))
+      js_env(OLD_END_DATE: datetime_string(@context.conclude_at, :verbose))
     else
       scope = @context.content_migrations.where(child_subscription_id: nil).order("id DESC")
       @migrations = Api.paginate(scope, self, api_v1_course_content_migration_list_url(@context))
@@ -174,7 +177,7 @@ class ContentMigrationsController < ApplicationController
 
         options = @plugins.map { |p| { label: p.metadata(:select_text), id: p.id } }
 
-        external_tools = Lti::ContextToolFinder.all_tools_for(@context, placements: :migration_selection, root_account: @domain_root_account, current_user: @current_user)
+        external_tools = fetch_external_tools
         options.concat(external_tools.map do |et|
           {
             id: et.asset_string,
@@ -198,11 +201,10 @@ class ContentMigrationsController < ApplicationController
         js_env(NEW_QUIZZES_MIGRATION: new_quizzes_migration_enabled?)
         js_env(NEW_QUIZZES_MIGRATION_DEFAULT: new_quizzes_migration_default)
         js_env(NEW_QUIZZES_MIGRATION_REQUIRED: new_quizzes_require_migration?)
-        js_env(SHOW_SELECTABLE_OUTCOMES_IN_IMPORT: @domain_root_account.feature_enabled?("selectable_outcomes_in_course_copy"))
+        js_env(NEW_QUIZZES_UNATTACHED_BANK_MIGRATIONS: new_quizzes_unattached_bank_migrations_enabled?)
         js_env(BLUEPRINT_ELIGIBLE_IMPORT: MasterCourses::MasterTemplate.blueprint_eligible?(@context))
         js_env(SHOW_BP_SETTINGS_IMPORT_OPTION: MasterCourses::MasterTemplate.blueprint_eligible?(@context) &&
-          @context.account.grants_any_right?(@current_user, session, :manage_courses, :manage_courses_admin) &&
-          @context.account.grants_right?(@current_user, :manage_master_courses))
+          @context.account.grants_all_rights?(@current_user, session, :manage_courses_admin, :manage_master_courses))
         set_tutorial_js_env
       end
     end
@@ -222,6 +224,10 @@ class ContentMigrationsController < ApplicationController
     @content_migration = @context.content_migrations.find(params[:id])
     @content_migration.check_for_pre_processing_timeout
     render json: content_migration_json(@content_migration, @current_user, session, nil, params[:include])
+  end
+
+  def fetch_external_tools
+    Lti::ContextToolFinder.all_tools_for(@context, placements: :migration_selection, root_account: @domain_root_account, current_user: @current_user) || []
   end
 
   def migration_plugin_supported?(plugin)
@@ -460,6 +466,18 @@ class ContentMigrationsController < ApplicationController
         name: p.meta["select_text"].call,
         required_settings: p.settings[:required_settings] || []
       }
+    end
+
+    if Account.site_admin.feature_enabled? :instui_for_import_page
+      external_tool_migrators = fetch_external_tools.map do |tool|
+        {
+          type: tool.asset_string,
+          requires_file_upload: false,
+          name: tool.label_for("migration_selection", I18n.locale),
+          required_settings: []
+        }
+      end
+      json.concat(external_tool_migrators)
     end
 
     render json:

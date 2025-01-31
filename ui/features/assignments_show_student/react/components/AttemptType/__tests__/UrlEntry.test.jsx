@@ -20,7 +20,7 @@ import {EXTERNAL_TOOLS_QUERY, USER_GROUPS_QUERY} from '@canvas/assignments/graph
 import {fireEvent, render} from '@testing-library/react'
 import React from 'react'
 import {mockAssignmentAndSubmission, mockQuery} from '@canvas/assignments/graphql/studentMocks'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
 import StudentViewContext from '../../Context'
 
 import UrlEntry from '../UrlEntry'
@@ -90,7 +90,7 @@ describe('UrlEntry', () => {
       const {getByTestId} = render(
         <MockedProvider mocks={mocks}>
           <UrlEntry {...props} />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
       expect(getByTestId('url-entry')).toBeInTheDocument()
@@ -119,7 +119,7 @@ describe('UrlEntry', () => {
           <StudentViewContext.Provider value={{allowChangesToSubmission: false, isObserver: true}}>
             <UrlEntry {...props} />
           </StudentViewContext.Provider>
-        </MockedProvider>
+        </MockedProvider>,
       )
 
       expect(getByTestId('url-input')).toHaveAttribute('readonly')
@@ -147,7 +147,7 @@ describe('UrlEntry', () => {
       const {getByTestId} = render(
         <MockedProvider mocks={mocks}>
           <UrlEntry {...props} />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
       expect(getByTestId('url-input')).toHaveFocus()
@@ -174,7 +174,7 @@ describe('UrlEntry', () => {
       const {getByTestId} = render(
         <MockedProvider mocks={mocks}>
           <UrlEntry {...props} />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
       expect(getByTestId('url-input')).not.toHaveFocus()
@@ -201,7 +201,7 @@ describe('UrlEntry', () => {
       const {getByText} = render(
         <MockedProvider mocks={mocks}>
           <UrlEntry {...props} />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
       expect(getByText('Please enter a valid url (e.g. https://example.com)')).toBeInTheDocument()
@@ -228,7 +228,7 @@ describe('UrlEntry', () => {
       const {getByTestId} = render(
         <MockedProvider mocks={mocks}>
           <UrlEntry {...props} />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
       expect(getByTestId('preview-button')).toBeInTheDocument()
@@ -256,7 +256,7 @@ describe('UrlEntry', () => {
       const {getByTestId} = render(
         <MockedProvider mocks={mocks}>
           <UrlEntry {...props} />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
       const previewButton = getByTestId('preview-button')
@@ -311,7 +311,7 @@ describe('UrlEntry', () => {
       const {getByTestId} = render(
         <MockedProvider mocks={mocks}>
           <UrlEntry {...props} />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
       expect(getByTestId('url-entry')).toBeInTheDocument()

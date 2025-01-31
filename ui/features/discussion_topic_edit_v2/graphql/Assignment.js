@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {arrayOf, bool, number, shape, string} from 'prop-types'
 import {AssignmentGroup} from './AssignmentGroup'
 import {AssignmentOverride} from './AssignmentOverride'
@@ -57,9 +57,9 @@ export const Assignment = {
       }
       hasSubAssignments
       checkpoints {
-        dueAt
-        unlockAt
-        lockAt
+        dueAt(applyOverrides: false)
+        unlockAt(applyOverrides: false)
+        lockAt(applyOverrides: false)
         name
         onlyVisibleToOverrides
         pointsPossible
@@ -108,7 +108,7 @@ export const Assignment = {
         onlyVisibleToOverrides: bool,
         pointsPossible: number,
         tag: string,
-      })
+      }),
     ),
   }),
 

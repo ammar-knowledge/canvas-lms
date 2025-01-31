@@ -18,7 +18,7 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import CustomEmojiDenyList from './react/custom_emoji_deny_list/CustomEmojiDenyList'
 import CustomHelpLinkSettings from './react/custom_help_link_settings/CustomHelpLinkSettings'
 import {Spinner} from '@instructure/ui-spinner'
@@ -32,7 +32,7 @@ import CourseCreationSettings from './react/course_creation_settings/CourseCreat
 import {InternalSettings} from './react/internal_settings/InternalSettings'
 import {initializeTopNavPortal} from '@canvas/top-navigation/react/TopNavPortal'
 
-const I18n = useI18nScope('account_settings_jsx_bundle')
+const I18n = createI18nScope('account_settings_jsx_bundle')
 
 ready(() => {
   initializeTopNavPortal()
@@ -49,7 +49,7 @@ ready(() => {
           defaultLinks: window.ENV.DEFAULT_HELP_LINKS,
         }}
       />,
-      document.getElementById('custom_help_link_settings')
+      document.getElementById('custom_help_link_settings'),
     )
   }
 
@@ -63,7 +63,7 @@ ready(() => {
       <View as="div" margin="large" padding="large" textAlign="center">
         <Spinner size="large" renderTitle={I18n.t('Loading')} />
       </View>,
-      document.getElementById('tab-security')
+      document.getElementById('tab-security'),
     )
   }
 
@@ -80,7 +80,7 @@ ready(() => {
   if (courseCreationSettingsContainer) {
     ReactDOM.render(
       <CourseCreationSettings currentValues={ENV.COURSE_CREATION_SETTINGS} />,
-      courseCreationSettingsContainer
+      courseCreationSettingsContainer,
     )
   }
 })

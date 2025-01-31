@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import '@canvas/jquery/jquery.ajaxJSON'
 import {debounce, reduce, forEach} from 'lodash'
@@ -30,8 +30,9 @@ import ContentTypeExternalToolTray from '@canvas/trays/react/ContentTypeExternal
 import QuizEngineModal from '../../react/QuizEngineModal'
 import {ltiState} from '@canvas/lti/jquery/messages'
 import getCookie from '@instructure/get-cookie'
+import {getQuizTypes} from '@canvas/util/resourceTypeUtil'
 
-const I18n = useI18nScope('quizzesIndexView')
+const I18n = createI18nScope('quizzesIndexView')
 
 export default class IndexView extends Backbone.View {
   static initClass() {
@@ -90,7 +91,7 @@ export default class IndexView extends Backbone.View {
       (runningCount, view) => {
         return runningCount + view.matchingCount(searchTerm)
       },
-      0
+      0,
     )
     return this.announceMatchingQuizzes(matchingQuizCount)
   }
@@ -102,7 +103,7 @@ export default class IndexView extends Backbone.View {
         other: '%{count} quizzes found.',
         zero: 'No matching quizzes found.',
       },
-      {count: numQuizzes}
+      {count: numQuizzes},
     )
     return $.screenReaderFlashMessageExclusive(msg)
   }
@@ -127,7 +128,7 @@ export default class IndexView extends Backbone.View {
         {authenticity_token: authenticity_token()},
         data => {
           window.location.href = data.url
-        }
+        },
       )
     } else {
       this.chooseQuizEngine()
@@ -152,7 +153,7 @@ export default class IndexView extends Backbone.View {
       },
       () => {
         this.renderQuizEngineSelectionFailureNotice()
-      }
+      },
     )
   }
 
@@ -164,7 +165,7 @@ export default class IndexView extends Backbone.View {
 
     ReactDOM.render(
       <QuizEngineModal onDismiss={handleDismiss} setOpen={setOpen} />,
-      $('#quiz-modal-mount-point')[0]
+      $('#quiz-modal-mount-point')[0],
     )
   }
 
@@ -178,7 +179,7 @@ export default class IndexView extends Backbone.View {
       <Alert variant="success" timeout={4000} transition="fade">
         <Text>{I18n.t(`Your quiz engine choice has been reset!`)}</Text>
       </Alert>,
-      $('#flash_message_holder')[0]
+      $('#flash_message_holder')[0],
     )
   }
 
@@ -187,11 +188,12 @@ export default class IndexView extends Backbone.View {
       .css('width', '30rem')
       .css('padding-left', '35rem')
       .css('display', 'block')
+
     ReactDOM.render(
       <Alert variant="error" timeout={4000} transition="fade">
         <Text>{I18n.t(`There was a problem resetting your quiz engine choice`)}</Text>
       </Alert>,
-      $('#flash_message_holder')[0]
+      $('#flash_message_holder')[0],
     )
   }
 
@@ -220,14 +222,14 @@ export default class IndexView extends Backbone.View {
       <ContentTypeExternalToolTray
         tool={tool}
         placement="quiz_index_menu"
-        acceptedResourceTypes={['quiz']}
+        acceptedResourceTypes={getQuizTypes()}
         targetResourceType="quiz"
         allowItemSelection={false}
         selectableItems={[]}
         onDismiss={handleDismiss}
         open={tool !== null}
       />,
-      $('#external-tool-mount-point')[0]
+      $('#external-tool-mount-point')[0],
     )
   }
 }

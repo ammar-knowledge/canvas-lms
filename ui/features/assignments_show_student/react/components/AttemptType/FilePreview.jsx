@@ -18,7 +18,7 @@
  */
 
 import {getIconByType} from '@canvas/mime/react/mimeClassIconHelper'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import LoadingIndicator from '@canvas/loading-indicator'
 import previewUnavailable from '../../../images/PreviewUnavailable.svg'
 import React, {useState, useEffect, useRef, useMemo} from 'react'
@@ -37,7 +37,7 @@ import {Table} from '@instructure/ui-table'
 import {Link} from '@instructure/ui-link'
 import {getOriginalityData} from '@canvas/grading/originalityReportHelper'
 
-const I18n = useI18nScope('assignments_2')
+const I18n = createI18nScope('assignments_2')
 
 export default function FilePreview({submission, isOriginalityReportVisible}) {
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
@@ -122,7 +122,7 @@ export default function FilePreview({submission, isOriginalityReportVisible}) {
   }
 
   const renderFileIcons = () => {
-    const cellTheme = {background: theme.variables.colors.backgroundLight}
+    const cellTheme = {background: theme.colors.backgroundLight}
     return (
       <Table caption={I18n.t('Uploaded files')} data-testid="uploaded_files_table">
         <Table.Head>
@@ -184,10 +184,10 @@ export default function FilePreview({submission, isOriginalityReportVisible}) {
           style={{
             display: 'block',
             padding: `
-              ${theme.variables.spacing.large}
-              ${theme.variables.spacing.medium}
+              ${theme.spacing.large}
+              ${theme.spacing.medium}
               0
-              ${theme.variables.spacing.medium}
+              ${theme.spacing.medium}
             `,
           }}
         >
@@ -210,7 +210,7 @@ export default function FilePreview({submission, isOriginalityReportVisible}) {
       width: '100%',
       height: '100%',
       position: 'absolute',
-      borderLeft: `1px solid ${theme.variables.colors.borderMedium}`,
+      borderLeft: `1px solid ${theme.colors.borderMedium}`,
     }
     const selectedFile = submission.attachments[selectedFileIndex]
     if (selectedFile && !selectedFile.submissionPreviewUrl) {
@@ -218,8 +218,8 @@ export default function FilePreview({submission, isOriginalityReportVisible}) {
         <div
           style={{
             textAlign: 'center',
-            padding: `${theme.variables.spacing.medium} 0 0 0`,
-            borderLeft: `1px solid ${theme.variables.colors.borderMedium}`,
+            padding: `${theme.spacing.medium} 0 0 0`,
+            borderLeft: `1px solid ${theme.colors.borderMedium}`,
           }}
         >
           <div style={{display: 'block'}}>

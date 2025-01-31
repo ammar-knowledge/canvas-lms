@@ -17,7 +17,7 @@
  */
 
 import 'jqueryui/dialog'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import htmlEscape from '@instructure/html-escape'
 import RichContentEditor from '@canvas/rce/RichContentEditor'
@@ -32,8 +32,9 @@ import '@canvas/loading-image'
 import '@instructure/date-js' // Date.parse
 import 'jquery-scroll-to-visible/jquery.scrollTo'
 import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
+import doFetchApi from '@canvas/do-fetch-api-effect'
 
-const I18n = useI18nScope('account_settings')
+const I18n = createI18nScope('account_settings')
 
 let reportsTabHasLoaded = false
 
@@ -68,7 +69,7 @@ $(document).ready(function () {
     ?.querySelectorAll('ul>li>a[id^="tab"]')
   // find the index of tab whose id matches the URL's hash
   const initialTab = Array.from(settingsTabs || []).findIndex(
-    t => `#${t.id}` === `${window.location.hash}-link`
+    t => `#${t.id}` === `${window.location.hash}-link`,
   )
 
   if (settingsTabs && !window.location.hash) {
@@ -97,7 +98,7 @@ $(document).ready(function () {
       .filter(':not(.blank)')
       .each(function () {
         const name = $.trim(
-          $(this).parents('.ip_filter').find('.name').val().replace(/\[|\]/g, '_')
+          $(this).parents('.ip_filter').find('.name').val().replace(/\[|\]/g, '_'),
         )
         if (name) {
           remove_ip_filters = false
@@ -107,7 +108,7 @@ $(document).ready(function () {
 
     if (remove_ip_filters) {
       $this.append(
-        "<input class='remove_ip_filters' type='hidden' name='account[remove_ip_filters]' value='1'/>"
+        "<input class='remove_ip_filters' type='hidden' name='account[remove_ip_filters]' value='1'/>",
       )
     } else {
       $this.find('.remove_ip_filters').remove() // just in case it's left over after a failed validation
@@ -150,12 +151,11 @@ $(document).ready(function () {
 
   $('#account_settings_suppress_notifications').click(event => {
     if (event.target.checked) {
-      // eslint-disable-next-line no-alert
       const result = window.confirm(
         I18n.t(
           'suppress_notifications_warning',
-          "You have 'Suppress notifications from being created and sent out' checked, are you sure you want to continue?"
-        )
+          "You have 'Suppress notifications from being created and sent out' checked, are you sure you want to continue?",
+        ),
       )
       if (!result) {
         $('#account_settings_suppress_notifications').prop('checked', false)
@@ -239,10 +239,10 @@ $(document).ready(function () {
               const provisioning_container = document.getElementById('provisioning_csv_form')
               const sis_export_container = document.getElementById('sis_export_csv_form')
               const provisioning_checkboxes = provisioning_container.querySelectorAll(
-                'input[type="checkbox"]:not(#parameters_created_by_sis):not(#parameters_include_deleted)'
+                'input[type="checkbox"]:not(#parameters_created_by_sis):not(#parameters_include_deleted)',
               )
               const sis_export_checkboxes = sis_export_container.querySelectorAll(
-                'input[type="checkbox"]:not(#parameters_created_by_sis):not(#parameters_include_deleted)'
+                'input[type="checkbox"]:not(#parameters_created_by_sis):not(#parameters_include_deleted)',
               )
 
               provisioning_container.onclick = function () {
@@ -255,10 +255,10 @@ $(document).ready(function () {
                 })
 
                 const createdBySisChecbox = provisioning_container.querySelector(
-                  '#parameters_created_by_sis'
+                  '#parameters_created_by_sis',
                 )
                 const includeDeletedCheckbox = provisioning_container.querySelector(
-                  '#parameters_include_deleted'
+                  '#parameters_include_deleted',
                 )
 
                 if (reportIsChecked) {
@@ -282,10 +282,10 @@ $(document).ready(function () {
                 })
 
                 const createdBySisChecbox = sis_export_container.querySelector(
-                  '#parameters_created_by_sis'
+                  '#parameters_created_by_sis',
                 )
                 const includeDeletedCheckbox = sis_export_container.querySelector(
-                  '#parameters_include_deleted'
+                  '#parameters_include_deleted',
                 )
 
                 if (reportIsChecked) {
@@ -406,7 +406,7 @@ $(document).ready(function () {
     $('#open_registration_delegated_warning_dialog').dialog({
       title: I18n.t(
         'titles.open_registration_delegated_warning_dialog',
-        'An External Identity Provider is Enabled'
+        'An External Identity Provider is Enabled',
       ),
       width: 400,
       modal: true,
@@ -445,7 +445,7 @@ $(document).ready(function () {
     $item.confirmDelete({
       message: I18n.t(
         'confirms.remove_account_admin',
-        'Are you sure you want to remove this account admin?'
+        'Are you sure you want to remove this account admin?',
       ),
       url: $(this).attr('href'),
       success() {
@@ -459,7 +459,7 @@ $(document).ready(function () {
   $(
     '#enable_equella, ' +
       '#account_settings_sis_syncing_value, ' +
-      '#account_settings_sis_default_grade_export_value'
+      '#account_settings_sis_default_grade_export_value',
   )
     .change(function () {
       const $myFieldset = $('#' + $(this).attr('id') + '_settings')
@@ -475,7 +475,7 @@ $(document).ready(function () {
   $(
     '#account_settings_sis_syncing_value,' +
       '#account_settings_sis_default_grade_export_value,' +
-      '#account_settings_sis_assignment_name_length_value'
+      '#account_settings_sis_assignment_name_length_value',
   )
     .change(function () {
       const attr_id = $(this).attr('id')
@@ -487,7 +487,7 @@ $(document).ready(function () {
 
   $('.turnitin_account_settings').change(() => {
     $('.confirm_turnitin_settings_link').text(
-      I18n.t('links.turnitin.confirm_settings', 'confirm Turnitin settings')
+      I18n.t('links.turnitin.confirm_settings', 'confirm Turnitin settings'),
     )
   })
 
@@ -522,8 +522,8 @@ $(document).ready(function () {
           $link.text(
             I18n.t(
               'notices.turnitin.invalid_settings',
-              'invalid Turnitin settings, please check your account id and shared secret from Turnitin'
-            )
+              'invalid Turnitin settings, please check your account id and shared secret from Turnitin',
+            ),
           )
         }
       },
@@ -531,10 +531,10 @@ $(document).ready(function () {
         $link.text(
           I18n.t(
             'notices.turnitin.invalid_settings',
-            'invalid Turnitin settings, please check your account id and shared secret from Turnitin'
-          )
+            'invalid Turnitin settings, please check your account id and shared secret from Turnitin',
+          ),
         )
-      }
+      },
     )
   })
 
@@ -610,20 +610,31 @@ $(document).ready(function () {
     const $textarea = $rce_container.find('textarea')
     RichContentEditor.preloadRemoteModule()
     const $terms_type = $('#account_terms_of_service_terms_type').change(onTermsTypeChange)
-    // eslint-disable-next-line no-inner-declarations
+
     async function onTermsTypeChange() {
       if ($terms_type.val() === 'custom') {
         $('#terms_of_service_modal').show()
         $rce_container.show()
 
-        const url = '/api/v1/terms_of_service_custom_content'
-        const defaultContent = await (await fetch(url)).text()
+        try {
+          const {json, response} = await doFetchApi({
+            path: '/api/v1/acceptable_use_policy',
+          })
 
-        RichContentEditor.loadNewEditor($textarea, {
-          focus: true,
-          manageParent: true,
-          defaultContent,
-        })
+          if (response.ok) {
+            RichContentEditor.loadNewEditor($textarea, {
+              focus: true,
+              manageParent: true,
+              defaultContent: json?.content || '',
+            })
+          } else {
+            console.error(
+              `Failed to load Acceptable Use Policy content: Received ${response.status} ${response.statusText}`,
+            )
+          }
+        } catch (error) {
+          console.error('Failed to load Acceptable Use Policy content:', error)
+        }
       } else {
         $rce_container.hide()
         $('#terms_of_service_modal').hide()

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -18,13 +17,13 @@
  */
 
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import '@canvas/rails-flash-notifications'
 import type {Assignment, StudentMap} from '../../../../api.d'
 
 import AsyncComponents from './AsyncComponents'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 const CurveGradesDialogManager = {
   createCurveGradesAction(
@@ -38,24 +37,31 @@ const CurveGradesDialogManager = {
       isAdmin?: boolean
       contextUrl?: string
       submissionsLoaded?: boolean
-    } = {}
+    } = {},
   ) {
-    const {grading_type: gradingType, points_possible: pointsPossible} = assignment
+    const {
+      grading_type: gradingType,
+      points_possible: pointsPossible,
+      grades_published: gradesPublished,
+      checkpoints,
+    } = assignment
     return {
       isDisabled:
         !submissionsLoaded ||
         gradingType === 'pass_fail' ||
         pointsPossible == null ||
         pointsPossible === 0 ||
-        !assignment.grades_published,
+        !gradesPublished ||
+        checkpoints?.length > 0,
 
+      // @ts-expect-error
       async onSelect(onClose) {
         if (!isAdmin && assignment.inClosedGradingPeriod) {
           return $.flashError(
             I18n.t(
               'Unable to curve grades because this assignment is due in a closed ' +
-                'grading period for at least one student'
-            )
+                'grading period for at least one student',
+            ),
           )
         }
 

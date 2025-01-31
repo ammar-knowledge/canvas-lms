@@ -47,7 +47,7 @@ class CourseForMenuPresenter
       originalName: course.name,
       courseCode: course.course_code,
       assetString: course.asset_string,
-      href: course_path(course, invitation: course.read_attribute(:invitation)),
+      href: course_path(course, invitation: course["invitation"]),
       term: term || nil,
       subtitle:,
       enrollmentState: course.primary_enrollment_state,
@@ -81,7 +81,7 @@ class CourseForMenuPresenter
           presenter.to_h
         end
       end
-      hash[:canChangeCoursePublishState] = course.grants_any_right?(@user, :change_course_state, :manage_courses_publish)
+      hash[:canChangeCoursePublishState] = course.grants_right?(@user, :manage_courses_publish)
       hash[:defaultView] = course.default_view
       hash[:pagesUrl] = polymorphic_url([course, :wiki_pages])
       hash[:frontPageTitle] = course&.wiki&.front_page&.title

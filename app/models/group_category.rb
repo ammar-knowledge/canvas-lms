@@ -24,6 +24,8 @@ class GroupCategory < ActiveRecord::Base
   attr_accessor :group_by_section
   attr_writer :assign_unassigned_members
 
+  attr_readonly :non_collaborative
+
   belongs_to :context, polymorphic: [:course, :account]
   belongs_to :sis_batch
   belongs_to :root_account, class_name: "Account", inverse_of: :all_group_categories
@@ -35,9 +37,11 @@ class GroupCategory < ActiveRecord::Base
 
   before_validation :set_root_account_id
   validates :sis_source_id, uniqueness: { scope: :root_account }, allow_nil: true
+  validate :validate_non_collaborative_constraints, if: :non_collaborative?
 
   after_save :auto_create_groups
   after_update :update_groups_max_membership
+  after_update :clear_permissions_cache_for_selfsignup
 
   delegate :time_zone, to: :context
 
@@ -98,6 +102,8 @@ class GroupCategory < ActiveRecord::Base
 
   scope :by_name, -> { order(Bookmarker.order_by) }
   scope :active, -> { where(deleted_at: nil) }
+  scope :collaborative, -> { where(non_collaborative: false) }
+  scope :non_collaborative, -> { where(non_collaborative: true) }
   scope :other_than, ->(cat) { where("group_categories.id<>?", cat.id || 0) }
 
   class << self
@@ -201,6 +207,12 @@ class GroupCategory < ActiveRecord::Base
 
   def restricted_self_signup?
     self_signup.present? && self_signup == "restricted"
+  end
+
+  def past_self_signup_end_at?
+    return false unless context.is_a?(Course) && context.account.feature_enabled?(:self_signup_deadline)
+
+    self_signup? && self_signup_end_at.present? && self_signup_end_at < Time.now.utc
   end
 
   def has_heterogenous_group?
@@ -450,8 +462,8 @@ class GroupCategory < ActiveRecord::Base
                  end
 
     if split_type
-      InstStatsd::Statsd.increment("groups.auto_create",
-                                   tags: { split_type:, root_account_id: root_account&.global_id, root_account_name: root_account&.name })
+      InstStatsd::Statsd.distributed_increment("groups.auto_create",
+                                               tags: { split_type:, root_account_id: root_account&.global_id, root_account_name: root_account&.name })
     end
 
     by_section = @group_by_section && context.is_a?(Course)
@@ -537,7 +549,14 @@ class GroupCategory < ActiveRecord::Base
   end
 
   set_policy do
-    given { |user, session| context.grants_right?(user, session, :read) }
+    given do |user, session|
+      # For non_collaborative group_sets, we only give read access to users who can manage groups
+      if non_collaborative? && !context.grants_any_right?(user, session, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
+        false
+      else
+        context.grants_right?(user, session, :read)
+      end
+    end
     can :read
   end
 
@@ -561,6 +580,11 @@ class GroupCategory < ActiveRecord::Base
   end
 
   protected
+
+  def validate_non_collaborative_constraints
+    errors.add(:base, "Non-collaborative group categories can only be created for courses") unless context_type == "Course"
+    errors.add(:base, "Non-collaborative group categories cannot be student organized or communities") if ["student_organized", "communities"].include?(role)
+  end
 
   def start_progress
     self.current_progress ||= progresses.build(tag: "assign_unassigned_members", completion: 0)
@@ -679,5 +703,11 @@ class GroupCategory < ActiveRecord::Base
         end
       end
     end
+  end
+
+  def clear_permissions_cache_for_selfsignup
+    return unless %i[self_signup self_signup_end_at].any? { |k| saved_changes.key?(k) } # Skip if neither setting was changed
+
+    context.students.each { |student| clear_permissions_cache(student) } if context.is_a?(Course)
   end
 end

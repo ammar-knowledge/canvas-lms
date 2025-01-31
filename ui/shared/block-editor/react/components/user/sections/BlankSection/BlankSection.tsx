@@ -20,12 +20,11 @@ import React, {useState} from 'react'
 import {Element, useEditor} from '@craftjs/core'
 import {NoSections} from '../../common'
 import {Container} from '../../blocks/Container'
-import {SectionMenu} from '../../../editor/SectionMenu'
 import {useClassNames} from '../../../../utils'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('block-editor/blank-section')
+const I18n = createI18nScope('block-editor')
 
 export const BlankSection = () => {
   const {enabled} = useEditor(state => ({
@@ -50,8 +49,5 @@ BlankSection.craft = {
   displayName: I18n.t('Blank Section'),
   custom: {
     isSection: true,
-  },
-  related: {
-    sectionMenu: SectionMenu,
   },
 }

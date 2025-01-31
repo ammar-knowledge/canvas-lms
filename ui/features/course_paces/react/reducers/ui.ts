@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -19,14 +18,16 @@
 
 import {createSelector} from 'reselect'
 
-import {StoreState, UIState} from '../types'
-import {Constants as UIConstants, UIAction} from '../actions/ui'
+import type {StoreState, UIState} from '../types'
+import {Constants as UIConstants, type UIAction} from '../actions/ui'
 import {getCoursePaceType, getPacePublishing} from './course_paces'
 import {getBlackoutDatesSyncing} from '../shared/reducers/blackout_dates'
 
+// @ts-expect-error
 export const initialState: UIState = {
   autoSaving: false,
   syncing: 0,
+  savingDraft: false,
   errors: {},
   divideIntoWeeks: true,
   selectedContextType: 'Course',
@@ -43,6 +44,7 @@ export const initialState: UIState = {
 /* Selectors */
 
 export const getAutoSaving = (state: StoreState) => state.ui.autoSaving
+export const getSavingDraft = (state: StoreState) => state.ui.savingDraft
 // there is a window between when blackout dates finish updating and the pace
 // begins publishing. use getSyncing to keep the ui consistent in the transition
 export const getSyncing = (state: StoreState): boolean =>
@@ -75,7 +77,7 @@ export const getBlueprintLocked = (state: StoreState) => state.ui.blueprintLocke
 export const getShowProjections = createSelector(
   state => state.ui.showProjections,
   getCoursePaceType,
-  (showProjections, coursePaceType) => showProjections || coursePaceType === 'Enrollment'
+  (showProjections, coursePaceType) => showProjections || coursePaceType === 'Enrollment',
 )
 
 /* Reducers */
@@ -97,8 +99,10 @@ export default (state = initialState, action: UIAction): UIState => {
       delete new_errors[action.payload]
       return {...state, errors: new_errors}
     }
+    // @ts-expect-error
     case UIConstants.TOGGLE_DIVIDE_INTO_WEEKS:
       return {...state, divideIntoWeeks: !state.divideIntoWeeks}
+    // @ts-expect-error
     case UIConstants.TOGGLE_SHOW_PROJECTIONS:
       return {...state, showProjections: !state.showProjections}
     case UIConstants.SET_SELECTED_PACE_CONTEXT:
@@ -123,6 +127,8 @@ export default (state = initialState, action: UIAction): UIState => {
       return {...state, selectedContextType: action.payload}
     case UIConstants.SET_BLUEPRINT_LOCK:
       return {...state, blueprintLocked: action.payload}
+    case UIConstants.SAVING_DRAFT:
+      return {...state, savingDraft: !state.savingDraft}
     default:
       return state
   }

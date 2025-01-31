@@ -16,7 +16,7 @@
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 //
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import numberHelper from '@canvas/i18n/numberHelper'
 import $ from 'jquery'
 import {map, maxBy, isEqual, isNaN, extend as lodashExtend} from 'lodash'
@@ -31,8 +31,13 @@ import {addCriterionInfoButton} from '../../react/CriterionInfo'
 import 'jqueryui/dialog'
 import CalculationMethodContent from '@canvas/grading/CalculationMethodContent'
 import {raw} from '@instructure/html-escape'
+import {createRoot} from 'react-dom/client'
+import {createElement} from 'react';
+import {Text} from '@instructure/ui-text'
+import {View} from '@instructure/ui-view'
+import {TextInput} from '@instructure/ui-text-input'
 
-const I18n = useI18nScope('OutcomeView')
+const I18n = createI18nScope('OutcomeView')
 
 // For outcomes in the main content view.
 
@@ -49,7 +54,7 @@ export default class OutcomeView extends OutcomeContentBase {
         'change .calculation_method': 'updateCalcMethod',
         'keyup .mastery_points': 'changeMasteryPoints',
       },
-      OutcomeContentBase.prototype.events
+      OutcomeContentBase.prototype.events,
     )
 
     this.prototype.validations = lodashExtend(
@@ -68,7 +73,7 @@ export default class OutcomeView extends OutcomeContentBase {
           }
         },
       },
-      OutcomeContentBase.prototype.validations
+      OutcomeContentBase.prototype.validations,
     )
   }
 
@@ -131,7 +136,7 @@ export default class OutcomeView extends OutcomeContentBase {
     } else {
       data.mastery_points = numberHelper.parse(data.mastery_points)
       data.ratings = map(data.ratings, rating =>
-        lodashExtend(rating, {points: numberHelper.parse(rating.points)})
+        lodashExtend(rating, {points: numberHelper.parse(rating.points)}),
       )
       if (['highest', 'latest'].includes(data.calculation_method)) {
         delete data.calculation_int
@@ -251,8 +256,8 @@ export default class OutcomeView extends OutcomeContentBase {
       raw(
         I18n.t('%{points_possible} Points', {
           points_possible: I18n.n(total, {precision: 2, strip_insignificant_zeros: true}),
-        })
-      )
+        }),
+      ),
     )
     return this.model.set({
       points_possible: total,
@@ -275,8 +280,8 @@ export default class OutcomeView extends OutcomeContentBase {
             lodashExtend(data, {
               calculationMethods: this.model.calculationMethods(),
               hideMasteryScale: ENV.ACCOUNT_LEVEL_MASTERY_SCALES,
-            })
-          )
+            }),
+          ),
         )
 
         if (!ENV.ACCOUNT_LEVEL_MASTERY_SCALES) {
@@ -305,7 +310,7 @@ export default class OutcomeView extends OutcomeContentBase {
           }
           if (ENV.MASTERY_SCALE?.outcome_calculation_method) {
             const methodModel = new CalculationMethodContent(
-              ENV.MASTERY_SCALE.outcome_calculation_method
+              ENV.MASTERY_SCALE.outcome_calculation_method,
             )
             lodashExtend(data, ENV.MASTERY_SCALE.outcome_calculation_method, methodModel.present())
           }
@@ -330,8 +335,8 @@ export default class OutcomeView extends OutcomeContentBase {
                 !this.readOnly() &&
                 (this.model.outcomeLink.assessed ||
                   (this.model.isNative() && this.model.get('assessed'))),
-            })
-          )
+            }),
+          ),
         )
       }
     }
@@ -339,7 +344,54 @@ export default class OutcomeView extends OutcomeContentBase {
     this.$('input:first').focus()
     this.screenreaderTitleFocus()
     this._afterRender()
+
+    this._outcomeMasteryAtContainer = (() => {
+      const container = this.$('#outcome_mastery_at_container')[0]
+      if(!container) return
+      return createRoot(container)
+    })()
+
+    this._renderOutcomeMasteryAtInput()
+
     return this
+  }
+
+  _renderOutcomeMasteryAtInput(errorType) {
+    const errorMessage = {
+      'NaNError': {type: 'newError', text: I18n.t('mastery_at_nan_error', 'Must be a number')},
+      'rangeError': {type: 'newError', text: I18n.t('mastery_at_range_error', 'Must be between 1 and 99')},
+    }[errorType]
+    this._outcomeMasteryAtContainer?.render(createElement(View, { as:'div', margin: 'small' },
+      createElement(TextInput, {
+        name: 'mastery_at',
+        id: 'outcome_mastery_at',
+        renderLabel: ()=> createElement(Text, { weight: 'normal' }, 'Set mastery for any score at or above'),
+        defaultValue: '60',
+        width: '36ch',
+        renderAfterInput: ()=> createElement('div', {}, '%'),
+        messages: [
+          {type: 'hint', text: I18n.t('mastery_at_hint', 'Must be between 1 and 99')},
+          ...(errorMessage ? [errorMessage] : [])
+        ]
+      })
+    ))
+  }
+
+  validateOutcomeMasteryAtInput(){
+    const input = this.$('#outcome_mastery_at')[0]
+    if (!input) return null
+    const value = parseFloat(input.value)
+    if (isNaN(value)) {
+      this._renderOutcomeMasteryAtInput('NaNError')
+      input.focus()
+      return null
+    }
+    if(value < 1 || value > 99) {
+      this._renderOutcomeMasteryAtInput('rangeError')
+      input.focus()
+      return null
+    }
+    return input.value
   }
 }
 OutcomeView.initClass()

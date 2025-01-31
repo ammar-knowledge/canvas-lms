@@ -30,78 +30,94 @@ import GroupCategorySelector from '@canvas/groups/backbone/views/GroupCategorySe
 import PeerReviewsSelector from '@canvas/assignments/backbone/views/PeerReviewsSelector'
 import '@canvas/grading-standards'
 import LockManager from '@canvas/blueprint-courses/react/components/LockManager/index'
+import renderEditAssignmentsApp from './react/index'
 
 ready(() => {
-  const lockManager = new LockManager()
-  lockManager.init({itemType: 'assignment', page: 'edit'})
-  const lockedItems = lockManager.isChildContent() ? lockManager.getItemLocks() : {}
+  window.addEventListener('load', () => {
+    const params = new URLSearchParams(window.location.search)
+    const targetId = params.get('scrollTo')
+    const target = document.getElementById(targetId)
 
-  ENV.ASSIGNMENT.assignment_overrides = ENV.ASSIGNMENT_OVERRIDES
-
-  const userIsAdmin = ENV.current_user_is_admin
-
-  const assignment = new Assignment(ENV.ASSIGNMENT)
-  assignment.urlRoot = ENV.URL_ROOT
-
-  const sectionList = new SectionCollection(ENV.SECTION_LIST)
-  const dueDateList = new DueDateList(
-    assignment.get('assignment_overrides'),
-    sectionList,
-    assignment
-  )
-
-  const assignmentGroupSelector = new AssignmentGroupSelector({
-    parentModel: assignment,
-    assignmentGroups:
-      (typeof ENV !== 'undefined' && ENV !== null ? ENV.ASSIGNMENT_GROUPS : undefined) || [],
-  })
-  const gradingTypeSelector = new GradingTypeSelector({
-    parentModel: assignment,
-    preventNotGraded: assignment.submissionTypesFrozen(),
-    lockedItems,
-    canEditGrades: ENV.PERMISSIONS.can_edit_grades,
-  })
-  const groupCategorySelector = new GroupCategorySelector({
-    parentModel: assignment,
-    groupCategories:
-      (typeof ENV !== 'undefined' && ENV !== null ? ENV.GROUP_CATEGORIES : undefined) || [],
-    inClosedGradingPeriod: assignment.inClosedGradingPeriod(),
-  })
-  const peerReviewsSelector = new PeerReviewsSelector({
-    parentModel: assignment,
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth' })
+    }
   })
 
-  const editView = new EditView({
-    el: '#edit_assignment_form',
-    model: assignment,
-    assignmentGroupSelector,
-    gradingTypeSelector,
-    groupCategorySelector,
-    peerReviewsSelector,
-    views: {
-      'js-assignment-overrides': new DueDateOverride({
-        model: dueDateList,
-        views: {},
-        postToSIS: assignment.postToSIS(),
-        dueDatesReadonly: !!lockedItems.due_dates,
-        availabilityDatesReadonly: !!lockedItems.availability_dates,
-        inPacedCourse: assignment.inPacedCourse(),
-        isModuleItem: ENV.IS_MODULE_ITEM,
-        courseId: assignment.courseID(),
-        groupCategorySelector,
-      }),
-    },
-    lockedItems: assignment.id ? lockedItems : {}, // if no id, creating a new assignment
-    canEditGrades: ENV.PERMISSIONS.can_edit_grades || !assignment.gradedSubmissionsExist(),
-  })
+  if (ENV.ASSIGNMENT_EDIT_ENHANCEMENTS_TEACHER_VIEW) {
+    const div = document.createElement('div')
+    renderEditAssignmentsApp(document.getElementById('content').appendChild(div))
+  } else {
+    const lockManager = new LockManager()
+    lockManager.init({itemType: 'assignment', page: 'edit'})
+    const lockedItems = lockManager.isChildContent() ? lockManager.getItemLocks() : {}
 
-  const editHeaderView = new EditHeaderView({
-    el: '#edit_assignment_header',
-    model: assignment,
-    userIsAdmin,
-    views: {
-      edit_assignment_form: editView,
-    },
-  })
-  editHeaderView.render()
+    ENV.ASSIGNMENT.assignment_overrides = ENV.ASSIGNMENT_OVERRIDES
+
+    const userIsAdmin = ENV.current_user_is_admin
+
+    const assignment = new Assignment(ENV.ASSIGNMENT)
+    assignment.urlRoot = ENV.URL_ROOT
+
+    const sectionList = new SectionCollection(ENV.SECTION_LIST)
+    const dueDateList = new DueDateList(
+      assignment.get('assignment_overrides'),
+      sectionList,
+      assignment,
+    )
+
+    const assignmentGroupSelector = new AssignmentGroupSelector({
+      parentModel: assignment,
+      assignmentGroups:
+        (typeof ENV !== 'undefined' && ENV !== null ? ENV.ASSIGNMENT_GROUPS : undefined) || [],
+    })
+    const gradingTypeSelector = new GradingTypeSelector({
+      parentModel: assignment,
+      preventNotGraded: assignment.submissionTypesFrozen(),
+      lockedItems,
+      canEditGrades: ENV.PERMISSIONS.can_edit_grades,
+    })
+    const groupCategorySelector = new GroupCategorySelector({
+      parentModel: assignment,
+      groupCategories:
+        (typeof ENV !== 'undefined' && ENV !== null ? ENV.GROUP_CATEGORIES : undefined) || [],
+      inClosedGradingPeriod: assignment.inClosedGradingPeriod(),
+    })
+    const peerReviewsSelector = new PeerReviewsSelector({
+      parentModel: assignment,
+    })
+
+    const editView = new EditView({
+      el: '#edit_assignment_form',
+      model: assignment,
+      assignmentGroupSelector,
+      gradingTypeSelector,
+      ...(!ENV.horizon_course && {groupCategorySelector}),
+      ...(!ENV.horizon_course && {peerReviewsSelector}),
+      views: {
+        'js-assignment-overrides': new DueDateOverride({
+          model: dueDateList,
+          views: {},
+          postToSIS: assignment.postToSIS(),
+          dueDatesReadonly: !!lockedItems.due_dates,
+          availabilityDatesReadonly: !!lockedItems.availability_dates,
+          inPacedCourse: assignment.inPacedCourse(),
+          isModuleItem: ENV.IS_MODULE_ITEM,
+          courseId: assignment.courseID(),
+          ...(!ENV.horizon_course && {groupCategorySelector}),
+        }),
+      },
+      lockedItems: assignment.id ? lockedItems : {}, // if no id, creating a new assignment
+      canEditGrades: ENV.PERMISSIONS.can_edit_grades || !assignment.gradedSubmissionsExist(),
+    })
+
+    const editHeaderView = new EditHeaderView({
+      el: '#edit_assignment_header',
+      model: assignment,
+      userIsAdmin,
+      views: {
+        edit_assignment_form: editView,
+      },
+    })
+    editHeaderView.render()
+  }
 })

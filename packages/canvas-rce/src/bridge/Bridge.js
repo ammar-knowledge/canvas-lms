@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import K5Uploader from '@instructure/k5uploader'
+import {K5Uploader} from '@instructure/k5uploader'
 import {fileEmbed} from '../common/mimeClass'
 
 /* eslint no-console: 0 */
@@ -187,8 +187,6 @@ export default class Bridge {
       const result = this.focusedEditor.insertImage(image)
       this.controller(this.focusedEditor.id)?.hideTray()
       return result
-    } else {
-      console.warn('clicked sidebar image without a focused editor')
     }
   }
 
@@ -199,8 +197,6 @@ export default class Bridge {
       if (!this.existingContentToLink()) {
         this.focusedEditor.insertImagePlaceholder(fileMetaProps)
       }
-    } else {
-      console.warn('clicked sidebar image without a focused editor')
     }
   }
 

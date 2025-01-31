@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {useRef, useCallback, useEffect, useState} from 'react'
 import moment, {type Moment} from 'moment-timezone'
 import * as tz from '@instructure/moment-utils'
@@ -25,6 +25,8 @@ import {Calendar} from '@instructure/ui-calendar'
 import {DateInput} from '@instructure/ui-date-input'
 import {IconButton} from '@instructure/ui-buttons'
 import {IconArrowOpenEndSolid, IconArrowOpenStartSolid} from '@instructure/ui-icons'
+import {IconWarningSolid} from '@instructure/ui-icons'
+import {View} from '@instructure/ui-view'
 
 import type {ViewProps} from '@instructure/ui-view'
 import type {
@@ -47,7 +49,7 @@ type Messages = DateInputProps['messages']
 // making use of the onBlur callback is paying any attention to the actual event anyway.
 type BlurReturn = SyntheticEvent<Element, Event> | KeyboardEvent<DateInputProps>
 
-const I18n = useI18nScope('app_shared_components_canvas_date_time')
+const I18n = createI18nScope('app_shared_components_canvas_date_time')
 
 const EARLIEST_YEAR = 1980 // do not allow any manually entered year before this
 
@@ -187,7 +189,7 @@ export default function CanvasDateInput({
   const todayMoment = moment().tz(timezone)
 
   const [selectedMoment, setSelectedMoment] = useState(
-    selectedDate ? moment.tz(selectedDate, timezone) : null
+    selectedDate ? moment.tz(selectedDate, timezone) : null,
   )
   const [inputValue, setInputValue] = useState('')
   const [isShowingCalendar, setIsShowingCalendar] = useState(false)
@@ -215,7 +217,7 @@ export default function CanvasDateInput({
       const changedValue = firstMoment && firstMoment.isValid() && !firstMoment.isSame(secondMoment)
       return changedNull || changedValue
     },
-    []
+    [],
   )
 
   const syncInput = useCallback(
@@ -225,7 +227,7 @@ export default function CanvasDateInput({
       setInternalMessages([])
       setRenderedMoment(newMoment || todayMoment)
     },
-    [formatDate, todayMoment]
+    [formatDate, todayMoment],
   )
 
   useEffect(() => {
@@ -243,15 +245,14 @@ export default function CanvasDateInput({
 
   function generateMonthMoments() {
     const firstMoment = moment.tz(renderedMoment, timezone).startOf('month').startOf('week')
-    // @ts-ignore DAY_COUNT is not included in instructure-ui 7 types
     return [...Array(Calendar.DAY_COUNT).keys()].map(index =>
-      firstMoment.clone().add(index, 'days')
+      firstMoment.clone().add(index, 'days'),
     )
   }
 
   function renderDays() {
     // This is expensive, so only do it if the calendar is open
-    if (!isShowingCalendar) return undefined
+    if (!isShowingCalendar) return []
 
     const locale = specifiedLocale || ENV?.LOCALE || navigator.language
 
@@ -285,7 +286,15 @@ export default function CanvasDateInput({
 
   function invalidText(text: string) {
     if (typeof invalidDateMessage === 'function') return invalidDateMessage(text)
-    if (typeof invalidDateMessage === 'undefined') return I18n.t('Invalid Date')
+    if (typeof invalidDateMessage === 'undefined')
+      return (
+        <View textAlign="center">
+          <View as="div" display="inline-block" margin="0 xxx-small xx-small 0">
+            <IconWarningSolid />
+          </View>
+          {I18n.t('Invalid date format')}
+        </View>
+      )
     return invalidDateMessage
   }
 
@@ -397,7 +406,7 @@ export default function CanvasDateInput({
 
   function modifySelectedMoment(
     step: moment.DurationInputArg1,
-    type?: moment.unitOfTime.DurationConstructor
+    type?: moment.unitOfTime.DurationConstructor,
   ) {
     // If we do not have a selectedMoment, we'll just select the first day of
     // the currently rendered month.
@@ -410,14 +419,14 @@ export default function CanvasDateInput({
 
   function modifyRenderedMoment(
     step: moment.DurationInputArg1,
-    type?: moment.unitOfTime.DurationConstructor
+    type?: moment.unitOfTime.DurationConstructor,
   ) {
     setRenderedMoment(renderedMoment.clone().add(step, type).startOf('day'))
   }
 
   function renderWeekdayLabels() {
     // This is expensive, so only do it if the calendar is open
-    if (!isShowingCalendar) return []
+    if (!isShowingCalendar) return undefined
 
     const firstOfWeek = renderedMoment.clone().startOf('week')
     return [...Array(7).keys()].map(index => {
@@ -450,6 +459,7 @@ export default function CanvasDateInput({
   }
 
   return (
+    // @ts-expect-error
     <DateInput
       renderLabel={renderLabel}
       assistiveText={I18n.t('Type a date or use arrow keys to navigate date picker.')}

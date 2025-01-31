@@ -182,7 +182,7 @@ describe "Outcome Results API", type: :request do
                      action: "rollups",
                      format: "json",
                      course_id: outcome_course.id.to_s)
-        assert_status(403)
+        assert_forbidden
       end
 
       it "allows students to read their own results" do
@@ -206,13 +206,13 @@ describe "Outcome Results API", type: :request do
                      format: "json",
                      course_id: outcome_course.id.to_s,
                      user_ids: [outcome_students[1].id])
-        assert_status(403)
+        assert_forbidden
       end
 
       it "does not allow students to read other users' results via csv" do
         user_session outcome_students[0]
         get "/courses/#{@course.id}/outcome_rollups.csv"
-        assert_status(403)
+        assert_forbidden
       end
 
       it "requires an existing context" do
@@ -603,7 +603,7 @@ describe "Outcome Results API", type: :request do
             rollup["scores"].each do |score|
               expect(score.keys.sort).to eq %w[count hide_points links score submitted_at title]
               expect(score["count"]).to eq 1
-              expect([0, 1]).to include(score["score"])
+              expect(score["score"]).to be_in [0, 1]
               expect(score["links"].keys.sort).to eq %w[outcome]
               expect(score["links"]["outcome"]).to eq outcome_object.id.to_s
             end
@@ -680,7 +680,7 @@ describe "Outcome Results API", type: :request do
             rollup["scores"].each do |score|
               expect(score.keys.sort).to eq %w[count hide_points links score submitted_at title]
               expect(score["count"]).to eq 1
-              expect([0, 2]).to include(score["score"])
+              expect(score["score"]).to be_in [0, 2]
               expect(score["links"].keys.sort).to eq %w[outcome]
               expect(score["links"]["outcome"]).to eq outcome_object.id.to_s
             end

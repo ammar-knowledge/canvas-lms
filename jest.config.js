@@ -19,7 +19,7 @@
 const {defaults} = require('jest-config')
 const {swc} = require('./ui-build/webpack/webpack.rules')
 
-const esModules = ['mime'].join('|')
+const esModules = ['mime', 'react-dnd', 'dnd-core', '@react-dnd'].join('|')
 
 module.exports = {
   moduleNameMapper: {
@@ -36,8 +36,10 @@ module.exports = {
     '^nanoid(/(.*)|$)': 'nanoid$1',
     '\\.(css)$': '<rootDir>/jest/styleMock.js',
     'crypto-es': '<rootDir>/packages/canvas-rce/src/rce/__mocks__/_mockCryptoEs.ts',
+    '@instructure/studio-player':
+      '<rootDir>/packages/canvas-rce/src/rce/__mocks__/_mockStudioPlayer.js',
   },
-  roots: ['<rootDir>/ui', 'gems/plugins', 'public/javascripts'],
+  roots: ['<rootDir>/ui', 'public/javascripts'],
   moduleDirectories: ['public/javascripts', 'node_modules'],
   reporters: [
     'default',
@@ -53,11 +55,7 @@ module.exports = {
   ],
   snapshotSerializers: ['enzyme-to-json/serializer'],
   setupFiles: ['jest-localstorage-mock', 'jest-canvas-mock', '<rootDir>/jest/jest-setup.js'],
-  setupFilesAfterEnv: [
-    '@testing-library/jest-dom/extend-expect',
-    './packages/validated-apollo/src/ValidatedApolloCleanup.js',
-    '<rootDir>/jest/stubInstUi.js',
-  ],
+  setupFilesAfterEnv: ['@testing-library/jest-dom', '<rootDir>/jest/stubInstUi.js'],
   testMatch: ['**/__tests__/**/?(*.)(spec|test).[jt]s?(x)'],
 
   coverageDirectory: '<rootDir>/coverage-jest/',
@@ -73,7 +71,7 @@ module.exports = {
   moduleFileExtensions: [...defaults.moduleFileExtensions, 'coffee', 'handlebars'],
   restoreMocks: true,
 
-  testEnvironment: '<rootDir>/jest/strictTimeLimitEnvironment.js',
+  testEnvironment: 'jest-fixed-jsdom',
 
   transformIgnorePatterns: [`/node_modules/(?!${esModules})`],
 
@@ -93,9 +91,10 @@ module.exports = {
       },
     ],
   },
-
+  extensionsToTreatAsEsm: ['.jsx'],
   testEnvironmentOptions: {
     // https://github.com/mswjs/examples/blob/main/examples/with-jest/jest.config.ts#L20
     customExportConditions: [''],
   },
+  testTimeout: 10000,
 }

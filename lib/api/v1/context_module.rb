@@ -44,6 +44,7 @@ module Api::V1::ContextModule
   def module_json(context_module, current_user, session, progression = nil, includes = [], opts = {})
     hash = api_json(context_module, current_user, session, only: MODULE_JSON_ATTRS)
     hash["require_sequential_progress"] = !!context_module.require_sequential_progress?
+    hash["requirement_type"] = context_module.requirement_type
     hash["publish_final_grade"] = context_module.publish_final_grade?
     hash["prerequisite_module_ids"] = context_module.prerequisites.select { |p| p[:type] == "context_module" }.pluck(:id)
     if progression
@@ -52,7 +53,7 @@ module Api::V1::ContextModule
     end
     can_view_published = context_module.grants_right?(current_user, :update) || opts[:can_view_published]
     hash["published"] = context_module.active? if can_view_published
-    tags = context_module.content_tags_visible_to(@current_user, opts.slice(:observed_student_ids))
+    tags = context_module.content_tags_visible_to(current_user, opts.slice(:observed_student_ids))
     count = tags.count
     hash["items_count"] = count
     hash["items_url"] = polymorphic_url([:api_v1, context_module.context, context_module, :items])
@@ -148,6 +149,7 @@ module Api::V1::ContextModule
     if (criterion = context_module.completion_requirements&.detect { |r| r[:id] == content_tag.id })
       ch = { "type" => criterion[:type] }
       ch["min_score"] = criterion[:min_score] if criterion[:type] == "min_score"
+      ch["min_percentage"] = criterion[:min_percentage] if criterion[:type] == "min_percentage"
       ch["completed"] = !!(progression.requirements_met.present? && progression.requirements_met.detect { |r| r[:type] == criterion[:type] && r[:id] == content_tag.id }) if progression
       hash["completion_requirement"] = ch
     end

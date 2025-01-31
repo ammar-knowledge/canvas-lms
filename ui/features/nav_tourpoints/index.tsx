@@ -48,7 +48,7 @@ ready(() => {
       <React.Suspense fallback={null}>
         <Tour roles={roles} />
       </React.Suspense>,
-      globalNavTourContainer
+      globalNavTourContainer,
     )
   }
 })

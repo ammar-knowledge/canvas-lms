@@ -41,8 +41,8 @@ const props = (overrides = {}, placementOverrides = {}) => {
 }
 
 it('allows empty placements', () => {
-  const propsNoPlacements = {...props(), placements: []}
   const ref = React.createRef()
+  const propsNoPlacements = {...props(), placements: []}
   render(<Placements {...props({placements: [], ref})} />)
   expect(ref.current.valid()).toEqual(true)
 })

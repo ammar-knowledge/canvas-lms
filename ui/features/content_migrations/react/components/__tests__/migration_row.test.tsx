@@ -86,7 +86,7 @@ const renderComponent = (overrideProps?: any) =>
           {...overrideProps}
         />
       </tbody>
-    </table>
+    </table>,
   )
 
 const renderCondensedComponent = (overrideProps?: any) =>
@@ -95,7 +95,7 @@ const renderCondensedComponent = (overrideProps?: any) =>
       migration={migration}
       updateMigrationItem={updateMigrationItem}
       {...overrideProps}
-    />
+    />,
   )
 
 describe('MigrationRow', () => {
@@ -114,55 +114,66 @@ describe('MigrationRow', () => {
   })
 
   it('polls for progress when appropriate', async () => {
+    // @ts-expect-error
     doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 100, workflow_state: 'completed'}})
+      Promise.resolve({json: {completion: 100, workflow_state: 'completed'}}),
     )
     renderComponent({migration: runningMigration})
+    // @ts-expect-error
     await waitFor(() => expect(doFetchApi.mock.calls).toEqual([[progressHit]]))
   })
 
   it('stops polling on fail', async () => {
+    // @ts-expect-error
     doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 60, workflow_state: 'running'}})
+      Promise.resolve({json: {completion: 60, workflow_state: 'running'}}),
     )
+    // @ts-expect-error
     doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 60, workflow_state: 'failed'}})
+      Promise.resolve({json: {completion: 60, workflow_state: 'failed'}}),
     )
     renderComponent({migration: runningMigration})
+    // @ts-expect-error
     await waitFor(() => expect(doFetchApi.mock.calls).toEqual([[progressHit], [progressHit]]))
   })
 
   it('stops polling on complete', async () => {
+    // @ts-expect-error
     doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 100, workflow_state: 'completed'}})
+      Promise.resolve({json: {completion: 100, workflow_state: 'completed'}}),
     )
     renderComponent({migration: runningMigration})
+    // @ts-expect-error
     await waitFor(() => expect(doFetchApi.mock.calls).toEqual([[progressHit]]))
   })
 
   it('updates migration correctly for each progress poll', async () => {
     const mockCallback = jest.fn()
+    // @ts-expect-error
     doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 50, workflow_state: 'running'}})
+      Promise.resolve({json: {completion: 50, workflow_state: 'running'}}),
     )
+    // @ts-expect-error
     doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 100, workflow_state: 'completed'}})
+      Promise.resolve({json: {completion: 100, workflow_state: 'completed'}}),
     )
     renderComponent({migration: queuedMigration, updateMigrationItem: mockCallback})
+    // @ts-expect-error
     await waitFor(() => expect(doFetchApi.mock.calls).toEqual([[progressHit], [progressHit]]))
     await waitFor(() =>
       expect(mockCallback.mock.calls).toEqual([
         [expect.anything(), {completion: 50}, true],
         [expect.anything(), {completion: 100}],
-      ])
+      ]),
     )
   })
 
   describe('Status scenarios', () => {
     // this is needed because the initial state triggers the fetchProgress function
     const mockFetchProgressPolling = () => {
+      // @ts-expect-error
       doFetchApi.mockReturnValueOnce(
-        Promise.resolve({json: {completion: 100, workflow_state: 'completed'}})
+        Promise.resolve({json: {completion: 100, workflow_state: 'completed'}}),
       )
     }
 
@@ -249,8 +260,9 @@ describe('MigrationRow', () => {
             .fn()
             .mockReturnValue(Promise.resolve({workflow_state: 'completed'}))
           // Progress returns fails
+          // @ts-expect-error
           doFetchApi.mockReturnValueOnce(
-            Promise.resolve({json: {completion: 100, workflow_state: 'failed'}})
+            Promise.resolve({json: {completion: 100, workflow_state: 'failed'}}),
           )
           renderComponent({migration: queuedMigration, updateMigrationItem: mockCallback})
           await waitFor(() => {
@@ -268,8 +280,9 @@ describe('MigrationRow', () => {
             .fn()
             .mockReturnValue(Promise.resolve({workflow_state: 'waiting_for_select'}))
           // Progress returns completed
+          // @ts-expect-error
           doFetchApi.mockReturnValueOnce(
-            Promise.resolve({json: {completion: 100, workflow_state: 'completed'}})
+            Promise.resolve({json: {completion: 100, workflow_state: 'completed'}}),
           )
           // The initial status
           renderComponent({migration: queuedMigration, updateMigrationItem: mockCallback})

@@ -16,10 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import axios from '@canvas/axios'
 
-const I18n = useI18nScope('Navigation')
+const I18n = createI18nScope('Navigation')
 
 export type ExternalTool = {
   href: string | null
@@ -30,32 +30,23 @@ export type ExternalTool = {
 
 export const getExternalApps = async (): Promise<ExternalTool[]> => {
   const {data: tools} = await axios.get(
-    `/api/v1/accounts/${window.ENV.ACCOUNT_ID}/lti_apps?per_page=50`
+    `/api/v1/accounts/${window.ENV.ACCOUNT_ID}/lti_apps/launch_definitions?per_page=50&placements[]=global_navigation&only_visible=true`,
   )
   if (!Array.isArray(tools)) return []
-  return (
-    await Promise.all(
-      tools.map(async (tool: any) => {
-        if (!tool.context || !tool.context_id || !tool.app_id) {
-          return null
-        }
-        const {data: detailsData} = await axios.get(
-          `/api/v1/${tool.context.toLowerCase()}s/${tool.context_id}/external_tools/${tool.app_id}`
-        )
-        const globalNavigation = detailsData?.global_navigation
-        const customFields = detailsData?.custom_fields
-        if (!globalNavigation?.label) {
-          return null
-        }
-        return {
-          href: (customFields?.url ?? globalNavigation?.url) || null,
-          imgSrc: globalNavigation.icon_url || null,
-          label: globalNavigation.label,
-          svgPath: globalNavigation.icon_svg_path_64 || null,
-        } as ExternalTool
-      })
-    )
-  ).filter((app): app is ExternalTool => app !== null)
+  return tools
+    .map((tool: any) => {
+      const globalNavigation = tool.placements?.global_navigation
+      if (!globalNavigation?.title) {
+        return null
+      }
+      return {
+        href: globalNavigation.html_url,
+        label: globalNavigation.title,
+        imgSrc: globalNavigation.icon_url || null,
+        svgPath: globalNavigation.icon_svg_path_64 || null,
+      } as ExternalTool
+    })
+    .filter((app): app is ExternalTool => app !== null)
 }
 
 export function getExternalTools(): ExternalTool[] {

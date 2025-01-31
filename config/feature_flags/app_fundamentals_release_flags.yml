@@ -10,26 +10,6 @@ granular_permissions_manage_course_content:
   applies_to: RootAccount
   display_name: Granular permissions for managing course content
   description: Add granularity to permissions around managing all other course content
-granular_permissions_manage_courses:
-  state: allowed_on
-  applies_to: RootAccount
-  display_name: Granular permissions for managing courses
-  description: Add granularity to permissions around managing courses i.e. Add / Publish / Conclude / Delete
-granular_permissions_manage_users:
-  state: allowed_on
-  applies_to: RootAccount
-  display_name: Granular permissions for Add/Remove roles from Course
-  description: Adds granular permissions for adding and removing each role, and a separate permission for other course admin actions
-granular_permissions_manage_groups:
-  state: allowed_on
-  applies_to: RootAccount
-  display_name: Granular permissions for managing groups in Account or Course contexts
-  description: Add granularity to permissions around managing groups in Account or Course contexts
-granular_permissions_manage_lti:
-  state: allowed_on
-  applies_to: RootAccount
-  display_name: Granular permissions for managing LTI tools in Account or Course contexts
-  description: Add granularity to permissions around managing LTI tools in Account or Course contexts
 course_templates:
   state: hidden
   applies_to: RootAccount
@@ -71,4 +51,24 @@ password_complexity:
   applies_to: RootAccount
   display_name: Enhance password options
   description: More control over password settings at institution level
+default_source_csp_logging:
+  state: hidden
+  applies_to: RootAccount
+  display_name: Default Source Content Security Policy Logging
+  description: Set the default-src directive for the Content-Security-Policy-Logging header to 'self' and log violations
   shadow: true
+course_archival:
+  state: hidden
+  applies_to: RootAccount
+  display_name: Course Archival
+  description: Allows for the ability to archive courses
+blueprint_item_notifications:
+  state: hidden
+  applies_to: Account
+  display_name: Blueprint Item Notifications
+  description: Adds an option that allows teachers and students to receive new-item notifications for content synced from the blueprint course
+migrate_assignment_group_categories:
+  state: hidden
+  applies_to: Course
+  display_name: Preserve Group Set During Assignment or Discussion Copy
+  description: When copying a group assignment or discussion topic to another course, a group set set with the same name is created in the destination course if no matching group set exists

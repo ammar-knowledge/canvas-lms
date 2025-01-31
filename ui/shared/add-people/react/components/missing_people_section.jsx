@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import PropTypes from 'prop-types'
 import {missingsShape} from './shapes'
@@ -27,7 +27,7 @@ import {TextInput} from '@instructure/ui-text-input'
 import {Text} from '@instructure/ui-text'
 import {Link} from '@instructure/ui-link'
 
-const I18n = useI18nScope('add_people_missing_people_section')
+const I18n = createI18nScope('add_people_missing_people_section')
 
 const namePrompt = I18n.t('Click to add a name')
 const nameLabel = I18n.t("New user's name")
@@ -93,7 +93,7 @@ class MissingPeopleSection extends React.Component {
       // The link was rendered with the attribute data-address=address for this row.
       // Use it to find the checkbox with the matching value.
       const checkbox = document.querySelector(
-        `input[type="checkbox"][value="${event.currentTarget.getAttribute('data-address')}"]`
+        `input[type="checkbox"][value="${event.currentTarget.getAttribute('data-address')}"]`,
       )
       if (checkbox) {
         checkbox.focus()
@@ -124,7 +124,7 @@ class MissingPeopleSection extends React.Component {
     this.setState({selectAll: event.currentTarget.checked})
     if (event.currentTarget.checked) {
       Object.keys(this.props.missing).forEach(address =>
-        this.onSelectNewForMissingByAddress(address)
+        this.onSelectNewForMissingByAddress(address),
       )
     } else {
       Object.keys(this.props.missing).forEach(address => this.onUncheckUserByAddress(address))
@@ -371,7 +371,7 @@ class MissingPeopleSection extends React.Component {
   // render the list of login_ids where we did not find users
   render() {
     return (
-      <div className="addpeople__missing namelist">
+      <div className="addpeople__missing namelist" data-testid="addpeople__missing-namelist">
         <Table
           caption={<ScreenReaderContent>{I18n.t('Unmatched login list')}</ScreenReaderContent>}
         >

@@ -43,14 +43,14 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Alert} from '@instructure/ui-alerts'
 import {Link} from '@instructure/ui-link'
 import {Text} from '@instructure/ui-text'
 import {PresentationContent, ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {Transition} from '@instructure/ui-motion'
 
-const I18n = useI18nScope('ajaxflashalert')
+const I18n = createI18nScope('ajaxflashalert')
 
 const messageHolderId = 'flashalert_message_holder' // specs fail if I reuse jquery's elements
 const screenreaderMessageHolderId = 'flash_screenreader_holder'
@@ -83,7 +83,7 @@ function findDetailMessage(err: CanvasApiResponseError) {
           a = err.response.data.message
           b = err.message
         }
-      } catch (ignore) {
+      } catch (_ignore) {
         a = err.message
       }
     }
@@ -239,7 +239,7 @@ export function showFlashAlert(args: ShowFlashAlertArgs) {
       alertContainer.id = messageHolderId
       alertContainer.setAttribute(
         'style',
-        'position: fixed; top: 0; left: 0; width: 100%; z-index: 100000;'
+        'position: fixed; top: 0; left: 0; width: 100%; z-index: 100000;',
       )
       document.body.appendChild(alertContainer)
     }
@@ -257,7 +257,7 @@ export function showFlashAlert(args: ShowFlashAlertArgs) {
         screenReaderOnly={srOnly}
         liveRegionPoliteness={politeness}
       />,
-      parent
+      parent,
     )
   }
 
@@ -282,4 +282,8 @@ export function showFlashError(message = I18n.t('An error occurred making a netw
 
 export function showFlashSuccess(message: string) {
   return () => showFlashAlert({message, type: 'success'})
+}
+
+export function showFlashWarning(message: string) {
+  return () => showFlashAlert({message, type: 'warning'})
 }

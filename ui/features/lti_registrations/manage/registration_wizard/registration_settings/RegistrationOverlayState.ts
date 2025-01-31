@@ -15,10 +15,10 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import createStore, {type StoreApi} from 'zustand/vanilla'
+import {createStore, type StoreApi} from 'zustand/vanilla'
 import {subscribeWithSelector} from 'zustand/middleware'
 import type {RegistrationOverlay} from '../../model/RegistrationOverlay'
-import type {LtiScope} from '../../model/LtiScope'
+import type {LtiScope} from '@canvas/lti/model/LtiScope'
 import type {LtiPlacement} from '../../model/LtiPlacement'
 import type {LtiPlacementOverlay} from '../../model/PlacementOverlay'
 import type {LtiConfiguration} from '../../model/lti_tool_configuration/LtiConfiguration'
@@ -31,13 +31,13 @@ export interface RegistrationOverlayActions {
   updateDevKeyName: (name: string) => void
   updateRegistrationTitle: (s: string) => void
   toggleDisabledScope: (scope: LtiScope) => void
-  toggleDisabledPlacement: (scope: LtiPlacement) => void
+  toggleDisabledPlacement: (placement: LtiPlacement) => void
   toggleDisabledSub: (sub: string) => void
   updateRegistrationIconUrl: (s: string) => void
   updateRegistrationLaunchHeight: (s: string) => void
   updateRegistrationLaunchWidth: (s: string) => void
   updatePlacement: (
-    placement_type: LtiPlacement
+    placement_type: LtiPlacement,
   ) => (fn: (placementOverlay: LtiPlacementOverlay) => LtiPlacementOverlay) => void
   /**
    * Restore all values to their default values
@@ -64,7 +64,7 @@ const updatePlacement =
       registration: {
         ...state.registration,
         placements: (state.registration.placements || []).map(p =>
-          p.type === placement_type ? fn(p) : p
+          p.type === placement_type ? fn(p) : p,
         ),
       },
     }))
@@ -96,8 +96,8 @@ const updateRegistrationKey =
 
 const toggleString =
   <S extends string>(s: S) =>
-  (strings: Array<S> | undefined): Array<S> => {
-    if (typeof strings === 'undefined') {
+  (strings: Array<S> | null | undefined): Array<S> => {
+    if (typeof strings === 'undefined' || strings === null) {
       return [s]
     } else if (strings.includes(s)) {
       return strings.filter(x => x !== s)
@@ -126,7 +126,7 @@ const updateAdminNickname = (nickname: string) =>
 // const updateRegistrationPlacements = (s: string) => updateRegistrationKey('placements')(() => s)
 const resetOverlays = (configuration: LtiConfiguration) =>
   updateState(state =>
-    initialOverlayStateFromLtiRegistration(configuration, null, state.developerKeyName)
+    initialOverlayStateFromLtiRegistration(configuration, null, state.developerKeyName),
   )
 
 export type RegistrationOverlayStore = StoreApi<
@@ -137,18 +137,18 @@ export type RegistrationOverlayStore = StoreApi<
 
 export const createRegistrationOverlayStore = (
   developerKeyName: string | null,
-  ltiRegistration: LtiImsRegistration
+  ltiRegistration: LtiImsRegistration,
 ): StoreApi<
   {
     state: RegistrationOverlayState
   } & RegistrationOverlayActions
 > =>
-  createStore<{state: RegistrationOverlayState} & RegistrationOverlayActions>(
+  createStore<{state: RegistrationOverlayState} & RegistrationOverlayActions>()(
     subscribeWithSelector(set => ({
       state: initialOverlayStateFromLtiRegistration(
         ltiRegistration.tool_configuration,
         ltiRegistration.overlay,
-        developerKeyName
+        developerKeyName,
       ),
       updateDevKeyName: (name: string) =>
         set(state => {
@@ -178,15 +178,15 @@ export const createRegistrationOverlayStore = (
           updatePlacement(placement)(placementOverlay => ({
             ...placementOverlay,
             icon_url: iconUrl,
-          }))(state)
+          }))(state),
         ),
-    }))
+    })),
   )
 
 const initialOverlayStateFromLtiRegistration = (
   configuration: LtiConfiguration,
   overlay?: RegistrationOverlay | null,
-  developerKeyName?: string | null
+  developerKeyName?: string | null,
 ): RegistrationOverlayState => {
   return {
     developerKeyName: developerKeyName || '',
@@ -215,10 +215,10 @@ export const canvasPlatformSettings = (configuration: LtiConfiguration): Extensi
 
 const placementsWithOverlay = (
   configuration: LtiConfiguration,
-  overlay?: RegistrationOverlay | null
+  overlay?: RegistrationOverlay | null,
 ) =>
   canvasPlatformSettings(configuration)?.settings.placements.flatMap(
-    initialPlacementOverlayStateFromPlacementConfig(overlay?.placements || [])
+    initialPlacementOverlayStateFromPlacementConfig(overlay?.placements || []),
   ) || []
 
 const initialPlacementOverlayStateFromPlacementConfig =

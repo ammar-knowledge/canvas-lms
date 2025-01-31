@@ -261,9 +261,10 @@
 class RubricsApiController < ApplicationController
   include Api::V1::Rubric
   include Api::V1::RubricAssessment
+  include Api::V1::Attachment
 
   before_action :require_user
-  before_action :require_context
+  before_action :require_context, except: [:upload_template]
   before_action :validate_args
 
   VALID_ASSESSMENT_SCOPES = %w[assessments graded_assessments peer_assessments].freeze
@@ -338,7 +339,19 @@ class RubricsApiController < ApplicationController
 
     import_response = api_json(import, @current_user, session)
     import_response[:user] = user_json(import.user, @current_user, session) if import.user
+    import_response[:attachment] = import.attachment.slice(:id, :filename, :size)
     render json: import_response
+  end
+
+  # @API Templated file for importing a rubric
+  # @returns a CSV file in the format that can be imported
+  def upload_template
+    send_data(
+      RubricImport.template_file,
+      type: "text/csv",
+      filename: "import_rubric_template.csv",
+      disposition: "attachment"
+    )
   end
 
   # @API Get the status of a rubric import
@@ -354,14 +367,101 @@ class RubricsApiController < ApplicationController
                  RubricImport.find_specific_rubric_import(@context, params[:id]) or raise ActiveRecord::RecordNotFound
                end
       import_response = api_json(import, @current_user, session)
-      import_response[:user] = user_json(import.user, @current_user, session) if import.user
+      import_response[:user] = user_json(import.user, import.user, session) if import.user
+      import_response[:attachment] = import.attachment.slice(:id, :filename, :size) if import.attachment
       render json: import_response
     rescue ActiveRecord::RecordNotFound => e
       render json: { message: e.message }, status: :not_found
     end
   end
 
+  def rubrics_by_import_id
+    return unless authorized_action(@context, @current_user, :manage_rubrics)
+
+    rubrics = Rubric.where(rubric_imports_id: params[:id], context: @context)
+    render json: rubrics_json(rubrics, @current_user, session)
+  end
+
+  def download_rubrics
+    return unless authorized_action(@context, @current_user, :manage_rubrics)
+
+    rubric_ids = params[:rubric_ids]
+    if rubric_ids.blank?
+      render json: { error: I18.t("No rubric IDs provided") }, status: :bad_request
+      return
+    end
+
+    rubrics = Rubric.where(id: rubric_ids, context: @context)
+
+    if rubrics.empty?
+      render json: { error: I18.t("No rubrics found") }, status: :not_found
+      return
+    end
+
+    csv_content = generate_rubrics_csv(rubrics)
+
+    send_data(
+      csv_content,
+      type: "text/csv",
+      filename: "rubrics_export.csv",
+      disposition: "attachment"
+    )
+  end
+
   private
+
+  def generate_rubrics_csv(rubrics)
+    max_ratings = 0
+    rubrics.each do |rubric|
+      rubric.data.each do |criterion|
+        ratings_count = criterion[:ratings].length
+        max_ratings = ratings_count if ratings_count > max_ratings
+      end
+    end
+
+    column_headers = [
+      "Rubric Name",
+      "Criteria Name",
+      "Criteria Description",
+      "Criteria Enable Range"
+    ]
+
+    max_ratings.times do
+      column_headers += [
+        "Rating Name",
+        "Rating Description",
+        "Rating Points"
+      ]
+    end
+
+    CSV.generate(headers: true) do |csv|
+      csv << column_headers
+
+      rubrics.each do |rubric|
+        rubric_name = rubric.title
+        criteria = rubric.data
+
+        criteria.each do |criterion|
+          row = [
+            rubric_name,
+            criterion[:description],
+            criterion[:long_description],
+            criterion[:criterion_use_range]
+          ]
+
+          criterion[:ratings].each do |rating|
+            row += [
+              rating[:description],
+              rating[:long_description],
+              rating[:points]
+            ]
+          end
+
+          csv << row
+        end
+      end
+    end
+  end
 
   def rubric_assessments(rubric)
     scope = if @context.is_a? Course

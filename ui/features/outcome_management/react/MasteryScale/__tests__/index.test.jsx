@@ -18,7 +18,7 @@
 
 import React from 'react'
 import {render as rtlRender, waitFor, fireEvent} from '@testing-library/react'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
 import moxios from 'moxios'
 import OutcomesContext from '@canvas/outcomes/react/contexts/OutcomesContext'
 import {ACCOUNT_OUTCOME_PROFICIENCY_QUERY} from '@canvas/outcomes/graphql/MasteryScale'
@@ -58,12 +58,12 @@ describe('MasteryScale', () => {
 
   const render = (
     children,
-    {contextType = 'Account', contextId = '11', mocks = masteryScalesGraphqlMocks} = {}
+    {contextType = 'Account', contextId = '11', mocks = masteryScalesGraphqlMocks} = {},
   ) => {
     return rtlRender(
       <OutcomesContext.Provider value={{env: {contextType, contextId}}}>
         <MockedProvider mocks={mocks}>{children}</MockedProvider>
-      </OutcomesContext.Provider>
+      </OutcomesContext.Provider>,
     )
   }
 
@@ -76,7 +76,7 @@ describe('MasteryScale', () => {
   it('loads proficiency data to Course', async () => {
     const {getByText, getByDisplayValue} = render(
       <MasteryScale contextType="Course" contextId="12" />,
-      {contextType: 'Course', contextId: '12'}
+      {contextType: 'Course', contextId: '12'},
     )
     expect(getByText('Loading')).toBeInTheDocument()
     await waitFor(() => expect(getByDisplayValue(/Rating A/)).toBeInTheDocument())
@@ -87,18 +87,21 @@ describe('MasteryScale', () => {
     expect(getByText('Loading')).toBeInTheDocument()
     await waitFor(() => {
       expect(
-        getByText(/Permission to change this mastery scale at the account level is enabled for/)
+        getByText(/Permission to change this mastery scale at the account level is enabled for/),
       ).toBeInTheDocument()
       expect(
-        getByText(/Permission to change this mastery scale at the course level is enabled for/)
+        getByText(/Permission to change this mastery scale at the course level is enabled for/),
       ).toBeInTheDocument()
-      expect(getAllByText(/Account Admin/).length).not.toBe(0)
+      expect(getAllByText(/Account Admin/)).not.toHaveLength(0)
       expect(getByText(/Teacher/)).toBeInTheDocument()
     })
   })
 
   it('displays an error on failed request', async () => {
-    const {getByText} = render(<MasteryScale />, {mocks: []})
+    const mocks = [...masteryScalesGraphqlMocks]
+    mocks[0] = {...mocks[0], result: {errors: new Error('aw shucks')}}
+
+    const {getByText} = render(<MasteryScale />, {mocks: mocks})
     await waitFor(() => expect(getByText(/An error occurred/)).toBeInTheDocument())
   })
 
@@ -165,9 +168,9 @@ describe('MasteryScale', () => {
       await waitFor(() =>
         expect(
           queryByText(
-            /This mastery scale will be used as the default for all courses within your account/
-          )
-        ).not.toBeInTheDocument()
+            /This mastery scale will be used as the default for all courses within your account/,
+          ),
+        ).not.toBeInTheDocument(),
       )
     })
   })

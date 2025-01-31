@@ -19,8 +19,9 @@ import $ from 'jquery'
 import * as uploadFileModule from '@canvas/upload-file'
 import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
 import {CREATE_SUBMISSION_DRAFT} from '@canvas/assignments/graphql/student/Mutations'
-import {createCache} from '@canvas/apollo'
-import {fireEvent, render, waitFor} from '@testing-library/react'
+import {createCache} from '@canvas/apollo-v3'
+import {fireEvent, render, waitFor,act} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import {
   LOGGED_OUT_STUDENT_VIEW_QUERY,
   STUDENT_VIEW_QUERY,
@@ -28,18 +29,20 @@ import {
   SUBMISSION_HISTORIES_QUERY,
   USER_GROUPS_QUERY,
 } from '@canvas/assignments/graphql/student/Queries'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
 import {mockQuery} from '@canvas/assignments/graphql/studentMocks'
 import React from 'react'
 import StudentViewQuery from '../components/StudentViewQuery'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 jest.mock('../components/AttemptSelect')
 
 describe('student view integration tests', () => {
-  const oldENV = window.ENV
+  let user
 
   beforeEach(() => {
-    window.ENV = {
+    user = userEvent.setup()
+    fakeENV.setup({
       FEATURES: {instui_nav: true},
       context_asset_string: 'test_1',
       ASSIGNMENT_ID: '1',
@@ -47,15 +50,16 @@ describe('student view integration tests', () => {
       current_user: {display_name: 'bob', avatar_url: 'awesome.avatar.url', id: '1'},
       PREREQS: {},
       current_user_roles: ['user', 'student'],
-    }
+    })
   })
 
   afterEach(() => {
-    window.ENV = oldENV
+    fakeENV.teardown()
+    jest.clearAllMocks()
   })
 
   describe('StudentViewQuery', () => {
-    function createGraphqlMocks(createSubmissionDraftOverrides = {}) {
+    async function createGraphqlMocks(createSubmissionDraftOverrides = {}) {
       const mocks = [
         {
           query: STUDENT_VIEW_QUERY,
@@ -84,50 +88,78 @@ describe('student view integration tests', () => {
         },
       ]
 
-      const mockResults = Promise.all(
+      return Promise.all(
         mocks.map(async ({query, variables, overrides}) => {
           const result = await mockQuery(query, overrides, variables)
           return {
             request: {query, variables},
             result,
           }
-        })
+        }),
       )
-      return mockResults
     }
 
-    // TODO: These three tests could be moved to the StudentViewQuery unit test file
     it('renders normally', async () => {
       const mocks = await createGraphqlMocks()
       const {findByTestId} = render(
         <MockedProvider mocks={mocks} cache={createCache()}>
           <StudentViewQuery assignmentLid="1" submissionID="1" />
-        </MockedProvider>
-      )
-      expect(await findByTestId('assignments-2-student-view')).toBeInTheDocument()
-    }, 10000)
-
-    it('renders loading', async () => {
-      const mocks = await createGraphqlMocks()
-      const {getByTitle} = render(
-        <MockedProvider mocks={mocks} cache={createCache()}>
-          <StudentViewQuery assignmentLid="1" submissionID="1" />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
-      expect(getByTitle('Loading')).toBeInTheDocument()
+      await act(async () => {
+        const element = await findByTestId('assignments-2-student-view')
+        expect(element).toBeInTheDocument()
+      })
     })
 
-    it('renders error', async () => {
+    it('renders error state correctly', async () => {
       const mocks = await createGraphqlMocks()
       mocks[0].error = new Error('aw shucks')
-      const {getByText} = render(
+      const {findByText} = render(
         <MockedProvider mocks={mocks} cache={createCache()}>
           <StudentViewQuery assignmentLid="1" submissionID="1" />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
-      expect(await waitFor(() => getByText('Sorry, Something Broke'))).toBeInTheDocument()
+      await act(async () => {
+        const errorElement = await findByText('Sorry, Something Broke')
+        expect(errorElement).toBeInTheDocument()
+      })
+    })
+
+    it('handles file upload successfully', async () => {
+      const mockFile = new File(['test content'], 'test.jpg', {type: 'image/jpeg'})
+      const mocks = await createGraphqlMocks({
+        CreateSubmissionDraftPayload: {
+          submissionDraft: {
+            attachments: [{displayName: 'test.jpg', _id: '1'}],
+            submissionAttempt: 1,
+          },
+        },
+      })
+
+      const {findByTestId, getByTestId} = render(
+        <AlertManagerContext.Provider value={{setOnFailure: jest.fn(), setOnSuccess: jest.fn()}}>
+          <MockedProvider mocks={mocks} cache={createCache()}>
+            <StudentViewQuery assignmentLid="1" submissionID="1" />
+          </MockedProvider>
+        </AlertManagerContext.Provider>,
+      )
+
+      const fileInput = await findByTestId('input-file-drop')
+
+      await act(async () => {
+        await user.upload(fileInput, mockFile)
+      })
+
+      // Wait for the file upload and GraphQL mutation to complete
+      await waitFor(
+        () => {
+          expect(getByTestId('upload-box')).toBeInTheDocument()
+        },
+        {timeout: 3000},
+      )
     })
 
     // This cannot be tested at the <AttemptTab> because the new file being
@@ -150,7 +182,7 @@ describe('student view integration tests', () => {
           <MockedProvider mocks={mocks} cache={createCache()}>
             <StudentViewQuery assignmentLid="1" submissionID="1" />
           </MockedProvider>
-        </AlertManagerContext.Provider>
+        </AlertManagerContext.Provider>,
       )
 
       const files = [new File(['foo'], 'test.jpg', {type: 'image/jpg'})]
@@ -184,7 +216,7 @@ describe('student view integration tests', () => {
           <MockedProvider mocks={mocks} cache={createCache()}>
             <StudentViewQuery assignmentLid="1" submissionID="1" />
           </MockedProvider>
-        </AlertManagerContext.Provider>
+        </AlertManagerContext.Provider>,
       )
 
       const files = [
@@ -215,7 +247,7 @@ describe('student view integration tests', () => {
       const {findAllByText} = render(
         <MockedProvider mocks={mocks} cache={createCache()}>
           <StudentViewQuery assignmentLid="1" />
-        </MockedProvider>
+        </MockedProvider>,
       )
       expect((await findAllByText('Test Assignment'))[0]).toBeInTheDocument()
     })
@@ -226,13 +258,15 @@ describe('student view integration tests', () => {
         {Rubric: {title: 'Test Rubric', id: '123'}},
       ]
       const mocks = [await createPublicAssignmentMocks(overrides)]
-      const {findByRole} = render(
+      const {findByTestId} = render(
         <MockedProvider mocks={mocks} cache={createCache()}>
           <StudentViewQuery assignmentLid="1" />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
-      expect(await findByRole('button', {name: 'View Rubric'})).toBeInTheDocument()
+      // Wait for rubric content to be visible
+      const rubricTab = await findByTestId('rubric-tab')
+      expect(rubricTab).toBeInTheDocument()
     })
 
     it('does not render the rubric panel if no rubric is present', async () => {
@@ -241,7 +275,7 @@ describe('student view integration tests', () => {
       const {queryByRole} = render(
         <MockedProvider mocks={mocks} cache={createCache()}>
           <StudentViewQuery assignmentLid="1" />
-        </MockedProvider>
+        </MockedProvider>,
       )
 
       expect(queryByRole('button', {name: 'View Rubric'})).not.toBeInTheDocument()
@@ -277,74 +311,82 @@ describe('student view integration tests', () => {
             request: {query, variables},
             result,
           }
-        })
+        }),
       )
       return mockResults
     }
 
     it('renders needs submission view when peer review mode is enabled and the reviewer has not submitted', async () => {
-      window.ENV.peer_review_mode_enabled = true
-      window.ENV.peer_review_available = true
+      fakeENV.setup({
+        peer_review_mode_enabled: true,
+        peer_review_available: true,
+      })
 
       const mocks = await createGraphqlMocks({Submission: {state: 'unsubmitted'}})
       const {findByText} = render(
         <MockedProvider mocks={mocks} cache={createCache()}>
           <StudentViewQuery assignmentLid="1" submissionID="1" reviewerSubmissionID="2" />
-        </MockedProvider>
+        </MockedProvider>,
       )
       expect(
-        await findByText('You must submit your own work before you can review your peers.')
+        await findByText('You must submit your own work before you can review your peers.'),
       ).toBeInTheDocument()
     })
 
     it('renders unavailible view when peer review mode is enabled and the reviewer has submitted but there are no submissions to review', async () => {
-      window.ENV.peer_review_mode_enabled = true
-      window.ENV.peer_review_available = false
+      fakeENV.setup({
+        peer_review_mode_enabled: true,
+        peer_review_available: false,
+      })
 
       const mocks = await createGraphqlMocks({Submission: {state: 'submitted'}})
       const {findByText} = render(
         <MockedProvider mocks={mocks} cache={createCache()}>
           <StudentViewQuery assignmentLid="1" submissionID="1" reviewerSubmissionID="2" />
-        </MockedProvider>
+        </MockedProvider>,
       )
       expect(
-        await findByText('There are no submissions available to review just yet.')
+        await findByText('There are no submissions available to review just yet.'),
       ).toBeInTheDocument()
     })
 
     it('does not render unavailible or needs submission view when peer review mode is disabled', async () => {
-      window.ENV.peer_review_mode_enabled = false
-      window.ENV.peer_review_available = false
+      fakeENV.setup({
+        peer_review_mode_enabled: false,
+        peer_review_available: false,
+      })
 
       const mocks = await createGraphqlMocks()
       const {queryByText} = render(
         <MockedProvider mocks={mocks} cache={createCache()}>
           <StudentViewQuery assignmentLid="1" submissionID="1" reviewerSubmissionID="2" />
-        </MockedProvider>
+        </MockedProvider>,
       )
       expect(
-        queryByText('You must submit your own work before you can review your peers.')
+        queryByText('You must submit your own work before you can review your peers.'),
       ).not.toBeInTheDocument()
       expect(
-        queryByText('There are no submissions available to review just yet.')
+        queryByText('There are no submissions available to review just yet.'),
       ).not.toBeInTheDocument()
     })
 
     it('does not render unavailible or needs submission view when peer review mode is enabled and there are submissions to review', async () => {
-      window.ENV.peer_review_mode_enabled = true
-      window.ENV.peer_review_available = true
+      fakeENV.setup({
+        peer_review_mode_enabled: true,
+        peer_review_available: true,
+      })
 
       const mocks = await createGraphqlMocks()
       const {queryByText} = render(
         <MockedProvider mocks={mocks} cache={createCache()}>
           <StudentViewQuery assignmentLid="1" submissionID="1" reviewerSubmissionID="2" />
-        </MockedProvider>
+        </MockedProvider>,
       )
       expect(
-        queryByText('You must submit your own work before you can review your peers.')
+        queryByText('You must submit your own work before you can review your peers.'),
       ).not.toBeInTheDocument()
       expect(
-        queryByText('There are no submissions available to review just yet.')
+        queryByText('There are no submissions available to review just yet.'),
       ).not.toBeInTheDocument()
     })
   })

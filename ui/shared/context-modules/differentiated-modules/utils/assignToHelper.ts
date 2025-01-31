@@ -17,7 +17,7 @@
  */
 
 import type {AssignmentOverridePayload, AssignmentOverridesPayload, ItemType} from '../react/types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import type {
   DateDetailsPayload,
   ItemAssignToCardSpec,
@@ -25,7 +25,7 @@ import type {
   AssigneeOption,
 } from '../react/Item/types'
 
-const I18n = useI18nScope('differentiated_modules')
+const I18n = createI18nScope('differentiated_modules')
 
 export const setContainScrollBehavior = (element: HTMLElement | null) => {
   if (element !== null) {
@@ -42,10 +42,10 @@ export const setContainScrollBehavior = (element: HTMLElement | null) => {
 }
 
 export const generateAssignmentOverridesPayload = (
-  selectedAssignees: AssigneeOption[]
+  selectedAssignees: AssigneeOption[],
 ): AssignmentOverridesPayload => {
   const studentsOverrideId = selectedAssignees.find(
-    assignee => assignee.id.includes('student') && assignee.overrideId
+    assignee => assignee.id.includes('student') && assignee.overrideId,
   )?.overrideId
   const sectionOverrides = selectedAssignees
     .filter(assignee => assignee.id.includes('section'))
@@ -70,7 +70,7 @@ export const generateAssignmentOverridesPayload = (
 export const generateDateDetailsPayload = (
   cards: ItemAssignToCardSpec[],
   hasModuleOverrides: boolean,
-  deletedModuleAssignees: string[]
+  deletedModuleAssignees: string[],
 ) => {
   const payload: DateDetailsPayload = {} as DateDetailsPayload
   const everyoneCard = cards.find(card => card.selectedAssigneeIds.includes('everyone'))
@@ -92,6 +92,7 @@ export const generateDateDetailsPayload = (
     payload.only_visible_to_overrides = true
   }
 
+  // @ts-expect-error
   payload.assignment_overrides = overrideCards
     .map(card => {
       const isUpdatedModuleOverride = card.contextModuleId !== undefined && card.isEdited
@@ -106,6 +107,8 @@ export const generateDateDetailsPayload = (
             id: shouldUpdate ? card.overrideId : undefined,
             course_section_id: section.split('-')[1],
             due_at: card.due_at,
+            reply_to_topic_due_at: card.reply_to_topic_due_at,
+            required_replies_due_at: card.required_replies_due_at,
             unlock_at: card.unlock_at,
             lock_at: card.lock_at,
             unassign_item: false,
@@ -127,6 +130,8 @@ export const generateDateDetailsPayload = (
           id: isDefaultAdhocOverride && !isUpdatedModuleOverride ? card.overrideId : undefined,
           student_ids: studentIds,
           due_at: card.due_at,
+          reply_to_topic_due_at: card.reply_to_topic_due_at,
+          required_replies_due_at: card.required_replies_due_at,
           unlock_at: card.unlock_at,
           lock_at: card.lock_at,
           unassign_item: false,
@@ -139,6 +144,8 @@ export const generateDateDetailsPayload = (
         overrides.push({
           id: isDefaultCourseOverride && !isUpdatedModuleOverride ? card.overrideId : undefined,
           due_at: card.due_at || null,
+          reply_to_topic_due_at: card.reply_to_topic_due_at,
+          required_replies_due_at: card.required_replies_due_at,
           unlock_at: card.unlock_at || null,
           lock_at: card.lock_at || null,
           course_id: 'everyone',
@@ -153,6 +160,8 @@ export const generateDateDetailsPayload = (
             id: isDefaultGroupOverride ? card.overrideId : undefined,
             group_id: group.split('-')[1],
             due_at: card.due_at,
+            reply_to_topic_due_at: card.reply_to_topic_due_at,
+            required_replies_due_at: card.required_replies_due_at,
             unlock_at: card.unlock_at,
             lock_at: card.lock_at,
           }
@@ -164,6 +173,7 @@ export const generateDateDetailsPayload = (
   const masteryPathsCard = cards.find(card => card.selectedAssigneeIds.includes('mastery_paths'))
   if (masteryPathsCard !== undefined) {
     const isAlreadyMasteryPath = masteryPathsCard.defaultOptions?.[0]?.includes('Mastery Paths')
+    // @ts-expect-error
     payload.assignment_overrides.push({
       id: isAlreadyMasteryPath ? masteryPathsCard.overrideId : undefined,
       title: 'Mastery Paths',
@@ -184,6 +194,8 @@ export const generateDateDetailsPayload = (
       payload.assignment_overrides.push({
         id: undefined,
         due_at: null,
+        reply_to_topic_due_at: null,
+        required_replies_due_at: null,
         unlock_at: null,
         lock_at: null,
         student_ids: studentIds,
@@ -197,6 +209,8 @@ export const generateDateDetailsPayload = (
       payload.assignment_overrides.push({
         id: undefined,
         due_at: null,
+        reply_to_topic_due_at: null,
+        required_replies_due_at: null,
         unlock_at: null,
         lock_at: null,
         course_section_id: section,
@@ -236,7 +250,7 @@ export function getOverriddenAssignees(overrides?: DateDetailsOverride[]) {
         tmp =>
           tmp.course_section_id !== undefined &&
           tmp.course_section_id === current.course_section_id &&
-          !tmp.context_module_id
+          !tmp.context_module_id,
       )
       if (sectionOverride && current.course_section_id) {
         acc.sections.push(current.course_section_id)
@@ -253,7 +267,7 @@ export function getOverriddenAssignees(overrides?: DateDetailsOverride[]) {
       acc.students.push(...studentsOverride)
       return acc
     },
-    {sections: [], students: []}
+    {sections: [], students: []},
   )
   return overriddenTargets
 }

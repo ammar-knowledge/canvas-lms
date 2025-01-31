@@ -27,7 +27,7 @@ import PropTypes from 'prop-types'
 import {Billboard} from '@instructure/ui-billboard'
 import {Button, IconButton} from '@instructure/ui-buttons'
 import {IconPlusLine} from '@instructure/ui-icons'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {PresentationContent} from '@instructure/ui-a11y-content'
 import {Table} from '@instructure/ui-table'
 import {Spinner} from '@instructure/ui-spinner'
@@ -39,7 +39,7 @@ import {fetchProficiency, saveProficiency} from '../api'
 import NumberHelper from '@canvas/i18n/numberHelper'
 import SVGWrapper from '@canvas/svg-wrapper'
 
-const I18n = useI18nScope('ProficiencyTable')
+const I18n = createI18nScope('ProficiencyTable')
 
 const ADD_DEFAULT_COLOR = 'EF4437'
 
@@ -104,7 +104,7 @@ export default class ProficiencyTable extends React.Component {
           $.flashError(
             I18n.t('An error occurred while loading account proficiency ratings: %{m}', {
               m: e.response.statusText,
-            })
+            }),
           )
         }
         this.setState({billboard: true, loading: false})
@@ -113,7 +113,9 @@ export default class ProficiencyTable extends React.Component {
 
   configToState = data => {
     const rows = List(
-      data.ratings.map(rating => this.createRating(rating.description, rating.points, rating.color))
+      data.ratings.map(rating =>
+        this.createRating(rating.description, rating.points, rating.color),
+      ),
     )
     const masteryIndex = data.ratings.findIndex(rating => rating.mastery)
     this.setState({
@@ -201,7 +203,7 @@ export default class ProficiencyTable extends React.Component {
       row =>
         this.invalidPoints(row.get('points')) ||
         row.get('points') < 0 ||
-        this.invalidDescription(row.get('description'))
+        this.invalidDescription(row.get('description')),
     )
 
   stateToConfig = () => ({
@@ -217,7 +219,6 @@ export default class ProficiencyTable extends React.Component {
 
   handleSubmit = () => {
     if (!this.checkForErrors()) {
-      // eslint-disable-next-line promise/catch-or-return
       saveProficiency(this.props.accountId, this.stateToConfig()).then(response => {
         if (response.status === 200) {
           $.flashMessage(I18n.t('Account proficiency ratings saved'))
@@ -316,7 +317,7 @@ export default class ProficiencyTable extends React.Component {
             `
             Set up how your Proficiency Ratings appear inside of Learning Mastery Gradebook.
             Adjust number of ratings, mastery level, points, and colors.
-          `
+          `,
           ).trim()}
         />
         <Button color="primary" onClick={this.removeBillboard}>

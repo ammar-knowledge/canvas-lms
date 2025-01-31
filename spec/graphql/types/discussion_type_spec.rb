@@ -215,6 +215,11 @@ RSpec.shared_examples "DiscussionType" do
     expect(discussion_type.resolve("lockAt")).to eq discussion.lock_at
     expect(discussion_type.resolve("userCount")).to eq discussion.course.users.count
     expect(discussion_type.resolve("replyToEntryRequiredCount")).to eq discussion.reply_to_entry_required_count
+
+    expect(discussion_type.resolve("sortOrder")).to eq discussion.sort_order
+    expect(discussion_type.resolve("sortOrderLocked")).to eq discussion.sort_order_locked
+    expect(discussion_type.resolve("expanded")).to eq discussion.expanded
+    expect(discussion_type.resolve("expandedLocked")).to eq discussion.expanded_locked
   end
 
   it "orders root_entries by their created_at" do
@@ -223,10 +228,14 @@ RSpec.shared_examples "DiscussionType" do
     de3 = discussion.discussion_entries.create!(message: "root entry", user: @teacher)
     # adding a discussion entry should NOT impact sort order of root entries
     discussion.discussion_entries.create!(message: "sub entry", user: @teacher, parent_id: de2.id)
-    expect(discussion_type.resolve("discussionEntriesConnection(sortOrder: asc, rootEntries: true) { nodes { _id } }")).to eq [de.id, de2.id, de3.id].map(&:to_s)
-    expect(discussion_type.resolve("discussionEntriesConnection(sortOrder: desc, rootEntries: true) { nodes { _id } }")).to eq [de3.id, de2.id, de.id].map(&:to_s)
+    discussion.update!(sort_order: "asc", sort_order_locked: true)
+    Account.site_admin.enable_feature!(:discussion_default_sort)
+    expect(discussion_type.resolve("discussionEntriesConnection(rootEntries: true) { nodes { _id } }")).to eq [de.id, de2.id, de3.id].map(&:to_s)
+    discussion.update!(sort_order: "desc")
+    expect(discussion_type.resolve("discussionEntriesConnection(rootEntries: true) { nodes { _id } }")).to eq [de3.id, de2.id, de.id].map(&:to_s)
     discussion.discussion_entries.create!(message: "sub entry", user: @teacher, parent_id: de3.id)
-    expect(discussion_type.resolve("discussionEntriesConnection(sortOrder: desc, rootEntries: true) { nodes { _id } }")).to eq [de3.id, de2.id, de.id].map(&:to_s)
+    expect(discussion_type.resolve("discussionEntriesConnection(rootEntries: true) { nodes { _id } }")).to eq [de3.id, de2.id, de.id].map(&:to_s)
+    Account.site_admin.disable_feature!(:discussion_default_sort)
   end
 
   it "loads discussion_entry_drafts" do
@@ -826,7 +835,7 @@ describe Types::DiscussionType do
         workflow_state: "published"
       )
       @context_module = @course.context_modules.create!(name: "some module")
-      @context_module.unlock_at = Time.now + 1.day
+      @context_module.unlock_at = 1.day.from_now
       @context_module.add_item(type: "discussion_topic", id: @topic.id)
       @context_module.save!
     end
@@ -908,14 +917,6 @@ describe Types::DiscussionType do
   end
 
   context "selective release" do
-    before do
-      Account.site_admin.enable_feature! :selective_release_ui_api
-    end
-
-    after do
-      Account.site_admin.disable_feature! :selective_release_ui_api
-    end
-
     context "ungraded discussions" do
       before do
         course_factory(active_all: true)
@@ -932,14 +933,6 @@ describe Types::DiscussionType do
       end
 
       context "visibility" do
-        before do
-          Account.site_admin.enable_feature! :selective_release_backend
-        end
-
-        after do
-          Account.site_admin.disable_feature! :selective_release_backend
-        end
-
         it "is visible only to the assigned student" do
           override = @topic.assignment_overrides.create!
           override.assignment_override_students.create!(user: @student1)
@@ -974,30 +967,12 @@ describe Types::DiscussionType do
       end
 
       context "overrides" do
-        before do
-          Account.site_admin.enable_feature! :selective_release_ui_api
-        end
-
-        after do
-          Account.site_admin.disable_feature! :selective_release_ui_api
-        end
-
         it "returns data" do
           override = @topic.assignment_overrides.create!
           override.assignment_override_students.create!(user: @student1)
 
           expect(@student1_type.resolve("ungradedDiscussionOverrides { nodes { _id } }")).to match([override.id.to_s])
           expect(@student1_type.resolve("ungradedDiscussionOverrides { nodes { title } }")).to match([override.title])
-        end
-
-        it "does not return data if flag is off" do
-          Account.site_admin.disable_feature!(:selective_release_ui_api)
-
-          override = @topic.assignment_overrides.create!
-          override.assignment_override_students.create!(user: @student1)
-
-          expect(@student1_type.resolve("ungradedDiscussionOverrides { nodes { _id } }")).to be_nil
-          expect(@student1_type.resolve("ungradedDiscussionOverrides { nodes { title } }")).to be_nil
         end
       end
     end

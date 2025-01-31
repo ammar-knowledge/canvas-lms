@@ -19,10 +19,8 @@
 #
 
 require_relative "../graphql_spec_helper"
-require_relative "../../helpers/selective_release_common"
 
 RSpec.describe Mutations::UpdateDiscussionTopic do
-  include SelectiveReleaseCommon
   before(:once) do
     course_with_teacher(active_all: true)
     @attachment = attachment_with_context(@teacher)
@@ -46,7 +44,11 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
     set_checkpoints: nil,
     group_category_id: nil,
     ungraded_discussion_overrides: nil,
-    anonymous_state: nil
+    anonymous_state: nil,
+    sort_order: nil,
+    sort_order_locked: nil,
+    expanded: nil,
+    expanded_locked: nil
   )
     <<~GQL
       mutation {
@@ -68,12 +70,20 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
           #{"setCheckpoints: #{set_checkpoints}" unless set_checkpoints.nil?}
           #{"ungradedDiscussionOverrides: #{ungraded_discussion_overrides_str(ungraded_discussion_overrides)}" unless ungraded_discussion_overrides.nil?}
           #{"anonymousState: #{anonymous_state}" unless anonymous_state.nil?}
+          #{"sortOrder: #{sort_order}" unless sort_order.nil?}
+          #{"sortOrderLocked: #{sort_order_locked}" unless sort_order_locked.nil?}
+          #{"expanded: #{expanded}" unless expanded.nil?}
+          #{"expandedLocked: #{expanded_locked}" unless expanded_locked.nil?}
         }) {
           discussionTopic {
             _id
             published
             locked
             replyToEntryRequiredCount
+            expanded
+            expandedLocked
+            sortOrder
+            sortOrderLocked
             ungradedDiscussionOverrides {
               nodes {
                 _id
@@ -124,6 +134,10 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
               }
             }
           }
+          errors {
+            attribute
+            message
+          }
         }
       }
     GQL
@@ -156,6 +170,8 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
     args << peer_reviews_str(assignment[:peerReviews]) if assignment[:peerReviews]
     args << assignment_overrides_str(assignment[:assignmentOverrides]) if assignment[:assignmentOverrides]
     args << "forCheckpoints: #{assignment[:forCheckpoints]}" if assignment[:forCheckpoints]
+    args << "lockAt: \"#{assignment[:lockAt]}\"" if assignment[:lockAt]
+    args << "unlockAt: \"#{assignment[:unlockAt]}\"" if assignment[:unlockAt]
 
     "assignment: { #{args.join(", ")} }"
   end
@@ -246,6 +262,12 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
     result.to_h.with_indifferent_access
   end
 
+  def expect_error(result, message)
+    errors = result["errors"] || result.dig("data", "updateDiscussionTopic", "errors")
+    expect(errors).not_to be_nil
+    expect(errors[0]["message"]).to match(/#{message}/)
+  end
+
   it "updates the discussion topic" do
     delayed_post_at = 5.days.from_now.iso8601
     lock_at = 10.days.from_now.iso8601
@@ -269,6 +291,7 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
     expect(@topic.is_section_specific).to be false
     expect(@topic.delayed_post_at).to eq delayed_post_at
     expect(@topic.lock_at).to eq lock_at
+    expect(@topic.editor).to eq @teacher
   end
 
   context "attachments" do
@@ -380,6 +403,36 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
     expect(result["errors"]).to be_nil
     expect(result.dig("data", "updateDiscussionTopic", "discussionTopic", "locked")).to be false
     expect(@topic.reload.locked).to be false
+  end
+
+  context "message handling" do
+    it "does not update discussion message if in db its nil, and in request its empty string" do
+      @topic.update!(message: nil)
+      result = run_mutation(id: @topic.id, message: "")
+      expect(result["errors"]).to be_nil
+      expect(@topic.reload.message).to be_nil
+    end
+
+    it "does not update update discussion message if in db its empty string, and in request its nil" do
+      @topic.update!(message: "")
+      result = run_mutation(id: @topic.id, message: nil)
+      expect(result["errors"]).to be_nil
+      expect(@topic.reload.message).to eq ""
+    end
+
+    it "does update discussion message if in db its some value, and in request its empty string" do
+      @topic.update!(message: "Old Message")
+      result = run_mutation(id: @topic.id, message: "")
+      expect(result["errors"]).to be_nil
+      expect(@topic.reload.message).to eq ""
+    end
+
+    it "does update discussion message if in db its nil, and in request its some value" do
+      @topic.update!(message: nil)
+      result = run_mutation(id: @topic.id, message: "New Message")
+      expect(result["errors"]).to be_nil
+      expect(@topic.reload.message).to eq "New Message"
+    end
   end
 
   context "discussion assignment" do
@@ -527,8 +580,10 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
       new_points_possible = 100
       new_post_to_sis = true
       new_grading_type = "pass_fail"
+      lock_at = 20.days.from_now.iso8601
+      unlock_at = 10.days.from_now.iso8601
 
-      result = run_mutation(id: topic.id, assignment: { pointsPossible: new_points_possible, postToSis: new_post_to_sis, gradingType: new_grading_type })
+      result = run_mutation(id: topic.id, assignment: { pointsPossible: new_points_possible, postToSis: new_post_to_sis, gradingType: new_grading_type, lockAt: lock_at, unlockAt: unlock_at })
       expect(result["errors"]).to be_nil
 
       # Verify that the response from graphql is correct
@@ -540,11 +595,15 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
       # Verify that the saved object is correct
       topic.reload
       expect(topic.assignment).to be_present
+      expect(topic.lock_at).to eq(lock_at)
+      expect(topic.unlock_at).to eq(unlock_at)
       updated_assignment = Assignment.find(topic.assignment.id)
 
       expect(updated_assignment.points_possible).to eq(new_points_possible)
       expect(updated_assignment.post_to_sis).to eq(new_post_to_sis)
       expect(updated_assignment.grading_type.to_s).to eq(new_grading_type)
+      expect(updated_assignment.lock_at).to eq(lock_at)
+      expect(updated_assignment.unlock_at).to eq(unlock_at)
 
       # Verify that a new DiscussionTopic wasn't created
       expect(DiscussionTopic.last.id).to eq(topic.id)
@@ -567,19 +626,6 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
       expect(DiscussionTopic.last.id).to eq(@topic.id)
     end
 
-    it "can turn graded topic into ungraded section-specific topic in one edit" do
-      differentiated_modules_off
-      section1 = @course.course_sections.create!(name: "Section 1")
-      @course.course_sections.create!(name: "Section 2")
-
-      result = run_mutation(id: @topic.id, specific_sections: section1.id, assignment: { setAssignment: false })
-
-      expect(result["errors"]).to be_nil
-      expect(Assignment.find(@discussion_assignment.id).workflow_state).to eq "deleted"
-      expect(@topic.reload.assignment).to be_nil
-      expect(@topic.is_section_specific).to be_truthy
-    end
-
     it "updates the group category id" do
       group_category_old = @course.group_categories.create!(name: "Old Group Category")
       group_category_new = @course.group_categories.create!(name: "New Group Category")
@@ -588,6 +634,14 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
       @topic.reload
       expect(result["errors"]).to be_nil
       expect(@topic.group_category_id).to eq group_category_new.id
+    end
+
+    it "can turn a graded non-group discussion into a graded group discussion" do
+      gc = @course.group_categories.create!(name: "My Group Category")
+      result = run_mutation(id: @topic.id, group_category_id: gc.id, assignment: { groupCategoryId: gc.id })
+      @topic.reload
+      expect(result["errors"]).to be_nil
+      expect(@topic.group_category_id).to eq gc.id
     end
 
     it "returns error when the discussion group category id does not match the assignment" do
@@ -608,6 +662,41 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
       result = run_mutation(id: @topic.id, assignment: {})
       expect(result["errors"]).to be_nil
       expect(Assignment.last.ab_guid).to eq(["1E20776E-7053-11DF-8EBF-BE719DFF4B22"])
+    end
+
+    it "allows to update the discussion assignment by a user with custom role without :delete assignment permission" do
+      special_role = @course.account.roles.create!(name: "teacher without assignment delete", base_role_type: "TeacherEnrollment")
+      special_role.role_overrides.create!(permission: "manage_assignments_delete", context: @course.account, enabled: false)
+      @teacher.enrollments.first.update!(role: special_role)
+
+      result = run_mutation(id: @topic.id, published: false, assignment: { pointsPossible: 10 }) # assignment is needed to trigger the if
+
+      expect(result["errors"]).to be_nil
+    end
+
+    it "syncs the discussion and assignment lock_at and unlock_at fields when the assignment date changes" do
+      lock_at = 6.months.from_now.iso8601
+      unlock_at = 3.months.from_now.iso8601
+      expect(@topic.lock_at).to be_nil
+      result = run_mutation(id: @topic.id, assignment: { lockAt: lock_at.to_s, unlockAt: unlock_at.to_s })
+      expect(result["errors"]).to be_nil
+      expect(@topic.reload.lock_at).to eq lock_at.to_s
+      expect(@topic.reload.unlock_at).to eq unlock_at.to_s
+    end
+
+    it "clears discussion topic lock_at if assignment lock_at is cleared" do
+      @topic.update!(lock_at: 5.days.from_now)
+      result = run_mutation(id: @topic.id, assignment: { lockAt: nil })
+      expect(result["errors"]).to be_nil
+      expect(@topic.reload.lock_at).to be_nil
+    end
+
+    it "sets discussion topic lock_at to root lock_at even if assignment lock_at is nil" do
+      @topic.update!(lock_at: 5.days.from_now)
+      new_lock_at = 10.days.from_now.iso8601
+      result = run_mutation(id: @topic.id, lock_at: new_lock_at, assignment: { lockAt: nil })
+      expect(result["errors"]).to be_nil
+      expect(@topic.reload.lock_at).to eq(new_lock_at)
     end
   end
 
@@ -637,8 +726,9 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
       )
     end
 
-    it "successfully updates a discussion topic with checkpoints" do
-      result = run_mutation(id: @graded_topic.id, assignment: { forCheckpoints: true }, checkpoints: [
+    it "converts an ungraded discussion into a graded discussion with checkpoints" do
+      ungraded_discussion = discussion_topic_model({ context: @course })
+      result = run_mutation(id: ungraded_discussion.id, assignment: { forCheckpoints: true }, checkpoints: [
                               { checkpointLabel: CheckpointLabels::REPLY_TO_TOPIC, dates: [{ type: "everyone", dueAt: @due_at1.iso8601 }], pointsPossible: 6 },
                               { checkpointLabel: CheckpointLabels::REPLY_TO_ENTRY, dates: [{ type: "everyone", dueAt: @due_at2.iso8601 }], pointsPossible: 8, repliesRequired: 5 }
                             ])
@@ -656,6 +746,96 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
         expect(reply_to_entry_checkpoint["pointsPossible"]).to eq 8
         expect(discussion_topic["replyToEntryRequiredCount"]).to eq 5
       end
+    end
+
+    it "successfully updates a discussion topic with checkpoints" do
+      new_lock_at = 12.days.from_now
+      new_unlock_at = 1.day.from_now
+
+      result = run_mutation(id: @graded_topic.id, assignment: { forCheckpoints: true }, checkpoints: [
+                              { checkpointLabel: CheckpointLabels::REPLY_TO_TOPIC, dates: [{ type: "everyone", dueAt: @due_at1.iso8601, lockAt: new_lock_at.iso8601, unlockAt: new_unlock_at.iso8601 }], pointsPossible: 6 },
+                              { checkpointLabel: CheckpointLabels::REPLY_TO_ENTRY, dates: [{ type: "everyone", dueAt: @due_at2.iso8601, lockAt: new_lock_at.iso8601, unlockAt: new_unlock_at.iso8601 }], pointsPossible: 8, repliesRequired: 5 }
+                            ])
+
+      discussion_topic = result.dig("data", "updateDiscussionTopic", "discussionTopic")
+
+      reply_to_topic_checkpoint = discussion_topic["assignment"]["checkpoints"].find { |checkpoint| checkpoint["tag"] == CheckpointLabels::REPLY_TO_TOPIC }
+      reply_to_entry_checkpoint = discussion_topic["assignment"]["checkpoints"].find { |checkpoint| checkpoint["tag"] == CheckpointLabels::REPLY_TO_ENTRY }
+
+      expect(Assignment.last.unlock_at).to be_within(1.second).of(new_unlock_at)
+      expect(Assignment.last.lock_at).to be_within(1.second).of(new_lock_at)
+      expect(Assignment.last.sub_assignments.first.unlock_at).to be_within(1.second).of(new_unlock_at)
+      expect(Assignment.last.sub_assignments.first.lock_at).to be_within(1.second).of(new_lock_at)
+      expect(Assignment.last.sub_assignments.last.unlock_at).to be_within(1.second).of(new_unlock_at)
+      expect(Assignment.last.sub_assignments.last.lock_at).to be_within(1.second).of(new_lock_at)
+
+      aggregate_failures do
+        expect(result["errors"]).to be_nil
+        expect(reply_to_topic_checkpoint).to be_truthy
+        expect(reply_to_entry_checkpoint).to be_truthy
+        expect(reply_to_topic_checkpoint["pointsPossible"]).to eq 6
+        expect(reply_to_entry_checkpoint["pointsPossible"]).to eq 8
+        expect(discussion_topic["replyToEntryRequiredCount"]).to eq 5
+      end
+    end
+
+    it "successfully updates a discussion topic with checkpoints, part two" do
+      missing_submission_deduction = 10.0
+      @course.create_late_policy(
+        missing_submission_deduction_enabled: true,
+        missing_submission_deduction:
+      )
+
+      @student_for_missing = student_in_course.user
+
+      @graded_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "graded topic")
+
+      @reply_to_topic_points = 5
+      @reply_to_entry_points = 15
+
+      discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+      @reply_to_topic = creator_service.call(
+        discussion_topic: discussion,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "override", set_type: "ADHOC", student_ids: [@student_for_missing.id] }],
+        points_possible: @reply_to_topic_points
+      )
+
+      @reply_to_entry = creator_service.call(
+        discussion_topic: discussion,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "override", set_type: "ADHOC", student_ids: [@student_for_missing.id] }],
+        points_possible: @reply_to_entry_points,
+        replies_required: 3
+      )
+
+      c1_assignment_override = @reply_to_topic.assignment_overrides.active.first
+      c2_assignment_override = @reply_to_entry.assignment_overrides.active.first
+
+      result = run_mutation(id: discussion.id, assignment: { forCheckpoints: true }, checkpoints: [
+                              { checkpointLabel: CheckpointLabels::REPLY_TO_TOPIC, dates: [{ id: c1_assignment_override.id, type: "override", setType: "ADHOC", studentIds: [@student_for_missing.id], dueAt: 14.days.ago.iso8601 }], pointsPossible: @reply_to_topic_points },
+                              { checkpointLabel: CheckpointLabels::REPLY_TO_ENTRY, dates: [{ id: c2_assignment_override.id, type: "override", setType: "ADHOC", studentIds: [@student_for_missing.id], dueAt: 7.days.ago.iso8601 }], pointsPossible: @reply_to_entry_points, repliesRequired: 3 }
+                            ])
+
+      expect(result["errors"]).to be_nil
+
+      parent_assignment = discussion.assignment
+      student2_parent_submission = parent_assignment.submission_for_student(@student_for_missing)
+      student2_reply_to_topic_submission = @reply_to_topic.submission_for_student(@student_for_missing)
+      student2_reply_to_entry_submission = @reply_to_entry.submission_for_student(@student_for_missing)
+
+      expect(student2_reply_to_topic_submission.missing?).to be true
+      expect(student2_reply_to_entry_submission.missing?).to be true
+      expect(student2_parent_submission.missing?).to be true
+
+      expected_reply_to_topic_score = @reply_to_topic_points.to_f * ((100 - missing_submission_deduction.to_f) / 100)
+      expected_reply_to_entry_score = @reply_to_entry_points.to_f * ((100 - missing_submission_deduction.to_f) / 100)
+      expected_parent_score = expected_reply_to_topic_score + expected_reply_to_entry_score
+
+      expect(student2_reply_to_topic_submission.score).to eq expected_reply_to_topic_score
+      expect(student2_reply_to_entry_submission.score).to eq expected_reply_to_entry_score
+
+      expect(student2_parent_submission.score).to eq expected_parent_score
     end
 
     it "updates the reply to topic checkpoint due at date" do
@@ -731,8 +911,8 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
 
       expect(@graded_topic.published?).to be false
       expect(@graded_topic.assignment.published?).to be false
-      expect(@checkpoint1.published?).to be false
-      expect(@checkpoint2.published?).to be false
+      expect(@checkpoint1.reload.published?).to be false
+      expect(@checkpoint2.reload.published?).to be false
 
       # check publish topic,
       result = run_mutation({ id: @graded_topic.id, published: true })
@@ -878,17 +1058,45 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
       expect(DiscussionTopic.last.reply_to_entry_required_count).to eq 0
       expect(@graded_topic.reload.assignment).to be_nil
     end
+
+    it "returns an error if the sum of points possible for the checkpoints exceeds the max for the assignment" do
+      result = run_mutation(id: @graded_topic.id, assignment: { forCheckpoints: true }, checkpoints: [
+                              { checkpointLabel: CheckpointLabels::REPLY_TO_TOPIC,
+                                dates: [],
+                                pointsPossible: 999_999_999 },
+                              { checkpointLabel: CheckpointLabels::REPLY_TO_ENTRY,
+                                dates: [],
+                                pointsPossible: 1,
+                                repliesRequired: 2 }
+                            ])
+      expect_error(result, "The value of possible points for this assignment cannot exceed 999999999.")
+    end
+
+    it "returns an error when attempting add a group category to a discussion with checkpoints" do
+      group_category = @course.group_categories.create!(name: "My Group Category")
+      # even though @graded_topic has checkpoints, we still need to pass in the actual checkpoints so they are not cleared out
+      result = run_mutation(id: @graded_topic.id, group_category_id: group_category.id, assignment: { forCheckpoints: true, groupCategoryId: group_category.id }, checkpoints: [
+                              { checkpointLabel: CheckpointLabels::REPLY_TO_TOPIC, dates: [{ type: "everyone", dueAt: @due_at1.iso8601 }], pointsPossible: 6 },
+                              { checkpointLabel: CheckpointLabels::REPLY_TO_ENTRY, dates: [{ type: "everyone", dueAt: @due_at2.iso8601 }], pointsPossible: 8, repliesRequired: 5 }
+                            ])
+
+      expect_error(result, "Group discussions cannot have checkpoints.")
+    end
+
+    it "returns an error when attempting to add checkpoints to a graded group discussion" do
+      group_category = @course.group_categories.create!(name: "My Group Category")
+      topic = group_discussion_assignment
+
+      result = run_mutation(id: topic.id, group_category_id: group_category.id, assignment: { forCheckpoints: true, groupCategoryId: group_category.id }, checkpoints: [
+                              { checkpointLabel: CheckpointLabels::REPLY_TO_TOPIC, dates: [{ type: "everyone", dueAt: @due_at1.iso8601 }], pointsPossible: 6 },
+                              { checkpointLabel: CheckpointLabels::REPLY_TO_ENTRY, dates: [{ type: "everyone", dueAt: @due_at2.iso8601 }], pointsPossible: 8, repliesRequired: 5 }
+                            ])
+
+      expect_error(result, "Group discussions cannot have checkpoints.")
+    end
   end
 
-  context "with selective_release_ui_api flag ON" do
-    before do
-      Account.site_admin.enable_feature!(:selective_release_ui_api)
-    end
-
-    after do
-      Account.site_admin.disable_feature!(:selective_release_ui_api)
-    end
-
+  context "with selective release" do
     it "updates ungraded assignment overrides" do
       student1 = @course.enroll_student(User.create!, enrollment_state: "active").user
       student2 = @course.enroll_student(User.create!, enrollment_state: "active").user
@@ -917,21 +1125,42 @@ RSpec.describe Mutations::UpdateDiscussionTopic do
       expect(Announcement.last.course_sections.pluck(:id)).to eq([section1.id])
     end
 
-    it "does not update ungraded assignment overrides if flag is off" do
-      Account.site_admin.disable_feature!(:selective_release_ui_api)
-
-      student1 = @course.enroll_student(User.create!, enrollment_state: "active").user
-      student2 = @course.enroll_student(User.create!, enrollment_state: "active").user
-      @course.enroll_student(User.create!, enrollment_state: "active").user
-
-      ungraded_discussion_overrides = {
-        studentIds: [student1.id, student2.id]
-      }
-      result = run_mutation(id: @topic.id, ungraded_discussion_overrides:)
+    it "updates a section specific announcement to be unspecific" do
+      section1 = @course.course_sections.create!(name: "Section 1")
+      announcement1 = @course.announcements.create!(title: "Announcement Title", message: "Announcement Message", user: @teacher, course_sections: [section1], is_section_specific: true)
+      result = run_mutation(id: announcement1.id, specific_sections: "all")
       expect(result["errors"]).to be_nil
-
-      new_override = DiscussionTopic.last.active_assignment_overrides.first
-      expect(new_override).to be_nil
+      expect(Announcement.last.is_section_specific).to be_falsy
+      expect(Announcement.last.course_sections.pluck(:id)).to eq([])
     end
+
+    it "delete the section of section specific announcement" do
+      section1 = @course.course_sections.create!(name: "Section 1")
+      announcement1 = @course.announcements.create!(title: "Announcement Title", message: "Announcement Message", user: @teacher, course_sections: [section1], is_section_specific: true)
+      section1.destroy!
+      expect(Announcement.last.is_section_specific).to be_truthy
+      expect(Announcement.last.course_sections.pluck(:id)).to eq([])
+      result = run_mutation(id: announcement1.id, specific_sections: "all")
+      expect(result["errors"]).to be_nil
+      expect(Announcement.last.is_section_specific).to be_falsy
+    end
+  end
+
+  it "updates the default sort order" do
+    result = run_mutation({ id: @topic.id, sort_order: :asc })
+    expect(result["errors"]).to be_nil
+    expect(result[:data][:updateDiscussionTopic][:discussionTopic][:sortOrder]).to eq("asc")
+    result = run_mutation({ id: @topic.id, sort_order_locked: true })
+    expect(result["errors"]).to be_nil
+    expect(result[:data][:updateDiscussionTopic][:discussionTopic][:sortOrderLocked]).to be true
+  end
+
+  it "updates the default expand fields" do
+    result = run_mutation({ id: @topic.id, expanded: true })
+    expect(result["errors"]).to be_nil
+    expect(@topic.reload.expanded).to be true
+    result = run_mutation({ id: @topic.id, expanded_locked: true })
+    expect(result["errors"]).to be_nil
+    expect(@topic.reload.expanded_locked).to be true
   end
 end

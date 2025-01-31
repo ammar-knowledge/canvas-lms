@@ -55,6 +55,7 @@ module Lti
     PLACEMENTS_BY_MESSAGE_TYPE = {
       LtiAdvantage::Messages::ResourceLinkRequest::MESSAGE_TYPE => %i[
         account_navigation
+        analytics_hub
         assignment_edit
         assignment_group_menu
         assignment_index_menu
@@ -110,6 +111,7 @@ module Lti
     }.freeze
 
     PLACEMENTS = PLACEMENTS_BY_MESSAGE_TYPE.values.flatten.uniq.freeze
+    LTI_ADVANTAGE_MESSAGE_TYPES = PLACEMENTS_BY_MESSAGE_TYPE.keys.freeze
 
     PLACEMENT_LOOKUP = {
       "Canvas.placements.accountNavigation" => ACCOUNT_NAVIGATION,
@@ -139,11 +141,7 @@ module Lti
     end
 
     def self.public_placements(root_account)
-      if root_account.feature_enabled?(:remove_submission_type_selection_from_dev_keys_edit_page)
-        valid_placements(root_account) - NON_PUBLIC_PLACEMENTS
-      else
-        valid_placements(root_account)
-      end
+      valid_placements(root_account) - NON_PUBLIC_PLACEMENTS
     end
 
     def self.update_tabs_and_return_item_banks_tab(tabs, new_label = nil)

@@ -79,6 +79,26 @@ describe "Account Notification API", type: :request do
       expect(json.length).to eq 2
     end
 
+    describe "include_all param" do
+      it "includes all announcements for an admin" do
+        student_role = @account.get_role_by_name("StudentEnrollment")
+        @user.close_announcement(second_announcement)
+        account_notification(message: "student_only", role_ids: [student_role.id])
+        json = api_call(:get, @path, @api_params.merge(include_all: true))
+
+        expect(json.length).to eq 3
+        messages = json.pluck("message")
+        expect(messages).to match_array(%w[default second student_only])
+      end
+
+      it "returns bad request if non admin user tries to call with include_all" do
+        non_admin = user_with_managed_pseudonym(account: @admin.account)
+        api_call_as_user(non_admin, :get, @path, @api_params.merge(include_all: true))
+
+        expect(response).to have_http_status :forbidden
+      end
+    end
+
     it "does not include dismissed past announcements by default" do
       @user.close_announcement(second_announcement)
       json = api_call(:get, @path, @api_params)
@@ -146,8 +166,8 @@ describe "Account Notification API", type: :request do
                       action: "create",
                       format: "json",
                       account_id: @admin.account.id.to_s }
-      @start_at = DateTime.now.utc
-      @end_at = (DateTime.now + 1.day).utc
+      @start_at = Time.zone.now.utc
+      @end_at = 1.day.from_now.utc
     end
 
     it "creates an account notification" do
@@ -277,7 +297,7 @@ describe "Account Notification API", type: :request do
                            message: "This is a notification"
                          } },
                        {},
-                       expected_status: 401)
+                       expected_status: 403)
     end
 
     it "returns an error for missing required params" do
@@ -333,7 +353,7 @@ describe "Account Notification API", type: :request do
       @end_at = 1.day.from_now
     end
 
-    it "returns not authorized for non admin user" do
+    it "returns forbidden for non admin user" do
       user = user_with_managed_pseudonym
       api_call_as_user(user,
                        :put,
@@ -347,7 +367,7 @@ describe "Account Notification API", type: :request do
                            message: "This is a notification"
                          } },
                        {},
-                       expected_status: 401)
+                       expected_status: 403)
     end
 
     it "updates an existing account notification" do

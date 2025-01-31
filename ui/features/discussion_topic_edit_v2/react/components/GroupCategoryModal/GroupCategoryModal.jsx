@@ -53,7 +53,7 @@ export default function GroupCategoryModal({show, setShow, onSubmit}) {
     callback,
     newValue,
     max = Number.MAX_SAFE_INTEGER,
-    min = 0
+    min = 0,
   ) => {
     if (!Number.isInteger(newValue)) {
       callback(value)
@@ -126,7 +126,7 @@ export default function GroupCategoryModal({show, setShow, onSubmit}) {
                     renderTip={
                       <View display="block" maxWidth="20rem">
                         {I18N.t(
-                          'This option allow students to organize themselves into groups. Though each student is limited to one group set, they will have the ability to move themselves from one group to another.'
+                          'This option allow students to organize themselves into groups. Though each student is limited to one group set, they will have the ability to move themselves from one group to another.',
                         )}
                       </View>
                     }
@@ -171,7 +171,7 @@ export default function GroupCategoryModal({show, setShow, onSubmit}) {
               onChange={(_event, {value}) => {
                 setNumberOfGroups(value !== 'students-by-number-of-groups' ? 0 : numberOfGroups)
                 setNumberOfStudentsPerGroup(
-                  value !== 'number-of-students-per-group' ? 0 : numberOfStudentsPerGroup
+                  value !== 'number-of-students-per-group' ? 0 : numberOfStudentsPerGroup,
                 )
                 setGroupStructure(value)
               }}
@@ -194,6 +194,7 @@ export default function GroupCategoryModal({show, setShow, onSubmit}) {
             </SimpleSelect>
             {groupStructure === 'students-by-number-of-groups' ? (
               <NumberInput
+                allowStringValue={true}
                 renderLabel={I18N.t('Number of Groups')}
                 value={numberOfGroups}
                 // 200 is the default maximum number of groups in a set
@@ -203,7 +204,7 @@ export default function GroupCategoryModal({show, setShow, onSubmit}) {
                     numberOfGroups,
                     setNumberOfGroups,
                     Number(event.target.value),
-                    200
+                    200,
                   )
                 }
                 onIncrement={() =>
@@ -215,6 +216,7 @@ export default function GroupCategoryModal({show, setShow, onSubmit}) {
               />
             ) : groupStructure === 'number-of-students-per-group' ? (
               <NumberInput
+                allowStringValue={true}
                 renderLabel={I18N.t('Number of Students Per Group')}
                 value={numberOfStudentsPerGroup}
                 // TODO: this should have a maximum of the number of students in the class
@@ -222,21 +224,21 @@ export default function GroupCategoryModal({show, setShow, onSubmit}) {
                   handleNumberChange(
                     numberOfStudentsPerGroup,
                     setNumberOfStudentsPerGroup,
-                    Number(event.target.value)
+                    Number(event.target.value),
                   )
                 }
                 onIncrement={() =>
                   handleNumberChange(
                     numberOfStudentsPerGroup,
                     setNumberOfStudentsPerGroup,
-                    numberOfStudentsPerGroup + 1
+                    numberOfStudentsPerGroup + 1,
                   )
                 }
                 onDecrement={() =>
                   handleNumberChange(
                     numberOfStudentsPerGroup,
                     setNumberOfStudentsPerGroup,
-                    numberOfStudentsPerGroup - 1
+                    numberOfStudentsPerGroup - 1,
                   )
                 }
               />

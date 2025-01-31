@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React, {useReducer, useEffect} from 'react'
 import {Modal} from '@instructure/ui-modal'
@@ -32,7 +32,7 @@ import {ToggleGroup} from '@instructure/ui-toggle-details'
 
 import {roles} from './util'
 
-const I18n = useI18nScope('release_notes')
+const I18n = createI18nScope('release_notes')
 
 const formatLanguage = new Intl.DisplayNames(['en'], {type: 'language'})
 
@@ -135,7 +135,7 @@ function CreateEditModal({open, onClose, onSubmit, currentNote, envs, langs}) {
         <CanvasMultiSelect
           label={I18n.t('Available to')}
           assistiveText={I18n.t(
-            'Select target groups. Type or use arrow keys to navigate. Multiple selections are allowed.'
+            'Select target groups. Type or use arrow keys to navigate. Multiple selections are allowed.',
           )}
           selectedOptionIds={state.target_roles}
           onChange={newValue =>

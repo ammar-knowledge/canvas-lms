@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React from 'react'
 import {responsiveQuerySizes} from '../../utils'
@@ -26,9 +26,10 @@ import {Link} from '@instructure/ui-link'
 import {Responsive} from '@instructure/ui-responsive'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
-import {ReadIcon, UnreadIcon} from './MarkAsReadIcons'
+import ReadIcon from '@canvas/read-icon'
+import UnreadIcon from '@canvas/unread-icon'
 
-const I18n = useI18nScope('discussion_posts')
+const I18n = createI18nScope('discussion_posts')
 const markAsReadText = I18n.t('Mark as Read')
 const markAsUnreadText = I18n.t('Mark as Unread')
 
@@ -40,12 +41,10 @@ export const MarkAsRead = props => {
       query={responsiveQuerySizes({mobile: true, desktop: true})}
       props={{
         mobile: {
-          textSize: 'small',
-          itemSpacing: '0 small 0 0',
+          itemSpacing: '0 xx-small 0 0',
           isMobile: true,
         },
         desktop: {
-          textSize: 'medium',
           itemSpacing: 'none',
           isMobile: false,
         },
@@ -65,7 +64,7 @@ export const MarkAsRead = props => {
           >
             {!responsiveProps.isMobile && !props.isSplitScreenView && (
               <AccessibleContent alt={currentText}>
-                <Text weight="bold" size={responsiveProps.textSize} style={{alignSelf: 'flex-end'}}>
+                <Text weight="bold" size="medium" style={{alignSelf: 'flex-end'}}>
                   {currentText}
                 </Text>
               </AccessibleContent>

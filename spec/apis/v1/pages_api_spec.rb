@@ -19,12 +19,10 @@
 
 require_relative "../api_spec_helper"
 require_relative "../locked_examples"
-require_relative "../../helpers/selective_release_common"
 
 describe "Pages API", type: :request do
   include Api::V1::User
   include AvatarHelper
-  include SelectiveReleaseCommon
 
   context "locked api item" do
     let(:item_type) { "page" }
@@ -418,6 +416,33 @@ describe "Pages API", type: :request do
                      "todo_date" => nil,
                      "publish_at" => nil }
         expect(json).to eq expected
+      end
+
+      it "does add verifiers by default" do
+        file = attachment_model(context: @course)
+        page = @course.wiki_pages.create!(title: "hrup", body: "/courses/#{@course.id}/files/#{file.id}")
+        json = api_call(:get,
+                        "/api/v1/courses/#{@course.id}/pages/#{page.url}",
+                        controller: "wiki_pages_api",
+                        action: "show",
+                        format: "json",
+                        course_id: @course.id.to_s,
+                        url_or_id: page.url)
+        expect(json["body"]).to eq "/courses/#{@course.id}/files/#{file.id}?verifier=#{file.uuid}"
+      end
+
+      it "does not add verifiers when no_verifiers set" do
+        file = attachment_model(context: @course)
+        page = @course.wiki_pages.create!(title: "hrup", body: "/courses/#{@course.id}/files/#{file.id}")
+        json = api_call(:get,
+                        "/api/v1/courses/#{@course.id}/pages/#{page.url}",
+                        controller: "wiki_pages_api",
+                        action: "show",
+                        format: "json",
+                        course_id: @course.id.to_s,
+                        url_or_id: page.url,
+                        no_verifiers: true)
+        expect(json["body"]).to eq page.body
       end
 
       it "retrieves front_page", priority: "1" do
@@ -890,16 +915,6 @@ describe "Pages API", type: :request do
         it "unless setting is disabled" do
           expect(page.assignment).to be_nil
         end
-
-        it "if setting is enabled" do
-          differentiated_modules_off
-          @course.conditional_release = true
-          @course.save!
-          expect(page.assignment).not_to be_nil
-          expect(page.assignment.title).to eq "Assignable Page"
-          expect(page.assignment.submission_types).to eq "wiki_page"
-          expect(page.assignment.only_visible_to_overrides).to be true
-        end
       end
     end
 
@@ -1235,62 +1250,6 @@ describe "Pages API", type: :request do
         end
       end
 
-      context "feature enabled" do
-        before do
-          differentiated_modules_off
-          @course.conditional_release = true
-          @course.save!
-        end
-
-        it "updates a linked assignment" do
-          wiki_page_assignment_model(wiki_page: @hidden_page)
-          json = api_call(:put,
-                          "/api/v1/courses/#{@course.id}/pages/#{@hidden_page.url}",
-                          { controller: "wiki_pages_api",
-                            action: "update",
-                            format: "json",
-                            course_id: @course.to_param,
-                            url_or_id: @hidden_page.url },
-                          { wiki_page: { title: "Changin' the Title",
-                                         assignment: { only_visible_to_overrides: true } } })
-          page = @course.wiki_pages.where(url: json["url"]).first!
-          expect(page.assignment.title).to eq "Changin' the Title"
-          expect(page.assignment.only_visible_to_overrides).to be true
-        end
-
-        it "destroys and restore a linked assignment" do
-          wiki_page_assignment_model(wiki_page: @hidden_page)
-          api_call(:put,
-                   "/api/v1/courses/#{@course.id}/pages/#{@hidden_page.url}",
-                   { controller: "wiki_pages_api",
-                     action: "update",
-                     format: "json",
-                     course_id: @course.to_param,
-                     url_or_id: @hidden_page.url },
-                   { wiki_page: { assignment: { set_assignment: false } } })
-          @hidden_page.reload
-          expect(@hidden_page.assignment).to be_nil
-          expect(@hidden_page.old_assignment_id).to eq @assignment.id
-          expect(@assignment.reload).to be_deleted
-          expect(@assignment.wiki_page).to be_nil
-
-          # Restore it
-          api_call(:put,
-                   "/api/v1/courses/#{@course.id}/pages/#{@hidden_page.url}",
-                   { controller: "wiki_pages_api",
-                     action: "update",
-                     format: "json",
-                     course_id: @course.to_param,
-                     url_or_id: @hidden_page.url },
-                   { wiki_page: { assignment: { set_assignment: true } } })
-          @hidden_page.reload
-          expect(@hidden_page.assignment).not_to be_nil
-          expect(@hidden_page.old_assignment_id).to eq @assignment.id
-          expect(@assignment.reload).not_to be_deleted
-          expect(@assignment.wiki_page).to eq @hidden_page
-        end
-      end
-
       it "does not update a linked assignment" do
         wiki_page_assignment_model(wiki_page: @hidden_page)
         json = api_call(:put,
@@ -1450,7 +1409,7 @@ describe "Pages API", type: :request do
                  course_id: @course.to_param,
                  url_or_id: page.url },
                { wiki_page: { student_planner_checkbox: "0" } })
-      expect(response).to be_unauthorized
+      expect(response).to be_forbidden
       page.reload
       expect(page.todo_date).to eq todo_date
     end
@@ -1487,7 +1446,7 @@ describe "Pages API", type: :request do
                { controller: "wiki_pages_api", action: "show", format: "json", course_id: @course.id.to_s, url_or_id: @hidden_page.url },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "refuses to list pages in an unpublished course" do
@@ -1498,7 +1457,7 @@ describe "Pages API", type: :request do
                { controller: "wiki_pages_api", action: "index", format: "json", course_id: @course.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "denies access to wiki in an unenrolled course" do
@@ -1515,14 +1474,14 @@ describe "Pages API", type: :request do
                { controller: "wiki_pages_api", action: "index", format: "json", course_id: other_course.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
 
       api_call(:get,
                "/api/v1/courses/#{other_course.id}/pages/front-page",
                { controller: "wiki_pages_api", action: "show", format: "json", course_id: other_course.id.to_s, url_or_id: "front-page" },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "allows access to a wiki in a public unenrolled course" do
@@ -1555,9 +1514,8 @@ describe "Pages API", type: :request do
       expect(json.find { |page| page["url"] == @front_page.url }["lock_explanation"]).to eq("This page is part of an unpublished module and is not available yet.")
     end
 
-    context "with selective_release_backend enabled" do
+    context "differentiated modules" do
       before :once do
-        Account.site_admin.enable_feature!(:selective_release_backend)
         @page = @course.wiki_pages.create!(title: "potentially locked page", body: "the page body")
       end
 
@@ -1567,7 +1525,7 @@ describe "Pages API", type: :request do
                  { controller: "wiki_pages_api", action: "index", format: "json", course_id: @course.id.to_s, include: ["body"] })
       end
 
-      it "includes lock info and excludes body for pages locked by unlock_at with selective_release_backend enabled" do
+      it "includes lock info and excludes body for pages locked by unlock_at" do
         @page.update!(unlock_at: 1.day.from_now)
         page_json = json.find { |p| p["url"] == @page.url }
         expect(page_json["locked_for_user"]).to be(true)
@@ -1575,7 +1533,7 @@ describe "Pages API", type: :request do
         expect(page_json.keys).not_to include("body")
       end
 
-      it "includes lock info and excludes body for pages locked by lock_at with selective_release_backend enabled" do
+      it "includes lock info and excludes body for pages locked by lock_at" do
         @page.update!(lock_at: 1.day.ago)
         page_json = json.find { |p| p["url"] == @page.url }
         expect(page_json["locked_for_user"]).to be(true)
@@ -1635,7 +1593,7 @@ describe "Pages API", type: :request do
                  url_or_id: @front_page.url },
                { publish: false, wiki_page: { body: "!!!!" } },
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       expect(@front_page.reload.body).not_to eq "!!!!"
     end
 
@@ -1735,7 +1693,7 @@ describe "Pages API", type: :request do
                  { controller: "wiki_pages_api", action: "create", format: "json", course_id: @course.to_param },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
 
       it "does not allow deleting pages" do
@@ -1748,7 +1706,7 @@ describe "Pages API", type: :request do
                    url_or_id: @editable_page.url },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
     end
 
@@ -1787,7 +1745,7 @@ describe "Pages API", type: :request do
                  { controller: "wiki_pages_api", action: "show", format: "json", course_id: @course.id.to_s, url_or_id: @unpublished_page.url },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
 
       it "does not show unpublished on public courses" do
@@ -1798,7 +1756,7 @@ describe "Pages API", type: :request do
                  { controller: "wiki_pages_api", action: "show", format: "json", course_id: @course.id.to_s, url_or_id: @unpublished_page.url },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
     end
 
@@ -1826,7 +1784,7 @@ describe "Pages API", type: :request do
                    url_or_id: @vpage.url },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
 
       it "refuses to retrieve a revision" do
@@ -1840,7 +1798,7 @@ describe "Pages API", type: :request do
                    revision_id: "3" },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
 
       it "refuses to revert a page" do
@@ -1854,7 +1812,7 @@ describe "Pages API", type: :request do
                    revision_id: "2" },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
 
       it "describes the latest version" do
@@ -1937,7 +1895,7 @@ describe "Pages API", type: :request do
                      revision_id: "3" },
                    {},
                    {},
-                   { expected_status: 401 })
+                   { expected_status: 403 })
         end
 
         it "does not revert page content" do
@@ -1951,7 +1909,7 @@ describe "Pages API", type: :request do
                      revision_id: "2" },
                    {},
                    {},
-                   { expected_status: 401 })
+                   { expected_status: 403 })
         end
       end
 
@@ -2181,7 +2139,7 @@ describe "Pages API", type: :request do
       get_index
       expect(JSON.parse(response.body).to_s).not_to include(page.title.to_s)
 
-      calls.each { |call| expect(send(call, page).to_s).to eq "401" }
+      calls.each { |call| expect(send(call, page).to_s).to eq "403" }
     end
 
     before :once do
@@ -2230,11 +2188,7 @@ describe "Pages API", type: :request do
                     @page_only_visible_to_overrides]
     end
 
-    context "with selective_release_backend enabled" do
-      before :once do
-        Account.site_admin.enable_feature! :selective_release_backend
-      end
-
+    context "differentiated modules" do
       it "lets the teacher see all pages" do
         @user = @teacher
         @all_pages.each { |p| calls_succeed(p) }
@@ -2287,7 +2241,7 @@ describe "Pages API", type: :request do
       end
     end
 
-    context "with selective_release_backend disabled and conditional release enabled" do
+    context "with conditional release enabled" do
       before :once do
         @course.update!(conditional_release: true)
       end
@@ -2319,56 +2273,6 @@ describe "Pages API", type: :request do
           calls_succeed(p, except: %i[post_revert put_update get_revisions get_show_revision])
         end
         calls_fail(@page_assigned_to_override_via_assignment)
-      end
-
-      it "gives observers same visibility as assigned student" do
-        @observer_enrollment.update_attribute(:associated_user_id, @student_with_override.id)
-        @user = @observer
-        [@page_untouched, @page_assigned_to_override_via_assignment, @page_assigned_to_all_via_assignment].each do |p|
-          calls_succeed(p, except: %i[post_revert put_update get_revisions get_show_revision])
-        end
-      end
-
-      it "gives observers without visibility all the things" do
-        @observer_enrollment.update_attribute(:associated_user_id, nil)
-        @user = @observer
-        [@page_untouched, @page_assigned_to_override_via_assignment, @page_assigned_to_all_via_assignment].each do |p|
-          calls_succeed(p, except: %i[post_revert put_update get_revisions get_show_revision])
-        end
-      end
-    end
-
-    context "with selective_release_backend disabled and conditional release disabled" do
-      before :once do
-        differentiated_modules_off
-        @course.update!(conditional_release: false)
-      end
-
-      it "lets the teacher see all pages" do
-        @user = @teacher
-        [@page_untouched, @page_assigned_to_override_via_assignment, @page_assigned_to_all_via_assignment].each { |p| calls_succeed(p) }
-      end
-
-      it "lets students with visibility see pages" do
-        @user = @student_with_override
-        [@page_untouched, @page_assigned_to_override_via_assignment, @page_assigned_to_all_via_assignment].each do |p|
-          calls_succeed(p, except: [:post_revert])
-        end
-      end
-
-      it "lets students without visibility see pages" do
-        @user = @student_without_override
-        [@page_untouched, @page_assigned_to_override_via_assignment, @page_assigned_to_all_via_assignment].each do |p|
-          calls_succeed(p, except: [:post_revert])
-        end
-      end
-
-      it "gives observers same visibility as unassigned student" do
-        @observer_enrollment.update_attribute(:associated_user_id, @student_without_override.id)
-        @user = @observer
-        [@page_untouched, @page_assigned_to_all_via_assignment, @page_assigned_to_override_via_assignment].each do |p|
-          calls_succeed(p, except: %i[post_revert put_update get_revisions get_show_revision])
-        end
       end
 
       it "gives observers same visibility as assigned student" do

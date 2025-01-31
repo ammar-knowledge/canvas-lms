@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -32,7 +31,7 @@ import Footer from './components/footer'
 import Header from './components/header/header'
 import PaceContent from './components/content'
 import CoursePaceEmpty from './components/course_pace_table/course_pace_empty'
-import {ResponsiveSizes, StoreState, CoursePace} from './types'
+import type {ResponsiveSizes, StoreState, CoursePace} from './types'
 import {
   getLoadingMessage,
   getShowLoadingOverlay,
@@ -40,15 +39,15 @@ import {
   getIsSyncing,
 } from './reducers/ui'
 import UnpublishedChangesTrayContents from './components/unpublished_changes_tray_contents'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {getSummarizedChanges, getCoursePace, getPacePublishing} from './reducers/course_paces'
 import {coursePaceActions} from './actions/course_paces'
-import {SummarizedChange} from './utils/change_tracking'
+import type {SummarizedChange} from './utils/change_tracking'
 import {Tray} from '@instructure/ui-tray'
 import Errors from './components/errors'
 import PaceModal from './components/pace_modal'
 
-const I18n = useI18nScope('course_paces_app')
+const I18n = createI18nScope('course_paces_app')
 
 interface StoreProps {
   readonly loadingMessage: string
@@ -67,7 +66,7 @@ interface DispatchProps {
 
 type ComponentProps = StoreProps & DispatchProps
 
-type ResponsiveComponentProps = ComponentProps & {
+export type ResponsiveComponentProps = ComponentProps & {
   readonly responsiveSize: ResponsiveSizes
 }
 
@@ -98,10 +97,8 @@ export const App = ({
     setBlueprintLocked(
       window.ENV.MASTER_COURSE_DATA?.restricted_by_master_course &&
         window.ENV.MASTER_COURSE_DATA?.is_master_course_child_content &&
-        coursePace.context_type === 'Course'
+        coursePace.context_type === 'Course',
     )
-    // this should run on first render
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleModalClose = () => {
@@ -130,7 +127,6 @@ export const App = ({
             isOpen={modalOpen}
             changes={unpublishedChanges}
             onClose={() => handleModalClose()}
-            handleDrawerToggle={() => setTrayOpen(!trayOpen)}
           />
         </>
       )
@@ -139,9 +135,10 @@ export const App = ({
         <>
           <View>
             <Errors />
-            <Header handleDrawerToggle={() => setTrayOpen(!trayOpen)} />
+            <Header handleDrawerToggle={() => setTrayOpen(!trayOpen)} responsiveSize="large" />
           </View>
           <Body />
+          {/* @ts-expect-error */}
           <Footer responsiveSize={responsiveSize} />
           <Tray
             label={I18n.t('Unpublished Changes tray')}
@@ -152,10 +149,7 @@ export const App = ({
             shouldReturnFocus={true}
             shouldCloseOnDocumentClick={true}
           >
-            <UnpublishedChangesTrayContents
-              handleTrayDismiss={() => setTrayOpen(false)}
-              changes={unpublishedChanges}
-            />
+            <UnpublishedChangesTrayContents handleTrayDismiss={() => setTrayOpen(false)} />
           </Tray>
         </>
       )
@@ -187,7 +181,9 @@ export const ResponsiveApp = (props: ComponentProps) => (
       large: {responsiveSize: 'large'},
     }}
   >
-    {({responsiveSize}) => <App responsiveSize={responsiveSize} {...props} />}
+    {responsiveProps => (
+      <App responsiveSize={responsiveProps!.responsiveSize as ResponsiveSizes} {...props} />
+    )}
   </Responsive>
 )
 
@@ -198,8 +194,6 @@ const mapStateToProps = (state: StoreState): StoreProps => {
     modalOpen: getShowPaceModal(state),
     unpublishedChanges: getSummarizedChanges(state),
     coursePace: getCoursePace(state),
-    isSyncing: getIsSyncing(state) === 1,
-    isPacePublishing: getPacePublishing(state),
   }
 }
 

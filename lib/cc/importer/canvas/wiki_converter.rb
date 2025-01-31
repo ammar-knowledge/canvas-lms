@@ -38,7 +38,11 @@ module CC::Importer::Canvas
     def convert_wiki(doc, path)
       wiki = {}
       wiki_name = File.basename(path).sub(".html", "")
-      title, body, meta = (get_html_title_and_body_and_meta_fields(doc) rescue get_html_title_and_body_and_meta_fields(open_file_xml(path)))
+      title, body, meta = begin
+        get_html_title_and_body_and_meta_fields(doc)
+      rescue EncodingError
+        get_html_title_and_body_and_meta_fields(open_file_xml(path))
+      end
       wiki[:title] = title
       wiki[:migration_id] = meta["identifier"]
       wiki[:editing_roles] = meta["editing_roles"]
@@ -52,6 +56,8 @@ module CC::Importer::Canvas
       wiki[:assignment] = nil
       wiki[:todo_date] = meta["todo_date"]
       wiki[:publish_at] = meta["publish_at"]
+      wiki[:unlock_at] = meta["unlock_at"]
+      wiki[:lock_at] = meta["lock_at"]
       if (asg_id = meta["assignment_identifier"])
         wiki[:assignment] = {
           migration_id: asg_id,

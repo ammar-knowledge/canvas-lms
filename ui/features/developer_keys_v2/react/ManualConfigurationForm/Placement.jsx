@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React from 'react'
 
@@ -27,7 +27,7 @@ import {TextInput} from '@instructure/ui-text-input'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {ToggleDetails} from '@instructure/ui-toggle-details'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 
 export default class Placement extends React.Component {
   constructor(props) {
@@ -73,12 +73,6 @@ export default class Placement extends React.Component {
   }
 
   messageTypeSelectable(placementName) {
-    if (
-      ['course_assignments_menu', 'module_menu_modal'].includes(placementName) &&
-      !ENV.FEATURES.lti_multiple_assignment_deep_linking
-    ) {
-      return false
-    }
     if (
       placementName === 'module_index_menu_modal' &&
       !ENV.FEATURES.lti_deep_linking_module_index_menu_modal
@@ -168,7 +162,7 @@ export default class Placement extends React.Component {
               {this.isSpecialType(placementName) ? (
                 <Alert variant="warning" margin="small">
                   {I18n.t(
-                    'This placement requires Deep Link support by the vendor. Check with your tool vendor to ensure they support this functionality'
+                    'This placement requires Deep Link support by the vendor. Check with your tool vendor to ensure they support this functionality',
                   )}
                 </Alert>
               ) : null}

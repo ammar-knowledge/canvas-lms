@@ -778,11 +778,11 @@ describe ContextExternalTool do
     end
 
     it "returns the correct deployment_id" do
-      expect(tool.deployment_id).to eq "#{tool.id}:#{Lti::Asset.opaque_identifier_for(tool.context)}"
+      expect(tool.deployment_id).to eq "#{tool.id}:#{Lti::V1p1::Asset.opaque_identifier_for(tool.context)}"
     end
 
     it "sends only 255 chars" do
-      allow(Lti::Asset).to receive(:opaque_identifier_for).and_return("a" * 256)
+      allow(Lti::V1p1::Asset).to receive(:opaque_identifier_for).and_return("a" * 256)
       expect(tool.deployment_id.size).to eq 255
     end
   end
@@ -2725,20 +2725,50 @@ describe ContextExternalTool do
         expect(tool.display_type(:course_navigation)).to eq "in_context"
         tool.course_navigation = { enabled: true }
         tool.save!
-        expect(tool.display_type(:course_navigation)).to eq "in_context"
+        expect(tool.display_type("course_navigation")).to eq "in_context"
       end
 
       it "is configurable by a property" do
         tool.course_navigation = { enabled: true }
         tool.settings[:display_type] = "custom_display_type"
         tool.save!
-        expect(tool.display_type(:course_navigation)).to eq "custom_display_type"
+        expect(tool.display_type("course_navigation")).to eq "custom_display_type"
       end
 
       it "is configurable in extension" do
         tool.course_navigation = { display_type: "other_display_type" }
         tool.save!
-        expect(tool.display_type(:course_navigation)).to eq "other_display_type"
+        expect(tool.display_type("course_navigation")).to eq "other_display_type"
+      end
+
+      it "is 'full_width' for global_navigation and analytics_hub by default" do
+        tool.global_navigation = { enabled: true }
+        tool.analytics_hub = { enabled: true }
+        tool.save!
+        expect(tool.display_type("global_navigation")).to eq "full_width"
+        expect(tool.display_type("analytics_hub")).to eq "full_width"
+      end
+
+      it "allows the 'full_width' default for global_navigation and analytics_hub to be overridden with accepted type" do
+        tool.global_navigation = { display_type: "borderless" }
+        tool.analytics_hub = { display_type: "borderless" }
+        tool.save!
+        expect(tool.display_type("global_navigation")).to eq "borderless"
+        expect(tool.display_type("analytics_hub")).to eq "borderless"
+      end
+
+      it "does not allow the 'full_width' default for global_navigation and analytics_hub to be overridden with unaccepted type" do
+        tool.global_navigation = { display_type: "other_display_type" }
+        tool.analytics_hub = { display_type: "other_display_type" }
+        tool.save!
+        expect(tool.display_type("global_navigation")).to eq "full_width"
+        expect(tool.display_type("analytics_hub")).to eq "full_width"
+      end
+
+      it "is full_width for global_navigation when tool does not define global_navigation" do
+        tool.global_navigation = nil
+        tool.save!
+        expect(tool.display_type("global_navigation")).to eq "full_width"
       end
     end
 
@@ -2983,6 +3013,12 @@ describe ContextExternalTool do
       expect(@tool.label_for(nil)).to eq "tool"
     end
 
+    it "returns the tool name if nothing else is set and text is an empty string" do
+      @tool.settings = { text: "" }
+      @tool.save!
+      expect(@tool.label_for(nil)).to eq "tool"
+    end
+
     it "returns the tool name if nothing is configured on the sent key" do
       @tool.settings = { course_navigation: { bob: "asfd" } }
       @tool.save!
@@ -3160,7 +3196,7 @@ describe ContextExternalTool do
     it "uses the global_asset_id for new assets that are stored in the db" do
       expect(@course.lti_context_id).to be_nil
       @tool = @course.context_external_tools.create!(name: "a", domain: "google.com", consumer_key: "12345", shared_secret: "secret")
-      context_id = Lti::Asset.global_context_id_for(@course)
+      context_id = Lti::V1p1::Asset.global_context_id_for(@course)
       @tool.opaque_identifier_for(@course)
       @course.reload
       expect(@course.lti_context_id).to eq context_id
@@ -3203,7 +3239,7 @@ describe ContextExternalTool do
     end
 
     it "updates the visibility cache if enrollments are updated or user is touched" do
-      time = Time.now
+      time = Time.zone.now
       enable_cache(:redis_cache_store) do
         Timecop.freeze(time) do
           course_with_student(account: @account, active_all: true)
@@ -3235,7 +3271,7 @@ describe ContextExternalTool do
     end
 
     it "updates the global navigation menu cache key when the global navigation tools are updated (or removed)" do
-      time = Time.now
+      time = Time.zone.now
       enable_cache do
         Timecop.freeze(time) do
           @admin_tool = @account.context_external_tools.new(name: "a", domain: "google.com", consumer_key: "12345", shared_secret: "secret")
@@ -3338,14 +3374,14 @@ describe ContextExternalTool do
       let(:admin) { account_admin_user(account: c.root_account) }
       let(:c) { course_factory(active_course: true) }
       let(:student) do
-        student = factory_with_protected_attributes(User, valid_user_attributes)
+        student = User.create!(valid_user_attributes)
         e = c.enroll_student(student)
         e.invite
         e.accept
         student
       end
       let(:teacher) do
-        teacher = factory_with_protected_attributes(User, valid_user_attributes)
+        teacher = User.create!(valid_user_attributes)
         e = c.enroll_teacher(teacher)
         e.invite
         e.accept
@@ -3488,16 +3524,16 @@ describe ContextExternalTool do
       expect(json[0][:use_tray]).to be true
     end
 
-    it "includes a boolean false for always_on" do
+    it "includes a boolean false for on_by_default" do
       Setting.set("rce_always_on_developer_key_ids", "90000000000001,90000000000002")
       json = ContextExternalTool.editor_button_json([tool], @course, user_with_pseudonym, nil, "")
-      expect(json[0][:always_on]).to be false
+      expect(json[0][:on_by_default]).to be false
     end
 
-    it "includes a boolean true for always_on" do
+    it "includes a boolean true for on_by_default" do
       Setting.set("rce_always_on_developer_key_ids", "90000000000001,#{tool.developer_key.global_id}")
       json = ContextExternalTool.editor_button_json([tool], @course, user_with_pseudonym, nil, "")
-      expect(json[0][:always_on]).to be true
+      expect(json[0][:on_by_default]).to be true
     end
 
     describe "includes the description" do
@@ -3549,14 +3585,7 @@ describe ContextExternalTool do
   describe "#default_icon_path" do
     it "references the lti_tool_default_icon_path, tool name, and tool developer key id" do
       tool = external_tool_1_3_model(opts: { name: "foo" })
-      expect(tool.developer_key.global_id).to be_a(Integer)
-      expect(tool.default_icon_path).to eq("/lti/tool_default_icon?id=#{tool.developer_key.global_id}&name=foo")
-    end
-
-    it "uses tool ID if there is no developer key id" do
-      tool = external_tool_model(opts: { name: "foo" })
-      expect(tool.global_id).to be_a(Integer)
-      expect(tool.default_icon_path).to eq("/lti/tool_default_icon?id=#{tool.global_id}&name=foo")
+      expect(tool.default_icon_path).to eq("/lti/tool_default_icon?name=foo")
     end
   end
 
@@ -4188,6 +4217,12 @@ describe ContextExternalTool do
               expect(tool.placement_allowed?(placement)).to be false
             end
           end
+
+          context "and the tool's domain is nil" do
+            before { tool.update!(domain: nil) }
+
+            it { is_expected.to be false }
+          end
         end
 
         context "when the tool has no domain and domain list is containing an empty space" do
@@ -4232,135 +4267,74 @@ describe ContextExternalTool do
       )
     end
 
-    context "update_unified_tool_id FF is on" do
+    context "the tool version is 1.1" do
+      let(:tool_version) { "1.1" }
+
       before do
-        tool.context.root_account.enable_feature!(:update_unified_tool_id)
+        allow(LearnPlatform::GlobalApi).to receive(:get_unified_tool_id).and_return(unified_tool_id)
       end
 
-      context "the tool version is 1.1" do
-        let(:tool_version) { "1.1" }
-
-        before do
-          allow(LearnPlatform::GlobalApi).to receive(:get_unified_tool_id).and_return(unified_tool_id)
-        end
-
-        it "calls the LearnPlatform::GlobalApi service and update the unified_tool_id attribute" do
-          subject.save
-          run_jobs
-          expect(LearnPlatform::GlobalApi).to have_received(:get_unified_tool_id).with(
-            { lti_domain: tool_domain,
-              lti_name: tool_name,
-              lti_tool_id: tool_id,
-              lti_url: tool_url,
-              lti_version: tool_version }
-          )
-          tool.reload
-          expect(tool.unified_tool_id).to eq(unified_tool_id)
-        end
-
-        it "starts a background job to update the unified_tool_id" do
-          expect do
-            subject.save
-          end.to change(Delayed::Job, :count).by(1)
-        end
-
-        context "when the tool is a redirect tool" do
-          let(:redirect_url) { "https://example.com" }
-
-          before do
-            tool.tool_id = "redirect"
-            tool.settings[:custom_fields] = { "url" => redirect_url }
-          end
-
-          it "calls the LearnPlatform::GlobalApi service with the correct lti_redirect_url" do
-            subject.save
-            run_jobs
-            expect(LearnPlatform::GlobalApi).to have_received(:get_unified_tool_id).with(hash_including(lti_redirect_url: redirect_url))
-          end
-        end
+      it "calls the LearnPlatform::GlobalApi service and update the unified_tool_id attribute" do
+        subject.save
+        run_jobs
+        expect(LearnPlatform::GlobalApi).to have_received(:get_unified_tool_id).with(
+          { lti_domain: tool_domain,
+            lti_name: tool_name,
+            lti_tool_id: tool_id,
+            lti_url: tool_url,
+            lti_version: tool_version }
+        )
+        tool.reload
+        expect(tool.unified_tool_id).to eq(unified_tool_id)
       end
 
-      context "the tool version is 1.3" do
-        let(:tool_version) { "1.3" }
-        let(:account) { account_model }
-
-        let_once(:developer_key) { dev_key_model_1_3(account:) }
-        let_once(:tool) do
-          ContextExternalTool.new(
-            context: @course,
-            consumer_key: "key",
-            shared_secret: "secret",
-            name: tool_name,
-            tool_id:,
-            domain: tool_domain,
-            url: tool_url,
-            lti_version: tool_version,
-            root_account: @root_account,
-            developer_key:
-          )
-        end
-
-        before do
-          tc = tool.developer_key.tool_configuration
-          tc.update_column(:unified_tool_id, unified_tool_id)
-          run_jobs # to empty the job queue
-        end
-
-        it "does not call the LearnPlatform::GlobalApi service" do
-          allow(LearnPlatform::GlobalApi).to receive(:get_unified_tool_id)
+      it "starts a background job to update the unified_tool_id" do
+        expect do
           subject.save
-          run_jobs
-          expect(LearnPlatform::GlobalApi).not_to have_received(:get_unified_tool_id)
-        end
-
-        it "does update the unified_tool_id attribute" do
-          subject.save
-          run_jobs
-          tool.reload
-          expect(tool.unified_tool_id).to eq(unified_tool_id)
-        end
+        end.to change(Delayed::Job, :count).by(1)
       end
 
-      context "when the tool is already existing" do
+      context "when the tool is a redirect tool" do
+        let(:redirect_url) { "https://example.com" }
+
         before do
+          tool.tool_id = "redirect"
+          tool.settings[:custom_fields] = { "url" => redirect_url }
+        end
+
+        it "calls the LearnPlatform::GlobalApi service with the correct lti_redirect_url" do
           subject.save
           run_jobs
-          allow(LearnPlatform::GlobalApi).to receive(:get_unified_tool_id)
-        end
-
-        context "when the tool is 'deleted'" do
-          it "does not call the LearnPlatform::GlobalApi service" do
-            subject.workflow_state = "deleted"
-            subject.name = "new name"
-            subject.save
-            run_jobs
-            expect(LearnPlatform::GlobalApi).not_to have_received(:get_unified_tool_id)
-          end
-        end
-
-        context "when the tool's name changed" do
-          it "calls the LearnPlatform::GlobalApi service" do
-            subject.name = "new name"
-            subject.save
-            run_jobs
-            expect(LearnPlatform::GlobalApi).to have_received(:get_unified_tool_id)
-          end
-        end
-
-        context "when the tool's description changed" do
-          it "does not call the LearnPlatform::GlobalApi service" do
-            subject.description = "new description"
-            subject.save
-            run_jobs
-            expect(LearnPlatform::GlobalApi).not_to have_received(:get_unified_tool_id)
-          end
+          expect(LearnPlatform::GlobalApi).to have_received(:get_unified_tool_id).with(hash_including(lti_redirect_url: redirect_url))
         end
       end
     end
 
-    context "update_unified_tool_id FF is off" do
+    context "the tool version is 1.3" do
+      let(:tool_version) { "1.3" }
+      let(:account) { account_model }
+
+      let_once(:developer_key) { lti_developer_key_model(account:) }
+      let_once(:tool_configuration) do
+        lti_tool_configuration_model(developer_key:, unified_tool_id:)
+      end
+      let_once(:tool) do
+        ContextExternalTool.new(
+          context: @course,
+          consumer_key: "key",
+          shared_secret: "secret",
+          name: tool_name,
+          tool_id:,
+          domain: tool_domain,
+          url: tool_url,
+          lti_version: tool_version,
+          root_account: @root_account,
+          developer_key:
+        )
+      end
+
       before do
-        tool.context.root_account.disable_feature!(:update_unified_tool_id)
+        run_jobs # to empty the job queue
       end
 
       it "does not call the LearnPlatform::GlobalApi service" do
@@ -4368,6 +4342,106 @@ describe ContextExternalTool do
         subject.save
         run_jobs
         expect(LearnPlatform::GlobalApi).not_to have_received(:get_unified_tool_id)
+      end
+
+      it "does update the unified_tool_id attribute" do
+        subject.save
+        run_jobs
+        tool.reload
+        expect(tool.unified_tool_id).to eq(unified_tool_id)
+      end
+    end
+
+    context "when the tool is already existing" do
+      before do
+        subject.save
+        run_jobs
+        allow(LearnPlatform::GlobalApi).to receive(:get_unified_tool_id)
+      end
+
+      context "when the tool is 'deleted'" do
+        it "does not call the LearnPlatform::GlobalApi service" do
+          subject.workflow_state = "deleted"
+          subject.name = "new name"
+          subject.save
+          run_jobs
+          expect(LearnPlatform::GlobalApi).not_to have_received(:get_unified_tool_id)
+        end
+      end
+
+      context "when the tool's name changed" do
+        it "calls the LearnPlatform::GlobalApi service" do
+          subject.name = "new name"
+          subject.save
+          run_jobs
+          expect(LearnPlatform::GlobalApi).to have_received(:get_unified_tool_id)
+        end
+      end
+
+      context "when the tool's description changed" do
+        it "does not call the LearnPlatform::GlobalApi service" do
+          subject.description = "new description"
+          subject.save
+          run_jobs
+          expect(LearnPlatform::GlobalApi).not_to have_received(:get_unified_tool_id)
+        end
+      end
+    end
+
+    context "unified_tool_id backfill job" do
+      let(:tool) { external_tool_model }
+
+      it "can save last_updated" do
+        now = Time.zone.now
+        tool.unified_tool_id_last_updated_at = now
+        expect(tool.save).to be true
+        expect(tool.reload.unified_tool_id_last_updated_at).to eq(now)
+      end
+
+      it "can save needs_update" do
+        expect(tool.unified_tool_id_needs_update).to be false
+        tool.unified_tool_id_needs_update = true
+        expect(tool.save).to be true
+        expect(tool.reload.unified_tool_id_needs_update).to be true
+      end
+    end
+  end
+
+  describe "#can_access_content_tag?" do
+    it "returns true for a 1.1 content tag with the same tool" do
+      tool = external_tool_model
+
+      content_tag = ContentTag.create!(context: @course, content: tool)
+      expect(tool.can_access_content_tag?(content_tag)).to be true
+    end
+
+    context "when the content tag was created by a 1.1 tool that now corresponds to a 1.3 tool" do
+      let(:domain) { "example.instructure.com" }
+      let(:url) { "https://example.instructure.com" }
+      let(:opts) { { domain:, url: } }
+      let(:old_tool) { external_tool_model(opts:) }
+      let(:developer_key) { DeveloperKey.create! }
+      let(:new_tool1) { external_tool_1_3_model(opts:, developer_key:) }
+      let(:new_tool2) { external_tool_1_3_model(opts:, developer_key:) }
+
+      it "returns true if the 1.3 tool matches on developer_key (module item)" do
+        content_tag = ContentTag.create!(context: @course, content: old_tool, url:)
+        expect(ContextExternalTool).to receive(:from_content_tag).with(content_tag, content_tag.context).and_return(new_tool1)
+        expect(new_tool2.can_access_content_tag?(content_tag)).to be true
+      end
+
+      it "returns true if the 1.3 tool matches on developer_key (assignment)" do
+        assignment = assignment_model(context: @course, submission_types: "external_tool")
+        content_tag = ContentTag.create!(context: assignment, content: old_tool, url:)
+        expect(ContextExternalTool).to receive(:from_content_tag).with(content_tag, content_tag.context.context).and_return(new_tool1)
+        expect(new_tool2.can_access_content_tag?(content_tag)).to be true
+      end
+
+      it "returns false if the 1.3 tool does not match on developer_key" do
+        content_tag = ContentTag.create!(context: @course, content: old_tool, url:)
+        new_tool1.update!(developer_key: DeveloperKey.create!)
+        expect(ContextExternalTool).to receive(:from_content_tag).with(content_tag, content_tag.context).and_return(new_tool1)
+        expect(new_tool2.can_access_content_tag?(content_tag)).to be false
       end
     end
   end

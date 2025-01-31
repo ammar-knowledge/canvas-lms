@@ -53,7 +53,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
   let(:params) do
     {
       developer_key: dev_key_params,
-      account_id: sub_account.id,
+      account_id: account.id,
       developer_key_id: dev_key_id,
       tool_configuration: {
         privacy_level:,
@@ -64,7 +64,9 @@ RSpec.describe Lti::ToolConfigurationsApiController do
 
   before do
     user_session(admin)
-    settings["extensions"][0]["privacy_level"] = privacy_level
+    settings["extensions"][0]["privacy_level"] = privacy_level || extension_privacy_level
+    request.accept = "application/json"
+    request.content_type = "application/json"
   end
 
   shared_examples_for "an action that requires manage developer keys" do |skip_404|
@@ -75,7 +77,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
     context "when the user is not an admin" do
       before { user_session(student) }
 
-      it { is_expected.to be_unauthorized }
+      it { is_expected.to be_forbidden }
     end
 
     unless skip_404
@@ -106,7 +108,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
     let(:params) do
       {
         developer_key: dev_key_params,
-        account_id: sub_account.id,
+        account_id: account.id,
         developer_key_id: developer_key.id,
         tool_configuration: {
           settings_url: url,
@@ -126,6 +128,16 @@ RSpec.describe Lti::ToolConfigurationsApiController do
       it "uses the tool configuration JSON from the settings_url" do
         subject
         expect(config_from_response.settings["target_link_uri"]).to eq settings["target_link_uri"]
+      end
+
+      context "when developer_key.redirect_uris is a blank string" do
+        let(:dev_key_params) { super().merge(redirect_uris: "") }
+
+        it "does not overwrite the URL's redirect uris with a blank string redirect uri" do
+          subject
+
+          expect(config_from_response.developer_key.redirect_uris).to eq [settings["target_link_uri"]]
+        end
       end
 
       it 'sets the "disabled_placements"' do
@@ -162,6 +174,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
           subject
 
           expect(config_from_response.developer_key.redirect_uris).to eq redirect_uris
+          expect(config_from_response.redirect_uris).to eq redirect_uris
         end
       end
     end
@@ -264,6 +277,11 @@ RSpec.describe Lti::ToolConfigurationsApiController do
 
     it "sets the developer key redirect_uris" do
       expect(subject.redirect_uris).to eq dev_key_params[:redirect_uris].split
+    end
+
+    it "sets the tool config redirect_uris" do
+      subject
+      expect(config_from_response.redirect_uris).to eq dev_key_params[:redirect_uris].split
     end
 
     it "sets the developer key oidc_initiation_url" do
@@ -390,7 +408,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
       it "creates a developer key on the correct account" do
         subject
         key = DeveloperKey.find(json_parse.dig("tool_configuration", "developer_key_id"))
-        expect(key.account).to eq sub_account
+        expect(key.account).to eq account
       end
     end
 
@@ -403,7 +421,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
     end
 
     it_behaves_like "an endpoint that accepts developer key parameters" do
-      let(:bad_scope_params) { { account_id: sub_account.id, developer_key: dev_key_params.merge(scopes: ["invalid scope"]) } }
+      let(:bad_scope_params) { { account_id: account.id, developer_key: dev_key_params.merge(scopes: ["invalid scope"]) } }
       let(:make_request) { post :create, params: params.merge({ developer_key: dev_key_params }) }
       let(:bad_scope_request) { post :create, params: params.merge(bad_scope_params) }
     end
@@ -441,12 +459,22 @@ RSpec.describe Lti::ToolConfigurationsApiController do
       end
     end
 
+    context "when privacy_level is nil" do
+      let(:extension_privacy_level) { "email_only" }
+      let(:privacy_level) { nil }
+
+      it "updates the tool configuration without setting privacy level" do
+        subject
+        expect(config_from_response.privacy_level).to eq "email_only"
+      end
+    end
+
     context "when there are associated tools" do
       shared_examples_for "an action that updates installed tools" do
         subject { installed_tool.reload.workflow_state }
 
         let(:installed_tool) do
-          t = tool_configuration.new_external_tool(context)
+          t = tool_configuration.lti_registration.new_external_tool(context)
           t.save!
           t
         end
@@ -475,10 +503,6 @@ RSpec.describe Lti::ToolConfigurationsApiController do
       end
     end
 
-    it_behaves_like "an endpoint that validates public_jwk and public_jwk_url" do
-      let(:make_request) { put :update, params: }
-    end
-
     it_behaves_like "an action that requires manage developer keys"
 
     it_behaves_like "an endpoint that accepts developer key parameters" do
@@ -492,14 +516,14 @@ RSpec.describe Lti::ToolConfigurationsApiController do
     subject { get :show, params: params.except(:tool_configuration) }
 
     before do
-      tool_configuration
+      developer_key
       account.developer_key_account_bindings
              .find_by(developer_key:)
              .update!(workflow_state: "on")
     end
 
     context "when tool configuration does not exist" do
-      let(:tool_configuration) { nil }
+      before { tool_configuration.destroy! }
 
       it_behaves_like "an endpoint that requires an existing tool configuration"
     end
@@ -514,7 +538,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
       end
     end
 
-    context 'when the current user does not have "lti_add_edit"' do
+    context 'when the current user does not have "manage_lti_add"' do
       let(:student) { student_in_course(active_all: true).user }
 
       before { user_session(student) }
@@ -531,27 +555,89 @@ RSpec.describe Lti::ToolConfigurationsApiController do
         expect(config_from_response).to eq tool_configuration
       end
     end
+
+    context "when the tool configuration is an Lti::IMS::Registration" do
+      let(:ims_registration) do
+        lti_ims_registration_model(
+          redirect_uris: ["http://example.com"],
+          initiate_login_uri: "http://example.com/login",
+          client_name: "Example Tool",
+          jwks_uri: "http://example.com/jwks",
+          logo_uri: "http://example.com/logo.png",
+          client_uri: "http://example.com/",
+          tos_uri: "http://example.com/tos",
+          policy_uri: "http://example.com/policy",
+          lti_tool_configuration: {
+            domain: "example.com",
+            messages: [],
+            claims: [
+              "name",
+              "email"
+            ]
+          },
+          scopes: [],
+          developer_key:,
+          lti_registration: developer_key.lti_registration,
+          registration_overlay: {
+            "privacy_level" => "anonymous"
+          }
+        )
+      end
+
+      before do
+        ims_registration
+      end
+
+      it "returns the registration with its overlay applied" do
+        subject
+        expect(json_parse.with_indifferent_access
+          .dig(:tool_configuration, :settings, :extensions)[0][:privacy_level])
+          .to eq "anonymous"
+      end
+
+      context "when the overlay is stored on an Lti::Overlay" do
+        let(:overlay) do
+          Lti::Overlay.create!(updated_by: account_admin_user,
+                               registration: developer_key.lti_registration,
+                               account:,
+                               data: { privacy_level: "anonymous" })
+        end
+
+        before do
+          overlay
+          tool_configuration.update!(registration_overlay: nil)
+        end
+
+        it "still returns the registration with its overlay applied" do
+          subject
+          expect(json_parse.with_indifferent_access
+            .dig(:tool_configuration, :settings, :extensions)[0][:privacy_level])
+            .to eq "anonymous"
+        end
+      end
+    end
   end
 
   describe "#destroy" do
     subject { delete :destroy, params: params.except(:tool_configuration) }
 
     before do
-      tool_configuration
+      developer_key
     end
 
     it_behaves_like "an action that requires manage developer keys"
 
     context do
-      let(:tool_configuration) { nil }
+      before { tool_configuration.destroy! }
 
       it_behaves_like "an endpoint that requires an existing tool configuration"
     end
 
     context "when the tool configuration exists" do
       it "destroys the tool configuration" do
+        id = tool_configuration.id
         subject
-        expect(Lti::ToolConfiguration.find_by(id: tool_configuration.id)).to be_nil
+        expect(Lti::ToolConfiguration.find_by(id:)).to be_nil
       end
 
       it { is_expected.to be_no_content }

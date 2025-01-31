@@ -16,9 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import * as z from 'zod'
-import {useScope as useI18nScope} from '@canvas/i18n'
-
-const I18n = useI18nScope('external_tools')
+import {LtiDeepLinkingRequest, LtiResourceLinkRequest} from './LtiMessageType'
 
 // TODO: this list is duplicated in ui/features/external_apps/react/components/ExternalToolPlacementList.jsx
 // We should consolidate some of the lti "models" into a shared package that both features depend on
@@ -40,6 +38,11 @@ export const LtiPlacements = {
    * Account-level navigation
    */
   AccountNavigation: 'account_navigation',
+  /**
+   * Similar to account_navigation, but for allows for better analytics
+   * of what tools use this type of placement.
+   */
+  AnalyticsHub: 'analytics_hub',
   /**
    * Renders a frame on the assignment edit page, under
    * the native assignment options
@@ -128,13 +131,11 @@ export const LtiPlacements = {
   UserNavigation: 'user_navigation',
   WikiPageMenu: 'wiki_page_menu',
   WikiIndexMenu: 'wiki_index_menu',
-  DefaultPlacements: 'default_placements',
-  ContentArea: 'ContentArea',
-  RichTextEditor: 'RichTextEditor',
 } as const
 
 export const AllLtiPlacements = [
   LtiPlacements.AccountNavigation,
+  LtiPlacements.AnalyticsHub,
   LtiPlacements.AssignmentEdit,
   LtiPlacements.AssignmentSelection,
   LtiPlacements.AssignmentView,
@@ -172,70 +173,118 @@ export const AllLtiPlacements = [
   LtiPlacements.UserNavigation,
   LtiPlacements.WikiPageMenu,
   LtiPlacements.WikiIndexMenu,
-  LtiPlacements.DefaultPlacements,
-  LtiPlacements.ContentArea,
-  LtiPlacements.RichTextEditor,
+] as const
+
+export const InternalOnlyLtiPlacements = [
+  LtiPlacements.ConferenceSelection, // Locked behind a Site Admin FF that's off
+  LtiPlacements.SimilarityDetection, // Only really relevant for LTI 2
+  LtiPlacements.AnalyticsHub,
 ] as const
 
 export const ZLtiPlacement = z.enum(AllLtiPlacements)
 export type LtiPlacement = z.infer<typeof ZLtiPlacement>
 
 export const LtiPlacementsWithIcons = [
-  LtiPlacements.GlobalNavigation,
-  LtiPlacements.CourseHomeSubNavigation,
   LtiPlacements.AssignmentIndexMenu,
+  LtiPlacements.CourseHomeSubNavigation,
   LtiPlacements.CourseSettingsSubNavigation,
-  LtiPlacements.DiscussionTopicMenu,
   LtiPlacements.DiscussionTopicIndexMenu,
+  LtiPlacements.DiscussionTopicMenu,
   LtiPlacements.EditorButton,
   LtiPlacements.FileIndexMenu,
+  LtiPlacements.GlobalNavigation,
+  LtiPlacements.TopNavigation,
 ] as const
+
+/**
+ * A record where the keys are message type identifiers
+ * and the values are the placements that support that message type.
+ * Note that this list is duplicated in the Lti::ResourcePlacement model on the Rails side.
+ */
+export const LtiPlacementsByMessageType = {
+  [LtiResourceLinkRequest]: [
+    LtiPlacements.AccountNavigation,
+    LtiPlacements.AnalyticsHub,
+    LtiPlacements.AssignmentEdit,
+    LtiPlacements.AssignmentGroupMenu,
+    LtiPlacements.AssignmentIndexMenu,
+    LtiPlacements.AssignmentMenu,
+    LtiPlacements.AssignmentSelection,
+    LtiPlacements.AssignmentView,
+    LtiPlacements.Collaboration,
+    LtiPlacements.ConferenceSelection,
+    LtiPlacements.CourseAssignmentsMenu,
+    LtiPlacements.CourseHomeSubNavigation,
+    LtiPlacements.CourseNavigation,
+    LtiPlacements.CourseSettingsSubNavigation,
+    LtiPlacements.DiscussionTopicIndexMenu,
+    LtiPlacements.DiscussionTopicMenu,
+    LtiPlacements.FileIndexMenu,
+    LtiPlacements.FileMenu,
+    LtiPlacements.GlobalNavigation,
+    LtiPlacements.HomeworkSubmission,
+    LtiPlacements.LinkSelection,
+    LtiPlacements.MigrationSelection,
+    LtiPlacements.ModuleGroupMenu,
+    LtiPlacements.ModuleIndexMenu,
+    LtiPlacements.ModuleIndexMenuModal,
+    LtiPlacements.ModuleMenuModal,
+    LtiPlacements.ModuleMenu,
+    LtiPlacements.PostGrades,
+    LtiPlacements.QuizIndexMenu,
+    LtiPlacements.QuizMenu,
+    LtiPlacements.SimilarityDetection,
+    LtiPlacements.StudentContextCard,
+    LtiPlacements.SubmissionTypeSelection,
+    LtiPlacements.ToolConfiguration,
+    LtiPlacements.TopNavigation,
+    LtiPlacements.UserNavigation,
+    LtiPlacements.WikiIndexMenu,
+    LtiPlacements.WikiPageMenu,
+  ],
+  [LtiDeepLinkingRequest]: [
+    LtiPlacements.AssignmentSelection,
+    LtiPlacements.Collaboration,
+    LtiPlacements.ConferenceSelection,
+    LtiPlacements.CourseAssignmentsMenu,
+    LtiPlacements.EditorButton,
+    LtiPlacements.HomeworkSubmission,
+    LtiPlacements.LinkSelection,
+    LtiPlacements.MigrationSelection,
+    LtiPlacements.ModuleIndexMenuModal,
+    LtiPlacements.ModuleMenuModal,
+    LtiPlacements.SubmissionTypeSelection,
+  ],
+} as const
+
+/**
+ * All placements that support the LtiDeepLinkingRequest message type. Note that this list is
+ * duplicated in the Lti::ResourcePlacement model on the Rails side.
+ */
+export const DeepLinkingRequestPlacements = LtiPlacementsByMessageType.LtiDeepLinkingRequest
+
+export const supportsDeepLinkingRequest = (
+  placement: LtiPlacement,
+): placement is (typeof DeepLinkingRequestPlacements)[number] => {
+  return DeepLinkingRequestPlacements.includes(placement as any)
+}
+/**
+ * All placements that support the "LtiResourceLinkRequest" message type. Note that this list is
+ * duplicated in the Lti::ResourcePlacement model on the Rails side.
+ */
+export const ResourceLinkRequestPlacements = LtiPlacementsByMessageType.LtiResourceLinkRequest
+export const supportsResourceLinkRequest = (
+  placement: LtiPlacement,
+): placement is (typeof ResourceLinkRequestPlacements)[number] => {
+  return ResourceLinkRequestPlacements.includes(placement as any)
+}
 
 export type LtiPlacementWithIcon = (typeof LtiPlacementsWithIcons)[number]
 
-const LtiPlacementTranslations: Record<LtiPlacement, string> = {
-  account_navigation: I18n.t('Account Navigation'),
-  assignment_edit: I18n.t('Assignment Edit'),
-  assignment_selection: I18n.t('Assignment Selection'),
-  assignment_view: I18n.t('Assignment View'),
-  similarity_detection: I18n.t('Similarity Detection'),
-  assignment_menu: I18n.t('Assignment Menu'),
-  assignment_index_menu: I18n.t('Assignments Index Menu'),
-  assignment_group_menu: I18n.t('Assignments Group Menu'),
-  collaboration: I18n.t('Collaboration'),
-  conference_selection: I18n.t('Conference Selection'),
-  course_assignments_menu: I18n.t('Course Assignments Menu'),
-  course_home_sub_navigation: I18n.t('Course Home Sub Navigation'),
-  course_navigation: I18n.t('Course Navigation'),
-  course_settings_sub_navigation: I18n.t('Course Settings Sub Navigation'),
-  discussion_topic_menu: I18n.t('Discussion Topic Menu'),
-  discussion_topic_index_menu: I18n.t('Discussions Index Menu'),
-  editor_button: I18n.t('Editor Button'),
-  file_menu: I18n.t('File Menu'),
-  file_index_menu: I18n.t('Files Index Menu'),
-  global_navigation: I18n.t('Global Navigation'),
-  homework_submission: I18n.t('Homework Submission'),
-  link_selection: I18n.t('Link Selection'),
-  migration_selection: I18n.t('Migration Selection'),
-  module_group_menu: I18n.t('Modules Group Menu'),
-  module_index_menu: I18n.t('Modules Index Menu (Tray)'),
-  module_index_menu_modal: I18n.t('Modules Index Menu (Modal)'),
-  module_menu: I18n.t('Module Menu'),
-  module_menu_modal: I18n.t('Module Menu (Modal)'),
-  post_grades: I18n.t('Sync Grades'),
-  quiz_menu: I18n.t('Quiz Menu'),
-  quiz_index_menu: I18n.t('Quizzes Index Menu'),
-  submission_type_selection: I18n.t('Submission Type Selection'),
-  student_context_card: I18n.t('Student Context Card'),
-  tool_configuration: I18n.t('Tool Configuration'),
-  top_navigation: I18n.t('Top Navigation'),
-  user_navigation: I18n.t('User Navigation'),
-  wiki_page_menu: I18n.t('Page Menu'),
-  wiki_index_menu: I18n.t('Pages Index Menu'),
-  default_placements: I18n.t('Assignment and Link Selection'),
-  ContentArea: I18n.t('Content Area'),
-  RichTextEditor: I18n.t('Rich Text Editor'),
+export const isLtiPlacement = (placement: unknown): placement is LtiPlacement => {
+  return AllLtiPlacements.includes(placement as LtiPlacement)
 }
 
-export const i18nLtiPlacement = (placement: LtiPlacement): string =>
-  LtiPlacementTranslations[placement]
+export const isLtiPlacementWithIcon = (placement: unknown): placement is LtiPlacementWithIcon => {
+  return LtiPlacementsWithIcons.includes(placement as LtiPlacementWithIcon)
+}

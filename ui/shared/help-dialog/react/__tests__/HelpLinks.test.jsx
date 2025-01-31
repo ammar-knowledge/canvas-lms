@@ -14,16 +14,23 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import React from 'react'
-import {fireEvent, render as testingLibraryRender, waitFor} from '@testing-library/react'
-import HelpLinks from '../HelpLinks'
-import {QueryProvider, queryClient} from '@canvas/query'
 import doFetchApi from '@canvas/do-fetch-api-effect'
+import {queryClient} from '@canvas/query'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
+import {replaceLocation} from '@canvas/util/globalUtils'
+import {fireEvent, render as testingLibraryRender, waitFor} from '@testing-library/react'
+import React from 'react'
+import HelpLinks from '../HelpLinks'
+
+jest.mock('@canvas/util/globalUtils', () => ({
+  replaceLocation: jest.fn(),
+}))
 
 // Mock the API call
 jest.mock('@canvas/do-fetch-api-effect')
 
-const render = children => testingLibraryRender(<QueryProvider>{children}</QueryProvider>)
+const render = children =>
+  testingLibraryRender(<MockedQueryProvider>{children}</MockedQueryProvider>)
 
 describe('HelpLinks', () => {
   const featuredLink = {
@@ -72,22 +79,14 @@ describe('HelpLinks', () => {
     onClick() {},
   }
 
-  const savedLocation = window.location
-  let mockedReplace
-
   beforeEach(() => {
     window.ENV = {FEATURES: {featured_help_links: true}}
-    mockedReplace = jest.fn()
-    delete global.window.location
-    global.window = Object.create(window)
-    global.window.location = {replace: mockedReplace}
     doFetchApi.mockResolvedValueOnce({response: {status: 200, ok: true}})
     queryClient.setQueryData(['helpLinks'], [featuredLink, newLink, regularLink])
   })
 
   afterEach(() => {
-    window.ENV = {}
-    global.window.location = savedLocation
+    jest.clearAllMocks()
   })
 
   it('renders all the links', () => {
@@ -133,7 +132,7 @@ describe('HelpLinks', () => {
     const {getByText} = render(<HelpLinks {...props} />)
     const link = getByText('Support Centre')
     fireEvent.click(link)
-    await waitFor(() => expect(mockedReplace).toHaveBeenCalledWith('?enjoy=this'))
+    await waitFor(() => expect(replaceLocation).toHaveBeenCalledWith('?enjoy=this'))
   })
 
   it('renders a "NEW" pill when a link is tagged with is_new', () => {

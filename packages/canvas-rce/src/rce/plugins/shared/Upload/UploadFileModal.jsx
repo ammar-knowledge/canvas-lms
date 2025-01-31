@@ -31,7 +31,9 @@ import RceApiSource from '../../../../rcs/api'
 import ImageOptionsForm from '../ImageOptionsForm'
 import UsageRightsSelectBox from './UsageRightsSelectBox'
 import {View} from '@instructure/ui-view'
+import {UploadCanvasPanelIds, CanvasPanelTitles} from '../canvasContentUtils'
 
+const CanvasContentPanel = React.lazy(() => import('./CanvasContentPanel'))
 const ComputerPanel = React.lazy(() => import('./ComputerPanel'))
 const UrlPanel = React.lazy(() => import('./UrlPanel'))
 
@@ -45,6 +47,7 @@ function shouldBeDisabled({fileUrl, theFile, error}, selectedPanel, usageRightNo
     case 'URL':
       return !fileUrl
     default:
+      if (UploadCanvasPanelIds.includes(selectedPanel)) return !fileUrl
       return false // When in doubt, don't disable (but we shouldn't get here either)
   }
 }
@@ -65,6 +68,8 @@ const UploadFileModal = React.forwardRef(
       modalBodyWidth,
       modalBodyHeight,
       requireA11yAttributes = true,
+      forBlockEditorUse = false,
+      uploading = false,
     },
     ref
   ) => {
@@ -100,10 +105,15 @@ const UploadFileModal = React.forwardRef(
       setDisplayAs(event.target.value)
     }
 
+    const handleRequestTabChange = (index) => {
+      setSelectedPanel(panels[index])
+      setFileUrl('')
+    }
+
     const submitDisabled = shouldBeDisabled(
       {fileUrl, theFile, error},
       selectedPanel,
-      requiresUsageRights && usageRightsState.usageRight === 'choose'
+      requiresUsageRights && usageRightsState.usageRight === 'choose',
     )
 
     // Load the necessary session values, if not already loaded
@@ -121,6 +131,10 @@ const UploadFileModal = React.forwardRef(
         canvasOrigin,
       })
 
+    if (forBlockEditorUse && !['COMPUTER', 'URL'].includes(selectedPanel)) {
+      requireA11yAttributes = false
+    }
+
     return (
       <Modal
         data-mce-component={true}
@@ -132,7 +146,7 @@ const UploadFileModal = React.forwardRef(
         onDismiss={onDismiss}
         onSubmit={e => {
           e.preventDefault()
-          if (submitDisabled) {
+          if (submitDisabled || uploading) {
             return false
           }
           onSubmit(
@@ -164,7 +178,7 @@ const UploadFileModal = React.forwardRef(
           <Heading>{label}</Heading>
         </Modal.Header>
         <Modal.Body ref={ref}>
-          <Tabs onRequestTabChange={(event, {index}) => setSelectedPanel(panels[index])}>
+          <Tabs onRequestTabChange={(event, {index}) => handleRequestTabChange(index)}>
             {panels.map(panel => {
               switch (panel) {
                 case 'COMPUTER':
@@ -180,7 +194,6 @@ const UploadFileModal = React.forwardRef(
                         fallback={<Spinner renderTitle={formatMessage('Loading')} size="large" />}
                       >
                         <ComputerPanel
-                          editor={editor}
                           theFile={theFile}
                           setFile={setFile}
                           setError={setError}
@@ -207,8 +220,29 @@ const UploadFileModal = React.forwardRef(
                       </Suspense>
                     </Tabs.Panel>
                   )
+                default:
+                  if (UploadCanvasPanelIds.includes(panel)) {
+                    return (
+                      <Tabs.Panel
+                        key={panel}
+                        renderTitle={() => CanvasPanelTitles[panel]}
+                        isSelected={selectedPanel === panel}
+                      >
+                        <Suspense
+                          fallback={<Spinner renderTitle={formatMessage('Loading')} size="large" />}
+                        >
+                          <CanvasContentPanel
+                            trayProps={trayProps}
+                            canvasOrigin={canvasOrigin}
+                            plugin={panel}
+                            setFileUrl={setFileUrl}
+                          />
+                        </Suspense>
+                      </Tabs.Panel>
+                    )
+                  }
+                  return null
               }
-              return null
             })}
           </Tabs>
           {
@@ -260,6 +294,7 @@ const UploadFileModal = React.forwardRef(
                         handleIsDecorativeChange={handleIsDecorativeChange}
                         handleDisplayAsChange={handleDisplayAsChange}
                         hideDimensions={true}
+                        forBlockEditorUse={forBlockEditorUse}
                       />
                     </ToggleDetails>
                   </View>
@@ -270,8 +305,14 @@ const UploadFileModal = React.forwardRef(
         </Modal.Body>
         <Modal.Footer>
           <Button onClick={onDismiss}>{formatMessage('Close')}</Button>&nbsp;
-          <Button color="primary" type="submit" disabled={submitDisabled}>
-            {formatMessage('Submit')}
+          <Button
+            color="primary"
+            type="submit"
+            disabled={submitDisabled || uploading}
+          >
+            {uploading
+              ? formatMessage('Submitting...')
+              : formatMessage('Submit')}
           </Button>
         </Modal.Footer>
       </Modal>
@@ -280,18 +321,20 @@ const UploadFileModal = React.forwardRef(
 )
 
 UploadFileModal.propTypes = {
-  editor: object.isRequired,
+  editor: object,
   contentProps: object,
   trayProps: object,
   canvasOrigin: string,
   onSubmit: func,
   onDismiss: func.isRequired,
-  panels: arrayOf(oneOf(['COMPUTER', 'URL'])),
+  panels: arrayOf(oneOf(['COMPUTER', 'URL', ...UploadCanvasPanelIds])),
   label: string.isRequired,
   accept: oneOfType([arrayOf(string), string]),
   modalBodyWidth: number,
   modalBodyHeight: number,
   requireA11yAttributes: bool,
+  forBlockEditorUse: bool,
+  uploading: bool,
   preselectedFile: object, // JS File
 }
 

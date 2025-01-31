@@ -71,28 +71,28 @@ class PeriodicJobs
   end
 end
 
-def with_each_job_cluster(klass, method, *args, jitter: nil, local_offset: false)
+def with_each_job_cluster(klass, method, *, jitter: nil, local_offset: false)
   DatabaseServer.send_in_each_region(
     PeriodicJobs,
     :with_each_shard_by_database_in_region,
     { singleton: "periodic:region: #{klass}.#{method}" },
     klass,
     method,
-    *args,
+    *,
     jitter:,
     local_offset:,
     connection_class: Delayed::Backend::ActiveRecord::AbstractJob
   )
 end
 
-def with_each_shard_by_database(klass, method, *args, jitter: nil, local_offset: false, error_callback: nil)
+def with_each_shard_by_database(klass, method, *, jitter: nil, local_offset: false, error_callback: nil)
   DatabaseServer.send_in_each_region(
     PeriodicJobs,
     :with_each_shard_by_database_in_region,
     { singleton: "periodic:region: #{klass}.#{method}" },
     klass,
     method,
-    *args,
+    *,
     jitter:,
     local_offset:,
     connection_class: ActiveRecord::Base,
@@ -158,7 +158,7 @@ Rails.configuration.after_initialize do
     IncomingMailProcessor::Instrumentation.process
   end
 
-  Delayed::Periodic.cron "ErrorReport.destroy_error_reports", "2-59/5 * * * *" do
+  Delayed::Periodic.cron "ErrorReport.destroy_error_reports", "2-59/15 * * * *" do
     cutoff = 3.months
     if cutoff > 0
       with_each_shard_by_database(ErrorReport, :destroy_error_reports, cutoff.seconds.ago)
@@ -182,12 +182,12 @@ Rails.configuration.after_initialize do
   end
 
   unless ApplicationController.test_cluster?
-    Delayed::Periodic.cron "Attachment::GarbageCollector::ContentExportAndMigrationContextType.delete_content", "37 1 * * *" do
-      with_each_shard_by_database(Attachment::GarbageCollector::ContentExportAndMigrationContextType, :delete_content, jitter: 30.minutes, local_offset: true)
+    Delayed::Periodic.cron "Attachments::GarbageCollector::ContentExportAndMigrationContextType.delete_content", "37 1 * * *" do
+      with_each_shard_by_database(Attachments::GarbageCollector::ContentExportAndMigrationContextType, :delete_content, jitter: 30.minutes, local_offset: true)
     end
 
-    Delayed::Periodic.cron "Attachment::GarbageCollector::ContentExportContextType.delete_content", "37 3 * * *" do
-      with_each_shard_by_database(Attachment::GarbageCollector::ContentExportContextType, :delete_content, jitter: 30.minutes, local_offset: true)
+    Delayed::Periodic.cron "Attachments::GarbageCollector::ContentExportContextType.delete_content", "37 3 * * *" do
+      with_each_shard_by_database(Attachments::GarbageCollector::ContentExportContextType, :delete_content, jitter: 30.minutes, local_offset: true)
     end
   end
 
@@ -228,7 +228,7 @@ Rails.configuration.after_initialize do
   end
 
   Delayed::Periodic.cron "Auditors::ActiveRecord::Partitioner.prune", "0 0 * * 6" do
-    if Time.now.day >= 3
+    if Time.zone.now.day >= 3
       with_each_shard_by_database(
         Auditors::ActiveRecord::Partitioner, :prune, jitter: 30.minutes, local_offset: true
       )
@@ -240,7 +240,7 @@ Rails.configuration.after_initialize do
   end
 
   Delayed::Periodic.cron "Quizzes::QuizSubmissionEventPartitioner.prune", "0 0 * * 6" do
-    if Time.now.day >= 3
+    if Time.zone.now.day >= 3
       with_each_shard_by_database(
         Quizzes::QuizSubmissionEventPartitioner, :prune, jitter: 30.minutes, local_offset: true
       )
@@ -252,7 +252,7 @@ Rails.configuration.after_initialize do
   end
 
   Delayed::Periodic.cron "Messages::Partitioner.prune", "0 0 * * 6" do
-    if Time.now.day >= 3
+    if Time.zone.now.day >= 3
       with_each_shard_by_database(
         Messages::Partitioner, :prune, jitter: 30.minutes, local_offset: true
       )
@@ -275,6 +275,14 @@ Rails.configuration.after_initialize do
                                            { singleton: "AuthenticationProvider::SAML::#{federation.class_name}.refresh_providers" })
       end
     end
+  end
+
+  Delayed::Periodic.cron "AuthenticationProvider::OpenIDConnect::DiscoveryRefresher.refresh_providers", "15 1 * * *" do
+    with_each_shard_by_database(AuthenticationProvider::OpenIDConnect::DiscoveryRefresher, :refresh_providers, local_offset: true)
+  end
+
+  Delayed::Periodic.cron "AuthenticationProvider::OpenIDConnect::JwksRefresher.refresh_providers", "25 1,13 * * *" do
+    with_each_shard_by_database(AuthenticationProvider::OpenIDConnect::JwksRefresher, :refresh_providers, local_offset: true)
   end
 
   Delayed::Periodic.cron "AuthenticationProvider::LDAP.ensure_tls_cert_validity", "30 0 * * *" do
@@ -301,19 +309,23 @@ Rails.configuration.after_initialize do
     with_each_shard_by_database(MissingPolicyApplicator, :apply_missing_deductions)
   end
 
-  Delayed::Periodic.cron "Assignment.clean_up_duplicating_assignments", "*/5 * * * *", priority: Delayed::LOW_PRIORITY do
+  Delayed::Periodic.cron "ConcludedGradingStandardSetter.preserve_grading_standard_inheritance", "*/5 * * * *", priority: Delayed::LOW_PRIORITY do
+    with_each_shard_by_database(ConcludedGradingStandardSetter, :preserve_grading_standard_inheritance)
+  end
+
+  Delayed::Periodic.cron "Assignment.clean_up_duplicating_assignments", "*/15 * * * *", priority: Delayed::LOW_PRIORITY do
     with_each_shard_by_database(Assignment, :clean_up_duplicating_assignments)
   end
 
-  Delayed::Periodic.cron "Assignment.clean_up_cloning_alignments", "*/5 * * * *", priority: Delayed::LOW_PRIORITY do
+  Delayed::Periodic.cron "Assignment.clean_up_cloning_alignments", "*/15 * * * *", priority: Delayed::LOW_PRIORITY do
     with_each_shard_by_database(Assignment, :clean_up_cloning_alignments)
   end
 
-  Delayed::Periodic.cron "Assignment.clean_up_importing_assignments", "*/5 * * * *", priority: Delayed::LOW_PRIORITY do
+  Delayed::Periodic.cron "Assignment.clean_up_importing_assignments", "*/15 * * * *", priority: Delayed::LOW_PRIORITY do
     with_each_shard_by_database(Assignment, :clean_up_importing_assignments)
   end
 
-  Delayed::Periodic.cron "Assignment.clean_up_migrating_assignments", "*/5 * * * *", priority: Delayed::LOW_PRIORITY do
+  Delayed::Periodic.cron "Assignment.clean_up_migrating_assignments", "*/15 * * * *", priority: Delayed::LOW_PRIORITY do
     with_each_shard_by_database(Assignment, :clean_up_migrating_assignments)
   end
 

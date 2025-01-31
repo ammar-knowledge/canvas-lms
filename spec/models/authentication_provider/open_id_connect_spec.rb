@@ -20,6 +20,125 @@
 require_relative "../../spec_helper"
 
 describe AuthenticationProvider::OpenIDConnect do
+  subject do
+    described_class.new(account: Account.default)
+  end
+
+  let(:keypair) { OpenSSL::PKey::RSA.new(2048) }
+  let(:jwk) { JSON::JWK.new(keypair.public_key) }
+
+  describe "#token_endpoint_auth_method" do
+    it "defaults to client_secret_post" do
+      expect(subject.token_endpoint_auth_method).to eq "client_secret_post"
+    end
+
+    it "sets the auth schema for client_secret_basic" do
+      subject.token_endpoint_auth_method = "client_secret_basic"
+      expect(subject.client.options[:auth_scheme]).to eq :basic_auth
+    end
+
+    it "sets the auth schema for client_secret_post" do
+      subject.token_endpoint_auth_method = "client_secret_post"
+      expect(subject.client.options[:auth_scheme]).to eq :request_body
+      expect(subject.client.options[:token_method]).to eq :post
+    end
+
+    it "raises an error for an invalid auth method" do
+      subject.token_endpoint_auth_method = "invalid"
+      expect(subject).not_to be_valid
+      expect(subject.errors).to have_key(:token_endpoint_auth_method)
+    end
+  end
+
+  describe "#populate_from_discovery" do
+    it "sets fields" do
+      subject.populate_from_discovery(
+        {
+          "issuer" => "me",
+          "authorization_endpoint" => "http://auth/authorize",
+          "token_endpoint" => "http://auth/token",
+          "userinfo_endpoint" => "http://auth/userinfo",
+          "end_session_endpoint" => "http://auth/logout"
+        }
+      )
+      expect(subject.issuer).to eq "me"
+      expect(subject.authorize_url).to eq "http://auth/authorize"
+      expect(subject.token_url).to eq "http://auth/token"
+      expect(subject.userinfo_endpoint).to eq "http://auth/userinfo"
+      expect(subject.end_session_endpoint).to eq "http://auth/logout"
+    end
+  end
+
+  describe "#download_discovery" do
+    it "works" do
+      subject.discovery_url = "https://somewhere/.well-known/openid-configuration"
+      response = instance_double(Net::HTTPOK, value: 200, body: { issuer: "me" }.to_json)
+      expect(CanvasHttp).to receive(:get).and_yield(response)
+      subject.valid?
+      expect(subject.issuer).to eql "me"
+      expect(subject.discovery_url).to eql "https://somewhere/.well-known/openid-configuration"
+    end
+
+    it "ignores a (newly) blank issuer" do
+      subject.issuer_will_change!
+      expect(CanvasHttp).not_to receive(:get)
+      subject.valid?
+      expect(subject.issuer).to be_nil
+      expect(subject.discovery_url).to be_nil
+    end
+
+    it "doesn't try to download if nothing changed" do
+      subject.discovery_url = "https://somewhere/.well-known/openid-configuration"
+      allow(subject).to receive_messages(discovery_url_changed?: false, issuer_changed?: false)
+      expect(CanvasHttp).not_to receive(:get)
+      subject.valid?
+    end
+
+    it "infers the discovery URL from the issuer" do
+      subject.issuer = "https://somewhere"
+      response = instance_double(Net::HTTPOK, value: 200, body: { issuer: "me" }.to_json)
+      expect(CanvasHttp).to receive(:get).with("https://somewhere/.well-known/openid-configuration").and_yield(response)
+      subject.valid?
+      expect(subject.issuer).to eql "me"
+      expect(subject.discovery_url).to eql "https://somewhere/.well-known/openid-configuration"
+    end
+
+    it "infers the discovery URL from a multi-tenant issuer" do
+      subject.issuer = "https://somewhere/multitenant/"
+      response = instance_double(Net::HTTPOK, value: 200, body: { issuer: "me" }.to_json)
+      expect(CanvasHttp).to receive(:get).with("https://somewhere/multitenant/.well-known/openid-configuration").and_yield(response)
+      subject.valid?
+      expect(subject.issuer).to eql "me"
+      expect(subject.discovery_url).to eql "https://somewhere/multitenant/.well-known/openid-configuration"
+    end
+
+    it "does not infer a discovery URL when the provider doesn't support discovery" do
+      subject.issuer = "https://somewhere"
+      response = instance_double(Net::HTTPOK, value: 404, body: "NOT FOUND")
+      expect(CanvasHttp).to receive(:get).with("https://somewhere/.well-known/openid-configuration").and_yield(response)
+      subject.valid?
+      expect(subject.issuer).to eql "https://somewhere"
+      expect(subject.discovery_url).to be_nil
+    end
+
+    it "does not infer a discovery URL when it's invalid" do
+      subject.issuer = "not_a_url"
+      subject.valid?
+      expect(subject.issuer).to eql "not_a_url"
+      expect(subject.discovery_url).to be_nil
+    end
+
+    it "does not modify an explicit discovery URL with a non-matching issuer" do
+      subject.issuer = "https://somewhere"
+      subject.discovery_url = "https://somewhere/openid-configuration"
+      response = instance_double(Net::HTTPOK, value: 200, body: { issuer: "me" }.to_json)
+      expect(CanvasHttp).to receive(:get).with("https://somewhere/openid-configuration").and_yield(response)
+      subject.valid?
+      expect(subject.issuer).to eql "me"
+      expect(subject.discovery_url).to eql "https://somewhere/openid-configuration"
+    end
+  end
+
   describe "#scope_for_options" do
     it "automatically infers according to requested claims" do
       subject.federated_attributes = { "email" => { "attribute" => "email" } }
@@ -46,6 +165,16 @@ describe AuthenticationProvider::OpenIDConnect do
       expect(subject.unique_id(token)).to eq "myid"
     end
 
+    it "does not request more attributes if unnecessary, even if userinfo_endpoint is present" do
+      subject.userinfo_endpoint = "moar"
+      subject.login_attribute = "in_id_token"
+      payload = { sub: "1", in_id_token: "myid" }
+      id_token = Canvas::Security.create_jwt(payload, nil, :unsigned)
+      token = double(options: {}, params: { "id_token" => id_token })
+      expect(token).not_to receive(:get)
+      expect(subject.unique_id(token)).to eq "myid"
+    end
+
     it "ignores userinfo that doesn't match" do
       subject.userinfo_endpoint = "moar"
       subject.login_attribute = "not_in_id_token"
@@ -62,12 +191,22 @@ describe AuthenticationProvider::OpenIDConnect do
     end
 
     it "validates the audience claim for subclasses" do
-      subject = AuthenticationProvider::Microsoft.new(client_id: "abc", tenant: "microsoft", account: Account.default)
-      payload = { sub: "some-login-attribute", aud: "someone_else", tid: AuthenticationProvider::Microsoft::MICROSOFT_TENANT }
-      id_token = Canvas::Security.create_jwt(payload, nil, :unsigned)
-      expect { subject.unique_id(double(params: { "id_token" => id_token }, options: {})) }.to raise_error(OAuthValidationError)
+      subject = AuthenticationProvider::Microsoft.new(client_id: "abc",
+                                                      client_secret: "secret",
+                                                      tenant: "microsoft",
+                                                      account: Account.default)
+      nonce = "123"
+      payload = { sub: "some-login-attribute",
+                  aud: "someone_else",
+                  iss: "microsoft",
+                  tid: AuthenticationProvider::Microsoft::MICROSOFT_TENANT,
+                  iat: Time.now.to_i,
+                  exp: Time.now.to_i + 1,
+                  nonce: }
+      id_token = Canvas::Security.create_jwt(payload, nil, subject.client_secret)
+      expect { subject.unique_id(double(params: { "id_token" => id_token }, options: { nonce: })) }.to raise_error(OAuthValidationError)
       subject.client_id = "someone_else"
-      expect { subject.unique_id(double(params: { "id_token" => id_token }, options: {})) }.not_to raise_error
+      expect { subject.unique_id(double(params: { "id_token" => id_token }, options: { nonce: })) }.not_to raise_error
     end
 
     it "does not validate the audience claim for self" do
@@ -76,12 +215,194 @@ describe AuthenticationProvider::OpenIDConnect do
       id_token = Canvas::Security.create_jwt(payload, nil, :unsigned)
       expect { subject.unique_id(double(params: { "id_token" => id_token }, options: {})) }.not_to raise_error
     end
+
+    it "records the issuer(s)" do
+      subject.client_id = "abc"
+      payload = { sub: "some-login-attribute", aud: "abc", iss: "issuer" }
+      id_token = Canvas::Security.create_jwt(payload, nil, :unsigned)
+      subject.unique_id(double(params: { "id_token" => id_token }, options: {}))
+      expect(subject.settings["known_issuers"]).to eq ["issuer"]
+    end
+
+    context "with oidc_full_token_validation feature flag on" do
+      before do
+        Account.default.enable_feature!(:oidc_full_token_validation)
+        subject.issuer = "issuer"
+        subject.client_id = "abc"
+        subject.client_secret = "def"
+      end
+
+      base_payload = {
+        sub: "some-login-attribute",
+        aud: "abc",
+        iat: Time.now.to_i,
+        exp: Time.now.to_i + 30,
+        iss: "issuer",
+        nonce: "nonce"
+      }.freeze
+
+      it "passes a valid token" do
+        id_token = Canvas::Security.create_jwt(base_payload, nil, subject.client_secret)
+        expect { subject.unique_id(double(params: { "id_token" => id_token }, options: { nonce: "nonce" })) }.not_to raise_error
+      end
+
+      it "validates a multi-valued audience" do
+        id_token = Canvas::Security.create_jwt(base_payload.merge(aud: ["def", "abc"]), nil, subject.client_secret)
+        expect { subject.unique_id(double(params: { "id_token" => id_token }, options: { nonce: "nonce" })) }.not_to raise_error
+      end
+
+      def self.bad_token_spec(description, payload)
+        it "validates #{description}" do
+          id_token = Canvas::Security.create_jwt(payload, nil, subject.client_secret)
+          expect { subject.unique_id(double(params: { "id_token" => id_token }, options: { nonce: "nonce" })) }.to raise_error(OAuthValidationError)
+        end
+      end
+
+      bad_token_spec("the audience claim for self", base_payload.merge(aud: "someone_else"))
+      bad_token_spec("the issuer claim", base_payload.merge(iss: "someone_else"))
+      bad_token_spec("exp is provided", base_payload.except(:exp))
+      bad_token_spec("exp is valid", base_payload.merge(exp: 10))
+      bad_token_spec("nonce is provided", base_payload.except(:nonce))
+      bad_token_spec("nonce is valid", base_payload.merge(nonce: "wrong"))
+
+      it "validates the signature" do
+        id_token = Canvas::Security.create_jwt(base_payload, nil, "wrong_key")
+        expect { subject.unique_id(double(params: { "id_token" => id_token }, options: { nonce: "nonce" })) }.to raise_error(OAuthValidationError)
+      end
+
+      it "refreshes the keys if the kid is not found. once" do
+        id_token = Canvas::Security.create_jwt(base_payload, nil, subject.client_secret)
+        tries = 1
+        parsed_token = Canvas::Security.decode_jwt(id_token, [:skip_verification])
+        allow(parsed_token).to receive(:verify!) do
+          tries += 1
+          raise JSON::JWK::Set::KidNotFound if tries == 2
+
+          true
+        end
+        allow(Canvas::Security).to receive(:decode_jwt).and_return(parsed_token)
+        expect(subject).to receive(:download_jwks).with(force: true)
+        expect(subject).to receive(:save!)
+        expect { subject.unique_id(double(params: { "id_token" => id_token }, options: { nonce: "nonce" })) }.not_to raise_error
+      end
+
+      it "fails if the key is still wrong" do
+        id_token = Canvas::Security.create_jwt(base_payload, nil, subject.client_secret)
+        parsed_token = Canvas::Security.decode_jwt(id_token, [:skip_verification])
+        allow(parsed_token).to receive(:verify!).and_raise(JSON::JWK::Set::KidNotFound)
+        allow(Canvas::Security).to receive(:decode_jwt).and_return(parsed_token)
+        expect(subject).to receive(:download_jwks).with(force: true)
+        expect(subject).not_to receive(:save!)
+        expect { subject.unique_id(double(params: { "id_token" => id_token }, options: { nonce: "nonce" })) }.to raise_error(OAuthValidationError)
+      end
+    end
   end
 
   describe "#user_logout_url" do
-    it "returns the end_session_endpoint" do
+    let(:controller) { instance_double(ApplicationController, login_url: "http//www.example.com/login", session: {}) }
+
+    before do
+      subject.account = Account.default
       subject.end_session_endpoint = "http://somewhere/logout"
-      expect(subject.user_logout_redirect(nil, nil)).to eq "http://somewhere/logout"
+      subject.client_id = "abc"
+    end
+
+    it "returns the end_session_endpoint" do
+      expect(subject.user_logout_redirect(controller, nil)).to eql "http://somewhere/logout?client_id=abc&post_logout_redirect_uri=http%2F%2Fwww.example.com%2Flogin"
+    end
+
+    it "preserves other query parameters" do
+      subject.end_session_endpoint = "http://somewhere/logout?foo=bar"
+      expect(subject.user_logout_redirect(controller, nil)).to eql "http://somewhere/logout?client_id=abc&post_logout_redirect_uri=http%2F%2Fwww.example.com%2Flogin&foo=bar"
+    end
+
+    it "does not overwrite conflicting parameters" do
+      subject.end_session_endpoint = "http://somewhere/logout?post_logout_redirect_uri=elsewhere"
+      expect(subject.user_logout_redirect(controller, nil)).to eql "http://somewhere/logout?client_id=abc&post_logout_redirect_uri=elsewhere"
+    end
+
+    it "includes the full id_token" do
+      id_token = Canvas::Security.create_jwt({ sub: "1" }, nil, :unsigned)
+      session = { oidc_id_token: id_token }
+      allow(controller).to receive(:session).and_return(session)
+      expect(subject.user_logout_redirect(controller, nil)).to eql "http://somewhere/logout?client_id=abc&post_logout_redirect_uri=http%2F%2Fwww.example.com%2Flogin&id_token_hint=#{id_token}"
+    end
+  end
+
+  describe "#jwks" do
+    it "downloads the jwks if jwks_uri is set" do
+      subject.jwks_uri = "http://jwks"
+      jwks = [jwk].to_json
+      expect(CanvasHttp).to receive(:get).with("http://jwks").and_return(instance_double(Net::HTTPOK, body: jwks))
+      expect(subject.settings["jwks"]).to be_nil
+      expect(subject.jwks[jwk[:kid]]).to eq jwk.as_json
+      expect(subject.settings["jwks"]).to eq jwks
+    end
+
+    it "does nothing if jwks_uri is not set" do
+      expect(subject).not_to receive(:download_jwks)
+      expect(subject.jwks).to be_nil
+    end
+  end
+
+  describe "#jwks=" do
+    it "validates the JWKS is well formed" do
+      expect { subject.jwks = "abc" }.to raise_error(JSON::ParserError)
+      expect { subject.jwks = [jwk].to_json }.not_to raise_error
+    end
+  end
+
+  describe "#download_jwks" do
+    it "clears the jwks if jwks_uri is no longer set" do
+      subject.jwks = [jwk].to_json
+      subject.send(:download_jwks)
+      expect(subject.jwks).to be_nil
+    end
+
+    it "skips the update if nothing changed" do
+      subject.jwks_uri = "http://jwks"
+      subject.jwks = [jwk].to_json
+
+      expect(CanvasHttp).not_to receive(:get)
+
+      subject.save!(validate: false)
+      expect(subject.jwks).not_to be_nil
+
+      subject.save!
+      expect(subject.jwks).not_to be_nil
+    end
+
+    it "updates if the jwks_uri changed" do
+      subject.jwks_uri = "http://jwks"
+      subject.jwks = [jwk].to_json
+      subject.save!(validate: false)
+
+      keypair2 = OpenSSL::PKey::RSA.new(2048)
+      jwk2 = JSON::JWK.new(keypair2.public_key)
+
+      expect(CanvasHttp).to receive(:get).with("http://new").and_return(instance_double(Net::HTTPOK, body: [jwk2].to_json))
+
+      subject.jwks_uri = "http://new"
+      subject.save!
+      expect(subject.jwks[jwk2[:kid]]).to eq jwk2.as_json
+    end
+
+    it "updates if nothing changed, but was forced" do
+      subject.jwks_uri = "http://jwks"
+      subject.jwks = [jwk].to_json
+
+      keypair2 = OpenSSL::PKey::RSA.new(2048)
+      jwk2 = JSON::JWK.new(keypair2.public_key)
+
+      allow(CanvasHttp).to receive(:get).with("http://jwks").and_return(instance_double(Net::HTTPOK, body: [jwk2].to_json))
+
+      subject.save!
+      expect(subject.jwks[jwk2[:kid]]).to eq jwk2.as_json
+
+      subject.settings["jwks"] = { keys: [] }.to_json
+      expect(subject.jwks).to be_empty
+      subject.send(:download_jwks, force: true)
+      expect(subject.jwks[jwk2[:kid]]).to eq jwk2.as_json
     end
   end
 end

@@ -132,7 +132,7 @@ module AccountReports
   end
 
   def self.retry_exception?(exception)
-    exception.is_a?(PG::ConnectionBad)
+    [PG::ConnectionBad, ActiveRecord::ConnectionFailed].any? { |e| exception.is_a?(e) }
   end
 
   def self.report_on_exception(exception, context, level: :error)
@@ -242,6 +242,7 @@ module AccountReports
   end
 
   def self.finalize_report(account_report, message, csv = nil)
+    account_report.reload
     report_attachment(account_report, csv)
     account_report.message = message
     failed_report(account_report) unless csv

@@ -18,7 +18,7 @@
 
 import React, {useEffect, useState, useRef, useCallback} from 'react'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {TextInput} from '@instructure/ui-text-input'
 import numberHelper from '@canvas/i18n/numberHelper'
@@ -28,7 +28,7 @@ import {Flex} from '@instructure/ui-flex'
 import {Tooltip} from '@instructure/ui-tooltip'
 import {View} from '@instructure/ui-view'
 
-const I18n = useI18nScope('GradingSchemeManagement')
+const I18n = createI18nScope('GradingSchemeManagement')
 
 interface ComponentProps {
   letterGrade: string
@@ -87,7 +87,7 @@ export const GradingSchemeDataRowInput = ({
         setLowRangeValid(true)
       }
     },
-    [displayScalingFactor]
+    [displayScalingFactor],
   )
 
   const validateHighRange = useCallback((highRange: number) => {
@@ -231,8 +231,8 @@ export const GradingSchemeDataRowInput = ({
                     !isFirstRow && pointsBased
                       ? '46px'
                       : isFirstRow && pointsBased
-                      ? '0.5rem'
-                      : 'none',
+                        ? '0.5rem'
+                        : 'none',
                 }}
               >
                 {I18n.t('to')}
@@ -285,7 +285,7 @@ export const GradingSchemeDataRowInput = ({
               <Tooltip renderTip={I18n.t('add a letter grade')}>
                 <IconButton
                   screenReaderLabel={I18n.t(
-                    'Add new row for a letter grade to grading scheme after this row'
+                    'Add new row for a letter grade to grading scheme after this row',
                   )}
                   onClick={onRowAddRequested}
                   elementRef={buttonRef => {

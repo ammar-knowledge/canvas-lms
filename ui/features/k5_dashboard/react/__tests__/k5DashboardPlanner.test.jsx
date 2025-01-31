@@ -31,7 +31,7 @@ import {
 } from './mocks'
 import {fetchShowK5Dashboard} from '@canvas/observer-picker/react/utils'
 import {enableFetchMocks} from 'jest-fetch-mock'
-import {QueryProvider} from '@canvas/query'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
 
 enableFetchMocks()
 
@@ -40,7 +40,8 @@ jest.mock('@canvas/observer-picker/react/utils', () => ({
   fetchShowK5Dashboard: jest.fn(),
 }))
 
-const render = children => testingLibraryRender(<QueryProvider>{children}</QueryProvider>)
+const render = children =>
+  testingLibraryRender(<MockedQueryProvider>{children}</MockedQueryProvider>)
 
 const currentUserId = defaultProps.currentUser.id
 const moxiosWait = () => new Promise(resolve => moxios.wait(resolve))
@@ -51,7 +52,7 @@ describe('K5Dashboard Schedule Section', () => {
     createPlannerMocks()
     global.ENV = defaultEnv
     fetchShowK5Dashboard.mockImplementation(() =>
-      Promise.resolve({show_k5_dashboard: true, use_classic_font: false})
+      Promise.resolve({show_k5_dashboard: true, use_classic_font: false}),
     )
   })
 
@@ -64,7 +65,7 @@ describe('K5Dashboard Schedule Section', () => {
   // FOO-3831
   it.skip('displays the planner with a planned item', async () => {
     const {findByText} = render(
-      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />
+      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />,
     )
     expect(await findByText('Assignment 15')).toBeInTheDocument()
   })
@@ -72,7 +73,7 @@ describe('K5Dashboard Schedule Section', () => {
   // FOO-3831
   it.skip('displays a list of missing assignments if there are any (flaky)', async () => {
     const {findByTestId, findByText} = render(
-      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />
+      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />,
     )
     const missingAssignments = await findByTestId('missing-item-info')
     expect(missingAssignments).toHaveTextContent('Show 2 missing items')
@@ -87,7 +88,7 @@ describe('K5Dashboard Schedule Section', () => {
   // FOO-3831
   it.skip('renders the weekly planner header (flaky)', async () => {
     const {findByTestId} = render(
-      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />
+      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />,
     )
     const planner = await findByTestId('PlannerApp', {timeout: 4000}) // give it some more time
     expect(planner).toBeInTheDocument()
@@ -97,7 +98,7 @@ describe('K5Dashboard Schedule Section', () => {
 
   it('renders an "jump to navigation" button at the bottom of the schedule tab', async () => {
     const {findByTestId} = render(
-      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />
+      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />,
     )
     const jumpToNavButton = await findByTestId('jump-to-weekly-nav-button')
     expect(jumpToNavButton).not.toBeVisible()
@@ -110,7 +111,7 @@ describe('K5Dashboard Schedule Section', () => {
 
   it('allows navigating to next/previous weeks if there are plannable items in the future/past', async () => {
     const {findByTestId, getByTestId} = render(
-      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />
+      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={true} />,
     )
     const todayButton = await findByTestId('jump-to-today-button')
     expect(todayButton).toBeEnabled()
@@ -122,12 +123,12 @@ describe('K5Dashboard Schedule Section', () => {
 
   it('displays a teacher preview if the user has no student enrollments', async () => {
     const {findByTestId, getByText} = render(
-      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={false} />
+      <K5Dashboard {...defaultProps} defaultTab="tab-schedule" plannerEnabled={false} />,
     )
     expect(await findByTestId('kinder-panda')).toBeInTheDocument()
     expect(getByText('Schedule Preview')).toBeInTheDocument()
     expect(
-      getByText('Below is an example of how students will see their schedule')
+      getByText('Below is an example of how students will see their schedule'),
     ).toBeInTheDocument()
     expect(getByText('Math')).toBeInTheDocument()
     expect(getByText('A wonderful assignment')).toBeInTheDocument()
@@ -137,7 +138,11 @@ describe('K5Dashboard Schedule Section', () => {
 
   it('preloads surrounding weeks only once schedule tab is visible', async () => {
     const {findByText, getByText} = render(
-      <K5Dashboard {...defaultProps} currentUserRoles={['user', 'student']} plannerEnabled={true} />
+      <K5Dashboard
+        {...defaultProps}
+        currentUserRoles={['user', 'student']}
+        plannerEnabled={true}
+      />,
     )
     expect(await findByText('Assignment 15')).toBeInTheDocument()
     expect(moxios.requests.count()).toBe(6)
@@ -172,7 +177,7 @@ describe('K5Dashboard Schedule Section', () => {
         canAddObservee={true}
         currentUserRoles={['user', 'observer']}
         observedUsersList={observedUsersList}
-      />
+      />,
     )
     expect(await findByText('Assignment 15')).toBeInTheDocument()
     expect(await findByTestId('missing-item-info')).toHaveTextContent('Show 2 missing items')

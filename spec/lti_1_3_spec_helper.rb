@@ -30,9 +30,20 @@ RSpec.shared_context "lti_1_3_spec_helper", shared_context: :metadata do
                                        })
   end
 
-  let(:developer_key) { DeveloperKey.create!(account:, skip_lti_sync: true) }
+  let(:developer_key) do
+    lti_developer_key_model(account:).tap do |developer_key|
+      lti_tool_configuration_model(developer_key:, lti_registration: developer_key.lti_registration, settings: settings.merge(public_jwk: tool_config_public_jwk))
+    end
+  end
 
   before do
+    # CanvasSecurity::KeyStorage#consul_proxy calls kv_proxy and memoizes the
+    # result. We need to clear the instance variable to ensure the fallback
+    # proxy is used and avoid non-determintistic spec failures (e.g. "no 'sign'
+    # method for nil")
+    SecurityController.key_storages_by_path.each_value do |key_storage|
+      key_storage.instance_variable_set(:@consul_proxy, nil)
+    end
     allow(DynamicSettings).to receive(:kv_proxy).and_return(fallback_proxy)
   end
 end

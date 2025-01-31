@@ -16,9 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import {type ResizableProps} from '../../../editor/types'
+
 export type HeadingLevel = 'h2' | 'h3' | 'h4'
 
 export type HeadingBlockProps = {
   text?: string
   level?: HeadingLevel
-}
+  fontSize?: string
+  width?: number
+  height?: number
+} & ResizableProps

@@ -23,10 +23,10 @@ import {IconAddLine} from '@instructure/ui-icons'
 import RequirementCountInput from './RequirementCountInput'
 import RequirementSelector from './RequirementSelector'
 import type {Requirement, ModuleItem} from './types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {AccessibleContent} from '@instructure/ui-a11y-content'
 
-const I18n = useI18nScope('differentiated_modules')
+const I18n = createI18nScope('differentiated_modules')
 
 export interface RequirementFormProps {
   requirements: Requirement[]
@@ -59,13 +59,13 @@ export default function RequirementForm({
   } | null>()
   const availableRequirements: Requirement[] = useMemo(
     () => requirements.filter(requirement => requirement.resource !== undefined),
-    [requirements]
+    [requirements],
   )
 
   const availableModuleItems = useMemo(() => {
     const requirementIds = new Set(availableRequirements.map(requirement => requirement.id))
     const validModuleItems = moduleItems.filter(
-      module => !requirementIds.has(module.id) && module.resource !== undefined
+      module => !requirementIds.has(module.id) && module.resource !== undefined,
     )
     return validModuleItems
   }, [moduleItems, availableRequirements])
@@ -114,7 +114,7 @@ export default function RequirementForm({
       {availableRequirements.map((requirement, index) => (
         <RequirementSelector
           // This is needed to keep focus in the component after re-rendering when module changed
-          // eslint-disable-next-line react/no-array-index-key
+
           key={`requirement-${index}`}
           requirement={requirement}
           moduleItems={[requirement, ...availableModuleItems]}

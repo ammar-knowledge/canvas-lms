@@ -31,12 +31,11 @@ class TranslationController < ApplicationController
     return render_unauthorized_action unless Translation.available?(@context, :translation) && @context.grants_right?(@current_user, session, :read)
 
     # This action is used for dicussions
-    InstStatsd::Statsd.increment("translation.discussions")
+    InstStatsd::Statsd.distributed_increment("translation.discussions")
 
-    # Call the translation service.
-    render json: { translated_text: Translation.create(src_lang: required_params[:src_lang],
-                                                       tgt_lang: required_params[:tgt_lang],
-                                                       text: required_params[:text]) }
+    render json: { translated_text: Translation.translate_html(html_string: required_params[:text],
+                                                               src_lang: required_params[:src_lang],
+                                                               tgt_lang: required_params[:tgt_lang]) }
   end
 
   ##
@@ -44,24 +43,12 @@ class TranslationController < ApplicationController
   # incrementally
   #
   def translate_paragraph
-    # Split into paragraphs.
-    text = []
-    required_params[:text].split("\n").map do |paragraph|
-      # Translate the paragraph
-      passage = []
-      PragmaticSegmenter::Segmenter.new(text: paragraph, language: required_params[:src_lang]).segment.each do |segment|
-        trans = Translation.create(src_lang: required_params[:src_lang],
-                                   tgt_lang: required_params[:tgt_lang],
-                                   text: segment)
-        passage.append(trans)
-      end
-      text.append(passage.join)
-    end
-
     # This action is used for inbox_compose
-    InstStatsd::Statsd.increment("translation.inbox_compose")
+    InstStatsd::Statsd.distributed_increment("translation.inbox_compose")
 
-    render json: { translated_text: text.join("\n") }
+    render json: translate_large_passage(original_text: required_params[:text],
+                                         src_lang: required_params[:src_lang],
+                                         tgt_lang: required_params[:tgt_lang])
   end
 
   def translate_message
@@ -71,7 +58,7 @@ class TranslationController < ApplicationController
     end
 
     # This action is used for inbox inbound messages
-    InstStatsd::Statsd.increment("translation.inbox")
+    InstStatsd::Statsd.distributed_increment("translation.inbox")
 
     # Translate the message
     render json: { translated_text: Translation.translate_message(text: required_params[:text], user: @current_user) }
@@ -85,5 +72,23 @@ class TranslationController < ApplicationController
 
   def require_inbox_translation
     render_unauthorized_action unless Translation.available?(@domain_root_account, :translate_inbox_messages)
+  end
+
+  def translate_large_passage(original_text:, src_lang:, tgt_lang:)
+    # Split into paragraphs.
+    text = []
+    original_text.split("\n").map do |paragraph|
+      # Translate the paragraph
+      passage = []
+      PragmaticSegmenter::Segmenter.new(text: paragraph, language: src_lang).segment.each do |segment|
+        trans = Translation.create(tgt_lang:,
+                                   src_lang:,
+                                   text: segment)
+        passage.append(trans)
+      end
+      text.append(passage.join)
+    end
+
+    { translated_text: text.join("\n") }
   end
 end

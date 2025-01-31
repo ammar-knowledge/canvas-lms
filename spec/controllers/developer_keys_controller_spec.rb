@@ -73,6 +73,13 @@ describe DeveloperKeysController do
           expect(expected_id).to eq(dk.global_id)
         end
 
+        it "references the API endpoint in the Link (pagination) header" do
+          get "index", params: { account_id: Account.site_admin.id }, format: :json
+          route = Rails.application.routes.url_helpers.api_v1_account_developer_keys_path(Account.site_admin)
+          expect(response.headers["Link"]).to include(route)
+          expect(response.headers["Link"]).to include("http")
+        end
+
         it "does not include non-siteadmin keys" do
           site_admin_key = DeveloperKey.create!
           DeveloperKey.create!(account: Account.default)
@@ -82,9 +89,32 @@ describe DeveloperKeysController do
           expect(json_parse.pluck("id")).to match_array [site_admin_key.global_id]
         end
 
-        it "includes valid LTI scopes in js env" do
-          get "index", params: { account_id: Account.site_admin.id }
-          expect(assigns[:js_env][:validLtiScopes]).to eq TokenScopes::LTI_SCOPES
+        it "includes public LTI scopes for that root account (possible feature-flag-gated) in js env" do
+          sample_scopes_for_root_account =
+            TokenScopes::LTI_SCOPES.except(TokenScopes::LTI_ASSET_REPORT_SCOPE)
+
+          acct_id_from_stub = nil
+          expect(TokenScopes).to receive(:public_lti_scopes_hash_for_account) do |acct|
+            acct_id_from_stub = acct.id
+            sample_scopes_for_root_account
+          end
+
+          get "index", params: { account_id: Account.default.id }
+          expect(acct_id_from_stub).to eq(Account.default.id)
+
+          expect(assigns[:js_env][:validLtiScopes]).to \
+            eq(sample_scopes_for_root_account)
+        end
+
+        context "when the platform_notification_service feature flag is disabled" do
+          before do
+            Account.default.disable_feature!(:platform_notification_service)
+          end
+
+          it "excludes the platform_notification_service scope" do
+            get "index", params: { account_id: Account.site_admin.id }
+            expect(assigns[:js_env][:validLtiScopes]).to eq TokenScopes::LTI_SCOPES.except(TokenScopes::LTI_PNS_SCOPE)
+          end
         end
 
         it "includes all valid LTI placements in js env" do
@@ -92,11 +122,6 @@ describe DeveloperKeysController do
           Account.site_admin.enable_feature! :conference_selection_lti_placement
           get "index", params: { account_id: Account.site_admin.id }
           expect(assigns.dig(:js_env, :validLtiPlacements)).to match_array Lti::ResourcePlacement.public_placements(Account.site_admin)
-        end
-
-        it 'includes the "includes parameter" release flag' do
-          get "index", params: { account_id: Account.site_admin.id }
-          expect(assigns.dig(:js_env, :includesFeatureFlagEnabled)).to be false
         end
 
         describe "js bundles" do
@@ -184,12 +209,12 @@ describe DeveloperKeysController do
 
         context "when request fails" do
           before do
-            allow(InstStatsd::Statsd).to receive(:increment)
+            allow(InstStatsd::Statsd).to receive(:distributed_increment)
           end
 
           it "reports error metric" do
             get :index, params: { account_id: Account.last.id + 2, format: "json" }
-            expect(InstStatsd::Statsd).to have_received(:increment).with(error_metric_name, tags: { action: "index", code: 404 })
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(error_metric_name, tags: { action: "index", code: 404 })
             expect(response).to be_not_found
           end
         end
@@ -226,7 +251,7 @@ describe DeveloperKeysController do
 
       context "when request errors" do
         before do
-          allow(InstStatsd::Statsd).to receive(:increment)
+          allow(InstStatsd::Statsd).to receive(:distributed_increment)
         end
 
         context "when request fails" do
@@ -237,7 +262,7 @@ describe DeveloperKeysController do
 
           it "reports error metric with code 500" do
             post :create, params: create_params
-            expect(InstStatsd::Statsd).to have_received(:increment).with(error_metric_name, tags: { action: "create", code: 500 })
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(error_metric_name, tags: { action: "create", code: 500 })
           end
         end
 
@@ -254,7 +279,7 @@ describe DeveloperKeysController do
 
           it "reports error metric with code 400" do
             post :create, params: create_params
-            expect(InstStatsd::Statsd).to have_received(:increment).with(error_metric_name, tags: { action: "create", code: 400 })
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(error_metric_name, tags: { action: "create", code: 400 })
           end
         end
       end
@@ -312,14 +337,14 @@ describe DeveloperKeysController do
 
       context "when request errors" do
         before do
-          allow(InstStatsd::Statsd).to receive(:increment)
+          allow(InstStatsd::Statsd).to receive(:distributed_increment)
         end
 
         context "when key is not found" do
           it "reports error metric with code 404" do
             put :update, params: { id: dk.id + 1, developer_key: { name: "update key" }, account_id: Account.site_admin.id }
             expect(response).to be_not_found
-            expect(InstStatsd::Statsd).to have_received(:increment).with(error_metric_name, tags: { action: "update", code: 404 })
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(error_metric_name, tags: { action: "update", code: 404 })
           end
         end
 
@@ -331,14 +356,14 @@ describe DeveloperKeysController do
 
           it "reports error metric with code 500" do
             put :update, params: { id: dk.id, developer_key: { name: "update key" }, account_id: Account.site_admin.id }
-            expect(InstStatsd::Statsd).to have_received(:increment).with(error_metric_name, tags: { action: "update", code: 500 })
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(error_metric_name, tags: { action: "update", code: 500 })
           end
         end
 
         context "when key validation fails" do
           it "reports error metric with code 400" do
             put :update, params: { id: dk.id, developer_key: { scopes: ["bad_scope"] }, account_id: Account.site_admin.id }
-            expect(InstStatsd::Statsd).to have_received(:increment).with(error_metric_name, tags: { action: "update", code: 400 })
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(error_metric_name, tags: { action: "update", code: 400 })
           end
         end
       end
@@ -404,14 +429,14 @@ describe DeveloperKeysController do
 
       context "when request errors" do
         before do
-          allow(InstStatsd::Statsd).to receive(:increment)
+          allow(InstStatsd::Statsd).to receive(:distributed_increment)
         end
 
         context "when key is not found" do
           it "reports error metric with code 404" do
             delete :destroy, params: { id: dk.id + 1, account_id: Account.site_admin.id }
             expect(response).to be_not_found
-            expect(InstStatsd::Statsd).to have_received(:increment).with(error_metric_name, tags: { action: "destroy", code: 404 })
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(error_metric_name, tags: { action: "destroy", code: 404 })
           end
         end
 
@@ -423,7 +448,7 @@ describe DeveloperKeysController do
 
           it "reports error metric with code 500" do
             delete :destroy, params: { id: dk.id, account_id: Account.site_admin.id }
-            expect(InstStatsd::Statsd).to have_received(:increment).with(error_metric_name, tags: { action: "destroy", code: 500 })
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(error_metric_name, tags: { action: "destroy", code: 500 })
           end
         end
       end
@@ -468,6 +493,33 @@ describe DeveloperKeysController do
         root_account_key.update!(visible: false)
         get "index", params: { account_id: test_domain_root_account.id }, format: :json
         expect(expected_id).to eq root_account_key.global_id
+      end
+
+      context "an overlay exists for one of the keys" do
+        # bring in tool_configuration
+        include_context "lti_1_3_spec_helper"
+        let(:developer_key) do
+          developer_key_model(account: test_domain_root_account, public_jwk_url: "http://example.com", is_lti_key: true)
+        end
+        let(:overlay) do
+          Lti::Overlay.create!(account: test_domain_root_account,
+                               registration: tool_configuration.lti_registration,
+                               updated_by: user_model,
+                               data: {
+                                 "placements" => {
+                                   "course_navigation" => {
+                                     "text" => "some great little text"
+                                   }
+                                 }
+                               })
+        end
+
+        it "applies the overlay to the returned configuration" do
+          overlay
+          get "index", params: { account_id: test_domain_root_account.id }, format: :json
+          result = json_parse.first.dig("tool_configuration", "extensions", 0, "settings", "placements")
+          expect(result.find { |p| p["placement"] == "course_navigation" }["text"]).to eq "some great little text"
+        end
       end
 
       context 'with "inherited" parameter' do

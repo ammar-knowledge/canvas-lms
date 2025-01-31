@@ -27,7 +27,12 @@ unless $canvas_tasks_loaded
       # need it for this task: forked processes (through Parallel) that invoke other
       # Rake tasks may require the Rails environment and for some reason, Rake will
       # not re-run the environment task when forked
-      require_relative "../../config/environment" rescue nil
+      begin
+        require_relative "../../config/environment"
+      rescue
+        # we may be running in a reduced environment with just basic code in order to
+        # build a release tarball; just ignore
+      end
 
       # opt out
       npm_install = ENV["COMPILE_ASSETS_NPM_INSTALL"] != "0"
@@ -208,16 +213,18 @@ unless $canvas_tasks_loaded
 
         config = ActiveRecord::Base.configurations.find_db_config("test")
         queue = config.configuration_hash[:queue]
-        ActiveRecord::Tasks::DatabaseTasks.drop(queue) if queue rescue nil
-        ActiveRecord::Tasks::DatabaseTasks.drop(config) rescue nil
+        begin
+          ActiveRecord::Tasks::DatabaseTasks.drop(queue) if queue
+        rescue
+          # ignore
+        end
+        begin
+          ActiveRecord::Tasks::DatabaseTasks.drop(config)
+        rescue
+          # ignore
+        end
         ActiveRecord::Base.connection_handler.clear_all_connections!
         Shard.default(reload: true) # make sure we know that sharding isn't set up yet
-        CanvasCassandra::DatabaseBuilder.config_names.each do |cass_config|
-          db = CanvasCassandra::DatabaseBuilder.from_config(cass_config)
-          db.tables.each do |table|
-            db.execute("DROP TABLE #{table}")
-          end
-        end
         ActiveRecord::Tasks::DatabaseTasks.create(queue) if queue
         ActiveRecord::Tasks::DatabaseTasks.create(config)
         ActiveRecord::Base.connection.schema_cache.clear!

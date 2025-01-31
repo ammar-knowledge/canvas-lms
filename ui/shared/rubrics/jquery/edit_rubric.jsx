@@ -17,10 +17,10 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {createRoot} from 'react-dom/client'
 import RubricAddCriterionPopover from '../react/components/RubricAddCriterionPopover'
 import RubricManagement from '../react/components/RubricManagement'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import changePointsPossibleToMatchRubricDialog from '../jst/changePointsPossibleToMatchRubricDialog.handlebars'
 import $ from 'jquery'
 import {debounce} from 'lodash'
@@ -40,8 +40,9 @@ import 'jquery-scroll-to-visible/jquery.scrollTo'
 import '@canvas/util/jquery/fixDialogButtons'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import replaceTags from '@canvas/util/replaceTags'
+import useStore from '../stores'
 
-const I18n = useI18nScope('edit_rubric')
+const I18n = createI18nScope('edit_rubric')
 
 const rubricEditing = {
   htmlBody: null,
@@ -70,12 +71,12 @@ const rubricEditing = {
     $('#add_criterion_container').remove()
     $rubric.find('#add_criterion_holder').append($('<span/>').attr('id', 'add_criterion_container'))
     setTimeout(() => {
-      ReactDOM.render(
+      const root = createRoot(document.getElementById('add_criterion_container'))
+      root.render(
         <RubricAddCriterionPopover
           rubric={$rubric}
           duplicateFunction={rubricEditing.copyCriterion}
         />,
-        document.getElementById('add_criterion_container')
       )
       if (focusTarget) {
         $rubric.find(`#add_criterion_container ${focusTarget}:visible`).focus()
@@ -138,7 +139,7 @@ const rubricEditing = {
       })
       rubricEditing.flagInfinitesimalRating(
         $td,
-        $criterion.find('.criterion_use_range').prop('checked')
+        $criterion.find('.criterion_use_range').prop('checked'),
       )
       if (hasClassAddLeft) {
         $this.before($td)
@@ -171,7 +172,7 @@ const rubricEditing = {
         type: 'error',
         message: I18n.t(
           'rubric.import_outcome.duplicated_outcome',
-          'This Outcome has not been added as it already exists in this rubric.'
+          'This Outcome has not been added as it already exists in this rubric.',
         ),
       })
 
@@ -357,7 +358,7 @@ const rubricEditing = {
           const $ratingsContainers = $ratings.find('.rating .container').css('height', ''),
             maxHeight = Math.max(
               $ratings.height(),
-              $this.find('.criterion_description .container .description_content').height()
+              $this.find('.criterion_description .container .description_content').height(),
             )
           // the -10 here is the padding on the .container.
           $ratingsContainers.css('height', maxHeight - 10 + 'px')
@@ -485,7 +486,7 @@ const rubricEditing = {
     // rubric page or quiz page) but we need to audit uses of the add rubric
     // dialog before we make it that restrictive
     const $assignPoints = $(
-      '#assignment_show, #assignment_show .points_possible,#rubrics.rubric_dialog .assignment_points_possible'
+      '#assignment_show, #assignment_show .points_possible,#rubrics.rubric_dialog .assignment_points_possible',
     )
     const $quizPage = $('#quiz_show,#quiz_edit_wrapper')
     $form.find('.rubric_grading').showIf($assignPoints.length > 0 && $quizPage.length === 0)
@@ -622,7 +623,7 @@ const rubricEditing = {
     url = replaceTags(
       $rubric.find('.delete_rubric_url').attr('href'),
       'association_id',
-      rubric.rubric_association_id
+      rubric.rubric_association_id,
     )
     $rubric
       .find('.delete_rubric_link')
@@ -680,7 +681,7 @@ const rubricEditing = {
           .find('.range_rating')
           .showIf(
             criterion.criterion_use_range === true &&
-              numberHelper.parse(rating.min_points) !== numberHelper.parse(rating.points)
+              numberHelper.parse(rating.min_points) !== numberHelper.parse(rating.points),
           )
         $criterion.find('.ratings').append($rating)
       })
@@ -716,6 +717,14 @@ rubricEditing.init = function () {
     $rubric_rating_dialog = $('#rubric_rating_dialog')
 
   rubricEditing.htmlBody = $('html,body')
+
+  const rubricContainer = $('.rubric_container.rubric')
+  const rubricVisible = !$('.add_rubric_link').is(':visible')
+  if (rubricContainer && rubricVisible) {
+    const containerId = rubricContainer.attr('id') ?? ''
+    const rubricId = containerId.split('rubric_')[1];
+    useStore.setState({ rubricId });
+  }
 
   $('#rubrics')
     .on('click', '.edit_criterion_link, .long_description_link', function (event) {
@@ -924,9 +933,9 @@ rubricEditing.init = function () {
             $rubric_dialog
               .find('.loading_message')
               .text(
-                I18n.t('errors.load_rubrics_failed', 'Loading rubrics failed, please try again')
+                I18n.t('errors.load_rubrics_failed', 'Loading rubrics failed, please try again'),
               )
-          }
+          },
         )
       }
     })
@@ -938,7 +947,7 @@ rubricEditing.init = function () {
         useMasteryScale = shouldUseMasteryScale($rubric)
 
       if (rubricEditing.isEditing) return false
-      // eslint-disable-next-line no-restricted-globals, no-alert
+
       if (!$link.hasClass('copy_edit') || confirm(getEditRubricPrompt(useMasteryScale))) {
         rubricEditing.editRubric($rubric, $link.attr('href'), useMasteryScale)
       }
@@ -963,6 +972,7 @@ rubricEditing.init = function () {
             if (callback && $.isFunction(callback)) {
               callback()
             }
+            useStore.setState({rubricId: undefined})
           })
         },
       })
@@ -1054,7 +1064,7 @@ rubricEditing.init = function () {
           data.min_points,
           $nextRating,
           Math.max,
-          'min_points'
+          'min_points',
         )
       }
     }
@@ -1205,7 +1215,7 @@ rubricEditing.init = function () {
             $rubric_dialog
               .find('.rubrics_loading_message')
               .text('Loading rubrics failed, please try again')
-          }
+          },
         )
       }
     })
@@ -1264,10 +1274,11 @@ rubricEditing.init = function () {
           if (!rubric.permissions?.update) {
             $rubric.find('.edit_rubric_link').addClass('copy_edit')
           }
+          useStore.setState({rubricId: rubric.id})
         },
         () => {
           $rubric_dialog.loadingImage('remove')
-        }
+        },
       )
     })
 
@@ -1308,7 +1319,7 @@ rubricEditing.init = function () {
           ? `#tool_form_${ENV.LTI_TOOL_FORM_ID}`
           : '#tool_form'
         const externalToolPoints = $(
-          `${toolFormId} #custom_canvas_assignment_points_possible`
+          `${toolFormId} #custom_canvas_assignment_points_possible`,
         ).val()
         let assignmentPoints
         if (externalToolPoints) {
@@ -1316,8 +1327,8 @@ rubricEditing.init = function () {
         } else {
           assignmentPoints = numberHelper.parse(
             $(
-              '#assignment_show .points_possible, #rubrics.rubric_dialog .assignment_points_possible'
-            ).text()
+              '#assignment_show .points_possible, #rubrics.rubric_dialog .assignment_points_possible',
+            ).text(),
           )
         }
 
@@ -1325,7 +1336,7 @@ rubricEditing.init = function () {
           // For N.Q assignments, we show the rubric from the assignment edit screen instead of
           // the show screen used for other assignments.
           assignmentPoints = numberHelper.parse(
-            $('#edit_assignment_header input[id="assignment_points_possible"]').val()
+            $('#edit_assignment_header input[id="assignment_points_possible"]').val(),
           )
         }
 
@@ -1346,7 +1357,7 @@ rubricEditing.init = function () {
               assignmentPoints,
               rubricPoints,
               pointRatio,
-            })
+            }),
           )
           const closeDialog = function (skip) {
             forceSubmit = true
@@ -1405,6 +1416,7 @@ rubricEditing.init = function () {
         $(this).parents('tr').hide()
 
         const rubric = data.rubric
+        useStore.setState({rubricId: rubric.id})
 
         rubric.rubric_association_id = data.rubric_association.id
         rubric.use_for_grading = data.rubric_association.use_for_grading
@@ -1429,7 +1441,7 @@ rubricEditing.init = function () {
               count: rubric.points_possible || 0,
               precision: 2,
               strip_insignificant_zeros: true,
-            }
+            },
           )
           $('.discussion-title .discussion-points').text(discussion_points_text)
         }
@@ -1510,7 +1522,7 @@ rubricEditing.init = function () {
           const $criterion = $(this).parents('.criterion')
           rubricEditing.flagInfinitesimalRating(
             $previousRating,
-            $criterion.find('.criterion_use_range').prop('checked')
+            $criterion.find('.criterion_use_range').prop('checked'),
           )
           $(this).remove()
           rubricEditing.sizeRatings($criterion)
@@ -1630,9 +1642,10 @@ if (
 ) {
   $('h1').hide()
   const contextId = ENV.context_asset_string.split('_')[1]
-  ReactDOM.render(
+
+  const root = createRoot(document.getElementById('rubric_management'))
+  root.render(
     <RubricManagement accountId={contextId} />,
-    document.getElementById('rubric_management')
   )
 }
 
@@ -1642,7 +1655,7 @@ const getEditRubricPrompt = useMasteryScale => {
       "You can't edit this " +
         "rubric, either because you don't have permission " +
         "or it's being used in more than one place. Any " +
-        'changes you make will result in a new rubric based on the old rubric. Continue anyway?'
+        'changes you make will result in a new rubric based on the old rubric. Continue anyway?',
     )
   }
   if (ENV.context_asset_string.includes('course')) {
@@ -1650,14 +1663,14 @@ const getEditRubricPrompt = useMasteryScale => {
       "You can't edit this " +
         "rubric, either because you don't have permission " +
         "or it's being used in more than one place. Any " +
-        'changes you make will result in a new rubric. Any associated outcome criteria will use the course mastery scale. Continue anyway?'
+        'changes you make will result in a new rubric. Any associated outcome criteria will use the course mastery scale. Continue anyway?',
     )
   } else {
     return I18n.t(
       "You can't edit this " +
         "rubric, either because you don't have permission " +
         "or it's being used in more than one place. Any " +
-        'changes you make will result in a new rubric. Any associated outcome criteria will use the account mastery scale. Continue anyway?'
+        'changes you make will result in a new rubric. Any associated outcome criteria will use the account mastery scale. Continue anyway?',
     )
   }
 }

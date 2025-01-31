@@ -147,7 +147,14 @@ module Interfaces::SubmissionInterface
 
   field :user, Types::UserType, null: true
   def user
-    load_association(:user)
+    load_association(:course).then do
+      load_association(:assignment).then do
+        if !Account.site_admin.feature_enabled?(:graphql_honor_anonymous_grading) ||
+           submission.can_read_submission_user_name?(current_user, session)
+          load_association(:user)
+        end
+      end
+    end
   end
 
   field :attempt, Integer, null: false
@@ -256,7 +263,23 @@ module Interfaces::SubmissionInterface
     end
   end
 
+  field :sub_assignment_submissions, [Types::SubAssignmentSubmissionType], null: true
+  def sub_assignment_submissions
+    Loaders::AssociationLoader.for(Submission, :assignment).then do
+      return nil unless object.assignment.checkpoints_parent?
+
+      Loaders::AssociationLoader.for(Assignment, :sub_assignment_submissions).then do
+        object.assignment.sub_assignment_submissions.where(user_id: object.user_id)
+      end
+    end
+  end
+
   field :grading_status, Types::SubmissionGradingStatusType, null: true
+  field :last_commented_by_user_at, Types::DateTimeType, null: true
+  def last_commented_by_user_at
+    Loaders::LastCommentedByUserAtLoader.for(current_user:).load(submission.id)
+  end
+
   field :late_policy_status, LatePolicyStatusType, null: true
   field :late, Boolean, method: :late?, null: true
   field :missing, Boolean, method: :missing?, null: true
@@ -307,9 +330,31 @@ module Interfaces::SubmissionInterface
       end
   end
 
+  field :custom_grade_status_id, ID, null: true
+
   field :custom_grade_status, String, null: true
   def custom_grade_status
-    submission.custom_grade_status&.name.to_s
+    load_association(:custom_grade_status).then do |status|
+      status&.name.to_s
+    end
+  end
+
+  field :status, String, null: false
+  def status
+    Promise.all([load_association(:assignment), load_association(:custom_grade_status)]).then do
+      Loaders::AssociationLoader.for(Assignment, :external_tool_tag).load(object.assignment).then do
+        object.status
+      end
+    end
+  end
+
+  field :status_tag, Types::SubmissionStatusTagType, null: false
+  def status_tag
+    load_association(:assignment).then do
+      Loaders::AssociationLoader.for(Assignment, :external_tool_tag).load(object.assignment).then do
+        object.status_tag
+      end
+    end
   end
 
   field :media_object, Types::MediaObjectType, null: true
@@ -427,6 +472,8 @@ module Interfaces::SubmissionInterface
 
   field :assignment_id, ID, null: false
 
+  field :external_tool_url, String, null: true
+
   field :group_id, ID, null: true
   def group_id
     # Unfortunately, we can't use submissions.group_id, since that value is
@@ -453,7 +500,9 @@ module Interfaces::SubmissionInterface
           submission.course_id,
           assignment.discussion_topic.id,
           host: context[:request].host_with_port,
-          embed: true
+          embed: true,
+          persist: 1,
+          student_id: submission.user_id
         )
       else
         GraphQLHelpers::UrlHelpers.course_assignment_submission_url(

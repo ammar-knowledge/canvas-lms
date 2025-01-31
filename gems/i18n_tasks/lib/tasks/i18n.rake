@@ -165,7 +165,7 @@ namespace :i18n do
       end
     end
 
-    t = Time.now
+    t = Time.zone.now
     translations = YAML.safe_load(File.open(source_translations_file))
 
     I18n.extend I18nTasks::Lolcalize
@@ -174,7 +174,7 @@ namespace :i18n do
     puts
 
     File.write("config/locales/lolz.yml", lolz_translations.to_yaml(line_width: -1))
-    print "\nFinished generating LOLZ from #{strings_processed} strings in #{Time.now - t} seconds\n"
+    print "\nFinished generating LOLZ from #{strings_processed} strings in #{Time.zone.now - t} seconds\n"
 
     # add lolz to the locales.yml file
     locales = YAML.safe_load(open("config/locales/locales.yml"))
@@ -220,9 +220,9 @@ namespace :i18n do
           if $?.exitstatus == 0
             if ret.include?(base_filename)
               `git checkout #{arg}`
-              if (previous = YAML.safe_load_file(base_filename).flatten_keys rescue nil)
-                last_export = { type: :commit, data: previous }
-              else
+              begin
+                last_export = { type: :commit, data: YAML.safe_load_file(base_filename).flatten_keys }
+              rescue
                 warn "Unable to load en.yml file"
               end
             else
@@ -235,9 +235,9 @@ namespace :i18n do
         else
           puts "Loading previous export..."
           if File.exist?(arg)
-            if (previous = YAML.safe_load_file(arg).flatten_keys rescue nil)
-              last_export = { type: :file, data: previous }
-            else
+            begin
+              last_export = { type: :file, data: YAML.safe_load_file(arg).flatten_keys }
+            rescue
               warn "Unable to load yml file"
             end
           else
@@ -309,7 +309,9 @@ namespace :i18n do
       loop do
         puts "Enter path to original en.yml file:"
         arg = $stdin.gets.strip
-        break if (source_translations = File.exist?(arg) && YAML.safe_load_file(arg) rescue nil)
+        break if (source_translations = File.exist?(arg) && YAML.safe_load_file(arg))
+      rescue
+        # try again
       end
     end
 
@@ -319,7 +321,9 @@ namespace :i18n do
       loop do
         puts "Enter path to translated file:"
         arg = $stdin.gets.strip
-        break if (new_translations = File.exist?(arg) && YAML.safe_load_file(arg) rescue nil)
+        break if (new_translations = File.exist?(arg) && YAML.safe_load_file(arg))
+      rescue
+        # try again
       end
     end
 

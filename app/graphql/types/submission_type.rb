@@ -49,11 +49,6 @@ module Types
 
     global_id_field :id
 
-    field :custom_grade_status, String, null: true
-    def custom_grade_status
-      CustomGradeStatus.find(object.custom_grade_status_id).name if object.custom_grade_status_id
-    end
-
     field :read_state, String, null: true
     def read_state
       object.read_state(current_user)
@@ -65,7 +60,19 @@ module Types
 
     field :redo_request, Boolean, null: true
 
-    field :user_id, ID, null: false
+    field :user_id, ID, null: true
+    def user_id
+      load_association(:course).then do
+        load_association(:assignment).then do
+          if !Account.site_admin.feature_enabled?(:graphql_honor_anonymous_grading) ||
+             object.can_read_submission_user_name?(current_user, session)
+            object.user_id
+          end
+        end
+      end
+    end
+
+    field :anonymous_id, ID, null: true
 
     field :submission_histories_connection, SubmissionHistoryType.connection_type, null: true do
       argument :filter, SubmissionHistoryFilterInputType, required: false, default_value: {}

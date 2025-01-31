@@ -16,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import natcompare from '@canvas/util/natcompare'
 import {Button} from '@instructure/ui-buttons'
 
-const I18n = useI18nScope('student_groups')
+const I18n = createI18nScope('student_groups')
 
 class Group extends React.Component {
   state = {open: false}
@@ -90,10 +90,14 @@ class Group extends React.Component {
         <i className="icon-user" aria-hidden="true" />
       </span>
     ) : null
+    const selfSignupClosed = this.props.group.group_category.self_signup_end_at
+      ? Date.parse(this.props.group.group_category.self_signup_end_at) < Date.now()
+      : false
     const canSelfSignup =
-      this.props.group.join_level === 'parent_context_auto_join' ||
-      this.props.group.group_category.self_signup === 'enabled' ||
-      this.props.group.group_category.self_signup === 'restricted'
+      (this.props.group.join_level === 'parent_context_auto_join' ||
+        this.props.group.group_category.self_signup === 'enabled' ||
+        this.props.group.group_category.self_signup === 'restricted') &&
+      !selfSignupClosed
     const isFull =
       this.props.group.max_membership != null &&
       this.props.group.users.length >= this.props.group.max_membership

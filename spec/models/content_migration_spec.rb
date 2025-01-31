@@ -19,6 +19,7 @@
 #
 
 require_relative "content_migration/course_copy_helper"
+require "webmock/rspec"
 
 describe ContentMigration do
   before :once do
@@ -174,6 +175,38 @@ describe ContentMigration do
       @cm.save!
       @cm.migration_ids_to_import = { copy: { content_migrations: { CC::CCHelper.create_key(@cm) => "1" } } }
       expect(@cm.import_object?("content_migrations", CC::CCHelper.create_key(@cm))).to be true
+    end
+  end
+
+  context "send_item_notifications" do
+    it "interprets the migration setting" do
+      expect(@cm.send_item_notifications?).to be false
+
+      @cm.migration_settings[:send_item_notifications] = true
+      expect(@cm).to be_valid
+      expect(@cm.send_item_notifications?).to be true
+    end
+
+    it "disallows combining send_item_notifications with shift_dates" do
+      @cm.migration_settings[:date_shift_options] = {
+        shift_dates: true,
+        old_start_date: 1.year.ago,
+        new_start_date: Time.now.utc
+      }
+      expect(@cm).to be_valid
+
+      @cm.migration_settings[:send_item_notifications] = true
+      expect(@cm).not_to be_valid
+    end
+
+    it "disallows combining send_item_notifications with remove_dates" do
+      @cm.migration_settings[:date_shift_options] = {
+        remove_dates: true,
+      }
+      expect(@cm).to be_valid
+
+      @cm.migration_settings[:send_item_notifications] = true
+      expect(@cm).not_to be_valid
     end
   end
 
@@ -977,154 +1010,139 @@ describe ContentMigration do
     end
   end
 
-  context "Quizzes.Next CC import" do
-    before do
-      allow(@cm.context)
-        .to receive(:feature_enabled?)
-        .with(:quizzes_next)
-        .and_return(true)
-      allow(@cm.migration_settings)
-        .to receive(:[])
-        .with(:import_quizzes_next)
-        .and_return(true)
-    end
+  describe "#import" do
+    subject { @cm.import!({}) }
 
-    let(:importer) { instance_double("QuizzesNext::Importers::CourseContentImporter") }
-
-    it "calls QuizzesNext::Importers" do
-      expect(@cm.migration_settings)
-        .to receive(:[])
-        .with(:migration_ids_to_import)
-      expect(Importers).not_to receive(:content_importer_for)
-      expect(QuizzesNext::Importers::CourseContentImporter)
-        .to receive(:new).and_return(importer)
-      expect(importer).to receive(:import_content)
-      @cm.import!({})
-    end
-  end
-
-  context "common_cartridge_qti_new_quizzes_import" do
-    let(:importer) { double }
-
-    before do
-      allow(importer)
-        .to receive(:import_content)
-        .with(any_args)
-        .and_return(true)
-      allow(@cm.migration_settings)
-        .to receive(:[])
-        .with("migration_type")
-        .and_return("common_cartridge_importer")
-      allow(QuizzesNext::Importers::CourseContentImporter)
-        .to receive(:new)
-        .with(any_args)
-        .and_return(importer)
-    end
-
-    context "FF enabled" do
+    context "when quizzes next import process returns true" do
       before do
-        allow(NewQuizzesFeaturesHelper)
-          .to receive(:common_cartridge_qti_new_quizzes_import_enabled?)
-          .with(instance_of(Course))
+        allow(@cm)
+          .to receive(:quizzes_next_import_process?)
           .and_return(true)
       end
 
-      describe "not Quizzes.Next CC import" do
-        before do
-          allow(@cm.migration_settings)
-            .to receive(:[])
-            .with(:import_quizzes_next)
-            .and_return(false)
-        end
+      let(:importer) { instance_double(QuizzesNext::Importers::CourseContentImporter) }
 
-        it "calls QuizzesNext::Importers" do
-          expect(@cm.migration_settings)
-            .to receive(:[])
-            .with(:migration_ids_to_import)
-          expect(Importers).not_to receive(:content_importer_for)
-          expect(QuizzesNext::Importers::CourseContentImporter)
-            .to receive(:new).and_return(importer)
-          expect(importer).to receive(:import_content)
-          @cm.import!({})
-        end
-      end
-
-      describe "Quizzes.Next CC import" do
-        before do
-          allow(@cm.migration_settings)
-            .to receive(:[])
-            .with(:import_quizzes_next)
-            .and_return(true)
-        end
-
-        it "calls QuizzesNext::Importers" do
-          expect(@cm.migration_settings)
-            .to receive(:[])
-            .with(:migration_ids_to_import)
-          expect(Importers).not_to receive(:content_importer_for)
-          expect(QuizzesNext::Importers::CourseContentImporter)
-            .to receive(:new).and_return(importer)
-          expect(importer).to receive(:import_content)
-          @cm.import!({})
-        end
+      it "should call QuizzesNext::Importers" do
+        expect(Importers).not_to receive(:content_importer_for)
+        expect_any_instance_of(QuizzesNext::Importers::CourseContentImporter).to receive(:import_content)
+        subject
       end
     end
 
-    context "FF disabled" do
+    context "when quizzes next import process returns false" do
       before do
-        allow(NewQuizzesFeaturesHelper)
-          .to receive(:common_cartridge_qti_new_quizzes_import_enabled?)
-          .with(instance_of(Course))
+        allow(@cm)
+          .to receive(:quizzes_next_import_process?)
           .and_return(false)
-        allow(Importers)
+      end
+
+      let(:importer) { class_double("Importers::CourseContentImporter") }
+
+      it "should not calls QuizzesNext::Importers" do
+        expect(QuizzesNext::Importers::CourseContentImporter)
+          .not_to receive(:new)
+        expect(Importers)
           .to receive(:content_importer_for)
-          .with("Course")
           .and_return(importer)
+        expect(importer)
+          .to receive(:import_content)
+
+        subject
       end
+    end
+  end
 
-      describe "not Quizzes.Next CC import" do
-        before do
-          allow(@cm.migration_settings)
-            .to receive(:[])
-            .with(:import_quizzes_next)
-            .and_return(false)
-        end
+  describe "#quizzes_next_import_process?" do
+    subject { @cm.quizzes_next_import_process? }
 
-        it "does not call QuizzesNext::Importers" do
-          expect(@cm.migration_settings)
-            .to receive(:[])
-            .with(:migration_ids_to_import)
-          expect(Importers).to receive(:content_importer_for)
-          expect(QuizzesNext::Importers::CourseContentImporter)
-            .not_to receive(:new)
-          expect(importer).to receive(:import_content)
-          @cm.import!({})
-        end
+    it "returns true if cc_qti_migration? is true" do
+      allow(@cm).to receive_messages(cc_qti_migration?: true, quizzes_next_migration?: false)
+      expect(subject).to be true
+    end
+
+    it "returns true if quizzes_next_migration? is true" do
+      allow(@cm).to receive_messages(cc_qti_migration?: false, quizzes_next_migration?: true)
+      expect(subject).to be true
+    end
+
+    it "returns false if cc_qti_migration? and quizzes_next_migration? is false" do
+      allow(@cm).to receive_messages(cc_qti_migration?: false, quizzes_next_migration?: false)
+      expect(subject).to be false
+    end
+  end
+
+  describe "#cc_qti_migration?" do
+    subject { @cm.cc_qti_migration? }
+
+    before do
+      allow(NewQuizzesFeaturesHelper).to receive(:common_cartridge_qti_new_quizzes_import_enabled?).and_return(true)
+      allow(@cm).to receive(:for_common_cartridge?).and_return(true)
+    end
+
+    it "returns true if context is a Course and common_cartridge_qti_new_quizzes_import_enabled? and for_common_cartridge? are true" do
+      expect(subject).to be true
+    end
+
+    it "returns false if context is not a Course" do
+      allow(@cm.context).to receive(:instance_of?).with(Course).and_return(false)
+      expect(subject).to be false
+    end
+
+    it "returns false if common_cartridge_qti_new_quizzes_import_enabled? is false" do
+      allow(NewQuizzesFeaturesHelper).to receive(:common_cartridge_qti_new_quizzes_import_enabled?).and_return(false)
+      expect(subject).to be false
+    end
+
+    it "returns false if for_common_cartridge? is false" do
+      allow(@cm).to receive(:for_common_cartridge?).and_return(false)
+      expect(subject).to be false
+    end
+  end
+
+  describe "#import_quizzes_next?" do
+    it "returns false when migration_settings[:import_quizzes_next] is false or nil" do
+      settings = [false, "false", nil]
+      settings.each do |setting|
+        @cm.migration_settings["import_quizzes_next"] = setting
+        expect(@cm.import_quizzes_next?).to be false
       end
+    end
 
-      describe "Quizzes.Next CC import" do
-        before do
-          allow(@cm.context)
-            .to receive(:feature_enabled?)
-            .with(:quizzes_next)
-            .and_return(true)
-          allow(@cm.migration_settings)
-            .to receive(:[])
-            .with(:import_quizzes_next)
-            .and_return(true)
-        end
-
-        it "calls QuizzesNext::Importers" do
-          expect(@cm.migration_settings)
-            .to receive(:[])
-            .with(:migration_ids_to_import)
-          expect(Importers).not_to receive(:content_importer_for)
-          expect(QuizzesNext::Importers::CourseContentImporter)
-            .to receive(:new).and_return(importer)
-          expect(importer).to receive(:import_content)
-          @cm.import!({})
-        end
+    it "returns true when migration_settings[:import_quizzes_next] is true" do
+      settings = [true, "true"]
+      settings.each do |setting|
+        @cm.migration_settings["import_quizzes_next"] = setting
+        expect(@cm.import_quizzes_next?).to be true
       end
+    end
+  end
+
+  describe "#quizzes_next_migration?" do
+    subject { @cm.quizzes_next_migration? }
+
+    before do
+      allow(@cm.context).to receive(:feature_enabled?).with(:quizzes_next).and_return(true)
+      allow(@cm.context).to receive(:instance_of?).with(Course).and_return(true)
+      allow(@cm).to receive(:import_quizzes_next?).and_return(true)
+    end
+
+    it "returns true if context is a Course, feature_enabled?(:quizzes_next) is true, and import_quizzes_next? is true" do
+      expect(subject).to be true
+    end
+
+    it "returns false if context is not a Course" do
+      allow(@cm.context).to receive(:instance_of?).with(Course).and_return(false)
+      expect(subject).to be false
+    end
+
+    it "returns false if feature_enabled?(:quizzes_next) is false" do
+      allow(@cm.context).to receive(:feature_enabled?).with(:quizzes_next).and_return(false)
+      expect(subject).to be false
+    end
+
+    it "returns false if import_quizzes_next? is false" do
+      allow(@cm).to receive(:import_quizzes_next?).and_return(false)
+      expect(subject).to be false
     end
   end
 
@@ -1625,6 +1643,27 @@ describe ContentMigration do
                              "attachment_path_id_lookup" => nil })
       end
 
+      it "shows files that were created for quizzes that aren't in Canvas in the asset map" do
+        old = attachment_model(context: @src, filename: "foo.txt")
+        attachment_model(context: @dst, filename: "foo.txt", migration_id: CC::CCHelper.create_key(old, global: true))
+        att = attachment_model(context: @dst, filename: "bar.txt", migration_id: "what_quizzes_put_in_here")
+
+        @cm.asset_map_url(generate_if_needed: true)
+
+        @cm.reload
+        json = JSON.parse(@cm.asset_map_attachment.open.read)
+        expect(json["resource_mapping"]["files"]).to include({
+                                                               "what_quizzes_put_in_here" => {
+                                                                 "source" => {},
+                                                                 "destination" => {
+                                                                   "id" => att.id.to_s,
+                                                                   "media_entry_id" => nil,
+                                                                   "uuid" => att.uuid
+                                                                 },
+                                                               },
+                                                             })
+      end
+
       context "when the permanent_page_links flag is on" do
         before do
           Account.site_admin.enable_feature!(:permanent_page_links)
@@ -2119,7 +2158,7 @@ describe ContentMigration do
     end
   end
 
-  context "media catridge migration" do
+  context "media cartridge migration" do
     include_context "course copy"
 
     let(:success_response) { Net::HTTPSuccess.new(Net::HTTPOK, "200", "OK") }
@@ -2152,7 +2191,7 @@ describe ContentMigration do
       @copy_from.wiki_pages.create! title: "wp1", body: "<iframe data-media-type=\"audio\" data-media-id=\"#{@att1.media_entry_id}\" src=\"/media_attachments_iframe/#{@att1.id}?type=audio\"></iframe>"
       @copy_from.wiki_pages.create! title: "wp2", body: "<iframe data-media-type=\"video\" data-media-id=\"#{@att2.media_entry_id}\" src=\"/media_attachments_iframe/#{@att2.id}?type=video\"></iframe>"
       @kaltura = double("CanvasKaltura::ClientV3")
-      @kaltura_media_handler = instance_double("KalturaMediaFileHandler")
+      @kaltura_media_handler = instance_double(KalturaMediaFileHandler)
       expect(@kaltura_media_handler).to receive(:add_media_files) do |_attachments, _wait_for_completion|
         att3 = @copy_to.attachments.where(migration_id: mig_id(@att1)).first.id
         att4 = @copy_to.attachments.where(migration_id: mig_id(@att2)).first.id
@@ -2188,6 +2227,16 @@ describe ContentMigration do
       expect(@zip_file.find_entry("web_resources/Uploaded Media/first.webm")).not_to be_nil
       expect(@zip_file.find_entry("web_resources/Uploaded Media/second.webm")).not_to be_nil
     end
+
+    it "properly migrates media files without extensions" do
+      @att1.update(filename: "first", display_name: "first", uploaded_data: fixture_file_upload("292"))
+
+      run_export_and_import
+
+      destination_att1 = @copy_to.attachments.find_by(migration_id: mig_id(@att1))
+      expect(destination_att1.media_entry_id).not_to be_nil
+      expect(destination_att1.content_type).to eq "audio/mpeg"
+    end
   end
 
   context "old media exports with deleted assignments" do
@@ -2205,7 +2254,7 @@ describe ContentMigration do
     end
 
     before do
-      @kaltura_media_handler = instance_double("KalturaMediaFileHandler")
+      @kaltura_media_handler = instance_double(KalturaMediaFileHandler)
       expect(@kaltura_media_handler).to receive(:add_media_files) do |attachments, _wait_for_completion|
         MediaObject.build_media_objects({
                                           entries: [
@@ -2237,6 +2286,47 @@ describe ContentMigration do
       run_jobs
       expect(@course.attachments.last.media_entry_id).not_to eq("maybe")
       expect(@course.attachments.last.file_state).not_to eq("deleted")
+    end
+  end
+
+  context "imported_asset_id_map" do
+    before :once do
+      # not actually doing a course copy here, just simulating a finished one
+      @src = course_factory
+      @dst = course_factory
+      @old_assignment = @src.assignments.create! title: "foo"
+      @new_assignment = @dst.assignments.create! title: "foo", migration_id: CC::CCHelper.create_key(@old_assignment, global: true)
+
+      @old_wp = @src.wiki_pages.create! title: "bar"
+      @new_wp = @dst.wiki_pages.create!(
+        title: "bar",
+        migration_id: CC::CCHelper.create_key(@old_wp, global: true)
+      )
+
+      @cm = @dst.content_migrations.build(migration_type: "course_copy_importer", user: @teacher)
+      @cm.migration_settings[:imported_assets] = {
+        "Assignment" => @new_assignment.id.to_s,
+        "WikiPage" => @new_wp.id.to_s,
+      }
+      @cm.workflow_state = "imported"
+      @cm.source_course = @src
+      @cm.save!
+    end
+
+    it "returns a hash mapping the source asset IDs to the destination asset IDs" do
+      expect(@cm.imported_asset_id_map).to eq({
+                                                "Assignment" => { @old_assignment.id => @new_assignment.id },
+                                                "WikiPage" => { @old_wp.id => @new_wp.id }
+                                              })
+    end
+
+    it "ignores assets that can't be mapped" do
+      @cm.migration_settings[:imported_assets]["lti_assignment_quiz_set"] = []
+      @cm.save!
+      expect(@cm.imported_asset_id_map).to eq({
+                                                "Assignment" => { @old_assignment.id => @new_assignment.id },
+                                                "WikiPage" => { @old_wp.id => @new_wp.id }
+                                              })
     end
   end
 end

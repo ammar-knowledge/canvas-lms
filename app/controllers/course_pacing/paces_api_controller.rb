@@ -38,11 +38,14 @@ class CoursePacing::PacesApiController < ApplicationController
     pace = pacing_service.create_in_context(context)
     return not_found if pace.nil?
 
-    render json: {
-             pace: pacing_presenter.new(pace).as_json,
-             progress: progress_json(pacing_service.progress(pace), @current_user, session)
-           },
-           status: :created
+    should_publish = !(params[:workflow_state].present? && params[:workflow_state] == "unpublished") || !@draft_feature_flag_enabled
+    render(
+      json: {
+        pace: pacing_presenter.new(pace).as_json,
+        progress: progress_json(pacing_service.progress(pace, publish: should_publish), @current_user, session)
+      },
+      status: :created
+    )
   end
 
   def update
@@ -50,10 +53,19 @@ class CoursePacing::PacesApiController < ApplicationController
     return not_found if pace.nil?
 
     if pacing_service.update_pace(pace, update_params)
-      render json: {
-        pace: pacing_presenter.new(pace).as_json,
-        progress: progress_json(pacing_service.progress(pace), @current_user, session)
-      }
+      should_publish = false
+      # only publish unpublished paces if save is explicitly set to true. this allows for keeping a pace in a draft state
+      # e.g. leaving workflow_state = unpublished. Always publish again if the pace has already been pubished once
+      if ((update_params[:workflow_state].present? && update_params[:workflow_state] == "active") || pace.workflow_state == "active") || !@draft_feature_flag_enabled
+        should_publish = true
+      end
+
+      render(
+        json: {
+          pace: pacing_presenter.new(pace).as_json,
+          progress: progress_json(pacing_service.progress(pace, publish: should_publish), @current_user, session)
+        }
+      )
     else
       render json: { success: false, errors: pace.errors.full_messages }, status: :unprocessable_entity
     end
@@ -73,10 +85,11 @@ class CoursePacing::PacesApiController < ApplicationController
   def update_params
     params.require(:pace).permit(
       :end_date,
-      :exclude_weekends,
       :hard_end_dates,
       :workflow_state,
-      course_pace_module_items_attributes: %i[id duration module_item_id root_account_id]
+      :exclude_weekends,
+      course_pace_module_items_attributes: %i[id duration module_item_id root_account_id],
+      selected_days_to_skip: []
     )
   end
 
