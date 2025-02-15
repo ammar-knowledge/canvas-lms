@@ -95,7 +95,6 @@ module CanvasSanitize # :nodoc:
       "span",
       "strike",
       "strong",
-      "style",
       "sub",
       "sup",
       "abbr",
@@ -257,6 +256,7 @@ module CanvasSanitize # :nodoc:
                    "scrolling",
                    "allow", # TODO: remove explicit allow with domain whitelist account setting
                    "sandbox",
+                   "loading",
                    "allowfullscreen",
                    "webkitallowfullscreen",
                    "mozallowfullscreen"].freeze,
@@ -740,6 +740,7 @@ module CanvasSanitize # :nodoc:
   SANITIZE[:protocols].freeze
   SANITIZE.freeze
 
+  Config = Struct.new(:sanitizer, :fields, :allow_comments)
   module ClassMethods
     def sanitize_field(*args)
       # Calls this as many times as a field is configured.  Will this play
@@ -747,7 +748,7 @@ module CanvasSanitize # :nodoc:
       include CanvasSanitize::InstanceMethods
       extend CanvasSanitize::SingletonMethods
 
-      @config = OpenStruct.new
+      @config = Config.new
       @config.sanitizer = []
       @config.fields = []
       @config.allow_comments = true

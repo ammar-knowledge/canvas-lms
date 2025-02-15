@@ -242,13 +242,32 @@ class AuthenticationProvidersController < ApplicationController
   # @returns [AuthenticationProvider]
   def index
     if api_request?
-      render json: aacs_json(@account.authentication_providers.active)
+      render json: aacs_json(@account.authentication_providers.active.select { |ap| ap.visible_to?(@current_user) })
     else
-      @presenter = AuthenticationProvidersPresenter.new(@account)
+      @presenter = AuthenticationProvidersPresenter.new(@account, @current_user)
       @page_title = t("Authentication Settings")
       add_crumb @page_title
       page_has_instui_topnav
     end
+  end
+
+  # @API Get authentication provider
+  # Get the specified authentication provider
+  #
+  # @example_request
+  #   curl 'https://<canvas>/api/v1/accounts/<account_id>/authentication_providers/<id>' \
+  #        -H 'Authorization: Bearer <token>'
+  #
+  # @returns AuthenticationProvider
+  def show
+    aac = @account.authentication_providers.active.find(params[:id])
+    return if aac.auth_type != "canvas" && !require_root_account_management
+
+    render json: aac_json(aac)
+  rescue ActiveRecord::RecordNotFound
+    return unless require_root_account_management
+
+    raise
   end
 
   # @API Add authentication provider
@@ -261,7 +280,7 @@ class AuthenticationProvidersController < ApplicationController
   # described below. A provider specification must include an 'auth_type'
   # parameter with a value of 'apple', 'canvas', 'cas', 'clever', 'facebook',
   # 'github', 'google', 'ldap', 'linkedin', 'microsoft', 'openid_connect',
-  # 'saml', or 'twitter'. The other recognized parameters depend on this
+  # or 'saml'. The other recognized parameters depend on this
   # auth_type; unrecognized parameters are discarded. Provider specifications
   # not specifying a valid auth_type are ignored.
   #
@@ -613,32 +632,7 @@ class AuthenticationProvidersController < ApplicationController
   # - federated_attributes [Optional]
   #
   #   See FederatedAttributesConfig. Any value is allowed for the provider attribute names.
-  #
-  # For X.com, the additional recognized parameters are:
-  #
-  # - consumer_key [Required]
-  #
-  #   The X.com Consumer Key. Not available if configured globally for Canvas.
-  #
-  # - consumer_secret [Required]
-  #
-  #   The X.com Consumer Secret. Not available if configured globally for Canvas.
-  #
-  # - login_attribute [Optional]
-  #
-  #   The attribute to use to look up the user's login in Canvas. Either
-  #   'user_id' (the default), or 'screen_name'
-  #
-  # - parent_registration [Optional] - DEPRECATED 2017-11-03
-  #
-  #   Accepts a boolean value, true designates the authentication service
-  #   for use on parent registrations.  Only one service can be selected
-  #   at a time so if set to true all others will be set to false
-  #
-  # - federated_attributes [Optional]
-  #
-  #   See FederatedAttributesConfig. Valid provider attributes are 'name',
-  #   'screen_name', 'time_zone', and 'user_id'.
+
   #
   # @example_request
   #   # Create LDAP config
@@ -686,8 +680,15 @@ class AuthenticationProvidersController < ApplicationController
     # mfa_required might be set, and ruby maintains insertion order in hashes
     data = { account: @account }.merge(filter_data(aac_data))
     deselect_parent_registration(data)
-    account_config = @account.authentication_providers.build(data)
-    if account_config.class.singleton? && @account.authentication_providers.active.where(auth_type: account_config.auth_type).exists?
+
+    account_config = AuthenticationProvider.find_restorable_provider(
+      root_account: @account,
+      auth_type: data["auth_type"]
+    )
+    account_config ||= @account.authentication_providers.build(data)
+    account_config.workflow_state = "active"
+
+    if account_config.duplicated_in_account?
       respond_to do |format|
         format.html do
           flash[:error] = t(
@@ -702,6 +703,7 @@ class AuthenticationProvidersController < ApplicationController
       end
       return
     end
+
     update_deprecated_account_settings_data(aac_data, account_config)
 
     unless account_config.save
@@ -731,7 +733,7 @@ class AuthenticationProvidersController < ApplicationController
   #
   # @example_request
   #   # update SAML config
-  #   curl -XPUT 'https://<canvas>/api/v1/accounts/<account_id>/authentication_providers/<id>' \
+  #   curl -X PUT 'https://<canvas>/api/v1/accounts/<account_id>/authentication_providers/<id>' \
   #        -F 'idp_entity_id=<new_idp_entity_id>' \
   #        -F 'log_in_url=<new_url>' \
   #        -H 'Authorization: Bearer <token>'
@@ -780,30 +782,11 @@ class AuthenticationProvidersController < ApplicationController
     end
   end
 
-  # @API Get authentication provider
-  # Get the specified authentication provider
-  #
-  # @example_request
-  #   curl 'https://<canvas>/api/v1/accounts/<account_id>/authentication_providers/<id>' \
-  #        -H 'Authorization: Bearer <token>'
-  #
-  # @returns AuthenticationProvider
-  def show
-    aac = @account.authentication_providers.active.find(params[:id])
-    return if aac.auth_type != "canvas" && !require_root_account_management
-
-    render json: aac_json(aac)
-  rescue ActiveRecord::RecordNotFound
-    return unless require_root_account_management
-
-    raise
-  end
-
   # @API Delete authentication provider
   # Delete the config
   #
   # @example_request
-  #   curl -XDELETE 'https://<canvas>/api/v1/accounts/<account_id>/authentication_providers/<id>' \
+  #   curl -X DELETE 'https://<canvas>/api/v1/accounts/<account_id>/authentication_providers/<id>' \
   #        -H 'Authorization: Bearer <token>'
   def destroy
     aac = @account.authentication_providers.active.find params[:id]
@@ -812,6 +795,26 @@ class AuthenticationProvidersController < ApplicationController
     respond_to do |format|
       format.html { redirect_to(account_authentication_providers_path(@account)) }
       format.json { render json: aac_json(aac) }
+    end
+  end
+
+  # @API Restore a deleted authentication provider
+  #
+  # Restore an authentication provider back to active that was previously deleted. Only
+  # available to admins who can manage_account_settings for given root account.
+  #
+  # @example_request
+  #   curl -X PUT 'https://<canvas>/api/v1/accounts/<account_id>/authentication_providers/<id>/restore' \
+  #        -H 'Authorization: Bearer <token>'
+  #
+  # @returns AuthenticationProvider
+  def restore
+    aac = @account.authentication_providers.find params[:id]
+
+    if aac.deleted? && aac.restore
+      render json: aac_json(aac)
+    else
+      render json: { error: "There was an error restoring the authentication provider" }, status: :bad_request
     end
   end
 

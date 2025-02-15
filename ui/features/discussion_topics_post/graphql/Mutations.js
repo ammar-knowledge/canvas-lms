@@ -20,7 +20,7 @@ import {AnonymousUser} from './AnonymousUser'
 import {DiscussionEntry} from './DiscussionEntry'
 import {Discussion} from './Discussion'
 import {Error} from '../../../shared/graphql/Error'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {User} from './User'
 import {Submission} from './Submission'
 
@@ -257,6 +257,39 @@ export const UPDATE_USER_DISCUSSION_SPLITSCREEN_PREFERENCE = gql`
     ) {
       user {
         discussionsSplitscreenView
+      }
+    }
+  }
+`
+
+export const UPDATE_DISCUSSION_SORT_ORDER = gql`
+  mutation UpdateDiscussionSortOrder(
+    $discussionTopicId: ID!
+    $sortOrder: DiscussionSortOrderType!
+  ) {
+    updateDiscussionSortOrder(
+      input: {discussionTopicId: $discussionTopicId, sortOrder: $sortOrder}
+    ) {
+      discussionTopic {
+        _id
+        id
+        participant {
+          sortOrder
+        }
+      }
+    }
+  }
+`
+
+export const UPDATE_DISCUSSION_EXPANDED = gql`
+  mutation UpdateDiscussionExpanded($discussionTopicId: ID!, $expanded: Boolean!) {
+    updateDiscussionExpanded(input: {discussionTopicId: $discussionTopicId, expanded: $expanded}) {
+      discussionTopic {
+        _id
+        id
+        participant {
+          expanded
+        }
       }
     }
   }

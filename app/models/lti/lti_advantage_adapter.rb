@@ -87,8 +87,8 @@ module Lti
     # For information on how the cached ID token is eventually retrieved
     # and sent to a tool, please refer to the inline documentation of
     # app/controllers/lti/ims/authentication_controller.rb
-    def generate_post_payload_for_assignment(*args)
-      login_request(resource_link_request.generate_post_payload_for_assignment(*args))
+    def generate_post_payload_for_assignment(*)
+      login_request(resource_link_request.generate_post_payload_for_assignment(*))
     end
 
     # Generates a login request pointing to a cached launch (ID token)
@@ -104,8 +104,8 @@ module Lti
     # For information on how the cached ID token is eventually retrieved
     # and sent to a tool, please refer to the inline documentation of
     # app/controllers/lti/ims/authentication_controller.rb
-    def generate_post_payload_for_homework_submission(*args)
-      login_request(resource_link_request.generate_post_payload_for_homework_submission(*args))
+    def generate_post_payload_for_homework_submission(*)
+      login_request(resource_link_request.generate_post_payload_for_homework_submission(*))
     end
 
     # Generates a login request pointing to a cached launch (ID token)
@@ -121,8 +121,9 @@ module Lti
     # For information on how the cached ID token is eventually retrieved
     # and sent to a tool, please refer to the inline documentation of
     # app/controllers/lti/ims/authentication_controller.rb
-    def generate_post_payload_for_student_context_card(student_id:)
-      @opts[:student_id] = student_id
+    def generate_post_payload_for_student_context_card(student:)
+      @opts[:student_id] = student.global_id
+      @opts[:student_lti_id] = student.lti_id
       login_request(resource_link_request.to_cached_hash)
     end
 
@@ -168,11 +169,6 @@ module Lti
     end
 
     def generate_lti_params
-      if resource_type&.to_sym == :course_assignments_menu &&
-         !@context.root_account.feature_enabled?(:lti_multiple_assignment_deep_linking)
-        return resource_link_request.to_cached_hash
-      end
-
       if resource_type&.to_sym == :module_index_menu_modal &&
          !@context.root_account.feature_enabled?(:lti_deep_linking_module_index_menu_modal)
         return resource_link_request.to_cached_hash
@@ -194,18 +190,23 @@ module Lti
 
     def login_request(lti_params)
       message_hint = cache_payload(lti_params)
-      login_hint = Lti::Asset.opaque_identifier_for(@user, context: @context) || User.public_lti_id
+      login_hint = Lti::V1p1::Asset.opaque_identifier_for(@user, context: @context) || User.public_lti_id
+      deployment_id_flag_on = @context.root_account.feature_enabled?(:lti_deployment_id_in_login_request)
 
-      req = LtiAdvantage::Messages::LoginRequest.new(
+      req_params = {
         iss: Canvas::Security.config["lti_iss"],
         login_hint:,
         client_id: @tool.global_developer_key_id,
-        deployment_id: @tool.deployment_id,
+        lti_deployment_id: @tool.deployment_id,
         target_link_uri:,
         lti_message_hint: message_hint,
         canvas_environment: ApplicationController.test_cluster_name || "prod",
         canvas_region: @context.shard.database_server.config[:region] || "not_configured"
-      )
+      }
+
+      req_params[:deployment_id] = @tool.deployment_id unless deployment_id_flag_on
+
+      req = LtiAdvantage::Messages::LoginRequest.new(req_params)
       req.lti_storage_target = Lti::PlatformStorage::FORWARDING_TARGET if @include_storage_target
       req.as_json
     end

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -20,8 +19,8 @@
 import moment from 'moment-timezone'
 import {keyBy} from 'lodash'
 
-import {BlackoutDate, SyncState, Course} from '../shared/types'
-import {
+import {type BlackoutDate, SyncState, type Course} from '../shared/types'
+import type {
   Enrollment,
   Enrollments,
   Module,
@@ -119,6 +118,8 @@ export const PACE_ITEM_1: CoursePaceItem = {
   module_item_id: '60',
   module_item_type: 'Assignment',
   published: true,
+  submittable: true,
+  submitted_at: '2025-01-01T00:00:00Z',
 }
 
 export const PACE_ITEM_2: CoursePaceItem = {
@@ -131,6 +132,8 @@ export const PACE_ITEM_2: CoursePaceItem = {
   module_item_id: '61',
   module_item_type: 'Discussion',
   published: false,
+  submittable: true,
+  submitted_at: null,
 }
 
 export const PACE_ITEM_3: CoursePaceItem = {
@@ -143,6 +146,8 @@ export const PACE_ITEM_3: CoursePaceItem = {
   module_item_id: '62',
   module_item_type: 'Quiz',
   published: true,
+  submittable: true,
+  submitted_at: null,
 }
 
 export const PACE_MODULE_1: Module = {
@@ -159,6 +164,10 @@ export const PACE_MODULE_2: Module = {
   items: [PACE_ITEM_3],
 }
 
+export const EXCLUDE_WEEKENDS_WORK_WEEK_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri']
+
+export const NOT_EXCLUDE_WEEKENDS_WORK_WEEK_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+
 export const PRIMARY_PACE: CoursePace = {
   id: '1',
   name: 'Course 1',
@@ -173,6 +182,29 @@ export const PRIMARY_PACE: CoursePace = {
   end_date_context: 'course',
   workflow_state: 'active',
   exclude_weekends: true,
+  selected_days_to_skip: [],
+  modules: [PACE_MODULE_1, PACE_MODULE_2],
+  // @ts-expect-error
+  course: undefined,
+  compressed_due_dates: undefined,
+  updated_at: '',
+}
+
+export const PRIMARY_PACE_SKIP_SELECTED_DAYS_ENABLED: CoursePace = {
+  id: '1',
+  name: 'Course 1',
+  course_id: COURSE.id,
+  course_section_id: undefined,
+  user_id: undefined,
+  context_type: 'Course',
+  context_id: COURSE.id,
+  start_date: '2021-09-01',
+  start_date_context: 'course',
+  end_date: '2021-12-15',
+  end_date_context: 'course',
+  workflow_state: 'active',
+  exclude_weekends: true,
+  selected_days_to_skip: ['sat', 'sun'],
   modules: [PACE_MODULE_1, PACE_MODULE_2],
   // @ts-expect-error
   course: undefined,
@@ -203,6 +235,7 @@ export const COURSE_PACE_CONTEXT: PaceContext = {
     duration: 6,
     last_modified: '2022-10-17T23:12:24Z',
   },
+  on_pace: true,
 }
 
 export const PACE_CONTEXTS_SECTIONS_RESPONSE: PaceContextsApiResponse = {
@@ -219,6 +252,7 @@ export const PACE_CONTEXTS_SECTIONS_RESPONSE: PaceContextsApiResponse = {
         duration: 6,
         last_modified: '2022-10-17T23:12:24Z',
       },
+      on_pace: true,
     },
     {
       name: 'D-F',
@@ -232,6 +266,7 @@ export const PACE_CONTEXTS_SECTIONS_RESPONSE: PaceContextsApiResponse = {
         duration: 6,
         last_modified: '2022-10-17T23:12:24Z',
       },
+      on_pace: true,
     },
     {
       name: 'G-K',
@@ -245,6 +280,7 @@ export const PACE_CONTEXTS_SECTIONS_RESPONSE: PaceContextsApiResponse = {
         duration: 6,
         last_modified: '2022-10-17T23:12:24Z',
       },
+      on_pace: true,
     },
   ],
   total_entries: 3,
@@ -264,6 +300,7 @@ export const PACE_CONTEXTS_SECTIONS_SEARCH_RESPONSE: PaceContextsApiResponse = {
         duration: 6,
         last_modified: '2022-10-17T23:12:24Z',
       },
+      on_pace: true,
     },
   ],
   total_entries: 1,
@@ -283,6 +320,7 @@ export const PACE_CONTEXTS_STUDENTS_RESPONSE: PaceContextsApiResponse = {
         duration: 6,
         last_modified: '2022-10-17T23:12:24Z',
       },
+      on_pace: true,
     },
     {
       name: 'Peter',
@@ -296,6 +334,7 @@ export const PACE_CONTEXTS_STUDENTS_RESPONSE: PaceContextsApiResponse = {
         duration: 6,
         last_modified: '2022-10-17T23:12:24Z',
       },
+      on_pace: true,
     },
     {
       name: 'Mike',
@@ -309,6 +348,7 @@ export const PACE_CONTEXTS_STUDENTS_RESPONSE: PaceContextsApiResponse = {
         duration: 6,
         last_modified: '2022-10-17T23:12:24Z',
       },
+      on_pace: true,
     },
     {
       name: 'Alex',
@@ -322,6 +362,7 @@ export const PACE_CONTEXTS_STUDENTS_RESPONSE: PaceContextsApiResponse = {
         duration: 6,
         last_modified: '2022-10-17T23:12:24Z',
       },
+      on_pace: true,
     },
   ],
   total_entries: 4,
@@ -413,6 +454,8 @@ export const DEFAULT_UI_STATE: UIState = {
   showPaceModal: false,
   showProjections: true,
   syncing: 0,
+  outerResponsiveSize: 'large',
+  savingDraft: false,
 }
 
 export const DEFAULT_STORE_STATE: StoreState = {

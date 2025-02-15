@@ -28,7 +28,7 @@ const renderSection = () => {
       <Frame>
         <BlankSection />
       </Frame>
-    </Editor>
+    </Editor>,
   )
 }
 
@@ -37,15 +37,11 @@ describe('BlankSection', () => {
     const {container} = renderSection()
     expect(container.querySelector('.section.blank-section')).toBeInTheDocument()
     expect(
-      container.querySelector('.section.blank-section .blank-section__inner')
+      container.querySelector('.section.blank-section .blank-section__inner'),
     ).toBeInTheDocument()
   })
 
   it('is tagged as a section', () => {
     expect(BlankSection.craft.custom.isSection).toBe(true)
-  })
-
-  it('has a section menu', () => {
-    expect(BlankSection.craft.related.sectionMenu).toBeDefined()
   })
 })

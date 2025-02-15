@@ -105,11 +105,11 @@ module CC
 
     REPLACEABLE_MEDIA_TYPES = ["audio", "video"].freeze
 
-    def ims_date(date = nil, default = Time.now)
+    def ims_date(date = nil, default = Time.zone.now)
       CCHelper.ims_date(date, default)
     end
 
-    def ims_datetime(date = nil, default = Time.now)
+    def ims_datetime(date = nil, default = Time.zone.now)
       CCHelper.ims_datetime(date, default)
     end
 
@@ -125,14 +125,14 @@ module CC
       (global ? "g" : "i") + Digest::MD5.hexdigest(prepend + key)
     end
 
-    def self.ims_date(date = nil, default = Time.now)
+    def self.ims_date(date = nil, default = Time.zone.now)
       date ||= default
       return nil unless date
 
       date.respond_to?(:utc) ? date.utc.strftime(IMS_DATE) : date.strftime(IMS_DATE)
     end
 
-    def self.ims_datetime(date = nil, default = Time.now)
+    def self.ims_datetime(date = nil, default = Time.zone.now)
       date ||= default
       return nil unless date
 
@@ -201,8 +201,6 @@ module CC
       end
       linked_objects
     end
-
-    require "set"
 
     class HtmlContentExporter
       attr_reader :course, :user, :used_media_objects, :media_object_flavor, :media_object_infos
@@ -349,6 +347,17 @@ module CC
         query.sub(original_param, new_param)
       end
 
+      def json_page(block_editor, title, meta_fields = {})
+        json = {}
+        json["title"] = title
+        json["meta"] = meta_fields
+        json["block_editor"] = {
+          "blocks" => @rewriter.translate_blocks(block_editor),
+          "editor_version" => block_editor.editor_version
+        }
+        json.to_json
+      end
+
       def html_page(html, title, meta_fields = {})
         content = html_content(html)
         meta_html = ""
@@ -393,7 +402,7 @@ module CC
         html = @rewriter.translate_content(html)
         return html if html.blank?
 
-        doc = Nokogiri::HTML5.fragment(html)
+        doc = Nokogiri::HTML5.fragment(html, nil, max_tree_depth: 10_000)
         # keep track of found media comments, and translate them into links into the files tree
         # if imported back into canvas, they'll get uploaded to the media server
         # and translated back into media comments
@@ -471,6 +480,14 @@ module CC
       # media object, the file will get reactivated when they export
       unless attachment
         att = obj.attachment || Attachment.find_by(media_entry_id: obj.media_id)
+        if course && !att
+          unless obj.context_id
+            obj.context = course
+            obj.save
+          end
+          obj.create_attachment
+          att = obj.attachment
+        end
         attachment = att.copy_to_folder!(Folder.media_folder(course))
       end
       updates = {}
@@ -496,6 +513,8 @@ module CC
     # path components and the query string
     def self.file_query_string(sub_path)
       return if sub_path.blank?
+
+      sub_path = CGI.unescapeHTML(sub_path)
 
       qs = []
       begin

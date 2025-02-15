@@ -53,25 +53,6 @@ const mockOverrides = [
   },
 ]
 
-const mockSubAssignmentSubmissions = [
-  {
-    id: 'BXMzaWdebTVubC0x',
-    _id: '4',
-    cachedDueDate: null,
-    submissionStatus: 'submitted',
-    submittedAt: '2024-04-16T14:05:16-06:00',
-    subAssignmentTag: 'reply_to_topic',
-  },
-  {
-    id: 'BXMzaWdebTVubC0j',
-    _id: '3',
-    cachedDueDate: null,
-    submissionStatus: 'submitted',
-    submittedAt: '2024-04-18T14:05:16-06:00',
-    subAssignmentTag: 'reply_to_entry',
-  },
-]
-
 beforeAll(() => {
   window.matchMedia = jest.fn().mockImplementation(() => {
     return {
@@ -95,7 +76,7 @@ const setup = (assignmentData = {}) => {
     <AssignmentAvailabilityContainer
       assignment={Assignment.mock({...assignmentData})}
       isAdmin={true}
-    />
+    />,
   )
 }
 
@@ -204,7 +185,7 @@ describe('AssignmentAvailabilityContainer', () => {
           isAdmin={true}
           inPacedCourse={true}
           courseId="17"
-        />
+        />,
       )
       act(() => {
         getByRole('button', {name: 'View Due Dates'}).click()
@@ -223,7 +204,7 @@ describe('AssignmentAvailabilityContainer', () => {
           isAdmin={true}
           inPacedCourse={true}
           courseId="17"
-        />
+        />,
       )
       act(() => {
         getByRole('button', {name: 'View Due Dates'}).click()

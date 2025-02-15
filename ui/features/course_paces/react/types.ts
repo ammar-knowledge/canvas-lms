@@ -59,6 +59,8 @@ export interface CoursePaceItem {
   readonly module_item_id: string
   readonly module_item_type: string
   readonly published: boolean
+  readonly submittable: boolean
+  readonly submitted_at?: string | null
   compressed_due_date?: string
 }
 
@@ -95,13 +97,14 @@ export interface PaceDuration {
 
 export interface CoursePace {
   readonly id?: string
-  readonly start_date: string
+  readonly start_date?: string
   readonly start_date_context: ContextTypes
-  readonly end_date: OptionalDate
+  readonly end_date?: OptionalDate
   readonly end_date_context: ContextTypes
-  readonly workflow_state: WorkflowStates
+  workflow_state: WorkflowStates
   readonly modules: Module[]
   readonly exclude_weekends: boolean
+  readonly selected_days_to_skip: string[]
   readonly course: Course
   readonly course_id: string
   readonly course_section_id?: string
@@ -122,6 +125,16 @@ export interface Progress {
   readonly updated_at: string
   readonly workflow_state: ProgressStates
   readonly url: string
+  readonly context_id: string
+}
+
+export interface CourseReport {
+  readonly id?: string
+  readonly report_type: string
+  readonly course_id: string
+  readonly file_url?: string
+  readonly parameters?: any
+  readonly status?: string
 }
 
 /* Redux state types */
@@ -141,6 +154,7 @@ export type OriginalState = {
 export interface UIState {
   readonly autoSaving: boolean
   readonly syncing: number
+  readonly savingDraft: boolean
   readonly errors: CategoryErrors
   readonly divideIntoWeeks: boolean
   readonly selectedContextType: PaceContextTypes
@@ -199,6 +213,7 @@ export interface PaceContext {
   associated_section_count: number
   associated_student_count: number
   applied_pace: Pace | null
+  on_pace: boolean | null
 }
 
 export interface PaceContextProgress {

@@ -18,8 +18,8 @@
 
 import React, {useEffect, useState} from 'react'
 
-import {ApolloProvider, createClient} from '@canvas/apollo'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {ApolloProvider, createClient} from '@canvas/apollo-v3'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import GradebookMenu from '@canvas/gradebook-menu'
 import LoadingIndicator from '@canvas/loading-indicator'
 import {View} from '@instructure/ui-view'
@@ -27,7 +27,7 @@ import {Text} from '@instructure/ui-text'
 import EnhancedIndividualGradebook from './EnhancedIndividualGradebook'
 import LearningMasteryTabsView from './LearningMasteryTabsView'
 
-const I18n = useI18nScope('enhanced_individual_gradebook')
+const I18n = createI18nScope('enhanced_individual_gradebook')
 
 export default function EnhancedIndividualGradebookWrapper() {
   const [client, setClient] = useState<any>(null) // TODO: remove <any>
@@ -53,13 +53,11 @@ export default function EnhancedIndividualGradebookWrapper() {
   }
 
   return (
-    <>
+    <View as="div" id="individual_gradebook">
+      {/* EVAL-4229 */}
       <GradebookMenu
         courseUrl={ENV.GRADEBOOK_OPTIONS.context_url}
         learningMasteryEnabled={Boolean(ENV.GRADEBOOK_OPTIONS.outcome_gradebook_enabled)}
-        enhancedIndividualGradebookEnabled={Boolean(
-          ENV.GRADEBOOK_OPTIONS.individual_gradebook_enhancements
-        )}
         variant="EnhancedIndividualGradebook"
       />
       <ApolloProvider client={client}>
@@ -72,7 +70,7 @@ export default function EnhancedIndividualGradebookWrapper() {
           <div style={{lineHeight: 1.25}}>
             <Text size={window.ENV.FEATURES?.instui_nav ? 'large' : 'medium'}>
               {I18n.t(
-                'Note: Grades and notes will be saved automatically after moving out of the field.'
+                'Note: Grades and notes will be saved automatically after moving out of the field.',
               )}
             </Text>
           </div>
@@ -88,6 +86,6 @@ export default function EnhancedIndividualGradebookWrapper() {
           </View>
         )}
       </ApolloProvider>
-    </>
+    </View>
   )
 }

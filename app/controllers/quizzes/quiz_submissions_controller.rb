@@ -63,7 +63,7 @@ class Quizzes::QuizSubmissionsController < ApplicationController
         @submission.mark_completed
         hash = {}
         hash = @submission.submission_data if !@submission.graded? && @submission.submission_data[:attempt] == @submission.attempt
-        params_hash = hash.deep_merge(sanitized_params) rescue sanitized_params
+        params_hash = hash.deep_merge(sanitized_params)
         @submission.submission_data = params_hash unless @submission.overdue?
         @submission.record_answer(params_hash.dup)
         flash[:notice] = t("errors.late_quiz", "You submitted this quiz late, and your answers may not have been recorded.") if @submission.overdue?
@@ -156,7 +156,7 @@ class Quizzes::QuizSubmissionsController < ApplicationController
       @submission.manually_unlocked = params[:manually_unlocked] == "1" if params[:manually_unlocked]
       if @submission.extendable? && (params[:extend_from_now] || params[:extend_from_end_at]).to_i > 0
         if params[:extend_from_now].to_i > 0
-          @submission.end_at = Time.now + params[:extend_from_now].to_i.minutes
+          @submission.end_at = Time.zone.now + params[:extend_from_now].to_i.minutes
         else
           @submission.end_at += params[:extend_from_end_at].to_i.minutes
         end

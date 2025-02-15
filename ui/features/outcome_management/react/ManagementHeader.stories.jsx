@@ -18,8 +18,8 @@
 
 import React from 'react'
 import ManagementHeader from './ManagementHeader'
-import {MockedProvider} from '@apollo/react-testing'
-import {createCache} from '@canvas/apollo'
+import {MockedProvider} from '@apollo/client/testing'
+import {createCache} from '@canvas/apollo-v3'
 
 export default {
   title: 'Examples/Outcomes/ManagementHeader',

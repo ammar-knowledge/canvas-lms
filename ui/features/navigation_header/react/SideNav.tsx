@@ -17,7 +17,7 @@
  */
 
 import React, {useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useState} from 'react'
-import {Navigation as SideNavBar} from '@instructure/ui-navigation'
+import {SideNavBar} from '@instructure/ui-side-nav-bar'
 import {Badge} from '@instructure/ui-badge'
 import {CloseButton} from '@instructure/ui-buttons'
 import {Spinner} from '@instructure/ui-spinner'
@@ -42,7 +42,7 @@ import {
   IconSettingsLine,
 } from '@instructure/ui-icons'
 import {AccessibleContent, ScreenReaderContent} from '@instructure/ui-a11y-content'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {useQuery} from '@canvas/query'
 import {useMutation, useQueryClient} from '@tanstack/react-query'
 import {getUnreadCount} from './queries/unreadCountQuery'
@@ -57,7 +57,7 @@ import {
 import {getSettingAsync, setSetting} from '@canvas/settings-query/react/settingsQuery'
 import {SVGIcon} from '@instructure/ui-svg-images'
 
-const I18n = useI18nScope('sidenav')
+const I18n = createI18nScope('sidenav')
 
 const CoursesTray = React.lazy(() => import('./trays/CoursesTray'))
 const GroupsTray = React.lazy(() => import('./trays/GroupsTray'))
@@ -107,6 +107,7 @@ const SideNav: React.FC<ISideNav> = ({externalTools = []}) => {
     })
   }
 
+  // @ts-expect-error
   const handleActiveTray = useCallback((tray, showActiveTray = false) => {
     if (showActiveTray) {
       dispatch({type: 'SET_ACTIVE_TRAY', payload: tray})
@@ -148,7 +149,7 @@ const SideNav: React.FC<ISideNav> = ({externalTools = []}) => {
     }
   }
   const countsEnabled = Boolean(
-    window.ENV.current_user_id && !window.ENV.current_user?.fake_student
+    window.ENV.current_user_id && !window.ENV.current_user?.fake_student,
   )
 
   const brandConfig =
@@ -164,7 +165,9 @@ const SideNav: React.FC<ISideNav> = ({externalTools = []}) => {
     queryKey: ['settings', 'release_notes_badge_disabled'],
     queryFn: getSettingAsync,
     enabled: countsEnabled && ENV.FEATURES.embedded_release_notes,
-    fetchAtLeastOnce: true,
+    meta: {
+      fetchAtLeastOnce: true,
+    },
   })
 
   const {data: unreadContentSharesCount} = useQuery({
@@ -180,7 +183,9 @@ const SideNav: React.FC<ISideNav> = ({externalTools = []}) => {
     queryFn: getUnreadCount,
     staleTime: 2 * 60 * 1000, // two minutes
     enabled: countsEnabled && !ENV.current_user_disabled_inbox,
-    broadcast: true,
+    meta: {
+      broadcast: true,
+    },
     refetchOnWindowFocus: true,
   })
 
@@ -256,7 +261,7 @@ const SideNav: React.FC<ISideNav> = ({externalTools = []}) => {
                         one: 'One unread share.',
                         other: '%{count} unread shares.',
                       },
-                      {count}
+                      {count},
                     )}
                   >
                     {count}
@@ -367,7 +372,7 @@ const SideNav: React.FC<ISideNav> = ({externalTools = []}) => {
                         one: 'One unread message.',
                         other: '%{count} unread messages.',
                       },
-                      {count}
+                      {count},
                     )}
                   >
                     {count}
@@ -445,7 +450,7 @@ const SideNav: React.FC<ISideNav> = ({externalTools = []}) => {
                         one: 'One unread release note.',
                         other: '%{count} unread release notes.',
                       },
-                      {count}
+                      {count},
                     )}
                   >
                     {count}

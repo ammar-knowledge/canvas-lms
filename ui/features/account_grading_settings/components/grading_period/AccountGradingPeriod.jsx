@@ -22,12 +22,13 @@ import $ from 'jquery'
 import {IconButton} from '@instructure/ui-buttons'
 import {IconEditLine, IconTrashLine} from '@instructure/ui-icons'
 import axios from '@canvas/axios'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import DateHelper from '@canvas/datetime/dateHelper'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
 import replaceTags from '@canvas/util/replaceTags'
+import {windowConfirm} from '@canvas/util/globalUtils'
 
-const I18n = useI18nScope('AccountGradingPeriod')
+const I18n = createI18nScope('AccountGradingPeriod')
 
 export default class AccountGradingPeriod extends React.Component {
   static propTypes = {
@@ -61,7 +62,7 @@ export default class AccountGradingPeriod extends React.Component {
   promptDeleteGradingPeriod = event => {
     event.stopPropagation()
     const confirmMessage = I18n.t('Are you sure you want to delete this grading period?')
-    if (!window.confirm(confirmMessage)) return null
+    if (!windowConfirm(confirmMessage)) return null
     const url = replaceTags(this.props.deleteGradingPeriodURL, 'id', this.props.period.id)
 
     axios

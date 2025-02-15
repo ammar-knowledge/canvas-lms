@@ -114,6 +114,11 @@ module Api::V1::Submission
       hash["submission_comments"] = submission_comments_json(published_comments, current_user)
     end
 
+    if includes.include?("submission_html_comments")
+      published_comments = submission.comments_excluding_drafts_for(@current_user)
+      hash["submission_html_comments"] = submission_comments_json(published_comments, current_user, use_html_comment: true)
+    end
+
     if includes.include?("rubric_assessment") && submission.rubric_assessment &&
        submission.user_can_read_grade?(current_user)
       hash["rubric_assessment"] = indexed_rubric_assessment_json(submission.rubric_assessment)
@@ -246,6 +251,11 @@ module Api::V1::Submission
       json_fields << "anonymous_id"
     end
 
+    if attempt.checkpoints_needs_grading? && attempt.root_account&.feature_enabled?(:discussion_checkpoints)
+      attempt.workflow_state = "pending_review"
+      attempt.submission_type = attempt.submission_type || attempt.assignment&.submission_types
+    end
+
     attempt.assignment = assignment
     hash = api_json(attempt, user, session, only: json_fields, methods: json_methods)
     hash["body"] = api_user_content(hash["body"], context, user) if hash["body"].present?
@@ -367,6 +377,8 @@ module Api::V1::Submission
       end
     end
 
+    hash["student_entered_score"] = attempt.student_entered_score if includes.include?("student_entered_score")
+
     hash
   end
 
@@ -410,11 +422,28 @@ module Api::V1::Submission
     params = {},
     avatars = false
   )
-
     json = submission_json(submission, assignment, current_user, session, context, includes, params, avatars)
-    json["sub_assignment_tag"] = assignment.sub_assignment_tag
-    json.delete("id")
-    json
+
+    # we want to make a clear distinction between a submission and a sub assignment submission, we will do this by
+    # keeping the sub assignment submission json as minimal as possible, only keeping exactly what clients need
+    sub_assignment_json = json.slice(
+      "seconds_late",
+      "custom_grade_status_id",
+      "late_policy_status",
+      "late",
+      "missing",
+      "excused",
+      "entered_grade",
+      "entered_score",
+      "grade",
+      "score",
+      "user_id",
+      "grade_matches_current_submission"
+    )
+    sub_assignment_json["sub_assignment_tag"] = assignment.sub_assignment_tag
+    sub_assignment_json["published_grade"] = submission.published_grade
+    sub_assignment_json["published_score"] = submission.published_score
+    sub_assignment_json
   end
 
   # Create an attachment with a ZIP archive of an assignment's submissions.

@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import React from 'react'
 import PropTypes from 'prop-types'
@@ -27,7 +27,7 @@ import ConfigurationFormUrl from './ConfigurationFormUrl'
 import ConfigurationFormXml from './ConfigurationFormXml'
 import ConfigurationTypeSelector from './ConfigurationTypeSelector'
 
-const I18n = useI18nScope('external_tools')
+const I18n = createI18nScope('external_tools')
 
 export default class ConfigurationForm extends React.Component {
   static propTypes = {
@@ -159,6 +159,7 @@ export default class ConfigurationForm extends React.Component {
       return (
         <ConfigurationFormManual
           ref="configurationFormManual"
+          data-testid="configuration-form-manual"
           name={this.state.name}
           consumerKey={this.state.consumerKey}
           sharedSecret={this.state.sharedSecret}
@@ -177,6 +178,7 @@ export default class ConfigurationForm extends React.Component {
       return (
         <ConfigurationFormUrl
           ref="configurationFormUrl"
+          data-testid="configuration-form-url"
           name={this.state.name}
           consumerKey={this.state.consumerKey}
           sharedSecret={this.state.sharedSecret}
@@ -191,6 +193,7 @@ export default class ConfigurationForm extends React.Component {
       return (
         <ConfigurationFormXml
           ref="configurationFormXml"
+          data-testid="configuration-form-xml"
           name={this.state.name}
           consumerKey={this.state.consumerKey}
           sharedSecret={this.state.sharedSecret}
@@ -205,6 +208,7 @@ export default class ConfigurationForm extends React.Component {
       return (
         <ConfigurationFormLti2
           ref="configurationFormLti2"
+          data-testid="configuration-form-lti2"
           registrationUrl={this.state.registrationUrl}
         />
       )
@@ -216,6 +220,7 @@ export default class ConfigurationForm extends React.Component {
           ref={el => {
             this.lti13Form = el
           }}
+          data-testid="configuration-form-lti13"
         />
       )
     }
@@ -226,6 +231,7 @@ export default class ConfigurationForm extends React.Component {
       return (
         <ConfigurationTypeSelector
           ref="configurationTypeSelector"
+          data-testid="configuration-type-selector"
           handleChange={this.handleSwitchConfigurationType}
           configurationType={this.props.configurationType}
         />
@@ -240,6 +246,7 @@ export default class ConfigurationForm extends React.Component {
           ref="submitLti2"
           type="button"
           id="submitExternalAppBtn"
+          data-testid="submit-button"
           className="btn btn-primary"
           onClick={this.handleSubmit}
         >
@@ -252,6 +259,7 @@ export default class ConfigurationForm extends React.Component {
           ref="submit"
           type="button"
           id="submitExternalAppBtn"
+          data-testid="submit-button"
           className="btn btn-primary"
           onClick={this.handleSubmit}
         >

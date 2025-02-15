@@ -18,8 +18,9 @@
 
 import React, {useContext, useEffect, useState} from 'react'
 import {DiscussionDueDatesContext} from '../../util/constants'
-import DifferentiatedModulesSection from '@canvas/due-dates/react/DifferentiatedModulesSection'
+import AssignToContent from '@canvas/due-dates/react/AssignToContent'
 import LoadingIndicator from '@canvas/loading-indicator'
+import {View} from '@instructure/ui-view'
 
 const DEFAULT_SECTION_ID = '0'
 
@@ -48,9 +49,10 @@ export const ItemAssignToTrayWrapper = () => {
       setOverrides(newOverrides)
     }
     setLoading(false)
-  }, [assignedInfoList])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // Convert the assignedInfoList to the expected shape for the DifferentiatedModulesSection
+  // Convert the assignedInfoList to the expected shape for the AssignToContent
   function convertToOverrideObject(inputObj) {
     const outputObj = {
       due_at: inputObj.dueDate || null,
@@ -84,7 +86,6 @@ export const ItemAssignToTrayWrapper = () => {
 
     let courseSectionId = null
     const studentIds = []
-    const groupIds = []
 
     inputObj.assignedList.forEach(item => {
       if (item === 'everyone') {
@@ -108,6 +109,7 @@ export const ItemAssignToTrayWrapper = () => {
         studentIds.push(id)
       } else if (type === 'group') {
         outputObj.group_id = id
+        outputObj.title = inputObj.title
       } else if (type === 'course') {
         outputObj.course_id = id
       }
@@ -115,9 +117,11 @@ export const ItemAssignToTrayWrapper = () => {
 
     if (courseSectionId) {
       outputObj.course_section_id = courseSectionId
+      outputObj.title = inputObj.title
     }
     if (studentIds.length > 0) {
       outputObj.student_ids = studentIds
+      outputObj.students = inputObj.students?.map(student => ({...student, id: student._id}))
     }
 
     return outputObj
@@ -148,15 +152,18 @@ export const ItemAssignToTrayWrapper = () => {
         outputObj.assignedList.push('everyone')
       } else {
         outputObj.assignedList.push('course_section_' + inputObj.course_section_id)
+        outputObj.title = inputObj.title
       }
     } else if (inputObj.student_ids) {
       inputObj.student_ids.forEach(id => {
         outputObj.assignedList.push('user_' + id)
       })
+      outputObj.students = inputObj.students?.map(student => ({...student, id: student._id}))
     } else if (inputObj.course_id) {
       outputObj.assignedList.push('course_' + inputObj.course_id)
     } else if (inputObj.group_id) {
       outputObj.assignedList.push('group_' + inputObj.group_id)
+      outputObj.title = inputObj.title
     }
 
     if (
@@ -191,20 +198,20 @@ export const ItemAssignToTrayWrapper = () => {
   }
 
   return (
-    <DifferentiatedModulesSection
-      onSync={onSync}
-      overrides={overrides}
-      assignmentId={assignmentID}
-      getAssignmentName={() => title}
-      getPointsPossible={() => pointsPossible}
-      getGroupCategoryId={() => groupCategoryId}
-      type="discussion"
-      importantDates={importantDates}
-      defaultSectionId={DEFAULT_SECTION_ID}
-      supportDueDates={isGraded}
-      isCheckpointed={isCheckpoints}
-      postToSIS={postToSis}
-    />
+    <View as="div" maxWidth="478px">
+      <AssignToContent
+        onSync={onSync}
+        overrides={overrides}
+        assignmentId={assignmentID}
+        defaultGroupCategoryId={groupCategoryId}
+        importantDates={importantDates}
+        defaultSectionId={DEFAULT_SECTION_ID}
+        supportDueDates={isGraded}
+        type="discussion"
+        isCheckpointed={isCheckpoints}
+        postToSIS={postToSis}
+      />
+    </View>
   )
 }
 

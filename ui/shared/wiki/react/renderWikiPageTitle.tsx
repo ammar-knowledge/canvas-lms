@@ -17,18 +17,19 @@
  */
 
 import React, {useEffect, useRef, useState} from 'react'
-import ReactDOM from 'react-dom'
+import {createRoot} from 'react-dom/client'
 import {TextInput} from '@instructure/ui-text-input'
 import type {TextInputProps} from '@instructure/ui-text-input'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
+import {IconWarningSolid} from '@instructure/ui-icons'
 import {Heading} from '@instructure/ui-heading'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import type JQuery from 'jquery'
 import type WikiPageEditView from '../backbone/views/WikiPageEditView'
 import {checkForTitleConflictDebounced} from '../utils/titleConflicts'
 
-const I18n = useI18nScope('pages_edit_title')
+const I18n = createI18nScope('pages_edit_title')
 
 interface ComponentProps {
   canEdit: boolean
@@ -65,7 +66,11 @@ const EditableContent = (props: Props) => {
       const titleErrors = dataErrors?.title || []
       if (titleErrors.length > 0) {
         const parsedErrors: Message[] = titleErrors.map((error: FormDataError) => ({
-          text: error.message,
+          text: (
+            <>
+              <IconWarningSolid /> {error.message}
+            </>
+          ),
           type: 'error',
         }))
         setMessages(parsedErrors)
@@ -132,7 +137,8 @@ const renderWikiPageTitle = (props: Props) => {
   const titleComponent = props.canEdit ? <EditableContent {...props} /> : readOnlyContent()
   const wikiPageTitleContainer = document.getElementById('edit_wikipage_title_container')
   if (wikiPageTitleContainer) {
-    ReactDOM.render(titleComponent, wikiPageTitleContainer)
+    const root = createRoot(wikiPageTitleContainer)
+    root.render(titleComponent)
   }
 
   return titleComponent

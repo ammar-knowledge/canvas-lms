@@ -204,7 +204,7 @@ class AssignmentGroupsController < ApplicationController
       groups.touch_all
       groups.each { |assignment_group| AssignmentGroup.notify_observers(:assignments_changed, assignment_group) }
       ids = @group.active_assignments.map(&:id)
-      @context.recompute_student_scores rescue nil
+      @context.recompute_student_scores
       render json: { reorder: true, order: ids }, status: :ok
     end
   end
@@ -321,7 +321,8 @@ class AssignmentGroupsController < ApplicationController
 
   def assignment_includes
     includes = [:context, :external_tool_tag, { quiz: :context }]
-    includes += [:rubric, :rubric_association] unless assignment_excludes.include?("rubric")
+    includes += [:rubric_association] if !assignment_excludes.include?("rubric") || include_params.include?("has_rubric")
+    includes += [:rubric] unless assignment_excludes.include?("rubric")
     includes << :discussion_topic if include_params.include?("discussion_topic")
     includes << :assignment_overrides if include_overrides?
     includes
@@ -347,14 +348,10 @@ class AssignmentGroupsController < ApplicationController
 
   def assignment_visibilities(course, assignments)
     if include_visibility?
-      if Account.site_admin.feature_enabled?(:selective_release_backend)
-        AssignmentVisibility::AssignmentVisibilityService.assignments_with_user_visibilities(course, assignments)
-      else
-        AssignmentStudentVisibility.assignments_with_user_visibilities(course, assignments)
-      end
+      AssignmentVisibility::AssignmentVisibilityService.assignments_with_user_visibilities(course, assignments)
     else
       params.fetch(:include, []).delete("assignment_visibility")
-      AssignmentStudentVisibility.none
+      {}
     end
   end
 

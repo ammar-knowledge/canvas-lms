@@ -36,7 +36,7 @@ function renderGradingSchemesSelector(props: Partial<GradingSchemesSelectorProps
       archivedGradingSchemesEnabled={true}
       onChange={onChange}
       {...props}
-    />
+    />,
   )
 
   return {
@@ -47,6 +47,7 @@ function renderGradingSchemesSelector(props: Partial<GradingSchemesSelectorProps
 
 describe('GradingSchemesSelector', () => {
   beforeEach(() => {
+    // @ts-expect-error
     doFetchApi.mockImplementation(
       (opts: {path: string; method: string; body: Record<any, any>}) => {
         switch (opts.path) {
@@ -76,11 +77,12 @@ describe('GradingSchemesSelector', () => {
             return Promise.resolve({response: {ok: false}})
           }
         }
-      }
+      },
     )
   })
 
   afterEach(() => {
+    // @ts-expect-error
     doFetchApi.mockClear()
   })
   it('should render a dropdown and view, copy, and new grading scheme buttons, and loads default scheme and scheme summaries', async () => {

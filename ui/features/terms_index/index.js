@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import $ from 'jquery'
 import '@canvas/jquery/jquery.instructure_forms'
@@ -28,7 +28,7 @@ import {dateString} from '@instructure/moment-utils'
 import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
 import {initializeTopNavPortal} from '@canvas/top-navigation/react/TopNavPortal'
 
-const I18n = useI18nScope('terms.index')
+const I18n = createI18nScope('terms.index')
 
 const dateOpts = {format: 'full'}
 
@@ -67,9 +67,9 @@ $(document).ready(() => {
 
   $('.cant_delete_term_link').click(event => {
     event.preventDefault()
-    // eslint-disable-next-line no-alert
+
     window.alert(
-      I18n.t('messages.classes_in_term', "You can't delete a term that still has classes in it.")
+      I18n.t('messages.classes_in_term', "You can't delete a term that still has classes in it."),
     )
   })
 
@@ -139,11 +139,11 @@ $(document).ready(() => {
           dateString(override.end_at, dateOpts) || I18n.t('date.term_end', 'term end')
         term[`enrollment_term[overrides][${type_string}][start_at]`] = dateString(
           override.start_at,
-          dateOpts
+          dateOpts,
         )
         term[`enrollment_term[overrides][${type_string}][end_at]`] = dateString(
           override.end_at,
-          dateOpts
+          dateOpts,
         )
       }
       term.start_at = dateString(term.start_at, dateOpts) || I18n.t('date.unspecified', 'whenever')

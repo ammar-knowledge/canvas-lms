@@ -16,17 +16,17 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useEffect, useRef, useState} from 'react'
+import React, {useEffect, useMemo, useRef, useState} from 'react'
 import {useNavigate, useParams} from 'react-router-dom'
-import {useQuery} from '@canvas/query'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {queryClient, useAllPages, useQuery} from '@canvas/query'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import LoadingIndicator from '@canvas/loading-indicator'
 import type {Rubric} from '@canvas/rubrics/react/types/rubric'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {Button} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
 import {Heading} from '@instructure/ui-heading'
-import {IconAddLine, IconSearchLine} from '@instructure/ui-icons'
+import {IconAddLine, IconSearchLine, IconImportLine, IconDownloadLine} from '@instructure/ui-icons'
 import {TextInput} from '@instructure/ui-text-input'
 import {Tabs} from '@instructure/ui-tabs'
 import {View} from '@instructure/ui-view'
@@ -40,14 +40,18 @@ import {
   fetchRubricUsedLocations,
   archiveRubric,
   unarchiveRubric,
+  downloadRubrics,
 } from '../../queries/ViewRubricQueries'
 import {RubricAssessmentTray} from '@canvas/rubrics/react/RubricAssessment'
 import {showFlashError, showFlashSuccess} from '@canvas/alerts/react/FlashAlert'
-import {UsedLocationsModal, type FetchUsedLocationResponse} from '@canvas/grading-scheme'
+import {type FetchUsedLocationResponse, UsedLocationsModal} from './UsedLocationsModal'
+import {ImportRubric} from './ImportRubric'
+import {colors} from '@instructure/canvas-theme'
+import {InfiniteData} from '@tanstack/react-query'
 
 const {Item: FlexItem} = Flex
 
-const I18n = useI18nScope('rubrics-list-view')
+const I18n = createI18nScope('rubrics-list-view')
 
 export const TABS = {
   saved: 'Saved',
@@ -56,10 +60,19 @@ export const TABS = {
 
 export type ViewRubricsProps = {
   canManageRubrics?: boolean
+  canImportExportRubrics?: boolean
   showHeader?: boolean
 }
 
-export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewRubricsProps) => {
+const rubricsFromPage = (page: RubricQueryResponse) => (page ? page.rubricsConnection.nodes : [])
+const rubricsFromPages = (resp: InfiniteData<RubricQueryResponse>) =>
+  resp?.pages.flatMap(rubricsFromPage)
+
+export const ViewRubrics = ({
+  canManageRubrics = false,
+  canImportExportRubrics = false,
+  showHeader = true,
+}: ViewRubricsProps) => {
   const navigate = useNavigate()
   const {accountId, courseId} = useParams()
   const isAccount = !!accountId
@@ -72,6 +85,21 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
   const [archivedRubrics, setArchivedRubrics] = useState<Rubric[]>([])
   const [rubricIdForLocations, setRubricIdForLocations] = useState<string>()
   const [loadingUsedLocations, setLoadingUsedLocations] = useState(false)
+  const [importTrayIsOpen, setImportTrayIsOpen] = useState(false)
+  const [selectedRubricIds, setSelectedRubricIds] = useState<string[]>([])
+
+  const handleCheckboxChange = (event: React.ChangeEvent<HTMLInputElement>, rubricId: string) => {
+    if (event.target.checked) {
+      setSelectedRubricIds([...selectedRubricIds, rubricId])
+    } else {
+      setSelectedRubricIds(selectedRubricIds.filter(id => id !== rubricId))
+    }
+  }
+
+  const handleDownloadRubrics = async () => {
+    await downloadRubrics(courseId, accountId, selectedRubricIds)
+  }
+
   const path = useRef<string | undefined>(undefined)
 
   const handleArchiveRubric = async (rubricId: string) => {
@@ -85,7 +113,7 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
       }
       setActiveRubrics(updatedActiveRubrics)
       showFlashSuccess(I18n.t('Rubric archived successfully'))()
-    } catch (error) {
+    } catch (_error) {
       showFlashError(I18n.t('Error Archiving Rubric'))()
     }
   }
@@ -101,13 +129,16 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
       }
       setArchivedRubrics(updatedArchivedRubrics)
       showFlashSuccess(I18n.t('Rubric un-archived successfully'))()
-    } catch (error) {
+    } catch (_error) {
       showFlashError(I18n.t('Error Un-Archiving Rubric'))()
     }
   }
 
   let queryVariables: FetchRubricVariables
-  let fetchQuery: (queryVariables: FetchRubricVariables) => Promise<RubricQueryResponse>
+  let fetchQuery: (
+    pageParam: string | null,
+    queryVariables: FetchRubricVariables,
+  ) => Promise<RubricQueryResponse>
   let queryKey: string = ''
 
   if (isAccount) {
@@ -120,9 +151,17 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
     queryKey = `courseRubrics-${courseId}`
   }
 
-  const {data, isLoading} = useQuery({
+  const getNextPageParam = (lastPage: RubricQueryResponse) => {
+    const {pageInfo} = lastPage.rubricsConnection
+    return pageInfo.hasNextPage ? pageInfo.endCursor : null
+  }
+
+  const {data: paginatedRubrics, isLoading} = useAllPages({
     queryKey: [queryKey],
-    queryFn: async () => fetchQuery(queryVariables),
+    queryFn: async ({pageParam}) => fetchQuery(pageParam, queryVariables),
+    meta: {fetchAtLeastOnce: true},
+    refetchOnMount: true,
+    getNextPageParam,
   })
 
   const {data: rubricPreview, isLoading: isLoadingPreview} = useQuery({
@@ -131,44 +170,49 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
     enabled: !!rubricIdForPreview,
   })
 
-  useEffect(() => {
-    if (data) {
-      const {activeRubricsInitialState, archivedRubricsInitialState} =
-        data.rubricsConnection.nodes.reduce(
-          (prev, curr) => {
-            const rubric: Rubric = {
-              id: curr.id,
-              title: curr.title,
-              pointsPossible: curr.pointsPossible,
-              criteriaCount: curr.criteriaCount,
-              locations: [], // TODO: add locations once we have them
-              ratingOrder: curr.ratingOrder,
-              hidePoints: curr.hidePoints,
-              freeFormCriterionComments: curr.freeFormCriterionComments,
-              workflowState: curr.workflowState,
-              buttonDisplay: curr.buttonDisplay,
-              criteria: curr.criteria ?? [],
-              hasRubricAssociations: curr.hasRubricAssociations,
-            }
+  const rubrics = useMemo(
+    () => paginatedRubrics && rubricsFromPages(paginatedRubrics),
+    [paginatedRubrics],
+  )
 
-            const activeStates = ['active', 'draft']
-            activeStates.includes(curr.workflowState ?? '')
-              ? prev.activeRubricsInitialState.push(rubric)
-              : prev.archivedRubricsInitialState.push(rubric)
-            return prev
-          },
-          {activeRubricsInitialState: [] as Rubric[], archivedRubricsInitialState: [] as Rubric[]}
-        )
+  useEffect(() => {
+    if (rubrics) {
+      const {activeRubricsInitialState, archivedRubricsInitialState} = rubrics.reduce(
+        (prev, curr) => {
+          const rubric: Rubric = {
+            id: curr.id,
+            title: curr.title,
+            pointsPossible: curr.pointsPossible,
+            criteriaCount: curr.criteriaCount,
+            ratingOrder: curr.ratingOrder,
+            hidePoints: curr.hidePoints,
+            freeFormCriterionComments: curr.freeFormCriterionComments,
+            workflowState: curr.workflowState,
+            buttonDisplay: curr.buttonDisplay,
+            criteria: curr.criteria ?? [],
+            hasRubricAssociations: curr.hasRubricAssociations,
+          }
+
+          const activeStates = ['active', 'draft']
+          if (activeStates.includes(curr.workflowState ?? '')) {
+            prev.activeRubricsInitialState.push(rubric)
+          } else {
+            prev.archivedRubricsInitialState.push(rubric)
+          }
+          return prev
+        },
+        {activeRubricsInitialState: [] as Rubric[], archivedRubricsInitialState: [] as Rubric[]},
+      )
       setActiveRubrics(activeRubricsInitialState)
       setArchivedRubrics(archivedRubricsInitialState)
     }
-  }, [data])
+  }, [rubrics])
 
   if (isLoading) {
     return <LoadingIndicator />
   }
 
-  if (!data) {
+  if (!rubrics) {
     return null
   }
 
@@ -193,14 +237,14 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
   const filteredActiveRubrics =
     searchQuery.trim() !== ''
       ? activeRubrics.filter(rubric =>
-          rubric.title.toLowerCase().includes(searchQuery.toLowerCase())
+          rubric.title.toLowerCase().includes(searchQuery.toLowerCase()),
         )
       : activeRubrics
 
   const filteredArchivedRubrics =
     searchQuery.trim() !== ''
       ? archivedRubrics.filter(rubric =>
-          rubric.title.toLowerCase().includes(searchQuery.toLowerCase())
+          rubric.title.toLowerCase().includes(searchQuery.toLowerCase()),
         )
       : archivedRubrics
 
@@ -228,6 +272,11 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
     }
   }
 
+  const handleImportSuccess = async (importedRubrics: Rubric[]) => {
+    setActiveRubrics(prevState => [...prevState, ...importedRubrics])
+    await queryClient.invalidateQueries([queryKey], undefined, {cancelRefetch: true})
+  }
+
   return (
     <View as="div">
       <Flex>
@@ -249,12 +298,25 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
             data-testid="rubric-search-bar"
           />
         </FlexItem>
+        <FlexItem margin="small">
+          {canManageRubrics && canImportExportRubrics && (
+            <Button
+              // @ts-expect-error
+              renderIcon={IconImportLine}
+              color="secondary"
+              data-testid="import-rubric-button"
+              onClick={() => setImportTrayIsOpen(true)}
+            >
+              {I18n.t('Import Rubric')}
+            </Button>
+          )}
+        </FlexItem>
         <FlexItem>
           {canManageRubrics && (
             <Button
+              // @ts-expect-error
               renderIcon={IconAddLine}
               color="primary"
-              margin="small"
               onClick={() => navigate('./create')}
               data-testid="create-new-rubric-button"
             >
@@ -278,6 +340,9 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
         >
           <View as="div" margin="medium 0" data-testid="saved-rubrics-table">
             <RubricTable
+              canImportExportRubrics={canImportExportRubrics}
+              handleCheckboxChange={handleCheckboxChange}
+              selectedRubricIds={selectedRubricIds}
               canManageRubrics={canManageRubrics}
               rubrics={filteredActiveRubrics}
               onLocationsClick={rubricId => handleLocationsClick(rubricId)}
@@ -296,6 +361,9 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
         >
           <View as="div" margin="medium 0" data-testid="archived-rubrics-table">
             <RubricTable
+              canImportExportRubrics={canImportExportRubrics}
+              selectedRubricIds={selectedRubricIds}
+              handleCheckboxChange={handleCheckboxChange}
               canManageRubrics={canManageRubrics}
               rubrics={filteredArchivedRubrics}
               onLocationsClick={rubricId => handleLocationsClick(rubricId)}
@@ -306,6 +374,40 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
           </View>
         </Tabs.Panel>
       </Tabs>
+
+      {canImportExportRubrics && (
+        <div id="enhanced-rubric-builder-footer" style={{backgroundColor: colors.white}}>
+          <View
+            as="div"
+            margin="small large"
+            themeOverride={{marginLarge: '48px', marginSmall: '12px'}}
+          >
+            <Flex justifyItems="end">
+              <Flex.Item margin="0 medium 0 0">
+                <Button
+                  onClick={() => setSelectedRubricIds([])}
+                  data-testid="cancel-select-mode-button"
+                >
+                  {I18n.t('Cancel')}
+                </Button>
+              </Flex.Item>
+
+              <Flex.Item margin="0 medium 0 0">
+                <Button
+                  color="primary"
+                  // @ts-expect-error
+                  renderIcon={IconDownloadLine}
+                  data-testid="download-rubrics"
+                  disabled={selectedRubricIds.length === 0}
+                  onClick={handleDownloadRubrics}
+                >
+                  {I18n.t('Download Selected Rubrics')}
+                </Button>
+              </Flex.Item>
+            </Flex>
+          </View>
+        </div>
+      )}
 
       <RubricAssessmentTray
         isLoading={isLoadingPreview}
@@ -326,6 +428,16 @@ export const ViewRubrics = ({canManageRubrics = false, showHeader = true}: ViewR
         isOpen={!!rubricIdForLocations}
         onClose={handleLocationsUsedModalClose}
       />
+
+      {canImportExportRubrics && (
+        <ImportRubric
+          accountId={accountId}
+          courseId={courseId}
+          isTrayOpen={importTrayIsOpen}
+          handleImportSuccess={handleImportSuccess}
+          handleTrayClose={() => setImportTrayIsOpen(false)}
+        />
+      )}
     </View>
   )
 }

@@ -16,21 +16,34 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {ZLtiRegistration, type LtiRegistration} from '../model/LtiRegistration'
-import {success, type ApiResult, parseFetchResult} from '../../common/lib/apiResult/ApiResult'
+import {
+  ZLtiRegistrationWithConfiguration,
+  ZLtiRegistration,
+  type LtiRegistrationWithConfiguration,
+  type LtiRegistration,
+} from '../model/LtiRegistration'
+import {type ApiResult, parseFetchResult, mapApiResult} from '../../common/lib/apiResult/ApiResult'
 import {ZPaginatedList, type PaginatedList} from './PaginatedList'
-import {type LtiRegistrationId} from '../model/LtiRegistrationId'
-import {mockFetchSampleLtiRegistrations, mockDeleteRegistration} from './sampleLtiRegistrations'
+import type {LtiRegistrationId} from '../model/LtiRegistrationId'
 import type {AccountId} from '../model/AccountId'
 import {defaultFetchOptions} from '@canvas/util/xhr'
 import * as z from 'zod'
+import {
+  ZInternalLtiConfiguration,
+  type InternalLtiConfiguration,
+} from '../model/internal_lti_configuration/InternalLtiConfiguration'
+import type {LtiConfigurationOverlay} from '../model/internal_lti_configuration/LtiConfigurationOverlay'
+import type {DeveloperKeyId} from '../model/developer_key/DeveloperKeyId'
+import {compact} from '../../common/lib/compact'
 
 export type AppsSortProperty =
   | 'name'
   | 'nickname'
   | 'lti_version'
   | 'installed'
+  | 'updated'
   | 'installed_by'
+  | 'updated_by'
   | 'on'
 
 export type AppsSortDirection = 'asc' | 'desc'
@@ -55,13 +68,49 @@ export const fetchRegistrations: FetchRegistrations = options =>
           page: options.page.toString(),
           per_page: options.limit.toString(),
         }),
-      defaultFetchOptions()
-    )
+      defaultFetchOptions(),
+    ),
   )
+
+export type FetchThirdPartyToolConfiguration = (
+  config:
+    | {
+        url: string
+      }
+    | {
+        lti_configuration: unknown
+      },
+  accountId: AccountId,
+) => Promise<ApiResult<InternalLtiConfiguration>>
+
+// POST
+// validate: ({url: string} | {lti_configuration: LtiConfiguration}) ->
+//   200 { configuration: InternalLtiConfiguration }
+//   422 { errors: string[] }
+
+export const fetchThirdPartyToolConfiguration: FetchThirdPartyToolConfiguration = (
+  config,
+  accountId,
+) =>
+  parseFetchResult(
+    z.object({
+      configuration: ZInternalLtiConfiguration,
+    }),
+  )(
+    fetch(`/api/v1/accounts/${accountId}/lti_registrations/configuration/validate`, {
+      method: 'POST',
+      ...defaultFetchOptions({
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+      body: JSON.stringify(config),
+    }),
+  ).then(result => mapApiResult(result, r => r.configuration))
 
 export type DeleteRegistration = (
   accountId: AccountId,
-  id: LtiRegistrationId
+  id: LtiRegistrationId,
 ) => Promise<ApiResult<unknown>>
 
 /**
@@ -75,5 +124,155 @@ export const deleteRegistration: DeleteRegistration = (accountId, registrationId
     fetch(`/api/v1/accounts/${accountId}/lti_registrations/${registrationId}`, {
       ...defaultFetchOptions(),
       method: 'DELETE',
-    })
+    }),
+  )
+
+export type CreateRegistration = (
+  accountId: AccountId,
+  internalConfig: InternalLtiConfiguration,
+  overlay?: LtiConfigurationOverlay,
+  unifiedToolId?: string,
+  adminNickname?: string,
+) => Promise<ApiResult<unknown>>
+
+/**
+ * Creates an LTI registration
+ * @param accountId The account id to create the registration in
+ * @param internalConfig The internal configuration to use
+ * @param overlay An overlay to apply to the internal configuration
+ * @param unifiedToolId The unified tool id for the registration
+ * @returns An ApiResult with an unknown value. The value should be ignored.
+ */
+export const createRegistration: CreateRegistration = (
+  accountId,
+  internalConfig,
+  overlay,
+  unifiedToolId,
+  adminNickname,
+) =>
+  parseFetchResult(z.unknown())(
+    fetch(`/api/v1/accounts/${accountId}/lti_registrations`, {
+      ...defaultFetchOptions({
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+      method: 'POST',
+      body: JSON.stringify({
+        admin_nickname: adminNickname,
+        configuration: internalConfig,
+        overlay,
+        unified_tool_id: unifiedToolId,
+        workflow_state: 'on',
+      }),
+    }),
+  )
+
+type UpdateRegistrationParams = {
+  accountId: AccountId
+  registrationId: LtiRegistrationId
+  internalConfig?: InternalLtiConfiguration
+  overlay?: LtiConfigurationOverlay
+  adminNickname?: string
+  workflowState?: 'on' | 'off' | 'allow'
+}
+
+export type UpdateRegistration = (params: UpdateRegistrationParams) => Promise<ApiResult<unknown>>
+
+/**
+ * Updates an LTI registration
+ * @param accountId The account id to update the registration in
+ * @param registrationId The id of the registration to update
+ * @param internalConfig The internal configuration to use
+ * @param overlay An overlay to apply to the internal configuration
+ * @param workflowState The workflow state the registration account binding should be set to
+ * @returns An ApiResult with an unknown value. The value should be ignored.
+ */
+export const updateRegistration: UpdateRegistration = ({
+  accountId,
+  registrationId,
+  internalConfig,
+  overlay,
+  adminNickname,
+  workflowState,
+}) =>
+  parseFetchResult(z.unknown())(
+    fetch(`/api/v1/accounts/${accountId}/lti_registrations/${registrationId}`, {
+      ...defaultFetchOptions({
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+      method: 'PUT',
+      body: JSON.stringify(
+        compact({
+          configuration: internalConfig,
+          overlay,
+          admin_nickname: adminNickname,
+          workflow_state: workflowState,
+        }),
+      ),
+    }),
+  )
+
+export const fetchRegistrationByClientId = (accountId: AccountId, clientId: DeveloperKeyId) =>
+  parseFetchResult(ZLtiRegistrationWithConfiguration)(
+    fetch(`/api/v1/accounts/${accountId}/lti_registration_by_client_id/${clientId}`, {
+      ...defaultFetchOptions(),
+    }),
+  )
+
+export const setGlobalLtiRegistrationWorkflowState = (
+  accountId: AccountId,
+  ltiRegistrationId: LtiRegistrationId,
+  workflowState: 'on' | 'off',
+) =>
+  parseFetchResult(z.unknown())(
+    fetch(`/api/v1/accounts/${accountId}/lti_registrations/${ltiRegistrationId}/bind`, {
+      ...defaultFetchOptions(),
+      method: 'POST',
+      headers: {
+        ...defaultFetchOptions().headers,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        workflow_state: workflowState,
+      }),
+    }),
+  )
+
+export const bindGlobalLtiRegistration = (
+  accountId: AccountId,
+  ltiRegistrationId: LtiRegistrationId,
+) => setGlobalLtiRegistrationWorkflowState(accountId, ltiRegistrationId, 'on')
+
+export const unbindGlobalLtiRegistration = (
+  accountId: AccountId,
+  ltiRegistrationId: LtiRegistrationId,
+) => setGlobalLtiRegistrationWorkflowState(accountId, ltiRegistrationId, 'off')
+
+export type FetchLtiRegistration = (
+  accountId: AccountId,
+  registrationId: LtiRegistrationId,
+  includes?: Array<'overlay' | 'overlay_history'>,
+) => Promise<ApiResult<LtiRegistrationWithConfiguration>>
+
+/**
+ * Fetch a single LtiRegistration
+ * @returns
+ */
+export const fetchLtiRegistration: FetchLtiRegistration = (
+  accountId,
+  ltiRegistrationId,
+  includes = ['overlay', 'overlay_history'],
+) =>
+  parseFetchResult(ZLtiRegistrationWithConfiguration)(
+    fetch(
+      `/api/v1/accounts/${accountId}/lti_registrations/${ltiRegistrationId}?${includes
+        .map(i => `include[]=${i}`)
+        .join('&')}`,
+      {
+        ...defaultFetchOptions(),
+      },
+    ),
   )

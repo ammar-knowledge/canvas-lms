@@ -21,7 +21,7 @@ import {Flex} from '@instructure/ui-flex'
 import Footer from './Footer'
 import {RadioInputGroup, RadioInput} from '@instructure/ui-radio-input'
 import {Text} from '@instructure/ui-text'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {View} from '@instructure/ui-view'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import ModuleAssignments, {type AssigneeOption} from './ModuleAssignments'
@@ -32,7 +32,7 @@ import type {AssignmentOverride} from './types'
 import LoadingOverlay from './LoadingOverlay'
 import type {FormMessage} from '@instructure/ui-form-field'
 
-const I18n = useI18nScope('differentiated_modules')
+const I18n = createI18nScope('differentiated_modules')
 
 export type AssignToPanelProps = {
   bodyHeight: string
@@ -44,7 +44,7 @@ export type AssignToPanelProps = {
   mountNodeRef: React.RefObject<HTMLElement>
   updateParentData?: (
     data: {selectedOption: OptionValue; selectedAssignees: AssigneeOption[]},
-    changed: boolean
+    changed: boolean,
   ) => void
   defaultOption?: OptionValue
   defaultAssignees?: AssigneeOption[]
@@ -72,7 +72,9 @@ const CUSTOM_OPTION: Option = {
 }
 
 const EMPTY_ASSIGNEE_ERROR_MESSAGE: FormMessage = {
-  text: I18n.t('A student or section must be selected'),
+  text: ENV.ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS
+      ? I18n.t('A student, section, or tag must be selected')
+      : I18n.t('A student or section must be selected'),
   type: 'error',
 }
 
@@ -127,10 +129,10 @@ export default function AssignToPanel({
   onDidSubmit,
 }: AssignToPanelProps) {
   const [selectedOption, setSelectedOption] = useState<OptionValue>(
-    defaultOption || EVERYONE_OPTION.value
+    defaultOption || EVERYONE_OPTION.value,
   )
   const [selectedAssignees, setSelectedAssignees] = useState<AssigneeOption[]>(
-    defaultAssignees || []
+    defaultAssignees || [],
   )
   const [isLoading, setIsLoading] = useState(false)
   const changed = useRef(false)
@@ -145,13 +147,24 @@ export default function AssignToPanel({
       return
     }
 
-    setIsLoading(true)
-    doFetchApi({
-      path: `/api/v1/courses/${courseId}/modules/${moduleId}/assignment_overrides`,
-    })
-      .then((data: any) => {
-        if (data.json === undefined) return
-        const json = data.json as AssignmentOverride[]
+    const fetchAllOverrides = async () => {
+      setIsLoading(true)
+      const allResponses = []
+      let url: string | null =
+        `/api/v1/courses/${courseId}/modules/${moduleId}/assignment_overrides`
+
+      try {
+        while (url) {
+          const response: any = await doFetchApi({
+            path: url,
+            params: {per_page: 100},
+          })
+          if (response.json.length === 0) return
+          allResponses.push(response.json)
+          url = response.link?.next?.url || null
+        }
+        if (allResponses.length === 0) return
+        const json = allResponses.flat() as AssignmentOverride[]
         const parsedOptions = json.reduce((acc: AssigneeOption[], override: AssignmentOverride) => {
           const overrideOptions =
             override.students?.map(({id, name}: {id: string; name: string}) => ({
@@ -169,6 +182,15 @@ export default function AssignToPanel({
               group: I18n.t('Sections'),
             })
           }
+          if (override.group !== undefined && override.group.non_collaborative === true) {
+            const groupId = `tag-${override.group.id}`
+            overrideOptions.push({
+              id: groupId,
+              overrideId: override.id,
+              value: override.title,
+              group: I18n.t('Tags'),
+            })
+          }
           return [...acc, ...overrideOptions]
         }, [])
         setSelectedAssignees(parsedOptions)
@@ -177,11 +199,13 @@ export default function AssignToPanel({
         if (!defaultOption && parsedOptions.length > 0) {
           setSelectedOption(CUSTOM_OPTION.value)
         }
-      })
-      .catch(showFlashError())
-      .finally(() => {
+      } catch {
+        showFlashError()
+      } finally {
         setIsLoading(false)
-      })
+      }
+    }
+    !isLoading && fetchAllOverrides()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -202,7 +226,7 @@ export default function AssignToPanel({
       return
     }
     setIsLoading(true)
-    // eslint-disable-next-line promise/catch-or-return
+
     updateModuleAssignees({courseId, moduleId, moduleElement, selectedAssignees})
       .finally(() => setIsLoading(false))
       .then(() => (onDidSubmit ? onDidSubmit() : onDismiss()))
@@ -220,7 +244,7 @@ export default function AssignToPanel({
   // Sends data to parent when unmounting
   useEffect(
     () => () => updateParentData?.({selectedOption, selectedAssignees}, changed.current),
-    [selectedOption, selectedAssignees, updateParentData]
+    [selectedOption, selectedAssignees, updateParentData],
   )
 
   // cannot handle in onSelect because of infinite rerenders due to messages prop

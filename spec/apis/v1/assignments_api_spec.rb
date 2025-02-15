@@ -76,6 +76,107 @@ describe AssignmentsApiController, type: :request do
     override
   end
 
+  describe "GET courses/:course_id/assignments/:assignment_id/users/:user_id/group_members" do
+    before :once do
+      course_with_teacher(active_all: true)
+      @student1 = user_factory(active_all: true)
+      @student2 = user_factory(active_all: true)
+      @student3 = user_factory(active_all: true)
+      @course.enroll_student(@student1).accept!
+      @course.enroll_student(@student2).accept!
+      @course.enroll_student(@student3).accept!
+      group_category = @course.group_categories.create!(name: "Category")
+      group1 = @course.groups.create!(name: "Group 1", group_category:)
+      group1.add_user(@student1)
+      group1.add_user(@student2)
+      group2 = @course.groups.create!(name: "Group 2", group_category:)
+      group2.add_user(@student3)
+      @assignment = @course.assignments.create!(name: "group assignment", group_category:)
+    end
+
+    it "returns not found if a bogus assignment id is requested" do
+      user_session(@teacher)
+
+      api_call(:get,
+               "/api/v1/courses/#{@course.id}/assignments/10987654321/users/#{@student1.id}/group_members",
+               {
+                 controller: "assignments_api",
+                 action: "student_group_members",
+                 format: "json",
+                 course_id: @course.id.to_s,
+                 assignment_id: 10_987_654_321,
+                 user_id: @student1.id.to_s
+               },
+               {},
+               {},
+               { expected_status: 404 })
+    end
+
+    it "returns unauthorized if...not authorized" do
+      original_course = @course
+      course_with_teacher(active_all: true)
+      user_session(@teacher)
+
+      api_call(:get,
+               "/api/v1/courses/#{original_course.id}/assignments/#{@assignment.id}/users/#{@student1.id}/group_members",
+               {
+                 controller: "assignments_api",
+                 action: "student_group_members",
+                 format: "json",
+                 course_id: original_course.id.to_s,
+                 assignment_id: @assignment.id.to_s,
+                 user_id: @student1.id.to_s
+               },
+               {},
+               {},
+               { expected_status: 403 })
+    end
+
+    it "returns the ids and names of users in the same group as the student" do
+      user_session(@teacher)
+
+      json = api_call(:get,
+                      "/api/v1/courses/#{@course.id}/assignments/#{@assignment.id}/users/#{@student1.id}/group_members",
+                      {
+                        controller: "assignments_api",
+                        action: "student_group_members",
+                        format: "json",
+                        course_id: @course.id.to_s,
+                        assignment_id: @assignment.id,
+                        user_id: @student1.id.to_s
+                      },
+                      {},
+                      {},
+                      { expected_status: 200 })
+
+      expect(json).to contain_exactly(
+        { "id" => @student1.id.to_s, "name" => @student1.name },
+        { "id" => @student2.id.to_s, "name" => @student2.name }
+      )
+    end
+
+    it "returns an array with the student only if not a group assignment" do
+      @assignment = @course.assignments.create!(name: "individual assignment")
+      user_session(@teacher)
+
+      json = api_call(:get,
+                      "/api/v1/courses/#{@course.id}/assignments/#{@assignment.id}/users/#{@student1.id}/group_members",
+                      {
+                        controller: "assignments_api",
+                        action: "student_group_members",
+                        format: "json",
+                        course_id: @course.id.to_s,
+                        assignment_id: @assignment.id,
+                        user_id: @student1.id.to_s
+                      },
+                      {},
+                      {},
+                      { expected_status: 200 })
+
+      expect(json).to contain_exactly({ "id" => @student1.id.to_s, "name" => @student1.name })
+    end
+  end
+
   describe "GET /courses/:course_id/assignments (#index)" do
     before :once do
       course_with_teacher(active_all: true)
@@ -139,7 +240,7 @@ describe AssignmentsApiController, type: :request do
       end
     end
 
-    it "returns unauthorized for users who cannot :read the course" do
+    it "returns forbidden for users who cannot :read the course" do
       # unpublished course with invited student
       course_with_student
       expect(@course.grants_right?(@student, :read)).to be_falsey
@@ -154,7 +255,7 @@ describe AssignmentsApiController, type: :request do
                },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     context "when the 'new_quizzes' query param is set" do
@@ -338,7 +439,7 @@ describe AssignmentsApiController, type: :request do
                         },
                         {},
                         {},
-                        expected_status: 401)
+                        expected_status: 403)
         expect(json["status"]).to eq "unauthorized"
       end
 
@@ -695,13 +796,10 @@ describe AssignmentsApiController, type: :request do
 
     it "excludes deleted assignments in the list return" do
       @context = @course
-      @assignment = factory_with_protected_attributes(
-        @course.assignments,
-        {
-          title: "assignment1",
-          submission_types: "discussion_topic",
-          discussion_topic: discussion_topic_model
-        }
+      @assignment = @course.assignments.create!(
+        title: "assignment1",
+        submission_types: "discussion_topic",
+        discussion_topic: discussion_topic_model
       )
       @assignment.reload
       @assignment.destroy
@@ -1431,8 +1529,6 @@ describe AssignmentsApiController, type: :request do
 
           @observer_enrollment.update_attribute(:associated_user_id, @students[5].id)
 
-          Course.enroll_user_call_count -= 2 # Total hack but can't eleminate any of the enroll_user calls -- we need them to test multiple enrollments
-
           observer_enrollment2 = @course.enroll_user(@observer, "ObserverEnrollment", enrollment_state: "active", allow_multiple_enrollments: true)
           observer_enrollment2.update_attribute(:associated_user_id, @students[3].id)
           observer_enrollment3 = @course.enroll_user(@observer, "ObserverEnrollment", enrollment_state: "active", allow_multiple_enrollments: true)
@@ -1701,7 +1797,7 @@ describe AssignmentsApiController, type: :request do
                  user_id: @student.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "returns data for for teacher who can read target student data" do
@@ -1738,7 +1834,7 @@ describe AssignmentsApiController, type: :request do
                          user_id: student.id.to_s },
                        {},
                        {},
-                       { expected_status: 401 })
+                       { expected_status: 403 })
     end
   end
 
@@ -1764,7 +1860,7 @@ describe AssignmentsApiController, type: :request do
                          assignment_id: assignment.id.to_s },
                        {},
                        {},
-                       { expected_status: 401 })
+                       { expected_status: 403 })
     end
 
     it "duplicates if teacher" do
@@ -2141,7 +2237,7 @@ describe AssignmentsApiController, type: :request do
           },
           {},
           {},
-          { expected_status: 401 }
+          { expected_status: 403 }
         )
       end
 
@@ -2346,7 +2442,7 @@ describe AssignmentsApiController, type: :request do
       expect(@assignment.post_to_sis).to be true
     end
 
-    it "returns unauthorized for users who do not have permission" do
+    it "returns forbidden for users who do not have permission" do
       student_in_course(active_all: true)
       @group = @course.assignment_groups.create!({ name: "some group" })
       @group_category = @course.group_categories.create!(name: "foo")
@@ -2362,7 +2458,7 @@ describe AssignmentsApiController, type: :request do
                },
                create_assignment_json(@group, @group_category),
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "allows authenticated users to create assignments" do
@@ -3220,7 +3316,7 @@ describe AssignmentsApiController, type: :request do
         @ta.register!
         @ta.communication_channels.create(path: "ta@instructure.com").confirm!
 
-        @override_due_at = Time.parse("2002 Jun 22 12:00:00")
+        @override_due_at = Time.zone.parse("2002 Jun 22 12:00:00")
 
         @user = @teacher
         json = api_call(:post,
@@ -3737,7 +3833,7 @@ describe AssignmentsApiController, type: :request do
 
       it "returns unauthorized if attempting to change points possible" do
         api_update_assignment_call(@course, @assignment, { points_possible: 12 })
-        expect(response).to be_unauthorized
+        expect(response).to be_forbidden
       end
 
       it "succeeds if grading_type is provided but it matches current grading_type" do
@@ -3747,7 +3843,7 @@ describe AssignmentsApiController, type: :request do
 
       it "returns unauthorized if attempting to change grading_type" do
         api_update_assignment_call(@course, @assignment, { grading_type: "percent" })
-        expect(response).to be_unauthorized
+        expect(response).to be_forbidden
       end
 
       it "succeeds if grading_standard_id is provided but it matches current grading_standard_id" do
@@ -3762,11 +3858,11 @@ describe AssignmentsApiController, type: :request do
         expect(response).to be_successful
       end
 
-      it "returns unauthorized if attempting to change grading_standard_id" do
+      it "returns forbidden if attempting to change grading_standard_id" do
         grading_standard = grading_standard_for(@course)
         @assignment.update!(grading_standard:)
         api_update_assignment_call(@course, @assignment, { grading_standard_id: nil })
-        expect(response).to be_unauthorized
+        expect(response).to be_forbidden
       end
 
       it "succeeds if not provided attributes that trigger a regrade" do
@@ -3775,7 +3871,7 @@ describe AssignmentsApiController, type: :request do
       end
     end
 
-    it "returns unauthorized for users who do not have permission" do
+    it "returns forbidden for users who do not have permission" do
       course_with_student(active_all: true)
       @assignment = @course.assignments.create!({
                                                   name: "some assignment",
@@ -3784,7 +3880,7 @@ describe AssignmentsApiController, type: :request do
 
       api_update_assignment_call(@course, @assignment, { points_possible: 10 })
 
-      expect(response).to have_http_status :unauthorized
+      expect(response).to have_http_status :forbidden
     end
 
     it "allows user with grading rights to update assignment grading type" do
@@ -4392,7 +4488,7 @@ describe AssignmentsApiController, type: :request do
                                                   position: 2,
                                                   peer_review_count: 2,
                                                   peer_reviews: true,
-                                                  peer_reviews_due_at: Time.now,
+                                                  peer_reviews_due_at: Time.zone.now,
                                                   grading_type: "percent",
                                                   due_at: nil)
         @assignment.assignment_group = @start_group
@@ -5210,12 +5306,7 @@ describe AssignmentsApiController, type: :request do
       it "prevents setting group category ID on assignments with discussions" do
         course_with_teacher(active_all: true)
         group_category = @course.group_categories.create!(name: "foo")
-        @assignment = factory_with_protected_attributes(
-          @course.assignments,
-          {
-            title: "assignment1",
-          }
-        )
+        @assignment = @course.assignments.create!(title: "assignment1")
         @topic = @course.discussion_topics.build(assignment: @assignment, title: "asdf")
         @topic.save
         raw_api_update_assignment(@course, @assignment, {
@@ -5854,7 +5945,7 @@ describe AssignmentsApiController, type: :request do
                  },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
         expect(@assignment.reload).not_to be_deleted
       end
     end
@@ -5962,6 +6053,15 @@ describe AssignmentsApiController, type: :request do
         should_translate_user_content(@course) do |content|
           assignment = @course.assignments.create!(description: content)
           json = api_get_assignment_in_course(assignment, @course)
+          json["description"]
+        end
+      end
+
+      it "translates assignment descriptions without verifiers" do
+        course_with_teacher(active_all: true)
+        should_translate_user_content(@course, false) do |content|
+          assignment = @course.assignments.create!(description: content)
+          json = api_get_assignment_in_course(assignment, @course, no_verifiers: true)
           json["description"]
         end
       end
@@ -6395,7 +6495,7 @@ describe AssignmentsApiController, type: :request do
                      })
 
         # should be authorization error
-        expect(response).to have_http_status :unauthorized
+        expect(response).to have_http_status :forbidden
       end
 
       it "shows an unpublished assignment to teachers" do
@@ -6503,7 +6603,7 @@ describe AssignmentsApiController, type: :request do
                      id: @assignment1.id.to_s },
                    {},
                    {},
-                   { expected_status: 401 })
+                   { expected_status: 403 })
         end
 
         it "does not include assignment_visibility data when requested" do
@@ -7300,9 +7400,9 @@ describe AssignmentsApiController, type: :request do
       @new_dates = (7..9).map { |x| x.days.from_now }
     end
 
-    it "requires manage_assignments rights" do
+    it "requires manage_assignments_edit rights" do
       student_in_course(active_all: true)
-      api_bulk_update(@course, [], expected_status: 401)
+      api_bulk_update(@course, [], expected_status: 403)
     end
 
     it "expects an array of assignments" do
@@ -7580,7 +7680,7 @@ describe AssignmentsApiController, type: :request do
       end
 
       it "disallows editing moderated assignments if you're not the moderator" do
-        api_bulk_update(@course, [{ "id" => @a0.id, "all_dates" => [] }], expected_status: 401)
+        api_bulk_update(@course, [{ "id" => @a0.id, "all_dates" => [] }], expected_status: 403)
         api_bulk_update(@course, [{ "id" => @a1.id, "all_dates" => [] }])
       end
 

@@ -35,6 +35,11 @@ class SubmissionsBaseController < ApplicationController
 
     if @submission&.user_id == @current_user.id
       @submission&.mark_read(@current_user)
+      if @submission.assignment.checkpoints_parent?
+        @submission.assignment.sub_assignment_submissions.where(user: @current_user).find_each do |s|
+          s&.mark_read(@current_user)
+        end
+      end
     end
 
     respond_to do |format|
@@ -66,7 +71,9 @@ class SubmissionsBaseController < ApplicationController
 
         set_active_tab "assignments"
 
-        render "submissions/show", stream: can_stream_template?
+        render "submissions/show",
+               stream: can_stream_template?,
+               layout: (params[:embed] == "true") ? "mobile_embed" : true
       end
 
       format.json do

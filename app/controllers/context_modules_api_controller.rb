@@ -68,6 +68,11 @@
 #           "example": true,
 #           "type": "boolean"
 #         },
+#         "requirement_type": {
+#           "description": "Whether module requires all required items or one required item to be considered complete (one of 'all' or 'one')",
+#           "example": "all",
+#           "type": "string"
+#         },
 #         "prerequisite_module_ids": {
 #           "description": "IDs of Modules that must be completed before this one is unlocked",
 #           "example": [121, 122],
@@ -222,7 +227,7 @@ class ContextModulesApiController < ApplicationController
   end
 
   def duplicate
-    if authorized_action(@context, @current_user, [:manage_content, :manage_course_content_add])
+    if authorized_action(@context, @current_user, :manage_course_content_add)
       old_module = @context.modules_visible_to(@current_user).find(params[:module_id])
       return render json: { error: "unable to find module to duplicate" }, status: :bad_request unless old_module
       return render json: { error: "cannot duplicate this module" }, status: :bad_request unless old_module.can_be_duplicated?
@@ -276,7 +281,7 @@ class ContextModulesApiController < ApplicationController
   #      "progress": null,
   #    }
   def batch_update
-    if authorized_action(@context, @current_user, [:manage_content, :manage_course_content_edit])
+    if authorized_action(@context, @current_user, :manage_course_content_edit)
       event = params[:event]
       return render(json: { message: "need to specify event" }, status: :bad_request) unless event.present?
       return render(json: { message: "invalid event" }, status: :bad_request) unless %w[publish unpublish delete].include? event
@@ -296,7 +301,7 @@ class ContextModulesApiController < ApplicationController
         progress.process_job(
           @context,
           :batch_update_context_modules,
-          { run_at: Time.now, priority: Delayed::HIGH_PRIORITY },
+          { run_at: Time.zone.now, priority: Delayed::HIGH_PRIORITY },
           **batch_update_params
         )
       else

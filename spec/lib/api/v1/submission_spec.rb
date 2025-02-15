@@ -100,16 +100,32 @@ describe Api::V1::Submission do
         json = fake_controller.submission_json(parent_submission, parent_assignment, teacher, session, parent_assignment.context, field, params)
         expect(json["has_sub_assignment_submissions"]).to be true
         sas = json["sub_assignment_submissions"]
+
+        # the following are properties we expect in the response
         expect(sas.pluck("sub_assignment_tag")).to match_array([CheckpointLabels::REPLY_TO_TOPIC, CheckpointLabels::REPLY_TO_ENTRY])
         expect(sas.pluck("id")).to match_array([nil, nil])
+        expect(sas.pluck("missing")).to match_array([false, false])
+        expect(sas.pluck("late")).to match_array([false, false])
+        expect(sas.pluck("excused")).to match_array([nil, nil])
+        expect(sas.pluck("score")).to match_array([nil, nil])
+        expect(sas.pluck("grade")).to match_array([nil, nil])
+        expect(sas.pluck("entered_score")).to match_array([nil, nil])
+        expect(sas.pluck("entered_grade")).to match_array([nil, nil])
         expect(sas.pluck("user_id")).to match_array([student.id, student.id])
 
-        # since these are now the sub-assignments themselves, they should not have sub-assignments
-        expect(sas.pluck("has_sub_assignment_submissions")).to match_array([false, false])
-        expect(sas.pluck("sub_assignment_submissions")).to match_array([[], []])
+        # the following are properties we do not expect in the response since these are sub_assignments already
+        expect(sas.pluck("has_sub_assignment_submissions")).to match_array([nil, nil])
+        expect(sas.pluck("sub_assignment_submissions")).to match_array([nil, nil])
+        expect(sas.pluck("submission_type")).to match_array([nil, nil])
+        expect(sas.pluck("submitted_at")).to match_array([nil, nil])
+        expect(sas.pluck("points_deducted")).to match_array([nil, nil])
+        expect(sas.pluck("has_postable_comments")).to match_array([nil, nil])
+        expect(sas.pluck("workflow_state")).to match_array([nil, nil])
+        expect(sas.pluck("assignment_id")).to match_array([nil, nil])
+        expect(sas.pluck("redo_request")).to match_array([nil, nil])
       end
 
-      it "has falso sub_assignment_submissions info for non-checkpointed assignments" do
+      it "has false sub_assignment_submissions info for non-checkpointed assignments" do
         student = course_with_user("StudentEnrollment", course:, active_all: true, name: "Student").user
         assignment = course.assignments.create!(title: "Assignment 1", has_sub_assignments: false)
         submission = assignment.submissions.find_by(user_id: student.id)
@@ -117,6 +133,29 @@ describe Api::V1::Submission do
         json = fake_controller.submission_json(submission, assignment, teacher, session, assignment.context, field, params)
         expect(json["has_sub_assignment_submissions"]).to be false
         expect(json["sub_assignment_submissions"]).to be_empty
+      end
+
+      it "sets needs grading fields if a submission checkpoint needs grading" do
+        student = course_with_user("StudentEnrollment", course:, active_all: true, name: "Student").user
+        parent_assignment = course.assignments.create!(title: "Assignment 1", has_sub_assignments: true, submission_types: "discussion_topics")
+        parent_submission = parent_assignment.submissions.find_by(user_id: student.id)
+        topic_sub_assignment = parent_assignment.sub_assignments.create!(context: parent_assignment.context, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC, points_possible: 5, due_at: 3.days.from_now, submission_types: "discussion_topics")
+        parent_assignment.sub_assignments.create!(context: parent_assignment.context, sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY, points_possible: 10, due_at: 5.days.from_now, submission_types: "discussion_topics")
+        topic_sub_assignment.submit_homework(student, submission_type: "discussion_topics")
+
+        json = fake_controller.submission_json(parent_submission, parent_assignment, teacher, session, parent_assignment.context, field, params)
+        # gradebook uses these fields to determine a submission needs grading
+        expect(json["workflow_state"]).to  eq("pending_review")
+        expect(json["submission_type"]).to eq("discussion_topics")
+      end
+
+      it "respects submission_type if submission.needs_grading" do
+        student = course_with_user("StudentEnrollment", course:, active_all: true, name: "Student").user
+        assignment = course.assignments.create!(title: "Assignment 1", has_sub_assignments: true)
+        submission = assignment.submit_homework(student, submission_type: "online_text_entry", body: "pay attention to me")
+
+        json = fake_controller.submission_json(submission, assignment, teacher, session, assignment.context, field, params)
+        expect(json["submission_type"]).to eq("online_text_entry")
       end
     end
 
@@ -636,6 +675,36 @@ describe Api::V1::Submission do
       fake_controller.current_user = user
       submission_json = fake_controller.submission_json(submission, assignment, user, session, context)
       expect(submission_json.fetch("media_comment")["media_type"]).to eq "video"
+    end
+
+    describe "include submission_comments" do
+      before do
+        @submission_comment = submission.submission_comments.create!
+        @submission_comment.comment = "<div>My html comment</div>"
+        @submission_comment.save!
+      end
+
+      it "returns submission comments without html tags" do
+        submission = assignment.submission_for_student(user)
+        fake_controller.current_user = user
+        submission_json = fake_controller.submission_json(submission, assignment, user, session, context, ["submission_comments"])
+        expect(submission_json.fetch("submission_comments").first["comment"]).to eq "My html comment"
+      end
+    end
+
+    describe "include submission_html_comments" do
+      before do
+        @submission_comment = submission.submission_comments.create!
+        @submission_comment.comment = "<div>My html comment</div>"
+        @submission_comment.save!
+      end
+
+      it "returns submission comments with html tags" do
+        submission = assignment.submission_for_student(user)
+        fake_controller.current_user = user
+        submission_json = fake_controller.submission_json(submission, assignment, user, session, context, ["submission_html_comments"])
+        expect(submission_json.fetch("submission_html_comments").first["comment"]).to eq "<div>My html comment</div>"
+      end
     end
   end
 

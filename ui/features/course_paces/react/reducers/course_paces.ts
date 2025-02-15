@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -21,12 +20,12 @@ import {createSelector, createSelectorCreator, defaultMemoize} from 'reselect'
 import {deepEqual} from '@instructure/ui-utils'
 import moment from 'moment-timezone'
 
-import {Constants as CoursePaceConstants, CoursePaceAction} from '../actions/course_paces'
-import {CoursePaceItemAction} from '../actions/course_pace_items'
+import {Constants as CoursePaceConstants, type CoursePaceAction} from '../actions/course_paces'
+import type {CoursePaceItemAction} from '../actions/course_pace_items'
 import coursePaceItemsReducer from './course_pace_items'
 import * as DateHelpers from '../utils/date_stuff/date_helpers'
 import * as PaceDueDatesCalculator from '../utils/date_stuff/pace_due_dates_calculator'
-import {
+import type {
   CoursePacesState,
   CoursePace,
   PaceContextTypes,
@@ -41,17 +40,19 @@ import {
   Module,
   OptionalDate,
 } from '../types'
-import {BlackoutDate, Course} from '../shared/types'
-import {Constants as UIConstants, SetSelectedPaceType} from '../actions/ui'
+import type {BlackoutDate, Course} from '../shared/types'
+import {Constants as UIConstants, type SetSelectedPaceType} from '../actions/ui'
 import {getCourse} from './course'
 import {getEnrollments} from './enrollments'
 import {getSections} from './sections'
 import {getInitialCoursePace, getOriginalBlackoutDates, getOriginalPace} from './original'
 import {getBlackoutDates} from '../shared/reducers/blackout_dates'
-import {Change, summarizeChanges} from '../utils/change_tracking'
+import {type Change, summarizeChanges} from '../utils/change_tracking'
+import { calculatePaceDuration } from '../utils/utils'
 
 const initialProgress = window.ENV.COURSE_PACE_PROGRESS
 
+// @ts-expect-error
 export const initialState: CoursePacesState = ({
   ...getInitialCoursePace(),
   course: window.ENV.COURSE,
@@ -72,6 +73,8 @@ const getModuleItems = (modules: Module[]) =>
 // calculations.
 const createDeepEqualSelector = createSelectorCreator(defaultMemoize, deepEqual)
 
+export const getSelectedDaysToSkip = (state: StoreState): string[] =>
+  state.coursePace.selected_days_to_skip
 export const getExcludeWeekends = (state: StoreState): boolean => state.coursePace.exclude_weekends
 export const getCoursePace = (state: StoreState): CoursePacesState => state.coursePace
 export const getCoursePaceModules = (state: StoreState) => state.coursePace.modules
@@ -94,6 +97,8 @@ export const isSectionPace = (state: StoreState) => state.coursePace.context_typ
 export const isNewPace = (state: StoreState) =>
   !(state.coursePace.id || (isStudentPace(state) && !window.ENV.FEATURES.course_paces_for_students)) // for now, there are no "new" student paces
 export const getIsUnpublishedNewPace = (state: StoreState) => !state.original.coursePace.id
+export const getIsDraftPace = (state: StoreState): boolean =>
+  !!state.original.coursePace.id && state.original.coursePace.workflow_state == 'unpublished'
 export const getIsPaceCompressed = (state: StoreState): boolean =>
   !!state.coursePace.compressed_due_dates
 export const getPaceCompressedDates = (state: StoreState): CoursePaceItemDueDates | undefined =>
@@ -106,10 +111,11 @@ export const getPaceName = (state: StoreState): string => {
     case 'Course':
       return state.course.name
     case 'Section':
+      // @ts-expect-error
       return state.sections[state.coursePace.context_id].name
     case 'Enrollment':
       return Object.values(state.enrollments).find(
-        enrollment => enrollment.user_id === state.coursePace.context_id
+        enrollment => enrollment.user_id === state.coursePace.context_id,
       ).full_name
     default:
       throw new Error('Unknown context type')
@@ -118,13 +124,25 @@ export const getPaceName = (state: StoreState): string => {
 
 export const getSettingChanges = createDeepEqualSelector(
   getExcludeWeekends,
+  getSelectedDaysToSkip,
   getOriginalPace,
   getOriginalBlackoutDates,
   getBlackoutDates,
-  (excludeWeekends, originalPace, originalBlackoutDates, blackoutDates) => {
+  (excludeWeekends, selectedDaysToSkip, originalPace, originalBlackoutDates, blackoutDates) => {
     const changes: Change[] = []
 
-    if (excludeWeekends !== originalPace.exclude_weekends)
+    if (window.ENV.FEATURES.course_paces_skip_selected_days) {
+      if (
+        selectedDaysToSkip.length !== originalPace.selected_days_to_skip.length ||
+        !deepEqual(selectedDaysToSkip, originalPace.selected_days_to_skip)
+      ) {
+        changes.push({
+          id: 'selected_days_to_skip',
+          oldValue: originalPace.selected_days_to_skip,
+          newValue: selectedDaysToSkip,
+        })
+      }
+    } else if (excludeWeekends !== originalPace.exclude_weekends)
       changes.push({
         id: 'exclude_weekends',
         oldValue: originalPace.exclude_weekends,
@@ -137,12 +155,12 @@ export const getSettingChanges = createDeepEqualSelector(
     }
 
     return changes
-  }
+  },
 )
 
 export function getBlackoutDateChanges(
   originalBlackoutDates: BlackoutDate[],
-  blackoutDates: BlackoutDate[]
+  blackoutDates: BlackoutDate[],
 ): Change[] {
   const changes: Change[] = []
 
@@ -205,29 +223,30 @@ export const getCoursePaceItemChanges = createDeepEqualSelector(
     }
 
     return changes
-  }
+  },
 )
 
 export const getUnpublishedChangeCount = createDeepEqualSelector(
   getSettingChanges,
   getCoursePaceItemChanges,
-  (settingChanges, coursePaceItemChanges) => settingChanges.length + coursePaceItemChanges.length
+  (settingChanges, coursePaceItemChanges) => settingChanges.length + coursePaceItemChanges.length,
 )
 
 export const getSummarizedChanges = createDeepEqualSelector(
   getSettingChanges,
   getCoursePaceItemChanges,
-  summarizeChanges
+  summarizeChanges,
 )
 
 export const getUnappliedChangesExist = createDeepEqualSelector(
   getPacePublishing,
   getUnpublishedChangeCount,
-  (pacePublishing, unpublishedChangeCount) => unpublishedChangeCount > 0 && !pacePublishing
+  (pacePublishing, unpublishedChangeCount) => unpublishedChangeCount > 0 && !pacePublishing,
 )
 
 export const getCoursePaceItemPosition = createDeepEqualSelector(
   getCoursePaceItems,
+  // @ts-expect-error
   (_, props): CoursePaceItem => props.coursePaceItem,
   (coursePaceItems: CoursePaceItem[], coursePaceItem: CoursePaceItem): number => {
     let position = 0
@@ -240,13 +259,13 @@ export const getCoursePaceItemPosition = createDeepEqualSelector(
     }
 
     return position
-  }
+  },
 )
 
 export const getCoursePaceDurationTotal = createDeepEqualSelector(
   getCoursePaceItems,
   (coursePaceItems: CoursePaceItem[]): number =>
-    coursePaceItems.reduce((total, item) => total + item.duration, 0)
+    coursePaceItems.reduce((total, item) => total + item.duration, 0),
 )
 
 export const getStartDate = createDeepEqualSelector(
@@ -254,51 +273,69 @@ export const getStartDate = createDeepEqualSelector(
   getOriginalPace,
   (coursePace: CoursePace): string | undefined => {
     return coursePace.start_date
-  }
+  },
 )
 
 // Wrapping this in a selector makes sure the result is memoized
 export const getDueDates = createDeepEqualSelector(
   getCoursePaceItems,
   getExcludeWeekends,
+  getSelectedDaysToSkip,
   getBlackoutDates,
   getStartDate,
   getPaceCompressedDates,
   (
     items: CoursePaceItem[],
     excludeWeekends: boolean,
+    selectedDaysToSkip,
     blackoutDates: BlackoutDate[],
     startDate?: string,
-    compressedDueDates?: CoursePaceItemDueDates
+    compressedDueDates?: CoursePaceItemDueDates,
   ): CoursePaceItemDueDates => {
     if (compressedDueDates) {
       return compressedDueDates
     }
-    return PaceDueDatesCalculator.getDueDates(items, excludeWeekends, blackoutDates, startDate)
-  }
+    return PaceDueDatesCalculator.getDueDates(
+      items,
+      excludeWeekends,
+      selectedDaysToSkip,
+      blackoutDates,
+      startDate,
+    )
+  },
 )
 
 export const getUncompressedDueDates = createDeepEqualSelector(
   getCoursePaceItems,
   getExcludeWeekends,
+  getSelectedDaysToSkip,
   getBlackoutDates,
   getStartDate,
   (
     items: CoursePaceItem[],
     excludeWeekends: boolean,
+    selectedDaysToSkip: string[],
     blackoutDates: BlackoutDate[],
-    startDate?: string
+    startDate?: string,
   ): CoursePaceItemDueDates => {
-    return PaceDueDatesCalculator.getDueDates(items, excludeWeekends, blackoutDates, startDate)
-  }
+    return PaceDueDatesCalculator.getDueDates(
+      items,
+      excludeWeekends,
+      selectedDaysToSkip,
+      blackoutDates,
+      startDate,
+    )
+  },
 )
 
 export const getDueDate = createSelector(
   getDueDates,
+  // @ts-expect-error
   (_, props): CoursePaceItem => props.coursePaceItem,
   (dueDates: CoursePaceItemDueDates, coursePaceItem: CoursePaceItem): string => {
+    // @ts-expect-error
     return dueDates[coursePaceItem.module_item_id]
-  }
+  },
 )
 
 export const getProjectedEndDate = createDeepEqualSelector(
@@ -308,14 +345,15 @@ export const getProjectedEndDate = createDeepEqualSelector(
   (
     dueDates: CoursePaceItemDueDates,
     items: CoursePaceItem[],
-    startDate?: string
+    startDate?: string,
   ): string | undefined => {
     if (!startDate || !Object.keys(dueDates) || !items.length) return startDate
 
     // Get the due date associated with the last module item
+    // @ts-expect-error
     const lastDueDate = dueDates[items[items.length - 1].module_item_id]
     return lastDueDate && DateHelpers.formatDate(lastDueDate)
-  }
+  },
 )
 
 // return the due date of the last module item
@@ -323,8 +361,9 @@ export const getPlannedEndDate = createDeepEqualSelector(
   getCoursePaceItems,
   getDueDates,
   (items: CoursePaceItem[], dueDates: CoursePaceItemDueDates): OptionalDate => {
+    // @ts-expect-error
     return items.length ? dueDates[items[items.length - 1].module_item_id] : undefined
-  }
+  },
 )
 
 /**
@@ -373,15 +412,13 @@ export const getPaceDuration = createSelector(
   getCoursePace,
   getProjectedEndDate,
   (coursePace: CoursePace, projectedEndDate?: string): PaceDuration => {
-    if (!coursePace.start_date) return {weeks: 0, days: 0}
-
     const paceStart = moment(coursePace.start_date).endOf('day')
     const paceEnd = moment(coursePace.end_date).endOf('day')
     const projectedEnd = moment(projectedEndDate).endOf('day')
     const endDate = projectedEnd.isAfter(paceEnd) ? paceEnd : projectedEnd
-    const planDays = DateHelpers.rawDaysBetweenInclusive(paceStart, endDate)
-    return {weeks: Math.floor(planDays / 7), days: planDays % 7}
-  }
+
+    return calculatePaceDuration(paceStart, endDate)
+  },
 )
 
 export const getActivePaceContext = createSelector(
@@ -393,17 +430,19 @@ export const getActivePaceContext = createSelector(
     activeCoursePace: CoursePace,
     course: Course,
     enrollments: Enrollments,
-    sections: Sections
+    sections: Sections,
   ): Course | Section | Enrollment => {
     switch (activeCoursePace.context_type) {
       case 'Section':
+        // @ts-expect-error
         return sections[activeCoursePace.context_id]
       case 'Enrollment':
+        // @ts-expect-error
         return enrollments[activeCoursePace.context_id]
       default:
         return course
     }
-  }
+  },
 )
 
 // return ms between projectedEndDate and the pace end_date
@@ -416,11 +455,12 @@ export const getCompression = createSelector(
   (coursePace: CoursePacesState, projectedEndDate: string | undefined): number => {
     if (!projectedEndDate || !coursePace.end_date) return 0
     return moment(projectedEndDate).endOf('day').diff(moment(coursePace.end_date).endOf('day'))
-  }
+  },
 )
 
 // sort module items by position or date
 // (blackout date type items don't have a position)
+// @ts-expect-error
 function compareModuleItemOrder(a, b) {
   if ('position' in a && 'position' in b) {
     return a.position - b.position
@@ -439,7 +479,7 @@ function compareModuleItemOrder(a, b) {
 export const mergeAssignmentsAndBlackoutDates = (
   coursePace: CoursePace,
   dueDates: CoursePaceItemDueDates,
-  blackoutDates: BlackoutDate[]
+  blackoutDates: BlackoutDate[],
 ) => {
   // throw out any blackout dates before or after the pace start and end
   // then strip down blackout dates and assign "start_date" to "date"
@@ -448,8 +488,10 @@ export const mergeAssignmentsAndBlackoutDates = (
   const dueDateKeys = Object.keys(dueDates)
   let veryLastDueDate = moment('3000-01-01T00:00:00Z')
   if (dueDateKeys.length) {
+    // @ts-expect-error
     let lastDueDate = moment(dueDates[dueDateKeys[0]])
     dueDateKeys.forEach(key => {
+      // @ts-expect-error
       if (moment(dueDates[key]).isAfter(lastDueDate)) lastDueDate = moment(dueDates[key])
     })
     veryLastDueDate = lastDueDate
@@ -477,6 +519,7 @@ export const mergeAssignmentsAndBlackoutDates = (
       const assignmentDueDates: CoursePaceItemDueDates = dueDates
 
       const assignmentsWithDueDate = module.items.map(item => {
+        // @ts-expect-error
         const item_due = assignmentDueDates[item.module_item_id]
         const due_at = item_due ? moment(item_due).endOf('day') : undefined
         return {...item, date: due_at, type: 'assignment'}
@@ -489,7 +532,7 @@ export const mergeAssignmentsAndBlackoutDates = (
       })
       return runningValue
     },
-    []
+    [],
   )
 
   // merge the blackout dates into each module's items
@@ -521,7 +564,7 @@ export const mergeAssignmentsAndBlackoutDates = (
       }
       return runningValue.concat(module)
     },
-    []
+    [],
   )
   return modulesWithBlackoutDates
 }
@@ -530,23 +573,25 @@ export const getModulesWithItemsMergedWithDueDatesAndBlackoutDates = createDeepE
   getCoursePace,
   getDueDates,
   getBlackoutDates,
-  mergeAssignmentsAndBlackoutDates
+  mergeAssignmentsAndBlackoutDates,
 )
 
 /* Reducers */
 
 export default (
   state = initialState,
-  action: CoursePaceAction | SetSelectedPaceType
+  action: CoursePaceAction | SetSelectedPaceType,
 ): CoursePacesState => {
   switch (action.type) {
     case CoursePaceConstants.SAVE_COURSE_PACE:
       return {...state, ...action.payload}
     case CoursePaceConstants.SET_START_DATE:
       return {...state, start_date: DateHelpers.formatDate(action.payload)}
+    // @ts-expect-error
     case CoursePaceConstants.SET_END_DATE:
       return {
         ...state,
+        // @ts-expect-error
         end_date: action.payload ? DateHelpers.formatDate(action.payload) : undefined,
       }
     case CoursePaceConstants.PACE_CREATED:
@@ -565,6 +610,11 @@ export default (
       } else {
         return {...state, exclude_weekends: true}
       }
+    case CoursePaceConstants.TOGGLE_SELECTED_DAYS_TO_SKIP:
+      return {
+        ...state,
+        selected_days_to_skip: action.payload,
+      }
     case CoursePaceConstants.RESET_PACE:
       return {
         ...(action.payload as CoursePace),
@@ -582,6 +632,7 @@ export default (
     default:
       return {
         ...state,
+        // @ts-expect-error
         modules: coursePaceItemsReducer(state.modules, action as CoursePaceItemAction),
       }
   }

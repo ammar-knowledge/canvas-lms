@@ -20,12 +20,16 @@ import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
 import {Discussion} from '../../../../graphql/Discussion'
 import {DiscussionEntry} from '../../../../graphql/DiscussionEntry'
 import {fireEvent, render, waitFor} from '@testing-library/react'
-import {getDiscussionSubentriesQueryMock, updateDiscussionEntryParticipantMock} from '../../../../graphql/Mocks'
+import {
+  getDiscussionSubentriesQueryMock,
+  updateDiscussionEntryParticipantMock,
+} from '../../../../graphql/Mocks'
 import {SplitScreenViewContainer} from '../SplitScreenViewContainer'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
 import {PageInfo} from '../../../../graphql/PageInfo'
 import React from 'react'
 import injectGlobalAlertContainers from '@canvas/util/react/testing/injectGlobalAlertContainers'
+
 injectGlobalAlertContainers()
 
 jest.mock('@canvas/rce/react/CanvasRce')
@@ -79,7 +83,7 @@ describe('SplitScreenViewContainer', () => {
         <AlertManagerContext.Provider value={{setOnFailure, setOnSuccess}}>
           <SplitScreenViewContainer {...props} />
         </AlertManagerContext.Provider>
-      </MockedProvider>
+      </MockedProvider>,
     )
   }
 
@@ -122,7 +126,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
 
     const threadActionsMenus = await findAllByTestId('thread-actions-menu')
@@ -142,7 +146,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
 
     const threadActionsMenus = await findAllByTestId('thread-actions-menu')
@@ -162,7 +166,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
 
     const threadActionsMenus = await findAllByTestId('thread-actions-menu')
@@ -192,7 +196,7 @@ describe('SplitScreenViewContainer', () => {
         getDiscussionSubentriesQueryMock({
           last: split_screen_view_initial_page_size,
           includeRelativeEntry: false,
-        })
+        }),
       )
 
       const threadActionsMenus = await findAllByTestId('thread-actions-menu')
@@ -213,7 +217,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
     expect(await findByText('This is the parent reply')).toBeInTheDocument()
     expect(queryByTestId('back-button')).toBeNull()
@@ -362,7 +366,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
     await waitFor(() => expect(queryByText('Show newer replies')).toBeNull())
   })
@@ -373,7 +377,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
 
     const viewRepliesButton = await findByText('View Replies')
@@ -388,7 +392,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
 
     const replyButton = await findAllByText('Reply')
@@ -407,7 +411,7 @@ describe('SplitScreenViewContainer', () => {
           getDiscussionSubentriesQueryMock({
             last: split_screen_view_initial_page_size,
             includeRelativeEntry: false,
-          })
+          }),
         )
         expect(queryByTestId('split-screen-view-children')).toBeFalsy()
       })
@@ -422,7 +426,7 @@ describe('SplitScreenViewContainer', () => {
           getDiscussionSubentriesQueryMock({
             last: split_screen_view_initial_page_size,
             includeRelativeEntry: false,
-          })
+          }),
         )
         expect(await findByTestId('split-screen-view-children')).toBeTruthy()
       })
@@ -436,7 +440,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
 
     expect(await findByTestId('DiscussionEdit-container')).toBeInTheDocument()
@@ -452,7 +456,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
 
     const replyButtons = await findAllByTestId('threading-toolbar-reply')
@@ -469,7 +473,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
 
     fireEvent.click(await findByTestId('expand-button'))
@@ -483,7 +487,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
 
     const replyButtons = await findAllByTestId('threading-toolbar-reply')
@@ -497,7 +501,7 @@ describe('SplitScreenViewContainer', () => {
       getDiscussionSubentriesQueryMock({
         last: split_screen_view_initial_page_size,
         includeRelativeEntry: false,
-      })
+      }),
     )
 
     expect(await findByTestId('isHighlighted')).toBeInTheDocument()
@@ -511,38 +515,38 @@ describe('SplitScreenViewContainer', () => {
           last: split_screen_view_initial_page_size,
           includeRelativeEntry: false,
           shouldError: true,
-        })
+        }),
       )
       await waitFor(() => expect(container.getAllByText('Sorry, Something Broke')).toBeTruthy())
     })
   })
 
   describe('rating', () => {
-    it('should react on liked', async() => {
+    it('should react on liked', async () => {
       const mocks = [
-          ...updateDiscussionEntryParticipantMock({
+        ...updateDiscussionEntryParticipantMock({
           rating: 'liked',
         }),
         ...getDiscussionSubentriesQueryMock({
           last: split_screen_view_initial_page_size,
           includeRelativeEntry: false,
-        })
+        }),
       ]
 
-      const {findAllByTestId,queryByTestId} = setup(defaultProps(), mocks)
+      const {findAllByTestId, queryByTestId} = setup(defaultProps(), mocks)
       const likeButtons = await findAllByTestId('like-button')
 
-      expect(likeButtons.length).toBe(2);
+      expect(likeButtons).toHaveLength(2)
       expect(queryByTestId('liked-icon')).toBeFalsy()
       fireEvent.click(likeButtons[0])
       await waitFor(() => {
-        expect(setOnSuccess.mock.calls.length).toBe(1)
-        expect(setOnFailure.mock.calls.length).toBe(0)
+        expect(setOnSuccess.mock.calls).toHaveLength(1)
+        expect(setOnFailure.mock.calls).toHaveLength(0)
       })
       expect(queryByTestId('liked-icon')).toBeTruthy()
     })
 
-    it('should react on not_liked', async() => {
+    it('should react on not_liked', async () => {
       const mocks = [
         ...updateDiscussionEntryParticipantMock({
           rating: 'not_liked',
@@ -559,20 +563,20 @@ describe('SplitScreenViewContainer', () => {
           relativeEntryId: '10',
         }),
       ]
-      mocks[2].result.data.legacyNode.entryParticipant.rating=true
+      mocks[2].result.data.legacyNode.entryParticipant.rating = true
 
-      const {findAllByTestId,queryByTestId} = setup(defaultProps({relativeEntryId: '10'}), mocks)
+      const {findAllByTestId, queryByTestId} = setup(defaultProps({relativeEntryId: '10'}), mocks)
       const likeButtons = await findAllByTestId('like-button')
 
-      expect(likeButtons.length).toBe(2);
+      expect(likeButtons).toHaveLength(2)
+      await new Promise(resolve => setTimeout(resolve, 0))
       expect(queryByTestId('liked-icon')).toBeTruthy()
       fireEvent.click(queryByTestId('liked-icon'))
       await waitFor(() => {
-        expect(setOnSuccess.mock.calls.length).toBe(1)
-        expect(setOnFailure.mock.calls.length).toBe(0)
+        expect(setOnSuccess.mock.calls).toHaveLength(1)
+        expect(setOnFailure.mock.calls).toHaveLength(0)
       })
       expect(queryByTestId('liked-icon')).toBeFalsy()
     })
-
   })
 })

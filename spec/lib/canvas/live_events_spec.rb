@@ -68,7 +68,6 @@ describe Canvas::LiveEvents do
         @data["body"]
       end
     end.new
-    allow(LiveEvents).to receive(:get_context).and_return({ compact_live_events: true })
   end
 
   let(:course_context) do
@@ -103,7 +102,6 @@ describe Canvas::LiveEvents do
           root_account_id:,
           root_account_uuid: root_account_uuid.to_s,
           root_account_lti_guid: root_account_lti_guid.to_s,
-          compact_live_events: true
         }
       )
     end
@@ -116,7 +114,6 @@ describe Canvas::LiveEvents do
                                       context_account_id: nil,
                                       context_id: user.global_id,
                                       context_type: "User",
-                                      compact_live_events: true
                                     })
     end
   end
@@ -301,7 +298,7 @@ describe Canvas::LiveEvents do
                    hash_including(
                      conversation_id: @convo.id.to_s
                    ),
-                   { compact_live_events: true }).once
+                   {}).once
       Canvas::LiveEvents.conversation_forwarded(@convo)
     end
   end
@@ -838,7 +835,7 @@ describe Canvas::LiveEvents do
                      role: "role",
                      level: "participation"
                    }.compact!,
-                   { compact_live_events: true }).once
+                   {}).once
 
       Canvas::LiveEvents.asset_access(@course, "category", "role", "participation")
     end
@@ -856,7 +853,7 @@ describe Canvas::LiveEvents do
                      role: "role",
                      level: "participation"
                    },
-                   { compact_live_events: true }).once
+                   {}).once
 
       Canvas::LiveEvents.asset_access(["assignments", @course], "category", "role", "participation")
     end
@@ -874,7 +871,7 @@ describe Canvas::LiveEvents do
                      role: "role",
                      level: "participation"
                    },
-                   { compact_live_events: true }).once
+                   {}).once
 
       Canvas::LiveEvents.asset_access(@page, "category", "role", "participation")
     end
@@ -894,14 +891,14 @@ describe Canvas::LiveEvents do
                      filename: @attachment.filename,
                      display_name: @attachment.display_name
                    }.compact!,
-                   { compact_live_events: true }).once
+                   {}).once
 
       Canvas::LiveEvents.asset_access(@attachment, "files", "role", "participation")
     end
 
     it "provides a different context if a different context is provided" do
       attachment_model
-      context = OpenStruct.new(global_id: "1")
+      context = instance_double(Course, global_id: "1", account: nil)
 
       expect_event("asset_accessed",
                    {
@@ -916,7 +913,6 @@ describe Canvas::LiveEvents do
                      display_name: @attachment.display_name
                    }.compact!,
                    {
-                     compact_live_events: true,
                      context_account_id: context.account&.global_id&.to_s,
                      context_type: context.class.to_s,
                      context_id: "1"
@@ -940,7 +936,7 @@ describe Canvas::LiveEvents do
                      enrollment_id: @enrollment.id.to_s,
                      section_id: @enrollment.course_section_id.to_s
                    },
-                   { compact_live_events: true }).once
+                   {}).once
 
       Canvas::LiveEvents.asset_access(["assignments", @course],
                                       "category",
@@ -1500,7 +1496,23 @@ describe Canvas::LiveEvents do
           migration.migration_settings[:import_quizzes_next] = true
         end
 
-        it "does not send the resource map" do
+        it "sends the resource map" do
+          expect_event(
+            "content_migration_completed",
+            hash_including(resource_map_url: "http://example.com/resource_map.json"),
+            hash_including(context_id: course.global_id.to_s)
+          ).once
+
+          Canvas::LiveEvents.content_migration_completed(migration)
+        end
+      end
+
+      describe "importing new quizzes from new quiz QTI" do
+        before do
+          migration.migration_settings[:quiz_next_imported] = true
+        end
+
+        it "sends the resource map" do
           expect_event(
             "content_migration_completed",
             hash_including(resource_map_url: "http://example.com/resource_map.json"),
@@ -1754,7 +1766,7 @@ describe Canvas::LiveEvents do
       context_module = course.context_modules.create!
       context_module_progression = context_module.context_module_progressions.create!(user_id: user.id)
       context_module_progression.workflow_state = "completed"
-      context_module_progression.completed_at = Time.now
+      context_module_progression.completed_at = Time.zone.now
       context_module_progression.requirements_met = ["all of them"]
 
       allow(Rails.env).to receive(:production?).and_return(true)
@@ -1766,7 +1778,7 @@ describe Canvas::LiveEvents do
       singleton = "course_progress_course_#{cmp_id}_user_#{context_module_progression.global_user_id}"
       job = Delayed::Job.find_by(singleton:)
       expect(job).not_to be_nil
-      expect(job.run_at).to be > Time.now
+      expect(job.run_at).to be > Time.zone.now
       expect(job.max_concurrent).to eq 1
       expect(job.tag).to eq "CourseProgress.dispatch_live_event"
     end
@@ -2728,6 +2740,121 @@ describe Canvas::LiveEvents do
     end
   end
 
+  describe "final_grade_custom_status" do
+    let(:custom_grade_status) { CustomGradeStatus.create!(name: "custom", color: "#000000", root_account_id: @course.root_account_id, created_by: @teacher) }
+
+    it "sends event when final grade custom status changes" do
+      course_model
+      enrollment_model
+
+      score = Score.new(override_score: 100.0, course_score: true, custom_grade_status:)
+
+      event_body = {
+        score_id: score.id,
+        enrollment_id: @enrollment.id,
+        user_id: @enrollment.user_id,
+        course_id: @enrollment.course_id,
+        grading_period_id: score.grading_period_id,
+        override_status: score.custom_grade_status&.name,
+        override_status_id: score.custom_grade_status_id,
+        old_override_status: "",
+        old_override_status_id: "",
+        updated_at: score.updated_at,
+      }
+
+      expect(Canvas::LiveEvents).to receive(:post_event_stringified).with(
+        "final_grade_custom_status",
+        event_body,
+        Canvas::LiveEvents.amended_context(@course)
+      )
+      Canvas::LiveEvents.final_grade_custom_status(score, nil, @enrollment, @course)
+    end
+
+    it "sends event when final grade custom status changes and previous status" do
+      course_model
+      enrollment_model
+
+      score = Score.new(override_score: 100.0, course_score: true, custom_grade_status: nil)
+
+      event_body = {
+        score_id: score.id,
+        enrollment_id: @enrollment.id,
+        user_id: @enrollment.user_id,
+        course_id: @enrollment.course_id,
+        grading_period_id: score.grading_period_id,
+        override_status: "",
+        override_status_id: "",
+        old_override_status: custom_grade_status&.name,
+        old_override_status_id: custom_grade_status&.id,
+        updated_at: score.updated_at,
+      }
+
+      expect(Canvas::LiveEvents).to receive(:post_event_stringified).with(
+        "final_grade_custom_status",
+        event_body,
+        Canvas::LiveEvents.amended_context(@course)
+      )
+      Canvas::LiveEvents.final_grade_custom_status(score, custom_grade_status, @enrollment, @course)
+    end
+  end
+
+  describe "submission_custom_grade_status" do
+    before do
+      course_with_student
+      assignment_model
+    end
+
+    let(:custom_grade_status) { CustomGradeStatus.create!(name: "custom", color: "#000000", root_account_id: @course.root_account_id, created_by: @teacher) }
+
+    it "sends event when submission custom status changes" do
+      submission = @assignment.find_or_create_submission(@student)
+      submission.update!(custom_grade_status:)
+
+      event_body = {
+        assignment_id: submission.assignment_id,
+        submission_id: submission.id,
+        user_id: submission.user_id,
+        course_id: submission.course_id,
+        old_submission_status_id: "",
+        old_submission_status: "",
+        submission_status: submission.custom_grade_status&.name,
+        submission_status_id: submission.custom_grade_status_id,
+        updated_at: submission.updated_at,
+      }
+
+      expect(Canvas::LiveEvents).to receive(:post_event_stringified).with(
+        "submission_custom_grade_status",
+        event_body,
+        Canvas::LiveEvents.amended_context(@course)
+      )
+      Canvas::LiveEvents.submission_custom_grade_status(submission, nil)
+    end
+
+    it "sends event when submission custom status changes and previous status" do
+      submission = @assignment.find_or_create_submission(@student)
+      submission.update!(custom_grade_status: nil)
+
+      event_body = {
+        assignment_id: submission.assignment_id,
+        submission_id: submission.id,
+        user_id: submission.user_id,
+        course_id: submission.course_id,
+        old_submission_status_id: custom_grade_status.id,
+        old_submission_status: custom_grade_status.name,
+        submission_status: "",
+        submission_status_id: "",
+        updated_at: submission.updated_at,
+      }
+
+      expect(Canvas::LiveEvents).to receive(:post_event_stringified).with(
+        "submission_custom_grade_status",
+        event_body,
+        Canvas::LiveEvents.amended_context(@course)
+      )
+      Canvas::LiveEvents.submission_custom_grade_status(submission, custom_grade_status.id)
+    end
+  end
+
   describe "outcome friendly description" do
     before do
       @context = course_model
@@ -3181,6 +3308,24 @@ describe Canvas::LiveEvents do
         expect_event("rubric_assessed", assessment_data)
         Canvas::LiveEvents.rubric_assessed(@rubric_assessment)
       end
+    end
+  end
+
+  describe ".outcomes_retry_outcome_alignment_clone" do
+    it "triggers an outcome alignment clone retry live event" do
+      event_payload = {
+        original_course_uuid: "eXA43Cb5A8biA87cEPjcpByVwsaff4ULmEsRwM5s",
+        new_course_uuid: "8H3aGjEatiLI42zzV0ly8t5UGQAxYfvrI3MDlrCx",
+        domain: "canvas.instructure.com",
+        new_course_resource_link_id: "c9d7d100bb177c0e54f578e7ac538cd9f7a3e4ad",
+        original_assignment_resource_link_id: "bf950e2284bd720a28e407fe326dce68",
+        new_assignment_resource_link_id: "2ae6e5cac3081b0cc8515ad79ff114e3406169ef",
+        status: "outcome_alignment_cloning"
+      }
+
+      expect_event("outcomes.retry_outcome_alignment_clone", event_payload).once
+
+      Canvas::LiveEvents.outcomes_retry_outcome_alignment_clone(event_payload)
     end
   end
 

@@ -180,6 +180,10 @@ module Api::V1::Assignment
       hash["checkpoints"] = assignment.sub_assignments.map { |sub_assignment| Checkpoint.new(sub_assignment, user).as_json }
     end
 
+    if assignment.checkpoint?
+      hash["sub_assignment_tag"] = assignment.sub_assignment_tag
+    end
+
     if opts[:overrides].present?
       hash["overrides"] = assignment_overrides_json(opts[:overrides], user)
     elsif opts[:include_overrides]
@@ -238,7 +242,7 @@ module Api::V1::Assignment
       hash["description"] = description
     end
 
-    can_manage = assignment.context.grants_any_right?(user, :manage, :manage_grades, :manage_assignments, :manage_assignments_edit)
+    can_manage = assignment.context.grants_any_right?(user, :manage, :manage_grades, :manage_assignments_edit)
     hash["muted"] = assignment.muted?
     hash["html_url"] = course_assignment_url(assignment.context_id, assignment)
     if can_manage
@@ -309,6 +313,10 @@ module Api::V1::Assignment
       else
         hash["assessment_requests"] = []
       end
+    end
+
+    if opts[:include_has_rubric]
+      hash["has_rubric"] = assignment.active_rubric_association?
     end
 
     unless opts[:exclude_response_fields].include?("rubric")

@@ -16,23 +16,32 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import {MockedProvider} from '@apollo/client/testing'
 import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
-import {render, fireEvent} from '@testing-library/react'
-import React from 'react'
-import {DiscussionPostToolbar} from '../DiscussionPostToolbar'
-import {DiscussionManagerUtilityContext} from '../../../utils/constants'
-import {updateUserDiscussionsSplitscreenViewMock} from '../../../../graphql/Mocks'
-import {ChildTopic} from '../../../../graphql/ChildTopic'
+import {assignLocation, openWindow} from '@canvas/util/globalUtils'
 import {waitFor} from '@testing-library/dom'
-import {MockedProvider} from '@apollo/react-testing'
+import {fireEvent, render} from '@testing-library/react'
+import React from 'react'
+import {ChildTopic} from '../../../../graphql/ChildTopic'
+import {updateUserDiscussionsSplitscreenViewMock} from '../../../../graphql/Mocks'
+import * as constants from '../../../utils/constants'
+import {DiscussionManagerUtilityContext} from '../../../utils/constants'
+import {DiscussionPostToolbar} from '../DiscussionPostToolbar'
+
+jest.mock('@canvas/util/globalUtils', () => ({
+  assignLocation: jest.fn(),
+  openWindow: jest.fn(),
+}))
 
 jest.mock('../../../utils', () => ({
   ...jest.requireActual('../../../utils'),
   responsiveQuerySizes: () => ({desktop: {maxWidth: '1024px'}}),
 }))
+
+jest.mock('../../../utils/constants')
+
 const onFailureStub = jest.fn()
 const onSuccessStub = jest.fn()
-const openMock = jest.fn()
 
 beforeEach(() => {
   window.matchMedia = jest.fn().mockImplementation(() => {
@@ -59,7 +68,7 @@ beforeEach(() => {
 afterEach(() => {
   onFailureStub.mockClear()
   onSuccessStub.mockClear()
-  openMock.mockClear()
+  jest.clearAllMocks()
 })
 
 const setup = (props, mocks) => {
@@ -72,7 +81,7 @@ const setup = (props, mocks) => {
           <DiscussionPostToolbar {...props} />
         </DiscussionManagerUtilityContext.Provider>
       </AlertManagerContext.Provider>
-    </MockedProvider>
+    </MockedProvider>,
   )
 }
 
@@ -102,14 +111,14 @@ describe('DiscussionPostToolbar', () => {
           userSplitScreenPreference: false,
           closeView: jest.fn(),
         },
-        updateUserDiscussionsSplitscreenViewMock({discussionsSplitscreenView: true})
+        updateUserDiscussionsSplitscreenViewMock({discussionsSplitscreenView: true}),
       )
 
       const splitscreenButton = getByTestId('splitscreenButton')
       fireEvent.click(splitscreenButton)
 
       await waitFor(() => {
-        expect(onSuccessStub.mock.calls.length).toBe(1)
+        expect(onSuccessStub.mock.calls).toHaveLength(1)
       })
     })
   })
@@ -120,9 +129,9 @@ describe('DiscussionPostToolbar', () => {
       const {getByLabelText} = setup({onSearchChange: onSearchChangeMock})
       const searchInput = getByLabelText('Search entries or author...')
       fireEvent.change(searchInput, {target: {value: 'A'}})
-      window.setTimeout(() => expect(onSearchChangeMock.mock.calls.length).toBe(1), 1500)
+      window.setTimeout(() => expect(onSearchChangeMock.mock.calls).toHaveLength(1), 1500)
       fireEvent.change(searchInput, {target: {value: 'B'}})
-      window.setTimeout(() => expect(onSearchChangeMock.mock.calls.length).toBe(2), 1500)
+      window.setTimeout(() => expect(onSearchChangeMock.mock.calls).toHaveLength(2), 1500)
     })
   })
 
@@ -134,7 +143,7 @@ describe('DiscussionPostToolbar', () => {
       fireEvent.click(simpleSelect)
       const unread = getByText('Unread')
       fireEvent.click(unread)
-      expect(onViewFilterMock.mock.calls.length).toBe(1)
+      expect(onViewFilterMock.mock.calls).toHaveLength(1)
       expect(onViewFilterMock.mock.calls[0][1].id).toBe('unread')
     })
   })
@@ -163,7 +172,7 @@ describe('DiscussionPostToolbar', () => {
       })
       const button = getByTestId('sortButton')
       button.click()
-      expect(onSortClickMock.mock.calls.length).toBe(1)
+      expect(onSortClickMock.mock.calls).toHaveLength(1)
     })
   })
 
@@ -216,18 +225,27 @@ describe('DiscussionPostToolbar', () => {
   })
 
   describe('Assign To', () => {
-    beforeEach(() => {
-      ENV.FEATURES = {
-        selective_release_ui_api: true,
-      }
-    })
-
     it('renders the Assign To button if user can manageAssignTo and in a course discussion', () => {
       const {getByRole} = setup({
         manageAssignTo: true,
-        contextType: 'Course',
+        showAssignTo: true,
       })
       expect(getByRole('button', {name: 'Assign To'})).toBeInTheDocument()
+    })
+
+    it('does not render the Assign To button if in speedGrader', () => {
+      constants.isSpeedGraderInTopUrl = jest.fn().mockReturnValue(true)
+
+      const container = setup({
+        manageAssignTo: true,
+        discussionTopic: {
+          _id: '1',
+          contextType: 'Course',
+          groupSet: null,
+          assignment: true,
+        },
+      })
+      expect(container.queryByTestId('assign-to-button')).toBeNull()
     })
 
     it('does not render the Assign To button if user can not manageAssignTo', () => {
@@ -239,11 +257,11 @@ describe('DiscussionPostToolbar', () => {
     })
 
     it('does not render the Assign To button if a group discussion', () => {
-      const {queryByRole} = setup({
+      const {queryByText} = setup({
         manageAssignTo: true,
         contextType: 'Group',
       })
-      expect(queryByRole('button', {name: 'Assign To'})).not.toBeInTheDocument()
+      expect(queryByText('Assign To')).not.toBeInTheDocument()
     })
 
     it('does not render the Assign To button if an ungraded group discussion in course context', () => {

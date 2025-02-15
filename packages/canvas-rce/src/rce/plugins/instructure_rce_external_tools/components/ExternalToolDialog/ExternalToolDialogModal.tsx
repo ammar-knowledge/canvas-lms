@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2019 - present Instructure, Inc.
  *
@@ -31,7 +30,7 @@ export function ExternalToolDialogModal(
     onCloseButton: () => void
     name: string
     children: ReactNodeLike
-  }
+  },
 ) {
   return (
     <Modal

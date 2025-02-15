@@ -18,7 +18,7 @@
 
 import React, {useState} from 'react'
 import {string} from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import {darken} from '@instructure/ui-color-utils'
 import {IconButton} from '@instructure/ui-buttons'
@@ -27,7 +27,7 @@ import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {TextInput} from '@instructure/ui-text-input'
 import {View} from '@instructure/ui-view'
 
-const I18n = useI18nScope('course_color_selector')
+const I18n = createI18nScope('course_color_selector')
 
 export const COLOR_OPTIONS = [
   '#AF4525',
@@ -90,7 +90,7 @@ function ColorOptions({color, focusedColorIndex, onChange, onChangeFocus}) {
     <View as="section" onKeyDown={handleOptionNavigation(focusedColorIndex, onChangeFocus)}>
       <ScreenReaderContent>
         {I18n.t(
-          'Set course color to a preset hexadecimal color code. Use the left and right arrow keys to navigate presets.'
+          'Set course color to a preset hexadecimal color code. Use the left and right arrow keys to navigate presets.',
         )}
       </ScreenReaderContent>
       {COLOR_OPTIONS.map((option, i) => (

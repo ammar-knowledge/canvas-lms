@@ -17,17 +17,18 @@
  */
 
 import React, {useReducer, useState, useCallback} from 'react'
+import {array} from 'prop-types'
 import {cloneDeep} from 'lodash'
 import {Button} from '@instructure/ui-buttons'
 import {Spinner} from '@instructure/ui-spinner'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 import useFetchApi from '@canvas/use-fetch-api-hook'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import NotesTable from './NotesTable'
 import CreateEditModal from './CreateEditModal'
 
-const I18n = useI18nScope('release_notes')
+const I18n = createI18nScope('release_notes')
 
 function notesReducer(prevState, action) {
   if (action.type === 'FETCH_LOADING') {
@@ -64,7 +65,7 @@ function notesReducer(prevState, action) {
   return prevState
 }
 
-export default function ReleaseNotesEdit({envs, langs}) {
+function ReleaseNotesEdit({envs, langs}) {
   const [state, dispatch] = useReducer(notesReducer, {
     notes: [],
     nextPage: null,
@@ -162,3 +163,9 @@ export default function ReleaseNotesEdit({envs, langs}) {
     </>
   )
 }
+
+ReleaseNotesEdit.propTypes = {
+  envs: array.isRequired,
+  langs: array.isRequired,
+}
+export default ReleaseNotesEdit

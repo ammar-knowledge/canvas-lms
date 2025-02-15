@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {useState, useEffect} from 'react'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import doFetchApi from '@canvas/do-fetch-api-effect'
@@ -32,7 +32,7 @@ import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import {fromNow} from '@canvas/fuzzy-relative-time'
 
-const I18n = useI18nScope('QRMobileLogin')
+const I18n = createI18nScope('QRMobileLogin')
 
 const REFRESH_INTERVAL = 1000 * (9 * 60 + 45) // 9 min 45 sec
 const POLL_INTERVAL = 1000 * 5 // 5 sec
@@ -58,7 +58,7 @@ export function QRMobileLogin({
   const [imagePng, setImagePng] = useState(null)
   const [validFor, setValidFor] = useState(null)
   const [display, setDisplay] = useState(
-    withWarning ? DISPLAY_STATE.warning : DISPLAY_STATE.displayed
+    withWarning ? DISPLAY_STATE.warning : DISPLAY_STATE.displayed,
   )
 
   function renderQRCode() {
@@ -105,7 +105,7 @@ export function QRMobileLogin({
         {display !== DISPLAY_STATE.canceled && (
           <View display="block">
             {I18n.t(
-              'To log in to your Canvas account when you’re on the go, scan this QR code from any Canvas mobile app.'
+              'To log in to your Canvas account when you’re on the go, scan this QR code from any Canvas mobile app.',
             )}
           </View>
         )}
@@ -149,6 +149,7 @@ export function QRMobileLogin({
         const {json} = await doFetchApi({path: '/canvas/login.png', method: 'POST'})
         displayValidFor(Date.now() + QR_CODE_LIFETIME)
         refetchAt = Date.now() + refreshInterval
+        // @ts-expect-error
         setImagePng(json.png)
       } catch (err) {
         showFlashAlert({
@@ -224,12 +225,12 @@ export function QRMobileLogin({
               <p>
                 {I18n.t(
                   'Sharing a QR code can give others immediate access to your account through the %{canvas} mobile applications.',
-                  {canvas: 'Canvas'}
+                  {canvas: 'Canvas'},
                 )}
               </p>
               <p>
                 {I18n.t(
-                  'Please make sure no one is able to capture the image on your screen from your surroundings or from a screen sharing service.'
+                  'Please make sure no one is able to capture the image on your screen from your surroundings or from a screen sharing service.',
                 )}
               </p>
               <p>{I18n.t('Click "Proceed" to continue.')}</p>

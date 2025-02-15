@@ -318,7 +318,7 @@
         "message": "Cliceáil chun réamhamharc a thaispeáint"
     },
     "close_a_menu_or_dialog_also_returns_you_to_the_edi_739079e6": {
-        "message": "Dún roghchlár nó dialóg. Tugann sé ar ais go dtí an limistéar eagarthóireachta tú freisin"
+        "message": "Dún roghchlár nó dialóg. Cuireann sé ar ais go dtí an limistéar eagarthóireachta thú freisin"
     },
     "close_accessibility_checker_29d1c51e": {
         "message": "Dún Seiceálaí Inrochtaineachta"
@@ -399,7 +399,7 @@
         "message": "Áireamh"
     },
     "count_plural_0_0_words_one_1_word_other_words_acf32eca": {
-        "message": "{ count, plural,\n     =0 {0 focal}\n    one {1 focal}\n  other {# focail}\n}"
+        "message": "{ count, plural,\n     =0 {0 focal}\n    one {1 focal}\n  other {An líon seo focail: #}\n}"
     },
     "count_plural_one_item_loaded_other_items_loaded_857023b7": {
         "message": "{ count, plural,\n    one {# mír lódáite}\n  other {# míreanna lódáilte}\n}"
@@ -647,8 +647,8 @@
     "edit_link_7f53bebb": {
         "message": "Cuir Nasc in Eagar"
     },
-    "editor_statusbar_26ac81fc": {
-        "message": "Barra Stádas Eagarthóra"
+    "editor_status_bar_653f44ee": {
+        "message": "Barra Stádais Eagarthóra"
     },
     "element_starting_with_start_91bf4c3b": {
         "message": "Eilimint ag tosú le { start }"
@@ -834,7 +834,7 @@
         "message": "Maol (Ceol)"
     },
     "focus_element_options_toolbar_18d993e": {
-        "message": "Barra uirlisí roghanna eilimint fócas"
+        "message": "Barra uirlisí roghanna gné fócais"
     },
     "folder_tree_fbab0726": {
         "message": "Crann fillteáin"
@@ -1170,7 +1170,7 @@
         "message": "Capa (Athróg)"
     },
     "keyboard_shortcuts_ed1844bd": {
-        "message": "Aicearraí méarchláir"
+        "message": "Aicearraí Méarchláir"
     },
     "keyboards_navigate_to_links_using_the_tab_key_two__5fab8c82": {
         "message": "Déanann méarchláir nascleanúint chuig naisc ag baint úsáid as an eochair Táb. Is féidir le dhá nasc cóngaracha a dhíríon chuig an gceann scríbe céanna mearbhall a chur ar úsáideoirí méarchláir."
@@ -1294,6 +1294,9 @@
     },
     "links_to_an_external_site_de74145d": {
         "message": "Naisc chuig suíomh seachtrach."
+    },
+    "lists_cd1336fc": {
+        "message": "Liostaí"
     },
     "lists_should_be_formatted_as_lists_f862de8d": {
         "message": "Ba cheart liostaí a fhormáidiú mar liostaí."
@@ -1438,12 +1441,6 @@
     },
     "music_icon_4db5c972": {
         "message": "Deilbhín Ceoil"
-    },
-    "must_be_at_least_percentage_22e373b6": {
-        "message": "Ní mór a bheith ar a laghad { percentage }%"
-    },
-    "must_be_at_least_width_x_height_px_41dc825e": {
-        "message": "Ní mór a bheith ar a laghad { width } x { height }px"
     },
     "my_files_2f621040": {
         "message": "Mo chomhaid"
@@ -1636,9 +1633,6 @@
     },
     "outline_size_a6059a21": {
         "message": "Méid Imlíne"
-    },
-    "p_is_not_a_valid_protocol_which_must_be_ftp_http_h_adf13fc2": {
-        "message": "Ní prótacal bailí é { p } nach mór a bheith ftp, http, https, mailto, skype, teil nó is féidir é a fhágáil ar lár"
     },
     "page_50c4823d": {
         "message": "Leathanach"
@@ -2176,6 +2170,9 @@
     },
     "submit_a3cc6859": {
         "message": "Cuir isteach"
+    },
+    "submitting_b90fac62": {
+        "message": "Á chur isteach..."
     },
     "subscript_59744f96": {
         "message": "Foscript"

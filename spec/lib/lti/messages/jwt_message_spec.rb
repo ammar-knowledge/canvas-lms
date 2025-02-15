@@ -17,10 +17,8 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require_relative "../../../lti_1_3_spec_helper"
-
 describe Lti::Messages::JwtMessage do
-  include_context "lti_1_3_spec_helper"
+  include_context "key_storage_helper"
 
   let(:return_url) { "http://www.platform.com/return_url" }
   let(:user) { @student }
@@ -105,7 +103,7 @@ describe Lti::Messages::JwtMessage do
     end
 
     it 'sets the "deployment_id" claim' do
-      expect(decoded_jwt["https://purl.imsglobal.org/spec/lti/claim/deployment_id"]).to eq "#{tool.id}:#{Lti::Asset.opaque_identifier_for(tool.context)}"
+      expect(decoded_jwt["https://purl.imsglobal.org/spec/lti/claim/deployment_id"]).to eq "#{tool.id}:#{Lti::V1p1::Asset.opaque_identifier_for(tool.context)}"
     end
 
     it 'sets the "exp" claim to lti.oauth2.access_token.exp' do
@@ -163,6 +161,14 @@ describe Lti::Messages::JwtMessage do
 
       it 'sets the "target_link_uri" claim' do
         expect(decoded_jwt["https://purl.imsglobal.org/spec/lti/claim/target_link_uri"]).to eq target_link_uri
+      end
+    end
+
+    context "when target_link_uri is disabled" do
+      let(:opts) { super().merge({ claim_group_blacklist: [:target_link_uri] }) }
+
+      it "does not set target_link_uri claim" do
+        expect(decoded_jwt["https://purl.imsglobal.org/spec/lti/claim/target_link_uri"]).to be_nil
       end
     end
 
@@ -521,6 +527,7 @@ describe Lti::Messages::JwtMessage do
       ]
     end
     let_once(:nrps_scopes) { ["https://purl.imsglobal.org/spec/lti-nrps/scope/contextmembership.readonly"] }
+    let_once(:pns_scopes) { ["https://purl.imsglobal.org/spec/lti/scope/noticehandlers"] }
     let(:lti_advantage_tool) do
       tool = course.context_external_tools.new(
         name: "bob",
@@ -690,6 +697,82 @@ describe Lti::Messages::JwtMessage do
       it_behaves_like "assignment and grade service claim check"
       it_behaves_like "lti advantage service claim group disabled check"
       it_behaves_like "lti advantage scopes missing from developer key"
+    end
+  end
+
+  describe "platform notification service" do
+    include_context "lti advantage service claims context"
+    let(:lti_advantage_developer_key_scopes) { pns_scopes }
+    let(:lti_advantage_service_claim) { decoded_jwt["https://purl.imsglobal.org/spec/lti/claim/platformnotificationservice"] }
+    let(:lti_advantage_service_claim_group) { :platform_notification_service }
+
+    before do
+      allow_any_instance_of(Account).to receive(:environment_specific_domain).and_return("canonical_domain")
+      allow(controller).to receive(:lti_notice_handlers_url)
+        .with({ host: "canonical_domain", context_external_tool_id: lti_advantage_tool.id })
+        .and_return("lti_notice_handlers_url")
+    end
+
+    shared_examples "all PNS claim presence and absence checks" do
+      it_behaves_like "lti advantage service claim group disabled check"
+      it_behaves_like "lti advantage scopes missing from developer key"
+
+      it "sets the PNS url using the Account#domain" do
+        expect(
+          lti_advantage_service_claim["platform_notification_service_url"]
+        ).to eq("lti_notice_handlers_url")
+      end
+
+      it "sets the PNS version and notice_types_supported" do
+        expect(lti_advantage_service_claim["service_versions"]).to eq ["1.0"]
+        expect(lti_advantage_service_claim["notice_types_supported"]).to eq Lti::Pns::NoticeTypes::ALL
+      end
+    end
+
+    context "when expander and controller is not present (called for pns notify)" do
+      let(:expander) { nil }
+      let(:opts) { super().merge({ claim_group_whitelist: [:platform_notification_service] }) }
+      let(:lti_advantage_service_claim) { decoded_jwt["https://purl.imsglobal.org/spec/lti/claim/platformnotificationservice"] }
+
+      before do
+        allow(Rails.application.routes.url_helpers).to receive(:lti_notice_handlers_url)
+          .with({ host: "canonical_domain", context_external_tool_id: lti_advantage_tool.id })
+          .and_return("lti_notice_handlers_url")
+      end
+
+      it "sets the PNS url using the Account#domain" do
+        expect(lti_advantage_service_claim["platform_notification_service_url"]).to eq("lti_notice_handlers_url")
+      end
+    end
+
+    context "when context is a course" do
+      it_behaves_like "all PNS claim presence and absence checks"
+    end
+
+    context "when context is an account" do
+      include_context "with lti advantage account context"
+      it_behaves_like "all PNS claim presence and absence checks"
+    end
+
+    context "when context is a group" do
+      include_context "with lti advantage group context"
+      it_behaves_like "all PNS claim presence and absence checks"
+    end
+
+    context "when the platform_notification_service feature flag is disabled" do
+      before do
+        context.root_account.disable_feature!(:platform_notification_service)
+      end
+
+      %w[course account group].each do |context_type|
+        context "when context is a #{context_type}" do
+          unless context_type == "course"
+            include_context "with lti advantage #{context_type} context"
+          end
+
+          it_behaves_like "absent lti advantage service claim check"
+        end
+      end
     end
   end
 
@@ -993,6 +1076,12 @@ describe Lti::Messages::JwtMessage do
 
       it { is_expected.to be_empty }
     end
+
+    context "when lti11_legacy_user_id is disabled" do
+      let(:opts) { super().merge({ claim_group_blacklist: [:lti11_legacy_user_id] }) }
+
+      it { is_expected.to be_nil }
+    end
   end
 
   describe "lti1p1 claims" do
@@ -1056,6 +1145,25 @@ describe Lti::Messages::JwtMessage do
       it "uses student_id from opts" do
         expect(subject).to eq student_id
       end
+    end
+
+    context "student_context claim" do
+      let(:claim) { "student_context" }
+      let(:student_lti_id) { "222" }
+      let(:opts) { { student_lti_id: } }
+
+      it "uses student_id from opts" do
+        expect(subject).to eq({ "id" => student_lti_id })
+      end
+    end
+  end
+
+  context "when the expander is not provided and only security claims are needed" do
+    let(:expander) { nil }
+    let(:opts) { super().merge({ claim_group_whitelist: [:security] }) }
+
+    it "generate_post_payload_message does not raise an error" do
+      expect { jwt_message.generate_post_payload_message }.not_to raise_error
     end
   end
 end

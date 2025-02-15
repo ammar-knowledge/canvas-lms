@@ -17,10 +17,9 @@
  */
 
 import React from 'react'
-import {render, screen, waitFor} from '@testing-library/react'
+import {render, screen, waitFor, within} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ZipFileImporter from '../zip_file'
-import {showFlashError} from '@canvas/alerts/react/FlashAlert'
 import fetchMock from 'fetch-mock'
 
 jest.mock('@canvas/alerts/react/FlashAlert', () => ({
@@ -82,7 +81,7 @@ describe('ZipFileImporter', () => {
   it('renders button input', () => {
     renderComponent()
 
-    expect(screen.getByRole('button', {name: 'Choose File'})).toBeInTheDocument()
+    expect(screen.getByText('Choose File')).toBeInTheDocument()
   })
 
   it('renders text if no file is chosen', () => {
@@ -107,7 +106,7 @@ describe('ZipFileImporter', () => {
     Object.defineProperty(file, 'size', {value: 1024 + 1})
     const input = screen.getByTestId('migrationFileUpload')
     await userEvent.upload(input, file)
-    expect(screen.getByText('No file chosen')).toBeInTheDocument()
+    expect(screen.queryByText('my_file.zip')).not.toBeInTheDocument()
   })
 
   it('renders alert when large file is chosen', async () => {
@@ -117,7 +116,7 @@ describe('ZipFileImporter', () => {
     Object.defineProperty(file, 'size', {value: 1024 + 1})
     const input = screen.getByTestId('migrationFileUpload')
     await userEvent.upload(input, file)
-    expect(showFlashError).toHaveBeenCalledWith('Your migration can not exceed 1.0 KB')
+    expect(screen.getByText('Your migration can not exceed 1.0 KB')).toBeInTheDocument()
   })
 
   it('calls onSubmit', async () => {
@@ -136,26 +135,70 @@ describe('ZipFileImporter', () => {
           size: 16,
         },
       }),
-      expect.any(Object)
+      expect.any(Object),
     )
   })
 
   it('calls onCancel', async () => {
     renderComponent()
 
-    await userEvent.click(screen.getByRole('button', {name: 'Cancel'}))
+    await userEvent.click(screen.getByRole('button', {name: 'Clear'}))
     expect(onCancel).toHaveBeenCalled()
   })
 
-  it('renders folder select', async () => {
-    renderComponent()
+  describe('search folders', () => {
+    it('renders selected folder', async () => {
+      renderComponent()
 
-    await waitFor(() => {
-      expect(screen.getByText('Upload to')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('Upload to')).toBeInTheDocument()
+      })
+      await userEvent.click(screen.getByText('course files'))
+      await waitFor(() => {
+        const {getByText} = within(screen.getByTestId('fileName'))
+        expect(getByText('course files')).toBeInTheDocument()
+      })
     })
-    await userEvent.click(screen.getByText('course files'))
-    await waitFor(() => {
-      expect(screen.getByText('course files')).toBeInTheDocument()
+
+    it('renders folder not selected message', async () => {
+      renderComponent()
+
+      await waitFor(() => {
+        expect(screen.getByText('Upload to')).toBeInTheDocument()
+      })
+
+      await waitFor(() => {
+        const {getByText} = within(screen.getByTestId('fileName'))
+        expect(getByText('No folder selected yet')).toBeInTheDocument()
+      })
+    })
+
+    it('clears selected folder', async () => {
+      renderComponent()
+
+      await waitFor(() => {
+        expect(screen.getByText('Upload to')).toBeInTheDocument()
+      })
+      await userEvent.click(screen.getByText('course files'))
+
+      await waitFor(() => {
+        const {getByText} = within(screen.getByTestId('fileName'))
+        expect(getByText('course files')).toBeInTheDocument()
+      })
+
+      await userEvent.click(screen.getByRole('button', {name: 'Remove folder'}))
+      await waitFor(() => {
+        const {getByText} = within(screen.getByTestId('fileName'))
+        expect(getByText('No folder selected yet')).toBeInTheDocument()
+      })
+    })
+
+    it('renders missing folder error', async () => {
+      renderComponent()
+
+      await userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
+
+      expect(screen.getByText('Please select a folder')).toBeInTheDocument()
     })
   })
 
@@ -167,12 +210,23 @@ describe('ZipFileImporter', () => {
   it('disable or hide inputs while uploading', async () => {
     renderComponent({isSubmitting: true})
     await waitFor(() => {
-      expect(screen.getByRole('button', {name: 'Choose File'})).toBeInTheDocument()
-      expect(screen.getByRole('button', {name: 'Choose File'})).toBeDisabled()
-      expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled()
+      expect(screen.getByTestId('migrationFileUpload')).toBeDisabled()
+      expect(screen.getByRole('button', {name: 'Clear'})).toBeDisabled()
       expect(screen.getByRole('button', {name: /Adding.../})).toBeDisabled()
       expect(screen.queryByText('Search folders')).not.toBeInTheDocument()
       expect(screen.queryByText('course files')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('submit error', () => {
+    describe('file input error', () => {
+      const expectedFileMissingError = 'You must select a file to import content from'
+
+      it('renders the file missing error', async () => {
+        renderComponent()
+        await userEvent.click(screen.getByRole('button', {name: 'Add to Import Queue'}))
+        expect(screen.getByText(expectedFileMissingError)).toBeInTheDocument()
+      })
     })
   })
 })

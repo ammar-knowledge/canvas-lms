@@ -90,7 +90,11 @@ module CC
         if @for_master_migration || @content_export&.for_course_template?
           # for efficiency to the max, short-circuit the usual course copy process (i.e. zip up, save, and then unzip again)
           # and instead go straight to the intermediate json
-          converter = CC::Importer::Canvas::Converter.new(unzipped_file_path: @export_dir, deletions: @deletions)
+          converter = CC::Importer::Canvas::Converter.new(
+            unzipped_file_path: @export_dir,
+            deletions: @deletions,
+            is_discussion_checkpoints_enabled: discussion_checkpoints_enabled?
+          )
           @export_dirs << converter.base_export_dir # make sure we clean this up too afterwards
           converter.export
           @export_path = converter.course["full_export_file_path"] # this is the course_export.json
@@ -155,8 +159,8 @@ module CC
       @content_export&.id
     end
 
-    def create_key(*args)
-      @content_export ? @content_export.create_key(*args) : CCHelper.create_key(*args)
+    def create_key(*)
+      @content_export ? @content_export.create_key(*) : CCHelper.create_key(*)
     end
 
     def export_object?(obj, asset_type: nil, ignore_updated_at: false)
@@ -193,6 +197,10 @@ module CC
 
     private
 
+    def discussion_checkpoints_enabled?
+      @content_export&.context&.root_account&.feature_enabled?(:discussion_checkpoints) || false
+    end
+
     def copy_all_to_zip
       Dir["#{@export_dir}/**/**"].each do |file|
         file_path = file.sub(@export_dir + "/", "")
@@ -203,7 +211,7 @@ module CC
     end
 
     def create_export_dir
-      slug = +"common_cartridge_#{@course.id}"
+      slug = "common_cartridge_#{@course.id}"
       slug << "_user_#{@user.id}" if @user
       folder = @migration_config[:data_folder] || Dir.tmpdir
 

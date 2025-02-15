@@ -46,12 +46,15 @@ class TokensController < ApplicationController
   # If the user is not the current user, the token will be created as "pending",
   # and must be activated by the user before it can be used.
   #
-  # @argument access_token[purpose] [String] The purpose of the token.
-  # @argument access_token[expires_at] [DateTime] The time at which the token will expire.
-  # @argument access_token[scopes][] [Array] The scopes to associate with the token.
+  # @argument token[purpose] [Required, String] The purpose of the token.
+  # @argument token[expires_at] [DateTime] The time at which the token will expire.
+  # @argument token[scopes][] [Array] The scopes to associate with the token.
   #
   def create
     token_params = access_token_params
+
+    return render(json: { errors: [{ message: "token[purpose] is missing" }] }, status: :bad_request) unless token_params.key?(:purpose)
+
     token_params[:developer_key] = DeveloperKey.default
     @token = @context.access_tokens.build(token_params)
 
@@ -74,10 +77,12 @@ class TokensController < ApplicationController
   #
   # The ID can be the actual database ID of the token, or the 'token_hint' value.
   #
-  # @argument access_token[purpose] [String] The purpose of the token.
-  # @argument access_token[expires_at] [DateTime] The time at which the token will expire.
-  # @argument access_token[scopes][] [Array] The scopes to associate with the token.
-  # @argument access_token[regenerate] [Boolean] Regenerate the actual token.
+  # Regenerating an expired token requires a new expiration date.
+  #
+  # @argument token[purpose] [String] The purpose of the token.
+  # @argument token[expires_at] [DateTime] The time at which the token will expire.
+  # @argument token[scopes][] [Array] The scopes to associate with the token.
+  # @argument token[regenerate] [Boolean] Regenerate the actual token.
   #
   def update
     unless @token.grants_right?(logged_in_user, :update)
@@ -89,8 +94,11 @@ class TokensController < ApplicationController
     end
 
     token_params = access_token_params
-    if Canvas::Plugin.value_to_boolean(token_params.delete(:regenerate)) &&
-       @token.manually_created?
+    if Canvas::Plugin.value_to_boolean(token_params.delete(:regenerate)) && @token.manually_created?
+      if @token.expired? && !token_params.key?(:permanent_expires_at)
+        return render json: { errors: { message: "cannot regenerate an expired token without a new expiration date" } }, status: :bad_request
+      end
+
       @token.generate_token(true)
       # if it's regenerated while masquerading, set it back to pending
       @token.workflow_state = "pending" unless @context == logged_in_user
@@ -142,7 +150,7 @@ class TokensController < ApplicationController
   def access_token_params
     result = params.require(:token).permit(:purpose, :expires_at, :regenerate, scopes: [])
     # rename for API
-    result[:permanent_expires_at] = result.delete(:expires_at)
+    result[:permanent_expires_at] = result.delete(:expires_at) if result.key?(:expires_at)
     result
   end
 end

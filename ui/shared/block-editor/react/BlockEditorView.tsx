@@ -16,20 +16,46 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
+import React, {useCallback, useEffect, useState} from 'react'
 import {Editor, Frame} from '@craftjs/core'
 import {blocks} from './components/blocks'
+import {
+  transform,
+  LATEST_BLOCK_DATA_VERSION,
+  type BlockEditorDataTypes,
+  type BlockEditorData,
+} from './utils/transformations'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import './style.css'
 
+const I18n = createI18nScope('block-editor')
+
 type BlockEditorViewProps = {
-  content: string
+  content: BlockEditorDataTypes
+  onRendered?: () => void
 }
 
-const BlockEditorView = ({content}: BlockEditorViewProps) => {
+const BlockEditorView = ({content, onRendered}: BlockEditorViewProps) => {
+  const [data] = useState<BlockEditorData>(() => {
+    return transform(content)
+  })
+
+  // onNodesChanged gets called once when first rendering the blocks
+  // since this is a view and not and editor, this is OK
+  const handleNodesChange = useCallback(() => {
+    onRendered?.()
+  }, [onRendered])
+
+  useEffect(() => {
+    if (data.version !== LATEST_BLOCK_DATA_VERSION) {
+      alert(I18n.t('Unknown block data version "%{v}", mayhem may ensue', {v: data.version}))
+    }
+  }, [data.version])
+
   return (
-    <Editor enabled={false} resolver={blocks}>
-      <Frame data={content} />
+    <Editor enabled={false} resolver={blocks} onNodesChange={handleNodesChange}>
+      <Frame data={data.blocks} />
     </Editor>
   )
 }

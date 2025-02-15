@@ -21,7 +21,7 @@ import {Assignment} from '@canvas/assignments/graphql/student/Assignment'
 import elideString from '../../helpers/elideString'
 import {arrayOf, bool, func, number, shape, string} from 'prop-types'
 import {getFileThumbnail} from '@canvas/util/fileHelper'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import MoreOptions from './MoreOptions/index'
 import React, {Component} from 'react'
 import {Submission} from '@canvas/assignments/graphql/student/Submission'
@@ -41,7 +41,7 @@ import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import theme from '@instructure/canvas-theme'
 
-const I18n = useI18nScope('assignments_2_file_upload')
+const I18n = createI18nScope('assignments_2_file_upload')
 
 class FileUpload extends Component {
   static propTypes = {
@@ -55,7 +55,7 @@ class FileUpload extends Component {
         name: string,
         loaded: number,
         total: number,
-      })
+      }),
     ).isRequired,
     focusOnInit: bool.isRequired,
     onCanvasFileRequested: func.isRequired,
@@ -159,7 +159,7 @@ class FileUpload extends Component {
   handleRemoveFile = async e => {
     const fileId = parseInt(e.currentTarget.id, 10)
     const fileIndex = this.getDraftAttachments().findIndex(
-      file => parseInt(file._id, 10) === fileId
+      file => parseInt(file._id, 10) === fileId,
     )
 
     const updatedFiles = this.getDraftAttachments().filter((_, i) => i !== fileIndex)
@@ -253,15 +253,15 @@ class FileUpload extends Component {
       display: desktop ? 'block' : 'inline',
       width: desktop ? '100%' : '60px',
       zIndex: 99,
-      backgroundColor: theme.variables.colors.backgroundLight,
-      padding: desktop ? `${theme.variables.spacing.medium} 0` : '0',
+      backgroundColor: theme.colors.backgroundLight,
+      padding: desktop ? `${theme.spacing.medium} 0` : '0',
     }
     const lineStyle = {
       height: desktop ? '100%' : '1px',
       width: desktop ? '1px' : '100%',
       left: desktop ? '50%' : '0',
       position: 'absolute',
-      backgroundColor: theme.variables.colors.backgroundDark,
+      backgroundColor: theme.colors.backgroundDark,
     }
 
     return (
@@ -352,7 +352,7 @@ class FileUpload extends Component {
     // uploaded don't have that set yet, so use the local name (which we've set
     // to the URL for files from an LTI).
     const displayName = file.displayName || file.name
-    const cellTheme = {background: theme.variables.colors.backgroundLight}
+    const cellTheme = {background: theme.colors.backgroundLight}
 
     return (
       <Table.Row key={file._id}>
@@ -392,7 +392,7 @@ class FileUpload extends Component {
   }
 
   renderUploadedFiles = files => {
-    const cellTheme = {background: theme.variables.colors.backgroundLight}
+    const cellTheme = {background: theme.colors.backgroundLight}
 
     return (
       <Table caption={I18n.t('Uploaded files')} data-testid="uploaded_files_table">

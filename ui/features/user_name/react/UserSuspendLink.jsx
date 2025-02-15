@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {useState} from 'react'
 import {Modal} from '@instructure/ui-modal'
 import {Link} from '@instructure/ui-link'
@@ -27,7 +27,7 @@ import {View} from '@instructure/ui-view'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 
-const I18n = useI18nScope('user_name')
+const I18n = createI18nScope('user_name')
 
 const SUSPEND = 'suspend'
 const REACTIVATE = 'unsuspend'
@@ -130,10 +130,10 @@ export default function UserSuspendLink() {
       actionName = I18n.t('Suspend')
       actionText = I18n.t(
         'Suspending %{name} from this account will remove all access to all authorized systems from all their logins.',
-        {name}
+        {name},
       )
       infoText = I18n.t(
-        'You must be authorized to manage SIS in order to suspend logins with an associated SIS ID.'
+        'You must be authorized to manage SIS in order to suspend logins with an associated SIS ID.',
       )
     } else {
       modalLabel = I18n.t('Confirm reactivation')
@@ -142,10 +142,10 @@ export default function UserSuspendLink() {
       actionName = 'Reactivate'
       actionText = I18n.t(
         'Reactivation will allow all logins for %{name} to log in to Canvas and regain access to previously authorized API integrations.',
-        {name}
+        {name},
       )
       infoText = I18n.t(
-        'You must be authorized to manage SIS in order to reactivate logins with an associated SIS ID.'
+        'You must be authorized to manage SIS in order to reactivate logins with an associated SIS ID.',
       )
     }
     return (

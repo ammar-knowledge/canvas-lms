@@ -84,7 +84,7 @@ export default class TrayController {
           height: `${videoOptions.appliedHeight}px`,
           width: `${Math.max(
             minWidth,
-            isVertical ? videoOptions.appliedHeight : videoOptions.appliedWidth
+            isVertical ? videoOptions.appliedHeight : videoOptions.appliedWidth,
           )}px`,
         }
         this._editor.dom.setStyles($tinymceIframeShim, styl)
@@ -95,7 +95,7 @@ export default class TrayController {
         this._editor.dom.setAttrib(
           $tinymceIframeShim,
           'data-mce-p-data-titleText',
-          videoOptions.titleText
+          videoOptions.titleText,
         )
         this._editor.dom.setAttrib(this.$videoContainer, 'title', title)
         this._editor.dom.setAttrib(this.$videoContainer, 'data-titleText', videoOptions.titleText)
@@ -133,19 +133,27 @@ export default class TrayController {
       // If the video just edited came from a file uploaded to canvas
       // and not notorious, we probably don't have a media_object_id.
       // If not, we can't update the MediaObject in the canvas db.
-      if (videoOptions.media_object_id && videoOptions.media_object_id !== 'undefined' && !videoOptions.editLocked) {
+      const hasMediaId =
+        (videoOptions.media_object_id && videoOptions.media_object_id !== 'undefined') ||
+        (data.attachment_id && data.attachment_id !== 'undefined')
+
+      if (hasMediaId && !videoOptions.editLocked) {
         videoOptions
           .updateMediaObject(data)
           .then(_r => {
             if (this.$videoContainer && videoOptions.displayAs === 'embed') {
               this.$videoContainer.contentWindow.postMessage(
-                {subject: 'reload_media', media_object_id: videoOptions.media_object_id},
-                bridge.canvasOrigin
+                {
+                  subject: 'reload_media',
+                  media_object_id: videoOptions.media_object_id,
+                  attachment_id: data.attachment_id,
+                },
+                bridge.canvasOrigin,
               )
             }
           })
           .catch(ex => {
-            console.error('failed updating video captions', ex) // eslint-disable-line no-console
+            console.error('failed updating video captions', ex)  
           })
       }
     }
@@ -165,15 +173,19 @@ export default class TrayController {
     if (!bridge.canvasOrigin) return
 
     this._subtitleListener = new AbortController()
-    window.addEventListener('message', (event) => {
-      if (event?.data?.subject === "media_tracks_response") {
-        cb(event?.data?.payload)
-      }
-    }, {signal: this._subtitleListener.signal})
+    window.addEventListener(
+      'message',
+      event => {
+        if (event?.data?.subject === 'media_tracks_response') {
+          cb(event?.data?.payload)
+        }
+      },
+      {signal: this._subtitleListener.signal},
+    )
 
     this.$videoContainer?.contentWindow?.postMessage(
       {subject: 'media_tracks_request'},
-      bridge.canvasOrigin
+      bridge.canvasOrigin,
     )
   }
 
@@ -214,7 +226,7 @@ export default class TrayController {
             ? parseStudioOptions(this.$videoContainer)
             : null
         }
-        requestSubtitlesFromIframe={(cb) => this.requestSubtitlesFromIframe(cb)}
+        requestSubtitlesFromIframe={cb => this.requestSubtitlesFromIframe(cb)}
       />
     )
     ReactDOM.render(element, this.$container)

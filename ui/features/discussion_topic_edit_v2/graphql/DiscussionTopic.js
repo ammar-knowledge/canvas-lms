@@ -18,7 +18,7 @@
 
 import {arrayOf, bool, shape, string, number} from 'prop-types'
 import {Section} from './Section'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {Attachment} from './Attachment'
 import {GroupSet} from './GroupSet'
 import {Assignment} from './Assignment'
@@ -47,8 +47,13 @@ export const DiscussionTopic = {
       published
       canGroup
       replyToEntryRequiredCount
+      expanded
+      expandedLocked
+      sortOrder
+      sortOrderLocked
       visibleToEveryone
       onlyVisibleToOverrides
+      isSectionSpecific
       courseSections {
         ...Section
       }
@@ -96,6 +101,10 @@ export const DiscussionTopic = {
     lockAt: string,
     published: bool,
     replyToEntryRequiredCount: number,
+    expanded: bool,
+    expandedLocked: bool,
+    sortOrder: string,
+    sortOrderLocked: bool,
     visibleToEveryone: bool,
     onlyVisibleToOverrides: bool,
     courseSections: arrayOf(Section.shape),
@@ -128,6 +137,10 @@ export const DiscussionTopic = {
     lockAt = null,
     published = true,
     replyToEntryRequiredCount = 1,
+    expanded = false,
+    expandedLocked = false,
+    sortOrder = 'desc',
+    sortOrderLocked = false,
     visibleToEveryone = false,
     onlyVisibleToOverrides = false,
     courseSections = [Section.mock()],
@@ -155,6 +168,10 @@ export const DiscussionTopic = {
     lockAt,
     published,
     replyToEntryRequiredCount,
+    expanded,
+    expandedLocked,
+    sortOrder,
+    sortOrderLocked,
     visibleToEveryone,
     onlyVisibleToOverrides,
     courseSections,

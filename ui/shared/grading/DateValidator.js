@@ -18,11 +18,11 @@
 
 import {find, forEach} from 'lodash'
 import * as tz from '@instructure/moment-utils'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import GradingPeriodsHelper from './GradingPeriodsHelper'
 import DateHelper from '@canvas/datetime/dateHelper'
 
-const I18n = useI18nScope('DateValidator')
+const I18n = createI18nScope('DateValidator')
 
 const DATE_RANGE_ERRORS = {
   due_at: {
@@ -236,16 +236,25 @@ export default class DateValidator {
   }
 
   getSectionRange(section) {
-    if (!section.override_course_and_term_dates) return this.dateRange
-
     const dateRange = {...this.dateRange}
-    if (section.start_at) {
+    const override_course_dates = section.override_course_and_term_dates
+    // if !override_course_dates, then use the earlier start date and the later end date
+    // if override_course_dates, then use the section start and end dates
+    if (
+      section.start_at &&
+      (override_course_dates ||
+        this._formatDatetime(section.start_at) < this._formatDatetime(dateRange.start_at.date))
+    ) {
       dateRange.start_at = {
         date: section.start_at,
         date_context: 'section',
       }
     }
-    if (section.end_at) {
+    if (
+      section.end_at &&
+      (override_course_dates ||
+        this._formatDatetime(section.end_at) > this._formatDatetime(dateRange.end_at.date))
+    ) {
       dateRange.end_at = {
         date: section.end_at,
         date_context: 'section',

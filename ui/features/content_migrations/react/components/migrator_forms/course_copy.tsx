@@ -16,24 +16,30 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useRef, useState, useCallback} from 'react'
+import React, {useRef, useState, useCallback, type ChangeEvent} from 'react'
 import {throttle} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {showFlashError} from '@canvas/alerts/react/FlashAlert'
 import {Checkbox} from '@instructure/ui-checkbox'
 import {View} from '@instructure/ui-view'
 import {IconSearchLine} from '@instructure/ui-icons'
-import {Select} from '@instructure/ui-select'
 import doFetchApi from '@canvas/do-fetch-api-effect'
-import CommonMigratorControls from './common_migrator_controls'
+import {CommonMigratorControls} from '@canvas/content-migrations'
 import type {onSubmitMigrationFormCallback} from '../types'
-import {Text} from '@instructure/ui-text'
+import CanvasSelect from '@canvas/instui-bindings/react/Select'
+import {parseDateToISOString} from '../utils'
+import {ImportLabel} from './import_label'
+import {ImportInProgressLabel} from './import_in_progress_label'
+import {ImportClearLabel} from './import_clear_label'
 
-const I18n = useI18nScope('content_migrations_redesign')
+const I18n = createI18nScope('content_migrations_redesign')
 
 type CourseOption = {
   id: string
   label: string
+  term: string
+  start_at: string
+  end_at: string
 }
 
 type CourseCopyImporterProps = {
@@ -42,12 +48,16 @@ type CourseCopyImporterProps = {
   isSubmitting: boolean
 }
 
+const getCourseOptionDescription = (option: CourseOption): string | null => {
+  return option.term ? I18n.t('Term: %{termName}', {termName: option.term}) : null
+}
+
 export const CourseCopyImporter = ({onSubmit, onCancel, isSubmitting}: CourseCopyImporterProps) => {
   const [searchParam, setSearchParam] = useState<string>('')
   const [courseOptions, setCourseOptions] = useState<any>([])
   const [selectedCourse, setSelectedCourse] = useState<any>(false)
   const [selectedCourseError, setSelectedCourseError] = useState<boolean>(false)
-  const [includeCompletedCourses, setIncludeCompletedCourses] = useState<boolean>(false)
+  const [includeCompletedCourses, setIncludeCompletedCourses] = useState<boolean>(true)
 
   const throttledCourseFetch = useRef(
     throttle(
@@ -72,8 +82,8 @@ export const CourseCopyImporter = ({onSubmit, onCancel, isSubmitting}: CourseCop
       {
         leading: false,
         trailing: true,
-      }
-    )
+      },
+    ),
   )
 
   const getCourseOptions = useCallback(
@@ -83,7 +93,7 @@ export const CourseCopyImporter = ({onSubmit, onCancel, isSubmitting}: CourseCop
       setSearchParam(target.value)
       throttledCourseFetch.current(target.value, includeCompletedCourses)
     },
-    [includeCompletedCourses]
+    [includeCompletedCourses],
   )
 
   const selectCourse = useCallback(
@@ -91,12 +101,12 @@ export const CourseCopyImporter = ({onSubmit, onCancel, isSubmitting}: CourseCop
       setSelectedCourse(
         courseOptions.filter((c: CourseOption) => {
           return c.id === course_id
-        })[0]
+        })[0],
       )
       setCourseOptions([])
       setSearchParam(selectedCourse.label)
     },
-    [courseOptions, selectedCourse]
+    [courseOptions, selectedCourse],
   )
 
   const handleSubmit: onSubmitMigrationFormCallback = useCallback(
@@ -108,24 +118,27 @@ export const CourseCopyImporter = ({onSubmit, onCancel, isSubmitting}: CourseCop
       }
       onSubmit(formData)
     },
-    [selectedCourse, onSubmit]
+    [selectedCourse, onSubmit],
   )
 
   return (
     <>
       <View as="div" margin="medium none none none" width="100%" maxWidth="22.5rem">
-        <Select
+        <CanvasSelect
+          id="course-copy-select-course"
+          // @ts-expect-error
           inputValue={selectedCourse ? selectedCourse.label : searchParam}
           interaction={isSubmitting ? 'disabled' : 'enabled'}
           onInputChange={getCourseOptions}
-          onRequestSelectOption={(_e: any, data: {id?: string | undefined}) => {
-            const course_id = data.id as string
-            selectCourse(course_id)
+          onChange={(_e: ChangeEvent<HTMLSelectElement>, courseId: string) => {
+            selectCourse(courseId)
           }}
           placeholder={I18n.t('Search...')}
           isShowingOptions={courseOptions.length > 0}
           renderLabel={I18n.t('Search for a course')}
+          isRequired={true}
           renderBeforeInput={<IconSearchLine inline={false} />}
+          renderAfterInput={<span />}
           onBlur={() => {
             setCourseOptions([])
           }}
@@ -133,33 +146,37 @@ export const CourseCopyImporter = ({onSubmit, onCancel, isSubmitting}: CourseCop
             selectedCourseError
               ? [
                   {
-                    text: (
-                      <Text color="danger">
-                        {I18n.t('You must select a course to copy content from')}
-                      </Text>
-                    ),
-                    type: 'error',
+                    text: I18n.t('You must select a course to copy content from'),
+                    type: 'newError',
                   },
                 ]
               : []
           }
+          value={selectedCourse ? selectedCourse.id : null}
+          scrollToHighlightedOption={true}
         >
           {courseOptions.length > 0 ? (
             courseOptions.map((option: CourseOption) => {
               return (
-                <Select.Option id={option.id} key={option.id} value={option.id}>
+                <CanvasSelect.Option
+                  id={option.id}
+                  key={option.id}
+                  value={option.id}
+                  description={getCourseOptionDescription(option)}
+                >
                   {option.label}
-                </Select.Option>
+                </CanvasSelect.Option>
               )
             })
           ) : (
-            <Select.Option id="empty-option" key="empty-option" value="" />
+            <CanvasSelect.Option id="empty-option" key="empty-option" value="" />
           )}
-        </Select>
+        </CanvasSelect>
       </View>
       <View as="div" margin="small none none none">
         <Checkbox
           disabled={isSubmitting}
+          checked={includeCompletedCourses}
           name="include_completed_courses"
           label={I18n.t('Include completed courses')}
           onChange={(e: React.SyntheticEvent<Element, Event>) => {
@@ -177,8 +194,15 @@ export const CourseCopyImporter = ({onSubmit, onCancel, isSubmitting}: CourseCop
         canImportBPSettings={
           selectedCourse && ENV.SHOW_BP_SETTINGS_IMPORT_OPTION ? selectedCourse.blueprint : false
         }
+        oldStartDate={parseDateToISOString(selectedCourse?.start_at)}
+        oldEndDate={parseDateToISOString(selectedCourse?.end_at)}
+        newStartDate={parseDateToISOString(ENV.OLD_START_DATE)}
+        newEndDate={parseDateToISOString(ENV.OLD_END_DATE)}
         onSubmit={handleSubmit}
         onCancel={onCancel}
+        SubmitLabel={ImportLabel}
+        SubmittingLabel={ImportInProgressLabel}
+        CancelLabel={ImportClearLabel}
       />
     </>
   )

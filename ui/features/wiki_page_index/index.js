@@ -18,12 +18,12 @@
 
 import $ from 'jquery'
 import ready from '@instructure/ready'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import WikiPageCollection from './backbone/collections/WikiPageCollection'
 import WikiPageIndexView from './backbone/views/WikiPageIndexView'
 import 'jquery.cookie'
 
-const I18n = useI18nScope('pages')
+const I18n = createI18nScope('pages')
 
 const deleted_page_title = $.cookie('deleted_page_title')
 if (deleted_page_title) {
@@ -31,7 +31,7 @@ if (deleted_page_title) {
   $.flashMessage(
     I18n.t('notices.page_deleted', 'The page "%{title}" has been deleted.', {
       title: deleted_page_title,
-    })
+    }),
   )
 }
 

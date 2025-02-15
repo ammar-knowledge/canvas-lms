@@ -17,10 +17,11 @@
  */
 
 import axios from '@canvas/axios'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {forceReload} from '@canvas/util/globalUtils'
 import $ from 'jquery'
 
-const I18n = useI18nScope('modules_home_page')
+const I18n = createI18nScope('modules_home_page')
 
 export const publishCourse = ({
   courseId,
@@ -37,15 +38,15 @@ export const publishCourse = ({
       if (onSuccess) {
         onSuccess()
       } else {
-        window.location.search += 'for_reload=1'
+        forceReload()
       }
     })
     .catch(e => {
       if (e.response?.status === 401 && e.response?.data.status === 'unverified') {
         $.flashWarning(
           I18n.t(
-            'Complete registration by clicking the “finish the registration process” link sent to your email.'
-          )
+            'Complete registration by clicking the “finish the registration process” link sent to your email.',
+          ),
         )
       } else {
         $.flashError(I18n.t('An error ocurred while publishing course'))
@@ -68,7 +69,7 @@ export const unpublishCourse = ({
       if (onSuccess) {
         onSuccess()
       } else {
-        window.location.search += 'for_reload=1'
+        forceReload()
       }
     })
     .catch(_e => {

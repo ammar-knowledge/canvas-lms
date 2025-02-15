@@ -91,19 +91,23 @@ class RubricImport < ApplicationRecord
       unless error_data.empty?
         update!(error_count: error_data.count, error_data:)
         job_completed_with_errors!
+        track_error
         return
       end
       job_completed!
     rescue DataFormatError => e
       ErrorReport.log_exception("rubrics_import_data_format", e)
       update!(error_count: 1, error_data: [{ message: e.message }])
+      track_error
       job_failed!
     rescue CSV::MalformedCSVError => e
       ErrorReport.log_exception("rubrics_import_csv", e)
       update!(error_count: 1, error_data: [{ message: I18n.t("The file is not a valid CSV file."), exception: e.message }])
+      track_error
     rescue => e
       ErrorReport.log_exception("rubrics_import", e)
       update!(error_count: 1, error_data: [{ message: I18n.t("An error occurred while importing rubrics."), exception: e.message }])
+      track_error
       job_failed!
     end
   end
@@ -116,7 +120,7 @@ class RubricImport < ApplicationRecord
     error_data = []
 
     rubrics_by_name.each_with_index do |(rubric_name, rubric_data), rubric_index|
-      raise DataFormatError, I18n.t("Missing 'Rubric Name' for some rubrics.") if rubric_name.blank?
+      raise DataFormatError, I18n.t("Missing 'Rubric Name' in some rows.") if rubric_name.blank?
 
       rubric = context.rubrics.build(rubric_imports_id: id)
       criteria_hash = {}
@@ -171,5 +175,39 @@ class RubricImport < ApplicationRecord
     else
       RubricImport.find_by(course: context, id:)
     end
+  end
+
+  def self.template_file
+    column_headers = [
+      "Rubric Name",
+      "Criteria Name",
+      "Criteria Description",
+      "Criteria Enable Range",
+      "Rating Name",
+      "Rating Description",
+      "Rating Points",
+      "Rating Name",
+      "Rating Description",
+      "Rating Points",
+      "Rating Name",
+      "Rating Description",
+      "Rating Points"
+    ]
+
+    rubric_data = [
+      ["Rubric 1", "Criteria 1", "Criteria 1 Description", "false", "Rating 1", "Rating 1 Description", "2", "Rating 2", "Rating 2 Description", "1", "Rating 3", "Rating 3 Description", "0"],
+      ["Rubric 1", "Criteria 2", "Criteria 2 Description", "false", "Criteria 2 Rating 1", "Rating Description", "1", "Criteria 2 Rating 2", "Rating 2 Description", "1"],
+    ]
+
+    CSV.generate do |csv|
+      csv << column_headers
+      rubric_data.each do |rubric|
+        csv << rubric
+      end
+    end
+  end
+
+  def track_error
+    InstStatsd::Statsd.distributed_increment("#{context.class.to_s.downcase}.rubrics.csv_imported_with_error")
   end
 end

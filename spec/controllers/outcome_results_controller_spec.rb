@@ -347,6 +347,31 @@ describe OutcomeResultsController do
       expect(links[0]["outcome"]["id"]).to eq @outcome.id
     end
 
+    describe "retrieving outcome rollups with outcome_ids" do
+      before do
+        @student1 = @student
+        @student2 = student_in_course(active_all: true, course: outcome_course, name: "Amy Mammoth").user
+        @student3 = student_in_course(active_all: true, course: outcome_course, name: "Barney Youth").user
+
+        create_result(@student2.id, @outcome, outcome_assignment, 1)
+      end
+
+      before do
+        user_session(@teacher)
+      end
+
+      it "returns correct filtered results when providing outcome_ids" do
+        get "rollups",
+            params: { course_id: @course.id,
+                      outcome_ids: @outcome.id },
+            format: "json"
+        expect(response).to be_successful
+        hash = parse_response(response)
+        expect(hash["rollups"][0]["scores"][0]["links"]["outcome"].to_i).to eq @outcome.id
+        expect(hash["rollups"][1]["scores"][0]["links"]["outcome"].to_i).to eq @outcome.id
+      end
+    end
+
     it "validates aggregate_stat parameter" do
       user_session(@teacher)
       get "rollups",
@@ -371,11 +396,11 @@ describe OutcomeResultsController do
       end
 
       it "increments statsd if a student is viewing their own sLMGB results" do
-        allow(InstStatsd::Statsd).to receive(:increment)
+        allow(InstStatsd::Statsd).to receive(:distributed_increment)
         user_session(@student)
         fetch_student_lmgb_data
         expect(response).to be_successful
-        expect(InstStatsd::Statsd).to have_received(:increment).with(
+        expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
           "outcomes_page_views",
           tags: { type: "student_lmgb" }
         ).once
@@ -383,33 +408,33 @@ describe OutcomeResultsController do
 
       it "increments statsd if an observer is viewing a linked student\"s sLMGB results" do
         @observer.enrollments.find_by(course_id: @course.id).update!(associated_user_id: @student)
-        allow(InstStatsd::Statsd).to receive(:increment)
+        allow(InstStatsd::Statsd).to receive(:distributed_increment)
         user_session(@observer)
         fetch_student_lmgb_data
         expect(response).to be_successful
-        expect(InstStatsd::Statsd).to have_received(:increment).with(
+        expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
           "outcomes_page_views",
           tags: { type: "student_lmgb" }
         ).once
       end
 
       it "doesnt increment statsd if an observer is viewing a non-linked student\"s sLMGB results" do
-        allow(InstStatsd::Statsd).to receive(:increment)
+        allow(InstStatsd::Statsd).to receive(:distributed_increment)
         user_session(@observer)
         fetch_student_lmgb_data
         expect(response).not_to be_successful
-        expect(InstStatsd::Statsd).not_to have_received(:increment).with(
+        expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with(
           "outcomes_page_views",
           tags: { type: "student_lmgb" }
         )
       end
 
       it "doesnt increment a statsd if a teacher is viewing a student\"s sLMGB results" do
-        allow(InstStatsd::Statsd).to receive(:increment)
+        allow(InstStatsd::Statsd).to receive(:distributed_increment)
         user_session(@teacher)
         fetch_student_lmgb_data
         expect(response).to be_successful
-        expect(InstStatsd::Statsd).not_to have_received(:increment).with(
+        expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with(
           "outcomes_page_views",
           tags: { type: "student_lmgb" }
         )
@@ -666,6 +691,53 @@ describe OutcomeResultsController do
         response_outcomes = json["linked"]["outcomes"]
         response_outcomes_ordering = get_response_ordering(response_outcomes)
         expect(response_outcomes_ordering).to eq(outcome_ids)
+      end
+
+      context "cross-shard access" do
+        specs_require_sharding
+
+        before do
+          @shard1.activate do
+            @shard1_account = Account.create!
+            @shard1_course = course_factory(account: @shard1_account)
+          end
+        end
+
+        it "ordering request is successful if site-admin user is from a different shard" do
+          admin_user = nil
+
+          @shard2.activate do
+            opts = { active_user: true, account: Account.site_admin, name: "site-admin", short_name: "site-admin" }
+            admin_user = Account.site_admin.account_users.create!(user: user_factory(opts)).user
+          end
+
+          @shard1.activate do
+            outcome_ids = create_outcomes(@shard1_course, 3)
+            position_map = create_outcome_position_map(outcome_ids)
+
+            user_session(admin_user)
+
+            post "outcome_order",
+                 params: { course_id: @shard1_course.id, },
+                 body: position_map.to_json,
+                 as: :json
+
+            expect(response.successful?).to be_truthy
+
+            get "rollups",
+                params: { context_id: @shard1_course.id,
+                          course_id: @shard1_course.id,
+                          context_type: "Course",
+                          user_outcome_ordering: "true",
+                          include: ["outcomes"] },
+                format: "json"
+
+            json = response.parsed_body
+            response_outcomes = json["linked"]["outcomes"]
+            response_outcomes_ordering = get_response_ordering(response_outcomes)
+            expect(response_outcomes_ordering).to eq(outcome_ids)
+          end
+        end
       end
 
       context "with multiple outcome groups" do
@@ -949,6 +1021,27 @@ describe OutcomeResultsController do
                 expect(teacher2_json["rollups"]).to eq teacher1_json["rollups"]
                 # validating that there are 2 keys for lmgb
                 expect(Rails.cache.instance_variable_get(:@data).keys.grep(/lmgb/i).count).to eq 2
+              end
+            end
+
+            it "caches the outcome_ids in the cache key" do
+              outcome_ids = [@outcome.id]
+              cache_key = ["lmgb", "context_uuid", @course.uuid, "current_user_uuid", @teacher.uuid, "account_uuid", @account.uuid, Digest::MD5.hexdigest(outcome_ids.join("|"))]
+
+              expect(controller).to receive(:find_outcomes_service_outcome_results).with(any_args).once.and_return(nil)
+
+              enable_cache do
+                expect(Rails.cache.exist?(cache_key)).to be_falsey
+
+                get "rollups",
+                    params: {
+                      course_id: @course.id,
+                      outcome_ids: @outcome.id,
+                    },
+                    format: "json"
+                expect(response).to be_successful
+
+                expect(Rails.cache.exist?(cache_key)).to be_truthy
               end
             end
 
@@ -1585,6 +1678,45 @@ describe OutcomeResultsController do
         StudentEnrollment.find_by(user_id: @student2.id).update(workflow_state: "deleted")
         json = parse_response(get_rollups({}))
         expect(json["rollups"].count { |r| r["links"]["user"] == @student2.id.to_s }).to eq(0)
+      end
+
+      context "with user enrollments from different shards (trust relationships)" do
+        specs_require_sharding
+
+        before do
+          @shard1.activate do
+            @student_from_another_shard = user_factory(name: "Distant Traveler", short_name: "Traveler")
+          end
+          student_in_course(active_all: true, course: outcome_course, user: @student_from_another_shard)
+        end
+
+        it "student is not canonical in the current shard" do
+          student = outcome_course.students.find_by(id: @student_from_another_shard.id)
+          expect(student.canonical?).to be_falsey
+        end
+
+        it "displays rollups for students from different shards" do
+          json = parse_response(get_rollups(exclude: ["inactive_enrollments", "concluded_enrollments"]))
+          expect(json["rollups"].count { |r| r["links"]["user"] == @student_from_another_shard.id.to_s }).to eq(1)
+        end
+
+        it "does not display rollups for students from different shards when they are inactive" do
+          outcome_course.enrollments.find_by(user_id: @student_from_another_shard.id).deactivate
+          json = parse_response(get_rollups(exclude: "inactive_enrollments"))
+          expect(json["rollups"].count { |r| r["links"]["user"] == @student_from_another_shard.id.to_s }).to eq(0)
+        end
+
+        it "does not display rollups for students from different shards when they are concluded" do
+          outcome_course.enrollments.find_by(user_id: @student_from_another_shard.id).conclude
+          json = parse_response(get_rollups(exclude: "concluded_enrollments"))
+          expect(json["rollups"].count { |r| r["links"]["user"] == @student_from_another_shard.id.to_s }).to eq(0)
+        end
+
+        it "does not display rollups for students from different shards when they are deleted" do
+          outcome_course.enrollments.find_by(user_id: @student_from_another_shard.id).update(workflow_state: "deleted")
+          json = parse_response(get_rollups({}))
+          expect(json["rollups"].count { |r| r["links"]["user"] == @student_from_another_shard.id.to_s }).to eq(0)
+        end
       end
 
       context "users with enrollments of different enrollment states" do

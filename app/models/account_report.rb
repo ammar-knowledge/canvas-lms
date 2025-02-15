@@ -105,16 +105,18 @@ class AccountReport < ActiveRecord::Base
   end
 
   def run_report(type = nil, attempt: 1)
-    parameters["locale"] = infer_locale(user:, root_account: account)
-    self.report_type ||= type
-    if AccountReport.available_reports[self.report_type]
-      begin
-        AccountReports.generate_report(self, attempt:)
-      rescue
+    shard.activate do
+      parameters["locale"] = infer_locale(user:, root_account: account)
+      self.report_type ||= type
+      if AccountReport.available_reports[self.report_type]
+        begin
+          AccountReports.generate_report(self, attempt:)
+        rescue
+          mark_as_errored
+        end
+      else
         mark_as_errored
       end
-    else
-      mark_as_errored
     end
   end
   handle_asynchronously :run_report,
@@ -122,7 +124,9 @@ class AccountReport < ActiveRecord::Base
                         n_strand: proc { |ar| ["account_reports", ar.account.root_account.global_id] },
                         on_permanent_failure: :mark_as_errored
 
-  def mark_as_errored
+  def mark_as_errored(error = nil)
+    Rails.logger.error("AccountReport failed with error: #{error}") if error
+
     self.workflow_state = :error
     save!
   end

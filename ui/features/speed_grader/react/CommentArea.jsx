@@ -17,15 +17,17 @@
  */
 
 import React, {useState, useRef, useCallback} from 'react'
+import CanvasRce from '@canvas/rce/react/CanvasRce'
 import PropTypes from 'prop-types'
 import {TextArea} from '@instructure/ui-text-area'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import CommentLibrary from './CommentLibrary'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {EmojiPicker, EmojiQuickPicker} from '@canvas/emoji'
 import ReactDOM from 'react-dom'
+import {stripHtmlTags} from '@canvas/outcomes/stripHtmlTags'
 
-const I18n = useI18nScope('speed_grader')
+const I18n = createI18nScope('speed_grader')
 
 function Portal({node, children}) {
   return ReactDOM.createPortal(children, node)
@@ -38,7 +40,15 @@ const textAreaProps = {
   placeholder: I18n.t('Add a Comment'),
 }
 
-export default function CommentArea({getTextAreaRef, courseId, userId}) {
+export default function CommentArea({
+  getTextAreaRef,
+  courseId,
+  userId,
+  useRCELite,
+  handleCommentChange,
+  currentText,
+  readOnly,
+}) {
   const [comment, setComment] = useState('')
   const textAreaRef = useRef()
   const [suggestionsRef, setSuggestionsRef] = useState(null)
@@ -50,18 +60,26 @@ export default function CommentArea({getTextAreaRef, courseId, userId}) {
   }
 
   const setFocusToTextArea = useCallback(() => {
-    textAreaRef.current.focus()
+    if (textAreaRef.current) {
+      textAreaRef.current.focus()
+    }
   }, [textAreaRef])
 
   const onSetSuggestionsRef = useCallback(node => {
     setSuggestionsRef(node)
   }, [])
 
+  const handleContentChange = (content, shouldRerender) => {
+    setComment(content)
+    handleCommentChange(content, shouldRerender)
+  }
+
   const insertEmoji = emoji => {
     setComment(comment + emoji.native)
     if (textAreaRef.current) {
       textAreaRef.current.focus()
     }
+    handleCommentChange(comment + emoji.native, useRCELite)
   }
 
   return (
@@ -69,23 +87,36 @@ export default function CommentArea({getTextAreaRef, courseId, userId}) {
       {showCommentLibrary && (
         <CommentLibrary
           setFocusToTextArea={setFocusToTextArea}
-          setComment={setComment}
+          setComment={content => handleContentChange(content, useRCELite)}
           courseId={courseId}
           userId={userId}
-          commentAreaText={comment}
+          commentAreaText={stripHtmlTags(comment)}
           suggestionsRef={suggestionsRef}
         />
       )}
       <div id="textarea-container">
-        <TextArea
-          value={comment}
-          onChange={e => setComment(e.target.value)}
-          textareaRef={setTextAreaRef}
-          resize="vertical"
-          {...textAreaProps}
-        />
+        {useRCELite ? (
+          <CanvasRce
+            ref={textAreaRef}
+            autosave={false}
+            defaultContent={currentText}
+            height={300}
+            textareaId="comment_rce_textarea"
+            variant="lite"
+            onContentChange={content => handleContentChange(content, false)}
+            readOnly={readOnly}
+          />
+        ) : (
+          <TextArea
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            textareaRef={setTextAreaRef}
+            resize="vertical"
+            {...textAreaProps}
+          />
+        )}
         {!!ENV.EMOJIS_ENABLED && (
-          <span className="emoji-picker-container">
+          <span className={`emoji-picker-container ${useRCELite ? 'with-rce-lite' : ''}`}>
             <EmojiPicker insertEmoji={insertEmoji} />
           </span>
         )}

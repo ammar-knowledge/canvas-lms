@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2019 - present Instructure, Inc.
  *
@@ -17,6 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+// @ts-expect-error
 import parseLinkHeader, {type Links} from './parse-link-header'
 import {defaultFetchOptions} from './defaultFetchOptions'
 import {toQueryString} from './query-string-encoding'
@@ -44,6 +44,7 @@ export type DoFetchApiOpts = {
   method?: string
   headers?: {[k: string]: string}
   params?: QueryParameterRecord
+   
   body?: BodyInit
   fetchOpts?: RequestInit
 }
@@ -78,11 +79,12 @@ export default async function doFetchApi<T = unknown>({
     body,
     method,
     ...finalFetchOptions,
+     
     credentials: finalFetchOptions.credentials as RequestCredentials,
   })
   if (!response.ok) {
     const err = new Error(
-      `doFetchApi received a bad response: ${response.status} ${response.statusText}`
+      `doFetchApi received a bad response: ${response.status} ${response.statusText}`,
     )
     Object.assign(err, {response}) // in case anyone wants to check it for something
     throw err

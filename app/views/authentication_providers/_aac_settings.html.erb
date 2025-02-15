@@ -18,7 +18,7 @@
 
 <div class="content-box auth-form-container--new"
      id="<%= "#{aac.auth_type}_form" if aac.new_record? %>"
-     <%= hidden(true) if aac.new_record? %>>
+     <%= hidden(include_style: true) if aac.new_record? %>>
   <div class="grid-row">
     <div class="col-xs-12 col-lg-11 off-lg-1">
       <% url = aac.new_record? ? account_authentication_providers_url(account) :
@@ -41,6 +41,8 @@
 
         <%= render partial: "#{aac.auth_type}_fields",
                  locals: {aac: aac, presenter: presenter, f: f}%>
+
+        <%= render partial: "additional_settings", locals: { f:, presenter:, provider: aac } %>
 
         <% if aac.class.recognized_federated_attributes != [] %>
           <%= render partial: "federated_attributes", locals: { aac: aac, presenter: presenter, f: f } %>

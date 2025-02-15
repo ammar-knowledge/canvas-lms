@@ -22,9 +22,9 @@ import {
   setTenantInfoMessages,
   getSuffixErrorMessages,
 } from './settingsHelper'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('account_settings_jsx_bundle')
+const I18n = createI18nScope('account_settings_jsx_bundle')
 
 /**
  * @typedef {Object} ReducerAction
@@ -213,7 +213,7 @@ export function settingsReducer(state, {type, payload, dispatch}) {
       return {
         ...state,
         errorMessage: I18n.t(
-          'Unable to fetch current Microsoft Teams Sync settings. Please check your internet connection. If the problem persists, please contact support.'
+          'Unable to fetch current Microsoft Teams Sync settings. Please check your internet connection. If the problem persists, please contact support.',
         ),
       }
     }
@@ -230,7 +230,7 @@ export function settingsReducer(state, {type, payload, dispatch}) {
       return {
         ...state,
         errorMessage: I18n.t(
-          'Unable to update Microsoft Teams Sync settings. Please try again. If the issue persists, please contact support.'
+          'Unable to update Microsoft Teams Sync settings. Please try again. If the issue persists, please contact support.',
         ),
         uiEnabled: true,
       }
@@ -239,7 +239,7 @@ export function settingsReducer(state, {type, payload, dispatch}) {
       return {
         ...state,
         errorMessage: I18n.t(
-          'Unable to update Microsoft Teams Sync settings. Please try again. If the issue persists, please contact support.'
+          'Unable to update Microsoft Teams Sync settings. Please try again. If the issue persists, please contact support.',
         ),
         microsoft_sync_enabled: !state.microsoft_sync_enabled,
         uiEnabled: true,

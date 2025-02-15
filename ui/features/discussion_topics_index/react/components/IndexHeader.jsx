@@ -21,7 +21,7 @@ import {bindActionCreators} from 'redux'
 import {bool, func, string, arrayOf} from 'prop-types'
 import {connect} from 'react-redux'
 import {debounce} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import propTypes from '../propTypes'
 import React, {Component} from 'react'
 import select from '@canvas/obj-select'
@@ -41,7 +41,7 @@ import WithBreakpoints, {breakpointsShape} from '@canvas/with-breakpoints'
 import {HeadingMenu} from '@canvas/discussions/react/components/HeadingMenu'
 import {SearchField} from '@canvas/discussions/react/components/SearchField'
 
-const I18n = useI18nScope('discussions_v2')
+const I18n = createI18nScope('discussions_v2')
 
 const instUINavEnabled = () => window.ENV?.FEATURES?.instui_nav
 const SEARCH_DELAY = 750
@@ -158,6 +158,7 @@ export default class IndexHeader extends Component {
         window.location.reload()
       }
     }
+
     ReactDOM.render(
       <ContentTypeExternalToolTray
         tool={tool}
@@ -169,7 +170,7 @@ export default class IndexHeader extends Component {
         onDismiss={handleDismiss}
         open={tool !== null}
       />,
-      document.getElementById('external-tool-mount-point')
+      document.getElementById('external-tool-mount-point'),
     )
   }
 
@@ -198,8 +199,7 @@ export default class IndexHeader extends Component {
             id="add_discussion"
             renderIcon={IconPlusLine}
           >
-            <ScreenReaderContent>{I18n.t('Add discussion')}</ScreenReaderContent>
-            <PresentationContent>{I18n.t('Discussion')}</PresentationContent>
+            {I18n.t('Add Discussion')}
           </Button>
         )}
         {Object.keys(this.props.userSettings).length ? (
@@ -211,7 +211,6 @@ export default class IndexHeader extends Component {
             toggleModalOpen={this.props.toggleModalOpen}
             isSettingsModalOpen={this.props.isSettingsModalOpen}
             isSavingSettings={this.props.isSavingSettings}
-            buttonText={!breakpoints.tablet ? I18n.t('Settings') : ''}
           />
         ) : null}
         {this.renderTrayToolsMenu()}
@@ -222,6 +221,7 @@ export default class IndexHeader extends Component {
   renderSearchField() {
     return (
       <SearchField
+        id="discussion-search"
         name="discussion_search"
         searchInputRef={this.props.searchInputRef}
         onSearchEvent={this.onSearchChange}
@@ -253,7 +253,7 @@ export default class IndexHeader extends Component {
                       debounce(() => this.props.searchDiscussions(this.state), SEARCH_DELAY, {
                         leading: false,
                         trailing: true,
-                      })
+                      }),
                     )
                   }
                 >
@@ -302,7 +302,7 @@ export default class IndexHeader extends Component {
                 filters={getFilters()}
                 defaultSelectedFilter="all"
                 onSelectFilter={this.onFilterChange}
-                mobileHeader={breakpoints.mobileOnly}
+                mobileHeader={!breakpoints.ICEDesktop}
               />
             </Flex.Item>
             <Flex.Item width={flexBasis} size={containerSize}>
@@ -337,5 +337,5 @@ const selectedActions = [
 ]
 const connectActions = dispatch => bindActionCreators(select(actions, selectedActions), dispatch)
 export const ConnectedIndexHeader = WithBreakpoints(
-  connect(connectState, connectActions)(IndexHeader)
+  connect(connectState, connectActions)(IndexHeader),
 )

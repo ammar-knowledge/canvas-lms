@@ -23,6 +23,10 @@ class CanvadocSessionsController < ApplicationController
   include CoursesHelper
   include HmacHelper
 
+  def services_jwt_auth_allowed
+    params[:action] == "show" && Account.site_admin.feature_enabled?(:rce_linked_file_urls)
+  end
+
   def create
     submission_attempt, submission_id = params.require([:submission_attempt, :submission_id])
 
@@ -63,8 +67,8 @@ class CanvadocSessionsController < ApplicationController
         @current_user,
         annotation_context,
         submission,
-        true,
-        enable_annotations
+        disable_annotation_notifications: true,
+        enable_annotations:
       )
     }
   end
@@ -73,6 +77,10 @@ class CanvadocSessionsController < ApplicationController
   # This API can only be accessed when another endpoint provides a signed URL.
   # It will simply redirect you to the 3rd party document preview.
   def show
+    unless params[:hmac] && params[:blob]
+      return render plain: "Missing HMAC and blob", status: :bad_request
+    end
+
     blob = extract_blob(params[:hmac],
                         params[:blob],
                         "user_id" => @current_user.try(:global_id),
@@ -141,7 +149,7 @@ class CanvadocSessionsController < ApplicationController
       if blob["annotation_context"]
         annotation_context_id = if ApplicationController.test_cluster?
                                   # since Canvas test environments are often configured to point at production
-                                  # DocViewer environments, this prevents making an annotation on Canavs beta and
+                                  # DocViewer environments, this prevents making an annotation on Canvas beta and
                                   # having it show up on Canvas prod.  See CAS-1551
                                   # TODO: a proper Canvas/DocViewer environment pairing and beta refresh from prod on DocViewer
                                   blob["annotation_context"] + "-#{ApplicationController.test_cluster_name}"

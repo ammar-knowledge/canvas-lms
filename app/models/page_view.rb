@@ -52,8 +52,8 @@ class PageView < ActiveRecord::Base
       p.user_agent = request.user_agent
       p.remote_ip = request.remote_ip
       p.interaction_seconds = 5
-      p.created_at = Time.now
-      p.updated_at = Time.now
+      p.created_at = Time.zone.now
+      p.updated_at = Time.zone.now
       p.id = RequestContext::Generator.request_id
       p.export_columns.each do |c|
         v = p.send(c)
@@ -81,12 +81,12 @@ class PageView < ActiveRecord::Base
   end
 
   def url
-    url = read_attribute(:url)
+    url = super
     url && LoggingFilter.filter_uri(url)
   end
 
   def ensure_account
-    self.account_id ||= ((context_type == "Account") ? context_id : context.account_id) rescue nil
+    self.account_id ||= (context_type == "Account") ? context_id : context&.account_id
     self.account_id ||= (context.is_a?(Account) ? context : context.account) if context
   end
 
@@ -113,16 +113,12 @@ class PageView < ActiveRecord::Base
     page_view_method == :db
   end
 
-  def self.cassandra?
-    page_view_method == :cassandra
-  end
-
   def self.pv4?
     page_view_method == :pv4 || Setting.get("read_from_pv4", "false") == "true"
   end
 
   def self.global_storage_namespace?
-    cassandra? || pv4?
+    pv4?
   end
 
   def self.find_all_by_id(ids)
@@ -183,16 +179,16 @@ class PageView < ActiveRecord::Base
     # accidents in the future, we'll add the correct shard activation now
     shard = PageView.db? ? Shard.current : Shard.default
     shard.activate do
-      updated_at = params["updated_at"] || self.updated_at || Time.now
-      updated_at = Time.parse(updated_at) if updated_at.is_a?(String)
+      updated_at = params["updated_at"] || self.updated_at || Time.zone.now
+      updated_at = Time.zone.parse(updated_at) if updated_at.is_a?(String)
       seconds = interaction_seconds || 0
       if params["interaction_seconds"].to_i > 0
         seconds += params["interaction_seconds"].to_i
       else
-        seconds += [5, (Time.now - updated_at)].min
-        seconds = [seconds, Time.now - created_at].min if created_at
+        seconds += [5, (Time.zone.now - updated_at)].min
+        seconds = [seconds, Time.zone.now - created_at].min if created_at
       end
-      self.updated_at = Time.now
+      self.updated_at = Time.zone.now
       self.interaction_seconds = seconds
       self.is_update = true
     end
@@ -218,7 +214,7 @@ class PageView < ActiveRecord::Base
     viewer = nil if viewer && Account.site_admin.grants_any_right?(viewer, :view_statistics, :manage_students)
     user.shard.activate do
       if PageView.pv4?
-        result = pv4_client.for_user(user.global_id, **options)
+        result = pv4_client.for_user(user, **options)
         result = AccountFilter.filter(result, viewer) if viewer
         result
       else
@@ -236,14 +232,14 @@ class PageView < ActiveRecord::Base
   end
 
   def self.user_count_bucket_for_time(time)
-    utc = time.in_time_zone("UTC")
+    utc = time.utc
     # round down to the last 5 minute mark -- so 03:43:28 turns into 03:40:00
     utc = utc - ((utc.min % 5) * 60) - utc.sec
     "active_users:#{utc.as_json}"
   end
 
   # this is not intended to be called often; only from console as a debugging measure
-  def self.active_user_counts_by_shard(time = Time.now)
+  def self.active_user_counts_by_shard(time = Time.zone.now)
     members = Set.new
     time = time..time unless time.is_a?(Range)
     bucket_time = time.begin

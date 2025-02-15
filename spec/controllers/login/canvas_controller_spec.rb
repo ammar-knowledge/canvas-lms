@@ -66,6 +66,46 @@ describe Login::CanvasController do
     end
   end
 
+  describe "login_registration_ui_identity feature flag" do
+    before do
+      if feature_flag_enabled
+        Account.default.enable_feature!(:login_registration_ui_identity)
+      else
+        Account.default.disable_feature!(:login_registration_ui_identity)
+      end
+    end
+
+    context "when the feature flag is enabled" do
+      let(:feature_flag_enabled) { true }
+
+      it "renders the new login page" do
+        get "new"
+        expect(response).to render_template("login/canvas/new_login")
+      end
+
+      it "sets @exclude_account_css and @exclude_account_js to true" do
+        get :new
+        expect(assigns(:exclude_account_css)).to be(true)
+        expect(assigns(:exclude_account_js)).to be(true)
+      end
+    end
+
+    context "when the feature flag is disabled" do
+      let(:feature_flag_enabled) { false }
+
+      it "renders the old login page" do
+        get "new"
+        expect(response).to render_template(:new)
+      end
+
+      it "does not set @exclude_account_css or @exclude_account_js" do
+        get :new
+        expect(assigns(:exclude_account_css)).to be_nil
+        expect(assigns(:exclude_account_js)).to be_nil
+      end
+    end
+  end
+
   context "manage_robots_meta" do
     it "enables robot indexing by default" do
       get "new"
@@ -474,28 +514,77 @@ describe Login::CanvasController do
   end
 
   context "otp" do
-    it "does not ask for verification of unenrolled, optional user" do
-      Account.default.settings[:mfa_settings] = :optional
-      Account.default.save!
-      user_with_pseudonym(active_all: 1, password: "qwertyuiop")
+    context "when mfa is optional in account level" do
+      before :once do
+        Account.default.settings[:mfa_settings] = :optional
+        Account.default.save!
+        user_with_pseudonym(active_all: 1, password: "qwertyuiop")
+      end
 
-      post :create, params: { pseudonym_session: { unique_id: @pseudonym.unique_id, password: "qwertyuiop" } }
-      expect(response).to redirect_to dashboard_url(login_success: 1)
+      context "and canvas mfa is set to enforce" do
+        before :once do
+          auth_provider = Account.default.canvas_authentication_provider
+          auth_provider.mfa_required = true
+          auth_provider.save!
+          @pseudonym.update(authentication_provider: auth_provider)
+        end
+
+        it "does ask for verification if the user has NOT configured mfa" do
+          post :create, params: { pseudonym_session: { unique_id: @pseudonym.unique_id, password: "qwertyuiop" } }
+
+          expect(response).to redirect_to otp_login_url
+        end
+
+        it "does ask for verification if the user has configured mfa" do
+          @user.otp_secret_key = ROTP::Base32.random
+          @user.save!
+
+          post :create, params: { pseudonym_session: { unique_id: @pseudonym.unique_id, password: "qwertyuiop" } }
+
+          expect(response).to redirect_to otp_login_url
+        end
+      end
+
+      context "and canvas mfa is set to opt in" do
+        before :once do
+          auth_provider = Account.default.canvas_authentication_provider
+          auth_provider.mfa_required = false
+          auth_provider.save!
+          @pseudonym.update(authentication_provider: auth_provider)
+        end
+
+        it "does NOT ask for verification if the user has NOT configured mfa" do
+          post :create, params: { pseudonym_session: { unique_id: @pseudonym.unique_id, password: "qwertyuiop" } }
+
+          expect(response).to redirect_to dashboard_url(login_success: 1)
+        end
+
+        it "does ask for verification if the user has configured mfa" do
+          @user.otp_secret_key = ROTP::Base32.random
+          @user.save!
+
+          post :create, params: { pseudonym_session: { unique_id: @pseudonym.unique_id, password: "qwertyuiop" } }
+
+          expect(response).to redirect_to otp_login_url
+        end
+      end
     end
 
-    it "does not ask for verification if mfa is required but disabled for the provider" do
-      Account.default.settings[:mfa_settings] = :required
-      Account.default.save!
-      user_with_pseudonym(active_all: 1, password: "qwertyuiop")
-      @user.otp_secret_key = ROTP::Base32.random
-      @user.save!
-      auth_provider = Account.default.canvas_authentication_provider
-      @pseudonym.update(authentication_provider: auth_provider)
-      auth_provider.skip_internal_mfa = true
-      auth_provider.save!
+    context "when mfa is required in account level" do
+      it "does NOT ask for verification if the mfa is disabled for the provider" do
+        Account.default.settings[:mfa_settings] = :required
+        Account.default.save!
+        user_with_pseudonym(active_all: 1, password: "qwertyuiop")
+        @user.otp_secret_key = ROTP::Base32.random
+        @user.save!
+        auth_provider = Account.default.canvas_authentication_provider
+        @pseudonym.update(authentication_provider: auth_provider)
+        auth_provider.skip_internal_mfa = true
+        auth_provider.save!
 
-      post :create, params: { pseudonym_session: { unique_id: @pseudonym.unique_id, password: "qwertyuiop" } }
-      expect(response).to redirect_to dashboard_url(login_success: 1)
+        post :create, params: { pseudonym_session: { unique_id: @pseudonym.unique_id, password: "qwertyuiop" } }
+        expect(response).to redirect_to dashboard_url(login_success: 1)
+      end
     end
   end
 
@@ -604,6 +693,142 @@ describe Login::CanvasController do
       post :create, params:, session: { oauth2: provider.session_hash }
       expect(response).to be_redirect
       expect(response.location).to match(%r{https://example.com})
+    end
+  end
+
+  describe "#render_new_login" do
+    before do
+      Account.default.enable_feature!(:login_registration_ui_identity)
+      facebook_provider = Account.default.authentication_providers.create!(auth_type: "facebook", id: 1)
+      google_provider = Account.default.authentication_providers.create!(auth_type: "google", id: 2)
+      allow(facebook_provider.class).to receive(:display_name).and_return("Facebook")
+      allow(google_provider.class).to receive(:display_name).and_return("Google")
+    end
+
+    it "renders the new login template and assigns auth providers with display names" do
+      get :new
+      expect(response).to render_template("login/canvas/new_login")
+      expect(assigns(:auth_providers)).to match_array([
+                                                        hash_including(id: 1, auth_type: "facebook", display_name: "Facebook"),
+                                                        hash_including(id: 2, auth_type: "google", display_name: "Google")
+                                                      ])
+    end
+  end
+
+  describe "JSON responses in #create" do
+    let(:valid_params) { { pseudonym_session: { unique_id: @pseudonym.unique_id, password: "qwertyuiop" } } }
+    let(:account) { instance_double(Account, mfa_settings: :required) }
+
+    context "when login is successful" do
+      it "returns a JSON response with login_success" do
+        post :create, params: valid_params, as: :json
+        expect(response).to have_http_status(:ok)
+        json_response = response.parsed_body
+        expect(json_response["location"]).to eq(dashboard_url(login_success: 1))
+        expect(json_response["pseudonym"]["user_code"]).to eq(@pseudonym.user_code)
+      end
+    end
+
+    context "when MFA is required but not passed" do
+      let(:auth_provider) { instance_double(AuthenticationProvider, mfa_required: true) }
+
+      before do
+        allow(Account.default).to receive(:canvas_authentication_provider).and_return(auth_provider)
+        @user.update!(otp_secret_key: ROTP::Base32.random)
+      end
+
+      it "returns a JSON response indicating OTP verification is required" do
+        Account.default.settings[:mfa_settings] = :required
+        Account.default.save!
+        post :create, params: valid_params, as: :json
+        expect(response).to have_http_status(:ok)
+        json_response = response.parsed_body
+        expect(json_response).to include("otp_required" => true)
+      end
+    end
+
+    context "when login fails due to invalid credentials" do
+      let(:invalid_params) { { pseudonym_session: { unique_id: @pseudonym.unique_id, password: "wrongpassword" } } }
+
+      it "returns a JSON response with an error message" do
+        post :create, params: invalid_params, as: :json
+        expect(response).to have_http_status(:bad_request)
+        json_response = response.parsed_body
+        expect(json_response["errors"]).to include("Please verify your username or password and try again.")
+      end
+    end
+
+    context "when authenticity token is invalid" do
+      before do
+        allow(controller).to receive(:verify_authenticity_token).and_raise(ActionController::InvalidAuthenticityToken)
+      end
+
+      it "returns a JSON response with an authenticity token error" do
+        post :create, params: valid_params, as: :json
+        expect(response).to have_http_status(:bad_request)
+        json_response = response.parsed_body
+        expect(json_response["errors"]).to include("Invalid Authenticity Token")
+      end
+    end
+
+    context "when session[:oauth2] is present" do
+      before do
+        session[:oauth2] = { client_id: "test_client_id", redirect_uri: "http://example.com", scopes: [], purpose: nil }
+        provider = instance_double(Canvas::OAuth::Provider)
+        allow(Canvas::OAuth::Provider).to receive(:new).and_return(provider)
+        allow(provider).to receive(:authorized_token?).and_return(false)
+        allow(controller).to receive(:oauth2_auth_confirm_url).and_return("http://example.com/confirmation")
+      end
+
+      it "returns a JSON response with a redirect to the OAuth confirmation URL" do
+        post :create, params: valid_params, as: :json
+        expect(response).to have_http_status(:ok)
+        json_response = response.parsed_body
+        expect(json_response["location"]).to eq("http://example.com/confirmation")
+      end
+    end
+
+    context "when session[:confirm] is present" do
+      before do
+        session[:confirm] = "test_confirm_token"
+        session[:expected_user_id] = @user.id
+      end
+
+      it "returns a JSON response redirecting to the registration confirmation path" do
+        post :create, params: valid_params, as: :json
+        expect(response).to have_http_status(:ok)
+        json_response = response.parsed_body
+        expect(json_response["location"]).to eq(
+          registration_confirmation_path("test_confirm_token", login_success: 1, confirm: 1)
+        )
+      end
+    end
+
+    context "when session[:course_uuid] is present" do
+      before do
+        Course.create!(uuid: "test-uuid", workflow_state: "created", account: Account.default)
+        session[:course_uuid] = "test-uuid"
+      end
+
+      it "does not redirect to the course URL due to session reset" do
+        # currently, session[:course_uuid] is cleared by reset_session_for_login,
+        # so the code never reaches the logic that redirects to the course URL;
+        # this seems like a bug because session[:course_uuid] should be preserved
+        post :create, params: valid_params, as: :json
+        expect(response).to have_http_status(:ok)
+        json_response = response.parsed_body
+        # this redirects to dashboard and not course!
+        expect(json_response["location"]).to eq(dashboard_url(login_success: 1))
+      end
+    end
+
+    context "when no special conditions are met" do
+      it "returns a JSON response redirecting to the dashboard URL" do
+        post :create, params: valid_params, as: :json
+        expect(response).to have_http_status(:ok)
+        json_response = response.parsed_body
+        expect(json_response["location"]).to eq(dashboard_url(login_success: 1))
+      end
     end
   end
 end

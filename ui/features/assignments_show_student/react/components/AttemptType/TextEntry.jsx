@@ -92,8 +92,12 @@ export default class TextEntry extends React.Component {
     }
 
     if (this.props.submission.attempt !== prevProps.submission.attempt) {
-      const body = this.getDraftBody()
+      let body = this.getDraftBody()
       if (body !== this._tinyeditor.getContent()) {
+        if (prevProps.submission.attempt === 0) {
+          body = this._tinyeditor.getContent()
+        }
+
         this._tinyeditor.setContent(body)
       }
       this._lastSavedContent = body
@@ -200,7 +204,7 @@ export default class TextEntry extends React.Component {
     return (
       <div
         data-testid="text-editor"
-        style={{padding: `${theme.variables.spacing.small} ${theme.variables.spacing.xLarge}`}}
+        style={{padding: `${theme.spacing.small} ${theme.spacing.xLarge}`}}
       >
         <CanvasRce
           ref={this._rceRef}

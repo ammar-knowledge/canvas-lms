@@ -56,7 +56,7 @@ export function renderLinkedImage(linkElem, image, canvasOrigin) {
   return renderToStaticMarkup(
     <a href={absoluteToRelativeUrl(linkHref, canvasOrigin)} data-mce-href={linkHref}>
       {constructJSXImageElement(image, canvasOrigin, {doNotLink: true})}
-    </a>
+    </a>,
   )
 }
 
@@ -88,6 +88,7 @@ export function constructJSXImageElement(image, canvasOrigin, opts = {}) {
       src={imageSrc}
       width={image.width}
       height={image.height}
+      loading="lazy"
       {...otherAttributes}
     />
   )
@@ -114,10 +115,11 @@ export function renderVideo(video, canvasOrigin) {
       allowfullscreen
       data-media-id="${getMediaId(video)}"
       data-media-type="video"
+      loading="lazy"
       src="${src}"
       style="width:${VIDEO_SIZE_DEFAULT.width};height:${
-    VIDEO_SIZE_DEFAULT.height
-  };display:inline-block;"
+        VIDEO_SIZE_DEFAULT.height
+      };display:inline-block;"
       title="${formatMessage('Video player for {title}', {
         title: video.title || video.name || video.text,
       })}"></iframe>
@@ -132,10 +134,11 @@ export function renderAudio(audio, canvasOrigin) {
   <iframe
       data-media-id="${getMediaId(audio)}"
       data-media-type="audio"
+      loading="lazy"
       src="${src}"
       style="width:${AUDIO_PLAYER_SIZE.width};height:${
-    AUDIO_PLAYER_SIZE.height
-  };display:inline-block;"
+        AUDIO_PLAYER_SIZE.height
+      };display:inline-block;"
       title="${formatMessage('Audio player for {title}', {
         title: audio.title || audio.name || audio.text,
       })}"></iframe>

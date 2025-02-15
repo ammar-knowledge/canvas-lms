@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {string} from 'prop-types'
 
@@ -31,7 +31,7 @@ import closedForCommentsUrl from '../../images/closed-comments.svg'
 
 import {Link} from '@instructure/ui-link'
 
-const I18n = useI18nScope('discussions_v2')
+const I18n = createI18nScope('discussions_v2')
 
 const BackgroundSVG = props => (
   <View margin="small auto" maxWidth="16rem" display="block">
@@ -52,7 +52,7 @@ export const pinnedDiscussionBackground = props => (
     {props.permissions.manage_content && (
       <Text as="div" margin="x-small auto">
         {I18n.t(
-          'To pin a discussion to the top of the page, drag a discussion here, or select Pin from the discussion settings menu.'
+          'To pin a discussion to the top of the page, drag a discussion here, or select Pin from the discussion settings menu.',
         )}
       </Text>
     )}
@@ -95,7 +95,7 @@ export const closedDiscussionBackground = props => (
     {props.permissions.manage_content && (
       <Text as="div" margin="x-small auto">
         {I18n.t(
-          'To close comments on a discussion, drag a discussion here, or select Close for Comments from the discussion settings menu.'
+          'To close comments on a discussion, drag a discussion here, or select Close for Comments from the discussion settings menu.',
         )}
       </Text>
     )}

@@ -34,7 +34,7 @@ import {
 } from 'lodash'
 import $ from 'jquery'
 import {Button} from '@instructure/ui-buttons'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import GradingPeriodSet from './GradingPeriodSet'
 import SearchGradingPeriodsField from './SearchGradingPeriodsField'
 import SearchHelpers from '@canvas/util/searchHelpers'
@@ -46,7 +46,7 @@ import SetsApi from '@canvas/grading/jquery/gradingPeriodSetsApi'
 import TermsApi from './enrollmentTermsApi'
 import '@canvas/jquery/jquery.instructure_misc_plugins'
 
-const I18n = useI18nScope('GradingPeriodSetCollection')
+const I18n = createI18nScope('GradingPeriodSetCollection')
 
 const presentEnrollmentTerms = function (enrollmentTerms) {
   return map(enrollmentTerms, term => {
@@ -114,7 +114,7 @@ export default class GradingPeriodSetCollection extends React.Component {
       },
       () => {
         this.refs.addSetFormButton.focus()
-      }
+      },
     )
   }
 
@@ -165,7 +165,7 @@ export default class GradingPeriodSetCollection extends React.Component {
 
   onSetUpdated = updatedSet => {
     const sets = map(this.state.sets, set =>
-      set.id === updatedSet.id ? {...set, ...updatedSet} : set
+      set.id === updatedSet.id ? {...set, ...updatedSet} : set,
     )
 
     const terms = map(this.state.enrollmentTerms, term => {
@@ -229,7 +229,7 @@ export default class GradingPeriodSetCollection extends React.Component {
           other: '%{count} sets of grading periods found.',
           zero: 'No matching sets of grading periods found.',
         },
-        {count: numSets}
+        {count: numSets},
       )
     }
     const polite = true
@@ -239,7 +239,7 @@ export default class GradingPeriodSetCollection extends React.Component {
   getVisibleSets = () => {
     const setsFilteredBySearchText = this.filterSetsBySearchText(
       this.state.sets,
-      this.state.searchText
+      this.state.searchText,
     )
     const filterByTermArgs = [
       setsFilteredBySearchText,

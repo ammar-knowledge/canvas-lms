@@ -16,11 +16,11 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import PropTypes from 'prop-types'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 export default function NoResults({search_term}) {
   return (
@@ -29,7 +29,7 @@ export default function NoResults({search_term}) {
         {I18n.t(
           'errors.no_match.your_search',
           'Your search - "%{search_term}" - did not match any files.',
-          {search_term}
+          {search_term},
         )}
       </p>
       <p>{I18n.t('errors.no_match.suggestions', 'Suggestions:')}</p>

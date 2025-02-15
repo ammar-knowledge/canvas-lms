@@ -23,11 +23,11 @@ import classNames from 'classnames'
 import PropTypes from 'prop-types'
 import {Text} from '@instructure/ui-text'
 import {Flex} from '@instructure/ui-flex'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import {ratingShape, tierShape} from './types'
 
-const I18n = useI18nScope('edit_rubricRatings')
+const I18n = createI18nScope('edit_rubricRatings')
 
 const pointString = (points, endOfRangePoints) => {
   if (endOfRangePoints !== null) {
@@ -79,16 +79,15 @@ export const Rating = props => {
   return (
     // eslint is unhappy here because it's not smart enough to understand that
     // when this is interact-able (via tabIndex), it will always have a role
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+
     <div
       className={classes}
       onClick={assessing ? onClick : null}
       onKeyPress={e => (e.key === 'Enter' ? onClick() : null)}
       role={assessing ? 'button' : null}
-      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
       tabIndex={assessing ? 0 : null}
     >
-      {hidePoints || ENV['restrict_quantitative_data'] ? null : ratingPoints()}
+      {hidePoints || ENV.restrict_quantitative_data ? null : ratingPoints()}
       <div className="rating-description">
         <Text size="small" lineHeight="condensed" weight="bold">
           {description}
@@ -133,7 +132,7 @@ Rating.propTypes = {
 Rating.defaultProps = {
   footer: null,
   selected: false,
-  endOfRangePoints: null, // eslint-disable-line react/default-props-match-prop-types
+  endOfRangePoints: null,
   hidePoints: false,
   shaderClass: null,
 }
@@ -163,7 +162,7 @@ const Ratings = props => {
     if (selectedRatingId) {
       return _.findIndex(
         tiers,
-        tier => tier.id === selectedRatingId && (useRange || tier.points === points)
+        tier => tier.id === selectedRatingId && (useRange || tier.points === points),
       )
     } else {
       return pairs.findIndex(({current, next}) => {

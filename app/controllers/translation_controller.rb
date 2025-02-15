@@ -21,66 +21,67 @@ class TranslationController < ApplicationController
 
   before_action :require_context, only: :translate
   before_action :require_user
-  before_action :require_inbox_translation, only: %i[translate_paragraph translate_message]
+  before_action :require_inbox_translation, only: %i[translate_paragraph]
 
   # Skip the authenticity token as this is an API endpoint.
   skip_before_action :verify_authenticity_token, only: [:translate]
 
   def translate
     # Don't allow users that can't access, or if translation is not available
-    return render_unauthorized_action unless Translation.available?(@context, :translation) && @context.grants_right?(@current_user, session, :read)
+    return render_unauthorized_action unless Translation.available?(@context, :translation) && user_can_read?
 
     # This action is used for dicussions
-    InstStatsd::Statsd.increment("translation.discussions")
-
-    # Call the translation service.
-    render json: { translated_text: Translation.create(src_lang: required_params[:src_lang],
-                                                       tgt_lang: required_params[:tgt_lang],
-                                                       text: required_params[:text]) }
+    InstStatsd::Statsd.distributed_increment("translation.discussions")
+    if Account.site_admin.feature_enabled?(:ai_translation_improvements)
+      render json: { translated_text: Translation.translate_html(html_string: required_params[:text],
+                                                                 src_lang: required_params[:src_lang],
+                                                                 tgt_lang: required_params[:tgt_lang]) }
+    else
+      render json: { translated_text: Translation.translate_html_sagemaker(html_string: required_params[:text],
+                                                                           src_lang: required_params[:src_lang],
+                                                                           tgt_lang: required_params[:tgt_lang]) }
+    end
   end
 
-  ##
-  # Translate the paragraph given to us, split the paragraph into sentences and build up the response
-  # incrementally
-  #
   def translate_paragraph
+    # This action is used for inbox_compose
+    InstStatsd::Statsd.distributed_increment("translation.inbox_compose")
+    if Account.site_admin.feature_enabled?(:ai_translation_improvements)
+      render json: { translated_text: Translation.translate_text(text: required_params[:text],
+                                                                 src_lang: required_params[:src_lang],
+                                                                 tgt_lang: required_params[:tgt_lang]) }
+    else
+      render json: translate_large_passage(original_text: required_params[:text],
+                                           src_lang: required_params[:src_lang],
+                                           tgt_lang: required_params[:tgt_lang])
+    end
+  end
+
+  private
+
+  def translate_large_passage(original_text:, src_lang:, tgt_lang:)
     # Split into paragraphs.
     text = []
-    required_params[:text].split("\n").map do |paragraph|
+    original_text.split("\n").map do |paragraph|
       # Translate the paragraph
       passage = []
-      PragmaticSegmenter::Segmenter.new(text: paragraph, language: required_params[:src_lang]).segment.each do |segment|
-        trans = Translation.create(src_lang: required_params[:src_lang],
-                                   tgt_lang: required_params[:tgt_lang],
+      PragmaticSegmenter::Segmenter.new(text: paragraph, language: src_lang).segment.each do |segment|
+        trans = Translation.create(tgt_lang:,
+                                   src_lang:,
                                    text: segment)
         passage.append(trans)
       end
       text.append(passage.join)
     end
-
-    # This action is used for inbox_compose
-    InstStatsd::Statsd.increment("translation.inbox_compose")
-
-    render json: { translated_text: text.join("\n") }
+    { translated_text: text.join("\n") }
   end
-
-  def translate_message
-    # First, check to see if the language that we've been given matches the language of the user.
-    if Translation.language_matches_user_locale?(@current_user, required_params[:text])
-      return render json: { status: "language_matches" }
-    end
-
-    # This action is used for inbox inbound messages
-    InstStatsd::Statsd.increment("translation.inbox")
-
-    # Translate the message
-    render json: { translated_text: Translation.translate_message(text: required_params[:text], user: @current_user) }
-  end
-
-  private
 
   def required_params
     params.require(:inputs).permit(:src_lang, :tgt_lang, :text)
+  end
+
+  def user_can_read?
+    @context.grants_right?(@current_user, session, :read)
   end
 
   def require_inbox_translation

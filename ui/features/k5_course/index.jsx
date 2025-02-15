@@ -17,12 +17,12 @@
  */
 import React from 'react'
 import ReactDOM from 'react-dom'
-// eslint-disable-next-line import/no-named-as-default
+
 import K5Course from './react/K5Course'
-import {useK5Theme} from '@canvas/k5/react/k5-theme'
+import {registerK5Theme} from '@canvas/k5/react/k5-theme'
 import ready from '@instructure/ready'
 
-useK5Theme()
+registerK5Theme()
 
 ready(() => {
   const courseContainer = document.getElementById('course-dashboard-container')
@@ -67,7 +67,7 @@ ready(() => {
         restrictQuantitativeData={ENV.RESTRICT_QUANTITATIVE_DATA}
         scalingFactor={ENV.SCALING_FACTOR}
       />,
-      courseContainer
+      courseContainer,
     )
   }
 })

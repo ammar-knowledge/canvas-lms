@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -18,13 +17,13 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {TextArea} from '@instructure/ui-text-area'
 import {Button} from '@instructure/ui-buttons'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {EmojiPicker, EmojiQuickPicker} from '@canvas/emoji'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 type Props = {
   cancelCommenting: () => void
@@ -51,6 +50,7 @@ export default class SubmissionCommentForm extends React.Component<Props, State>
       'focusTextarea',
     ]
     methodsToBind.forEach(method => {
+      // @ts-expect-error
       this[method] = this[method].bind(this)
     })
     this.state = {comment: props.comment || ''}
@@ -60,6 +60,7 @@ export default class SubmissionCommentForm extends React.Component<Props, State>
     this.textarea?.focus()
   }
 
+  // @ts-expect-error
   handleCancel(event: Event, callback) {
     event.preventDefault()
 
@@ -71,19 +72,23 @@ export default class SubmissionCommentForm extends React.Component<Props, State>
     })
   }
 
+  // @ts-expect-error
   handleCommentChange(event) {
     this.setState({comment: event.target.value})
   }
 
+  // @ts-expect-error
   insertEmoji(emoji) {
     const value = this.state.comment + emoji.native
     this.handleCommentChange({target: {value}})
     this.focusTextarea()
   }
 
+  // @ts-expect-error
   handlePublishComment(event) {
     event.preventDefault()
     this.props.setProcessing(true)
+    // @ts-expect-error
     this.publishComment()?.catch(() => this.props.setProcessing(false))
   }
 
@@ -92,16 +97,19 @@ export default class SubmissionCommentForm extends React.Component<Props, State>
     return comment.length > 0
   }
 
+  // @ts-expect-error
   bindTextarea(ref) {
     this.textarea = ref
   }
 
   render() {
+    // @ts-expect-error
     const {cancelButtonLabel, submitButtonLabel} = this.buttonLabels()
     return (
       <div>
         <div id="textarea-container">
           <TextArea
+            data-testid="comment-textarea"
             label={<ScreenReaderContent>{I18n.t('Leave a comment')}</ScreenReaderContent>}
             placeholder={I18n.t('Leave a comment')}
             onChange={this.handleCommentChange}
@@ -119,6 +127,7 @@ export default class SubmissionCommentForm extends React.Component<Props, State>
             <EmojiQuickPicker insertEmoji={this.insertEmoji} />
           </div>
         )}
+        {/* @ts-expect-error */}
         {this.showButtons() && (
           <div
             style={{
@@ -134,6 +143,7 @@ export default class SubmissionCommentForm extends React.Component<Props, State>
               disabled={this.props.processing}
               label={cancelButtonLabel}
               margin="small small small 0"
+              // @ts-expect-error
               onClick={this.handleCancel}
             >
               {I18n.t('Cancel')}

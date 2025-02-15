@@ -78,23 +78,13 @@ class Collaboration < ActiveRecord::Base
     given { |user, session| context.grants_right?(user, session, :create_collaborations) }
     can :create
 
-    #################### Begin legacy permission block #########################
     given do |user, session|
-      user && !context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_right?(user, session, :manage_content)
-    end
-    can :read and can :update and can :delete
-    ##################### End legacy permission block ##########################
-
-    given do |user, session|
-      user && context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_right?(user, session, :manage_course_content_edit)
+      user && context.grants_right?(user, session, :manage_course_content_edit)
     end
     can :read and can :update
 
     given do |user, session|
-      user && context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_right?(user, session, :manage_course_content_delete)
+      user && context.grants_right?(user, session, :manage_course_content_delete)
     end
     can :read and can :delete
 
@@ -217,7 +207,7 @@ class Collaboration < ActiveRecord::Base
   # Returns true.
   def destroy
     self.workflow_state = "deleted"
-    self.deleted_at     = Time.now
+    self.deleted_at     = Time.zone.now
 
     save!
   end

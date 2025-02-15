@@ -19,8 +19,7 @@
 
 module Canvas::LiveEvents
   def self.post_event_stringified(event_name, payload, context = nil)
-    ctx = LiveEvents.get_context || {}
-    payload.compact! if ctx[:compact_live_events].present?
+    payload.compact!
 
     StringifyIds.recursively_stringify_ids(payload)
     StringifyIds.recursively_stringify_ids(context)
@@ -169,6 +168,28 @@ module Canvas::LiveEvents
                              start_at: notification.start_at,
                              end_at: notification.end_at,
                            })
+  end
+
+  def self.account_created(account)
+    post_event_stringified("account_created", get_account_data(account))
+  end
+
+  def self.account_updated(account)
+    post_event_stringified("account_updated", get_account_data(account))
+  end
+
+  def self.get_account_data(account)
+    {
+      name: account.name,
+      account_id: account.global_id,
+      root_account_id: account.global_root_account_id,
+      parent_account_id: account.global_parent_account_id,
+      external_status: account.external_status,
+      workflow_state: account.workflow_state,
+      # TODO: Without read_attribute, this spec "spec/models/assignment_spec.rb:11453" fails
+      default_time_zone: account.read_attribute("default_time_zone"),
+      default_locale: account.default_locale,
+    }
   end
 
   def self.get_group_membership_data(membership)
@@ -435,6 +456,7 @@ module Canvas::LiveEvents
   end
 
   def self.get_user_data(user)
+    pseudo = SisPseudonym.for(user, nil, type: :implicit, require_sis: false)
     {
       user_id: user.global_id,
       uuid: user.uuid,
@@ -443,8 +465,8 @@ module Canvas::LiveEvents
       workflow_state: user.workflow_state,
       created_at: user.created_at,
       updated_at: user.updated_at,
-      user_login: user.primary_pseudonym&.unique_id,
-      user_sis_id: user.primary_pseudonym&.sis_user_id
+      user_login: pseudo&.unique_id,
+      user_sis_id: pseudo&.sis_user_id
     }
   end
 
@@ -682,10 +704,10 @@ module Canvas::LiveEvents
 
   def self.content_migration_data(content_migration)
     context = content_migration.context
-    import_quizzes_next =
-      content_migration.migration_settings&.[](:import_quizzes_next) == true
+    import_quizzes_next = content_migration.migration_settings&.[](:import_quizzes_next) == true
+    quiz_next_imported = content_migration.migration_settings&.[](:quiz_next_imported) == true
     link_migration_during_import = import_quizzes_next && content_migration.asset_map_v2?
-    need_resource_map = content_migration.source_course&.has_new_quizzes? || link_migration_during_import
+    need_resource_map = content_migration.source_course&.has_new_quizzes? || link_migration_during_import || quiz_next_imported
 
     payload = {
       content_migration_id: content_migration.global_id,
@@ -722,6 +744,10 @@ module Canvas::LiveEvents
 
   def self.quizzes_next_migration_urls_complete(payload)
     post_event_stringified("quizzes_next_migration_urls_complete", payload)
+  end
+
+  def self.outcomes_retry_outcome_alignment_clone(payload)
+    post_event_stringified("outcomes.retry_outcome_alignment_clone", payload)
   end
 
   def self.get_course_section_data(section)
@@ -1072,6 +1098,40 @@ module Canvas::LiveEvents
 
   def self.outcome_proficiency_updated(proficiency)
     post_event_stringified("outcome_proficiency_updated", get_outcome_proficiency_data(proficiency).merge(updated_at: proficiency.updated_at))
+  end
+
+  def self.final_grade_custom_status(score, old_status, enrollment, course)
+    data = {
+      score_id: score.id,
+      enrollment_id: enrollment.id,
+      user_id: enrollment.user_id,
+      course_id: enrollment.course_id,
+      grading_period_id: score.grading_period_id,
+      override_status: score.custom_grade_status&.name || "",
+      override_status_id: score.custom_grade_status_id || "",
+      old_override_status: old_status&.name || "",
+      old_override_status_id: old_status&.id || "",
+      updated_at: score.updated_at,
+    }
+    post_event_stringified("final_grade_custom_status", data, amended_context(course))
+  end
+
+  def self.submission_custom_grade_status(submission, old_submission_status_id)
+    course = Course.find(submission.course_id)
+    old_status = CustomGradeStatus.find(old_submission_status_id) if old_submission_status_id
+
+    data = {
+      assignment_id: submission.assignment_id,
+      submission_id: submission.id,
+      user_id: submission.user_id,
+      course_id: submission.course_id,
+      old_submission_status_id: old_submission_status_id || "",
+      old_submission_status: old_status&.name || "",
+      submission_status: submission.custom_grade_status&.name || "",
+      submission_status_id: submission.custom_grade_status_id || "",
+      updated_at: submission.updated_at,
+    }
+    post_event_stringified("submission_custom_grade_status", data, amended_context(course))
   end
 
   def self.get_outcome_proficiency_data(proficiency)

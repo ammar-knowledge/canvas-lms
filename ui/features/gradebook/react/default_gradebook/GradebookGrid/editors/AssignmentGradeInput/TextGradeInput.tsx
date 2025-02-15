@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2018 - present Instructure, Inc.
  *
@@ -25,13 +24,19 @@ import type {PendingGradeInfo} from '../../../gradebook.d'
 import type {DeprecatedGradingScheme} from '@canvas/grading/grading.d'
 
 function formatGrade(
+  // @ts-expect-error
   submission,
+  // @ts-expect-error
   assignment,
+  // @ts-expect-error
   gradingScheme,
+  // @ts-expect-error
   pointsBasedGradingScheme,
+  // @ts-expect-error
   scalingFactor,
+  // @ts-expect-error
   enterGradesAs,
-  pendingGradeInfo: PendingGradeInfo
+  pendingGradeInfo: PendingGradeInfo,
 ) {
   if (pendingGradeInfo) {
     return GradeFormatHelper.formatGradeInfo(pendingGradeInfo, {defaultValue: ''})
@@ -50,6 +55,7 @@ function formatGrade(
   return GradeFormatHelper.formatSubmissionGrade(submission, formatOptions)
 }
 
+// @ts-expect-error
 function getGradeInfo(value, props) {
   return parseTextValue(value, {
     enterGradesAs: props.enterGradesAs,
@@ -103,6 +109,7 @@ export default class TextGradeInput extends Component<Props, State> {
   constructor(props: Props) {
     super(props)
 
+    // @ts-expect-error
     this.bindTextInput = ref => {
       this.textInput = ref
     }
@@ -126,7 +133,7 @@ export default class TextGradeInput extends Component<Props, State> {
       pointsBasedGradingScheme,
       scalingFactor,
       enterGradesAs,
-      pendingGradeInfo
+      pendingGradeInfo,
     )
 
     this.state = {
@@ -141,7 +148,7 @@ export default class TextGradeInput extends Component<Props, State> {
               pointsBasedGradingScheme,
               scalingFactor,
               enterGradesAs,
-              pendingGradeInfo
+              pendingGradeInfo,
             ),
     }
   }
@@ -166,7 +173,7 @@ export default class TextGradeInput extends Component<Props, State> {
           pointsBasedGradingScheme,
           scalingFactor,
           enterGradesAs,
-          pendingGradeInfo
+          pendingGradeInfo,
         ),
       })
     }
@@ -177,7 +184,9 @@ export default class TextGradeInput extends Component<Props, State> {
   }
 
   focus() {
+    // @ts-expect-error
     this.textInput.focus()
+    // @ts-expect-error
     this.textInput.setSelectionRange(0, this.textInput.value.length)
   }
 
@@ -202,13 +211,14 @@ export default class TextGradeInput extends Component<Props, State> {
       scalingFactor,
       submission,
     } = this.props
+    // @ts-expect-error
     const formattedGrade = formatGrade(
       submission,
       assignment,
       gradingScheme,
       pointsBasedGradingScheme,
       scalingFactor,
-      enterGradesAs
+      enterGradesAs,
     )
 
     if (formattedGrade === this.state.grade.trim()) {
@@ -227,6 +237,7 @@ export default class TextGradeInput extends Component<Props, State> {
     return undefined
   }
 
+  // @ts-expect-error
   handleTextChange(event) {
     this.setState({
       gradeInfo: getGradeInfo(event.target.value, this.props),
@@ -241,9 +252,12 @@ export default class TextGradeInput extends Component<Props, State> {
   render() {
     return (
       <TextInput
+        autoComplete="off"
         disabled={this.props.disabled}
+        // @ts-expect-error
         inputRef={this.bindTextInput}
         renderLabel={this.props.label}
+        // @ts-expect-error
         messages={this.props.messages}
         onChange={this.handleTextChange}
         size="small"

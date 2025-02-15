@@ -69,7 +69,7 @@ describe "announcements" do
 
     it "validates that a student can not see an announcement with a delayed posting date", priority: "1" do
       announcement_title = "Hi there!"
-      announcement = @course.announcements.create!(title: announcement_title, message: "Announcement time!", delayed_post_at: Time.now + 1.day)
+      announcement = @course.announcements.create!(title: announcement_title, message: "Announcement time!", delayed_post_at: 1.day.from_now)
       get "/courses/#{@course.id}/announcements"
 
       expect(f("#content")).not_to contain_css(".ic-announcement-row")
@@ -187,6 +187,20 @@ describe "announcements" do
         get "/courses/#{@course.id}/discussion_topics/#{@announcement.id}"
         expect(driver.current_url).to eq course_announcements_url @course
         expect_flash_message :error, "You do not have access to the requested announcement."
+      end
+    end
+
+    context "Horizon course" do
+      before do
+        Account.site_admin.enable_feature!(:horizon_course_setting)
+        @course.horizon_course = true
+        @course.save!
+      end
+
+      it "does navigate to announcements" do
+        announcement = @course.announcements.create!(title: "Allow Replies", message: "Reply Here")
+        get "/courses/#{@course.id}/announcements/#{announcement.id}"
+        expect(f(".discussion-reply-action")).to be_truthy
       end
     end
   end

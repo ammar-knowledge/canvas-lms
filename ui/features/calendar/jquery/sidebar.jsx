@@ -20,7 +20,7 @@ import $ from 'jquery'
 import {intersection} from 'lodash'
 import React from 'react'
 import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import decodeFromHex from '@canvas/util/decodeFromHex'
 import ColorPicker from '@canvas/color-picker'
 import userSettings from '@canvas/user-settings'
@@ -32,7 +32,7 @@ import 'jquery-tinypubsub'
 import AccountCalendarsModal from '../react/AccountCalendarsModal'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 
-const I18n = useI18nScope('calendar_sidebar')
+const I18n = createI18nScope('calendar_sidebar')
 
 class VisibleContextManager {
   constructor(contexts, selectedContexts, $holder) {
@@ -186,12 +186,12 @@ function setupCalendarFeedsWithSpecialAccessibilityConsiderationsForNVDA() {
         create: (e, _ui) => {
           e.target.parentElement.setAttribute(
             'aria-labelledby',
-            e.target.parentElement.querySelector('.ui-dialog-title').id
+            e.target.parentElement.querySelector('.ui-dialog-title').id,
           )
         },
       },
-      $calendarFeedModalOpener.data('dialogOpts')
-    )
+      $calendarFeedModalOpener.data('dialogOpts'),
+    ),
   )
 
   $calendarFeedModalContent.on('dialogclose', () => {
@@ -210,7 +210,7 @@ function setupAccountCalendarDialog(getSelectedOtherCalendars, onOtherCalendarsC
       calendarsPerRequest={100}
       featureSeen={ENV.CALENDAR.ACCOUNT_CALENDAR_EVENTS_SEEN}
     />,
-    $(`#manage-accounts-btn`)[0]
+    $(`#manage-accounts-btn`)[0],
   )
 }
 
@@ -223,7 +223,7 @@ function refreshOtherCalendarsSection($holder, otherCalendars, notify) {
       contexts: otherCalendars,
       type: 'other-calendars',
       includeRemoveOption: 'calendars',
-    })
+    }),
   )
   notify()
 }
@@ -258,7 +258,7 @@ export default function sidebar(contexts, selectedContexts, dataSource, onContex
   setupCalendarFeedsWithSpecialAccessibilityConsiderationsForNVDA()
 
   $calendarHolder.html(
-    contextListTemplate({contexts: calendars, type: 'calendars', includeRemoveOption: 'calendars'})
+    contextListTemplate({contexts: calendars, type: 'calendars', includeRemoveOption: 'calendars'}),
   )
   const visibleContexts = new VisibleContextManager(contexts, selectedContexts, $combineHolder)
 
@@ -301,7 +301,7 @@ export default function sidebar(contexts, selectedContexts, dataSource, onContex
 
     const getSelectedOtherCalendars = () => {
       const currentSelection = otherCalendars.filter(oC =>
-        visibleContexts.enabledAccounts.includes(oC.asset_string)
+        visibleContexts.enabledAccounts.includes(oC.asset_string),
       )
       return convertAccountCalendars(currentSelection)
     }
@@ -362,12 +362,12 @@ export default function sidebar(contexts, selectedContexts, dataSource, onContex
               color: ${color};
               border-color: ${color};
               background-color: ${color};
-            }`
+            }`,
           )
           $existingStyles.append($newStyles)
         }}
       />,
-      $(`#calendars_color_picker_holder`)[0]
+      $(`#calendars_color_picker_holder`)[0],
     )
   })
 

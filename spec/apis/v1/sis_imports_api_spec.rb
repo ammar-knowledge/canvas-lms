@@ -198,7 +198,8 @@ describe SisImportsApiController, type: :request do
                                     "Enrollment" => { "created" => 0, "concluded" => 0, "deactivated" => 0, "restored" => 0, "deleted" => 0 },
                                     "GroupMembership" => { "created" => 0, "restored" => 0, "deleted" => 0 },
                                     "UserObserver" => { "created" => 0, "restored" => 0, "deleted" => 0 },
-                                    "AccountUser" => { "created" => 0, "restored" => 0, "deleted" => 0 } } },
+                                    "AccountUser" => { "created" => 0, "restored" => 0, "deleted" => 0 },
+                                    "AssignmentOverrideStudent" => { "created" => 0, "restored" => 0, "deleted" => 0 } } },
       "progress" => 100,
       "id" => batch.id,
       "workflow_state" => "imported",
@@ -916,7 +917,8 @@ describe SisImportsApiController, type: :request do
                                     "Enrollment" => { "created" => 0, "concluded" => 0, "deactivated" => 0, "restored" => 0, "deleted" => 0 },
                                     "GroupMembership" => { "created" => 0, "restored" => 0, "deleted" => 0 },
                                     "UserObserver" => { "created" => 0, "restored" => 0, "deleted" => 0 },
-                                    "AccountUser" => { "created" => 0, "restored" => 0, "deleted" => 0 } } },
+                                    "AccountUser" => { "created" => 0, "restored" => 0, "deleted" => 0 },
+                                    "AssignmentOverrideStudent" => { "created" => 0, "restored" => 0, "deleted" => 0 } } },
       "progress" => 100,
       "id" => batch.id,
       "workflow_state" => "imported",
@@ -1081,7 +1083,7 @@ describe SisImportsApiController, type: :request do
              { import_type: "instructure_csv",
                attachment: fixture_file_upload("sis/test_user_1.csv", "text/csv") },
              {},
-             expected_status: 401)
+             expected_status: 403)
   end
 
   it "works with import permissions" do
@@ -1128,7 +1130,7 @@ describe SisImportsApiController, type: :request do
                       account_id: @account.id.to_s,
                       id: batch.id.to_s })
     url_params = Rack::Utils.parse_query URI(json["errors_attachment"]["url"]).query
-    expiration = Time.at(CanvasSecurity.decode_jwt(url_params["verifier"])[:exp])
+    expiration = Time.zone.at(CanvasSecurity.decode_jwt(url_params["verifier"])[:exp])
 
     expect(expiration).to be_within(1.minute).of(1.hour.from_now)
   end

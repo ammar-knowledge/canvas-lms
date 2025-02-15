@@ -167,6 +167,9 @@
     "available_folders_694d0436": {
         "message": "Dostępne foldery"
     },
+    "background_1bc88842": {
+        "message": "Tło"
+    },
     "backslash_b2d5442d": {
         "message": "Ukośnik lewy"
     },
@@ -199,6 +202,9 @@
     },
     "blue_daf8fea9": {
         "message": "Niebieski"
+    },
+    "border_5b08b06d": {
+        "message": "Obramowanie"
     },
     "bottom_15a2a9be": {
         "message": "Dół"
@@ -341,11 +347,23 @@
     "collapse_to_hide_types_1ab46d2e": {
         "message": "Kliknij, aby ukryć { types }"
     },
+    "color_a363e1b0": {
+        "message": "Kolorowy"
+    },
+    "color_contrast_4c418add": {
+        "message": "Kontrastu koloru"
+    },
+    "color_contrast_ratio_687782f0": {
+        "message": "Współczynnik kontrastu koloru"
+    },
     "color_picker_6b359edf": {
         "message": "Narzędzie wyboru kolorów"
     },
     "color_picker_colorname_selected_ad4cf400": {
         "message": "Narzędzie wyboru kolorów (wybrano { colorName })"
+    },
+    "color_popup_af39810f": {
+        "message": "Kolorowy komunikat"
     },
     "column_e1ae5c64": {
         "message": "Kolumna"
@@ -493,6 +511,9 @@
     },
     "deep_purple_bb3e2907": {
         "message": "Głęboki fiolet"
+    },
+    "default_9db103d": {
+        "message": "Domyślna"
     },
     "default_bulleted_unordered_list_47079da8": {
         "message": "domyślna nieuporządkowana lista wypunktowana"
@@ -647,7 +668,7 @@
     "edit_link_7f53bebb": {
         "message": "Edytuj łącze"
     },
-    "editor_statusbar_26ac81fc": {
+    "editor_status_bar_653f44ee": {
         "message": "Pasek stanu edytora"
     },
     "element_starting_with_start_91bf4c3b": {
@@ -779,6 +800,9 @@
     "f_function_fe422d65": {
         "message": "F (funkcja)"
     },
+    "fail_544e5dde": {
+        "message": "NIEPOWODZENIE"
+    },
     "failed_getting_file_contents_e9ea19f4": {
         "message": "Nie udało się pobrać zawartości pliku"
     },
@@ -895,6 +919,9 @@
     },
     "grades_a61eba0a": {
         "message": "Oceny"
+    },
+    "graphics_text_bc9568bc": {
+        "message": "Tekst do grafiki"
     },
     "greater_than_e98af662": {
         "message": "Większe niż"
@@ -1121,6 +1148,18 @@
     "infinity_7a10f206": {
         "message": "Nieskończoność"
     },
+    "input_field_for_alpha_678265fd": {
+        "message": "Pole edycji dla alfa"
+    },
+    "input_field_for_blue_561e020a": {
+        "message": "Pole edycji dla niebieskiego"
+    },
+    "input_field_for_green_67f8b2b6": {
+        "message": "Pole edycji dla zielonego"
+    },
+    "input_field_for_red_86a84615": {
+        "message": "Pole edycji dla czerwonego"
+    },
     "insert_593145ef": {
         "message": "Wstaw"
     },
@@ -1189,6 +1228,9 @@
     },
     "large_9c5e80e7": {
         "message": "Duży"
+    },
+    "large_text_e7ba08cd": {
+        "message": "Duży tekst"
     },
     "latvian_2bbb6aab": {
         "message": "Łotewski"
@@ -1294,6 +1336,9 @@
     },
     "links_to_an_external_site_de74145d": {
         "message": "Łącza do strony zewnętrznej."
+    },
+    "lists_cd1336fc": {
+        "message": "Listy"
     },
     "lists_should_be_formatted_as_lists_f862de8d": {
         "message": "Listy należy sformatować jako listy."
@@ -1439,12 +1484,6 @@
     "music_icon_4db5c972": {
         "message": "Ikona muzyki"
     },
-    "must_be_at_least_percentage_22e373b6": {
-        "message": "Wymagane co najmniej { percentage }%"
-    },
-    "must_be_at_least_width_x_height_px_41dc825e": {
-        "message": "Wymagane co najmniej { width } x { height } px"
-    },
     "my_files_2f621040": {
         "message": "Moje pliki"
     },
@@ -1559,6 +1598,9 @@
     "none_selected_b93d56d2": {
         "message": "Nie wybrano żadnego"
     },
+    "normal_text_7b03da48": {
+        "message": "Normalny tekst"
+    },
     "norwegian_53f391ec": {
         "message": "Norweski"
     },
@@ -1637,8 +1679,8 @@
     "outline_size_a6059a21": {
         "message": "Rozmiar konturu"
     },
-    "p_is_not_a_valid_protocol_which_must_be_ftp_http_h_adf13fc2": {
-        "message": "{ p } nie jest prawidłowym protokołem; wymagany jest  ftp, http, https, mailto, skype, tel lub można go pominąć"
+    "p_is_not_a_valid_protocol_b1c4efaa": {
+        "message": "{ p } nie jest prawidłowym protokołem."
     },
     "page_50c4823d": {
         "message": "Strona"
@@ -1658,6 +1700,9 @@
     "partial_derivative_4a9159df": {
         "message": "Pochodna cząstkowa"
     },
+    "pass_1c19a2b3": {
+        "message": "ZALICZENIE"
+    },
     "paste_5963d1c1": {
         "message": "Wklej"
     },
@@ -1675,6 +1720,9 @@
     },
     "percentage_must_be_a_number_8033c341": {
         "message": "Odsetek musi być liczbą"
+    },
+    "percentage_must_be_at_least_percentage_a98ca8fc": {
+        "message": "Wymagane co najmniej { percentage }%"
     },
     "performing_arts_icon_f3497486": {
         "message": "Ikona sztuk wizualnych"
@@ -1700,11 +1748,17 @@
     "pi_variant_10f5f520": {
         "message": "Pi (wariant)"
     },
+    "pick_a_color_557abfb0": {
+        "message": "Wybierz kolor"
+    },
     "pink_68ad45cb": {
         "message": "Różowy"
     },
     "pixels_52ece7d1": {
         "message": "Piksele"
+    },
+    "pixels_must_be_at_least_width_x_height_px_e965edd5": {
+        "message": "Wymagane co najmniej { width } x { height } px"
     },
     "play_1a47eaa7": {
         "message": "Odtwórz"
@@ -1771,6 +1825,9 @@
     },
     "previous_findtext_8dfbfd30": {
         "message": "Poprzednie { findText }"
+    },
+    "previously_chosen_colors_f1338315": {
+        "message": "Wcześniej wybrane kolory"
     },
     "prime_917ea60e": {
         "message": "Liczba pierwsza"
@@ -2176,6 +2233,9 @@
     },
     "submit_a3cc6859": {
         "message": "Prześlij"
+    },
+    "submitting_b90fac62": {
+        "message": "Przesyłanie..."
     },
     "subscript_59744f96": {
         "message": "Indeks dolny"
@@ -2668,6 +2728,15 @@
     },
     "yiddish_f96986df": {
         "message": "Jidysz"
+    },
+    "you_are_on_a_color_palette_to_navigate_on_the_pale_227fc3a6": {
+        "message": "Korzystasz z palety kolorów. Aby przewijać paletę w górę i w dół, w prawo lub w lewo, użyj klawiszy W, A, S i D."
+    },
+    "you_are_on_a_color_slider_to_navigate_the_slider_l_e800f68a": {
+        "message": "Korzystasz z suwaka kolorów. Aby przesunąć suwak w prawo lub w lewo, użyj klawiszy A i D."
+    },
+    "you_are_on_an_alpha_slider_to_navigate_the_slider__3a014dc5": {
+        "message": "Korzystasz z suwaka alfa. Aby przesunąć suwak w prawo lub w lewo, użyj klawiszy A i D."
     },
     "you_can_replace_by_uploading_a_new_caption_file_6c88ce00": {
         "message": "Można je przywrócić, przesyłając nowy plik z napisami."

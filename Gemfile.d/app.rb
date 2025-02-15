@@ -22,6 +22,7 @@
 gem "bootsnap", "~> 1.16", require: false
 gem "rails", "~> 7.1.3"
   # can't upgrade to 3.1 until Rails 7.2
+  # if rack is updated, please remove gems/autoextend/lib/rack/
   gem "rack", "~> 3.0.11" if $canvas_rails == "7.1"
   # can't upgrade to 2.0 until Rails 7.2
   gem "sqlite3", "~> 1.7"
@@ -42,13 +43,15 @@ gem "aws-sdk-s3", "~> 1.119", require: false
 gem "aws-sdk-sns", "~> 1.60", require: false
 gem "aws-sdk-sqs", "~> 1.53", require: false
 gem "aws-sdk-sagemakerruntime", "~> 1.61", require: false
+gem "aws-sdk-translate", "~> 1.77", require: false
 gem "rqrcode", "~> 2.2", require: false
 gem "bcrypt", "~> 3.1"
+gem "benchmark", "~> 0.4", require: false
 gem "bigdecimal", "~> 3.1"
-gem "browser", "~> 5.3", require: false
+gem "browser", "~> 6.0", require: false
 gem "business_time", "0.13.0"
 gem "canvas_connect", "0.3.16"
-gem "canvas_link_migrator", "~> 1.0.13"
+gem "canvas_link_migrator", "~> 1.0.16"
 gem "canvas_webex", "0.18.2"
 gem "cld", "~> 0.13"
 gem "crocodoc-ruby", "0.0.1", require: false
@@ -57,9 +60,9 @@ gem "datadog", "~> 2.1", require: false
 gem "docx", "~> 0.8"
 gem "encrypted_cookie_store-instructure", "~> 1.2", require: "encrypted_cookie_store"
 gem "gepub", "~> 1.0"
-gem "apollo-federation", "~> 3.8"
-gem "graphql", "~> 2.3.0"
+gem "graphql", "~> 2.3"
 gem "graphql-batch", "~> 0.5"
+gem "hashdiff", "~> 1.1", require: false
 gem "highline", "~> 3.0", require: false
 gem "httparty", "~> 0.21"
 gem "i18nliner", "~> 0.2.4"
@@ -69,18 +72,20 @@ gem "ims-lti", "~> 2.3", require: "ims"
 gem "rrule", "~> 0.5", require: false
 gem "inst_llm", "~> 0.2.4"
 
-gem "inst_access", "0.4.2"
+gem "inst_access", "0.4.4"
 gem "inst_statsd", "~> 3.0"
 gem "inst-jobs", "~> 3.1"
 gem "inst-jobs-autoscaling", "2.1.1"
-gem "inst-jobs-statsd", "~> 3.0"
+gem "inst-jobs-statsd", "~> 4.0"
 gem "json_schemer", "~> 2.0"
 gem "json-jwt", "~> 1.13", require: false
 gem "link_header", "0.0.8"
+gem "logger", "~> 1.5"
 gem "marginalia", "1.11.1", require: false
 gem "method_source", "~> 1.1"
 gem "mime-types", "~> 3.5"
-gem "mini_magick", "~> 4.12"
+gem "mimemagic", "~> 0.4.3"
+gem "mini_magick", "~> 5.0"
 gem "multi_json", "1.15.0"
 gem "net-http", "~> 0.1", require: false
 gem "net-ldap", "~> 0.18", require: false
@@ -90,12 +95,13 @@ gem "oj", "~> 3.16"
 gem "outrigger", "~> 3.0"
 gem "parallel", "~> 1.23", require: false
 gem "pdf-reader", "~> 2.11"
-gem "pg_query", "~> 5.1", require: false
+gem "pg_query", "~> 6.0", require: false
 gem "pragmatic_segmenter", "~> 0.3"
 gem "prawn-emoji", "~> 5.3", require: false
 gem "prawn-rails", "~> 1.4"
   gem "matrix", "0.4.2" # Used to be a default gem but is no more, but prawn depends on it implicitly
 gem "prosopite", "~> 1.3"
+gem "puma", "~> 6.3", require: false
 gem "rack3-brotli", "~> 1.0", require: "rack/brotli"
 gem "rails-observers", "0.1.5"
 gem "feedjira", "~> 3.2.3", require: false
@@ -114,6 +120,7 @@ gem "stackprof", "~> 0.2" # must be loaded before Sentry
 gem "sentry-rails", "~> 5.10"
 gem "sentry-inst_jobs", "~> 5.10"
 gem "soap4r-ng", github: "instructure/soap4r", require: false # dependency of respondus_soap_endpoint, but we need to use an unreleased fork
+gem "syslog", "~> 0.1"
 gem "twilio-ruby", "~> 7.0", require: false
 gem "vault", "~> 0.17", require: false
 gem "vericite_api", "1.5.3"
@@ -165,7 +172,6 @@ path "../gems" do
   gem "request_context"
   gem "stringify_ids"
   gem "turnitin_api"
-  gem "twitter"
   gem "utf8_cleaner"
   gem "workflow"
 end

@@ -16,8 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
-import {shape, string} from 'prop-types'
+import {gql} from '@apollo/client'
+import {bool, shape, string} from 'prop-types'
 
 export const Course = {
   fragment: gql`
@@ -26,6 +26,7 @@ export const Course = {
       courseNickname
       contextName: name
       assetString
+      horizonCourse
     }
   `,
 
@@ -34,6 +35,7 @@ export const Course = {
     courseNickname: string,
     contextName: string,
     assetString: string,
+    horizonCourse: bool,
   }),
 
   mock: ({
@@ -41,11 +43,13 @@ export const Course = {
     courseNickname = 'Ipsum',
     contextName = 'XavierSchool',
     assetString = 'course_195',
+    horizonCourse = false,
   } = {}) => ({
     _id,
     courseNickname,
     contextName,
     assetString,
+    horizonCourse,
     __typename: 'Course',
   }),
 }

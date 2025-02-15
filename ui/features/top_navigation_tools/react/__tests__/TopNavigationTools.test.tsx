@@ -23,7 +23,7 @@ import {
   MobileTopNavigationTools,
   handleToolIconError,
 } from '../TopNavigationTools'
-import type {Tool} from '@canvas/global/env/EnvCommon'
+import type {Tool, TopNavigationToolsProps} from '../types'
 
 describe('TopNavigationTools', () => {
   it('renders', () => {
@@ -31,27 +31,30 @@ describe('TopNavigationTools', () => {
       {
         id: '1',
         title: 'Tool 1',
+        base_url: 'https://instructure.com',
         icon_url: 'https://instructure.com',
         pinned: true,
       },
       {
         id: '2',
         title: 'Tool 2',
+        base_url: 'https://instructure.com',
+        icon_url: 'https://instructure.com/default-icon.png',
         pinned: false,
       },
     ]
     const handleToolLaunch = jest.fn()
     const wrapper = shallow(
-      <TopNavigationTools tools={tools} handleToolLaunch={handleToolLaunch} />
+      <TopNavigationTools tools={tools} handleToolLaunch={handleToolLaunch} />,
     )
     expect(wrapper).toMatchSnapshot()
   })
 
   it('renders with no tools', () => {
-    const tools = []
+    const tools: Tool[] = []
     const handleToolLaunch = jest.fn()
     const wrapper = shallow(
-      <TopNavigationTools tools={tools} handleToolLaunch={handleToolLaunch} />
+      <TopNavigationTools tools={tools} handleToolLaunch={handleToolLaunch} />,
     )
     expect(wrapper).toMatchSnapshot()
   })
@@ -61,19 +64,21 @@ describe('TopNavigationTools', () => {
       {
         id: '1',
         title: 'Tool 1',
+        base_url: 'https://instructure.com',
         icon_url: 'https://instructure.com',
         pinned: false,
       },
       {
         id: '2',
         title: 'Tool 2',
-        icon_url: 'https://instructure.com',
+        base_url: 'https://instructure.com',
+        icon_url: 'https://instructure.com/default-icon.png',
         pinned: false,
       },
     ]
     const handleToolLaunch = jest.fn()
     const wrapper = shallow(
-      <TopNavigationTools tools={tools} handleToolLaunch={handleToolLaunch} />
+      <TopNavigationTools tools={tools} handleToolLaunch={handleToolLaunch} />,
     )
     expect(wrapper).toMatchSnapshot()
   })
@@ -85,19 +90,21 @@ describe('MobileTopNavigationTools', () => {
       {
         id: '1',
         title: 'Tool 1',
+        base_url: 'https://instructure.com',
         icon_url: 'https://instructure.com',
         pinned: false,
       },
       {
         id: '2',
         title: 'Tool 2',
+        base_url: 'https://instructure.com',
         icon_url: 'https://instructure.com',
         pinned: true,
       },
     ]
     const handleToolLaunch = jest.fn()
     const wrapper = shallow(
-      <MobileTopNavigationTools tools={tools} handleToolLaunch={handleToolLaunch} />
+      <MobileTopNavigationTools tools={tools} handleToolLaunch={handleToolLaunch} />,
     )
     expect(wrapper).toMatchSnapshot()
   })
@@ -108,12 +115,13 @@ describe('handleToolClick', () => {
     const tool = {
       id: '1',
       title: 'Tool 1',
+      base_url: 'https://instructure.com',
       icon_url: 'https://instructure.com',
       pinned: true,
     }
     const handleToolLaunch = jest.fn()
     const wrapper = shallow(
-      <TopNavigationTools tools={[tool]} handleToolLaunch={handleToolLaunch} />
+      <TopNavigationTools tools={[tool]} handleToolLaunch={handleToolLaunch} />,
     )
     wrapper.find('IconButton').simulate('click', {target: {dataset: {toolId: '1'}}})
     expect(handleToolLaunch).toHaveBeenCalledWith(tool)
@@ -125,6 +133,8 @@ describe('handleToolIconError', () => {
     const tool = {
       id: '1',
       title: 'Tool 1',
+      base_url: 'https://instructure.com',
+      icon_url: 'https://instructure.com/default-icon.png',
       pinned: true,
     }
     const event = {
@@ -133,7 +143,7 @@ describe('handleToolIconError', () => {
       },
     }
 
-    handleToolIconError(tool)(event)
+    handleToolIconError(tool)(event as unknown as Event & {target: {src: string}})
 
     expect(event.target.src).toBe('/lti/tool_default_icon?name=T')
   })

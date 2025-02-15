@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Button} from '@instructure/ui-buttons'
 import {Checkbox} from '@instructure/ui-checkbox'
 import {Flex} from '@instructure/ui-flex'
@@ -30,7 +30,7 @@ import * as React from 'react'
 import type {StoreApi} from 'zustand'
 import {type LtiPlacement, i18nLtiPlacement} from '../../model/LtiPlacements'
 import type {LtiRegistration} from '../../model/LtiRegistration'
-import {i18nLtiScope} from '../../model/LtiScopes'
+import {i18nLtiScope} from '@canvas/lti/model/i18nLtiScope'
 import {
   canvasPlatformSettings,
   type PlacementOverlay,
@@ -38,7 +38,7 @@ import {
 } from './RegistrationOverlayState'
 import {RegistrationPrivacyField} from './RegistrationPrivacyField'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 
 export const RegistrationOverlayForm = (props: {
   ltiRegistration: LtiRegistration
@@ -79,6 +79,7 @@ export const RegistrationOverlayForm = (props: {
         </Flex.Item>
         <Flex.Item>
           <Button
+            // @ts-expect-error
             renderIcon={IconResetLine}
             margin="0 0 0 small"
             onClick={() => {
@@ -119,7 +120,7 @@ export const RegistrationOverlayForm = (props: {
           {placements
             .map(placement => {
               const placementOverlay = state.registration.placements.find(
-                p => p.type === placement.placement
+                p => p.type === placement.placement,
               )
               if (!placementOverlay) {
                 return [placement, {type: placement.placement}] as const
@@ -153,7 +154,7 @@ type PlacementOverlayFormProps = {
   placementDisabled: boolean
   toggleDisabledPlacement: (placementType: LtiPlacement) => void
   updatePlacement: (
-    placement_type: LtiPlacement
+    placement_type: LtiPlacement,
   ) => (fn: (placementOverlay: PlacementOverlay) => PlacementOverlay) => void
   borders: boolean
 }

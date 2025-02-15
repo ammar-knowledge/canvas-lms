@@ -18,7 +18,7 @@
 
 import $ from 'jquery'
 import ready from '@instructure/ready'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import htmlEscape from '@instructure/html-escape'
 import {loadSignupDialog} from '@canvas/signup-dialog'
 import 'jquery-fancy-placeholder' /* fancyPlaceholder */
@@ -26,17 +26,17 @@ import '@canvas/jquery/jquery.instructure_forms' /* formSubmit, getFormData, for
 import '@canvas/loading-image'
 import '@canvas/rails-flash-notifications'
 
-const I18n = useI18nScope('pseudonyms.login')
+const I18n = createI18nScope('pseudonyms.login')
 
 $('#coenrollment_link').click(function (event) {
   event.preventDefault()
   const template = $(this).data('template')
   const path = $(this).data('path')
   loadSignupDialog
-    .then(signupDialog => {
+    .then((signupDialog: (id: string, title: string, path: string) => void) => {
       signupDialog(template, I18n.t('parent_signup', 'Parent Signup'), path)
     })
-    .catch(error => {
+    .catch((error: Error) => {
       throw new Error('Failed to load signup dialog', error)
     })
 })
@@ -57,15 +57,15 @@ $('#forgot_password_form').formSubmit({
           {
             wrappers: ['<b>$1</b>'],
             email_address: $(this).find('.email_address').val(),
-          }
-        )
+          },
+        ),
       ),
-      15 * 60 * 1000 // fifteen minutes isn't forever but should be plenty
+      15 * 60 * 1000, // fifteen minutes isn't forever but should be plenty
     )
     // Focus on the close button of the alert we just put up, per a11y
     $('#flash_message_holder button.close_link').focus()
   },
-  error(_data) {
+  error(_data: JQuery.jqXHR) {
     $(this).loadingImage('remove')
   },
 })

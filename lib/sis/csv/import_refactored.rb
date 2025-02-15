@@ -241,7 +241,7 @@ module SIS
           parallel_importer.abort
           return
         end
-        InstStatsd::Statsd.increment("sis_parallel_worker", tags: { attempt:, retry: in_retry })
+        InstStatsd::Statsd.distributed_increment("sis_parallel_worker", tags: { attempt:, retry: in_retry })
 
         importer_type = parallel_importer.importer_type.to_sym
         importer_object = SIS::CSV.const_get(importer_type.to_s.camelcase + "Importer").new(self)
@@ -249,11 +249,11 @@ module SIS
       rescue => e
         if !in_retry
           ensure_later = true
-          parallel_importer.write_attribute(:workflow_state, "retry")
+          parallel_importer.workflow_state = "retry"
           run_parallel_importer(parallel_importer, attempt:)
         elsif attempt < MAX_TRIES
           ensure_later = true
-          parallel_importer.write_attribute(:workflow_state, "queued")
+          parallel_importer.workflow_state = "queued"
           attempt += 1
           args = job_args(importer_type, attempt:)
           delay_if_production(**args).run_parallel_importer(parallel_importer, attempt:)
@@ -309,7 +309,7 @@ module SIS
       end
 
       def should_stop_import?
-        !@batch.workflow_state == "importing"
+        SisBatch.where(id: @batch).pick(:workflow_state) == "aborted"
       end
 
       def run_all_importers
@@ -400,7 +400,7 @@ module SIS
             return
           end
           begin
-            ::CSV.foreach(csv[:fullpath], **CSVBaseImporter::PARSE_ARGS.merge(headers: false)) do |row|
+            ::CSV.foreach(csv[:fullpath], **CSVBaseImporter::PARSE_ARGS, headers: false) do |row|
               row.each { |header| header&.downcase! }
               importer = IMPORTERS.index do |type|
                 if SIS::CSV.const_get(type.to_s.camelcase + "Importer").send(type.to_s + "_csv?", row)

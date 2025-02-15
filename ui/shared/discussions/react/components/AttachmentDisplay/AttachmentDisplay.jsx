@@ -23,9 +23,9 @@ import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
 import {Responsive} from '@instructure/ui-responsive'
 import {UploadButton} from './UploadButton'
 import {uploadFile} from '@canvas/upload-file'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('discussion_topics_post')
+const I18n = createI18nScope('discussion_topics_post')
 
 const returnFocus = () => {
   // clear conversation selection then use timeout to give time
@@ -97,11 +97,16 @@ export function AttachmentDisplay(props) {
         attachmentInformation['attachment[filename]'] = fileToUpload.name
         attachmentInformation['attachment[content_type]'] = fileToUpload.type
         attachmentInformation['attachment[size]'] = fileToUpload.size
-        // uploads are checked against the user quota, but submissions are not
-        attachmentInformation['attachment[intent]'] = props.checkContextQuota ? 'upload' : 'submit'
+        // attach_discussion_file is checked against the user quota, but submissions are not
+        attachmentInformation['attachment[intent]'] = props.checkContextQuota
+          ? 'attach_discussion_file'
+          : 'submit'
         attachmentInformation['attachment[context_code]'] = `${context}` // used to find the correct course folder
         attachmentInformation['attachment[asset_string]'] = `${assetString}` // required for downloads to go to submission folder; Doesn't Apply to Topic attachments, but Legacy Topic Attachments don't apply to user quota.
       }
+
+      // Prevents overwriting attachments in separate discussions
+      attachmentInformation['attachment[on_duplicate]'] = 'rename'
 
       // Changed from uploadFiles to uploadFile because we need to control the pre-flight data ( attachmentInformation)
       const newFile = await uploadFile(fileUploadURL, attachmentInformation, fileToUpload)
@@ -177,7 +182,7 @@ AttachmentDisplay.propTypes = {
    */
   responsiveQuerySizes: PropTypes.func.isRequired,
   /**
-   * toggles file uploadUrl
+   * toggles file uploadUrl and default upload intent
    */
   checkContextQuota: PropTypes.bool,
 

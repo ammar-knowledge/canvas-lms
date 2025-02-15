@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import type {Course} from '../../../../api.d'
 import {List} from '@instructure/ui-list'
 import {Link} from '@instructure/ui-link'
@@ -27,13 +27,16 @@ import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 
 declare const ENV: GlobalEnv
 
-const I18n = useI18nScope('CoursesTray')
+const I18n = createI18nScope('CoursesTray')
 
 const UNPUBLISHED = 'unpublished'
 
 export const CourseListItemContent = ({course}: {course: Course}) => {
   const sectionNames = (course.sections || []).map(section => section.name)
-  const sectionDetails = sectionNames.length > 0 ? sectionNames.sort().join(', ') : null
+  // @ts-expect-error
+  const showSections = ENV.SETTINGS?.show_sections_in_course_tray
+  const sectionDetails =
+    showSections && sectionNames.length > 0 ? sectionNames.sort().join(', ') : null
   const courseDetails =
     ENV.FEATURES?.courses_popout_sisid && course.sis_course_id
       ? course.enrollment_term_id > 1
@@ -45,10 +48,10 @@ export const CourseListItemContent = ({course}: {course: Course}) => {
             courseSisId: course.sis_course_id,
           })
       : course.enrollment_term_id > 1
-      ? I18n.t('Term: %{termName}', {
-          termName: course.term.name,
-        })
-      : null
+        ? I18n.t('Term: %{termName}', {
+            termName: course.term.name,
+          })
+        : null
 
   return (
     <>

@@ -16,12 +16,12 @@
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 //
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import TokenSelector from './TokenSelector'
 import '@canvas/jquery/jquery.instructure_misc_plugins'
 
-const I18n = useI18nScope('roster')
+const I18n = createI18nScope('roster')
 
 export default class TokenInput {
   constructor($node, options) {
@@ -161,7 +161,7 @@ export default class TokenInput {
       $close.append($('<i class="icon-x" aria-hidden="true"></i>'))
       $token.append($close)
       $token.append(
-        $('<input />').attr('type', 'hidden').attr('name', `${this.nodeName}[]`).val(val)
+        $('<input />').attr('type', 'hidden').attr('name', `${this.nodeName}[]`).val(val),
       )
       if (this.options.onNewToken) {
         this.options.onNewToken($token)
@@ -195,7 +195,7 @@ export default class TokenInput {
               ? data.value
               : undefined
             : data
-        }`
+        }`,
       ).length > 0
     )
   }

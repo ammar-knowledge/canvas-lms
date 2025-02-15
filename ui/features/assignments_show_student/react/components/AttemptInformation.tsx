@@ -30,7 +30,7 @@ import {Badge} from '@instructure/ui-badge'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import StudentViewContext from './Context'
 import {IconChatLine, IconQuestionLine} from '@instructure/ui-icons'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Link} from '@instructure/ui-link'
 import {Popover} from '@instructure/ui-popover'
 import type {Assignment, Submission} from '../../assignments_show_student'
@@ -39,7 +39,7 @@ import {
   isOriginalityReportVisible,
 } from '@canvas/grading/originalityReportHelper'
 
-const I18n = useI18nScope('assignments_2_student_content')
+const I18n = createI18nScope('assignments_2_student_content')
 
 export type AttemptInformationProps = {
   assignment: Assignment
@@ -75,14 +75,14 @@ export default ({
         !peerReviewModeEnabled &&
         submission.attempt != null &&
         submission.attempt > 1 &&
-        submission.state === 'unsubmitted'
+        submission.state === 'unsubmitted',
     )
 
   const unsubmittedDraftMessage = I18n.t(
-    'After the first attempt, you cannot leave comments until you submit the assignment.'
+    'After the first attempt, you cannot leave comments until you submit the assignment.',
   )
   const unavailablePeerReviewMessage = I18n.t(
-    'You cannot leave comments until reviewer and reviewee submits the assignment.'
+    'You cannot leave comments until reviewer and reviewee submits the assignment.',
   )
   const popoverMessage = shouldDisplayPeerReviewEmptyState
     ? unavailablePeerReviewMessage
@@ -149,6 +149,7 @@ export default ({
                 !context.allowChangesToSubmission
               const button = (
                 <Button
+                  // @ts-expect-error
                   renderIcon={IconChatLine}
                   onClick={openCommentTray}
                   disabled={addCommentsDisabled}
@@ -250,7 +251,7 @@ export default ({
                 isOriginalityReportVisible(
                   assignment.originalityReportVisibility,
                   assignment.dueAt,
-                  submission.gradingStatus
+                  submission.gradingStatus,
                 ) &&
                 getOriginalityData(submission, 0) && (
                   <Flex.Item>

@@ -23,6 +23,14 @@ module QuizzesEditPage
     "[data-testid='manage-assign-to']"
   end
 
+  def assign_to_card_selector
+    "[data-testid='item-assign-to-card']"
+  end
+
+  def manage_assign_to_container_selector
+    "#manage-assign-to-container"
+  end
+
   def pending_changes_pill_selector
     "[data-testid='pending_changes_pill']"
   end
@@ -37,6 +45,10 @@ module QuizzesEditPage
 
   # ---------------------------------Elements-----------------------------------
 
+  def assign_to_card
+    f(assign_to_card_selector)
+  end
+
   def course_pacing_notice
     "[data-testid='CoursePacingNotice']"
   end
@@ -47,6 +59,10 @@ module QuizzesEditPage
 
   def manage_assign_to_button
     f(manage_assign_to_button_selector)
+  end
+
+  def manage_assign_to_container
+    f(manage_assign_to_container_selector)
   end
 
   def pending_changes_pill
