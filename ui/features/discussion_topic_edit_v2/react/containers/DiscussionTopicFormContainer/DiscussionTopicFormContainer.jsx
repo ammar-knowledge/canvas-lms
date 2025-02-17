@@ -18,25 +18,27 @@
 
 import React, {useCallback, useContext, useEffect, useState} from 'react'
 
-import {useQuery, useMutation} from 'react-apollo'
-import {DISCUSSION_TOPIC_QUERY} from '../../../graphql/Queries'
-import {CREATE_DISCUSSION_TOPIC, UPDATE_DISCUSSION_TOPIC} from '../../../graphql/Mutations'
-import LoadingIndicator from '@canvas/loading-indicator'
+import {useMutation, useQuery} from '@apollo/client'
 import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import DiscussionTopicForm from '../../components/DiscussionTopicForm/DiscussionTopicForm'
-import {setUsageRights} from '../../util/setUsageRights'
-import {getContextQuery} from '../../util/utils'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import LoadingIndicator from '@canvas/loading-indicator'
+import TopNavPortalWithDefaults from '@canvas/top-navigation/react/TopNavPortalWithDefaults'
+import {assignLocation} from '@canvas/util/globalUtils'
+import WithBreakpoints from '@canvas/with-breakpoints'
+import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {Flex} from '@instructure/ui-flex'
 import {Heading} from '@instructure/ui-heading'
-import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {IconCompleteSolid, IconUnpublishedLine} from '@instructure/ui-icons'
 import {Pill} from '@instructure/ui-pill'
-import {SavingDiscussionTopicOverlay} from '../../components/SavingDiscussionTopicOverlay/SavingDiscussionTopicOverlay'
-import WithBreakpoints from '@canvas/with-breakpoints'
 import {flushSync} from 'react-dom'
+import {CREATE_DISCUSSION_TOPIC, UPDATE_DISCUSSION_TOPIC} from '../../../graphql/Mutations'
+import {DISCUSSION_TOPIC_QUERY} from '../../../graphql/Queries'
+import DiscussionTopicForm from '../../components/DiscussionTopicForm/DiscussionTopicForm'
+import {SavingDiscussionTopicOverlay} from '../../components/SavingDiscussionTopicOverlay/SavingDiscussionTopicOverlay'
+import {setUsageRights} from '../../util/setUsageRights'
+import {getContextQuery} from '../../util/utils'
 
-const I18n = useI18nScope('discussion_create')
+const I18n = createI18nScope('discussion_create')
 const instUINavEnabled = () => window.ENV?.FEATURES?.instui_nav
 
 function DiscussionTopicFormContainer({apolloClient, breakpoints}) {
@@ -102,9 +104,9 @@ function DiscussionTopicFormContainer({apolloClient, breakpoints}) {
 
   function navigateToDiscussionTopic(context_type, discussion_topic_id) {
     if (context_type === 'Course') {
-      window.location.assign(`/courses/${ENV.context_id}/discussion_topics/${discussion_topic_id}`)
+      assignLocation(`/courses/${ENV.context_id}/discussion_topics/${discussion_topic_id}`)
     } else if (context_type === 'Group') {
-      window.location.assign(`/groups/${ENV.context_id}/discussion_topics/${discussion_topic_id}`)
+      assignLocation(`/groups/${ENV.context_id}/discussion_topics/${discussion_topic_id}`)
     } else {
       setOnFailure(I18n.t('Invalid context type'))
     }
@@ -113,7 +115,6 @@ function DiscussionTopicFormContainer({apolloClient, breakpoints}) {
   const handleFormSubmit = (formData, notifyUsers) => {
     const {usageRightsData, ...formDataWithoutUsageRights} = formData
     setUsageRightData(usageRightsData)
-
     if (isEditing) {
       updateDiscussionTopic({variables: {...formDataWithoutUsageRights, notifyUsers}})
     } else {
@@ -150,7 +151,7 @@ function DiscussionTopicFormContainer({apolloClient, breakpoints}) {
           })
 
           window.dispatchEvent(
-            new CustomEvent('triggerMasteryPathsUpdateAssignment', {detail: {assignmentInfo}})
+            new CustomEvent('triggerMasteryPathsUpdateAssignment', {detail: {assignmentInfo}}),
           )
           window.dispatchEvent(new CustomEvent('triggerMasteryPathsSave'))
         }
@@ -186,12 +187,15 @@ function DiscussionTopicFormContainer({apolloClient, breakpoints}) {
   const renderHeading = () => {
     const headerText = isAnnouncement ? I18n.t('Create Announcement') : I18n.t('Create Discussion')
     const titleContent = currentDiscussionTopic?.title ?? headerText
-
     const headerMargin = breakpoints.desktop ? '0 0 large 0' : '0 0 medium 0'
     return instUINavEnabled() ? (
       <Flex margin={headerMargin} direction="column" as="div">
         <Flex.Item margin="0" overflow="hidden">
-          <Heading as="h1" level={breakpoints.desktop ? 'h1' : 'h2'}>
+          <Heading
+            as="h1"
+            level={breakpoints.ICEDesktop ? 'h1' : 'h2'}
+            themeOverride={{h2FontWeight: 700}}
+          >
             {titleContent}
           </Heading>
         </Flex.Item>
@@ -223,9 +227,10 @@ function DiscussionTopicFormContainer({apolloClient, breakpoints}) {
         setOnFailure(I18n.t('Error updating file usage rights'))
       })
     },
-    onError: () => {
+    onError: err => {
+      const errMsg = (err?.graphQLErrors || []).map(error => error?.message).join(', ')
       setIsSubmitting(false)
-      setOnFailure(I18n.t('Error creating discussion topic'))
+      setOnFailure(errMsg || I18n.t('Error creating discussion topic'))
     },
   })
 
@@ -265,9 +270,9 @@ function DiscussionTopicFormContainer({apolloClient, breakpoints}) {
         isEditing={isEditing}
         currentDiscussionTopic={currentDiscussionTopic}
         isStudent={ENV.current_user_is_student}
-        assignmentGroups={currentContext?.assignmentGroupsConnection?.nodes}
+        assignmentGroups={currentContext?.assignmentGroups}
         sections={ENV.SECTION_LIST}
-        groupCategories={currentContext?.groupSetsConnection?.nodes}
+        groupCategories={currentContext?.groupSets || []}
         studentEnrollments={currentContext?.usersConnection?.nodes}
         apolloClient={apolloClient}
         onSubmit={handleFormSubmit}
@@ -278,12 +283,36 @@ function DiscussionTopicFormContainer({apolloClient, breakpoints}) {
     )
   }
 
+  const handleBreadCrumbSetter = ({getCrumbs, setCrumbs}) => {
+    const discussionOrAnnouncement = isAnnouncement
+      ? I18n.t('Announcements')
+      : I18n.t('Discussions')
+    const brUrlPart = isAnnouncement ? 'announcements' : 'discussion_topics'
+    const crumbs = getCrumbs()
+    const baseUrl = `${crumbs[0].url}/${brUrlPart}`
+
+    crumbs.push({name: discussionOrAnnouncement, url: baseUrl})
+
+    if (isEditing && currentDiscussionTopic) {
+      crumbs.push({
+        name: currentDiscussionTopic.title,
+        url: `${baseUrl}/${currentDiscussionTopicId}`,
+      })
+    }
+
+    crumbs.push({name: isEditing ? I18n.t('Edit') : I18n.t('Create new'), url: ''})
+    setCrumbs(crumbs)
+  }
+
   return (
-    <Flex direction="column">
-      <Flex.Item>{renderHeading()}</Flex.Item>
-      {renderForm()}
-      <SavingDiscussionTopicOverlay open={isSubmitting} />
-    </Flex>
+    <>
+      <TopNavPortalWithDefaults getBreadCrumbSetter={handleBreadCrumbSetter} />
+      <Flex direction="column">
+        <Flex.Item>{renderHeading()}</Flex.Item>
+        {renderForm()}
+        <SavingDiscussionTopicOverlay open={isSubmitting} />
+      </Flex>
+    </>
   )
 }
 

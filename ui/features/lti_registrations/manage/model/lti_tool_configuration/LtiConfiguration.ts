@@ -17,7 +17,7 @@
  */
 import * as z from 'zod'
 import {ZExtension} from './Extension'
-import {ZLtiScope} from '../LtiScope'
+import {ZLtiScope} from '@canvas/lti/model/LtiScope'
 
 export interface LtiConfiguration extends z.infer<typeof ZLtiConfiguration> {}
 
@@ -30,10 +30,12 @@ export const ZLtiConfiguration = z.object({
   target_link_uri: z.string(),
   oidc_initiation_url: z.string(),
   custom_fields: z.record(z.string()).optional().nullable(),
+  /** A record of canvas regions to oidc initiation urls */
   oidc_initiation_urls: z.record(z.unknown()).optional().nullable(),
   public_jwk_url: z.string().optional().nullable(),
+  public_jwk: z.unknown().optional().nullable(),
   is_lti_key: z.boolean().optional().nullable(),
   icon_url: z.string().optional().nullable(),
-  scopes: z.array(ZLtiScope),
+  scopes: z.array(ZLtiScope).optional().nullable(),
   extensions: z.array(ZExtension),
 })

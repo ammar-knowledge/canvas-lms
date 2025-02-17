@@ -17,11 +17,11 @@
  */
 
 import {extend} from '@canvas/backbone/utils'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {View} from '@canvas/backbone'
 import CollaboratorPickerView from './CollaboratorPickerView'
 
-const I18n = useI18nScope('collaborations')
+const I18n = createI18nScope('collaborations')
 
 extend(CollaborationFormView, View)
 
@@ -37,7 +37,7 @@ CollaborationFormView.prototype.translations = {
       'Please use %{maxLength} characters or less for the name. Use the description for additional content.',
       {
         maxLength: ENV.TITLE_MAX_LEN,
-      }
+      },
     ),
   },
 }

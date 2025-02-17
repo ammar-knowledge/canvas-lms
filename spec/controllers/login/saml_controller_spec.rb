@@ -284,7 +284,7 @@ describe Login::SamlController do
     account.save!
     controller.instance_variable_set(:@aac, nil)
     post :create, params: { SAMLResponse: "foo" }
-    expect(response).to redirect_to(unknown_user_url)
+    expect(response).to redirect_to(/^#{unknown_user_url}\?message=Canvas/)
     expect(session[:saml_unique_id]).to be_nil
   end
 
@@ -423,6 +423,42 @@ describe Login::SamlController do
       saml_response
     end
 
+    it "works for the local account" do
+      allow(SAML2::Bindings::HTTP_POST).to receive(:decode).and_return(
+        [saml_response, "http://test.host/courses/2"]
+      )
+
+      expect(Account).to receive(:find_by_domain).and_return(@pseudonym.account)
+
+      post :create, params: { SAMLResponse: "foo", RelayState: "http://test.host/courses/2" }
+      expect(response).to be_redirect
+      expect(response.location).to eql "http://test.host/courses/2"
+    end
+
+    it "ignores it if it's going to cause a login loop" do
+      allow(SAML2::Bindings::HTTP_POST).to receive(:decode).and_return(
+        [saml_response, "http://test.host/login/saml"]
+      )
+
+      expect(Account).not_to receive(:find_by_domain)
+
+      post :create, params: { SAMLResponse: "foo", RelayState: "http://test.host/login/saml" }
+      expect(response).to be_redirect
+      expect(response.location).to eql "http://test.host/courses/1"
+    end
+
+    it "appends a session token if we're redirecting to a different domain for the same account" do
+      allow(SAML2::Bindings::HTTP_POST).to receive(:decode).and_return(
+        [saml_response, "https://sameaccount/courses/2"]
+      )
+
+      expect(Account).to receive(:find_by_domain).and_return(@pseudonym.account)
+
+      post :create, params: { SAMLResponse: "foo", RelayState: "https://sameaccount/courses/2" }
+      expect(response).to be_redirect
+      expect(response.location).to match(%r{^https://sameaccount/courses/2\?session_token=})
+    end
+
     it "appends a session token if we're redirecting to a trusted account" do
       allow(SAML2::Bindings::HTTP_POST).to receive(:decode).and_return(
         [saml_response, "https://otheraccount/courses/1"]
@@ -557,7 +593,7 @@ describe Login::SamlController do
       @aac2.save!
     end
 
-    context "#create" do
+    describe "#create" do
       def post_create
         allow_any_instance_of(SAML2::Entity).to receive(:valid_response?)
 
@@ -692,7 +728,7 @@ describe Login::SamlController do
     end
   end
 
-  context "#destroy" do
+  describe "#destroy" do
     let(:certificates) { ["MIIFnzCCBIegAwIBAgIQItX5wssh0ecd46K65PkSNDANBgkqhkiG9w0BAQsFADCBkDELMAkGA1UEBhMCR0IxGzAZBgNVBAgTEkdyZWF0ZXIgTWFuY2hlc3RlcjEQMA4GA1UEBxMHU2FsZm9yZDEaMBgGA1UEChMRQ09NT0RPIENBIExpbWl0ZWQxNjA0BgNVBAMTLUNPTU9ETyBSU0EgRG9tYWluIFZhbGlkYXRpb24gU2VjdXJlIFNlcnZlciBDQTAeFw0xNjA5MDgwMDAwMDBaFw0xOTEwMjUyMzU5NTlaMIGeMSEwHwYDVQQLExhEb21haW4gQ29udHJvbCBWYWxpZGF0ZWQxSTBHBgNVBAsTQElzc3VlZCB0aHJvdWdoIEl2eSBUZWNoIENvbW11bml0eSBDb2xsZWdlIG9mIEluZGlhbmEgRS1QS0kgTWFuYWcxEzARBgNVBAsTCkNPTU9ETyBTU0wxGTAXBgNVBAMTEGFkZnMuaXZ5dGVjaC5lZHUwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC58zHz7VsV9S2XZMRjgqiWxBZ6M9y6/3zkrbObJ9hZqO7giCoonNDuELUiNt8pBqF8aHef8qbDOecBBXkz8rPAJL1S6lzvbxHIBuvEy+xOpVdUNMoyOaAYHOI5T6ueL1Q4iGMKfnWuXSvVTyB+9wAF/aWVFSoz+alUOiQtqTYyfgIKzHIAmFX7/SjFA9UjKVtqatcvzWsSWZHL4imeTmPosXXjmJVZnl+jaeFsnmW59o66sdGR+NYkhsBcVRnuP3MdxVgr5xSJMN+/BgZwCncX+4LJq5664eeQcJM5Km9kbQ/jMFhYy765ejszcL0vWe/fS7tdXQCfoKjRZ5LzNEb3AgMBAAGjggHjMIIB3zAfBgNVHSMEGDAWgBSQr2o6lFoL2JDqElZz30O0Oija5zAdBgNVHQ4EFgQUdFr6SnHaXUqLAEdOL9qrTJS/3AYwDgYDVR0PAQH/BAQDAgWgMAwGA1UdEwEB/wQCMAAwHQYDVR0lBBYwFAYIKwYBBQUHAwEGCCsGAQUFBwMCME8GA1UdIARIMEYwOgYLKwYBBAGyMQECAgcwKzApBggrBgEFBQcCARYdaHR0cHM6Ly9zZWN1cmUuY29tb2RvLmNvbS9DUFMwCAYGZ4EMAQIBMFQGA1UdHwRNMEswSaBHoEWGQ2h0dHA6Ly9jcmwuY29tb2RvY2EuY29tL0NPTU9ET1JTQURvbWFpblZhbGlkYXRpb25TZWN1cmVTZXJ2ZXJDQS5jcmwwgYUGCCsGAQUFBwEBBHkwdzBPBggrBgEFBQcwAoZDaHR0cDovL2NydC5jb21vZG9jYS5jb20vQ09NT0RPUlNBRG9tYWluVmFsaWRhdGlvblNlY3VyZVNlcnZlckNBLmNydDAkBggrBgEFBQcwAYYYaHR0cDovL29jc3AuY29tb2RvY2EuY29tMDEGA1UdEQQqMCiCEGFkZnMuaXZ5dGVjaC5lZHWCFHd3dy5hZGZzLml2eXRlY2guZWR1MA0GCSqGSIb3DQEBCwUAA4IBAQA0dXP0leDcdrr/iKk4nDSCofllPAWE8LE3mD9Yb9K+/oVymxpqNIVJesDPLtf1HqWk6S6eafcYvfzl9aTMcvwEkL27g2l9UQuICkQgqSEY5qTsK//u/2S98JqXep2oRyvxo3UHX+3Ouc3i49hQ0v05Faoeap/ZT3JEsMV2Go9UKRJbYBG9Nqq/CDBuTgyopKJ7fvCtsGxwsvlUAz/NMuNoUphPQ2S+O/SjabjR4XsAGU78Hji2tqJyvPyKPanxc0ioDdnL5lvrk4uZ/6Dy159C5FOFeLU2ZfiNLXRR85KFfhtX954qvX6jmM7CPmcidhzEnZV8fQv9G6XYPfrNL7bh"] }
 
     it "returns bad request if SAML is not configured for account" do

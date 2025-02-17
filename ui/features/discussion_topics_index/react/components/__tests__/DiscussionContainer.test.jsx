@@ -74,16 +74,6 @@ describe('DiscussionsContainer', () => {
     contextType: '',
   }
 
-  const oldEnv = window.ENV
-
-  beforeEach(() => {
-    window.ENV.FEATURES.selective_release_ui_api = true
-  })
-
-  afterEach(() => {
-    window.ENV = oldEnv
-  })
-
   function mockStore(initialState) {
     return applyMiddleware(thunk)(createStore)(rootReducer, initialState)
   }
@@ -93,7 +83,7 @@ describe('DiscussionsContainer', () => {
     return render(
       <Provider store={mockStore(storeState)}>
         <DiscussionsContainer {...props} />
-      </Provider>
+      </Provider>,
     )
   }
 

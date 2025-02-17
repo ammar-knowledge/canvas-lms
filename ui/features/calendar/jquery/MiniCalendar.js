@@ -17,12 +17,12 @@
  */
 
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {defaults} from 'lodash'
 import calendarDefaults from '../CalendarDefaults'
 import 'jquery-tinypubsub'
 
-const I18n = useI18nScope('calendar')
+const I18n = createI18nScope('calendar')
 
 export default class MiniCalendar {
   constructor(selector, mainCalendar) {
@@ -51,7 +51,7 @@ export default class MiniCalendar {
           eventDrop: this.drop,
           eventReceive: this.drop,
         },
-        calendarDefaults
+        calendarDefaults,
       ),
       $.subscribe({
         'Calendar/visibleContextListChanged': this.visibleContextListChanged,
@@ -60,7 +60,7 @@ export default class MiniCalendar {
         'CommonEvent/eventDeleted': this.eventSaved,
         'CommonEvent/eventSaved': this.eventSaved,
         'CommonEvent/eventsSavedFromSeries': this.eventsSavedFromSeries,
-      })
+      }),
     )
   }
 

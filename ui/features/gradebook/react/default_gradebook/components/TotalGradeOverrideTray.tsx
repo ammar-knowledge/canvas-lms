@@ -17,10 +17,10 @@
  */
 
 import React, {useEffect} from 'react'
-import {ApolloProvider, createClient} from '@canvas/apollo'
+import {ApolloProvider, createClient} from '@canvas/apollo-v3'
 import {FinalGradeOverrideTextBox} from '@canvas/final-grade-override'
 import GradeOverrideInfo from '@canvas/grading/GradeEntry/GradeOverrideInfo'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Tray} from '@instructure/ui-tray'
 import {View} from '@instructure/ui-view'
 import {Avatar} from '@instructure/ui-avatar'
@@ -39,7 +39,7 @@ import {useFinalGradeOverrideCustomStatus} from '../hooks/useFinalGradeOverrideC
 import {showFlashError} from '@canvas/alerts/react/FlashAlert'
 import {ApiCallStatus} from '@canvas/do-fetch-api-effect/apiRequest'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 const componentOverrides = {
   Link: {
@@ -100,11 +100,11 @@ export function TotalGradeOverrideTray({
   const selectedCustomStatusId = gradeOverrideCustomStatus(
     finalGradeOverrides,
     studentId,
-    selectedGradingPeriodId
+    selectedGradingPeriodId,
   )
 
   const selectedCustomStatus = customGradeStatuses.find(
-    status => status.id === selectedCustomStatusId
+    status => status.id === selectedCustomStatusId,
   )
 
   const {name, avatarUrl, gradesUrl, enrollmentId} = studentInfo

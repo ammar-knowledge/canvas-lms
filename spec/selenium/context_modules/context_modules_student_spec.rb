@@ -19,12 +19,10 @@
 
 require_relative "../common"
 require_relative "../helpers/context_modules_common"
-require_relative "../../helpers/selective_release_common"
 
 describe "context modules" do
   include_context "in-process server selenium tests"
   include ContextModulesCommon
-  include SelectiveReleaseCommon
 
   before :once do
     @course = course_model.tap(&:offer!)
@@ -721,9 +719,8 @@ describe "context modules" do
       expect(f(".user_content")).to include_text(page.body)
     end
 
-    context "with the selective_release_backend and selective_release_ui_api flags enabled" do
+    context "with selective release" do
       before :once do
-        differentiated_modules_on
         @module1 = @course.context_modules.create!(name: "module 1")
         @module2 = @course.context_modules.create!(name: "module 2")
         @module3 = @course.context_modules.create!(name: "module 3")
@@ -763,12 +760,28 @@ describe "context modules" do
       modules[0].add_item({ id: @topic.id, type: "discussion_topic" })
     end
 
+    it "shows checkpoints with a submitted icon only when student has submitted" do
+      rtt = @topic.discussion_entries.create!(user: @student, message: "my reply to topic")
+      2.times do |i|
+        @topic.discussion_entries.create!(
+          user: @student, message: "my reply to entry #{i}", parent_entry: rtt
+        )
+      end
+      user_session(@student)
+      go_to_modules
+      checkpoints = ff("div[data-testid='checkpoint']")
+      expect(checkpoints[0].text).to include("submitted")
+      expect(checkpoints[1].text).to include("submitted")
+    end
+
     it "shows checkpoints (with applicable override for student) as child items in checkpointed discussions" do
       user_session(@student)
       go_to_modules
       checkpoints = ff("div[data-testid='checkpoint']")
       expect(checkpoints[0].text).to include("Reply to Topic\n#{datetime_string(@c1.overridden_for(@student).due_at)}")
+      expect(checkpoints[0].text).not_to include("submitted")
       expect(checkpoints[1].text).to include("Required Replies (#{@topic.reply_to_entry_required_count})\n#{datetime_string(@c2.overridden_for(@student).due_at)}")
+      expect(checkpoints[1].text).not_to include("submitted")
     end
 
     it "shows checkpoints (with default due date only when applicable) as child items in checkpointed discussions" do
@@ -790,8 +803,8 @@ describe "context modules" do
       go_to_modules
 
       checkpoints = ff("div[data-testid='checkpoint']")
-      expect(checkpoints[0].text).to include("Reply to Topic\n#{datetime_string(@c1.due_at)}")
-      expect(checkpoints[1].text).to include("Required Replies (#{@topic.reply_to_entry_required_count})\n#{datetime_string(@c2.due_at)}")
+      expect(checkpoints[0].text).to include("Reply to Topic\n#{datetime_string(@c1.reload.due_at)}")
+      expect(checkpoints[1].text).to include("Required Replies (#{@topic.reply_to_entry_required_count})\n#{datetime_string(@c2.reload.due_at)}")
     end
 
     it "shows checkpoints (with applicable due date override when there is nothing but overrides)" do
@@ -822,6 +835,33 @@ describe "context modules" do
       checkpoints = ff("div[data-testid='checkpoint']")
       expect(checkpoints[0].text).to include("Reply to Topic\n#{datetime_string(@c1.overridden_for(@student).due_at)}")
       expect(checkpoints[1].text).to include("Required Replies (#{@topic.reply_to_entry_required_count})\n#{datetime_string(@c2.overridden_for(@student).due_at)}")
+    end
+
+    it "shows checkpoints with proper due dates when an override is updated" do
+      everyone_override = { type: "everyone", due_at: 5.years.ago }
+      student_override = { type: "override", set_type: "ADHOC", student_ids: [@student.id], due_at: nil }
+      reply_to_topic_new_due_date = 15.days.from_now
+      reply_to_entry_new_due_date = 20.days.from_now
+      Checkpoints::DiscussionCheckpointUpdaterService.call(
+        discussion_topic: @topic,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [everyone_override, student_override.merge({ due_at: reply_to_topic_new_due_date })],
+        points_possible: 5
+      )
+
+      Checkpoints::DiscussionCheckpointUpdaterService.call(
+        discussion_topic: @topic,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [everyone_override, student_override.merge({ due_at: reply_to_entry_new_due_date })],
+        points_possible: 5
+      )
+
+      user_session(@student)
+      go_to_modules
+
+      checkpoints = ff("div[data-testid='checkpoint']")
+      expect(checkpoints[0].text).to include("Reply to Topic\n#{datetime_string(reply_to_topic_new_due_date)}")
+      expect(checkpoints[1].text).to include("Required Replies (#{@topic.reply_to_entry_required_count})\n#{datetime_string(reply_to_entry_new_due_date)}")
     end
   end
 end

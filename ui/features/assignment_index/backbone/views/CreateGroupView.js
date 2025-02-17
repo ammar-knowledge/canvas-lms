@@ -16,7 +16,7 @@
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import round from '@canvas/round'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import {each, extend as lodashExtend} from 'lodash'
 import numberHelper from '@canvas/i18n/numberHelper'
@@ -32,7 +32,7 @@ import wrapper from '@canvas/forms/jst/EmptyDialogFormWrapper.handlebars'
 import {shimGetterShorthand} from '@canvas/util/legacyCoffeesScriptHelpers'
 import '@canvas/rails-flash-notifications'
 
-const I18n = useI18nScope('CreateGroupView')
+const I18n = createI18nScope('CreateGroupView')
 
 const SHORT_HEIGHT = 250
 class CreateGroupView extends DialogFormView {
@@ -235,7 +235,7 @@ CreateGroupView.prototype.messages = shimGetterShorthand(
     name_too_long_error() {
       return I18n.t('Name is too long')
     },
-  }
+  },
 )
 
 export default CreateGroupView

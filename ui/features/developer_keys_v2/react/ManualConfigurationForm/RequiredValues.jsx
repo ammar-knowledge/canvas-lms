@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React from 'react'
 import $ from 'jquery'
@@ -27,7 +27,7 @@ import {TextInput} from '@instructure/ui-text-input'
 import {PresentationContent} from '@instructure/ui-a11y-content'
 import {Grid} from '@instructure/ui-grid'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 
 const validationMessage = [{text: I18n.t('Field cannot be blank.'), type: 'error'}]
 
@@ -45,7 +45,7 @@ export default class RequiredValues extends React.Component {
     let isMissing = false
     if (
       ['target_link_uri', 'oidc_initiation_url', 'description', 'title'].some(
-        p => !this.state.toolConfiguration[p]
+        p => !this.state.toolConfiguration[p],
       )
     ) {
       isMissing = true
@@ -83,7 +83,7 @@ export default class RequiredValues extends React.Component {
       } catch (e) {
         if (e instanceof SyntaxError) {
           this.props.flashError(
-            I18n.t('Public JWK json is not valid. Please submit properly formatted json.')
+            I18n.t('Public JWK json is not valid. Please submit properly formatted json.'),
           )
           return false
         }
@@ -93,7 +93,7 @@ export default class RequiredValues extends React.Component {
         [jwk.kty, jwk.e, jwk.n, jwk.kid, jwk.alg, jwk.use].some(f => typeof f !== 'string')
       ) {
         this.props.flashError(
-          I18n.t('Public JWK json must have the following string fields: kty, e, n, kid, alg, use')
+          I18n.t('Public JWK json must have the following string fields: kty, e, n, kid, alg, use'),
         )
         return false
       }

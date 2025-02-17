@@ -1,11 +1,15 @@
-<div id="group_categories_tabs" class="ui-tabs-minimal ui-tabs ui-widget ui-widget-content ui-corner-all" style="overflow: hidden;">
-  <ul class="collectionViewItems ui-tabs-nav ui-helper-reset ui-helper-clearfix ui-widget-header ui-corner-all" role="tablist" data-view="rosterTabs"></ul>
+<div id="group_categories_tabs" class="ui-tabs-minimal ui-tabs ui-widget ui-widget-content ui-corner-all" style="display: block;">
+  {{#unless isHorizonCourse}}
+    <ul class="collectionViewItems ui-tabs-nav ui-helper-reset ui-helper-clearfix ui-widget-header ui-corner-all" role="tablist" data-view="rosterTabs"></ul>
+  {{/unless}}
   {{#if canAddCategories}}
   <div class='pull-right group-categories-actions'>
     {{#if permissions.can_add_groups}}
-    <a href="/courses/{{course_id}}/groups#new" class="btn btn-primary" aria-label="{{#t}}Add Group Set{{/t}}" title="{{#t}}Add Group Set{{/t}}">
-      <i class='icon-plus'></i> {{#t 'group_set'}}Group Set{{/t}}
-    </a>
+      {{#unless isHorizonCourse}}
+        <a href="/courses/{{course_id}}/groups#new" class="btn btn-primary" aria-label="{{#t}}Add Group Set{{/t}}" title="{{#t}}Add Group Set{{/t}}">
+          <i class='icon-plus'></i> {{#t 'group_set'}}Group Set{{/t}}
+        </a>
+      {{/unless}}
     {{/if}}
   </div>
   {{/if}}
@@ -24,7 +28,8 @@
       data-view="roleSelect"
       aria-label='{{#t "role_to_search"}}Limit search to role{{/t}}'
       ></select>
-
+    <div id="userDiffTagManager"></div>
+    <div id="manageTagsTray"></div>
     {{#if permissions.add_users_to_course}}
     {{#if course.concluded}}
     <a
@@ -48,7 +53,6 @@
       >{{#t "people"}}People{{/t}}</a>
     {{/if}}
     {{/if}}
-    <form data-view="createUsers" class="form-dialog"></form>
 
     <div class="v-gutter">
       <div data-view="resendInvitations"></div>
@@ -57,4 +61,7 @@
 
   </div>
   <div id="createUsersModalHolder"></div>
+  <div id="differentiationTagTray"></div>
+  <div id="userTagsModalContainer"></div>
+  <div id="link_to_students_mount_point"></div>
 </div>

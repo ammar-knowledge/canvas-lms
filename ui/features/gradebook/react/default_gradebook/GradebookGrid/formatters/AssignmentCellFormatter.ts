@@ -18,7 +18,7 @@
 
 // xsslint safeString.method I18n.t
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import htmlEscape from '@instructure/html-escape'
 import {extractDataTurnitin} from '@canvas/grading/Turnitin'
 import GradeFormatHelper from '@canvas/grading/GradeFormatHelper'
@@ -30,7 +30,7 @@ import type {SubmissionData, SubmissionWithOriginalityReport} from '@canvas/grad
 import type {GradingStandard} from '@instructure/grading-utils'
 import type {Assignment, Student, Submission} from '../../../../../../api.d'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 type Options = {
   classNames?: string[]
@@ -55,7 +55,7 @@ type Getters = {
   }): ReturnType<Gradebook['getPendingGradeInfo']>
   getStudent(studentId: string): ReturnType<Gradebook['student']>
   getSubmissionState(
-    submission: Submission
+    submission: Submission,
   ): ReturnType<Gradebook['submissionStateMap']['getSubmissionState']>
   showUpdatedSimilarityScore(): boolean
 }
@@ -203,7 +203,7 @@ export default class AssignmentCellFormatter {
     columnDef: {
       postAssignmentGradesTrayOpenForAssignmentId?: string
     },
-    student: Student
+    student: Student,
   ) => {
     let submissionState
     if (submission) {

@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import htmlEscape from '@instructure/html-escape'
 import React from 'react'
 import ReactDOM from 'react-dom'
@@ -28,7 +28,7 @@ import '@canvas/jquery/jquery.instructure_forms' /* formSubmit */
 import '@canvas/jquery-keycodes'
 import '@canvas/loading-image'
 
-const I18n = useI18nScope('authentication_providers')
+const I18n = createI18nScope('authentication_providers')
 
 ready(() => {
   const selectorNode = document.getElementById('add-authentication-provider')
@@ -44,7 +44,7 @@ ready(() => {
       authTypes={authTypeOptions}
       onChange={authenticationProviders.changedAuthType}
     />,
-    selectorNode
+    selectorNode,
   )
 })
 
@@ -53,7 +53,7 @@ $('.parent_reg_warning').click(function () {
   const parent_reg_selected = $('#parent_reg_selected').attr('data-parent-reg-selected')
   if ($(this).is(':checked') && parent_reg_selected === 'true') {
     msg = I18n.t(
-      'Another configuration is currently selected.  Selecting this configuration will deselect the other.'
+      'Another configuration is currently selected.  Selecting this configuration will deselect the other.',
     )
     $('.parent_warning_message').append(htmlEscape(msg))
     $.screenReaderFlashMessage(msg)
@@ -126,7 +126,7 @@ $('.remove_federated_attribute').click(function () {
   if ($federated_attributes.find('tbody tr:visible').length === 0) {
     $federated_attributes.find('table').hide()
     $federated_attributes.append(
-      "<input type='hidden' name='authentication_provider[federated_attributes]' value='' class='no_federated_attributes'>"
+      "<input type='hidden' name='authentication_provider[federated_attributes]' value='' class='no_federated_attributes'>",
     )
   }
   if ($next.length === 0) {

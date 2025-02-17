@@ -25,16 +25,16 @@ class Login::OAuth2Controller < Login::OAuthBaseController
   rescue_from Canvas::TimeoutCutoff, with: :handle_external_timeout
 
   def new
-    super
     nonce = session[:oauth2_nonce] = SecureRandom.hex(24)
-    jwt = Canvas::Security.create_jwt({ aac_id: @aac.global_id, nonce:, host: request.host_with_port }, 10.minutes.from_now)
-    authorize_url = @aac.generate_authorize_url(oauth2_login_callback_url, jwt)
+    jwt = Canvas::Security.create_jwt({ aac_id: aac.global_id, nonce:, host: request.host_with_port }, 10.minutes.from_now)
+    authorize_url = aac.generate_authorize_url(oauth2_login_callback_url, jwt, nonce:, **additional_authorize_params)
 
-    if @aac.debugging? && @aac.debug_set(:nonce, nonce, overwrite: false)
-      @aac.debug_set(:debugging, t("Redirected to identity provider"))
-      @aac.debug_set(:authorize_url, authorize_url)
+    if aac.debugging? && aac.debug_set(:nonce, nonce, overwrite: false)
+      aac.debug_set(:debugging, t("Redirected to identity provider"))
+      aac.debug_set(:authorize_url, authorize_url)
     end
 
+    increment_statsd(:attempts)
     redirect_to authorize_url
   end
 
@@ -42,6 +42,7 @@ class Login::OAuth2Controller < Login::OAuthBaseController
     return unless validate_request
 
     @aac = AuthenticationProvider.find(jwt["aac_id"])
+    increment_statsd(:attempts)
     raise ActiveRecord::RecordNotFound unless @aac.is_a?(AuthenticationProvider::OAuth2)
 
     debugging = @aac.debugging? && jwt["nonce"] == @aac.debug_get(:nonce)
@@ -52,38 +53,47 @@ class Login::OAuth2Controller < Login::OAuthBaseController
 
     unique_id = nil
     provider_attributes = {}
+    token = nil
     return unless timeout_protection do
       begin
         token = @aac.get_token(params[:code], oauth2_login_callback_url, params)
+        token.options[:nonce] = jwt["nonce"]
       rescue => e
         @aac.debug_set(:get_token_response, e) if debugging
+        increment_statsd(:failure, reason: :get_token)
         raise
       end
       begin
         unique_id = @aac.unique_id(token)
         provider_attributes = @aac.provider_attributes(token)
+        @aac = @aac.try(:alternate_provider_for_token, token) || @aac
       rescue OAuthValidationError => e
-        unknown_user_url = @domain_root_account.unknown_user_url.presence || login_url
-        flash[:delegated_message] = e.message
-        return redirect_to unknown_user_url
+        @aac.debug_set(:validation_error, e.message) if debugging
+        return redirect_to_unknown_user_url(e.message)
       rescue => e
         @aac.debug_set(:claims_response, e) if debugging
         raise
       end
     end
 
-    find_pseudonym(unique_id, provider_attributes)
+    find_pseudonym(unique_id, provider_attributes, token)
   end
 
   protected
 
+  def additional_authorize_params
+    {}
+  end
+
   def handle_expired_token
     flash[:delegated_message] = t("It took too long to login. Please try again")
+    increment_statsd(:failure, reason: :stale_session)
     redirect_to login_url
   end
 
   def handle_external_timeout
     flash[:delegated_message] = t("A timeout occurred contacting external authentication service")
+    increment_statsd(:failure, reason: :timeout)
     redirect_to login_url
     false
   end
@@ -97,6 +107,7 @@ class Login::OAuth2Controller < Login::OAuthBaseController
 
     begin
       if jwt["nonce"].blank? || jwt["nonce"] != session.delete(:oauth2_nonce)
+        increment_statsd(:failure, reason: :invalid_nonce)
         raise ActionController::InvalidAuthenticityToken
       end
     rescue Canvas::Security::TokenExpired
@@ -114,5 +125,9 @@ class Login::OAuth2Controller < Login::OAuthBaseController
              else
                {}
              end
+  end
+
+  def auth_type
+    "oauth2"
   end
 end

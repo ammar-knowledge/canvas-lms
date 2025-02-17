@@ -86,6 +86,7 @@
         <xs:element name="grading_standard_id" type="optional_integer" minOccurs="0"/>
         <xs:element name="storage_quota" type="optional_float" minOccurs="0"/>
         <xs:element name="lock_all_announcements" type="xs:boolean" minOccurs="0"/>
+        <xs:element name="horizon_course" type="xs:boolean" minOccurs="0"/>
         <xs:element name="public_syllabus" type="xs:boolean" minOccurs="0"/>
         <xs:element name="files_visibility" type="xs:string" minOccurs="0"/>
         <xs:element name="hide_distribution_graphs" type="xs:boolean" minOccurs="0"/>
@@ -211,6 +212,7 @@
       <xs:element name="module_locked" type="xs:boolean" minOccurs="0"/>
       <xs:element name="muted" type="xs:boolean" minOccurs="0"/>
       <xs:element name="omit_from_final_grade" type="xs:boolean" minOccurs="0"/>
+      <xs:element name="hide_in_gradebook" type="xs:boolean" minOccurs="0"/>
       <xs:element name="only_visible_to_overrides" type="xs:boolean" minOccurs="0"/>
       <xs:element name="post_to_sis" type="xs:boolean" minOccurs="0"/>
       <xs:element name="allowed_attempts" type="optional_integer" minOccurs="0"/>
@@ -273,8 +275,33 @@
         </xs:complexType>
       </xs:element>
       <xs:element name="annotatable_attachment_migration_id" type="xs:ID" minOccurs="0"/>
+      <xs:element name="sub_assignments" minOccurs="0">
+        <xs:complexType>
+          <xs:choice>
+            <xs:sequence>
+              <xs:element name="sub_assignment" type="subAssignmentType" minOccurs="2" maxOccurs="2"/>
+            </xs:sequence>
+            <xs:sequence/>
+          </xs:choice>
+        </xs:complexType>
+      </xs:element>
     </xs:all>
     <xs:attribute name="identifier" type="xs:ID" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="subAssignmentType">
+    <xs:complexContent>
+      <xs:extension base="assignmentType">
+        <xs:attribute name="tag" use="required">
+          <xs:simpleType>
+            <xs:restriction base="xs:string">
+              <xs:enumeration value="reply_to_topic"/>
+              <xs:enumeration value="reply_to_entry"/>
+            </xs:restriction>
+          </xs:simpleType>
+        </xs:attribute>
+      </xs:extension>
+    </xs:complexContent>
   </xs:complexType>
 
   <xs:element name="topicMeta">
@@ -300,12 +327,21 @@
         <xs:element name="sort_by_rating" type="xs:boolean" minOccurs="0"/>
         <xs:element name="todo_date" type="optional_dateTime" minOccurs="0"/>
         <xs:element name="publish_at" type="optional_dateTime" minOccurs="0"/>
+        <xs:element name="reply_to_entry_required_count" minOccurs="0">
+          <xs:simpleType>
+            <xs:restriction base="xs:integer">
+              <xs:minInclusive value="1"/>
+              <xs:maxInclusive value="10"/>
+            </xs:restriction>
+          </xs:simpleType>
+        </xs:element>
         <xs:element name="discussion_type" minOccurs="0">
           <xs:simpleType>
             <xs:restriction base="xs:string">
               <xs:enumeration value="side_comment"/>
               <xs:enumeration value="threaded"/>
               <xs:enumeration value="flat"/>
+              <xs:enumeration value="not_threaded"/>
             </xs:restriction>
           </xs:simpleType>
         </xs:element>
@@ -386,6 +422,7 @@
                         <xs:all minOccurs="0">
                           <xs:element name="identifierref" type="xs:string" minOccurs="1"/>
                           <xs:element name="min_score" type="optional_float" minOccurs="0"/>
+                          <xs:element name="min_percentage" type="optional_integer" minOccurs="0"/>
                           <xs:element name="max_score" type="optional_float" minOccurs="0"/>
                         </xs:all>
                         <xs:attribute name="type" type="xs:string" use="required"/>
@@ -413,6 +450,13 @@
               <xs:element name="end_date" type="xs:date" minOccurs="0"/>
               <xs:element name="published_at" type="xs:dateTime" minOccurs="0"/>
               <xs:element name="exclude_weekends" type="xs:boolean" minOccurs="0"/>
+              <xs:element name="selected_days_to_skip">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element name="day_of_week" type="xs:string" maxOccurs="7"/>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
               <xs:element name="hard_end_dates" type="xs:boolean" minOccurs="0"/>
               <xs:element name="module_items" minOccurs="0">
                 <xs:complexType>

@@ -293,4 +293,31 @@ module CustomWaitMethods
   rescue Selenium::WebDriver::Error::NoSuchElementError
     true
   end
+
+  def wait_for_block_editor(parent_element = nil)
+    parent_element ||= f("#content")
+    keep_trying_until do
+      disable_implicit_wait { f(".block-editor-editor", parent_element) }
+    rescue => e
+      puts e.inspect
+      false
+    end
+  end
+
+  def wait_for_block_editor_toolbar(selector = ".block-toolbar")
+    keep_trying_until do
+      disable_implicit_wait { driver.find_element(:css, selector) }
+    rescue => e
+      puts e.message
+    end
+  end
+
+  def click_and_check(element, validator)
+    keep_trying_until do
+      disable_implicit_wait { element.click }
+      disable_implicit_wait { f(validator).displayed? }
+    rescue => e
+      puts e.message
+    end
+  end
 end

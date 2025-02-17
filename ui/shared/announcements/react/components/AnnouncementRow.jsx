@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {bool, func} from 'prop-types'
 import useDateTimeFormat from '@canvas/use-date-time-format-hook'
@@ -35,7 +35,7 @@ import announcementShape from '../proptypes/announcement'
 import masterCourseDataShape from '@canvas/courses/react/proptypes/masterCourseData'
 import {makeTimestamp} from '@canvas/datetime/react/date-utils'
 
-const I18n = useI18nScope('shared_components')
+const I18n = createI18nScope('shared_components')
 
 export default function AnnouncementRow({
   announcement,
@@ -88,7 +88,7 @@ export default function AnnouncementRow({
           <ScreenReaderContent>
             {I18n.t('Delete announcement %{title}', {title: announcement.title})}
           </ScreenReaderContent>
-        </Menu.Item>
+        </Menu.Item>,
       )
     }
     if (!announcementsLocked) {
@@ -114,7 +114,7 @@ export default function AnnouncementRow({
               ? I18n.t('Allow comments for %{title}', {title: announcement.title})
               : I18n.t('Disallow comments for %{title}', {title: announcement.title})}
           </ScreenReaderContent>
-        </Menu.Item>
+        </Menu.Item>,
       )
     }
     return menuList

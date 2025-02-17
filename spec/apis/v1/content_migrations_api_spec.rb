@@ -60,9 +60,9 @@ describe ContentMigrationsController, type: :request do
       expect(json.first["id"]).to eq @migration.id
     end
 
-    it "401s" do
+    it "403s" do
       course_with_student_logged_in(course: @course, active_all: true)
-      api_call(:get, @migration_url, @params, {}, {}, expected_status: 401)
+      api_call(:get, @migration_url, @params, {}, {}, expected_status: 403)
     end
 
     it "creates the course root folder" do
@@ -181,9 +181,9 @@ describe ContentMigrationsController, type: :request do
       api_call(:get, @migration_url + "000", @params.merge({ id: @migration.id.to_param + "000" }), {}, {}, expected_status: 404)
     end
 
-    it "401s" do
+    it "403s" do
       course_with_student_logged_in(course: @course, active_all: true)
-      api_call(:get, @migration_url, @params, {}, {}, expected_status: 401)
+      api_call(:get, @migration_url, @params, {}, {}, expected_status: 403)
     end
 
     it "does not return attachment for course copies" do
@@ -823,6 +823,70 @@ describe ContentMigrationsController, type: :request do
         "required_settings" => ["source_folder_id"]
       }]
     end
+
+    context "InstUI feature flag" do
+      let(:external_tool) do
+        @course.account.context_external_tools.create!(
+          name: "Quizzes.Next",
+          consumer_key: "test_key",
+          shared_secret: "test_secret",
+          config_url: "http://example.com/config.xml",
+          tool_id: "quizzes_next",
+          domain: "example.com"
+        )
+      end
+
+      before do
+        # Mock the Lti::ContextToolFinder to return the created external tool
+        allow(Lti::ContextToolFinder).to receive(:all_tools_for).and_return([external_tool])
+        p = Canvas::Plugin.find("common_cartridge_importer")
+        allow(Canvas::Plugin).to receive(:all_for_tag).and_return([p])
+      end
+
+      context "is disabled" do
+        it "returns the migrators without external tools" do
+          json = api_call(:get,
+                          "/api/v1/courses/#{@course.id}/content_migrations/migrators",
+                          { controller: "content_migrations", action: "available_migrators", format: "json", course_id: @course.id.to_param })
+
+          expect(json).to eq [
+            {
+              "type" => "common_cartridge_importer",
+              "requires_file_upload" => true,
+              "name" => "Common Cartridge 1.x Package",
+              "required_settings" => []
+            }
+          ]
+        end
+      end
+
+      context "is enabled" do
+        before do
+          Account.site_admin.enable_feature!(:instui_for_import_page)
+        end
+
+        it "returns the migrators with external tools" do
+          json = api_call(:get,
+                          "/api/v1/courses/#{@course.id}/content_migrations/migrators",
+                          { controller: "content_migrations", action: "available_migrators", format: "json", course_id: @course.id.to_param })
+
+          expect(json).to eq [
+            {
+              "type" => "common_cartridge_importer",
+              "requires_file_upload" => true,
+              "name" => "Common Cartridge 1.x Package",
+              "required_settings" => []
+            },
+            {
+              "name" => external_tool.name,
+              "required_settings" => [],
+              "requires_file_upload" => false,
+              "type" => "context_external_tool_" + external_tool.id.to_s
+            }
+          ]
+        end
+      end
+    end
   end
 
   describe "content selection" do
@@ -1013,7 +1077,7 @@ describe ContentMigrationsController, type: :request do
                    id: @migration.to_param },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
 
       it "maps ids" do

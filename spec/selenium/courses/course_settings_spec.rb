@@ -421,6 +421,15 @@ describe "course settings" do
       expect(admin_cog("#nav_edit_tab_id_0")).to be_falsey
     end
 
+    it "does not show Home tab when in a horizon course" do
+      Account.site_admin.enable_feature!(:horizon_course_setting)
+      @course.update!(horizon_course: true)
+      @course.save!
+      get "/courses/#{@course.id}/settings#tab-navigation"
+      # The Home tab always has this ID
+      expect(element_exists?("#nav_edit_tab_id_0")).to be_falsey
+    end
+
     it "changes course details" do
       course_name = "new course name"
       course_code = "new course-101"
@@ -485,6 +494,54 @@ describe "course settings" do
         cog_menu_button.click # open the menu
         ff(".disable_nav_item_link")[2].click # click "Disable"
         check_element_has_focus(cog_menu_button)
+      end
+    end
+
+    context "participation" do
+      it "allows setting both dates as empty" do
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        fj("button:contains('Update Course Details')").click
+        expect(fj("span:contains('Course was successfully updated')")).to be_present
+      end
+
+      it "allows end date to be empty" do
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        ff("input[id*='Selectable_']").first.send_keys(Time.zone.now.to_s)
+        fj("button:contains('Update Course Details')").click
+        expect(fj("span:contains('Course was successfully updated')")).to be_present
+      end
+
+      it "allows start date to be empty" do
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        ff("input[id*='Selectable_']").last.send_keys(Time.zone.now.to_s)
+        fj("button:contains('Update Course Details')").click
+        expect(fj("span:contains('Course was successfully updated')")).to be_present
+      end
+
+      it "gives a validation when end is greater than start" do
+        current_date = Time.zone.now
+        yesterday = current_date - 1.day
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        ff("input[id*='Selectable_']").first.send_keys(current_date.to_s)
+        ff("input[id*='Selectable_']").last.send_keys(yesterday.to_s)
+
+        fj("button:contains('Update Course Details')").click
+        # Adding expectation for the error shown after the end field
+        expect(fj("span:contains('The end date can not occur before the start date.')")).to be_present
+        # Adding expectation for the error shown in the Flash notification
+        expect(fj("span:contains('The course end date can not occur before the course start date.')")).to be_present
       end
     end
 
@@ -604,7 +661,7 @@ describe "course settings" do
     user_session(@user)
     role = custom_account_role("role", account: @account)
     @account.role_overrides.create!(permission: "read_course_content", role:, enabled: true)
-    @account.role_overrides.create!(permission: "manage_content", role:, enabled: false)
+    @account.role_overrides.create!(permission: "manage_course_content_edit", role:, enabled: false)
     @course.account.account_users.create!(user: @user, role:)
 
     get "/courses/#{@course.id}/settings"

@@ -26,7 +26,6 @@ import type React from 'react'
 interface TranslateArgs {
   subject?: string
   body?: string
-  callback: (arg: string) => void
   srcLang: string
   tgtLang: string
 }
@@ -53,9 +52,7 @@ export function translateMessage(args: TranslateArgs) {
   }
 
   // Translate the payload, then with that text.
-  translateText(args, payload).then(text => {
-    args.callback(text)
-  })
+  return translateText(args, payload)
 }
 
 /**
@@ -73,24 +70,8 @@ export async function translateText(args: TranslateArgs, text: string): Promise<
       },
     },
   })
+  // @ts-expect-error
   return result.json.translated_text
-}
-
-export async function translateInboxMessage(
-  text: string,
-  callback: (arg: string) => void
-): Promise<void> {
-  const result = await doFetchApi({
-    method: 'POST',
-    path: '/translate/message',
-    body: {
-      inputs: {
-        text,
-      },
-    },
-  })
-
-  callback(result.json)
 }
 
 /**
@@ -110,10 +91,17 @@ export function handleTranslatedModalBody(
   translatedText: string,
   isPrimary: boolean,
   activeSignature: string,
-  bodySetter: React.SetStateAction<string>
+  bodySetter: React.SetStateAction<string>,
+  newBody?: string,
 ) {
+  // @ts-expect-error
   bodySetter(prevBody => {
-    let message = [translatedText, stripSignature(prevBody)]
+    let message
+    if (typeof newBody !== 'undefined') {
+      message = [translatedText, newBody]
+    } else {
+      message = [translatedText, stripSignature(prevBody)]
+    }
     if (!isPrimary) {
       message = message.reverse()
     }

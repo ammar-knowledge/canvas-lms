@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2019 - present Instructure, Inc.
  *
@@ -20,15 +19,16 @@
 import React from 'react'
 import {arrayOf, shape, string} from 'prop-types'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ContentFilter from '@canvas/gradebook-content-filters/react/ContentFilter'
 
-const I18n = useI18nScope(
-  'gradebook_default_gradebook_components_content_filters_assignment_group_filter'
+const I18n = createI18nScope(
+  'gradebook_default_gradebook_components_content_filters_assignment_group_filter',
 )
 
 const ALL_ITEMS_ID = '0'
 
+// @ts-expect-error
 export default function AssignmentGroupFilter(props) {
   const {assignmentGroups, selectedAssignmentGroupId, ...filterProps} = props
 
@@ -50,7 +50,7 @@ AssignmentGroupFilter.propTypes = {
     shape({
       id: string.isRequired,
       name: string.isRequired,
-    })
+    }),
   ).isRequired,
 
   selectedAssignmentGroupId: string,

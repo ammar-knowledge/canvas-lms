@@ -52,7 +52,7 @@ describe('lti.put_data handler', () => {
     it('sends bad request error postMessage', () => {
       handler({message, responseMessages, event})
       expect(responseMessages.sendBadRequestError).toHaveBeenCalledWith(
-        "Missing required 'key' field"
+        "Missing required 'key' field",
       )
     })
   })
@@ -65,7 +65,7 @@ describe('lti.put_data handler', () => {
     it('sends bad request error postMessage', () => {
       handler({message, responseMessages, event})
       expect(responseMessages.sendBadRequestError).toHaveBeenCalledWith(
-        "Missing required 'message_id' field"
+        "Missing required 'message_id' field",
       )
     })
   })
@@ -107,6 +107,7 @@ describe('lti.put_data handler', () => {
     const code = 'code'
 
     beforeEach(() => {
+      message = {key: 'hello', value: 'world', message_id: 'any'}
       platformStorage.putData.mockRestore()
       platformStorage.putData.mockImplementation(() => {
         const e = new Error(errorMessage)

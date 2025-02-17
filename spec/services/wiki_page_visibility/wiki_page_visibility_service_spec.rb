@@ -24,12 +24,10 @@ describe WikiPageVisibility::WikiPageVisibilityService do
   include StudentVisibilityCommon
 
   def assignment_ids_visible_to_user(user)
-    AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_student(course_id: @course.id, user_id: user.id).map(&:assignment_id)
+    AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(course_ids: @course.id, user_ids: user.id).map(&:assignment_id)
   end
 
   before :once do
-    Account.site_admin.enable_feature!(:selective_release_backend)
-
     course_factory(active_all: true)
     @section1 = @course.default_section
     @section2 = @course.course_sections.create!(name: "Section 2")

@@ -65,6 +65,7 @@ class Pseudonym < ActiveRecord::Base
             inclusion: { in: %w[administrative observer staff student student_other teacher] }
 
   before_save :set_password_changed
+  before_save :clear_login_attribute_if_needed
   before_validation :infer_defaults, :verify_unique_sis_user_id, :verify_unique_integration_id
   after_save :update_account_associations_if_account_changed
   has_a_broadcast_policy
@@ -85,16 +86,14 @@ class Pseudonym < ActiveRecord::Base
               if: ->(p) { (p.unique_id_changed? || p.workflow_state_changed?) && p.active? }
             }
 
-  validates :password,
-            confirmation: true,
-            if: :require_password?
+  validates :password, confirmation: true, if: :require_password?
+  validates_each :password, if: :require_password?, &:validate_password
+  validates :password_confirmation, presence: true, if: :require_password?
 
-  validates_each :password,
-                 if: :require_password?,
-                 &Canvas::Security::PasswordPolicy.method(:validate)
-  validates :password_confirmation,
-            presence: true,
-            if: :require_password?
+  ENCRYPTION_PATTERNS = {
+    scrypt: /^\d+\$\d+\$\d+\$[a-fA-F0-9]{64}\$[a-fA-F0-9]{64}$/,
+    sha512: /^[a-fA-F0-9]{128}$/
+  }.freeze
 
   class << self
     # we know these fields, and don't want authlogic to connect to the db at boot
@@ -125,11 +124,47 @@ class Pseudonym < ActiveRecord::Base
 
   attr_writer :require_password
 
+  # Determines the type of encryption used for the crypted_password.
+  #
+  # Prior to August 2019, Canvas used a SHA512 hash with salt as the key
+  # derivation function (KDF) for password storage.
+  #
+  # During August 2019, Canvas switched to using scrypt as the KDF.
+  #
+  # Canvas SIS imports additionally support a `ssha_password` field which Canvas
+  # directly stores in the `sis_ssha` field of the pseudonym if provided.
+  #
+  # @return [Symbol, nil] The encryption type, which can be one of the following:
+  #   - :SSHA if the sis_ssha is present (meaning `ssha_password` was provided in a SIS import)
+  #   - :SCRYPT if the crypted_password matches the scrypt pattern (pseudonyms post-August 2019)
+  #   - :SHA512 if the crypted_password matches the sha512 pattern
+  #   - :UNKNOWN if the crypted_password does not match any known patterns
+  #   - nil if the crypted_password is blank
+  def encryption_type
+    return nil if crypted_password.blank?
+
+    return :SSHA if sis_ssha.present?
+
+    if crypted_password.match?(ENCRYPTION_PATTERNS[:scrypt])
+      :SCRYPT
+    elsif crypted_password.match?(ENCRYPTION_PATTERNS[:sha512])
+      :SHA512
+    else
+      :UNKNOWN
+    end
+  end
+
   def require_password?
     # Change from auth_logic: don't require a password just because new_record?
     # is true. just check if the pw has changed or crypted_password_field is
     # blank.
     password_changed? || (send(crypted_password_field).blank? && sis_ssha.blank?) || @require_password
+  end
+
+  def validate_password(attr, val)
+    unless password_auto_generated? && canvas_generated_password?
+      Canvas::Security::PasswordPolicy.validate(self, attr, val)
+    end
   end
 
   acts_as_list scope: :user
@@ -212,6 +247,7 @@ class Pseudonym < ActiveRecord::Base
   end
 
   scope :by_unique_id, ->(unique_id) { where("LOWER(unique_id)=LOWER(?)", unique_id.to_s) }
+  scope :sis, -> { where.not(sis_user_id: nil) }
 
   def self.custom_find_by_unique_id(unique_id)
     return unless unique_id
@@ -274,9 +310,17 @@ class Pseudonym < ActiveRecord::Base
     @password_changed = password && password_confirmation == password
   end
 
+  def clear_login_attribute_if_needed
+    self.login_attribute = nil if authentication_provider_id.nil? && will_save_change_to_authentication_provider_id?
+  end
+
   def password=(new_pass)
     self.password_auto_generated = false
     super
+  end
+
+  def canvas_generated_password?
+    @canvas_generated_password == true
   end
 
   def communication_channel
@@ -291,6 +335,9 @@ class Pseudonym < ActiveRecord::Base
     self.account ||= Account.default
     if (!crypted_password || crypted_password == "") && !@require_password
       generate_temporary_password
+      # this helps us differentiate between a generated password and one that was
+      # provided in a SIS import with password_auto_generated set to true
+      @canvas_generated_password = true
     end
     # treat empty or whitespaced strings as nullable
     self.integration_id = nil if integration_id.blank?
@@ -314,7 +361,7 @@ class Pseudonym < ActiveRecord::Base
 
     # Assert a time zone for the user if none provided
     if user && !user.time_zone
-      user.time_zone = self.account.default_time_zone rescue Account.default.default_time_zone
+      user.time_zone = account.default_time_zone
       user.time_zone ||= Time.zone
     end
     user.save if user.workflow_state_changed? || user.time_zone_changed?
@@ -337,11 +384,15 @@ class Pseudonym < ActiveRecord::Base
     communication_channels.each { |cc| cc.update_attribute(:workflow_state, "retired") }
   end
 
+  def invalid_email?
+    (!account || account.email_pseudonyms) &&
+      !deleted? &&
+      (unique_id.blank? ||
+        !EmailAddressValidator.valid?(unique_id))
+  end
+
   def validate_unique_id
-    if (!account || account.email_pseudonyms) &&
-       !deleted? &&
-       (unique_id.blank? ||
-       !EmailAddressValidator.valid?(unique_id))
+    if invalid_email?
       errors.add(:unique_id, "not_email")
       throw :abort
     end
@@ -461,12 +512,21 @@ class Pseudonym < ActiveRecord::Base
   end
 
   alias_method :destroy_permanently!, :destroy
-  def destroy
+  def destroy(custom_deleted_at: nil)
     self.workflow_state = "deleted"
-    self.deleted_at = Time.now.utc
+    self.deleted_at = (custom_deleted_at.presence || Time.now.utc)
     result = save
     user.try(:update_account_associations) if result
     result
+  end
+
+  def restore
+    self.workflow_state = "active"
+    self.deleted_at = nil
+    if save
+      user.try(:update_account_associations)
+      true
+    end
   end
 
   def never_logged_in?
@@ -474,7 +534,7 @@ class Pseudonym < ActiveRecord::Base
   end
 
   def user_code
-    user.uuid rescue nil
+    user.uuid
   end
 
   def email
@@ -734,5 +794,34 @@ class Pseudonym < ActiveRecord::Base
     redis_key = cas_ticket_key(ticket)
 
     Canvas.redis.set(redis_key, true, ex: CAS_TICKET_TTL)
+  end
+
+  def self.oidc_session_key(*subkeys)
+    ["oidc_session_slo", Digest::SHA512.new.update(subkeys.cache_key).hexdigest].cache_key
+  end
+
+  def self.oidc_session_expired?(session)
+    return false unless Canvas.redis_enabled?
+
+    iss = session[:oidc_id_token_iss]
+    sid = session[:oidc_id_token_sid]
+    sub = session[:oidc_id_token_sub]
+    return false unless iss && (sid || sub)
+
+    keys = [sid, sub].compact.map do |key|
+      oidc_session_key("sid", iss, key)
+    end
+    keys.any? do |key|
+      !Canvas.redis.get("oidc_session_slo_#{key}", failsafe: nil).nil?
+    end
+  end
+
+  def self.expire_oidc_session(logout_token)
+    key = if logout_token["sid"]
+            oidc_session_key("sid", logout_token["iss"], logout_token["sid"])
+          else
+            oidc_session_key("sid", logout_token["iss"], logout_token["sub"])
+          end
+    Canvas.redis.set("oidc_session_slo_#{key}", true, ex: CAS_TICKET_TTL)
   end
 end

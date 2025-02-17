@@ -17,14 +17,14 @@
 
 import $ from 'jquery'
 import {some} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import DialogFormView from '@canvas/forms/backbone/views/DialogFormView'
 import GroupCategoryCloneView from './GroupCategoryCloneView'
 import template from '../../jst/randomlyAssignMembers.handlebars'
 import wrapper from '@canvas/forms/jst/EmptyDialogFormWrapper.handlebars'
 import groupHasSubmissions from '../../groupHasSubmissions'
 
-const I18n = useI18nScope('groups')
+const I18n = createI18nScope('groups')
 
 export default class RandomlyAssignMembersView extends DialogFormView {
   static initClass() {
@@ -54,12 +54,12 @@ export default class RandomlyAssignMembersView extends DialogFormView {
     if (some(groups, group => group.usersCount() > 0 || !!group.get('max_membership'))) {
       return this.disableCheckbox(
         this.$group_by_section,
-        I18n.t('Cannot restrict by section unless groups are empty and not limited in size')
+        I18n.t('Cannot restrict by section unless groups are empty and not limited in size'),
       )
     } else if (ENV.student_section_count && ENV.student_section_count > groups.length) {
       return this.disableCheckbox(
         this.$group_by_section,
-        I18n.t('Must have at least 1 group per section')
+        I18n.t('Must have at least 1 group per section'),
       )
     } else {
       return this.enableCheckbox(this.$group_by_section)

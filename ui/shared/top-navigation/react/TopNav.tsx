@@ -24,9 +24,10 @@ import useToggleCourseNav from './hooks/useToggleCourseNav'
 import {useMutation, useQueryClient} from '@tanstack/react-query'
 import {setSetting} from '@canvas/settings-query/react/settingsQuery'
 import type {ItemChild} from '@instructure/ui-top-nav-bar/types/TopNavBar/props'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import type {EnvCommon} from '@canvas/global/env/EnvCommon'
 
+// @ts-expect-error
 type Crumb = EnvCommon['breadcrumbs'][0]
 
 const {porcelain} = getCurrentTheme()?.colors ?? {porcelain: 'white'}
@@ -47,9 +48,10 @@ export interface ITopNavProps {
 }
 
 const TopNav: React.FC<ITopNavProps> = ({actionItems, getBreadCrumbSetter}) => {
+  // @ts-expect-error
   const [breadCrumbs, setBreadCrumbs] = useState<Crumb[]>(window.ENV.breadcrumbs)
   const queryClient = useQueryClient()
-  const I18n = useI18nScope('react_top_nav')
+  const I18n = createI18nScope('react_top_nav')
 
   const {toggle} = useToggleCourseNav()
 
@@ -86,9 +88,12 @@ const TopNav: React.FC<ITopNavProps> = ({actionItems, getBreadCrumbSetter}) => {
         if (Array.isArray(newCrumbs)) {
           setBreadCrumbs(newCrumbs)
         } else {
+          // @ts-expect-error
           setBreadCrumbs(crumbs => {
-            const oldCrumbs = crumbs.length > 1 ? crumbs.slice(0, -1) : crumbs
-            return [...oldCrumbs, newCrumbs]
+            if (crumbs) {
+              const oldCrumbs = crumbs.length > 1 ? crumbs.slice(0, -1) : crumbs
+              return [...oldCrumbs, newCrumbs]
+            }
           })
         }
       }
@@ -103,9 +108,6 @@ const TopNav: React.FC<ITopNavProps> = ({actionItems, getBreadCrumbSetter}) => {
         <TopNavBar.Layout
           themeOverride={overrides}
           navLabel="Top Navigation"
-          desktopConfig={{
-            hideActionsUserSeparator: false,
-          }}
           smallViewportConfig={{
             dropdownMenuToggleButtonLabel: 'Toggle Menu',
             dropdownMenuLabel: 'Main Menu',

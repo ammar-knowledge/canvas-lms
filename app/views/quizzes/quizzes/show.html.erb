@@ -128,11 +128,11 @@
     <div class="header-bar-right">
       <div class="header-group-left">
         <button id="quiz-publish-link"
-          class='btn quiz-publish-button <%= "disabled" unless @quiz.can_unpublish? %>'
+          class='btn quiz-publish-button <%= "disabled" if @context.horizon_course? || !@quiz.can_unpublish? %>'
           <%= 'data-tooltip' unless @quiz.can_unpublish? %>>
         </button>
         <%= link_to_preview_quiz('class' => "btn", 'id' => "preview_quiz_button", 'preview' => 1) %>
-      <% if @quiz.grants_right?(@current_user, session, :manage_assign_to) && Account.site_admin.feature_enabled?(:selective_release_ui_api) %>
+      <% if @quiz.grants_right?(@current_user, session, :manage_assign_to) %>
           <button
             class='btn assign-to-link'
             data-quiz-name="<%= @quiz.title %>"

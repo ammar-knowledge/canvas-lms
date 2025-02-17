@@ -50,7 +50,7 @@ function renderShowDeveloperKeys(ctx) {
 
   if (!state.listDeveloperKeys.listDeveloperKeysSuccessful) {
     store.dispatch(
-      actions.getDeveloperKeys(`/api/v1/accounts/${ctx.params.contextId}/developer_keys`, true)
+      actions.getDeveloperKeys(`/api/v1/accounts/${ctx.params.contextId}/developer_keys`, true),
     )
 
     if (!state.listDeveloperKeyScopes.listDeveloperKeyScopesSuccessful) {
@@ -59,6 +59,7 @@ function renderShowDeveloperKeys(ctx) {
 
     const view = () => {
       const currentState = store.getState()
+
       ReactDOM.render(
         <DeveloperKeysApp
           applicationState={currentState}
@@ -66,7 +67,7 @@ function renderShowDeveloperKeys(ctx) {
           store={store}
           ctx={ctx}
         />,
-        reactRoot()
+        reactRoot(),
       )
     }
     // returns A function that unsubscribes the change listener.
@@ -81,7 +82,7 @@ const renderDeveloperKeySettings = ctx => {
     <QueryProvider>
       <RegistrationSettings ctx={ctx} />
     </QueryProvider>,
-    reactRoot()
+    reactRoot(),
   )
 }
 

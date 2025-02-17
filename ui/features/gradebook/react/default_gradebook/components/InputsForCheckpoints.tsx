@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2024 - present Instructure, Inc.
  *
@@ -24,7 +23,7 @@ import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import {TextInput} from '@instructure/ui-text-input'
 import React, {useState, useEffect} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {
   type CheckpointState,
   EXCUSED,
@@ -34,6 +33,7 @@ import {
   NONE,
   REPLY_TO_TOPIC,
 } from './SubmissionTray'
+// @ts-expect-error
 import type {GradingStandard, PendingGradeInfo} from '../gradebook.d'
 import {
   CamelizedAssignment,
@@ -44,7 +44,7 @@ import {
 import {AccessibleContent} from '@instructure/ui-a11y-content'
 import type {GradeStatus} from '@canvas/grading/accountGradingStatus'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 type Props = {
   hasCheckpoints: boolean
@@ -73,7 +73,7 @@ export const InputsForCheckpoints = (props: Props) => {
   const standardStatuses: string[] = [NONE, LATE, MISSING, EXCUSED, EXTENDED]
 
   const checkpointState = props.checkpointStates.find(
-    checkpoint => checkpoint.label === props.subAssignmentTag
+    checkpoint => checkpoint.label === props.subAssignmentTag,
   )
 
   const [localTimeLate, setLocalTimeLate] = useState(checkpointState?.timeLate || '')
@@ -81,13 +81,15 @@ export const InputsForCheckpoints = (props: Props) => {
   const isStatusLate = checkpointStatus === LATE
 
   useEffect(() => {
+    // @ts-expect-error
     setLocalTimeLate(checkpointState?.timeLate)
+    // @ts-expect-error
   }, [checkpointState.timeLate])
 
   const getSubAssignment = (
     hasCheckpoints: boolean,
     assignment: CamelizedAssignment,
-    subAssignmentTag: string
+    subAssignmentTag: string,
   ) => {
     if (!hasCheckpoints) {
       return assignment
@@ -120,7 +122,7 @@ export const InputsForCheckpoints = (props: Props) => {
             assignment={getSubAssignment(
               props.hasCheckpoints,
               props.assignment,
-              props.subAssignmentTag
+              props.subAssignmentTag,
             )}
             disabled={props.gradingDisabled}
             enterGradesAs={props.enterGradesAs}
@@ -151,13 +153,15 @@ export const InputsForCheckpoints = (props: Props) => {
             value={checkpointStatus}
             onChange={(_e, {value}) => {
               props.updateCheckpointStates(props.subAssignmentTag, 'timeLate', '0')
+              // @ts-expect-error
               if (standardStatuses.includes(value)) {
                 props.updateCheckpointStates(
                   props.subAssignmentTag,
                   'status',
-                  value?.toString() || NONE
+                  value?.toString() || NONE,
                 )
               } else {
+                // @ts-expect-error
                 props.updateCheckpointStates(props.subAssignmentTag, 'customGradeStatusId', value)
               }
             }}

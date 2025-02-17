@@ -19,7 +19,6 @@
 #
 
 require "feedjira"
-require_relative "../lti_1_3_spec_helper"
 require_relative "../helpers/k5_common"
 
 describe UsersController do
@@ -127,12 +126,13 @@ describe UsersController do
         user:,
         session_id: nil,
         placement: :user_navigation,
-        launch_type: :direct_link
+        launch_type: :direct_link,
+        launch_url: tool.url
       )
     end
 
     context "using LTI 1.3 when specified" do
-      include_context "lti_1_3_spec_helper"
+      include_context "key_storage_helper"
 
       let(:verifier) { "e5e774d015f42370dcca2893025467b414d39009dfe9a55250279cca16f5f3c2704f9c56fef4cea32825a8f72282fa139298cf846e0110238900567923f9d057" }
       let(:redis_key) { "#{assigns[:domain_root_account].class_name}:#{Lti::RedisMessageClient::LTI_1_3_PREFIX}#{verifier}" }
@@ -156,13 +156,39 @@ describe UsersController do
           canvas_region
           canvas_environment
           client_id
-          deployment_id
+          lti_deployment_id
           lti_storage_target
         ]
       end
 
+      context "when lti_deployment_id_in_login_request FF is off" do
+        before do
+          user.account.root_account.disable_feature!(:lti_deployment_id_in_login_request)
+          allow(SecureRandom).to receive(:hex).and_return(verifier)
+          tool.use_1_3 = true
+          tool.developer_key = developer_key
+          tool.save!
+          get :external_tool, params: { id: tool.id, user_id: user.id }
+        end
+
+        it "creates a login message" do
+          expect(assigns[:lti_launch].params.keys).to match_array %w[
+            iss
+            login_hint
+            target_link_uri
+            lti_message_hint
+            canvas_region
+            canvas_environment
+            client_id
+            deployment_id
+            lti_deployment_id
+            lti_storage_target
+          ]
+        end
+      end
+
       it 'sets the "login_hint" to the current user lti id' do
-        expect(assigns[:lti_launch].params["login_hint"]).to eq Lti::Asset.opaque_identifier_for(user)
+        expect(assigns[:lti_launch].params["login_hint"]).to eq Lti::V1p1::Asset.opaque_identifier_for(user)
       end
 
       it "caches the LTI 1.3 launch" do
@@ -220,16 +246,16 @@ describe UsersController do
     it "handles google_drive oauth_success for a logged_in_user" do
       settings_mock = double
       allow(settings_mock).to receive(:settings).and_return({})
-      authorization_mock = instance_double("Google::Auth::UserRefreshCredentials",
+      authorization_mock = instance_double(Google::Auth::UserRefreshCredentials,
                                            :code= => nil,
                                            :fetch_access_token! => nil,
                                            :refresh_token => "refresh_token",
                                            :access_token => "access_token")
-      about_mock = instance_double("Google::Apis::DriveV3::About",
-                                   user: instance_double("Google::Apis::DriveV3::User",
+      about_mock = instance_double(Google::Apis::DriveV3::About,
+                                   user: instance_double(Google::Apis::DriveV3::User,
                                                          email_address: "blah@blah.com",
                                                          permission_id: "permission_id"))
-      client_mock = instance_double("Google::Apis::DriveV3::DriveService",
+      client_mock = instance_double(Google::Apis::DriveV3::DriveService,
                                     get_about: about_mock,
                                     authorization: authorization_mock)
       allow(GoogleDrive::Client).to receive(:create).and_return(client_mock)
@@ -254,12 +280,12 @@ describe UsersController do
     it "handles google_drive oauth_success for a non logged in user" do
       settings_mock = double
       allow(settings_mock).to receive(:settings).and_return({})
-      authorization_mock = instance_double("Google::Auth::UserRefreshCredentials",
+      authorization_mock = instance_double(Google::Auth::UserRefreshCredentials,
                                            :code= => nil,
                                            :fetch_access_token! => nil,
                                            :refresh_token => "refresh_token",
                                            :access_token => "access_token")
-      client_mock = instance_double("Google::Apis::DriveV3::DriveService",
+      client_mock = instance_double(Google::Apis::DriveV3::DriveService,
                                     get_about: nil,
                                     authorization: authorization_mock)
       allow(GoogleDrive::Client).to receive(:create).and_return(client_mock)
@@ -278,12 +304,12 @@ describe UsersController do
     it "rejects invalid state" do
       settings_mock = double
       allow(settings_mock).to receive(:settings).and_return({})
-      authorization_mock = instance_double("Google::Auth::UserRefreshCredentials")
+      authorization_mock = instance_double(Google::Auth::UserRefreshCredentials)
       allow(authorization_mock).to receive_messages(:code= => nil,
                                                     :fetch_access_token! => nil,
                                                     :refresh_token => "refresh_token",
                                                     :access_token => "access_token")
-      client_mock = instance_double("Google::Apis::DriveV3::DriveService",
+      client_mock = instance_double(Google::Apis::DriveV3::DriveService,
                                     get_about: nil,
                                     authorization: authorization_mock)
       allow(GoogleDrive::Client).to receive(:create).and_return(client_mock)
@@ -298,11 +324,11 @@ describe UsersController do
     end
 
     it "handles auth failure gracefully" do
-      authorization_mock = instance_double("Google::Auth::UserRefreshCredentials", :code= => nil)
+      authorization_mock = instance_double(Google::Auth::UserRefreshCredentials, :code= => nil)
       allow(authorization_mock).to receive(:fetch_access_token!) do
         raise Signet::AuthorizationError, "{\"error\": \"invalid_grant\", \"error_description\": \"Bad Request\"}"
       end
-      client_mock = instance_double("Google::Apis::DriveV3::DriveService", authorization: authorization_mock)
+      client_mock = instance_double(Google::Apis::DriveV3::DriveService, authorization: authorization_mock)
       allow(GoogleDrive::Client).to receive(:create).and_return(client_mock)
       state = Canvas::Security.create_jwt({ "return_to_url" => "http://localhost.com/return",
                                             "nonce" => "abc123" })
@@ -377,7 +403,7 @@ describe UsersController do
 
     it "does not include courses for which the user doesnt have the appropriate rights" do
       @role1 = custom_account_role("subadmin", account: Account.default)
-      account_admin_user_with_role_changes(role: @role1, role_changes: { manage_content: false, read_course_content: false })
+      account_admin_user_with_role_changes(role: @role1, role_changes: { read_course_content: false })
       course_with_user("TeacherEnrollment", course_name: "A", active_all: true, user: @admin)
       course_with_user("StudentEnrollment", course_name: "B", active_all: true, user: @admin)
 
@@ -547,7 +573,7 @@ describe UsersController do
 
         it "does not allow teachers to self register" do
           post "create", params: { pseudonym: { unique_id: "jane@example.com" }, user: { name: "Jane Teacher", terms_of_use: "1", initial_enrollment_type: "teacher" } }, format: "json"
-          assert_status(403)
+          assert_forbidden
         end
 
         it "does not allow students to self register" do
@@ -555,7 +581,7 @@ describe UsersController do
           @course.update_attribute(:self_enrollment, true)
 
           post "create", params: { pseudonym: { unique_id: "jane@example.com", password: "lolwut12", password_confirmation: "lolwut12" }, user: { name: "Jane Student", terms_of_use: "1", self_enrollment_code: @course.self_enrollment_code, initial_enrollment_type: "student" }, pseudonym_type: "username", self_enrollment: "1" }, format: "json"
-          assert_status(403)
+          assert_forbidden
         end
 
         it "allows observers to self register" do
@@ -711,7 +737,7 @@ describe UsersController do
         accepted_terms = json["user"]["user"]["preferences"]["accepted_terms"]
         expect(response).to be_successful
         expect(accepted_terms).to be_present
-        expect(Time.parse(accepted_terms)).to be_within(1.minute.to_i).of(Time.now.utc)
+        expect(Time.zone.parse(accepted_terms)).to be_within(1.minute.to_i).of(Time.now.utc)
       end
 
       it "stores a confirmation_redirect url if it's trusted" do
@@ -2234,6 +2260,7 @@ describe UsersController do
 
     context "rendering page views" do
       before do
+        allow(controller).to receive(:page_view_path).and_return("users/page_views/page_views")
         allow(PageView).to receive(:page_views_enabled?).and_return(true)
         course_with_teacher(active_all: 1)
       end
@@ -2318,6 +2345,21 @@ describe UsersController do
       expect(response).to render_template("users/show")
     end
 
+    it "404s, but still shows, on a deleted user in circular merge for admins" do
+      @user1 = user_with_pseudonym(active_all: true, account: @account)
+      @user2 = user_factory(active_all: true, account: @account)
+
+      UserMerge.from(@user1).into(@user2)
+      UserMerge.from(@user2).into(@user1)
+
+      account_admin_user
+      user_session(@admin)
+
+      get "show", params: { id: @user1.id }
+      expect(response).to have_http_status :not_found
+      expect(response).to render_template("users/show")
+    end
+
     it "responds to JSON request" do
       account = Account.create!
       course_with_student(active_all: true, account:)
@@ -2358,13 +2400,23 @@ describe UsersController do
       expect(response).to have_http_status :ok
     end
 
-    it "shows a deleted user from the account context if they have a deleted pseudonym for that account" do
+    it "does not show a deleted user from the account context if they have a deleted pseudonym for that account" do
       course_with_teacher(active_all: 1, user: user_with_pseudonym)
       account_admin_user(active_all: true)
       user_session(@admin)
       @teacher.remove_from_root_account(Account.default)
 
       get "show", params: { account_id: Account.default.id, id: @teacher.id }
+      expect(response).to have_http_status :unauthorized
+    end
+
+    it "shows a deleted user from the account context if they have a deleted pseudonym for that account and the include_deleted_users flag is set" do
+      course_with_teacher(active_all: 1, user: user_with_pseudonym)
+      account_admin_user(active_all: true)
+      user_session(@admin)
+      @teacher.remove_from_root_account(Account.default)
+
+      get "show", params: { account_id: Account.default.id, id: @teacher.id, include_deleted_users: true }
       expect(response).to have_http_status :ok
     end
 
@@ -2382,14 +2434,20 @@ describe UsersController do
         @teacher.remove_from_root_account(Account.default)
       end
 
-      it "shows a deleted user from the account context if they have a deleted pseudonym for that account" do
+      it "does not show a deleted user from the account context if they have a deleted pseudonym for that account" do
         get "show", params: { account_id: Account.default.id, id: @teacher.id }
+
+        expect(response).to have_http_status :unauthorized
+      end
+
+      it "shows a deleted user from the account context if they have a deleted pseudonym for that account and the include_deleted_users flag is set" do
+        get "show", params: { account_id: Account.default.id, id: @teacher.id, include_deleted_users: true }
 
         expect(response).to have_http_status :ok
       end
 
       it "does not give login ID for another account in json format" do
-        get "show", params: { account_id: Account.default.id, id: @teacher.id, format: :json }
+        get "show", params: { account_id: Account.default.id, id: @teacher.id, include_deleted_users: true, format: :json }
 
         expect(response).to have_http_status :ok
         expect(response.parsed_body["login_id"]).to be_nil
@@ -2414,7 +2472,7 @@ describe UsersController do
       user_session(@user)
       put "update", params: { id: other_user.id }, format: "json"
       expect(response.body).not_to include "secret"
-      expect(response).to have_http_status :unauthorized
+      expect(response).to have_http_status :forbidden
     end
 
     it "overwrites stuck sis fields" do
@@ -2622,6 +2680,45 @@ describe UsersController do
       get "teacher_activity", params: { user_id: @teacher.id, course_id: @course.id }
 
       expect(assigns[:courses][@course][0][:ungraded]).to eq [s1]
+    end
+  end
+
+  describe "#new" do
+    context "when the user is logged in" do
+      before do
+        @user = user_factory(active_all: true)
+        user_session(@user)
+      end
+
+      it "redirects to the root URL" do
+        get :new
+        expect(response).to redirect_to(root_url)
+      end
+    end
+
+    context "when the user is not logged in" do
+      context "and the feature flag login_registration_ui_identity is enabled" do
+        before do
+          Account.default.enable_feature!(:login_registration_ui_identity)
+          allow(Account.default).to receive(:self_registration_allowed_for?).and_return(true)
+        end
+
+        it "redirects to the registration landing page" do
+          get :new
+          expect(response).to redirect_to(register_landing_path)
+        end
+      end
+
+      context "and the feature flag login_registration_ui_identity is disabled" do
+        before do
+          allow(Account.default).to receive(:self_registration_allowed_for?).and_return(true)
+        end
+
+        it "renders the legacy registration page using the bare layout" do
+          get :new
+          expect(response).to render_template(layout: "bare")
+        end
+      end
     end
   end
 
@@ -3196,7 +3293,7 @@ describe UsersController do
 
       it "returns forbidden" do
         subject
-        assert_status(403)
+        assert_forbidden
         json = response.parsed_body
         expect(json["message"]).to eq "Developer key not authorized"
       end
@@ -3238,9 +3335,8 @@ describe UsersController do
 
       it "has exp that matches expires_at" do
         subject
-        exp = DateTime.strptime(token["exp"].to_s, "%s")
-        expires_at = DateTime.strptime(response.parsed_body["expires_at"].to_s, "%Q")
-        expect(exp.to_s).to eq expires_at.to_s
+        expires_at = Time.strptime(response.parsed_body["expires_at"].to_s, "%Q")
+        expect(token["exp"]).to eq expires_at.to_i
       end
     end
 
@@ -3273,14 +3369,14 @@ describe UsersController do
         subject
         expires_at = response.parsed_body["expires_at"]
         expect(expires_at).to be_a Float
-        expires_at_date = DateTime.strptime(expires_at.to_s, "%Q")
-        expect(expires_at_date).to be_a DateTime
+        expires_at_date = Time.strptime(expires_at.to_s, "%Q")
+        expect(expires_at_date).to be_a Time
       end
 
       it "is ~1 day from now" do
         subject
         expires_at = response.parsed_body["expires_at"]
-        expect(DateTime.strptime(expires_at.to_s, "%Q").utc).to be_within(1.minute).of(1.day.from_now)
+        expect(Time.strptime(expires_at.to_s, "%Q").utc).to be_within(1.minute).of(1.day.from_now)
       end
     end
 
@@ -3294,8 +3390,8 @@ describe UsersController do
           get "pandata_events_token", params: { app_key: }
 
           token = CanvasSecurity.decode_jwt(response.parsed_body["auth_token"], ["secret"])
-          exp = DateTime.strptime(token["exp"].to_s, "%s").to_s
-          expires_at = DateTime.strptime(response.parsed_body["expires_at"].to_s, "%Q").to_s
+          exp = Time.zone.at(token["exp"])
+          expires_at = Time.strptime(response.parsed_body["expires_at"].to_s, "%Q").to_s
 
           expect(exp).to eq expires_at
         end
@@ -3304,8 +3400,8 @@ describe UsersController do
         get "pandata_events_token", params: { app_key: }
 
         token = CanvasSecurity.decode_jwt(response.parsed_body["auth_token"], ["secret"])
-        exp2 = DateTime.strptime(token["exp"].to_s, "%s").to_s
-        expires_at2 = DateTime.strptime(response.parsed_body["expires_at"].to_s, "%Q").to_s
+        exp2 = Time.zone.at(token["exp"])
+        expires_at2 = Time.strptime(response.parsed_body["expires_at"].to_s, "%Q").to_s
 
         expect(expires_at).not_to eq expires_at2
         expect(exp2).to eq expires_at2
@@ -3327,7 +3423,7 @@ describe UsersController do
       user_session(admin)
 
       delete "destroy", params: { id: user.id }, format: :json
-      expect(response).to have_http_status :unauthorized
+      expect(response).to have_http_status :forbidden
     end
 
     it "allows siteadmin users" do
@@ -3367,7 +3463,7 @@ describe UsersController do
       user_session(user2)
 
       delete "terminate_sessions", params: { id: user.id }, format: :json
-      expect(response).to have_http_status :unauthorized
+      expect(response).to have_http_status :forbidden
     end
 
     it "allows admin to terminate sessions" do
@@ -3427,7 +3523,7 @@ describe UsersController do
       @user1 = @user
       @user2 = user_factory(active_all: true)
       put "settings", params: { id: @user2.id, collapse_course_nav: true }, format: "json"
-      assert_unauthorized
+      assert_forbidden
     end
 
     it "updates collapse_course_nav preference to true" do

@@ -29,38 +29,45 @@ export const FILTERED_SECTIONS_DATA = [
   {id: '4', course_id: '1', name: 'Section C', start_at: null, end_at: null},
 ]
 
+export const DIFFERENTIATION_TAGS_DATA = [
+  {id: '1', course_id: '1', name: 'Tag 1', group_category_id: '1', non_collaborative: true, group_category: {id: '1', name: 'Differentiation Tags'}},
+  {id: '2', course_id: '1', name: 'Tag 2', group_category_id: '1', non_collaborative: true, group_category: {id: '1', name: 'Differentiation Tags'}},
+  {id: '3', course_id: '1', name: 'Tag 3', group_category_id: '1', non_collaborative: true, group_category: {id: '1', name: 'Differentiation Tags'}},
+]
+
 export const STUDENTS_DATA = [
-  {id: '1', name: 'Ben', created_at: '2023-01-01', sortable_name: 'Ben', sis_user_id: 'ben001'},
   {
-    id: '2',
-    name: 'Peter',
-    created_at: '2023-01-01',
-    sortable_name: 'Peter',
-    sis_user_id: 'peter002',
+    id: 'student-1',
+    value: 'Ben',
+    sisID: 'ben001',
+    group: 'Students',
   },
   {
-    id: '3',
-    name: 'Grace',
-    created_at: '2023-01-01',
-    sortable_name: 'Grace',
-    sis_user_id: 'grace003',
+    id: 'student-2',
+    value: 'Peter',
+    sisID: 'peter002',
+    group: 'Students',
   },
   {
-    id: '4',
-    name: 'Secilia',
-    created_at: '2023-01-01',
-    sortable_name: 'Secilia',
-    sis_user_id: 'random_id_8',
+    id: 'student-3',
+    value: 'Grace',
+    sisID: 'grace003',
+    group: 'Students',
+  },
+  {
+    id: 'student-4',
+    value: 'Secilia',
+    sisID: 'random_id_8',
+    group: 'Students',
   },
 ]
 
 export const FILTERED_STUDENTS_DATA = [
   {
     id: '4',
-    name: 'Secilia',
-    created_at: '2023-01-01',
-    sortable_name: 'Secilia',
-    sis_user_id: 'random_id_8',
+    value: 'Secilia',
+    sisID: 'random_id_8',
+    group: 'Students',
   },
 ]
 
@@ -99,6 +106,15 @@ export const ASSIGNMENT_OVERRIDES_DATA = [
     course_section: {
       id: '2',
       name: 'Section A',
+    },
+  },
+  {
+    id: '3',
+    title: 'Differentiation Tag',
+    context_module_id: '2',
+    group: {
+      id: '1',
+      name: 'Tag 1',
     },
   },
 ]

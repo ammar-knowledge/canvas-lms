@@ -29,39 +29,37 @@ import {ColumnsSection} from '../user/sections/ColumnsSection'
 import {HeroSection} from '../user/sections/HeroSection'
 import {NavigationSection} from '../user/sections/NavigationSection'
 import {AboutSection} from '../user/sections/AboutSection'
-import {QuizSection} from '../user/sections/QuizSection'
+import {KnowledgeCheckSection} from '../user/sections/KnowledgeCheckSection'
 import {AnnouncementSection} from '../user/sections/AnnouncementSection'
 import {FooterSection} from '../user/sections/FooterSection'
-import {BlankSection} from '../user/sections/BlankSection'
 import {getNodeIndex} from '../../utils'
 import {type AddSectionPlacement} from './types'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('block-editor')
+const I18n = createI18nScope('block-editor')
 
 const nameToSection = (name: string) => {
   switch (name) {
     case 'Callout Cards':
       return <ResourcesSection />
-    case 'Columns':
-      return <ColumnsSection columns={2} variant="fixed" />
+    case 'Blank':
+      return <ColumnsSection columns={1} />
     case 'Hero':
       return <HeroSection />
     case 'Navigation':
       return <NavigationSection />
     case 'About':
       return <AboutSection />
-    case 'Quiz':
-      return <QuizSection />
+    case 'Knowledge Check':
+      // @ts-expect-error
+      return <KnowledgeCheckSection />
     case 'Announcement':
       return <AnnouncementSection />
     case 'Footer':
       return <FooterSection />
-    case 'Blank':
-      return <BlankSection />
     default:
-      return <BlankSection />
+      return <ColumnsSection columns={2} />
   }
 }
 export type SectionBrowserProps = {
@@ -82,7 +80,7 @@ const SectionBrowser = ({open, where, onClose}: SectionBrowserProps) => {
       const parentId = node.data.parent || 'ROOT'
       actions.addNodeTree(nodeTree, parentId, index)
     },
-    [actions, node.data.parent, query]
+    [actions, node.data.parent, query],
   )
 
   const handleAppendSection = useCallback(
@@ -90,14 +88,14 @@ const SectionBrowser = ({open, where, onClose}: SectionBrowserProps) => {
       const myIndex = getNodeIndex(node, query)
       handleAddSection(name, myIndex + 1)
     },
-    [handleAddSection, node, query]
+    [handleAddSection, node, query],
   )
   const handlePrependSection = useCallback(
     (name: string) => {
       const myIndex = getNodeIndex(node, query)
       handleAddSection(name, myIndex)
     },
-    [handleAddSection, node, query]
+    [handleAddSection, node, query],
   )
   const handleSelectSection = useCallback(
     (sectionName: string) => {
@@ -109,7 +107,7 @@ const SectionBrowser = ({open, where, onClose}: SectionBrowserProps) => {
       }
       onClose()
     },
-    [handleAppendSection, handlePrependSection, onClose, where]
+    [handleAppendSection, handlePrependSection, onClose, where],
   )
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -118,7 +116,7 @@ const SectionBrowser = ({open, where, onClose}: SectionBrowserProps) => {
         handleSelectSection(sectionName)
       }
     },
-    [handleSelectSection]
+    [handleSelectSection],
   )
   const handleKey = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -131,7 +129,7 @@ const SectionBrowser = ({open, where, onClose}: SectionBrowserProps) => {
         }
       }
     },
-    [handleSelectSection]
+    [handleSelectSection],
   )
   const renderBox = (name: string, thumbnail: string, description: string) => {
     return (
@@ -171,58 +169,51 @@ const SectionBrowser = ({open, where, onClose}: SectionBrowserProps) => {
             I18n.t('Hero'),
             'section-hero.png',
             I18n.t(
-              "The hero section is the large, attention-grabbing area at the top. It's the first thing visitors see when they land on your Page, so it's crucial for making a strong first impression."
-            )
+              "The hero section is the large, attention-grabbing area at the top. It's the first thing visitors see when they land on your Page, so it's crucial for making a strong first impression.",
+            ),
           )}
           {renderBox(
             I18n.t('Navigation'),
             'section-navigation.png',
             I18n.t(
-              'Navigation sections help visitors move around the course efficiently. Good navigation is crucial for enhancing the user experience, making it easy to find the information quickly and without frustration.'
-            )
+              'Navigation sections help visitors move around the course efficiently. Good navigation is crucial for enhancing the user experience, making it easy to find the information quickly and without frustration.',
+            ),
           )}
           {renderBox(
             I18n.t('About'),
             'section-about.png',
-            I18n.t('The about section is a great place to introduce yourself or your course. ')
+            I18n.t('The about section is a great place to introduce yourself or your course. '),
           )}
           {renderBox(
             I18n.t('Callout Cards'),
             'section-resources.png',
             I18n.t(
-              'Callout cards guide page viewers to important information. An effective callout card provides a short summary of what visitors can find along with a button or link to additional content.'
-            )
+              'Callout cards guide page viewers to important information. An effective callout card provides a short summary of what visitors can find along with a button or link to additional content.',
+            ),
           )}
           {renderBox(
             I18n.t('Quiz'),
             'section-quiz.png',
-            I18n.t('The quiz section is where you can add a quiz to your page.')
+            I18n.t('The quiz section is where you can add a quiz to your page.'),
           )}
           {renderBox(
             I18n.t('Announcement'),
             'section-announcement.png',
-            I18n.t('The announcement section is where you can add an announcement to your page.')
+            I18n.t('The announcement section is where you can add an announcement to your page.'),
           )}
           {renderBox(
             I18n.t('Footer'),
             'section-footer.png',
             I18n.t(
-              'The footer is the section located at the very bottom of each page. It serves several important purposes, providing additional information and functionality that complement the main content.'
-            )
-          )}
-          {renderBox(
-            I18n.t('Columns'),
-            'section-columns.png',
-            I18n.t(
-              'The columns section is a flexible layout that allows you to add multiple blocks side by side.'
-            )
+              'The footer is the section located at the very bottom of each page. It serves several important purposes, providing additional information and functionality that complement the main content.',
+            ),
           )}
           {renderBox(
             I18n.t('Blank'),
-            'section-blank.png',
+            'section-columns.png',
             I18n.t(
-              'The blank section is a simple, empty section that you can use to add your own custom content.'
-            )
+              'The columns section is a flexible layout that allows you to add multiple blocks side by side.',
+            ),
           )}
         </Flex>
       </Modal.Body>

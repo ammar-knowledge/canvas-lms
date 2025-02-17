@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {func, bool, string} from 'prop-types'
 import React, {Component} from 'react'
 import {connect} from 'react-redux'
@@ -39,7 +39,7 @@ import propTypes, {
   ENABLED_FOR_PARTIAL,
 } from '@canvas/permissions/react/propTypes'
 
-const I18n = useI18nScope('permission_button')
+const I18n = createI18nScope('permission_button')
 
 // let's cinch up that large margin around the IconButtons so that their
 // decorations snuggle up a little closer and are more obviously a part
@@ -113,7 +113,7 @@ export default class PermissionButton extends Component {
         permissionName: this.props.permissionName,
         roleId: this.props.roleId,
         inTray: this.props.inTray,
-      })
+      }),
     )
   }
 
@@ -321,7 +321,7 @@ function mapStateToProps(state, ownProps) {
     (state.nextFocus.targetArea === 'tray' && ownProps.inTray) ||
     (state.nextFocus.targetArea === 'table' && !ownProps.inTray)
   const apiBusy = state.apiBusy.some(
-    elt => elt.id === ownProps.roleId && elt.name === ownProps.permissionName
+    elt => elt.id === ownProps.roleId && elt.name === ownProps.permissionName,
   )
 
   const stateProps = {apiBusy, setFocus: targetFocusButton && targetFocusArea}
@@ -336,5 +336,5 @@ const mapDispatchToProps = {
 
 export const ConnectedPermissionButton = connect(
   mapStateToProps,
-  mapDispatchToProps
+  mapDispatchToProps,
 )(PermissionButton)

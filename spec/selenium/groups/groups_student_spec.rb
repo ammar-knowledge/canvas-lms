@@ -98,12 +98,14 @@ describe "student groups" do
 
       it "is titled what the user types in", priority: "1" do
         create_default_student_group(group_name)
+        f('button[type="submit"]').click
 
         expect(fj(".student-group-title")).to include_text(group_name.to_s)
       end
 
       it "by default, created student group only contains the student creator", priority: "2" do
         create_default_student_group
+        f('button[type="submit"]').click
 
         # expand the group
         fj(".student-group-title").click
@@ -176,6 +178,42 @@ describe "student groups" do
         expect(f(".unassigned-students")).to include_text(@students[0].name.to_s)
         # Fourth student should remain group leader
         expect(fj(".group[data-id=\"#{@testgroup[0].id}\"] .group-leader:contains(\"#{@students[3].name}\")")).to be_displayed
+      end
+
+      it "does not allow a user to leave the group if the self sign-up end date has passed" do
+        group_test_setup(1, 1, 1)
+        category = @group_category.first
+        category.configure_self_signup(true, false)
+        category.self_signup_end_at = 1.day.ago.utc
+        category.save!
+        add_user_to_group(@students[0], @testgroup.first, false)
+
+        user_session(@students[0])
+        get "/courses/#{@course.id}/groups"
+
+        f(".student-group-header .icon-mini-arrow-right").click
+        wait_for_ajaximations
+
+        expect(f('div[role="list"]')).to include_text(@students[0].name.to_s)
+        expect(f(".student-group-join")).not_to include_text("Leave")
+      end
+
+      it "does not allow a user to join the group if the self sign-up end date has passed" do
+        group_test_setup(2, 1, 1)
+        category = @group_category.first
+        category.configure_self_signup(true, false)
+        category.self_signup_end_at = 1.day.ago.utc
+        category.save!
+        add_user_to_group(@students[0], @testgroup.first, false)
+
+        user_session(@students[1])
+        get "/courses/#{@course.id}/groups"
+
+        f(".student-group-header .icon-mini-arrow-right").click
+        wait_for_ajaximations
+
+        expect(f('div[role="list"]')).to include_text(@students[0].name.to_s)
+        expect(f(".icon-lock")).to be_displayed
       end
     end
 

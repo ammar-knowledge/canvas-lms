@@ -21,7 +21,7 @@ import {USER_GROUPS_QUERY} from '@canvas/assignments/graphql/student/Queries'
 import {render, screen, act, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
 import {mockQuery} from '@canvas/assignments/graphql/studentMocks'
 import MoreOptions from '../MoreOptions/index'
 import React from 'react'
@@ -176,7 +176,7 @@ describe('MoreOptions', () => {
 
       expect((await screen.findAllByText('my files'))[0]).toBeInTheDocument()
       expect(
-        (await screen.findAllByText(mocks[0].result.data.legacyNode.groups[0].name))[0]
+        (await screen.findAllByText(mocks[0].result.data.legacyNode.groups[0].name))[0],
       ).toBeInTheDocument()
     })
 
@@ -188,7 +188,7 @@ describe('MoreOptions', () => {
       const fileSelect = await screen.findByTestId('upload-file-modal')
       expect(fileSelect).toContainElement((await screen.findAllByText('dank memes'))[0])
       expect(fileSelect).toContainElement(
-        (await screen.findAllByText('www.creedthoughts.gov.www/creedthoughts'))[0]
+        (await screen.findAllByText('www.creedthoughts.gov.www/creedthoughts'))[0],
       )
     })
 
@@ -200,7 +200,7 @@ describe('MoreOptions', () => {
 
       const fileSelect = await screen.findByTestId('upload-file-modal')
       expect(fileSelect).not.toContainElement(
-        screen.queryByText('www.creedthoughts.gov.www/creedthoughts')
+        screen.queryByText('www.creedthoughts.gov.www/creedthoughts'),
       )
     })
 
@@ -212,7 +212,7 @@ describe('MoreOptions', () => {
 
       const fileSelect = await screen.findByTestId('upload-file-modal')
       expect(fileSelect).toContainElement(
-        (await screen.findAllByText('www.creedthoughts.gov.www/creedthoughts'))[0]
+        (await screen.findAllByText('www.creedthoughts.gov.www/creedthoughts'))[0],
       )
     })
 
@@ -229,7 +229,7 @@ describe('MoreOptions', () => {
 
       expect((await screen.findAllByText('my files'))[0]).toBeInTheDocument()
       expect(
-        (await screen.findAllByText(mocks[0].result.data.legacyNode.groups[0].name))[0]
+        (await screen.findAllByText(mocks[0].result.data.legacyNode.groups[0].name))[0],
       ).toBeInTheDocument()
     })
 

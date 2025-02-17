@@ -16,10 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useState, useEffect, useRef, useMemo} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import React, {useState, useEffect, useRef, useMemo, type PropsWithChildren} from 'react'
 import keycode from 'keycode'
-import {Select} from '@instructure/ui-select'
+import {Select, type SelectProps} from '@instructure/ui-select'
 import type {ViewProps} from '@instructure/ui-view'
 import {Tag} from '@instructure/ui-tag'
 import {matchComponentTypes} from '@instructure/ui-react-utils'
@@ -28,18 +28,19 @@ import {Alert} from '@instructure/ui-alerts'
 import {Spinner} from '@instructure/ui-spinner'
 import type {FormMessage} from '@instructure/ui-form-field'
 
-const I18n = useI18nScope('app_shared_components')
+const I18n = createI18nScope('app_shared_components')
 
 type OptionProps = {
   id: string
   value: string
   label: React.ReactNode
   tagText?: string
+  isSelected?: boolean
 }
 
 export type Size = 'small' | 'medium' | 'large'
 
-const CanvasMultiSelectOption: React.FC = _props => <div />
+const CanvasMultiSelectOption: React.FC<PropsWithChildren<OptionProps>> = _props => <div />
 
 function liveRegion(): HTMLElement {
   const div = document.getElementById('flash_screenreader_holder')
@@ -79,6 +80,11 @@ type Props = {
   messages?: FormMessage[]
   onUpdateHighlightedOption?: (id: string) => void
   setInputRef?: (ref: HTMLInputElement | null) => void
+} & {
+  // All the original select props should be available
+  // as we allow to overrite everthing with the spread operator
+  inputValue?: SelectProps['inputValue']
+  onInputChange?: SelectProps['onInputChange']
 }
 
 function CanvasMultiSelect(props: Props) {
@@ -133,7 +139,7 @@ function CanvasMultiSelect(props: Props) {
           tagText: n.props.tagText,
         }
       }) || [],
-    [children]
+    [children],
   )
 
   const [filteredOptionIds, setFilteredOptionIds] = useState<string[] | null>(null)
@@ -148,7 +154,7 @@ function CanvasMultiSelect(props: Props) {
         React.Children.map(children, child => {
           if (!React.isValidElement(child)) return undefined
           return child.props.group
-        })
+        }),
       ),
     ].filter((group: string) => group)
 
@@ -156,7 +162,6 @@ function CanvasMultiSelect(props: Props) {
       key: React.Key
       props: {id: string; children: React.ReactNode; key?: string; group: string; tagText?: string}
     }) {
-      // eslint-disable-next-line @typescript-eslint/no-shadow
       const {id, children, ...optionProps} = child.props
       delete optionProps.tagText
       return (
@@ -192,32 +197,32 @@ function CanvasMultiSelect(props: Props) {
           })
         }
         return null
-      })
+      }),
     )
 
     function renderGroups() {
       const grouplessOptions = filteredChildren.filter(o => o.props.group === undefined)
       const groupsToRender = groups.filter(group =>
-        filteredChildren.some(child => child.props.group === group)
+        filteredChildren.some(child => child.props.group === group),
       )
       const optionsToRender = grouplessOptions.map(isolatedOption =>
         renderOption({
           ...isolatedOption,
           key: isolatedOption.key ?? uniqueId('multi-select-option-'),
-        })
+        }),
       )
       return [
         ...optionsToRender,
         ...groupsToRender.map(group => (
           <Select.Group key={group} renderLabel={group}>
             {filteredChildren
-              // eslint-disable-next-line @typescript-eslint/no-shadow, react/prop-types
+              // eslint-disable-next-line react/prop-types
               .filter(({props}) => props.group === group)
               .map(option =>
                 renderOption({
                   ...option,
                   key: option.key || uniqueId('multi-select-group-option-'),
-                })
+                }),
               )}
           </Select.Group>
         )),
@@ -256,7 +261,7 @@ function CanvasMultiSelect(props: Props) {
             onClick={(e: React.MouseEvent<ViewProps, MouseEvent>) => dismissTag(e, id, tagText)}
           />
         )
-      })
+      }),
     )
   }
 
@@ -288,11 +293,11 @@ function CanvasMultiSelect(props: Props) {
       option: {
         label: string
       },
-      term: string
+      term: string,
     ) => option.label.match(new RegExp(`^${term}`, 'i'))
     const matcher = customMatcher || defaultMatcher
     const filtered = childProps.filter(
-      child => matcher(child, value.trim()) && !selectedOptionIds.includes(child.id)
+      child => matcher(child, value.trim()) && !selectedOptionIds.includes(child.id),
     )
     let message =
       // if number of options has changed, announce the new total.
@@ -302,7 +307,7 @@ function CanvasMultiSelect(props: Props) {
               one: 'One option available.',
               other: '%{count} options available.',
             },
-            {count: filtered.length}
+            {count: filtered.length},
           )
         : null
     if (message && filtered.length > 0 && highlightedOptionId !== filtered[0].id) {
@@ -330,7 +335,7 @@ function CanvasMultiSelect(props: Props) {
     if (filteredOptionIds?.length === 1) {
       const option = getChildById(filteredOptionIds[0])
       setAnnouncement(
-        I18n.t('%{label} selected. List collapsed.', {label: option ? primaryLabel(option) : ''})
+        I18n.t('%{label} selected. List collapsed.', {label: option ? primaryLabel(option) : ''}),
       )
       onChange([...selectedOptionIds, filteredOptionIds[0]])
     }
@@ -396,7 +401,7 @@ function CanvasMultiSelect(props: Props) {
         onKeyDown={onKeyDown}
         onBlur={onBlur}
         assistiveText={I18n.t(
-          'Type or use arrow keys to navigate. Multiple selections are allowed.'
+          'Type or use arrow keys to navigate. Multiple selections are allowed.',
         )}
         renderBeforeInput={contentBeforeInput()}
         isRequired={isRequired && selectedOptionIds.length === 0}

@@ -22,7 +22,7 @@ import {AppsSearchBar} from './AppsSearchBar'
 
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import GenericErrorPage from '@canvas/generic-error-page/react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import errorShipUrl from '@canvas/images/ErrorShip.svg'
 import {confirmDanger} from '@canvas/instui-bindings/react/Confirm'
 import {Flex} from '@instructure/ui-flex'
@@ -31,20 +31,31 @@ import {formatSearchParamErrorMessages} from '../../../common/lib/useZodParams/P
 import {
   deleteRegistration as apiDeleteRegistration,
   fetchRegistrations as apiFetchRegistrations,
+  unbindGlobalLtiRegistration as apiUnbindGlobalRegistration,
 } from '../../api/registrations'
 import {ZAccountId, type AccountId} from '../../model/AccountId'
 import type {LtiRegistration} from '../../model/LtiRegistration'
 import {AppsTable} from './AppsTable'
 import {mkUseManagePageState} from './ManagePageLoadingState'
 import {useManageSearchParams, type ManageSearchParams} from './ManageSearchParams'
+import {isSuccessful} from '../../../common/lib/apiResult/ApiResult'
+import {useAppendBreadcrumbsToDefaults} from '@canvas/breadcrumbs/useAppendBreadcrumbsToDefaults'
 
 const SEARCH_DEBOUNCE_MS = 250
 
-const I18n = useI18nScope('lti_registrations')
+const I18n = createI18nScope('lti_registrations')
 
 export const ManagePage = () => {
-  const [searchParams] = useManageSearchParams()
   const accountId = ZAccountId.parse(window.location.pathname.split('/')[2])
+  useAppendBreadcrumbsToDefaults(
+    {
+      name: I18n.t('Manage'),
+      url: `/accounts/${accountId}/apps/manage`,
+    },
+    !!window.ENV.FEATURES.lti_registrations_next,
+  )
+  const [searchParams] = useManageSearchParams()
+
   return searchParams.success ? (
     <ManagePageInner searchParams={searchParams.value} accountId={accountId} />
   ) : (
@@ -68,11 +79,15 @@ const confirmDeletion = (registration: LtiRegistration): Promise<boolean> =>
     confirmButtonLabel: I18n.t('Delete'),
     heading: I18n.t('You are about to delete “%{appName}”.', {appName: registration.name}),
     message: I18n.t(
-      'You are removing the app from the entire account. It will be removed from its placements and any resource links to it will stop working. To reestablish placements and links, you will need to reinstall the app.'
+      'You are removing the app from the entire account. It will be removed from its placements and any resource links to it will stop working. To reestablish placements and links, you will need to reinstall the app.',
     ),
   })
 
-const useManagePageState = mkUseManagePageState(apiFetchRegistrations, apiDeleteRegistration)
+const useManagePageState = mkUseManagePageState(
+  apiFetchRegistrations,
+  apiDeleteRegistration,
+  apiUnbindGlobalRegistration,
+)
 
 export const ManagePageInner = (props: ManagePageInnerProps) => {
   const {sort, dir, page} = props.searchParams
@@ -98,24 +113,24 @@ export const ManagePageInner = (props: ManagePageInnerProps) => {
       setStale()
       setManageSearchParams(params)
     },
-    [setStale, setManageSearchParams]
+    [setStale, setManageSearchParams],
   )
 
   const deleteApp = React.useCallback(
     async (app: LtiRegistration) => {
       if (await confirmDeletion(app)) {
-        const deleteResult = await deleteRegistration(app)
-        const type = deleteResult._type === 'success' ? 'success' : 'error'
+        const deleteResult = await deleteRegistration(app, props.accountId)
+        const type = isSuccessful(deleteResult) ? 'success' : 'error'
         showFlashAlert({
           type,
           message:
-            deleteResult._type !== 'success'
+            deleteResult._type !== 'Success'
               ? I18n.t('There was an error deleting “%{appName}”', {appName: app.name})
               : I18n.t('App “%{appName}” successfully deleted', {appName: app.name}),
         })
       }
     },
-    [deleteRegistration]
+    [deleteRegistration, props.accountId],
   )
 
   /**
@@ -125,7 +140,7 @@ export const ManagePageInner = (props: ManagePageInnerProps) => {
     debounce((q: string) => {
       updateSearchParams({q: q === '' ? undefined : q, page: undefined})
     }, SEARCH_DEBOUNCE_MS),
-    [updateSearchParams]
+    [updateSearchParams],
   )
 
   const handleChange = React.useCallback(
@@ -135,7 +150,7 @@ export const ManagePageInner = (props: ManagePageInnerProps) => {
       setQuery(value)
       updateQueryParamDebounced(value)
     },
-    [setStale, updateQueryParamDebounced]
+    [setStale, updateQueryParamDebounced],
   )
 
   const handleClear = React.useCallback(() => {

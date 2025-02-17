@@ -46,7 +46,7 @@ jest.mock('@craftjs/core', () => {
           },
         },
         query: {
-          serialize: () => '',
+          serialize: () => '{}',
         },
       }
     }),
@@ -62,7 +62,7 @@ const renderComponent = (props: Partial<TopbarProps> = {}) => {
   return render(
     <Editor enabled={true}>
       <Topbar {...defaultProps} {...props} />
-    </Editor>
+    </Editor>,
   )
 }
 

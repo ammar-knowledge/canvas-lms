@@ -1,6 +1,23 @@
 {
+  "[typescript]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescriptreact]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "biomejs.biome"
+  },
   "[javascript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[javascriptreact]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[json]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "vscode.json-language-features"
   },
   "[ruby]": {
     "editor.defaultFormatter": "Shopify.ruby-lsp",
@@ -8,4 +25,12 @@
     "editor.insertSpaces": true,
     "editor.semanticHighlighting.enabled": true
   },
+  "cSpell.words": [
+    "urlsafe"
+  ],
+  "search.exclude": {
+    "packages/*/es/**": true
+  },
+  "biome.enabled": true,
+  "prettier.enable": false
 }

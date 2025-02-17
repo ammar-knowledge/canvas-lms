@@ -16,8 +16,11 @@
 #
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
+require_relative "../../lti2_spec_helper"
 
 describe MasterCourses::MasterMigration do
+  include_context "lti2_spec_helper"
+
   before :once do
     course_factory
     @template = MasterCourses::MasterTemplate.set_as_master_course(@course)
@@ -294,6 +297,103 @@ describe MasterCourses::MasterMigration do
     end
   end
 
+  describe "Assignment Configuration Tool Lookup migration" do
+    before :once do
+      account_admin_user(active_all: true)
+      @copy_from = @course
+      @copy_to = course_factory
+      @sub = @template.add_child_course!(@copy_to)
+      @assignment_original = @copy_from.assignments.create!(title: "some assignment", submission_types: "external_tool", points_possible: 10)
+      @assignment_original.assignment_configuration_tool_lookups.create!(
+        context_type: "Account",
+        tool_id: message_handler.id,
+        tool_type: "Lti::MessageHandler"
+      )
+    end
+
+    before do
+      allow(Lti::ToolProxy).to receive(:find_active_proxies_for_context_by_vendor_code_and_product_code).and_return([true])
+      run_master_migration
+      @assignment_copy = @copy_to.assignments.where(migration_id: mig_id(@assignment_original)).first
+    end
+
+    context "when there is an ACTL on original assignment" do
+      it "migrates the ACTL over" do
+        expect(@assignment_copy.assignment_configuration_tool_lookups.last.tool_vendor_code).to eq("com.instructure.test")
+      end
+    end
+
+    context "when there is no ACTL on original assignment" do
+      before do
+        @assignment_original.assignment_configuration_tool_lookups.destroy_all
+        @assignment_original.touch
+      end
+
+      it "clears out the child ACTL" do
+        Timecop.travel(1.minute.from_now) { run_master_migration }
+        expect(@assignment_copy.assignment_configuration_tool_lookups.count).to eq(0)
+      end
+    end
+
+    context "when there is an extra ACTL on copied assignment" do
+      before do
+        @assignment_copy.assignment_configuration_tool_lookups.create!(context_type: "Course", tool_id: message_handler.id, tool_type: "Lti::MessageHandler", tool_vendor_code: "remove_me")
+        @assignment_original.touch
+      end
+
+      it "clears out the extra ACTL" do
+        expect(@assignment_copy.assignment_configuration_tool_lookups.count).to eq(2)
+        Timecop.travel(1.minute.from_now) { run_master_migration }
+        expect(@assignment_copy.assignment_configuration_tool_lookups.count).to eq(1)
+        expect(@assignment_copy.assignment_configuration_tool_lookups.last.tool_vendor_code).to eq("com.instructure.test")
+      end
+    end
+
+    context "with downstream changes" do
+      before do
+        @assignment_copy.assignment_configuration_tool_lookups.last.update! tool_vendor_code: "altered"
+      end
+
+      context "when there is no ACTL on original assignment" do
+        before do
+          @assignment_original.assignment_configuration_tool_lookups.destroy_all
+          @assignment_original.touch
+        end
+
+        it "clears out the child ACTL" do
+          Timecop.travel(1.minute.from_now) { run_master_migration }
+          expect(@assignment_copy.assignment_configuration_tool_lookups.count).to eq 0
+        end
+      end
+
+      context "when there is an ACTL on original assignment" do
+        before do
+          @assignment_original.tool_settings_tool.resource_handler.tool_proxy.product_family.update! vendor_code: "BP change"
+          @assignment_original.touch
+        end
+
+        it "overwrites child assignment's ACTL" do
+          Timecop.travel(1.minute.from_now) { run_master_migration }
+          expect(@assignment_copy.assignment_configuration_tool_lookups.count).to eq(1)
+          expect(@assignment_copy.assignment_configuration_tool_lookups.last.tool_vendor_code).to eq "BP change"
+        end
+      end
+
+      context "when downstream removes ACTL" do
+        before do
+          @assignment_copy.assignment_configuration_tool_lookups.last.destroy
+          @assignment_original.touch
+        end
+
+        it "recreates downstream assignment's ACTL" do
+          Timecop.travel(1.minute.from_now) { run_master_migration }
+          expect(@assignment_copy.assignment_configuration_tool_lookups.count).to eq(1)
+          expect(@assignment_copy.assignment_configuration_tool_lookups.last.tool_vendor_code).to eq("com.instructure.test")
+        end
+      end
+    end
+  end
+
   describe "Course pace migration" do
     before :once do
       account_admin_user(active_all: true)
@@ -438,6 +538,32 @@ describe MasterCourses::MasterMigration do
       expect(cm2.migration_settings[:imported_assets]["DiscussionTopic"]).to be_blank # should have excluded it from the selective export
       expect(cm2.migration_settings[:imported_assets]["Attachment"]).to be_blank
       expect(cm2.migration_settings[:imported_assets]["WikiPage"]).to eq page_to.id.to_s
+    end
+
+    describe "send_item_notifications" do
+      it "does not perform imports with send_item_notifications by default" do
+        @copy_to = course_factory
+        @sub = @template.add_child_course!(@copy_to)
+
+        run_master_migration
+
+        expect(@sub.child_course.content_migrations
+                   .where(migration_type: "master_course_import")
+                   .last
+                   .send_item_notifications?).to be false
+      end
+
+      it "performs imports with send_item_notifications if the option is provided" do
+        @copy_to = course_factory
+        @sub = @template.add_child_course!(@copy_to)
+
+        run_master_migration(send_item_notifications: true)
+
+        expect(@sub.child_course.content_migrations
+                   .where(migration_type: "master_course_import")
+                   .last
+                   .send_item_notifications?).to be true
+      end
     end
 
     it "syncs deletions in incremental updates (except items modified downstream, unless locked)" do
@@ -1841,6 +1967,29 @@ describe MasterCourses::MasterMigration do
       expect(assmt_to.due_at).to be_nil
       expect(assmt_to.lock_at).to be_nil
       expect(assmt_to.unlock_at).to be_nil
+    end
+
+    it "removes available dates from locked wiki pages in sync" do
+      @copy_to = course_factory
+      @template.add_child_course!(@copy_to)
+      assmt = @copy_from.wiki_pages.create!(title: "page 1", unlock_at: 1.day.ago, lock_at: 1.day.from_now)
+      run_master_migration
+
+      page_to = @copy_to.wiki_pages.where(migration_id: mig_id(assmt)).first
+      expect(page_to.lock_at).not_to be_nil
+
+      Timecop.travel(5.minutes.from_now) do
+        @template.content_tag_for(assmt).update_attribute(:restrictions, { availability_dates: true })
+        assmt.update(unlock_at: nil, lock_at: nil)
+      end
+
+      Timecop.travel(10.minutes.from_now) do
+        run_master_migration
+      end
+
+      page_to.reload
+      expect(page_to.lock_at).to be_nil
+      expect(page_to.unlock_at).to be_nil
     end
 
     it "counts downstream changes to quiz/assessment questions as changes in quiz/bank content" do

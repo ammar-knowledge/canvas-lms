@@ -58,6 +58,9 @@ describe Schemas::Lti::IMS::LtiToolConfiguration do
       }
     end
 
+    # More tested as part of OidcRegistration schema in
+    # spec/lib/schemas/lti/ims/oidc_registration_spec.rb
+
     it "succeeds if configuration is valid" do
       config_errors = Schemas::Lti::IMS::LtiToolConfiguration.simple_validation_errors(
         valid_configuration,
@@ -83,7 +86,7 @@ describe Schemas::Lti::IMS::LtiToolConfiguration do
         error_format: :hash
       )
 
-      expect(config_errors).not_to be_blank
+      expect(config_errors).not_to be_empty
     end
   end
 end

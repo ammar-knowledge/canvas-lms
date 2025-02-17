@@ -103,7 +103,7 @@ describe "student planner" do
 
   context "wiki_pages" do
     before :once do
-      @wiki_page = @course.wiki_pages.create!(title: "Page1", todo_date: DateTime.current.change({ min: 5 }) + 2.days)
+      @wiki_page = @course.wiki_pages.create!(title: "Page1", todo_date: Time.zone.now.change({ min: 5 }) + 2.days)
     end
 
     it "shows the date in the index page" do
@@ -586,32 +586,10 @@ describe "student planner" do
     end
 
     it "allows account admins with content management rights to add todo dates" do
-      @course.root_account.disable_feature!(:granular_permissions_manage_courses)
-      @course.root_account.disable_feature!(:granular_permissions_manage_course_content)
-      @wiki = @course.wiki_pages.create!(title: "Default Time Wiki Page")
-      admin = account_admin_user_with_role_changes(role_changes: { manage_courses: false })
-      user_session(admin)
-
-      expect(@course.grants_right?(admin, :manage)).to be false # sanity check
-      expect(@course.grants_right?(admin, :manage_content)).to be true
-
-      get("/courses/#{@course.id}/pages/#{@wiki.id}/edit")
-      f("#student_planner_checkbox").click
-      wait_for_ajaximations
-      replace_content(f('input[name="student_todo_at"]'), format_date_for_view(Time.zone.now).to_s, tab_out: true)
-      scroll_into_view(fj('button:contains("Save")'))
-      expect_new_page_load { hover_and_click('button:contains("Save")') }
-      expect(@wiki.reload.todo_date).to be_present
-    end
-
-    it "allows account admins with content management rights to add todo dates (granular permissions)" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
-      @course.root_account.enable_feature!(:granular_permissions_manage_course_content)
       @wiki = @course.wiki_pages.create!(title: "Default Time Wiki Page")
       admin = account_admin_user
       user_session(admin)
 
-      expect(@course.grants_right?(admin, :manage)).to be true
       expect(@course.grants_right?(admin, :manage_course_content_edit)).to be true
 
       get("/courses/#{@course.id}/pages/#{@wiki.id}/edit")

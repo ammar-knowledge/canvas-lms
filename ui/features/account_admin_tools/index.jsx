@@ -20,9 +20,7 @@ import CourseRestoreModel from './backbone/models/CourseRestore'
 import UserRestoreModel from './backbone/models/UserRestore'
 import AdminToolsView from './backbone/views/AdminToolsView'
 import RestoreContentPaneView from './backbone/views/RestoreContentPaneView'
-import CourseSearchFormView from './backbone/views/CourseSearchFormView'
 import CourseSearchResultsView from './backbone/views/CourseSearchResultsView'
-import UserSearchFormView from './backbone/views/UserSearchFormView'
 import UserSearchResultsView from './backbone/views/UserSearchResultsView'
 import LoggingContentPaneView from './backbone/views/LoggingContentPaneView'
 import InputFilterView from '@canvas/backbone-input-filter-view'
@@ -36,7 +34,7 @@ import CommMessageItemView from './backbone/views/CommMessageItemView'
 import messagesSearchResultsTemplate from './jst/commMessagesSearchResults.handlebars'
 import usersTemplate from './jst/usersList.handlebars'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {createRoot} from 'react-dom/client'
 import BouncedEmailsView from './react/BouncedEmailsView'
 import ready from '@instructure/ready'
 import {initializeTopNavPortal} from '@canvas/top-navigation/react/TopNavPortal'
@@ -85,9 +83,7 @@ ready(() => {
     },
     restoreContentPaneView: new RestoreContentPaneView({
       permissions: ENV.PERMISSIONS,
-      courseSearchFormView: new CourseSearchFormView({model: courseRestoreModel}),
       courseSearchResultsView: new CourseSearchResultsView({model: courseRestoreModel}),
-      userSearchFormView: new UserSearchFormView({model: userRestoreModel}),
       userSearchResultsView: new UserSearchResultsView({model: userRestoreModel}),
     }),
     messageContentPaneView: messagesContentView,
@@ -101,6 +97,9 @@ ready(() => {
 
   const bouncedEmailsMountPoint = document.getElementById('bouncedEmailsPane')
   if (bouncedEmailsMountPoint) {
-    ReactDOM.render(<BouncedEmailsView accountId={ENV.ACCOUNT_ID} />, bouncedEmailsMountPoint)
+    const root = createRoot(bouncedEmailsMountPoint)
+    root.render(<BouncedEmailsView accountId={ENV.ACCOUNT_ID} />)
+    return () => root.unmount()
   }
+  return () => {}
 })

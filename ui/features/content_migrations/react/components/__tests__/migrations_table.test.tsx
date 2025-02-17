@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {render, waitFor, screen} from '@testing-library/react'
+import {fireEvent, render, screen, waitFor} from '@testing-library/react'
 import ContentMigrationsTable from '../migrations_table'
 import fetchMock from 'fetch-mock'
 import type {ContentMigrationItem} from '../types'
@@ -39,11 +39,23 @@ const migrations: ContentMigrationItem[] = [
     created_at: 'Apr 15 at 9:11pm',
   },
 ]
-let setMigrationsMock: () => void
 
-const renderComponent = () => {
+const fetchNext = jest.fn()
+
+const renderComponent = (
+  {
+    migrationArray = migrations,
+    isLoading = false,
+    hasMore = false,
+  }:
+  {
+    migrationArray?: ContentMigrationItem[],
+    isLoading?: boolean,
+    hasMore?: boolean,
+  }
+) => {
   return render(
-    <ContentMigrationsTable migrations={migrations} setMigrations={setMigrationsMock} />
+    <ContentMigrationsTable migrations={migrationArray} isLoading={isLoading} updateMigrationItem={jest.fn()} fetchNext={fetchNext} hasMore={hasMore} />
   )
 }
 
@@ -56,7 +68,6 @@ describe('ContentMigrationTable', () => {
   })
 
   beforeAll(() => {
-    setMigrationsMock = jest.fn(() => {})
     window.ENV.COURSE_ID = '0'
     fetchMock.mock('/api/v1/courses/0/content_migrations?per_page=25', ['api_return'])
   })
@@ -73,10 +84,10 @@ describe('ContentMigrationTable', () => {
     })
 
     it('renders the table', () => {
-      renderComponent()
+      renderComponent({})
 
-      const headers = Array.from(document.querySelectorAll('span[as="th"]')).map(e => e.textContent)
-      const data = Array.from(document.querySelectorAll('span[as="td"]')).map(e => e.textContent)
+      const headers = Array.from(document.querySelectorAll('[role="cell"] strong')).map(e => e.textContent)
+      const data = Array.from(document.querySelectorAll('[role="cell"]')).map(e => e.textContent)
 
       expect(headers).toEqual([
         'Content Type',
@@ -87,22 +98,19 @@ describe('ContentMigrationTable', () => {
         'Action',
       ])
       expect(data).toEqual([
-        'Copy a Canvas Course',
-        'Other course',
-        'Apr 15 at 9:11pm',
-        'Waiting for selection',
-        'Select content',
-        '',
+        'Content Type: Copy a Canvas Course',
+        'Source Link: Other course',
+        'Date Imported: Apr 15 at 9:11pm',
+        'Status: Waiting for selection',
+        'Progress: Select content',
+        'Action: ',
       ])
     })
 
-    it('calls the API', async () => {
-      renderComponent()
+    it('displays the loading spinner', () => {
+      renderComponent({isLoading: true})
 
-      expect(fetchMock.called('/api/v1/courses/0/content_migrations?per_page=25', 'GET')).toBe(true)
-      await waitFor(() => {
-        expect(setMigrationsMock).toHaveBeenCalledWith(expect.any(Function))
-      })
+      expect(screen.getByLabelText('Loading')).toBeInTheDocument()
     })
   })
 
@@ -118,23 +126,30 @@ describe('ContentMigrationTable', () => {
     })
 
     it('renders the table', () => {
-      renderComponent()
+      renderComponent({})
 
       expect(screen.getByRole('table', {hidden: false})).toBeInTheDocument()
       expect(
         screen.getByRole('row', {
           name: 'Content Type Source Link Date Imported Status Progress Action',
           hidden: false,
-        })
+        }),
       ).toBeInTheDocument()
     })
 
-    it('calls the API', async () => {
-      renderComponent()
+    it('displays the loading spinner', () => {
+      renderComponent({isLoading: true})
 
-      expect(fetchMock.called('/api/v1/courses/0/content_migrations?per_page=25', 'GET')).toBe(true)
+      expect(screen.getByLabelText('Loading')).toBeInTheDocument()
+    })
+
+    it('fetches next page of migrations when scrolled to the bottom', async () => {
+      renderComponent({isLoading: false, hasMore: true})
+
+      fireEvent.scroll(window, { target: { scrollY: 10000 } })
+
       await waitFor(() => {
-        expect(setMigrationsMock).toHaveBeenCalledWith(expect.any(Function))
+        expect(fetchNext).toHaveBeenCalled()
       })
     })
   })

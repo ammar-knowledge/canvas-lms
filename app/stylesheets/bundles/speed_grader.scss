@@ -23,6 +23,7 @@
 @import "vendor/_xflex.scss";
 @import "components/rubric";
 @import "components/emoji";
+@import "components/submission_stickers";
 
 .ic-Layout-contentMain {
   padding: 0;
@@ -380,11 +381,15 @@ $icon-size: 1.4rem;
     span.comment {
       flex: auto;
     }
+    span.comment h2 {
+      font-weight: normal;
+      font-size: 1.8em;
+    }
     .comment_citation {
       @include fontSize(12px);
       text-align: direction(right);
     }
-    .delete_comment_link, .submit_comment_button {
+    .delete_comment_link, .edit_comment_link, .submit_comment_button {
       flex: none;
       height: 24px;
       margin-#{direction(left)}: 0.5em;
@@ -969,9 +974,7 @@ body .ui-selectmenu-dropdown:hover .ui-selectmenu-icon, body .ui-state-active .u
   position: relative;
 
   #speed_grader_edit_status_secondary_mount_point {
-    position: absolute;
-    right: 24px;
-    top: 33px;
+    margin: 10px;
   }
 }
 
@@ -984,6 +987,11 @@ body .ui-selectmenu-dropdown:hover .ui-selectmenu-icon, body .ui-state-active .u
 .emoji-picker-container {
   position: absolute;
   bottom: 0px;
+  #{direction(right)}: 10px;
+}
+
+.emoji-picker-container.with-rce-lite {
+  bottom: 55px;
   #{direction(right)}: 10px;
 }
 
@@ -1064,4 +1072,14 @@ body.is-masquerading-or-student-view {
   #enhanced-rubric-assessment-tray {
     margin-bottom: 50px;
   }
+}
+
+#drawer-layout-content {
+  height: auto;
+}
+
+#submission_sticker_mount_point {
+  display: flex;
+  flex-direction: column;
+  margin-top: -10px;
 }

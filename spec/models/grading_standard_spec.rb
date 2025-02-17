@@ -152,16 +152,16 @@ describe GradingStandard do
 
   it "upgrades in memory when accessing data" do
     standard = GradingStandard.new
-    standard.write_attribute(:data, @default_standard_v1)
-    standard.write_attribute(:version, 1)
+    standard["data"] = @default_standard_v1
+    standard.version = 1
     compare_schemes(standard.data, GradingStandard.default_grading_standard)
     expect(standard.version).to eq GradingStandard::VERSION
   end
 
   it "does not upgrade repeatedly when accessing data repeatedly" do
     standard = GradingStandard.new
-    standard.write_attribute(:data, @default_standard_v1)
-    standard.write_attribute(:version, 1)
+    standard["data"] = @default_standard_v1
+    standard.version = 1
     compare_schemes(standard.data, GradingStandard.default_grading_standard)
     compare_schemes(standard.data, GradingStandard.default_grading_standard)
     compare_schemes(standard.data, GradingStandard.default_grading_standard)
@@ -177,11 +177,19 @@ describe GradingStandard do
     end
   end
 
-  context "#for" do
+  describe "#for" do
     it "returns standards that match the context" do
       grading_standard_for @course
 
       standards = GradingStandard.for(@course)
+      expect(standards.length).to eq 1
+      expect(standards[0].id).to eq @standard.id
+    end
+
+    it "returns standards that match the context when archive is requested" do
+      grading_standard_for @course
+
+      standards = GradingStandard.for(@course, include_archived: true)
       expect(standards.length).to eq 1
       expect(standards[0].id).to eq @standard.id
     end
@@ -208,6 +216,14 @@ describe GradingStandard do
       standards = GradingStandard.for(@course, include_archived: true)
       expect(standards.length).to eq 1
       expect(standards[0].id).to eq @standard.id
+    end
+
+    it "excludes deleted when the parameter is true for archived grading schemes" do
+      Account.site_admin.enable_feature!(:archived_grading_schemes)
+      grading_standard_for @course
+      @standard.destroy
+      standards = GradingStandard.for(@course, include_archived: true)
+      expect(standards.length).to eq 0
     end
   end
 
@@ -467,6 +483,10 @@ describe GradingStandard do
       end
 
       context "without submissions" do
+        before(:once) do
+          Account.site_admin.disable_feature!(:archived_grading_schemes)
+        end
+
         it "is false" do
           expect(@gs).not_to be_assessed_assignment
         end
@@ -475,6 +495,7 @@ describe GradingStandard do
       context "with submissions" do
         before(:once) do
           @submission = @assignment.submit_homework(@student, body: "done!")
+          Account.site_admin.disable_feature!(:archived_grading_schemes)
         end
 
         it "is false if no submissions are graded" do

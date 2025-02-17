@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
  *
@@ -26,6 +25,17 @@ export default {
   component: Errors,
 }
 
-const Template = args => <Errors {...args} errors={{publish: 'TypeError: Failed to fetch'}} />
+import type {ResponsiveSizes} from '../types'
+
+interface TemplateArgs {
+  errors: {
+    publish: string
+  }
+  responsiveSize: ResponsiveSizes
+}
+
+const Template = (args: TemplateArgs) => (
+  <Errors {...args} errors={{publish: 'TypeError: Failed to fetch'}} />
+)
 
 export const FailedPublish = Template.bind({})

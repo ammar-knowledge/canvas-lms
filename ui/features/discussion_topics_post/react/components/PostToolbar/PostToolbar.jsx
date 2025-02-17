@@ -16,17 +16,20 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React, {useMemo} from 'react'
-import {ReplyInfo} from '../ReplyInfo/ReplyInfo'
 import {responsiveQuerySizes} from '../../utils'
-import {ToggleButton} from './ToggleButton'
+import {ReplyInfo} from '../ReplyInfo/ReplyInfo'
 
+import ReadIcon from '@canvas/read-icon'
+import UnreadIcon from '@canvas/unread-icon'
+import {assignLocation} from '@canvas/util/globalUtils'
+import {IconButton, ToggleButton} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
 import {
-  IconBookmarkSolid,
   IconBookmarkLine,
+  IconBookmarkSolid,
   IconCompleteSolid,
   IconDuplicateLine,
   IconEditLine,
@@ -40,13 +43,11 @@ import {
   IconUnlockLine,
   IconUserLine,
 } from '@instructure/ui-icons'
-import {IconButton} from '@instructure/ui-buttons'
 import {Menu} from '@instructure/ui-menu'
 import {Responsive} from '@instructure/ui-responsive'
 import {Text} from '@instructure/ui-text'
-import {ReadIcon, UnreadIcon} from '../ThreadingToolbar/MarkAsReadIcons'
 
-const I18n = useI18nScope('discussion_posts')
+const I18n = createI18nScope('discussion_posts')
 
 export function PostToolbar({repliesCount, unreadCount, ...props}) {
   const showSubscribe = useMemo(() => {
@@ -60,8 +61,9 @@ export function PostToolbar({repliesCount, unreadCount, ...props}) {
         : true
     }
     return !props.discussionTopic?.groupSet
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.discussionTopic?.groupSet]) // disabling to use safe nav in dependencies
+
+  const subscriptionDisabled = props.discussionTopic?.subscriptionDisabledForUser
 
   return (
     <Responsive
@@ -78,7 +80,10 @@ export function PostToolbar({repliesCount, unreadCount, ...props}) {
         },
       }}
       render={responsiveProps => (
-        <Flex justifyItems={repliesCount > 0 ? responsiveProps.justifyItems : 'end'}>
+        <Flex
+          justifyItems={repliesCount > 0 ? responsiveProps.justifyItems : 'end'}
+          margin="0 0 0 x-small"
+        >
           {repliesCount > 0 && (
             <Flex.Item margin="0 x-small 0 0">
               <Text weight="normal" size={responsiveProps.textSize}>
@@ -92,15 +97,18 @@ export function PostToolbar({repliesCount, unreadCount, ...props}) {
                 <Flex.Item>
                   <span className="discussion-post-publish">
                     <ToggleButton
-                      isEnabled={props.isPublished}
-                      enabledIcon={<IconCompleteSolid />}
-                      disabledIcon={<IconNoSolid />}
-                      enabledTooltipText={I18n.t('Unpublish')}
-                      disabledTooltipText={I18n.t('Publish')}
-                      enabledScreenReaderLabel={I18n.t('Published')}
-                      disabledScreenReaderLabel={I18n.t('Unpublished')}
-                      onClick={props.onTogglePublish}
+                      size="small"
+                      status={props.isPublished ? 'pressed' : 'unpressed'}
+                      color={props.isPublished ? 'success' : 'secondary'}
+                      renderIcon={props.isPublished ? <IconCompleteSolid /> : <IconNoSolid />}
+                      renderTooltipContent={
+                        props.isPublished ? I18n.t('Unpublish') : I18n.t('Publish')
+                      }
+                      screenReaderLabel={
+                        props.isPublished ? I18n.t('Published') : I18n.t('Unpublished')
+                      }
                       interaction={props.canUnpublish ? 'enabled' : 'disabled'}
+                      onClick={props.onTogglePublish}
                     />
                   </span>
                 </Flex.Item>
@@ -109,13 +117,25 @@ export function PostToolbar({repliesCount, unreadCount, ...props}) {
                 <Flex.Item>
                   <span className="discussion-post-subscribe">
                     <ToggleButton
-                      isEnabled={props.isSubscribed}
-                      enabledIcon={<IconBookmarkSolid />}
-                      disabledIcon={<IconBookmarkLine />}
-                      enabledTooltipText={I18n.t('Unsubscribe')}
-                      disabledTooltipText={I18n.t('Subscribe')}
-                      enabledScreenReaderLabel={I18n.t('Subscribed')}
-                      disabledScreenReaderLabel={I18n.t('Unsubscribed')}
+                      size="small"
+                      status={props.isSubscribed ? 'pressed' : 'unpressed'}
+                      color={props.isSubscribed ? 'success' : 'secondary'}
+                      renderIcon={props.isSubscribed ? <IconBookmarkSolid /> : <IconBookmarkLine />}
+                      renderTooltipContent={
+                        props.isSubscribed
+                          ? I18n.t('Unsubscribe')
+                          : subscriptionDisabled
+                            ? I18n.t('Reply to subscribe')
+                            : I18n.t('Subscribe')
+                      }
+                      screenReaderLabel={
+                        props.isSubscribed
+                          ? I18n.t('Subscribed')
+                          : subscriptionDisabled
+                            ? I18n.t('Reply to subscribe')
+                            : I18n.t('Unsubscribed')
+                      }
+                      interaction={subscriptionDisabled ? 'disabled' : 'enabled'}
                       onClick={props.onToggleSubscription}
                     />
                   </span>
@@ -251,9 +271,7 @@ const getMenuConfigs = props => {
         icon: <i className={tool.canvas_icon_class} />,
         label: tool.title,
         selectionCallback: () => {
-          window.location.assign(
-            `${tool.base_url}&discussion_topics%5B%5D=${props.discussionTopicId}`
-          )
+          assignLocation(`${tool.base_url}&discussion_topics%5B%5D=${props.discussionTopicId}`)
         },
       })
     })

@@ -37,6 +37,7 @@ type KnownResourceType =
   | 'image'
   | 'module'
   | 'quiz'
+  | 'quizzesnext'
   | 'page'
   | 'video'
 
@@ -86,7 +87,7 @@ export default function ContentTypeExternalToolTray({
   useEffect(
     // returns cleanup function:
     () => handleExternalContentMessages({ready: onExternalContentReady}),
-    [onExternalContentReady]
+    [onExternalContentReady],
   )
 
   return (

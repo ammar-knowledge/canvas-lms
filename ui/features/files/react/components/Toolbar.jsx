@@ -17,7 +17,7 @@
  */
 
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import ReactDOM from 'react-dom'
 import page from 'page'
@@ -37,7 +37,7 @@ import '@canvas/rails-flash-notifications'
 import ContentTypeExternalToolTray from '@canvas/trays/react/ContentTypeExternalToolTray'
 import {ltiState} from '@canvas/lti/jquery/messages'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 export default class Toolbar extends React.Component {
   static propTypes = {
@@ -92,7 +92,7 @@ export default class Toolbar extends React.Component {
         {
           count: this.props.selectedItems.length,
           itemName: this.props.selectedItems[0].displayName(),
-        }
+        },
       ),
       width: 800,
       minHeight: 400,
@@ -110,7 +110,7 @@ export default class Toolbar extends React.Component {
         usageRightsRequiredForContext={this.props.usageRightsRequiredForContext}
         closeDialog={() => $dialog.dialog('close')}
       />,
-      $dialog[0]
+      $dialog[0],
     )
   }
 
@@ -196,6 +196,7 @@ export default class Toolbar extends React.Component {
         window.location.reload()
       }
     }
+
     ReactDOM.render(
       <ContentTypeExternalToolTray
         tool={tool}
@@ -207,7 +208,7 @@ export default class Toolbar extends React.Component {
         onDismiss={handleDismiss}
         open={tool !== null}
       />,
-      document.getElementById('external-tool-mount-point')
+      document.getElementById('external-tool-mount-point'),
     )
   }
 
@@ -348,8 +349,8 @@ export default class Toolbar extends React.Component {
       $.screenReaderFlashMessageExclusive(
         I18n.t(
           {one: '%{count} item selected', other: '%{count} items selected'},
-          {count: this.props.selectedItems.length}
-        )
+          {count: this.props.selectedItems.length},
+        ),
       )
     }
   }
@@ -380,7 +381,7 @@ export default class Toolbar extends React.Component {
       submissionsFolderSelected ||
       this.props.selectedItems.some(item => item.get('for_submissions'))
     const restrictedByMasterCourse = this.props.selectedItems.some(
-      item => item.get('restricted_by_master_course') && item.get('is_master_course_child_content')
+      item => item.get('restricted_by_master_course') && item.get('is_master_course_child_content'),
     )
     const {
       userCanRestrictFilesForContext,
@@ -455,14 +456,14 @@ export default class Toolbar extends React.Component {
             {this.renderDownloadButton()}
             {this.renderCopyCourseButton(canManage(userCanEditFilesForContext))}
             {this.renderManageUsageRightsButton(
-              canManage(userCanEditFilesForContext && this.props.usageRightsRequiredForContext)
+              canManage(userCanEditFilesForContext && this.props.usageRightsRequiredForContext),
             )}
             {this.renderDeleteButton(canManage(userCanDeleteFilesForContext))}
           </div>
           <span className="ef-selected-count hidden-tablet hidden-phone">
             {I18n.t(
               {one: '%{count} item selected', other: '%{count} items selected'},
-              {count: this.props.selectedItems.length}
+              {count: this.props.selectedItems.length},
             )}
           </span>
           {this.renderUploadAddFolderButtons(canManage(userCanAddFilesForContext))}

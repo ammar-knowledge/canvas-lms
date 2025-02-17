@@ -25,6 +25,41 @@ module Lti
     RSpec.describe DeepLinkingController do
       include_context "deep_linking_spec_helper"
 
+      describe "#deep_linking_cancel" do
+        subject do
+          params = {
+            placement: "editor_button",
+            lti_msg: "hello",
+            lti_log: "log",
+            lti_errormsg: "error",
+            lti_errorlog: "error log"
+          }
+          get :deep_linking_cancel, params:
+        end
+
+        it "renders the same page as the deep linking response URL" do
+          expect(subject).to render_template("lti/ims/deep_linking/deep_linking_response")
+        end
+
+        it "sets the JS ENV with no content_items" do
+          expected_dl_resp = {
+            placement: "editor_button",
+            content_items: [],
+            msg: "Message from external tool: hello",
+            log: "log",
+            errormsg: "Error message from external tool: error",
+            errorlog: "error log",
+            reloadpage: false,
+            moduleCreated: false,
+            replaceEditorContents: false
+          }
+
+          expect(controller).to receive(:js_env).with({ deep_link_response: expected_dl_resp })
+
+          subject
+        end
+      end
+
       describe "#deep_linking_response" do
         subject { post :deep_linking_response, params: }
 
@@ -53,7 +88,6 @@ module Lti
         end
 
         it "sets the JS ENV" do
-          expect(controller).to receive(:js_env).with({ deep_linking_use_window_parent: true })
           expect(controller).to receive(:js_env).with({
                                                         deep_link_response: {
                                                           placement:,
@@ -118,7 +152,6 @@ module Lti
           let(:errorlog) { { html: "some error log" } }
 
           it "turns them into strings before calling js_env to prevent HTML injection" do
-            expect(controller).to receive(:js_env).with({ deep_linking_use_window_parent: true })
             expect(controller).to receive(:js_env).with({
                                                           deep_link_response: hash_including(
                                                             msg: '{"html"=>"some message"}',
@@ -202,9 +235,9 @@ module Lti
           it { is_expected.to be_bad_request }
 
           it "reports error metric" do
-            allow(InstStatsd::Statsd).to receive(:increment).and_call_original
+            allow(InstStatsd::Statsd).to receive(:distributed_increment).and_call_original
             subject
-            expect(InstStatsd::Statsd).to have_received(:increment).with("canvas.deep_linking_controller.request_error", tags: { code: 400 })
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("canvas.deep_linking_controller.request_error", tags: { code: 400 })
           end
 
           it "responds with an error" do
@@ -554,6 +587,26 @@ module Lti
                       subject
                       expect(assigns.dig(:js_env, :deep_link_response, :reloadpage)).to be false
                     end
+
+                    context "with flag enabled" do
+                      before do
+                        course.root_account.enable_feature!(:lti_deep_linking_line_items)
+                      end
+
+                      it "creates a resource link" do
+                        # the resource link has an Assignment context, not course
+                        expect { subject }.to change { Lti::ResourceLink.count }.by 1
+                      end
+
+                      it "creates a module item" do
+                        expect { subject }.to change { context_module.content_tags.count }.by 1
+                      end
+
+                      it "asks to reload page" do
+                        subject
+                        expect(assigns.dig(:js_env, :deep_link_response, :reloadpage)).to be true
+                      end
+                    end
                   end
                 end
               end
@@ -765,7 +818,7 @@ module Lti
                     account_admin_user_with_role_changes(
                       account:,
                       role: department_admin_role,
-                      role_changes: { manage_content: false, manage_course_content_add: false }
+                      role_changes: { manage_course_content_add: false }
                     )
                     user_session(@user)
                     subject
@@ -777,7 +830,7 @@ module Lti
                     account_admin_user_with_role_changes(
                       account:,
                       role: department_admin_role,
-                      role_changes: { manage_content: false, manage_course_content_add: true }
+                      role_changes: { manage_course_content_add: true }
                     )
                     user_session(@user)
                     subject

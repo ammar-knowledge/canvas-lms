@@ -17,7 +17,7 @@
  */
 
 import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
-import {ApolloProvider} from 'react-apollo'
+import {ApolloProvider} from '@apollo/client'
 import {handlers} from '../../../graphql/mswHandlers'
 import MessageListActionContainer from '../MessageListActionContainer'
 import {mswClient} from '../../../../../shared/msw/mswClient'
@@ -80,7 +80,7 @@ describe('MessageListActionContainer', () => {
             {...overrideProps}
           />
         </AlertManagerContext.Provider>
-      </ApolloProvider>
+      </ApolloProvider>,
     )
   }
 
@@ -136,7 +136,7 @@ describe('MessageListActionContainer', () => {
       const option = await component.findByText('Fighting Magneto 101')
       fireEvent.click(option)
 
-      expect(mock.mock.calls.length).toBe(1)
+      expect(mock.mock.calls).toHaveLength(1)
     })
 
     it('should callback to update mailbox when event fires', async () => {
@@ -153,7 +153,7 @@ describe('MessageListActionContainer', () => {
       expect(option).toBeTruthy()
       fireEvent.click(option)
 
-      expect(mock.mock.calls.length).toBe(1)
+      expect(mock.mock.calls).toHaveLength(1)
     })
 
     it('should call onSelectMailbox when mailbox changed', async () => {
@@ -170,7 +170,7 @@ describe('MessageListActionContainer', () => {
       expect(option).toBeTruthy()
       fireEvent.click(option)
 
-      expect(mock.mock.calls.length).toBe(1)
+      expect(mock.mock.calls).toHaveLength(1)
     })
 
     it('should load with selected mailbox set via props', async () => {
@@ -180,6 +180,14 @@ describe('MessageListActionContainer', () => {
 
       const mailboxDropdown = await component.findByDisplayValue('Sent')
       expect(mailboxDropdown).toBeTruthy()
+    })
+  })
+
+  describe('AddressBook', () => {
+    it('should render AddressBook', async () => {
+      const {findByTestId} = setup()
+      const addressBook = await findByTestId('message-list-actions-address-book-input')
+      expect(addressBook).toBeTruthy()
     })
   })
 

@@ -159,7 +159,6 @@ class CollaborationsController < ApplicationController
              @context.grants_any_right?(
                @current_user,
                session,
-               :manage_groups,
                *RoleOverride::GRANULAR_MANAGE_GROUPS_PERMISSIONS
              ),
            collaboration_types: Collaboration.collaboration_types,
@@ -167,6 +166,7 @@ class CollaborationsController < ApplicationController
              polymorphic_url([:api_v1, @context, :potential_collaborators])
 
     set_tutorial_js_env
+    page_has_instui_topnav
   end
 
   # @API List collaborations
@@ -191,7 +191,7 @@ class CollaborationsController < ApplicationController
                                    .eager_load(:user)
                                    .where(type: "ExternalToolCollaboration")
 
-    unless @context.grants_any_right?(@current_user, session, :manage_content, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
+    unless @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
       where_collaborators = Collaboration.arel_table[:user_id].eq(@current_user&.id)
                                          .or(Collaborator.arel_table[:user_id].eq(@current_user&.id))
       if @context.instance_of?(Course)

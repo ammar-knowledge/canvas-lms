@@ -38,7 +38,6 @@ class ConversationMessage < ActiveRecord::Base
   delegate :subscribed_participants, to: :conversation
 
   before_create :set_root_account_ids
-  after_create :generate_user_note!
   after_create :log_conversation_message_metrics
   after_create :check_for_out_of_office_participants, unless: :automated_message?
   after_save :update_attachment_associations
@@ -117,7 +116,6 @@ class ConversationMessage < ActiveRecord::Base
     @re_send_message = true
     broadcast_notifications
     queue_create_stream_items
-    generate_user_note!
   end
 
   before_save :infer_values
@@ -138,12 +136,12 @@ class ConversationMessage < ActiveRecord::Base
 
   # override AR association magic
   def attachment_ids
-    (read_attribute(:attachment_ids) || "").split(",").map(&:to_i)
+    (super || "").split(",").map(&:to_i)
   end
 
   def attachment_ids=(ids)
     ids = author.conversation_attachments_folder.attachments.where(id: ids.map(&:to_i)).pluck(:id) unless ids.empty?
-    write_attribute(:attachment_ids, ids.join(","))
+    super(ids.join(","))
   end
 
   def relativize_attachment_ids(from_shard:, to_shard:)
@@ -210,17 +208,13 @@ class ConversationMessage < ActiveRecord::Base
   end
 
   def body
-    if generated?
-      format_event_message
-    else
-      read_attribute(:body)
-    end
+    generated? ? format_event_message : super
   end
 
   def event_data
     return {} unless generated?
 
-    @event_data ||= YAML.safe_load(read_attribute(:body))
+    @event_data ||= YAML.safe_load(self["body"])
   end
 
   def format_event_message
@@ -231,33 +225,16 @@ class ConversationMessage < ActiveRecord::Base
     end
   end
 
-  attr_accessor :generate_user_note
-
-  def generate_user_note!
-    return if skip_broadcasts
-    return unless @generate_user_note
-
-    valid_recipients = recipients.select { |recipient| recipient.grants_right?(author, :create_user_notes) && recipient.associated_accounts.any?(&:enable_user_notes) }
-    return unless valid_recipients.any?
-
-    valid_recipients = User.where(id: valid_recipients) # need to reload to get all the attributes needed for User#save
-    valid_recipients.each do |recipient|
-      title = if conversation.subject
-                t(:subject_specified, "Private message: %{subject}", subject: conversation.subject)
-              else
-                t(:subject, "Private message")
-              end
-      note = format_message(body).first
-      recipient.user_notes.create(creator: author, title:, note:, root_account_id: Shard.relative_id_for(root_account_id, context.shard, recipient.shard))
-    end
-  end
-
   def log_conversation_message_metrics
     stat = "inbox.message.created.react"
-    InstStatsd::Statsd.increment(stat)
+    InstStatsd::Statsd.distributed_increment(stat)
   end
 
   def check_for_out_of_office_participants
+    Rails.logger.info("Checking for out of office participants")
+    Rails.logger.info("Feature enabled: #{Account.site_admin.feature_enabled?(:inbox_settings)}")
+    Rails.logger.info("Setting enabled: #{context&.enable_inbox_auto_response?}")
+    Rails.logger.info("conversation present: #{conversation.present?}")
     if Account.site_admin.feature_enabled?(:inbox_settings) && context.enable_inbox_auto_response? && conversation.present?
       delay_if_production(
         priority: Delayed::LOW_PRIORITY,

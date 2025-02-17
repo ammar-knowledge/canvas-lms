@@ -17,12 +17,12 @@
  */
 
 import {TextInput} from '@instructure/ui-text-input'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React from 'react'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 
-const I18n = useI18nScope('account_settings_jsx_bundle')
+const I18n = createI18nScope('account_settings_jsx_bundle')
 
 export default function TenantInput(props) {
   return (
@@ -46,6 +46,6 @@ TenantInput.propTypes = {
     PropTypes.shape({
       text: PropTypes.string,
       type: PropTypes.oneOf(['error', 'hint', 'success', 'screenreader-only']),
-    })
+    }),
   ),
 }

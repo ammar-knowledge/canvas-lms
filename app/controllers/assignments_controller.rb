@@ -29,6 +29,8 @@ class AssignmentsController < ApplicationController
   include Api::V1::Outcome
   include Api::V1::ExternalTools
   include Api::V1::ContextModule
+  include Api::V1::Rubric
+  include Api::V1::RubricAssociation
 
   include KalturaHelper
   include ObserverEnrollmentsHelper
@@ -68,7 +70,10 @@ class AssignmentsController < ApplicationController
         set_tutorial_js_env
         set_section_list_js_env
         grading_standard = @context.grading_standard_or_default
+        assign_to_tags = @context.account.feature_enabled?(:assign_to_differentiation_tags) && @context.account.allow_assign_to_differentiation_tags?
         hash = {
+          ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS: assign_to_tags,
+          CAN_MANAGE_DIFFERENTIATION_TAGS: @context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS),
           WEIGHT_FINAL_GRADES: @context.apply_group_weights?,
           POST_TO_SIS_DEFAULT: @context.account.sis_default_grade_export[:value],
           SIS_INTEGRATION_SETTINGS_ENABLED: sis_integration_settings_enabled,
@@ -154,7 +159,7 @@ class AssignmentsController < ApplicationController
              grading_scheme: grading_standard.data,
              points_based: grading_standard.points_based?,
              scaling_factor: grading_standard.scaling_factor,
-             enhanced_rubrics_enabled: Rubric.enhanced_rubrics_enabled_for_context?(@context),
+             enhanced_rubrics_enabled: @context.feature_enabled?(:enhanced_rubrics),
            })
 
     if peer_review_mode_enabled
@@ -272,6 +277,8 @@ class AssignmentsController < ApplicationController
           return
         end
 
+        flash.now[:notice] = t("assignment_submit_success", "Assignment successfully submitted.") if params[:submitted]
+
         # override media comment context: in the show action, these will be submissions
         js_env media_comment_asset_string: @current_user.asset_string if @current_user
 
@@ -337,10 +344,19 @@ class AssignmentsController < ApplicationController
           end
         end
 
+        assign_to_tags = @context.account.feature_enabled?(:assign_to_differentiation_tags) && @context.account.allow_assign_to_differentiation_tags?
+
         env = js_env({
                        COURSE_ID: @context.id,
-                       ROOT_OUTCOME_GROUP: outcome_group_json(@context.root_outcome_group, @current_user, session)
+                       ROOT_OUTCOME_GROUP: outcome_group_json(@context.root_outcome_group, @current_user, session),
+                       HAS_GRADING_PERIODS: @context.grading_periods?,
+                       VALID_DATE_RANGE: CourseDateRange.new(@context),
+                       POST_TO_SIS: Assignment.sis_grade_export_enabled?(@context),
+                       DUE_DATE_REQUIRED_FOR_ACCOUNT: AssignmentUtil.due_date_required_for_account?(@context),
+                       ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS: assign_to_tags,
+                       CAN_MANAGE_DIFFERENTIATION_TAGS: @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
                      })
+        set_section_list_js_env
         submission = @assignment.submissions.find_by(user: @current_user)
         if submission
           js_env({ SUBMISSION_ID: submission.id })
@@ -351,7 +367,13 @@ class AssignmentsController < ApplicationController
         env[:SETTINGS][:filter_speed_grader_by_student_group] = filter_speed_grader_by_student_group?
 
         if env[:SETTINGS][:filter_speed_grader_by_student_group]
-          eligible_categories = @context.group_categories.active
+          can_view_tags = @context.grants_any_right?(
+            @current_user,
+            session,
+            *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS
+          )
+
+          eligible_categories = can_view_tags ? @context.active_combined_group_and_differentiation_tag_categories : @context.group_categories.active
           eligible_categories = eligible_categories.where(id: @assignment.group_category) if @assignment.group_category.present?
           env[:group_categories] = group_categories_json(eligible_categories, @current_user, session, { include: ["groups"] })
 
@@ -403,6 +425,14 @@ class AssignmentsController < ApplicationController
            (!params.key?(:assignments_2) || value_to_boolean(params[:assignments_2])) &&
            can_do(@context, @current_user, :read_as_admin)
           css_bundle :assignments_2_teacher
+          js_bundle :assignments_show_teacher_deprecated
+          render html: "", layout: true
+          return
+        end
+
+        if @context.root_account.feature_enabled?(:assignment_enhancements_teacher_view) &&
+           can_do(@context, @current_user, :read_as_admin)
+          css_bundle :assignment_enhancements_teacher_view
           js_bundle :assignments_show_teacher
           render html: "", layout: true
           return
@@ -422,17 +452,26 @@ class AssignmentsController < ApplicationController
                             []
                           end
 
-        context_rights = @context.rights_status(@current_user, session, :read_as_admin, :manage_assignments, :manage_assignments_edit)
-        if @context.root_account.feature_enabled?(:granular_permissions_manage_assignments)
-          context_rights[:manage_assignments] = context_rights[:manage_assignments_edit]
-        end
+        context_rights = @context.rights_status(@current_user, session, :read_as_admin, :manage_assignments_edit)
         permissions = {
           context: context_rights,
           assignment: @assignment.rights_status(@current_user, session, :update, :submit),
-          can_manage_groups: can_do(@context.groups.temp_record, @current_user, :create)
+          can_manage_groups: can_do(@context.groups.temp_record, @current_user, :create),
+          manage_rubrics: @context.grants_right?(@current_user, session, :manage_rubrics)
         }
 
         @similarity_pledge = pledge_text
+
+        rubric_association = nil
+        assigned_rubric = nil
+        if @assignment.active_rubric_association? && Rubric.enhanced_rubrics_assignments_enabled?(@context)
+          rubric_association = @assignment.rubric_association
+          can_update_rubric = can_do(rubric_association.rubric, @current_user, :update)
+          assigned_rubric = rubric_json(rubric_association.rubric, @current_user, session, style: "full")
+          assigned_rubric[:unassessed] = Rubric.active.unassessed.where(id: rubric_association.rubric.id).exists?
+          assigned_rubric[:can_update] = can_update_rubric
+          rubric_association = rubric_association_json(rubric_association, @current_user, session)
+        end
 
         hash = {
           EULA_URL: tool_eula_url,
@@ -444,6 +483,11 @@ class AssignmentsController < ApplicationController
           EMOJI_DENY_LIST: @context.root_account.settings[:emoji_deny_list],
           USER_ASSET_STRING: @current_user&.asset_string,
           OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION: @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation),
+          assigned_rubric:,
+          rubric_association:,
+          rubric_self_assessment_ff_enabled: Rubric.rubric_self_assessment_enabled?(@context),
+          rubric_self_assessment_enabled: @assignment.rubric_self_assessment_enabled?,
+          can_update_rubric_self_assessment: @assignment.can_update_rubric_self_assessment?,
         }
 
         append_default_due_time_js_env(@context, hash)
@@ -533,9 +577,10 @@ class AssignmentsController < ApplicationController
       cnt = params[:peer_review_count].to_i
       @assignment.peer_review_count = cnt if cnt > 0
       @assignment.intra_group_peer_reviews = params[:intra_group_peer_reviews].present?
-      @assignment.assign_peer_reviews
+      request = @assignment.assign_peer_reviews
       respond_to do |format|
         format.html { redirect_to named_context_url(@context, :context_assignment_peer_reviews_url, @assignment.id) }
+        format.json { render json: request }
       end
     end
   end
@@ -654,10 +699,17 @@ class AssignmentsController < ApplicationController
 
   def syllabus
     rce_js_env
-    add_crumb @context.elementary_enabled? ? t("Important Info") : t("#crumbs.syllabus", "Syllabus")
-
+    add_crumb(
+      if @context.elementary_enabled?
+        t("Important Info")
+      elsif @context.horizon_course?
+        t("Overview")
+      else
+        t("#crumbs.syllabus", "Syllabus")
+      end
+    )
     can_see_admin_tools = @context.grants_any_right?(
-      @current_user, session, :manage_content, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS
+      @current_user, session, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS
     )
     @course_home_sub_navigation_tools = Lti::ContextToolFinder.new(
       @context,
@@ -764,6 +816,16 @@ class AssignmentsController < ApplicationController
     rce_js_env
     @assignment ||= @context.assignments.active.find(params[:id])
     add_crumb_on_new_quizzes(false)
+
+    if @context.root_account.feature_enabled?(:assignment_edit_enhancements_teacher_view) &&
+       authorized_action(@assignment, @current_user, @assignment.new_record? ? :create : :update)
+      js_env({ ASSIGNMENT_EDIT_ENHANCEMENTS_TEACHER_VIEW: true, ASSIGNMENT_ID: params[:id], COURSE_ID: @context.id })
+      css_bundle :assignment_enhancements_teacher_view
+      js_bundle :assignment_edit
+      render html: "", layout: true
+      return
+    end
+
     if authorized_action(@assignment, @current_user, @assignment.new_record? ? :create : :update)
       @assignment.title = params[:title] if params[:title]
       @assignment.due_at = params[:due_at] if params[:due_at]
@@ -789,7 +851,7 @@ class AssignmentsController < ApplicationController
 
       assignment_groups = @context.assignment_groups.active
       group_categories = @context.group_categories
-                                 .reject(&:student_organized?)
+                                 .reject { |c| c.student_organized? || c.non_collaborative? }
                                  .map { |c| { id: c.id, name: c.name } }
 
       # if assignment has student submissions and is attached to a deleted group category,
@@ -805,9 +867,13 @@ class AssignmentsController < ApplicationController
 
       post_to_sis = Assignment.sis_grade_export_enabled?(@context)
 
+      assign_to_tags = @context.account.feature_enabled?(:assign_to_differentiation_tags) && @context.account.allow_assign_to_differentiation_tags?
+
       hash = {
         ROOT_FOLDER_ID: Folder.root_folders(@context).first&.id,
         ROOT_OUTCOME_GROUP: outcome_group_json(@context.root_outcome_group, @current_user, session),
+        ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS: assign_to_tags,
+        CAN_MANAGE_DIFFERENTIATION_TAGS: @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS),
         ASSIGNMENT_GROUPS: json_for_assignment_groups,
         ASSIGNMENT_INDEX_URL: polymorphic_url([@context, :assignments]),
         ASSIGNMENT_OVERRIDES: assignment_overrides_json(
@@ -842,9 +908,7 @@ class AssignmentsController < ApplicationController
           Account.site_admin.feature_enabled?(:grading_scheme_updates),
         ARCHIVED_GRADING_SCHEMES_ENABLED: Account.site_admin.feature_enabled?(:archived_grading_schemes),
         OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION:
-          @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation),
-        ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED:
-          Account.site_admin.feature_enabled?(:assignment_submission_type_card)
+          @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation)
       }
 
       if @context.root_account.feature_enabled?(:instui_nav)
@@ -968,7 +1032,7 @@ class AssignmentsController < ApplicationController
 
   # pulish a N.Q assignment from Quizzes Page
   def publish_quizzes
-    if authorized_action(@context, @current_user, [:manage_assignments, :manage_assignments_edit])
+    if authorized_action(@context, @current_user, :manage_assignments_edit)
       @assignments = @context.assignments.active.where(id: params[:quizzes])
       @assignments.each(&:publish!)
 
@@ -986,7 +1050,7 @@ class AssignmentsController < ApplicationController
 
   # unpulish a N.Q assignment from Quizzes Page
   def unpublish_quizzes
-    if authorized_action(@context, @current_user, [:manage_assignments, :manage_assignments_edit])
+    if authorized_action(@context, @current_user, :manage_assignments_edit)
       @assignments = @context.assignments.active.where(id: params[:quizzes], workflow_state: "published")
       @assignments.each(&:unpublish!)
 

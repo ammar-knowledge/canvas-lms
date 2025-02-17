@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -24,16 +23,16 @@ import {CloseButton, CondensedButton} from '@instructure/ui-buttons'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-import {SummarizedChange} from '../utils/change_tracking'
+import type {SummarizedChange} from '../utils/change_tracking'
 import {ResetPaceWarningModal} from './reset_pace_warning_modal'
 import {coursePaceActions} from '../actions/course_paces'
-import {StoreState} from '../types'
+import type {StoreState} from '../types'
 import {getAutoSaving, getShowLoadingOverlay, getSyncing} from '../reducers/ui'
 import {getSummarizedChanges} from '../reducers/course_paces'
 
-const I18n = useI18nScope('unpublished_changes_tray_contents')
+const I18n = createI18nScope('unpublished_changes_tray_contents')
 
 // the INSTUI <List as="ol"> has a bug where the item numbering
 // is not in a hanging indent, so when list items wrap they
@@ -118,7 +117,7 @@ export const UnpublishedChangesTrayContents = ({
       />
       <View as="header" margin="0 0 medium">
         <h4>
-          <Text weight="bold">{I18n.t('Unpublished Changes')}</Text>
+          <Text weight="bold">{I18n.t('Unsaved Changes')}</Text>
         </h4>
       </View>
       <ol className="course_pace_changes">
@@ -128,7 +127,7 @@ export const UnpublishedChangesTrayContents = ({
               <li key={c.id} style={{overflowWrap: 'break-word'}}>
                 {c.summary}
               </li>
-            )
+            ),
         )}
       </ol>
       {window.ENV.FEATURES.course_paces_redesign && (

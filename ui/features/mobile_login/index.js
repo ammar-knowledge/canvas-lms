@@ -16,11 +16,11 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {loadSignupDialog} from '@canvas/signup-dialog'
 import ready from '@instructure/ready'
 
-const I18n = useI18nScope('pseudonyms_mobile_login')
+const I18n = createI18nScope('pseudonyms_mobile_login')
 
 const eventToBindTo = 'click'
 
@@ -78,7 +78,7 @@ function setupForgotPassword() {
       type: 'POST',
       url: '/forgot_password',
       data: `authenticity_token=${encodeURIComponent(
-        $forgot_password_form.querySelector('input[name=authenticity_token]').value
+        $forgot_password_form.querySelector('input[name=authenticity_token]').value,
       )}
             &pseudonym_session%5Bunique_id_forgot%5D=${encodeURIComponent(uniqueIdValue)}`,
       success() {

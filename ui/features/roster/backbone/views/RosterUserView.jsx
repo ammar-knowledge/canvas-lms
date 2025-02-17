@@ -15,31 +15,35 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
-import {map, some, every, find, filter, reject, isEmpty} from 'lodash'
-import Backbone from '@canvas/backbone'
+import {map, some, every, find as _find, filter, reject, isEmpty} from 'lodash'
+import {View} from '@canvas/backbone'
 import template from '../../jst/rosterUser.handlebars'
 import EditSectionsView from './EditSectionsView'
 import EditRolesView from './EditRolesView'
 import InvitationsView from './InvitationsView'
-import LinkToStudentsView from './LinkToStudentsView'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {createRoot} from 'react-dom/client'
 import {Avatar} from '@instructure/ui-avatar'
+import LinkToStudents from '../../react/LinkToStudents'
 import {nanoid} from 'nanoid'
 import 'jquery-kyle-menu'
 import '@canvas/jquery/jquery.disableWhileLoading'
+import RosterDialogMixin from './RosterDialogMixin'
+import UserTaggedModal from '@canvas/differentiation-tags/react/UserTaggedModal/UserTaggedModal'
+import MessageBus from '../../util/MessageBus'
 
-const I18n = useI18nScope('RosterUserView')
+const I18n = createI18nScope('RosterUserView')
 
 let editSectionsDialog = null
 let editRolesDialog = null
-let linkToStudentsDialog = null
 let invitationDialog = null
 
-export default class RosterUserView extends Backbone.View {
+export default class RosterUserView extends View {
   static initClass() {
+    this.mixin(RosterDialogMixin)
+
     this.prototype.tagName = 'tr'
 
     this.prototype.className = 'rosterUser al-hover-container'
@@ -50,6 +54,8 @@ export default class RosterUserView extends Backbone.View {
       'click .admin-links [data-event]': 'handleMenuEvent',
       'focus *': 'focus',
       'blur *': 'blur',
+      'change .select-user-checkbox': 'handleCheckboxChange',
+      'click .user-tags-icon': 'handleTagIconClick',
     }
   }
 
@@ -77,14 +83,13 @@ export default class RosterUserView extends Backbone.View {
 
   contextCardJSON(json) {
     let enrollment
-    if ((enrollment = find(json.enrollments, e => e.type === 'StudentEnrollment'))) {
+    if ((enrollment = _find(json.enrollments, e => e.type === 'StudentEnrollment'))) {
       return (json.course_id = enrollment.course_id)
     }
   }
 
   permissionsJSON(json) {
     json.url = `${ENV.COURSE_ROOT_URL}/users/${this.model.get('id')}`
-    json.faculyJournalUrl = `/users/${this.model.get('id')}/user_notes`
     json.isObserver = this.model.hasEnrollmentType('ObserverEnrollment')
     json.isPending = this.model.pending(this.model.currentRole)
     json.isInactive = this.model.inactive()
@@ -94,16 +99,14 @@ export default class RosterUserView extends Backbone.View {
     json.canRemoveUsers = every(this.model.get('enrollments'), e => e.can_be_removed)
     json.canResendInvitation =
       !json.isInactive &&
-      (ENV.FEATURES.granular_permissions_manage_users
-        ? some(this.model.get('enrollments'), en =>
-            ENV.permissions.active_granular_enrollment_permissions.includes(en.type)
-          )
-        : true)
+      some(this.model.get('enrollments'), en =>
+        ENV.permissions.active_granular_enrollment_permissions.includes(en.type),
+      )
 
     if (json.canRemoveUsers && !ENV.course.concluded) {
       json.canEditRoles = !some(
         this.model.get('enrollments'),
-        e => e.type === 'ObserverEnrollment' && e.associated_user_id
+        e => e.type === 'ObserverEnrollment' && e.associated_user_id,
       )
     }
 
@@ -111,17 +114,17 @@ export default class RosterUserView extends Backbone.View {
     json.canLinkStudents = json.isObserver && !ENV.course.concluded
     json.canViewLoginIdColumn = ENV.permissions.view_user_logins
     json.canViewSisIdColumn = ENV.permissions.read_sis
-    json.canManageUserNotes = ENV.permissions.manage_user_notes
+    json.canManageDifferentiationTags = ENV.permissions.can_manage_differentiation_tags
 
-    const candoAdminActions =
-      ENV.permissions.can_allow_course_admin_actions || ENV.permissions.manage_admin_users
+    const candoAdminActions = ENV.permissions.can_allow_course_admin_actions
+
     json.canManage = some(['TeacherEnrollment', 'DesignerEnrollment', 'TaEnrollment'], et =>
-      this.model.hasEnrollmentType(et)
+      this.model.hasEnrollmentType(et),
     )
       ? candoAdminActions
       : this.model.hasEnrollmentType('ObserverEnrollment')
-      ? candoAdminActions || ENV.permissions.manage_students
-      : ENV.permissions.manage_students
+        ? candoAdminActions || ENV.permissions.manage_students
+        : ENV.permissions.manage_students
     json.customLinks = this.model.get('custom_links')
 
     if (json.canViewLoginIdColumn) {
@@ -200,21 +203,50 @@ export default class RosterUserView extends Backbone.View {
     return editRolesDialog.render().show()
   }
 
-  linkToStudents() {
-    if (!linkToStudentsDialog) {
-      linkToStudentsDialog = new LinkToStudentsView()
+  getUniqueObservees(enrollments) {
+    const uniqueObserveesMap = new Map()
+
+    for (const enrollment of enrollments) {
+      if (uniqueObserveesMap.has(enrollment.observed_user.id)) {
+        continue
+      }
+      uniqueObserveesMap.set(enrollment.observed_user.id, enrollment.observed_user)
     }
-    linkToStudentsDialog.model = this.model
-    return linkToStudentsDialog.render().show()
+
+    return Array.from(uniqueObserveesMap.values())
+  }
+
+  linkToStudents() {
+    const mountPoint = document.getElementById('link_to_students_mount_point')
+    const root = createRoot(mountPoint)
+    const observer = this.model.attributes
+    const observerEnrollmentsWithObservedUser = observer.enrollments.filter(
+      enrollment => enrollment.type === 'ObserverEnrollment' && enrollment.observed_user,
+    )
+    const initialObservees = this.getUniqueObservees(observerEnrollmentsWithObservedUser)
+    const course = ENV.current_context
+
+    root.render(
+      <LinkToStudents
+        observer={observer}
+        initialObservees={initialObservees}
+        course={course}
+        onSubmit={(addedEnrollments, removedEnrollments) => {
+          this.updateEnrollments(addedEnrollments, removedEnrollments)
+        }}
+        onClose={() => {
+          root.unmount()
+        }}
+      />,
+    )
   }
 
   deactivateUser() {
     if (
-      // eslint-disable-next-line no-alert
       !window.confirm(
         I18n.t(
-          'Are you sure you want to deactivate this user? They will be unable to participate in the course while inactive.'
-        )
+          'Are you sure you want to deactivate this user? They will be unable to participate in the course while inactive.',
+        ),
       )
     ) {
       return
@@ -236,9 +268,9 @@ export default class RosterUserView extends Backbone.View {
         })
         .fail(() =>
           $.flashError(
-            I18n.t('Something went wrong while deactivating the user. Please try again later.')
-          )
-        )
+            I18n.t('Something went wrong while deactivating the user. Please try again later.'),
+          ),
+        ),
     )
   }
 
@@ -258,14 +290,13 @@ export default class RosterUserView extends Backbone.View {
         })
         .fail(() =>
           $.flashError(
-            I18n.t('Something went wrong re-activating the user. Please try again later.')
-          )
-        )
+            I18n.t('Something went wrong re-activating the user. Please try again later.'),
+          ),
+        ),
     )
   }
 
   removeFromCourse(_e) {
-    // eslint-disable-next-line no-alert
     if (!window.confirm(I18n.t('Are you sure you want to remove this user?'))) {
       return
     }
@@ -288,11 +319,11 @@ export default class RosterUserView extends Backbone.View {
     const failure = () => {
       this.$el.show()
       return $.flashError(
-        I18n.t('flash.removeError', 'Unable to remove the user. Please try again later.')
+        I18n.t('flash.removeError', 'Unable to remove the user. Please try again later.'),
       )
     }
     const deferreds = map(this.model.get('enrollments'), e =>
-      $.ajaxJSON(`${ENV.COURSE_ROOT_URL}/unenroll/${e.id}`, 'DELETE')
+      $.ajaxJSON(`${ENV.COURSE_ROOT_URL}/unenroll/${e.id}`, 'DELETE'),
     )
     return $.when(...Array.from(deferreds || [])).then(success, failure)
   }
@@ -304,6 +335,49 @@ export default class RosterUserView extends Backbone.View {
     return this[method].call(this, e)
   }
 
+  // you can access the selected users through RosterUserView.selectedUsers
+  static selectedUsers = []
+
+  handleCheckboxChange(e) {
+    const isChecked = $(e.currentTarget).is(':checked')
+    const userId = this.model.id
+
+    if (isChecked) {
+      RosterUserView.selectedUsers.push(userId)
+    } else {
+      RosterUserView.selectedUsers = RosterUserView.selectedUsers.filter(id => id !== userId)
+    }
+
+    MessageBus.trigger('userSelectionChanged', {
+      model: this.model,
+      selected: isChecked,
+      selectedUsers: RosterUserView.selectedUsers,
+    })
+  }
+
+  handleTagIconClick(e) {
+    this.renderUserTagModal(true, this.model.id, this.model.get('name'))
+  }
+
+  renderUserTagModal(isOpen, userId, userName) {
+    const el = document.getElementById('userTagsModalContainer')
+    const returnFocusTo = document.getElementById(`tag-icon-id-${userId}`)
+    const onModalClose = (userId, userName) => {
+      this.renderUserTagModal(false, userId, userName)
+      returnFocusTo?.focus()
+    }
+    if (!this.userTagModalContainer) this.userTagModalContainer = createRoot(el)
+    this.userTagModalContainer.render(
+      <UserTaggedModal
+        isOpen={isOpen}
+        courseId={ENV.course.id}
+        userId={userId}
+        userName={userName}
+        onClose={onModalClose}
+      />,
+    )
+  }
+
   focus() {
     return this.$el.addClass('al-hover-container-active table-hover-row')
   }
@@ -313,18 +387,34 @@ export default class RosterUserView extends Backbone.View {
   }
 
   afterRender() {
-    ReactDOM.render(
-      <a href={`users/${this.model.id}`}>
-        <Avatar
-          name={this.model.attributes.name}
-          src={this.model.attributes.avatar_url}
-          size="small"
-          alt={this.model.attributes.name}
-        />
-        <span className="screenreader-only">{this.model.attributes.name}</span>
-      </a>,
-      this.$el.find(`#${this.model.attributes.avatarId}`)[0]
-    )
+    const container = this.$el.find(`#${this.model.attributes.avatarId}`)[0]
+    if (container) {
+      const root = createRoot(container)
+      root.render(
+        <a href={`users/${this.model.id}`}>
+          <Avatar
+            name={this.model.attributes.name}
+            src={this.model.attributes.avatar_url}
+            size="small"
+            alt={this.model.attributes.name}
+          />
+          <span className="screenreader-only">{this.model.attributes.name}</span>
+        </a>,
+      )
+      this._reactRoot = root
+    }
+    this.userTagModalContainer = null
+  }
+
+  remove() {
+    if (this._reactRoot) {
+      this._reactRoot.unmount()
+    }
+    if (this.userTagModalContainer) {
+      this.userTagModalContainer.unmount()
+      this.userTagModalContainer = null
+    }
+    return super.remove(...arguments)
   }
 }
 RosterUserView.initClass()

@@ -112,11 +112,15 @@ module ContextModulesHelper
   end
 
   def preload_modules_content(modules)
-    ActiveRecord::Associations.preload(modules, content_tags: :content)
+    modules.each_slice(1000) do |slice|
+      ActiveRecord::Associations.preload(slice, content_tags: { content: %i[context external_tool_tag current_lookup wiki] })
+      assignmentable_content = slice.map(&:content_tags).flatten.select(&:can_have_assignment?)
+      ActiveRecord::Associations.preload(assignmentable_content, content: { assignment: :context }) unless assignmentable_content.empty?
+    end
     preload_can_unpublish(@context, modules) if @can_view
   end
 
-  def process_module_data(mod, is_student = false, current_user = nil, session = nil)
+  def process_module_data(mod, current_user = nil, session = nil, student: false)
     # pre-calculated module view data can be added here
     items = mod.content_tags_visible_to(@current_user)
     items = items.reject do |item|
@@ -140,9 +144,9 @@ module ContextModulesHelper
       }
 
       if cyoe_enabled?(@context)
-        path_opts = { conditional_release_rules: rules, is_student: }
+        path_opts = { conditional_release_rules: rules, is_student: student }
         item_data[:mastery_paths] = conditional_release_rule_for_module_item(item, path_opts)
-        if is_student && item_data[:mastery_paths].present?
+        if student && item_data[:mastery_paths].present?
           item_data[:show_cyoe_placeholder] = show_cyoe_placeholder(item_data[:mastery_paths])
           item_data[:choose_url] = context_url(@context, :context_url) + "/modules/items/" + item.id.to_s + "/choose"
         end
@@ -152,13 +156,20 @@ module ContextModulesHelper
     end
 
     module_data[:items_data] = items_data
+
+    if @is_child_course && !student &&
+       @context.account.feature_enabled?(:modules_page_hide_blueprint_lock_icon_for_children)
+      module_data[:items_restrictions] =
+        MasterCourses::MasterContentTag.fetch_module_item_restrictions_for_child(module_data[:items].map(&:id))
+      module_data[:items_restrictions].transform_values!(&:any?)
+    end
     module_data
   end
 
-  def module_item_translated_content_type(item, is_student = false)
+  def module_item_translated_content_type(item, student: false)
     return "" unless item
     if item.content_type_class == "lti-quiz"
-      return is_student ? I18n.t("Quiz") : I18n.t("New Quiz")
+      return student ? I18n.t("Quiz") : I18n.t("New Quiz")
     end
 
     Context.translated_content_type(item.content_type)

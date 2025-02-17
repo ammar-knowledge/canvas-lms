@@ -19,14 +19,14 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 import $ from 'jquery'
-import {QueryProvider, queryClient} from '@canvas/query'
+import {QueryProvider} from '@canvas/query'
 
 import ready from '@instructure/ready'
 
 import '@canvas/rails-flash-notifications'
 import '@canvas/jquery/jquery.disableWhileLoading'
 import DashboardWrapper from './react/DashboardWrapper'
-// eslint-disable-next-line import/no-named-as-default
+
 import DashboardHeader from './react/DashboardHeader'
 
 ready(() => {
@@ -53,7 +53,7 @@ ready(() => {
         <QueryProvider>
           <DashboardWrapper {...dashboardProps} />
         </QueryProvider>,
-        dashboardHeaderContainer
+        dashboardHeaderContainer,
       )
     } else {
       ReactDOM.render(<DashboardHeader {...dashboardProps} />, dashboardHeaderContainer)

@@ -316,12 +316,12 @@ describe AssignmentsController do
         expect(@course.reload.assignment_groups.count).to eq 1
       end
 
-      it "separates manage_assignments and manage_grades permissions" do
+      it "separates manage_assignments_edit and manage_grades permissions" do
         user_session(@teacher)
         @course.account.role_overrides.create! role: teacher_role, permission: "manage_assignments_edit", enabled: false
         get "index", params: { course_id: @course.id }
         expect(assigns[:js_env][:PERMISSIONS][:manage_grades]).to be_truthy
-        expect(assigns[:js_env][:PERMISSIONS][:manage_assignments]).to be_falsey
+        expect(assigns[:js_env][:PERMISSIONS][:manage_assignments_edit]).to be_falsey
         expect(assigns[:js_env][:PERMISSIONS][:manage]).to be_falsey
         expect(assigns[:js_env][:PERMISSIONS][:manage_course]).to be_truthy
       end
@@ -359,6 +359,46 @@ describe AssignmentsController do
         user_session(@ta)
         get "index", params: { course_id: @course.id }
         expect(assignment_permissions[@assignment.id][:update]).to be(false)
+      end
+    end
+
+    context "assign to differentiation tags" do
+      before :once do
+        @course.account.enable_feature! :assign_to_differentiation_tags
+        @course.account.enable_feature! :differentiation_tags
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = true
+          a.save!
+        end
+      end
+
+      it "is true if account setting is on" do
+        user_session(@teacher)
+        get "index", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "is false if account setting is off" do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = false
+          a.save!
+        end
+
+        user_session(@teacher)
+        get "index", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be false
+      end
+
+      it "CAN_MANAGE_DIFFERENTIATION_TAGS is true if user can manage tags" do
+        user_session(@teacher)
+        get "index", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "CAN_MANAGE_DIFFERENTIATION_TAGS is false if user cannot manage tags" do
+        user_session(@student)
+        get "index", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be false
       end
     end
   end
@@ -1224,6 +1264,37 @@ describe AssignmentsController do
       end
     end
 
+    describe "assignment_enhancements_teacher_view" do
+      before do
+        @course.root_account.enable_feature!(:assignment_enhancements_teacher_view)
+        @course.save!
+      end
+
+      it "does not render the 'old' assignment page layout" do
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+        expect(response).not_to render_template("assignments/show")
+      end
+    end
+
+    describe "assignment_edit_enhancements_teacher_view" do
+      before do
+        @course.root_account.enable_feature!(:assignment_edit_enhancements_teacher_view)
+        @course.save!
+      end
+
+      it "does not render the 'old' edit assignment page layout" do
+        user_session(@teacher)
+        get :edit, params: { course_id: @course.id, id: @assignment.id }
+        expect(response).not_to render_template("assignments/edit")
+      end
+
+      it "does not render the 'old' create assignment page layout" do
+        user_session(@teacher)
+        get :new, params: { course_id: @course.id }
+        expect(response).not_to render_template("assignments/edit")
+      end
+    end
+
     it "does not show locked external tool assignments" do
       user_session(@student)
 
@@ -1482,6 +1553,34 @@ describe AssignmentsController do
             get :show, params: { course_id: @course.id, id: @assignment.id }
             expect(assigns[:js_env]).to have_key(:selected_student_group_id)
           end
+
+          context "differentiation tags" do
+            before do
+              Account.default.enable_feature!(:differentiation_tags)
+              @non_collab_category = GroupCategory.create!(context: @course, name: "Tag Category", non_collaborative: true)
+            end
+
+            it "returns non collaborative group categories if the user has the correct permissions" do
+              get :show, params: { course_id: @course.id, id: @assignment.id }
+              group_category_ids = assigns[:js_env][:group_categories].pluck("id")
+              expect(group_category_ids).to eq @course.active_combined_group_and_differentiation_tag_categories.map(&:id)
+              expect(group_category_ids).to include(@non_collab_category.id)
+            end
+
+            it "returns only the normal group categories if the user does not have the correct manage tag permissions" do
+              RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS.each do |permission|
+                @course.account.role_overrides.create!(
+                  permission:,
+                  role: teacher_role,
+                  enabled: false
+                )
+              end
+              get :show, params: { course_id: @course.id, id: @assignment.id }
+              group_category_ids = assigns[:js_env][:group_categories].pluck("id")
+              expect(group_category_ids).to eq @course.group_categories.map(&:id)
+              expect(group_category_ids).not_to include(@non_collab_category.id)
+            end
+          end
         end
 
         context "when filter_speed_grader_by_student_group? is false" do
@@ -1738,6 +1837,86 @@ describe AssignmentsController do
           expect(assigns[:js_env][:DEFAULT_DUE_TIME]).to eq "22:00:00"
         end
       end
+
+      context "assigned_rubric and rubric_association" do
+        before do
+          Account.site_admin.enable_feature!(:enhanced_rubrics_assignments)
+          @course.enable_feature!(:enhanced_rubrics)
+          rubric = @course.rubrics.create! { |r| r.user = @teacher }
+          rubric_association_params = ActiveSupport::HashWithIndifferentAccess.new({
+                                                                                     hide_score_total: "0",
+                                                                                     purpose: "grading",
+                                                                                     skip_updating_points_possible: false,
+                                                                                     update_if_existing: true,
+                                                                                     use_for_grading: "1",
+                                                                                     association_object: @assignment
+                                                                                   })
+          rubric_assoc = RubricAssociation.generate(@teacher, rubric, @course, rubric_association_params)
+          @assignment.rubric_association = rubric_assoc
+          @assignment.save!
+        end
+
+        it "sets assigned_rubric and rubric_association in the ENV when FF is ON" do
+          get :show, params: { course_id: @course.id, id: @assignment.id }
+          expect(assigns[:js_env][:assigned_rubric][:id]).to eq @assignment.rubric_association.rubric_id
+          expect(assigns[:js_env][:assigned_rubric][:title]).to eq "Unnamed Course Rubric"
+          expect(assigns[:js_env][:assigned_rubric][:can_update]).to be_truthy
+          expect(assigns[:js_env][:rubric_association][:id]).to eq @assignment.rubric_association.id
+        end
+
+        it "does not set assigned_rubric and rubric_association in the ENV when FF is OFF" do
+          Account.site_admin.disable_feature!(:enhanced_rubrics_assignments)
+          get :show, params: { course_id: @course.id, id: @assignment.id }
+          expect(assigns[:js_env][:assigned_rubric]).to be_nil
+          expect(assigns[:js_env][:rubric_association]).to be_nil
+        end
+      end
+    end
+
+    context "assign to differentiation tags" do
+      before :once do
+        @course.account.enable_feature! :assign_to_differentiation_tags
+        @course.account.enable_feature! :differentiation_tags
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = true
+          a.save!
+        end
+      end
+
+      it "is true if account setting is on" do
+        user_session(@teacher)
+        get "show", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "is false if account setting is off" do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = false
+          a.save!
+        end
+
+        user_session(@teacher)
+        get "show", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be false
+      end
+
+      it "CAN_MANAGE_DIFFERENTIATION_TAGS is true if user can manage tags" do
+        user_session(@teacher)
+        get "show", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "CAN_MANAGE_DIFFERENTIATION_TAGS is false if user cannot manage tags" do
+        user_session(@student)
+        get "show", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be false
+      end
+    end
+
+    it "shows assignment was submitted successfully alert if submitted in url" do
+      user_session(@student)
+      get :show, params: { course_id: @course.id, id: @assignment.id, submitted: 0 }
+      expect(flash[:notice]).to match(/Assignment successfully submitted./)
     end
   end
 
@@ -1857,7 +2036,7 @@ describe AssignmentsController do
 
         it "fails if grades are not published, and status is false" do
           put "toggle_mute", params: { course_id: @course.id, assignment_id: @assignment.id, status: false }, format: "json"
-          assert_unauthorized
+          assert_forbidden
         end
 
         it "mutes if grades are not published, and status is true" do
@@ -2047,6 +2226,23 @@ describe AssignmentsController do
         post "new", params: { course_id: @course.id, id: @assignment.id, quiz_lti: true }
         expect(assigns[:_crumbs]).to include(["Quizzes", "/courses/#{@course.id}/quizzes", {}])
       end
+    end
+
+    it "js_env GROUP_CATEGORIES excludes non_collaborative and student_organized categories regardless of :differentiation_tags ff state" do
+      Account.site_admin.enable_feature!(:differentiation_tags)
+
+      user_session(@teacher)
+      @course.group_categories.create!(name: "non_colaborative_category", non_collaborative: true)
+      @course.group_categories.create!(name: "student_organized_category", role: "student_organized")
+      regular_category = @course.group_categories.create!(name: "regular_category")
+
+      get :new, params: { course_id: @course.id }
+      expect(assigns[:js_env][:GROUP_CATEGORIES].pluck(:id)).to match_array [regular_category.id]
+
+      Account.site_admin.disable_feature!(:differentiation_tags)
+
+      get :new, params: { course_id: @course.id }
+      expect(assigns[:js_env][:GROUP_CATEGORIES].pluck(:id)).to match_array [regular_category.id]
     end
   end
 
@@ -2316,8 +2512,7 @@ describe AssignmentsController do
         let(:domain) { "justanexamplenotarealwebsite.com" }
 
         let(:tool) do
-          factory_with_protected_attributes(
-            @course.context_external_tools,
+          @course.context_external_tools.create!(
             domain:,
             url: "http://www.justanexamplenotarealwebsite.com/tool1",
             shared_secret: "test123",
@@ -2621,22 +2816,6 @@ describe AssignmentsController do
       end
     end
 
-    describe "js_env ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED" do
-      it "sets ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED in js_env as true if enabled" do
-        user_session(@teacher)
-        Account.site_admin.enable_feature!(:assignment_submission_type_card)
-        get "edit", params: { course_id: @course.id, id: @assignment.id }
-        expect(assigns[:js_env][:ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED]).to be(true)
-      end
-
-      it "sets ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED in js_env as false if disabled" do
-        user_session(@teacher)
-        Account.site_admin.disable_feature!(:assignment_submission_type_card)
-        get "edit", params: { course_id: @course.id, id: @assignment.id }
-        expect(assigns[:js_env][:ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED]).to be(false)
-      end
-    end
-
     describe "js_env HIDE_ZERO_POINT_QUIZZES_OPTION_ENABLED" do
       it "sets HIDE_ZERO_POINT_QUIZZES_OPTION_ENABLED in js_env as true if enabled" do
         user_session(@teacher)
@@ -2650,6 +2829,58 @@ describe AssignmentsController do
         Account.site_admin.disable_feature!(:hide_zero_point_quizzes_option)
         get "edit", params: { course_id: @course.id, id: @assignment.id }
         expect(assigns[:js_env][:HIDE_ZERO_POINT_QUIZZES_OPTION_ENABLED]).to be(false)
+      end
+    end
+
+    it "sets COURSE_ID in js_env if assignment_edit_enhancements_teacher_view FF is enabled" do
+      user_session(@teacher)
+      @course.root_account.enable_feature!(:assignment_edit_enhancements_teacher_view)
+      get "edit", params: { course_id: @course.id, id: @assignment.id }
+      expect(assigns[:js_env][:COURSE_ID]).to be(@course.id)
+    end
+
+    it "js_env GROUP_CATEGORIES excludes non_collaborative and student_organized categories regardless of :differentiation_tags ff state" do
+      Account.site_admin.enable_feature!(:differentiation_tags)
+
+      user_session(@teacher)
+      @course.group_categories.create!(name: "non_colaborative_category", non_collaborative: true)
+      @course.group_categories.create!(name: "student_organized_category", role: "student_organized")
+      regular_category = @course.group_categories.create!(name: "regular_category")
+
+      get :edit, params: { course_id: @course.id, id: @assignment.id }
+      expect(assigns[:js_env][:GROUP_CATEGORIES].pluck(:id)).to match_array [regular_category.id]
+
+      Account.site_admin.disable_feature!(:differentiation_tags)
+
+      get :edit, params: { course_id: @course.id, id: @assignment.id }
+      expect(assigns[:js_env][:GROUP_CATEGORIES].pluck(:id)).to match_array [regular_category.id]
+    end
+
+    context "assign to differentiation tags" do
+      before :once do
+        @course.account.enable_feature! :assign_to_differentiation_tags
+      end
+
+      it "is true if account setting is on" do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = true
+          a.save!
+        end
+
+        user_session(@teacher)
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "is false if account setting is off" do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = false
+          a.save!
+        end
+
+        user_session(@teacher)
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be false
       end
     end
   end
@@ -2685,28 +2916,6 @@ describe AssignmentsController do
 
       expect(@assignment.reload).to be_published
     end
-
-    context "granular_permissions" do
-      before do
-        @course.root_account.enable_feature!(:granular_permissions_manage_assignments)
-      end
-
-      it "requires authorization" do
-        post "publish_quizzes", params: { course_id: @course.id, quizzes: [@assignment.id] }
-        assert_unauthorized
-      end
-
-      it "publishes unpublished assignments" do
-        user_session(@teacher)
-        @assignment = @course.assignments.build(title: "New quiz!", workflow_state: "unpublished")
-        @assignment.save!
-
-        expect(@assignment).not_to be_published
-        post "publish_quizzes", params: { course_id: @course.id, quizzes: [@assignment.id] }
-
-        expect(@assignment.reload).to be_published
-      end
-    end
   end
 
   describe "POST 'unpublish'" do
@@ -2723,27 +2932,6 @@ describe AssignmentsController do
       post "unpublish_quizzes", params: { course_id: @course.id, quizzes: [@assignment.id] }
 
       expect(@assignment.reload).not_to be_published
-    end
-
-    context "granular_permissions" do
-      before do
-        @course.root_account.enable_feature!(:granular_permissions_manage_assignments)
-      end
-
-      it "requires authorization" do
-        post "unpublish_quizzes", params: { course_id: @course.id, quizzes: [@assignment.id] }
-        assert_unauthorized
-      end
-
-      it "unpublishes published quizzes" do
-        user_session(@teacher)
-        @assignment = @course.assignments.create(title: "New quiz!", workflow_state: "published")
-
-        expect(@assignment).to be_published
-        post "unpublish_quizzes", params: { course_id: @course.id, quizzes: [@assignment.id] }
-
-        expect(@assignment.reload).not_to be_published
-      end
     end
   end
 
@@ -2816,6 +3004,34 @@ describe AssignmentsController do
         get "peer_reviews", params: { course_id: @course.id, assignment_id: @assignment.id, search_term: "ji", selected_option: "all" }
         expect(assigns[:students]).to include(have_attributes(name: "Jim Carey"))
       end
+    end
+  end
+
+  describe "POST #assign_peer_reviews" do
+    before do
+      course_with_teacher(active_all: true)
+      @assignment = @course.assignments.create(title: "Peer Review Assignment", workflow_state: "published")
+      @assignment.update!(peer_reviews: true, submission_types: "text_entry")
+      student1 = student_in_course(active_all: true).user
+      student2 = student_in_course(active_all: true).user
+      [student1, student2].each do |student|
+        submission = @assignment.submit_homework(student)
+        submission.submission_type = "online_text_entry"
+        submission.save!
+      end
+      user_session(@teacher)
+    end
+
+    it "returns a JSON response" do
+      post :assign_peer_reviews, params: {
+        course_id: @course.id,
+        assignment_id: @assignment.id,
+        peer_review_count: 1,
+        format: :json
+      }
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body.size).to eq(2)
     end
   end
 end

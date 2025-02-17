@@ -33,38 +33,48 @@
 class SecurityController < ApplicationController
   skip_before_action :load_user
 
-  def self.messages_supported
+  def self.messages_supported(account)
     Lti::ResourcePlacement::PLACEMENTS_BY_MESSAGE_TYPE.keys
                                                       .map do |message_type|
       {
         type: message_type,
-        placements: placements_supported(message_type)
+        placements: placements_supported(message_type, account)
       }.with_indifferent_access
     end
   end
 
-  def self.placements_supported(message_type)
+  def self.placements_supported(message_type, account)
     (
       Lti::ResourcePlacement::PLACEMENTS_BY_MESSAGE_TYPE[message_type]
       .reject { |p| p == :resource_selection }
-      .map { |p| Lti::ResourcePlacement.add_extension_prefix(p) }
+      .reject { |p| p == :ActivityAssetProcessor unless account.root_account.feature_enabled?(:lti_asset_processor) }
+      .map { |p| Lti::ResourcePlacement::STANDARD_PLACEMENTS.include?(p) ? p : Lti::ResourcePlacement.add_extension_prefix(p) }
     ) + [Lti::ResourcePlacement::CONTENT_AREA] + (
       (message_type == LtiAdvantage::Messages::DeepLinkingRequest::MESSAGE_TYPE) ? [Lti::ResourcePlacement::RICH_TEXT_EDITOR] : []
     )
+  end
+
+  def self.notice_types_supported
+    Lti::Pns::NoticeTypes::ALL
+  end
+
+  def self.key_storages_by_path
+    {
+      "/internal/services/jwks" => CanvasSecurity::ServicesJwt::KeyStorage,
+      "/login/oauth2/jwks" => Canvas::OAuth::KeyStorage,
+      "/api/lti/security/jwks" => Lti::KeyStorage
+    }
   end
 
   # @API Show all available JWKs used by Canvas for signing.
   #
   # @returns JWKs
   def jwks
-    key_storage = case request.path
-                  when "/internal/services/jwks"
-                    CanvasSecurity::ServicesJwt::KeyStorage
-                  when "/login/oauth2/jwks"
-                    Canvas::OAuth::KeyStorage
-                  when "/api/lti/security/jwks"
-                    Lti::KeyStorage
-                  end
+    key_storage = self.class.key_storages_by_path[request.path]
+    unless key_storage
+      return render json: { message: "page not found" }, status: :not_found
+    end
+
     public_keyset = key_storage.public_keyset
 
     if params.include?(:rotation_check)
@@ -108,7 +118,8 @@ class SecurityController < ApplicationController
       token_endpoint: oauth2_token_url(host: Lti::Oidc.auth_domain(account_domain)),
       token_endpoint_auth_methods_supported: ["private_key_jwt"],
       token_endpoint_auth_signing_alg_values_supported: ["RS256"],
-      scopes_supported: TokenScopes::LTI_SCOPES.keys,
+      scopes_supported:
+        ["openid"] + TokenScopes.public_lti_scopes_urls_for_account(account),
       response_types_supported: ["id_token"],
       id_token_signing_alg_values_supported: ["RS256"],
       # TODO: this list can probably be dynamic, with admins choosing the scopes they want to admit to this tool
@@ -124,13 +135,15 @@ class SecurityController < ApplicationController
   end
 
   def lti_platform_configuration(account)
+    notice_types_supported = SecurityController.notice_types_supported if account.feature_enabled?(:platform_notification_service)
     {
       product_family_code: "canvas",
       version: canvas_ims_product_version,
-      messages_supported: SecurityController.messages_supported,
+      messages_supported: SecurityController.messages_supported(account),
+      notice_types_supported:,
       variables: Lti::VariableExpander.expansion_keys,
       "https://canvas.instructure.com/lti/account_name": account.name,
       "https://canvas.instructure.com/lti/account_lti_guid": account.lti_guid
-    }.with_indifferent_access
+    }.with_indifferent_access.compact
   end
 end

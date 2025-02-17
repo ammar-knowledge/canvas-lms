@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Button} from '@instructure/ui-buttons'
 import {IconXSolid} from '@instructure/ui-icons'
 import {Tooltip} from '@instructure/ui-tooltip'
@@ -25,19 +25,21 @@ import {Tooltip} from '@instructure/ui-tooltip'
 interface DiscussionSummaryDisableButtonProps {
   onClick: () => void
   isEnabled: boolean
+  isMobile: boolean
 }
 
-const I18n = useI18nScope('discussions_posts')
+const I18n = createI18nScope('discussions_posts')
 
 export const DiscussionSummaryDisableButton: React.FC<
   DiscussionSummaryDisableButtonProps
 > = props => {
   const buttonText = I18n.t('Disable Summary')
-
   return (
     <Tooltip renderTip={buttonText} width="48px" data-testid="summary-disable-tooltip">
       <Button
+        display={props.isMobile ? 'block' : 'inline-block'}
         onClick={props.onClick}
+        // @ts-expect-error
         renderIcon={IconXSolid}
         data-testid="summary-disable-button"
         disabled={!props.isEnabled}

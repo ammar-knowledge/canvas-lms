@@ -209,9 +209,35 @@ module UserContent
     def translate_content(html)
       return html if html.blank?
 
+      html = add_lazy_loading(html)
+
       return precise_translate_content(html) if Account.site_admin.feature_enabled?(:precise_link_replacements)
 
       html.gsub(@toplevel_regex) { |url| replacement(url) }
+    end
+
+    def add_lazy_loading(html)
+      doc = Nokogiri::HTML5.fragment(html, nil, { max_tree_depth: 10_000 })
+
+      doc.css("img, iframe").each do |e|
+        if e.attributes["src"]&.value&.match?(@toplevel_regex)
+          e.set_attribute("loading", "lazy")
+        end
+      end
+      doc.to_html
+    end
+
+    def translate_blocks(block_editor)
+      return block_editor.blocks if block_editor.blocks.blank?
+
+      source_blocks = %w[ImageBlock MediaBlock]
+      block_editor.blocks.each do |block|
+        if source_blocks.include? block[1]["type"]["resolvedName"]
+          block[1]["props"]["src"] = replacement(block[1]["props"]["src"]) unless block[1]["props"]["src"].blank?
+        elsif block[1]["type"]["resolvedName"] == "RCETextBlock"
+          block[1]["props"]["text"] = block[1]["props"]["text"].gsub(@toplevel_regex) { |url| replacement(url) }
+        end
+      end
     end
 
     def precise_translate_content(html)
@@ -269,6 +295,8 @@ module UserContent
     def user_can_view_content?(content = nil)
       return false if user.blank? && content.respond_to?(:locked?) && content.locked?
       return true unless user
+
+      return content.grants_right?(user, :read) if content.is_a?(Attachment) && content.context != context
 
       # if user given, check that the user is allowed to manage all
       # context content, or read that specific item (and it's not locked)

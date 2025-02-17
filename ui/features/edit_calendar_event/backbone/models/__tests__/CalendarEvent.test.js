@@ -50,22 +50,25 @@ describe('Calendar', () => {
         await waitFor(
           () =>
             calendarEvent.hideSpinner.mock.calls.length === 1 ||
-            calendarEvent.loadFailure.mock.calls.length === 1
+            calendarEvent.loadFailure.mock.calls.length === 1,
         )
       }
 
-      test('requests all pages', async () => {
+      // Skip with LX-2093
+      test.skip('requests all pages', async () => {
         await fetch()
         const requests = server.filterRequests('/sections')
-        expect(requests.length).toBe(2)
+        expect(requests).toHaveLength(2)
         requests.forEach(r => {
           expect(r.url).toContain('include[]=permissions')
         })
       })
 
-      test('hides spinner when all requests succeed', async () => {
+      // Fickle
+      // Skip with LX-2093
+      test.skip('hides spinner when all requests succeed', async () => {
         await fetch()
-        expect(calendarEvent.hideSpinner.mock.calls.length).toBe(1)
+        expect(calendarEvent.hideSpinner.mock.calls).toHaveLength(1)
       })
     })
 

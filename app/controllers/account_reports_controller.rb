@@ -297,6 +297,11 @@ class AccountReportsController < ApplicationController
       raise ActiveRecord::RecordNotFound unless available_reports.include? params[:report]
 
       parameters = params[:parameters]&.to_unsafe_h
+      enrollment_term_id = parameters&.dig("enrollment_term_id") || parameters&.dig("enrollment_term")
+      if enrollment_term_id.present? && !valid_enrollment_term_id?(enrollment_term_id)
+        return render json: { error: "invalid enrollment_term_id '#{enrollment_term_id}'" }, status: :bad_request
+      end
+
       report = @account.account_reports.build(user: @current_user, report_type: params[:report], parameters:)
       report.workflow_state = :created
       report.progress = 0
@@ -304,6 +309,10 @@ class AccountReportsController < ApplicationController
       report.run_report
       render json: account_report_json(report, @current_user)
     end
+  end
+
+  def valid_enrollment_term_id?(enrollment_term_id)
+    enrollment_term_id == "active_terms" || api_find_all(@account.root_account.enrollment_terms, enrollment_term_id.to_s.split(",")).exists?
   end
 
   def type_scope
@@ -359,6 +368,29 @@ class AccountReportsController < ApplicationController
       report = type_scope.active.find(params[:id])
 
       if report.destroy
+        render json: account_report_json(report, @current_user)
+      else
+        render json: report.errors, status: :bad_request
+      end
+    end
+  end
+
+  # @API Abort a Report
+  #
+  # Abort a report in progress
+  #
+  # @example_request
+  #     curl -H 'Authorization: Bearer <token>' \
+  #          -X PUT \
+  #          https://<canvas>/api/v1/accounts/<account_id>/reports/<report_type>/<id>/abort
+  #
+  # @returns Report
+  #
+  def abort
+    if authorized_action(@context, @current_user, :read_reports)
+      report = type_scope.running.find(params[:id])
+
+      if report.update(workflow_state: "aborted")
         render json: account_report_json(report, @current_user)
       else
         render json: report.errors, status: :bad_request

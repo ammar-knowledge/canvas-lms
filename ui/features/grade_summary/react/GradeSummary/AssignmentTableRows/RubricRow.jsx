@@ -18,7 +18,7 @@
 
 import React from 'react'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import {Link} from '@instructure/ui-link'
 import {Flex} from '@instructure/ui-flex'
@@ -28,7 +28,7 @@ import {View} from '@instructure/ui-view'
 
 import Rubric from '@canvas/rubrics/react/Rubric'
 
-const I18n = useI18nScope('grade_summary')
+const I18n = createI18nScope('grade_summary')
 
 export const rubricRow = (assignment, setOpenRubricDetailIds, openRubricDetailIds) => {
   const transformToRubricAssessmentShape = inputObject => {
@@ -138,7 +138,7 @@ export const rubricRow = (assignment, setOpenRubricDetailIds, openRubricDetailId
               customRatings={ENV.outcome_proficiency ? ENV.outcome_proficiency.ratings : []}
               rubric={transformToRubricShape(assignment.rubric)}
               rubricAssessment={transformToRubricAssessmentShape(
-                assignment.submissionsConnection.nodes[0].rubricAssessmentsConnection.nodes[0]
+                assignment.submissionsConnection.nodes[0].rubricAssessmentsConnection.nodes[0],
               )}
               rubricAssociation={transformToRubricAssociationShape(assignment.rubricAssociation)}
               isSummary={false}

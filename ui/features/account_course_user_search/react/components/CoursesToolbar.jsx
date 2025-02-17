@@ -27,12 +27,12 @@ import {Grid} from '@instructure/ui-grid'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import CanvasSelect from '@canvas/instui-bindings/react/Select'
 import SearchableSelect from './SearchableSelect'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import preventDefault from '@canvas/util/preventDefault'
 import {propType as termsPropType, termType} from '../store/TermsStore'
 import NewCourseModal from './NewCourseModal'
 
-const I18n = useI18nScope('account_course_user_search')
+const I18n = createI18nScope('account_course_user_search')
 
 function termGroup(term) {
   if (term.start_at && new Date(term.start_at) > new Date()) return 'future'
@@ -87,9 +87,9 @@ export default function CoursesToolbar({
                 </SearchableSelect.Option>
               ))}
             </SearchableSelect.Group>
-          )
-      )
-    )
+          ),
+      ),
+    ),
   )
 
   return (
@@ -183,8 +183,7 @@ export default function CoursesToolbar({
             {can_create_courses && (
               <Grid.Col width="auto">
                 <NewCourseModal terms={terms}>
-                  <Button aria-label={I18n.t('Create new course')}>
-                    <IconPlusLine />
+                  <Button renderIcon={IconPlusLine} aria-label={I18n.t('Create new course')}>
                     {I18n.t('Course')}
                   </Button>
                 </NewCourseModal>
@@ -205,7 +204,7 @@ CoursesToolbar.propTypes = {
   isLoading: bool.isRequired,
   draftFilters: shape({
     enrollment_type: arrayOf(
-      oneOf(['teacher', 'student', 'ta', 'observer', 'designer']).isRequired
+      oneOf(['teacher', 'student', 'ta', 'observer', 'designer']).isRequired,
     ),
     search_by: oneOf(['course', 'teacher']).isRequired,
     search_term: string.isRequired,

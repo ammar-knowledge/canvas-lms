@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2024 - present Instructure, Inc.
@@ -20,8 +21,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 import AsyncComponents from '../default_gradebook/AsyncComponents'
-import {ApolloProvider} from 'react-apollo'
-import {createClient} from '@canvas/apollo'
+import {QueryProvider} from '@canvas/query'
 
 export const showMessageStudentsWithObserversModal = async (props, focusAtEnd) => {
   const mountPoint = document.querySelector("[data-component='MessageStudentsWithObserversModal']")
@@ -36,10 +36,10 @@ export const showMessageStudentsWithObserversModal = async (props, focusAtEnd) =
     const MessageStudentsWhoDialog = await AsyncComponents.loadMessageStudentsWithObserversDialog()
 
     ReactDOM.render(
-      <ApolloProvider client={createClient()}>
+      <QueryProvider>
         <MessageStudentsWhoDialog {...dialogeProps} />
-      </ApolloProvider>,
-      mountPoint
+      </QueryProvider>,
+      mountPoint,
     )
   }
 }

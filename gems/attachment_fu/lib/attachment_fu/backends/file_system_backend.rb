@@ -77,15 +77,15 @@ module AttachmentFu # :nodoc:
         if !new_record? && !(filename.nil? || @old_filename)
           @old_filename = full_filename
         end
-        write_attribute :filename, value
+        self["filename"] = value
       end
 
       def sanitize_filename(filename)
-        if respond_to?(:root_attachment) && root_attachment && root_attachment.filename
+        if respond_to?(:root_attachment) && root_attachment&.filename
           filename = root_attachment.filename
         else
           filename = Attachment.truncate_filename(filename, 255)
-          filename.gsub!(%r{/| }, "_")
+          filename&.gsub!(%r{/| }, "_")
         end
         filename
       end

@@ -26,7 +26,6 @@ require_relative "../../helpers/k5_common"
 require_relative "../helpers/context_modules_common"
 require_relative "../helpers/items_assign_to_tray"
 require_relative "page_objects/assignment_create_edit_page"
-require_relative "../../helpers/selective_release_common"
 
 describe "assignments" do
   include_context "in-process server selenium tests"
@@ -38,7 +37,6 @@ describe "assignments" do
   include CustomSeleniumActions
   include K5Common
   include ItemsAssignToTray
-  include SelectiveReleaseCommon
 
   # NOTE: due date testing can be found in assignments_overrides_spec
 
@@ -236,6 +234,292 @@ describe "assignments" do
       end
     end
 
+    context "re-upload submissions" do
+      def create_text_file(file_path, content)
+        File.write(file_path, content)
+      end
+
+      def create_zip_file(zip_path, files)
+        Zip::File.open(zip_path, Zip::File::CREATE) do |zipfile|
+          files.each do |file|
+            zipfile.add(File.basename(file), file)
+          end
+        end
+      end
+
+      before do
+        # Create assignment with at least one submission
+        student_in_course(course: @course, active_all: true)
+        @assignment = @course.assignments.create!(
+          name: "Assignment 1",
+          submission_types: "online_text_entry"
+        )
+        submission = @assignment.submit_homework(@student)
+        submission.submission_type = "online_text_entry"
+        submission.save!
+
+        # Go to assignment show page
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}"
+        # Download submissions
+        f(".download_submissions_link").click
+        wait_for_ajaximations
+        fj(".ui-dialog-titlebar-close:visible").click
+        wait_for_ajaximations
+        # Click Re-Upload Submissions link
+        f(".upload_submissions_link").click
+        wait_for_ajaximations
+      end
+
+      it "displays correct buttons" do
+        expect(f("#choose_file_button")).to be_displayed
+        Dir.mktmpdir do |tmpdir|
+          # Create text files in the temp directory
+          txt_file_1 = File.join(tmpdir, "file1.txt")
+          txt_file_2 = File.join(tmpdir, "file2.txt")
+
+          create_text_file(txt_file_1, "This is the content of file1.")
+          create_text_file(txt_file_2, "This is the content of file2.")
+
+          # Create the zip file in the temp directory
+          zip_file_path = File.join(tmpdir, "my_files.zip")
+          create_zip_file(zip_file_path, [txt_file_1, txt_file_2])
+
+          f('input[name="submissions_zip"]').send_keys(zip_file_path)
+          expect(f("#reuploaded_submissions_button")).to be_displayed
+        end
+      end
+
+      it "displays error text if incorrect file type" do
+        Dir.mktmpdir do |tmpdir|
+          # Create text files in the temp directory
+          txt_file_1 = File.join(tmpdir, "file1.txt")
+          create_text_file(txt_file_1, "This is the content of file1.")
+
+          f('input[name="submissions_zip"]').send_keys(txt_file_1)
+          expect(f("#file_type_error_text")).to be_displayed
+        end
+      end
+    end
+
+    context "submission methods" do
+      it "preserves submission methods when saving from index page", priority: "1" do
+        # Create assignment with multiple submission methods
+        assignment = @course.assignments.create!(
+          name: "Test Assignment",
+          submission_types: "online_text_entry,online_url,online_upload",
+          assignment_group: @course.assignment_groups.first
+        )
+
+        get "/courses/#{@course.id}/assignments"
+        wait_for_ajaximations
+
+        edit_assignment(assignment.id, submit: true)
+        assignment.reload
+        expect(assignment.submission_types).to eq "online_text_entry,online_url,online_upload"
+      end
+
+      it "preserves all assignment attributes when opening and submitting without changes using more options", :ignore_js_errors do
+        original_assignment = @course.assignments.create!(
+          title: "Unchanged Assignment",
+          description: "Original description",
+          due_at: Time.zone.parse("2025-01-31 17:09:36 UTC"),
+          unlock_at: Time.zone.parse("2025-01-25 17:09:36 UTC"),
+          lock_at: Time.zone.parse("2025-02-07 17:09:36 UTC"),
+          points_possible: 20.0,
+          grading_type: "points",
+          submission_types: "online_text_entry,online_url,online_upload",
+          workflow_state: "published",
+          peer_reviews: false,
+          automatic_peer_reviews: false,
+          anonymous_peer_reviews: false,
+          moderated_grading: false,
+          grader_count: 0,
+          grader_comments_visible_to_graders: true,
+          grader_names_visible_to_final_grader: true,
+          allowed_attempts: nil,
+          muted: true
+        )
+
+        get "/courses/#{@course.id}/assignments"
+        wait_for_ajaximations
+
+        edit_assignment(original_assignment.id, more_options: true)
+        f(".btn-primary[type='submit']").click
+        wait_for_ajaximations
+
+        assignment = original_assignment.reload
+        expect(assignment.title).to eq "Unchanged Assignment"
+        expect(assignment.type).to eq "Assignment"
+        expect(assignment.due_at).to eq Time.zone.parse("2025-01-31 17:09:36 UTC")
+        expect(assignment.unlock_at).to eq Time.zone.parse("2025-01-25 17:09:36 UTC")
+        expect(assignment.lock_at).to eq Time.zone.parse("2025-02-07 17:09:36 UTC")
+        expect(assignment.points_possible).to eq 20.0
+        expect(assignment.grading_type).to eq "points"
+        expect(assignment.submission_types).to eq "online_text_entry,online_url,online_upload"
+        expect(assignment.workflow_state).to eq "published"
+        expect(assignment.peer_reviews).to be false
+        expect(assignment.automatic_peer_reviews).to be false
+        expect(assignment.anonymous_peer_reviews).to be false
+        expect(assignment.moderated_grading).to be false
+        expect(assignment.grader_count).to eq 0
+        expect(assignment.grader_comments_visible_to_graders).to be true
+        expect(assignment.grader_names_visible_to_final_grader).to be true
+        expect(assignment.allowed_attempts).to be_nil
+        expect(assignment.muted).to be true
+      end
+
+      it "preserves all assignment attributes for checkpointed discussion when opening and submitting without changes using more options", :ignore_js_errors do
+        Account.site_admin.enable_feature!(:discussion_checkpoints)
+        @checkpointed_discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: @checkpointed_discussion,
+          checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+          dates: [{ type: "everyone", due_at: 2.days.from_now }],
+          points_possible: 6
+        )
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: @checkpointed_discussion,
+          checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+          dates: [{ type: "everyone", due_at: 3.days.from_now }],
+          points_possible: 7,
+          replies_required: 2
+        )
+
+        get "/courses/#{@course.id}/assignments"
+        wait_for_ajaximations
+
+        edit_assignment(@checkpointed_discussion.assignment.id, more_options: true)
+        f(".btn-primary[type='submit']").click
+        wait_for_ajaximations
+
+        assignment = @checkpointed_discussion.assignment.reload
+        expect(assignment.title).to eq "checkpointed discussion"
+        expect(assignment.submission_types).to eq "discussion_topic"
+        expect(assignment.workflow_state).to eq "published"
+        expect(assignment.type).to eq "Assignment"
+        expect(assignment.sub_assignments.first.type).to eq "SubAssignment"
+      end
+
+      it "preserves online_upload submission type when editing an assignment" do
+        @assignment = @course.assignments.create!(
+          title: "Test Assignment",
+          points_possible: 10,
+          submission_types: "online_upload"
+        )
+
+        get "/courses/#{@course.id}/assignments"
+        wait_for_ajaximations
+        edit_assignment(@assignment.id, submit: true)
+
+        expect(@assignment.reload.submission_types).to eq "online_upload"
+      end
+
+      it "preserves online_url submission type when editing an assignment" do
+        @assignment = @course.assignments.create!(
+          title: "Test Assignment",
+          points_possible: 10,
+          submission_types: "online_url"
+        )
+
+        get "/courses/#{@course.id}/assignments"
+        wait_for_ajaximations
+        edit_assignment(@assignment.id, submit: true)
+
+        expect(@assignment.reload.submission_types).to eq "online_url"
+      end
+
+      it "preserves none submission type when editing an assignment" do
+        @assignment = @course.assignments.create!(
+          title: "Test Assignment",
+          points_possible: 10,
+          submission_types: "none"
+        )
+
+        get "/courses/#{@course.id}/assignments"
+        wait_for_ajaximations
+        edit_assignment(@assignment.id, submit: true)
+
+        expect(@assignment.reload.submission_types).to eq "none"
+      end
+
+      it "preserves all assignment attributes when opening and submitting without changes" do
+        original_assignment = @course.assignments.create!(
+          title: "Unchanged Assignment",
+          description: "Original description",
+          due_at: Time.zone.parse("2025-01-31 17:09:36 UTC"),
+          unlock_at: Time.zone.parse("2025-01-25 17:09:36 UTC"),
+          lock_at: Time.zone.parse("2025-02-07 17:09:36 UTC"),
+          points_possible: 20.0,
+          grading_type: "points",
+          submission_types: "online_text_entry",
+          workflow_state: "published",
+          peer_reviews: false,
+          automatic_peer_reviews: false,
+          anonymous_peer_reviews: false,
+          moderated_grading: false,
+          grader_count: 0,
+          grader_comments_visible_to_graders: true,
+          grader_names_visible_to_final_grader: true,
+          allowed_attempts: nil,
+          muted: true
+        )
+
+        get "/courses/#{@course.id}/assignments"
+        wait_for_ajaximations
+        edit_assignment(original_assignment.id, submit: true)
+
+        assignment = original_assignment.reload
+        expect(assignment.title).to eq "Unchanged Assignment"
+        expect(assignment.type).to eq "Assignment"
+        expect(assignment.description).to eq "Original description"
+        expect(assignment.due_at).to eq Time.zone.parse("2025-01-31 17:09:36 UTC")
+        expect(assignment.unlock_at).to eq Time.zone.parse("2025-01-25 17:09:36 UTC")
+        expect(assignment.lock_at).to eq Time.zone.parse("2025-02-07 17:09:36 UTC")
+        expect(assignment.points_possible).to eq 20.0
+        expect(assignment.grading_type).to eq "points"
+        expect(assignment.submission_types).to eq "online_text_entry"
+        expect(assignment.workflow_state).to eq "published"
+        expect(assignment.peer_reviews).to be false
+        expect(assignment.automatic_peer_reviews).to be false
+        expect(assignment.anonymous_peer_reviews).to be false
+        expect(assignment.moderated_grading).to be false
+        expect(assignment.grader_count).to eq 0
+        expect(assignment.grader_comments_visible_to_graders).to be true
+        expect(assignment.grader_names_visible_to_final_grader).to be true
+        expect(assignment.allowed_attempts).to be_nil
+        expect(assignment.muted).to be true
+      end
+
+      it "preserves all assignment attributes for checkpointed discussion when opening and submitting without changes" do
+        Account.site_admin.enable_feature!(:discussion_checkpoints)
+        @checkpointed_discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: @checkpointed_discussion,
+          checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+          dates: [{ type: "everyone", due_at: 2.days.from_now }],
+          points_possible: 6
+        )
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: @checkpointed_discussion,
+          checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+          dates: [{ type: "everyone", due_at: 3.days.from_now }],
+          points_possible: 7,
+          replies_required: 2
+        )
+
+        get "/courses/#{@course.id}/assignments"
+        wait_for_ajaximations
+        edit_assignment(@checkpointed_discussion.assignment.id, submit: true)
+
+        assignment = @checkpointed_discussion.assignment.reload
+        expect(assignment.title).to eq "checkpointed discussion"
+        expect(assignment.submission_types).to eq "discussion_topic"
+        expect(assignment.workflow_state).to eq "published"
+        expect(assignment.type).to eq "Assignment"
+        expect(assignment.sub_assignments.first.type).to eq "SubAssignment"
+      end
+    end
+
     it "edits an assignment", priority: "1" do
       assignment_name = "first test assignment"
       due_date = Time.now.utc + 2.days
@@ -286,9 +570,9 @@ describe "assignments" do
     it "creates an assignment using main add button", :xbrowser, priority: "1" do
       assignment_name = "first assignment"
       # freeze for a certain time, so we don't get unexpected ui complications
-      time = DateTime.new(Time.now.year, 1, 7, 2, 13)
+      time = Time.zone.parse("#{Time.zone.now.year}-01-07 02:13")
       Timecop.freeze(time) do
-        due_at = format_time_for_view(time)
+        format_time_for_view(time)
 
         get "/courses/#{@course.id}/assignments"
         # create assignment
@@ -299,9 +583,6 @@ describe "assignments" do
         ["#assignment_text_entry", "#assignment_online_url", "#assignment_online_upload"].each do |element|
           f(element).click
         end
-        unless Account.site_admin.feature_enabled?(:selective_release_ui_api)
-          replace_content(f(".DueDateInput"), due_at)
-        end
 
         submit_assignment_form
         wait_for_ajaximations
@@ -310,9 +591,6 @@ describe "assignments" do
         expect(f("#assignment_show .points_possible")).to include_text("10")
 
         expect(f("#assignment_show fieldset")).to include_text("a text entry box, a website url, or a file upload")
-        unless Account.site_admin.feature_enabled?(:selective_release_ui_api)
-          expect(f(".assignment_dates")).to include_text(due_at)
-        end
       end
     end
 
@@ -320,9 +598,9 @@ describe "assignments" do
       @course.root_account.enable_feature!(:instui_nav)
       assignment_name = "first assignment"
       # freeze for a certain time, so we don't get unexpected ui complications
-      time = DateTime.new(Time.now.year, 1, 7, 2, 13)
+      time = Time.zone.parse("#{Time.zone.now.year}-01-07 02:13")
       Timecop.freeze(time) do
-        due_at = format_time_for_view(time)
+        format_time_for_view(time)
 
         get "/courses/#{@course.id}/assignments"
         # create assignment
@@ -333,9 +611,6 @@ describe "assignments" do
         ["#assignment_text_entry", "#assignment_online_url", "#assignment_online_upload"].each do |element|
           f(element).click
         end
-        unless Account.site_admin.feature_enabled?(:selective_release_ui_api)
-          replace_content(f(".DueDateInput"), due_at)
-        end
 
         submit_assignment_form
         wait_for_ajaximations
@@ -343,16 +618,12 @@ describe "assignments" do
         expect(f("h1.title")).to include_text(assignment_name)
         expect(f("#assignment_show .points_possible")).to include_text("10")
         expect(f("#assignment_show fieldset")).to include_text("a text entry box, a website url, or a file upload")
-
-        unless Account.site_admin.feature_enabled?(:selective_release_ui_api)
-          expect(f(".assignment_dates")).to include_text(due_at)
-        end
       end
     end
 
     it "only allows an assignment editor to edit points and title if assignment has multiple due dates" do
       middle_number = "15"
-      expected_date = (Time.now - 1.month).strftime("%b #{middle_number}")
+      expected_date = 1.month.ago.strftime("%b #{middle_number}")
       @assignment = @course.assignments.create!(
         title: "VDD Test Assignment",
         due_at: expected_date
@@ -371,17 +642,29 @@ describe "assignments" do
       f("#assignment_#{@assignment.id} .edit_assignment").click
       expect(f("#content")).not_to contain_jqcss(".form-dialog .ui-datepicker-trigger:visible")
       # be_disabled
-      expect(f(".multiple_due_dates input")).to be_disabled
-      assignment_title = f("#assign_#{@assignment.id}_assignment_name")
-      assignment_points_possible = f("#assign_#{@assignment.id}_assignment_points")
-      replace_content(assignment_title, "VDD Test Assignment Updated")
-      replace_content(assignment_points_possible, "100")
-      submit_form(fj(".form-dialog:visible"))
-      wait_for_ajaximations
+      expect(f("[data-testid='multiple-due-dates-message']")).to be_disabled
+
+      f("[data-testid='close-button']").click
+      edit_assignment(@assignment.id, name: "VDD Test Assignment Updated", points: 100, submit: true)
+
       expect(@assignment.reload.points_possible).to eq 100
       expect(@assignment.title).to eq "VDD Test Assignment Updated"
       # Assert the time didn't change
       expect(@assignment.due_at.strftime("%b %d")).to eq expected_date
+    end
+
+    it "preserves assignment submission type when editing an assignment" do
+      @assignment = @course.assignments.create!(
+        title: "Test Assignment",
+        points_possible: 10,
+        submission_types: "online_text_entry"
+      )
+
+      get "/courses/#{@course.id}/assignments"
+      wait_for_ajaximations
+      edit_assignment(@assignment.id, submit: true)
+
+      expect(@assignment.reload.submission_types).to eq "online_text_entry"
     end
 
     it "creates a simple assignment and defaults post_to_sis" do
@@ -391,9 +674,7 @@ describe "assignments" do
       assignment_name = "test_assignment_thing_#{rand(10_000)}"
       get "/courses/#{@course.id}/assignments"
       group = @course.assignment_groups.first
-      f(".add_assignment").click
-      replace_content(f("#ag_#{group.id}_assignment_name"), assignment_name)
-      f(".create_assignment").click
+      build_assignment_with_type("Assignment", assignment_group_id: group.id, name: assignment_name, points: "10", submit: true)
       wait_for_ajaximations
       assignment = @course.assignments.where(title: assignment_name).last
       expect(assignment).not_to be_nil
@@ -404,7 +685,7 @@ describe "assignments" do
       enable_cache do
         expected_text = "Assignment 1"
         # freeze time to avoid ui complications
-        time = DateTime.new(2015, 1, 7, 2, 13)
+        time = Time.zone.local(2015, 1, 7, 2, 13)
         Timecop.freeze(time) do
           due_at = format_time_for_datepicker(time)
           points = "25"
@@ -413,23 +694,14 @@ describe "assignments" do
           group = @course.assignment_groups.first
           AssignmentGroup.where(id: group).update_all(updated_at: 1.hour.ago)
           first_stamp = group.reload.updated_at.to_i
-          f(".add_assignment").click
-          wait_for_ajaximations
-          replace_content(f("#ag_#{group.id}_assignment_name"), expected_text)
-          replace_content(f("#ag_#{group.id}_assignment_due_at"), due_at)
-          replace_content(f("#ag_#{group.id}_assignment_points"), points)
-          expect_new_page_load { f(".more_options").click }
+          build_assignment_with_type("Assignment", assignment_group_id: group.id, name: expected_text, points:, due_at:, due_time: "2:13 AM")
+
+          expect_new_page_load { f("[data-testid='more-options-button']").click }
+
           expect(f("#assignment_name").attribute(:value)).to include(expected_text)
           expect(f("#assignment_points_possible").attribute(:value)).to include(points)
 
-          if Account.site_admin.feature_enabled?(:selective_release_ui_api)
-            AssignmentCreateEditPage.click_manage_assign_to_button
-            expect(element_value_for_attr(assign_to_due_date, "value") + ", " + element_value_for_attr(assign_to_due_time, "value")).to eq due_at
-            click_cancel_button
-          else
-            due_at_field = fj(".date_field[data-date-type='due_at']:first")
-            expect(due_at_field).to have_value due_at
-          end
+          expect(element_value_for_attr(assign_to_due_date, "value") + ", " + element_value_for_attr(assign_to_due_time, "value")).to eq due_at
 
           click_option("#assignment_submission_type", "No Submission")
           submit_assignment_form
@@ -445,7 +717,7 @@ describe "assignments" do
     it "keeps erased field on more options click", priority: "2" do
       enable_cache do
         middle_number = "15"
-        expected_date = (Time.now - 1.month).strftime("%b #{middle_number}")
+        expected_date = 1.month.ago.strftime("%b #{middle_number}")
         @assignment = @course.assignments.create!(
           title: "Test Assignment",
           points_possible: 10,
@@ -458,27 +730,14 @@ describe "assignments" do
         end
 
         get "/courses/#{@course.id}/assignments"
-        wait_for_ajaximations
-        driver.execute_script "$('.edit_assignment').first().hover().click()"
-        assignment_title = f("#assign_#{@assignment.id}_assignment_name")
-        assignment_points_possible = f("#assign_#{@assignment.id}_assignment_points")
-        replace_content(assignment_title, "")
-        replace_content(assignment_points_possible, "")
-        wait_for_ajaximations
-        expect_new_page_load { fj(".more_options:eq(1)").click }
+        edit_assignment(@assignment.id, name: "", points: 0)
+
+        expect_new_page_load { f("[data-testid='more-options-button']").click }
         expect(f("#assignment_name").text).to match ""
         expect(f("#assignment_points_possible").text).to match ""
 
-        if Account.site_admin.feature_enabled?(:selective_release_ui_api)
-          AssignmentCreateEditPage.click_manage_assign_to_button
-          expect(element_value_for_attr(assign_to_due_date, "value")).to match expected_date
-          expect(element_value_for_attr(assign_to_due_date(1), "value")).to eq("")
-        else
-          first_input_val = driver.execute_script("return $('.DueDateInput__Container:first input').val();")
-          expect(first_input_val).to match expected_date
-          second_input_val = driver.execute_script("return $('.DueDateInput__Container:last input').val();")
-          expect(second_input_val).to match ""
-        end
+        expect(element_value_for_attr(assign_to_due_date(0), "value")).to match expected_date
+        expect(element_value_for_attr(assign_to_due_date(1), "value")).to eq("")
       end
     end
 
@@ -675,6 +934,70 @@ describe "assignments" do
         wait_for_ajaximations
         expect(f("#right-side-wrapper")).to include_text("Submitted!")
       end
+
+      describe "validations" do
+        context "file upload" do
+          it "shows an error on submit and clears it if the user select a file" do
+            get "/courses/#{@course.id}/assignments"
+            wait_for_new_page_load { f(".new_assignment").click }
+            f("#assignment_name").send_keys("Validation for Annotated Document Submission Type")
+
+            f("#assignment_annotated_document").click
+            wait_for_ajaximations
+
+            submit_assignment_form
+            expect(f("#online_submission_types\\[student_annotation\\]_errors")).to include_text("This submission type requires a file upload")
+
+            # select attachment from file explorer
+            fxpath('//*[@id="annotated_document_chooser_container"]/div/div[1]/ul/li[1]/button').click
+            fxpath('//*[@id="annotated_document_chooser_container"]/div/div[1]/ul/li[1]/ul/li/button').click
+
+            expect(f("#online_submission_types\\[student_annotation\\]_errors")).not_to include_text("This submission type requires a file upload")
+          end
+
+          it "shows an error on submit and clears it if the user uncheck Student Annotation" do
+            get "/courses/#{@course.id}/assignments"
+            wait_for_new_page_load { f(".new_assignment").click }
+            f("#assignment_name").send_keys("Validation for Annotated Document Submission Type")
+
+            f("#assignment_annotated_document").click
+            wait_for_ajaximations
+
+            submit_assignment_form
+            expect(f("#online_submission_types\\[student_annotation\\]_errors")).to include_text("This submission type requires a file upload")
+
+            # Uncheck Student Annotation
+            f("#assignment_annotated_document").click
+            wait_for_ajaximations
+
+            expect(f("#online_submission_types\\[student_annotation\\]_errors")).not_to include_text("This submission type requires a file upload")
+          end
+        end
+
+        context "usage rights" do
+          it "shows an error on submit and clears it on changing usage rights" do
+            get "/courses/#{@course.id}/assignments"
+            wait_for_new_page_load { f(".new_assignment").click }
+            f("#assignment_name").send_keys("Validation for Usage Rights")
+
+            f("#assignment_annotated_document").click
+            wait_for_ajaximations
+
+            # select attachment from file explorer
+            fxpath('//*[@id="annotated_document_chooser_container"]/div/div[1]/ul/li[1]/button').click
+            fxpath('//*[@id="annotated_document_chooser_container"]/div/div[1]/ul/li[1]/ul/li/button').click
+
+            submit_assignment_form
+            wait_for_ajaximations
+
+            expect(f("#usage_rights_use_justification_errors")).to include_text("Identifying the usage rights is required")
+
+            f("#usageRightSelector").click
+            fxpath('//*[@id="usageRightSelector"]/option[2]').click
+            expect(f("#usage_rights_use_justification_errors")).not_to include_text("Identifying the usage rights is required")
+          end
+        end
+      end
     end
 
     context "frozen assignment" do
@@ -699,25 +1022,11 @@ describe "assignments" do
         expect(f("div#assignment_#{@frozen_assign.id}")).to contain_css("a.delete_assignment.disabled")
       end
 
-      it "allows editing the due date even if completely frozen", priority: "2" do
-        differentiated_modules_off
-        old_due_at = @frozen_assign.due_at
-        run_assignment_edit(@frozen_assign) do
-          replace_and_proceed(f(".datePickerDateField[data-date-type='due_at']"), "Sep 20, 2012")
-        end
-
-        expect(f(".assignment_dates").text).to match(/Sep 20, 2012/)
-        # some sort of time zone issue is occurring with Sep 20, 2012 - it rolls back a day and an hour locally.
-        expect(@frozen_assign.reload.due_at.to_i).not_to eq old_due_at.to_i
-      end
-
       it "allows editing the due date even if completely frozen", :ignore_js_errors do
-        differentiated_modules_on
         old_due_at = @frozen_assign.due_at
         run_assignment_edit(@frozen_assign) do
-          AssignmentCreateEditPage.click_manage_assign_to_button
+          assign_to_due_date.send_keys(:control, "a", :backspace)
           update_due_date(0, "Sep 20, 2012")
-          click_save_button("Apply")
         end
 
         expect(f(".assignment_dates").text).to match(/Sep 20, 2012/)
@@ -826,12 +1135,8 @@ describe "assignments" do
         assignment
         get "/courses/#{@course.id}/assignments"
         wait_for_ajaximations
-        f("#assign_#{assignment.id}_manage_link").click
-        wait_for_ajaximations
-        f("#assignment_#{assignment.id} .edit_assignment").click
-        f("#assign_#{assignment.id}_assignment_points").send_keys("5")
 
-        submit_form(fj(".form-dialog:visible"))
+        edit_assignment(assignment.id, points: 5, submit: true)
 
         expect(assignment.reload.primary_resource_link.custom).to eq(custom_params)
       end
@@ -1463,32 +1768,52 @@ describe "assignments" do
 
   context "with discussion_checkpoints" do
     before :once do
-      Account.site_admin.enable_feature! :discussion_checkpoints
-    end
+      course_with_teacher({ user: @teacher, active_course: true, active_enrollment: true })
 
-    it "does not show points possible and due date fields for checkpointed assignments" do
-      course_with_teacher_logged_in(active_all: true, course: @course)
-      checkpointed_discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+      Account.site_admin.enable_feature! :discussion_checkpoints
+      @checkpointed_discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
       Checkpoints::DiscussionCheckpointCreatorService.call(
-        discussion_topic: checkpointed_discussion,
+        discussion_topic: @checkpointed_discussion,
         checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
         dates: [{ type: "everyone", due_at: 2.days.from_now }],
         points_possible: 6
       )
       Checkpoints::DiscussionCheckpointCreatorService.call(
-        discussion_topic: checkpointed_discussion,
+        discussion_topic: @checkpointed_discussion,
         checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
         dates: [{ type: "everyone", due_at: 3.days.from_now }],
         points_possible: 7,
         replies_required: 2
       )
+    end
+
+    it "does not show points possible and due date fields for checkpointed assignments" do
+      user_session(@teacher)
 
       get "/courses/#{@course.id}/assignments"
-      f("div#assignment_#{checkpointed_discussion.assignment.id} button.al-trigger").click
+      f("div#assignment_#{@checkpointed_discussion.assignment.id} button.al-trigger").click
       f("li a.edit_assignment").click
-      expect(f("input#assign_#{checkpointed_discussion.assignment.id}_assignment_name")).to be_present
-      expect(f("body")).not_to contain_jqcss "label[for='#{checkpointed_discussion.assignment.id}_assignment_due_at']"
-      expect(f("body")).not_to contain_jqcss "label[for='#{checkpointed_discussion.assignment.id}_assignment_points']"
+      expect(f("[data-testid='assignment-name-input']")).not_to be_disabled
+      expect(f("[data-testid='points-input']")).to be_disabled
+      # Date
+      expect(f("#Selectable_0")).to be_disabled
+      # Time
+      expect(f("#Select_0")).to be_disabled
+    end
+
+    it "displays the correct date input fields in the assign to tray" do
+      user_session(@teacher)
+      get "/courses/#{@course.id}/assignments"
+
+      fj("#assign_#{@checkpointed_discussion.assignment.id}_manage_link").click
+      wait_for_ajaximations
+
+      f("#assignment_#{@checkpointed_discussion.assignment.id} .assign-to-link").click
+      wait_for_assign_to_tray_spinner
+
+      expect(module_item_assign_to_card.first).not_to contain_css(due_date_input_selector)
+      expect(module_item_assign_to_card.first).to contain_css(reply_to_topic_due_date_input_selector)
+      expect(module_item_assign_to_card.first).to contain_css(required_replies_due_date_input_selector)
     end
   end
 end

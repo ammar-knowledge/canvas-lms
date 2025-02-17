@@ -16,37 +16,80 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useContext, useState} from 'react'
-import {SimpleSelect} from '@instructure/ui-simple-select'
+import React, {forwardRef, useContext, useImperativeHandle, useMemo, useState} from 'react'
+import CanvasMultiSelect from '@canvas/multi-select/react'
 import {View} from '@instructure/ui-view'
 import {DiscussionManagerUtilityContext} from '../../utils/constants'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import PropTypes from 'prop-types'
 
-// TODO: Translate the language controls into the canvas target locale.
-export const TranslationControls = () => {
-  const heading = `Translate Discussion`
+const I18n = createI18nScope('discussion_posts')
+
+// TODO: Translate the language co> ntrols into the canvas target locale.
+export const TranslationControls = forwardRef((props, ref) => {
   const {translationLanguages, setTranslateTargetLanguage} = useContext(
-    DiscussionManagerUtilityContext
+    DiscussionManagerUtilityContext,
   )
-  const [language, setLanguage] = useState(translationLanguages.current[0].name)
+  const [input, setInput] = useState('')
+  const [selected, setSelected] = useState(null)
 
-  const handleSelect = (e, {id, value}) => {
-    setLanguage(value)
+  const handleSelect = selectedArray => {
+    const id = selectedArray[0]
+    const result = translationLanguages.current.find(({id: _id}) => id === _id)
 
-    // Also set global language in context
-    setTranslateTargetLanguage(id)
+    if (!result) {
+      return
+    }
+
+    setInput(result.name)
+    setSelected(result.id)
+
+    if (props.setTranslationLanguage) {
+      props.setTranslationLanguage(result.id)
+    } else {
+      setTranslateTargetLanguage(result.id)
+    }
   }
 
+  const filteredLanguages = useMemo(() => {
+    if (!input) {
+      return translationLanguages.current
+    }
+
+    return translationLanguages.current.filter(({name}) =>
+      name.toLowerCase().startsWith(input.toLowerCase()),
+    )
+  }, [translationLanguages, input])
+
+  const reset = () => {
+    setInput('')
+    setSelected(null)
+  }
+
+  useImperativeHandle(ref, () => ({
+    reset,
+  }))
+
   return (
-    <View as="div" margin="x-small 0 0">
-      <SimpleSelect renderLabel={heading} value={language} onChange={handleSelect} width="360px">
-        {translationLanguages.current.map(({id, name}) => {
-          return (
-            <SimpleSelect.Option key={id} id={id} value={name}>
-              {name}
-            </SimpleSelect.Option>
-          )
-        })}
-      </SimpleSelect>
+    <View ref={ref} as="div" margin="x-small 0 0">
+      <CanvasMultiSelect
+        label={I18n.t('Translate to')}
+        onChange={handleSelect}
+        inputValue={input}
+        onInputChange={e => setInput(e.target.value)}
+        width="360px"
+        placeholder={I18n.t('Language')}
+      >
+        {filteredLanguages.map(({id, name}) => (
+          <CanvasMultiSelect.Option key={id} id={id} value={id} isSelected={id === selected}>
+            {name}
+          </CanvasMultiSelect.Option>
+        ))}
+      </CanvasMultiSelect>
     </View>
   )
+})
+
+TranslationControls.propTypes = {
+  setTranslationLanguage: PropTypes.func,
 }

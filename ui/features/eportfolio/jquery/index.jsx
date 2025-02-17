@@ -25,13 +25,14 @@
 // settings on their own personal eportfolio, they can't
 // affect anyone else
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {QueryProvider} from '@canvas/query'
+import PortfolioPortal from '../react/PortfolioPortal'
+import ReactDOM from 'react-dom/client'
 import userSettings from '@canvas/user-settings'
 import RichContentEditor from '@canvas/rce/RichContentEditor'
-import MoveToDialog from '../react/MoveToDialog'
 import {fetchContent} from './eportfolio_section'
 import sanitizeHtml from 'sanitize-html-with-tinymce'
 import {raw} from '@instructure/html-escape'
@@ -49,8 +50,10 @@ import '@canvas/util/templateData' /* fillTemplateData, getTemplateData */
 import 'jquery-scroll-to-visible/jquery.scrollTo'
 import 'jqueryui/progressbar'
 import 'jqueryui/sortable'
+import CreatePortfolioForm from '../react/CreatePortfolioForm'
+import {Portal} from '@instructure/ui-portal'
 
-const I18n = useI18nScope('eportfolio')
+const I18n = createI18nScope('eportfolio')
 
 // optimization so user isn't waiting on RCS to
 // respond when they hit edit
@@ -94,71 +97,6 @@ function ePortfolioFormData() {
   return data
 }
 
-function _saveList(parent, prefix, anchor) {
-  const ids = $(parent).sortable('toArray')
-  const valid_ids = []
-  for (const idx in ids) {
-    let id = ids[idx]
-    id = id.substring(prefix.length)
-    if (!Number.isNaN(id)) {
-      valid_ids.push(id)
-    }
-  }
-  const order = valid_ids.join(',')
-  const data = {order}
-  $(parent).loadingImage({image_size: 'small'})
-  $.ajaxJSON($(anchor).attr('href'), 'POST', data, _res => {
-    $(parent).loadingImage('remove')
-  })
-}
-
-function saveSectionList() {
-  _saveList('#section_list', 'section_', '.reorder_sections_url')
-}
-
-function savePageList() {
-  _saveList('#page_list', 'page_', '.reorder_pages_url')
-}
-
-function showMoveDialog(source, destinations, triggerElement, dialogLabel, onMove) {
-  const appElement = document.querySelector('#application')
-  let modalRoot = document.querySelector('#eportfolios_move_to_modal_root')
-  if (!modalRoot) {
-    $('#application').append('<div id="eportfolios_move_to_modal_root"></div>')
-    modalRoot = document.querySelector('#eportfolios_move_to_modal_root')
-  }
-  ReactDOM.render(
-    <MoveToDialog
-      source={source}
-      destinations={destinations}
-      appElement={appElement}
-      triggerElement={triggerElement}
-      header={dialogLabel}
-      onClose={function () {
-        setTimeout(() => {
-          ReactDOM.unmountComponentAtNode(modalRoot)
-        })
-      }}
-      onMove={onMove}
-    />,
-    modalRoot
-  )
-}
-
-function hideEditObject(type) {
-  const $box = $('#' + type + '_name_holder')
-  const $input = $('#' + type + '_name')
-  const val = $input.val()
-  const $obj = $box.parents('li.' + type)
-  $obj.find('.name').text(val)
-  if ($obj.parent('ul').length > 0) {
-    $box.hide().appendTo($('body'))
-    $obj.find('.' + type + '_url').show()
-  }
-  if ($obj.attr('id') === type + '_new') {
-    $obj.remove()
-  }
-}
 function saveObject($obj, type) {
   const isSaving = $obj.data('event_pending')
   if (isSaving || $obj.length === 0) {
@@ -214,7 +152,6 @@ function saveObject($obj, type) {
         hrefValues: ['id', 'slug'],
       })
       $obj.data('event_pending', false)
-      countObjects(type)
     },
     // error callback
     (_res, xhr, _textStatus, _errorThrown) => {
@@ -225,7 +162,6 @@ function saveObject($obj, type) {
         name_message = I18n.t('errors.section_name_too_long', 'Section name is too long')
       }
       if ($obj.hasClass('unsaved')) {
-        /* eslint-disable-next-line no-alert */
         alert(name_message)
         $obj.remove()
       } else {
@@ -235,49 +171,48 @@ function saveObject($obj, type) {
       }
     },
     // options
-    {skipDefaultError: true}
+    {skipDefaultError: true},
   )
   return true
 }
-function editObject($obj, type) {
-  const $name = $obj.find('.' + type + '_url')
-  let width = $name.outerWidth() - 30
-  if (type === 'page') {
-    width = 145
-  } else {
-    width = 145
-  }
-  const $box = $('#' + type + '_name_holder')
-  const $input = $('#' + type + '_name')
-  $input.width(width)
-  $name.hide().before($box)
-  $input.val($.trim($name.find('.name').text()))
-  $box.show()
-  $input.focus().select()
-}
-function countObjects(type) {
-  const cnt = $('#' + type + '_list .' + type + ':not(.unsaved)').length
-  if (cnt > 1) {
-    $('#' + type + '_list .remove_' + type + '_link').css('display', '')
-    $('#' + type + '_list .move_' + type + '_link').css('display', '')
-  } else {
-    $('#' + type + '_list .remove_' + type + '_link').hide()
-    $('#' + type + '_list .move_' + type + '_link').hide()
+
+function renderCreateForm() {
+  const createContainer = document.getElementById('create_portfolio_mount')
+  const formContainer = document.getElementById('create_portfolio_form_mount')
+
+  if (createContainer) {
+    return (
+      <Portal open={true} mountNode={createContainer}>
+        <CreatePortfolioForm formMount={formContainer} />
+      </Portal>
+    )
   }
 }
 
+function renderPortal(portfolio_id) {
+  const sectionListContainer = document.getElementById('section_list_mount')
+  const pageListContainer = document.getElementById('page_list_mount')
+
+  return (
+    <QueryProvider>
+      <PortfolioPortal
+        portfolioId={portfolio_id}
+        sectionListNode={sectionListContainer}
+        pageListNode={pageListContainer}
+        onPageUpdate={json => $(document).triggerHandler('page_updated', json)}
+      />
+    </QueryProvider>
+  )
+}
+
 $(document).ready(function () {
-  $('.portfolio_settings_link').click(event => {
-    event.preventDefault()
-    $('#edit_eportfolio_form')
-      .dialog({
-        width: 'auto',
-        title: I18n.t('eportfolio_settings', 'ePortfolio Settings'),
-        modal: true,
-        zIndex: 1000,
-      })
-      .fixDialogButtons()
-  })
+  const portfolio_id = ENV.eportfolio_id
+  const root = ReactDOM.createRoot(document.getElementById('eportfolio_portal_mount'))
+  if (portfolio_id) {
+    root.render(renderPortal(portfolio_id))
+  } else {
+    root.render(renderCreateForm())
+  }
   // Add ePortfolio related
   $('.add_eportfolio_link').click(function (event) {
     event.preventDefault()
@@ -297,21 +232,6 @@ $(document).ready(function () {
       return false
     }
   })
-  // Edit ePortfolio related
-  $('#edit_eportfolio_form .cancel_button').click(() => {
-    $('#edit_eportfolio_form').dialog('close')
-  })
-  $('#edit_eportfolio_form').formSubmit(
-    $.extend(ePortfolioValidations, {
-      beforeSubmit(_data) {
-        $(this).loadingImage()
-      },
-      success(_data) {
-        $(this).loadingImage('remove')
-        $(this).dialog('close')
-      },
-    })
-  )
   $('.edit_content_link').click(function (event) {
     event.preventDefault()
     $('.edit_content_link_holder').hide()
@@ -374,7 +294,7 @@ $(document).ready(function () {
           const $richText = $section.find('.edit_section')
           const editorContent = RichContentEditor.callOnRCE($richText, 'get_code')
           if (editorContent) {
-            $preview.html(raw(editorContent))
+            $preview.html(sanitizeHtml(editorContent))
           }
           $section.find('.section_content').after($preview)
         }
@@ -413,7 +333,7 @@ $(document).ready(function () {
             const $richText = $section.find('.edit_section')
             const editorContent = RichContentEditor.callOnRCE($richText, 'get_code')
             if (editorContent) {
-              $section.find('.section_content').html(raw(editorContent))
+              $section.find('.section_content').html(sanitizeHtml(editorContent))
             }
             RichContentEditor.destroyRCE($richText)
           } else {
@@ -466,25 +386,25 @@ $(document).ready(function () {
     let section_type = 'rich_text'
     let section_type_name = I18n.t(
       '#eportfolios._page_section.section_types.rich_text',
-      'Rich Text Content'
+      'Rich Text Content',
     )
     if ($(this).hasClass('add_html_link')) {
       section_type = 'html'
       section_type_name = I18n.t(
         '#eportfolios._page_section.section_types.html',
-        'HTML/Embedded Content'
+        'HTML/Embedded Content',
       )
     } else if ($(this).hasClass('add_submission_link')) {
       section_type = 'submission'
       section_type_name = I18n.t(
         '#eportfolios._page_section.section_types.submission',
-        'Course Submission'
+        'Course Submission',
       )
     } else if ($(this).hasClass('add_file_link')) {
       section_type = 'attachment'
       section_type_name = I18n.t(
         '#eportfolios._page_section.section_types.attachment',
-        'Image/File Upload'
+        'Image/File Upload',
       )
     }
     const edit_type = 'edit_' + section_type + '_content'
@@ -526,14 +446,14 @@ $(document).ready(function () {
     handle: '.move_link',
     helper: 'clone',
     axis: 'y',
-    start(event, ui) {
+    start(_event, ui) {
       const $section = $(ui.item)
       if ($section.getTemplateData({textValues: ['section_type']}).section_type === 'rich_text') {
         const $richText = $section.find('.edit_section')
         RichContentEditor.destroyRCE($richText)
       }
     },
-    stop(event, ui) {
+    stop(_event, ui) {
       const $section = $(ui.item)
       if ($section.getTemplateData({textValues: ['section_type']}).section_type === 'rich_text') {
         const $richText = $section.find('.edit_section')
@@ -694,7 +614,7 @@ $(document).ready(function () {
         I18n.t('default_description', 'This is my %{assignment} submission for %{course}.', {
           assignment,
           course: context,
-        })
+        }),
       )
       $('#add_submission_form')
         .dialog({
@@ -729,9 +649,9 @@ $(document).ready(function () {
       try {
         const submission_id = entry.content[1].submission_id
         $('#submission_' + submission_id + ',#recent_submission_' + submission_id).addClass(
-          'already_used'
+          'already_used',
         )
-      } catch (e) {}
+      } catch (_e) {}
       /* eslint-enable no-empty */
       let url = $(this).find('.eportfolio_named_entry_url').attr('href')
       url = replaceTags(url, 'category_slug', entry.category_slug)
@@ -793,49 +713,8 @@ $(document).ready(function () {
       $(this).addClass('active')
     },
   })
-
-  countObjects('page')
-  $(document).bind('page_deleted', (event, data) => {
-    if (!data) {
-      return
-    }
+  $(document).bind('page_added page_updated', (_event, data) => {
     const entry = data.eportfolio_entry
-    $('#page_' + entry.id).remove()
-    $('#structure_entry_' + entry.id).remove()
-    countObjects('page')
-  })
-  $(document).bind('page_added page_updated', (event, data) => {
-    const entry = data.eportfolio_entry
-    let $page = $('#page_' + entry.id)
-    if ($page.length === 0) {
-      $page = $('#page_blank').clone(true).removeAttr('id')
-      $('#page_list').append($page.show())
-    }
-    $page.removeClass('unsaved')
-    $page.find('.settings-label').text(I18n.t('Settings for %{title}', {title: entry.name}))
-    $page.fillTemplateData({
-      data: entry,
-      id: 'page_' + entry.id,
-      hrefValues: ['id', 'slug'],
-    })
-    // update links (unable to take advantage of fillTemplateData's hrefValues for updates)
-    if (event.type === 'page_updated') {
-      let page_url = $('#page_blank .page_url').attr('href')
-      let rename_page_url = $('#page_blank .rename_page_url').attr('href')
-      page_url = replaceTags(page_url, 'slug', entry.slug)
-      rename_page_url = replaceTags(page_url, 'id', entry.id)
-      $page.find('.page_url').attr('href', page_url)
-      $page.find('.rename_page_url').attr('href', rename_page_url)
-    }
-    let $entry = $('#structure_entry_' + entry.id)
-    if ($entry.length === 0) {
-      $entry = $('#structure_entry_blank').clone(true).removeAttr('id')
-      $('#structure_category_' + entry.eportfolio_category_id + ' .entry_list').append($entry)
-    }
-    $entry.fillTemplateData({
-      id: 'structure_entry_' + entry.id,
-      data: entry,
-    })
     const $activePage = $('#eportfolio_entry_' + entry.id)
     if ($activePage.length) {
       $activePage.fillTemplateData({
@@ -843,114 +722,20 @@ $(document).ready(function () {
         data: entry,
       })
     }
-    countObjects('page')
-  })
-  $('.manage_pages_link,#section_pages .done_editing_button').click(event => {
-    event.preventDefault()
-    if ($('#page_list').hasClass('editing')) {
-      $('#page_list').removeClass('editing')
-      $('#page_list .page_url').attr('title', '')
-      $('#page_list').sortable('destroy')
-      $('#section_pages').removeClass('editing')
-    } else {
-      $('#page_list').addClass('editing')
-      $('#page_list .page_url').attr('title', I18n.t('Click to edit, drag to reorder'))
-      $('#page_list').sortable({
-        axis: 'y',
-        helper: 'clone',
-        stop(_event, ui) {
-          ui.item.addClass('just_dropped')
-        },
-        update: savePageList,
-      })
-      $('#section_pages').addClass('editing')
-    }
-  })
-  $('#page_list').on('click', '.edit_page_link', function (event) {
-    if ($(this).parents('li').hasClass('unsaved')) {
-      event.preventDefault()
-    }
-    if ($(this).parents('#page_list').hasClass('editing')) {
-      event.preventDefault()
-      const $li = $(this).parents('li')
-      if ($li.hasClass('just_dropped')) {
-        $li.removeClass('just_dropped')
-        return
-      }
-      editObject($li, 'page')
-    }
-  })
-  $('.add_page_link').click(event => {
-    event.preventDefault()
-    const $page = $('#page_blank').clone(true).attr('id', 'page_new')
-    $('#page_list').append($page.show())
-    editObject($page, 'page')
-  })
-  $('.remove_page_link').click(function (event) {
-    event.preventDefault()
-    hideEditObject('page')
-    $(this)
-      .parents('li')
-      .confirmDelete({
-        message: I18n.t('confirm_delete_page', 'Delete this page and all its content?'),
-        url: $(this).parents('li').find('.rename_page_url').attr('href'),
-        success(data) {
-          $(this).fadeOut(function () {
-            $(this).remove()
-            $(document).triggerHandler('page_deleted', data)
-            countObjects('page')
-          })
-        },
-      })
-  })
-  $('.move_page_link').click(event => {
-    event.preventDefault()
-
-    const page = $(event.target).closest('.page')
-    const source = {
-      id: page.attr('id'),
-      label: page.find('.name').text(),
-    }
-    const otherPages = $('#page_list .page').not(page).not('#page_blank').toArray()
-    const destinations = otherPages.map(otherPage => ({
-      id: $(otherPage).attr('id'),
-      label: $(otherPage).find('.name').text(),
-    }))
-
-    const triggerElement = page.find('.page_settings_menu .al-trigger')
-    const dialogLabel = I18n.t('Move Page')
-    const onMove = function (before) {
-      if (before !== '') {
-        $(page).insertBefore($('#' + before))
-      } else {
-        $(page).insertAfter($('#page_list .page:last'))
-      }
-      $('#page_list').sortable('refreshPositions')
-      savePageList()
-    }
-    showMoveDialog(source, destinations, triggerElement, dialogLabel, onMove)
   })
   $('#page_name')
     .keydown(function (event) {
       if (event.keyCode === 27) {
         // esc
-        hideEditObject('page')
       } else if (event.keyCode === 13) {
         // enter
         $(this).parents('li').find('.name').text($(this).val())
-        const result = saveObject($(this).parents('li'), 'page')
-        if (result) {
-          hideEditObject('page')
-        }
+        saveObject($(this).parents('li'), 'page')
       }
     })
     .blur(function () {
-      let result = true
       const $page = $(this).parents('li.page')
-      result = saveObject($page, 'page')
-      if (result) {
-        hideEditObject('page')
-      }
+      saveObject($page, 'page')
     })
 
   const $wizard_box = $('#wizard_box')
@@ -1027,129 +812,6 @@ $(document).ready(function () {
     }, 500)
   }
 
-  countObjects('section')
-  $(document).bind('section_deleted', (event, data) => {
-    const category = data.eportfolio_category
-    $('#section_' + category.id).remove()
-    $('#structure_category_' + category.id).remove()
-    countObjects('section')
-  })
-  $(document).bind('section_added section_updated', (event, data) => {
-    const category = data.eportfolio_category
-    let $section = $('#section_' + category.id)
-    if ($section.length === 0) {
-      $section = $('#section_blank').clone(true).removeAttr('id')
-      $('#section_list').append($section.css('display', ''))
-    }
-    $section.removeClass('unsaved')
-    $section.find('.settings-label').text(I18n.t('Settings for %{title}', {title: category.name}))
-    $section.fillTemplateData({
-      data: category,
-      id: 'section_' + category.id,
-      hrefValues: ['id', 'slug'],
-    })
-    let $category = $('#structure_category_' + category.id)
-    if ($category.length === 0) {
-      $category = $('#structure_category_blank').clone(true).removeAttr('id')
-      $('#eportfolio_structure').append($category)
-    }
-    $category.fillTemplateData({
-      id: 'structure_category_' + category.id,
-      data: category,
-    })
-    let $category_select = $('#category_select_' + category.id)
-    if ($category_select.length === 0) {
-      $category_select = $('#category_select_blank').clone(true).removeAttr('id')
-      $('#category_select').append($category_select.show())
-    }
-    $category_select
-      .attr('id', 'category_select_' + category.id)
-      .val(category.id)
-      .text(category.name)
-    countObjects('section')
-  })
-  $('.manage_sections_link,#section_list_manage .done_editing_button').click(event => {
-    event.preventDefault()
-    if ($('#section_list').hasClass('editing')) {
-      $('#section_list').sortable('destroy')
-      $('#section_list_manage').removeClass('editing')
-      $('#section_list').removeClass('editing')
-      const manage_sections = I18n.t('buttons.manage_sections', 'Manage Sections')
-      $('.arrange_sections_link').text(manage_sections).val(manage_sections)
-      $('.add_section').hide()
-      $('#section_list .name').attr('title', '')
-    } else {
-      $('#section_list_manage').addClass('editing')
-      $('#section_list').sortable({
-        axis: 'y',
-        helper: 'clone',
-        stop(_event, ui) {
-          ui.item.addClass('just_dropped')
-        },
-        update: saveSectionList,
-      })
-      $('#section_list').addClass('editing').sortable('enable')
-      const done_editing = I18n.t('buttons.done_editing', 'Done Editing')
-      $('.arrange_sections_link').text(done_editing).val(done_editing)
-      $('.add_section').show()
-      $('#section_list .name').attr(
-        'title',
-        I18n.t('titles.section_list', 'Drag to Arrange, Click to Edit')
-      )
-    }
-  })
-  $('.add_section_link').click(event => {
-    event.preventDefault()
-    const $section = $('#section_blank').clone(true).attr('id', 'section_new')
-    $('#section_list').append($section.show())
-    editObject($section, 'section')
-  })
-  $('.remove_section_link').click(function (event) {
-    event.preventDefault()
-
-    hideEditObject('section')
-    $(this)
-      .parents('li')
-      .confirmDelete({
-        message: I18n.t('confirm_delete_section', 'Delete this section and all its pages?'),
-        url: $(this).parents('li').find('.rename_section_url').attr('href'),
-        success(data) {
-          $(this).fadeOut(function () {
-            $(this).remove()
-            $(document).triggerHandler('section_deleted', data)
-            countObjects('section')
-          })
-        },
-      })
-  })
-  $('.move_section_link').click(event => {
-    event.preventDefault()
-
-    const section = $(event.target).closest('.section')
-    const source = {
-      id: section.attr('id'),
-      label: section.find('.name').text(),
-    }
-    const otherSections = $('#section_list .section').not(section).not('#section_blank').toArray()
-    const destinations = otherSections.map(otherSection => ({
-      id: $(otherSection).attr('id'),
-      label: $(otherSection).find('.name').text(),
-    }))
-    const dialogLabel = I18n.t('Move Section')
-
-    const triggerElement = section.find('.section_settings_menu .al-trigger')
-
-    const onMove = function (before) {
-      if (before !== '') {
-        $(section).insertBefore(document.getElementById(before))
-      } else {
-        $(section).insertAfter($('#section_list .section:last'))
-      }
-      $('#section_list').sortable('refreshPositions')
-      saveSectionList()
-    }
-    showMoveDialog(source, destinations, triggerElement, dialogLabel, onMove)
-  })
   $('#section_list').on('click', '.edit_section_link', function (event) {
     if ($(this).parents('li').hasClass('unsaved')) {
       event.preventDefault()
@@ -1159,33 +821,22 @@ $(document).ready(function () {
       const $li = $(this).parents('li')
       if ($li.hasClass('just_dropped')) {
         $li.removeClass('just_dropped')
-        return
       }
-      editObject($li, 'section')
     }
   })
   $('#section_name')
     .keydown(function (event) {
-      if (event.keyCode === 27) {
-        // esc
-        hideEditObject('section')
-      } else if (event.keyCode === 13) {
+      if (event.keyCode === 13) {
         // enter
         $(this).parents('li').find('.name').text($(this).val())
-        const result = saveObject($(this).parents('li'), 'section')
-        if (result) {
-          hideEditObject('section')
-        }
+        saveObject($(this).parents('li'), 'section')
       }
     })
     .blur(function () {
-      let result = true
       const $section = $(this).parents('li.section')
-      result = saveObject($section, 'section')
-      if (result) {
-        hideEditObject('section')
-      }
+      saveObject($section, 'section')
     })
+
   $('.download_eportfolio_link').click(function (event) {
     $(this).slideUp()
     event.preventDefault()
@@ -1197,8 +848,8 @@ $(document).ready(function () {
       .text(
         I18n.t(
           '#eportfolios.show.headers.export_progress',
-          'Collecting ePortfolio resources. this may take a while if you have a lot of files in your ePortfolio.'
-        )
+          'Collecting ePortfolio resources. this may take a while if you have a lot of files in your ePortfolio.',
+        ),
       )
     const url = $(this).attr('href')
     let errorCount = 0
@@ -1227,14 +878,14 @@ $(document).ready(function () {
               'value',
               Math.max(
                 Math.min($('#export_progress').progressbar('option', 'value') + 0.1, 90),
-                progress
-              )
+                progress,
+              ),
             )
           } else {
             $('#export_progress').progressbar(
               'option',
               'value',
-              Math.min($('#export_progress').progressbar('option', 'value') + 0.1, 90)
+              Math.min($('#export_progress').progressbar('option', 'value') + 0.1, 90),
             )
           }
           setTimeout(check, 2000)
@@ -1247,13 +898,13 @@ $(document).ready(function () {
               .text(
                 I18n.t(
                   'errors.compiling',
-                  'There was an error compiling your eportfolio.  Please try again in a little while.'
-                )
+                  'There was an error compiling your eportfolio.  Please try again in a little while.',
+                ),
               )
           } else {
             setTimeout(check, 5000)
           }
-        }
+        },
       )
     }
     check(true)

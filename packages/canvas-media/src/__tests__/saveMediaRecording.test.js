@@ -18,11 +18,12 @@
 
 import moxios from 'moxios'
 import sinon from 'sinon'
-import K5Uploader from '@instructure/k5uploader'
+import {K5Uploader} from '@instructure/k5uploader'
 import saveMediaRecording, {
   saveClosedCaptions,
   saveClosedCaptionsForAttachment,
 } from '../saveMediaRecording'
+import {vi} from 'vitest'
 
 function mediaServerSession() {
   return {
@@ -70,7 +71,7 @@ describe('saveMediaRecording', () => {
       status: 500,
       response: {error: 'womp womp'},
     })
-    const doneFunction = jest.fn()
+    const doneFunction = vi.fn()
     sinon.stub(K5Uploader.prototype, 'loadUiConf').callsFake(() => 'mock')
     await saveMediaRecording({}, rcsConfig, doneFunction)
     expect(doneFunction).toHaveBeenCalledTimes(1)
@@ -82,8 +83,8 @@ describe('saveMediaRecording', () => {
       status: 200,
       response: mediaServerSession(),
     })
-    const doneFunction = jest.fn()
-    const progressFunction = jest.fn()
+    const doneFunction = vi.fn()
+    const progressFunction = vi.fn()
     return saveMediaRecording({}, rcsConfig, doneFunction, progressFunction).then(uploader => {
       uploader.dispatchEvent('K5.fileError', {error: 'womp womp'}, uploader)
       expect(doneFunction).toHaveBeenCalledTimes(1)
@@ -96,16 +97,16 @@ describe('saveMediaRecording', () => {
       status: 200,
       response: mediaServerSession(),
     })
-    const doneFunction = jest.fn()
-    const progressFunction = jest.fn()
-    const uploadFileFunc = jest.fn()
+    const doneFunction = vi.fn()
+    const progressFunction = vi.fn()
+    const uploadFileFunc = vi.fn()
     return saveMediaRecording({file: 'thing'}, rcsConfig, doneFunction, progressFunction).then(
       uploader => {
         uploader.uploadFile = uploadFileFunc
         uploader.dispatchEvent('K5.ready', uploader)
         expect(uploadFileFunc).toHaveBeenCalledTimes(1)
         expect(uploadFileFunc.mock.calls[0][0].file).toBe('thing')
-      }
+      },
     )
   })
 
@@ -114,15 +115,15 @@ describe('saveMediaRecording', () => {
       status: 200,
       response: mediaServerSession(),
     })
-    const doneFunction = jest.fn()
-    const progressFunction = jest.fn()
-    const uploadFileFunc = jest.fn()
+    const doneFunction = vi.fn()
+    const progressFunction = vi.fn()
+    const uploadFileFunc = vi.fn()
     return saveMediaRecording({file: 'thing'}, rcsConfig, doneFunction, progressFunction).then(
       uploader => {
         uploader.uploadFile = uploadFileFunc
         uploader.dispatchEvent('K5.progress', uploader)
         expect(progressFunction).toHaveBeenCalled()
-      }
+      },
     )
   })
 
@@ -140,7 +141,7 @@ describe('saveMediaRecording', () => {
       {name: 'hi', userEnteredTitle: 'my awesome video'},
       rcsConfig,
       () => {},
-      () => {}
+      () => {},
     ).then(async uploader => {
       uploader.dispatchEvent('K5.complete', {stuff: 'datatatatatatatat'}, uploader)
       await new Promise(setTimeout)
@@ -163,7 +164,7 @@ describe('saveMediaRecording', () => {
       {name: 'hi'},
       rcsConfig,
       () => {},
-      () => {}
+      () => {},
     ).then(async uploader => {
       uploader.dispatchEvent('K5.complete', {stuff: 'datatatatatatatat'}, uploader)
       await new Promise(setTimeout)
@@ -181,13 +182,13 @@ describe('saveMediaRecording', () => {
       status: 200,
       response: {data: 'media object data'},
     })
-    const doneFunction2 = jest.fn()
-    const progressFunction = jest.fn()
+    const doneFunction2 = vi.fn()
+    const progressFunction = vi.fn()
     return saveMediaRecording(
       {file: 'thing', type: 'video/mp4'},
       rcsConfig,
       doneFunction2,
-      progressFunction
+      progressFunction,
     ).then(async uploader => {
       uploader.dispatchEvent('K5.complete', {stuff: 'datatatatatatatat'}, uploader)
       await new Promise(setTimeout)
@@ -204,8 +205,8 @@ describe('saveMediaRecording', () => {
       status: 200,
       response: {data: 'media object data'},
     })
-    const doneFunction2 = jest.fn()
-    const progressFunction = jest.fn()
+    const doneFunction2 = vi.fn()
+    const progressFunction = vi.fn()
     return saveMediaRecording({file: 'thing'}, rcsConfig, doneFunction2, progressFunction).then(
       async uploader => {
         uploader.dispatchEvent('K5.complete', {stuff: 'datatatatatatatat'}, uploader)
@@ -216,7 +217,7 @@ describe('saveMediaRecording', () => {
           uploadedFile: {file: 'thing'},
         })
         expect(doneFunction2.mock.calls[0][0]).toBe(null)
-      }
+      },
     )
   })
 
@@ -229,15 +230,15 @@ describe('saveMediaRecording', () => {
       status: 500,
       response: {error: 'womp womp'},
     })
-    const doneFunction2 = jest.fn()
-    const progressFunction = jest.fn()
+    const doneFunction2 = vi.fn()
+    const progressFunction = vi.fn()
     return saveMediaRecording({file: 'thing'}, rcsConfig, doneFunction2, progressFunction).then(
       async uploader => {
         uploader.dispatchEvent('K5.complete', {stuff: 'datatatatatatatat'}, uploader)
         await new Promise(setTimeout)
         expect(doneFunction2).toHaveBeenCalledTimes(1)
         expect(doneFunction2.mock.calls[0][0].message).toBe('Request failed with status code 500')
-      }
+      },
     )
   })
 
@@ -253,15 +254,15 @@ describe('saveMediaRecording', () => {
       status: 500,
       response: {error: 'womp womp'},
     })
-    const doneFunction2 = jest.fn()
-    const progressFunction = jest.fn()
+    const doneFunction2 = vi.fn()
+    const progressFunction = vi.fn()
     return saveMediaRecording({file: 'thing'}, rcsConfig, doneFunction2, progressFunction).then(
       async uploader => {
         uploader.dispatchEvent('K5.complete', {stuff: 'datatatatatatatat'}, uploader)
         await new Promise(setTimeout)
         expect(doneFunction2).toHaveBeenCalledTimes(1)
         expect(doneFunction2.mock.calls[0][0].message).toBe('Request failed with status code 500')
-      }
+      },
     )
   })
 })
@@ -382,7 +383,7 @@ describe('saveClosedCaptionsForAttachment', () => {
     const successPromise = saveClosedCaptionsForAttachment(
       attachmentId,
       [fileAndLanguage],
-      rcsConfig
+      rcsConfig,
     )
     return expect(successPromise).resolves.toMatchObject({data: {data: 'media object data'}})
   })
@@ -392,7 +393,7 @@ describe('saveClosedCaptionsForAttachment', () => {
     const successPromise = saveClosedCaptionsForAttachment(
       attachmentId,
       [fileAndLanguage],
-      rcsConfig
+      rcsConfig,
     )
     return expect(successPromise).rejects.toMatchObject({response: {status: 500}})
   })
@@ -400,7 +401,7 @@ describe('saveClosedCaptionsForAttachment', () => {
   it('when the CC file size is too large rejects with a "file size" error', async () => {
     fileAndLanguage.isNew = true
     await saveClosedCaptionsForAttachment(attachmentId, [fileAndLanguage], rcsConfig, 1).catch(e =>
-      expect(e.name).toEqual('FileSizeError')
+      expect(e.name).toEqual('FileSizeError'),
     )
   })
 
@@ -414,7 +415,7 @@ describe('saveClosedCaptionsForAttachment', () => {
     const successPromise = saveClosedCaptionsForAttachment(
       attachmentId,
       [fileAndLanguage],
-      rcsConfig
+      rcsConfig,
     )
     return expect(successPromise).resolves.toMatchObject({data: {data: 'media attachment data'}})
   })

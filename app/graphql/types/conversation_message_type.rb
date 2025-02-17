@@ -24,8 +24,8 @@ module Types
 
     global_id_field :id
     field :_id, ID, "legacy canvas id", method: :id, null: false
-    field :conversation_id, ID, null: false
     field :body, String, null: false
+    field :conversation_id, ID, null: false
     field :created_at, Types::DateTimeType, null: true
 
     field :author, UserType, null: true
@@ -53,6 +53,14 @@ module Types
 
     field :attachments_connection, Types::FileType.connection_type, null: true
     def attachments_connection
+      load_association(:attachment_associations).then do |attachment_associations|
+        Loaders::AssociationLoader.for(AttachmentAssociation, :attachment).load_many(attachment_associations)
+      end
+    end
+
+    # Temporary fix for grahpql pagination
+    field :attachments, [Types::FileType], null: true
+    def attachments
       load_association(:attachment_associations).then do |attachment_associations|
         Loaders::AssociationLoader.for(AttachmentAssociation, :attachment).load_many(attachment_associations)
       end

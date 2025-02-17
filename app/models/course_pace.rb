@@ -25,7 +25,7 @@ class CoursePace < ActiveRecord::Base
   include MasterCourses::Restrictor
   restrict_columns :content, [:duration]
   restrict_columns :state, [:workflow_state]
-  restrict_columns :settings, %i[exclude_weekends hard_end_dates]
+  restrict_columns :settings, %i[exclude_weekends selected_days_to_skip hard_end_dates]
 
   extend RootAccountResolver
   resolves_root_account through: :course
@@ -137,7 +137,7 @@ class CoursePace < ActiveRecord::Base
     progress
   end
 
-  def run_publish_progress(progress, run_at: Time.now, enrollment_ids: nil)
+  def run_publish_progress(progress, run_at: Time.zone.now, enrollment_ids: nil)
     progress.process_job(self,
                          :publish,
                          {
@@ -170,8 +170,10 @@ class CoursePace < ActiveRecord::Base
               content_tag = course_pace_module_item.module_item
               assignment = content_tag.assignment
               next unless assignment
+              next if assignment.only_visible_to_overrides
+              next if assignment.assignment_overrides.active.find_by(set_type: AssignmentOverride::SET_TYPE_NOOP, set_id: AssignmentOverride::NOOP_MASTERY_PATHS)
 
-              due_at = CanvasTime.fancy_midnight(dates[course_pace_module_item.id].in_time_zone).in_time_zone("UTC")
+              due_at = CanvasTime.fancy_midnight(dates[course_pace_module_item.id].in_time_zone).utc
               user_id = enrollment.user_id
 
               # Check for an old override
@@ -195,7 +197,7 @@ class CoursePace < ActiveRecord::Base
 
               # If the assignment has already been submitted we are going to log that and continue
               if assignment.submissions.find_by(user_id:)&.submitted?
-                InstStatsd::Statsd.increment("course_pacing.submitted_assignment_date_change")
+                InstStatsd::Statsd.distributed_increment("course_pacing.submitted_assignment_date_change")
               end
 
               # If it exists let's just add the student to it and remove them from the other
@@ -233,7 +235,7 @@ class CoursePace < ActiveRecord::Base
 
       # Mark as published
       log_module_items_count
-      update(workflow_state: "active", published_at: DateTime.current)
+      update(workflow_state: "active", published_at: Time.zone.now)
     end
   end
 
@@ -391,22 +393,23 @@ class CoursePace < ActiveRecord::Base
   end
 
   def logging_for_weekends_required?
-    saved_change_to_exclude_weekends? || (saved_change_to_id? && exclude_weekends)
+    saved_change_to_exclude_weekends? || saved_change_to_selected_days_to_skip? ||
+      (saved_change_to_id? && weekends_excluded)
   end
 
   def log_pace_counts
     if course_section_id.present?
-      InstStatsd::Statsd.increment("course_pacing.section_paces.count")
+      InstStatsd::Statsd.distributed_increment("course_pacing.section_paces.count")
     elsif user_id.present?
-      InstStatsd::Statsd.increment("course_pacing.user_paces.count")
+      InstStatsd::Statsd.distributed_increment("course_pacing.user_paces.count")
     else
-      InstStatsd::Statsd.increment("course_pacing.course_paces.count")
+      InstStatsd::Statsd.distributed_increment("course_pacing.course_paces.count")
     end
   end
 
   def log_exclude_weekends_counts
-    if exclude_weekends
-      InstStatsd::Statsd.increment("course_pacing.weekends_excluded")
+    if weekends_excluded
+      InstStatsd::Statsd.distributed_increment("course_pacing.weekends_excluded")
     else
       # Only decrementing during an update (not initial create)
       InstStatsd::Statsd.decrement("course_pacing.weekends_excluded") unless saved_change_to_id?
@@ -429,11 +432,11 @@ class CoursePace < ActiveRecord::Base
 
   def log_pace_deletes
     if course_section_id.present?
-      InstStatsd::Statsd.increment("course_pacing.deleted_section_pace")
+      InstStatsd::Statsd.distributed_increment("course_pacing.deleted_section_pace")
     elsif user_id.present?
-      InstStatsd::Statsd.increment("course_pacing.deleted_user_pace")
+      InstStatsd::Statsd.distributed_increment("course_pacing.deleted_user_pace")
     else
-      InstStatsd::Statsd.increment("course_pacing.deleted_course_pace")
+      InstStatsd::Statsd.distributed_increment("course_pacing.deleted_course_pace")
     end
   end
 
@@ -441,5 +444,172 @@ class CoursePace < ActiveRecord::Base
     InstStatsd::Statsd.count("course_pacing.course_blackout_dates.count", CalendarEvent.with_blackout_date.active.where(context: course).size)
     account_blackout_dates = Account.multi_account_chain_ids([course.account.id]).sum { |id| CalendarEvent.with_blackout_date.active.where(context: Account.find(id)).size }
     InstStatsd::Statsd.count("course_pacing.account_blackout_dates.count", account_blackout_dates)
+  end
+
+  def weekends_excluded
+    if skip_selected_days_enabled?
+      (%w[sun sat].all? { |weekend_day| selected_days_to_skip.include?(weekend_day) })
+    else
+      exclude_weekends
+    end
+  end
+
+  def skip_selected_days_enabled?
+    return root_account.feature_enabled?(:course_paces_skip_selected_days) if root_account
+
+    course.root_account.feature_enabled?(:course_paces_skip_selected_days)
+  end
+
+  def module_item_submission_status_by_student(user_ids, module_item_ids = nil)
+    # Fetches submission statuses for module items in bulk for multiple users
+    # Returns a nested hash: { user_id => { module_item_id => { has_submission, submission_date, submittable } } }
+    content_tags = ContentTag.where(id: module_item_ids)
+
+    assignment_content_ids = content_tags.select { |tag| tag.content_type == "Assignment" }.map(&:content_id)
+    quiz_content_ids = content_tags.select { |tag| tag.content_type == "Quizzes::Quiz" }.map(&:content_id)
+
+    assignments = Assignment.where(id: assignment_content_ids)
+    quizzes = Quizzes::Quiz.where(id: quiz_content_ids)
+
+    assignment_map = assignments.index_by(&:id)
+    quiz_map = quizzes.index_by(&:id)
+
+    content_tags.each do |tag|
+      case tag.content_type
+      when "Assignment"
+        tag.content = assignment_map[tag.content_id]
+      when "Quizzes::Quiz"
+        tag.content = quiz_map[tag.content_id]
+      end
+    end
+
+    assignment_ids = assignment_map.keys
+    quiz_ids = quiz_map.keys
+
+    assignment_submissions = Submission.where(user_id: user_ids, assignment_id: assignment_ids)
+                                       .order(user_id: :asc, assignment_id: :asc, created_at: :desc)
+
+    quiz_submissions = Quizzes::QuizSubmission.where(user_id: user_ids, quiz_id: quiz_ids)
+                                              .order(user_id: :asc, quiz_id: :asc, created_at: :desc)
+
+    grouped_assignment_submissions = assignment_submissions.group_by { |s| [s.user_id, s.assignment_id] }
+    grouped_quiz_submissions = quiz_submissions.group_by { |qs| [qs.user_id, qs.quiz_id] }
+
+    user_module_item_statuses = {}
+
+    user_ids.each do |user_id|
+      user_module_item_statuses[user_id] = {}
+
+      content_tags.each do |content_tag|
+        content = content_tag.content
+        module_item_id = content_tag.id
+
+        # Determine submission status
+        # Unsupported types default to has_submission: false, submission_date: nil, submittable: false
+
+        latest_submission = case content
+                            when Assignment
+                              grouped_assignment_submissions[[user_id, content.id]]&.first
+                            when Quizzes::Quiz
+                              grouped_quiz_submissions[[user_id, content.id]]&.first
+                            end
+
+        submission_date = case content
+                          when Assignment
+                            latest_submission&.submitted_at
+                          when Quizzes::Quiz
+                            latest_submission&.finished_at
+                          end
+        submittable = case content
+                      when Assignment
+                        content.submission_types != "none" && content.workflow_state == "published"
+                      when Quizzes::Quiz
+                        content.workflow_state == "published"
+                      else
+                        false
+                      end
+
+        user_module_item_statuses[user_id][module_item_id] = {
+          has_submission: submission_date.present?,
+          submission_date: submission_date,
+          submittable: submittable
+        }
+      end
+    end
+    user_module_item_statuses
+  end
+
+  def overdue_unsubmitted_student_module_items_by_student(user_ids)
+    # Identifies overdue, unsubmitted, and submittable module items for multiple users
+    # Returns a hash where keys are user IDs and values are arrays of overdue module items
+    enrollments = course.student_enrollments.where(user_id: user_ids).order(created_at: :desc)
+    latest_enrollments = enrollments.group_by(&:user_id).transform_values(&:first)
+    return {} if latest_enrollments.empty?
+
+    compressed_module_items = latest_enrollments.flat_map do |_user_id, enrollment|
+      compress_dates(start_date: nil, enrollment:)
+    end
+
+    module_items = CoursePaceModuleItem.preload(module_item: :context_module)
+                                       .where(id: compressed_module_items.map(&:id))
+
+    sorted_compressed_items = module_items.sort_by { |ppmi| ppmi.module_item.position }
+                                          .group_by { |ppmi| ppmi.module_item.context_module }
+                                          .sort_by { |context_module, _items| context_module.position }
+                                          .to_h.values.flatten
+    module_item_ids = sorted_compressed_items.map { |ppmi| ppmi.module_item.id }.uniq
+
+    user_due_dates = latest_enrollments.transform_values do |enrollment|
+      CoursePaceDueDatesCalculator.new(self).get_due_dates(sorted_compressed_items, enrollment)
+    end
+
+    submission_statuses = module_item_submission_status_by_student(user_ids, module_item_ids)
+
+    latest_enrollments.keys.each_with_object({}) do |user_id, result|
+      due_dates = user_due_dates[user_id]
+      result[user_id] = sorted_compressed_items.select do |ppmi|
+        module_item = ppmi.module_item
+        next false unless module_item
+
+        due_date = CanvasTime.fancy_midnight(due_dates[ppmi.id].in_time_zone).utc
+        submission_status = submission_statuses[user_id][module_item.id]
+
+        due_date.present? &&
+          due_date < Time.current &&
+          submission_status[:has_submission] == false &&
+          submission_status[:submittable]
+      end
+    end
+  end
+
+  def self.pace_for_context(course, context, exact: false)
+    # Determines the pace for a given context
+    case context
+    when Course
+      context.course_paces.primary.published.take ||
+        context.course_paces.primary.not_deleted.take
+    when CourseSection
+      if exact
+        course.course_paces.for_section(context).published.take ||
+          course.course_paces.for_section(context).not_deleted.take
+      else
+        course.course_paces.for_section(context).published.take ||
+          course.course_paces.for_section(context).not_deleted.take ||
+          course.course_paces.primary.published.take ||
+          course.course_paces.primary.not_deleted.take
+      end
+    when Enrollment
+      if exact
+        course.course_paces.for_user(context.user).published.take ||
+          course.course_paces.for_user(context.user).not_deleted.take
+      else
+        course.course_paces.for_user(context.user).published.take ||
+          course.course_paces.for_user(context.user).not_deleted.take ||
+          course.course_paces.for_section(context.course_section).published.take ||
+          course.course_paces.for_section(context.course_section).not_deleted.take ||
+          course.course_paces.primary.published.take ||
+          course.course_paces.primary.not_deleted.take
+      end
+    end
   end
 end

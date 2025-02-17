@@ -44,7 +44,7 @@ it('generates the toolConfiguration', () => {
   const p = props({overrides: {ref}})
   render(<RequiredValues {...p} />)
   const toolConfig = ref.current.generateToolConfigurationPart()
-  expect(Object.keys(toolConfig).length).toEqual(5)
+  expect(Object.keys(toolConfig)).toHaveLength(5)
 })
 
 const checkToolConfigPart = (toolConfig, path, value) => {
@@ -71,7 +71,7 @@ it('changes the output when icon_url changes', () => {
   checkChange(
     ['oidc_initiation_url'],
     'handleOidcInitiationUrlChange',
-    'http://example.com/new/login'
+    'http://example.com/new/login',
   )
 })
 
@@ -90,20 +90,20 @@ it('is valid when valid', () => {
 })
 
 it('is invalid when invalid inputs', () => {
-  const flashError = jest.fn()
   const ref = React.createRef()
+  const flashError = jest.fn()
   render(
     <RequiredValues
       {...props({overrides: {flashError, ref}, configOverrides: {target_link_uri: ''}})}
-    />
+    />,
   )
   expect(ref.current.valid()).toEqual(false)
   expect(flashError).toHaveBeenCalled()
 })
 
 it('is invalid when the public JWK is missing a field', () => {
-  const flashError = jest.fn()
   const ref = React.createRef()
+  const flashError = jest.fn()
   const overrides = {
     ref,
     flashError,
@@ -117,10 +117,10 @@ it('is invalid when the public JWK is missing a field', () => {
 })
 
 it('is valid if the public JWK is empty but a URL is given', () => {
+  const ref = React.createRef()
   const flashError = jest.fn()
   const public_jwk = {}
   const public_jwk_url = 'https://www.instructure.com/public_key_url'
-  const ref = React.createRef()
   const overrides = {
     flashError,
     ref,

@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {Text} from '@instructure/ui-text'
 import {List} from '@instructure/ui-list'
@@ -34,7 +34,7 @@ import profileQuery from '../queries/profileQuery'
 import {getUnreadCount} from '../queries/unreadCountQuery'
 import type {ProfileTab, TabCountsObj} from '../../../../api.d'
 
-const I18n = useI18nScope('ProfileTray')
+const I18n = createI18nScope('ProfileTray')
 
 // Trying to keep this as generalized as possible, but it's still a bit
 // gross matching on the id of the tray tabs given to us by Rails
@@ -78,11 +78,13 @@ export default function ProfileTray() {
   } = useQuery<ProfileTab[], Error>({
     queryKey: ['profile'],
     queryFn: profileQuery,
-    fetchAtLeastOnce: true,
+    meta: {
+      fetchAtLeastOnce: true,
+    },
   })
 
   const countsEnabled = Boolean(
-    window.ENV.current_user_id && !window.ENV.current_user?.fake_student
+    window.ENV.current_user_id && !window.ENV.current_user?.fake_student,
   )
 
   const {data: unreadContentSharesCount} = useQuery({
@@ -90,7 +92,9 @@ export default function ProfileTray() {
     queryFn: getUnreadCount,
     staleTime: 60 * 60 * 1000, // 1 hour
     enabled: countsEnabled && ENV.CAN_VIEW_CONTENT_SHARES,
-    fetchAtLeastOnce: true,
+    meta: {
+      fetchAtLeastOnce: true,
+    },
   })
 
   const counts: TabCountsObj = {

@@ -33,5 +33,5 @@ ReactDOM.render(
       </Routes>
     </BrowserRouter>
   </QueryProvider>,
-  document.getElementById('content')
+  document.getElementById('content'),
 )

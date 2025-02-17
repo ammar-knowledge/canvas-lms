@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
@@ -19,7 +20,7 @@
 
 import React, {useCallback, useState} from 'react'
 import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import authenticity_token from '@canvas/authenticity-token'
 import CanvasModal from '@canvas/instui-bindings/react/Modal'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
@@ -31,9 +32,10 @@ import {Text} from '@instructure/ui-text'
 import {Tooltip} from '@instructure/ui-tooltip'
 import {View} from '@instructure/ui-view'
 import {Flex} from '@instructure/ui-flex'
-import {Event, Which} from './types'
+import type {Event, Which} from './types'
+import {subAssignmentOrOverride} from '@canvas/calendar/jquery/CommonEvent/SubAssignment'
 
-const I18n = useI18nScope('calendar_event')
+const I18n = createI18nScope('calendar_event')
 
 type Props = {
   readonly isOpen: boolean
@@ -68,7 +70,7 @@ const DeleteCalendarEventDialog = ({
       }
       onCancel()
     },
-    [onCancel]
+    [onCancel],
   )
 
   const handleDelete = useCallback(() => {
@@ -160,9 +162,13 @@ const DeleteCalendarEventDialog = ({
       <Text>
         {eventType === 'assignment'
           ? I18n.t(
-              'Are you sure you want to delete this event? Deleting this event will also delete the associated assignment.'
+              'Are you sure you want to delete this event? Deleting this event will also delete the associated assignment.',
             )
-          : I18n.t('Are you sure you want to delete this event?')}
+          : subAssignmentOrOverride(eventType)
+            ? I18n.t(
+                'Are you sure you want to delete this event? Deleting this event will also delete the associated assignment and other checkpoints associated with the assignment.',
+              )
+            : I18n.t('Are you sure you want to delete this event?')}
       </Text>
     )
   }

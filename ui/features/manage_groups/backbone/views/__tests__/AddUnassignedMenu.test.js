@@ -24,7 +24,7 @@ import AddUnassignedMenu from '../AddUnassignedMenu'
 import $ from 'jquery'
 import 'jquery-migrate'
 import fakeENV from '@canvas/test-utils/fakeENV'
-import sinon from 'sinon'
+import {waitFor} from '@testing-library/react'
 
 const container = document.createElement('div')
 container.setAttribute('id', 'fixtures')
@@ -38,14 +38,29 @@ let server = null
 let waldo = null
 let users = null
 let view = null
-const sendResponse = (method, url, json) =>
-  server.respond(method, url, [200, {'Content-Type': 'application/json'}, JSON.stringify(json)])
+const sendResponse = (method, url, json) => {
+  server.respond.mockImplementationOnce((method, url, response) => {
+    if (response[1]['Content-Type'] === 'application/json') {
+      return JSON.parse(response[2])
+    }
+    return response[2]
+  })(method, url, [200, {'Content-Type': 'application/json'}, JSON.stringify(json)])
+}
 
 describe('AddUnassignedMenu', () => {
   beforeEach(() => {
     fakeENV.setup()
-    clock = sinon.useFakeTimers()
-    server = sinon.fakeServer.create()
+    clock = jest.useFakeTimers()
+    server = {
+      respond: jest.fn().mockImplementation((method, url, response) => {
+        return Promise.resolve({
+          status: response[0],
+          headers: response[1],
+          json: () => Promise.resolve(JSON.parse(response[2])),
+        })
+      }),
+      restore: jest.fn(),
+    }
     waldo = new GroupUser({
       id: 4,
       name: 'Waldo',
@@ -82,8 +97,8 @@ describe('AddUnassignedMenu', () => {
 
   afterEach(() => {
     fakeENV.teardown()
-    clock.restore()
-    server.restore()
+    jest.useRealTimers()
+    server.restore.mockClear()
     view.remove()
     document.getElementById('fixtures').innerHTML = ''
   })
@@ -97,5 +112,30 @@ describe('AddUnassignedMenu', () => {
     sendResponse('POST', '/api/v1/groups/777/memberships', {})
     equal(waldo.get('group'), view.group)
     ok(!users.contains(waldo))
+  })
+
+  test('does not hide immediately on outerclick after opening', async () => {
+    // Create a dummy content element with id "content" so that position() doesn't fail.
+    const $dummyContent = $(
+      '<div id="content" style="position: relative; top: 0; height: 500px;"></div>',
+    ).appendTo('#fixtures')
+    const $dummyTarget = $('<div></div>').appendTo('#fixtures')
+
+    // Open the popover.
+    view.showBy($dummyTarget)
+
+    // Wait for the menu to render
+    await waitFor(() => {
+      expect(document.body.contains(view.el)).toBe(true)
+    })
+
+    // Trigger an outerclick event as soon as it renders.
+    view.$el.triggerHandler('outerclick', [document.createElement('div')])
+
+    // Verify that the menu didn't close
+    expect(document.body.contains(view.el)).toBe(true)
+
+    $dummyTarget.remove()
+    $dummyContent.remove()
   })
 })

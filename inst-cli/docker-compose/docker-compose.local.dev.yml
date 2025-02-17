@@ -6,6 +6,8 @@ x-environment: &BASE-ENV
   ENCRYPTION_KEY: facdd3a131ddd8988b14f6e4e01039c93cfa0160
   POSTGRES_PASSWORD: sekret
   RAILS_ENV: development
+  CANVAS_DEV_DOMAIN: canvas-web.$INST_DOMAIN
+  CANVAS_PROD_DOMAIN: canvas-web.$INST_DOMAIN
 
 x-base-service: &BASE-SERVICE
   build:
@@ -14,7 +16,6 @@ x-base-service: &BASE-SERVICE
       - .:/usr/src/app
       # needed to prevent local .bundle/plugin/index file from being copied into the container
       - /usr/src/app/.bundle/plugin
-      - api_docs:/usr/src/app/public/doc/api
       - brandable_css_brands:/usr/src/app/app/stylesheets/brandable_css_brands
       - bundler:/home/docker/.bundle/
       - canvas-docker-gems:/home/docker/.gem/
@@ -43,19 +44,18 @@ services:
     <<: *BASE-SERVICE
     environment:
       <<: *BASE-ENV
-      CANVAS_DEV_DOMAIN: canvas-web.$INST_DOMAIN
-      CANVAS_PROD_DOMAIN: canvas-web.$INST_DOMAIN
       HTTPS_METHOD: noredirect
       # TODO: remove and replace instances with CANVAS_DEV_DOMAIN
       VIRTUAL_HOST: .canvas-web.$INST_DOMAIN
       # AR_QUERY_TRACE: 'true'
       # AR_QUERY_TRACE_TYPE: 'all' # 'all', 'write', or 'read'
       # AR_QUERY_TRACE_LINES: 10
+      # DISABLE_N_PLUS_ONE_DETECTION: 'false'
     depends_on:
       - postgres
       - redis
     ports:
-    - "12345:12345"
+    - "12345-12354:12345-12354"
     networks:
       default:
         aliases:
@@ -130,7 +130,6 @@ networks:
     name: "inst_shared"
 
 volumes:
-  api_docs: {}
   brandable_css_brands: {}
   bundler: {}
   canvas-docker-gems: {}

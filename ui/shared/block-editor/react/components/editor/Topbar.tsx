@@ -26,6 +26,9 @@ import {Flex} from '@instructure/ui-flex'
 import {View} from '@instructure/ui-view'
 import {PreviewModal} from './PreviewModal'
 import {IconUndo, IconRedo} from '../../assets/internal-icons'
+import {useScope as createI18nScope} from '@canvas/i18n'
+
+const I18n = createI18nScope('block-editor')
 
 export type TopbarProps = {
   toolboxOpen: boolean
@@ -52,30 +55,34 @@ export const Topbar = ({toolboxOpen, onToolboxChange}: TopbarProps) => {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       onToolboxChange(e.target.checked)
     },
-    [onToolboxChange]
+    [onToolboxChange],
   )
 
   return (
-    <View as="div" background="secondary">
+    <View as="div" background="secondary" className="topbar" tabIndex={-1}>
       <Flex justifyItems="space-between" padding="x-small">
         <Flex.Item>
           <Flex gap="small">
-            <Button onClick={handleOpenPreview} size="small">
+            <Button onClick={handleOpenPreview} size="small" data-testid="topbar-button-preview">
               Preview
             </Button>
             <IconButton
-              screenReaderLabel="Undo"
+              screenReaderLabel={I18n.t('Undo')}
+              title={I18n.t('Undo')}
               onClick={() => actions.history.undo()}
               disabled={!canUndo}
               size="small"
+              data-testid="topbar-button-undo"
             >
               <IconUndo size="x-small" />
             </IconButton>
             <IconButton
-              screenReaderLabel="Redo"
+              screenReaderLabel={I18n.t('Redo')}
+              title={I18n.t('Redo')}
               onClick={() => actions.history.redo()}
               disabled={!canRedo}
               size="small"
+              data-testid="topbar-button-redo"
             >
               <IconRedo size="x-small" />
             </IconButton>
@@ -83,6 +90,7 @@ export const Topbar = ({toolboxOpen, onToolboxChange}: TopbarProps) => {
         </Flex.Item>
         <Flex.Item>
           <Checkbox
+            id="toolbox-toggle"
             label="Block Toolbox"
             variant="toggle"
             size="small"
@@ -100,7 +108,7 @@ export const Topbar = ({toolboxOpen, onToolboxChange}: TopbarProps) => {
           </Button> */}
         </Flex.Item>
       </Flex>
-      <PreviewModal open={previewOpen} onDismiss={handleClosePreview} />
+      {previewOpen ? <PreviewModal open={previewOpen} onDismiss={handleClosePreview} /> : null}
     </View>
   )
 }

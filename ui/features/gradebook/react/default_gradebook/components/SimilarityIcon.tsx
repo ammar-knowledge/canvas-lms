@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2020 - present Instructure, Inc.
  *
@@ -18,7 +17,6 @@
  */
 
 import React from 'react'
-import {oneOf, number} from 'prop-types'
 import {
   IconCertifiedSolid,
   IconEmptySolid,
@@ -27,7 +25,12 @@ import {
   IconWarningLine,
 } from '@instructure/ui-icons'
 
-export default function SimilarityIcon({similarityScore, status}) {
+interface SimilarityIconProps {
+  similarityScore?: number
+  status: 'error' | 'pending' | 'scored'
+}
+
+export default function SimilarityIcon({similarityScore, status}: SimilarityIconProps) {
   if (status === 'scored' && similarityScore != null) {
     if (similarityScore <= 20) {
       return <IconCertifiedSolid color="success" data-testid="similarity-icon" />
@@ -41,9 +44,4 @@ export default function SimilarityIcon({similarityScore, status}) {
   }
 
   return <IconWarningLine data-testid="similarity-icon" />
-}
-
-SimilarityIcon.propTypes = {
-  similarityScore: number,
-  status: oneOf(['error', 'pending', 'scored']).isRequired,
 }

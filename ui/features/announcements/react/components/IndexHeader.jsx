@@ -19,19 +19,13 @@
 import {bindActionCreators} from 'redux'
 import {bool, func, number, string} from 'prop-types'
 import {connect} from 'react-redux'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {Component} from 'react'
 import {Button} from '@instructure/ui-buttons'
 import {FormField} from '@instructure/ui-form-field'
 import {View} from '@instructure/ui-view'
 import {Flex} from '@instructure/ui-flex'
-import {
-  IconLockLine,
-  IconPlusLine,
-  IconTrashLine,
-  IconUnlockLine,
-  IconInvitationLine,
-} from '@instructure/ui-icons'
+import {IconLockLine, IconPlusLine, IconTrashLine, IconUnlockLine} from '@instructure/ui-icons'
 import {PresentationContent, ScreenReaderContent} from '@instructure/ui-a11y-content'
 
 import actions from '../actions'
@@ -44,8 +38,9 @@ import WithBreakpoints, {breakpointsShape} from '@canvas/with-breakpoints'
 import {HeadingMenu} from '@canvas/discussions/react/components/HeadingMenu'
 import {SearchField} from '@canvas/discussions/react/components/SearchField'
 import {ActionDropDown} from '@canvas/announcements/react/components/ActionDropDown'
+import ReadIcon from '@canvas/read-icon'
 
-const I18n = useI18nScope('announcements_v2')
+const I18n = createI18nScope('announcements_v2')
 
 const instUINavEnabled = () => window.ENV?.FEATURES?.instui_nav
 
@@ -134,8 +129,9 @@ export default class IndexHeader extends Component {
     return (
       <ActionDropDown
         label={I18n.t('More')}
-        disabled={this.props.isBusy || this.props.selectedCount === 0}
+        disabled={this.props.isBusy}
         key="actionDropDown"
+        withArrow={false}
         actions={[
           {
             icon: IconTrashLine,
@@ -176,8 +172,7 @@ export default class IndexHeader extends Component {
           renderIcon={IconPlusLine}
           key="addAnnouncementButton"
         >
-          <ScreenReaderContent>{I18n.t('Add announcement')}</ScreenReaderContent>
-          <PresentationContent>{I18n.t('Announcement')}</PresentationContent>
+          {I18n.t('Add Announcement')}
         </Button>
       )
     )
@@ -188,7 +183,7 @@ export default class IndexHeader extends Component {
       <Button
         id="mark_all_announcement_read"
         data-testid="mark-all-announcement-read"
-        renderIcon={IconInvitationLine}
+        renderIcon={ReadIcon}
         display={responsiveStyles.buttonDisplay}
         onClick={this.props.markAllAnnouncementRead}
         disabled={this.props.isBusy}
@@ -232,13 +227,13 @@ export default class IndexHeader extends Component {
             <IconLockLine />,
             I18n.t('Lock'),
             I18n.t('Lock Selected Announcements'),
-            responsiveStyles
+            responsiveStyles,
           )
         : this.renderLockToggleButton(
             <IconUnlockLine />,
             I18n.t('Unlock'),
             I18n.t('Unlock Selected Announcements'),
-            responsiveStyles
+            responsiveStyles,
           ))
     )
   }
@@ -284,6 +279,7 @@ export default class IndexHeader extends Component {
   renderSearchField() {
     return (
       <SearchField
+        id="announcements-search"
         name="announcements_search"
         searchInputRef={this.props.searchInputRef}
         onSearchEvent={this.onSearchChange}
@@ -369,7 +365,7 @@ export default class IndexHeader extends Component {
                 filters={getFilters()}
                 defaultSelectedFilter="all"
                 onSelectFilter={this.onFilterChange}
-                mobileHeader={breakpoints.mobileOnly}
+                mobileHeader={!breakpoints.ICEDesktop}
               />
             </Flex.Item>
             <Flex.Item width={flexBasis} size={containerSize} overflowY="visible">
@@ -412,5 +408,5 @@ const selectedActions = [
 
 const connectActions = dispatch => bindActionCreators(select(actions, selectedActions), dispatch)
 export const ConnectedIndexHeader = WithBreakpoints(
-  connect(connectState, connectActions)(IndexHeader)
+  connect(connectState, connectActions)(IndexHeader),
 )

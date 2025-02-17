@@ -17,10 +17,11 @@
  */
 
 import React from 'react'
-import {fireEvent, render, waitFor} from '@testing-library/react'
+import {fireEvent, render, screen, waitFor} from '@testing-library/react'
 import {AppsTableInner} from '../AppsTable'
-import {mockPageOfRegistrations} from './helpers'
+import {mockPageOfRegistrations, mockRegistration} from './helpers'
 import {BrowserRouter} from 'react-router-dom'
+import * as tz from '@instructure/moment-utils'
 
 // Need to use AppsTableInner because AppsTable uses Responsive
 // which doesn't seem to work in these tests -- both media queries are
@@ -41,7 +42,7 @@ describe('AppsTableInner', () => {
           }}
           responsiveProps={undefined}
         />
-      </BrowserRouter>
+      </BrowserRouter>,
     )
 
     const kebabMenuIcon = await wrapper.findAllByText('More Registration Options')
@@ -75,7 +76,7 @@ describe('AppsTableInner', () => {
               '14',
               '15',
               '16',
-              '17'
+              '17',
             ),
             dir: 'asc',
             sort: 'name',
@@ -85,10 +86,92 @@ describe('AppsTableInner', () => {
           }}
           responsiveProps={undefined}
         />
-      </BrowserRouter>
+      </BrowserRouter>,
     )
     await waitFor(() => {
       expect(wrapper.getByText('16 - 17 of 17 displayed')).toBeInTheDocument()
     })
+  })
+
+  it('renders the both the updated at and created at columns with the correct format', async () => {
+    const registrations = mockPageOfRegistrations('Hello', 'World')
+    registrations.data[0].created_at = new Date('2024-01-01T00:00:00Z')
+    registrations.data[0].updated_at = new Date('2024-01-01T00:00:00Z')
+    registrations.data[1].created_at = new Date('2024-01-02T00:00:00Z')
+    registrations.data[1].updated_at = new Date('2024-01-02T00:00:00Z')
+    render(
+      <BrowserRouter>
+        <AppsTableInner
+          tableProps={{
+            apps: registrations,
+            dir: 'asc',
+            sort: 'name',
+            updateSearchParams: () => {},
+            deleteApp: () => {},
+            page: 1,
+          }}
+          responsiveProps={undefined}
+        />
+      </BrowserRouter>,
+    )
+
+    expect(screen.getAllByText('Jan 1, 2024')).toHaveLength(2)
+    expect(screen.getAllByText('Jan 2, 2024')).toHaveLength(2)
+  })
+
+  it('does not show the edit button for inherited registrations', async () => {
+    const wrapper = render(
+      <BrowserRouter>
+        <AppsTableInner
+          tableProps={{
+            apps: {
+              data: [mockRegistration('ExampleApp', 1, {}, {inherited: true})],
+              total: 1,
+            },
+            dir: 'asc',
+            sort: 'name',
+            updateSearchParams: () => {},
+            deleteApp: () => {},
+            page: 1,
+          }}
+          responsiveProps={undefined}
+        />
+      </BrowserRouter>,
+    )
+
+    expect(wrapper.getByTestId(`actions-menu-1`)).toBeInTheDocument()
+    wrapper.getByTestId(`actions-menu-1`).click()
+    expect(wrapper.queryByText('Edit App')).not.toBeInTheDocument()
+    expect(wrapper.queryByText('Copy Client ID')).toBeInTheDocument()
+  })
+
+  it('shows the created by and updated by fields as Instructure for site admin registrations', async () => {
+    const wrapper = render(
+      <BrowserRouter>
+        <AppsTableInner
+          tableProps={{
+            apps: {
+              data: [
+                mockRegistration(
+                  'ExampleApp',
+                  1,
+                  {},
+                  {created_by: 'Instructure', updated_by: 'Instructure'},
+                ),
+              ],
+              total: 1,
+            },
+            dir: 'asc',
+            sort: 'name',
+            updateSearchParams: () => {},
+            deleteApp: () => {},
+            page: 1,
+          }}
+          responsiveProps={undefined}
+        />
+      </BrowserRouter>,
+    )
+
+    expect(wrapper.getAllByText('Instructure')).toHaveLength(2)
   })
 })

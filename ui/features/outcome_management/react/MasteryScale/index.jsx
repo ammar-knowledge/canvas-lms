@@ -17,8 +17,8 @@
  */
 
 import React, {useCallback, useState} from 'react'
-import {useQuery} from 'react-apollo'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useQuery} from '@apollo/client'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Spinner} from '@instructure/ui-spinner'
 import {Text} from '@instructure/ui-text'
 import ProficiencyTable from './ProficiencyTable'
@@ -30,7 +30,7 @@ import {
 } from '@canvas/outcomes/graphql/MasteryScale'
 import useCanvasContext from '@canvas/outcomes/react/hooks/useCanvasContext'
 
-const I18n = useI18nScope('MasteryScale')
+const I18n = createI18nScope('MasteryScale')
 
 const MasteryScale = ({onNotifyPendingChanges}) => {
   const {contextType, contextId} = useCanvasContext()
@@ -55,12 +55,12 @@ const MasteryScale = ({onNotifyPendingChanges}) => {
         setUpdateProficiencyRatingsError(
           I18n.t('An error occurred updating the mastery scale: %{message}', {
             message: e.message,
-          })
+          }),
         )
         throw e
       }
     },
-    [contextType, contextId]
+    [contextType, contextId],
   )
 
   if (loading) {
@@ -89,7 +89,7 @@ const MasteryScale = ({onNotifyPendingChanges}) => {
         <p>
           <Text>
             {I18n.t(
-              'This mastery scale will be used as the default for all courses within your account.'
+              'This mastery scale will be used as the default for all courses within your account.',
             )}
           </Text>
         </p>
@@ -106,7 +106,7 @@ const MasteryScale = ({onNotifyPendingChanges}) => {
       {accountRoles.length > 0 && (
         <RoleList
           description={I18n.t(
-            'Permission to change this mastery scale at the account level is enabled for:'
+            'Permission to change this mastery scale at the account level is enabled for:',
           )}
           roles={accountRoles}
         />
@@ -115,7 +115,7 @@ const MasteryScale = ({onNotifyPendingChanges}) => {
       {roles.length > 0 && (
         <RoleList
           description={I18n.t(
-            'Permission to change this mastery scale at the course level is enabled for:'
+            'Permission to change this mastery scale at the course level is enabled for:',
           )}
           roles={roles}
         />

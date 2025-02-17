@@ -31,13 +31,19 @@ import {isTextNode} from './elem-util'
  * Determines what type of placeholder is appropriate for a given file information.
  */
 export async function placeholderInfoFor(
-  fileMetaProps: PlaceHoldableThingInfo
+  fileMetaProps: PlaceHoldableThingInfo,
 ): Promise<PlaceholderInfo> {
   const fileName = fileMetaProps.title ?? fileMetaProps.name
   const visibleLabel = trimmedOrNull(fileName) ?? formatMessage('Loading...')
   const ariaLabel = formatMessage('Loading placeholder for {fileName}', {
     fileName: fileName ?? 'unknown filename',
   })
+
+  if (typeof fileMetaProps.contentType !== 'string') {
+    throw new Error('Invalid fileMetaProps.contentType')
+  }
+
+  const type = fileMetaProps.contentType || fileMetaProps.type
 
   if (isImage(fileMetaProps.contentType) && fileMetaProps.displayAs !== 'link') {
     const imageUrl =
@@ -59,7 +65,7 @@ export async function placeholderInfoFor(
       image.onerror = () => reject(new Error('Failed to load image: ' + imageUrl))
       image.src = imageUrl
     })
-  } else if (isVideo(fileMetaProps.contentType || fileMetaProps.type)) {
+  } else if (typeof type === 'string' && isVideo(type)) {
     return {
       type: 'block',
       visibleLabel,
@@ -68,7 +74,7 @@ export async function placeholderInfoFor(
       height: VIDEO_SIZE_DEFAULT.height,
       vAlign: 'bottom',
     }
-  } else if (isAudio(fileMetaProps.contentType || fileMetaProps.type)) {
+  } else if (typeof type === 'string' && isAudio(type)) {
     return {
       type: 'block',
       visibleLabel,
@@ -84,7 +90,7 @@ export async function placeholderInfoFor(
 
 export function removePlaceholder(editor: Editor, unencodedName: string) {
   const placeholderElem = editor.dom.doc.querySelector(
-    `[data-placeholder-for="${encodeURIComponent(unencodedName)}"]`
+    `[data-placeholder-for="${encodeURIComponent(unencodedName)}"]`,
   ) as HTMLDivElement
 
   // Fail gracefully
@@ -96,7 +102,7 @@ export function removePlaceholder(editor: Editor, unencodedName: string) {
     // Cleanup data URIs
     placeholderElem.querySelectorAll('img').forEach(
       // Revoking non-object URLs is safe
-      img => URL.revokeObjectURL(img.src)
+      img => URL.revokeObjectURL(img.src),
     )
   })
 }
@@ -107,8 +113,8 @@ export function removePlaceholder(editor: Editor, unencodedName: string) {
  */
 export async function insertPlaceholder(
   editor: Editor,
-  unencodedName: string,
-  placeholderInfoPromise: Promise<PlaceholderInfo>
+  unencodedName: string | undefined,
+  placeholderInfoPromise: Promise<PlaceholderInfo>,
 ): Promise<HTMLElement> {
   const placeholderId = `placeholder-${placeholderIdCounter++}`
 
@@ -119,13 +125,13 @@ export async function insertPlaceholder(
       false,
       `<span
             aria-label="${formatMessage('Loading')}"
-            data-placeholder-for="${encodeURIComponent(unencodedName)}"
+            data-placeholder-for="${encodeURIComponent(unencodedName || '')}"
             id="${placeholderId}"
             class="mceNonEditable"
             style="user-select: none; pointer-events: none; user-focus: none; display: inline-flex;"
-          ></span>&nbsp;`
+          ></span>&nbsp;`,
       // Without the trailing &nbsp;, tinymce will place the cursor inside the placeholder, which we don't want.
-    )
+    ),
   )
 
   const placeholderElem = editor.dom.doc.querySelector(`#${placeholderId}`) as HTMLDivElement
@@ -168,7 +174,7 @@ export async function insertPlaceholder(
     // Create the spinner
     placeholderElem.innerHTML = spinnerSvg(
       placeholderInfo.type === 'inline' ? 'x-small' : 'medium',
-      placeholderId + '-label'
+      placeholderId + '-label',
     )
 
     const spinnerElem = placeholderElem.firstElementChild as SVGElement

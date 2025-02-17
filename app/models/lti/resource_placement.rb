@@ -52,9 +52,13 @@ module Lti
     # These placements require tools to be on an allow list
     RESTRICTED_PLACEMENTS = %i[submission_type_selection top_navigation].freeze
 
+    # These placements doesn't need the CANVAS_PLACEMENT_EXTENSION_PREFIX
+    STANDARD_PLACEMENTS = %i[ActivityAssetProcessor].freeze
+
     PLACEMENTS_BY_MESSAGE_TYPE = {
       LtiAdvantage::Messages::ResourceLinkRequest::MESSAGE_TYPE => %i[
         account_navigation
+        analytics_hub
         assignment_edit
         assignment_group_menu
         assignment_index_menu
@@ -95,6 +99,7 @@ module Lti
       ],
       LtiAdvantage::Messages::DeepLinkingRequest::MESSAGE_TYPE => %i[
         assignment_selection
+        ActivityAssetProcessor
         collaboration
         conference_selection
         course_assignments_menu
@@ -110,6 +115,7 @@ module Lti
     }.freeze
 
     PLACEMENTS = PLACEMENTS_BY_MESSAGE_TYPE.values.flatten.uniq.freeze
+    LTI_ADVANTAGE_MESSAGE_TYPES = PLACEMENTS_BY_MESSAGE_TYPE.keys.freeze
 
     PLACEMENT_LOOKUP = {
       "Canvas.placements.accountNavigation" => ACCOUNT_NAVIGATION,
@@ -132,18 +138,15 @@ module Lti
       "#{CANVAS_PLACEMENT_EXTENSION_PREFIX}#{placement}"
     end
 
-    def self.valid_placements(_root_account)
+    def self.valid_placements(root_account)
       PLACEMENTS.dup.tap do |p|
         p.delete(:conference_selection) unless Account.site_admin.feature_enabled?(:conference_selection_lti_placement)
+        p.delete(:ActivityAssetProcessor) unless root_account&.feature_enabled?(:lti_asset_processor)
       end
     end
 
     def self.public_placements(root_account)
-      if root_account.feature_enabled?(:remove_submission_type_selection_from_dev_keys_edit_page)
-        valid_placements(root_account) - NON_PUBLIC_PLACEMENTS
-      else
-        valid_placements(root_account)
-      end
+      valid_placements(root_account) - NON_PUBLIC_PLACEMENTS
     end
 
     def self.update_tabs_and_return_item_banks_tab(tabs, new_label = nil)

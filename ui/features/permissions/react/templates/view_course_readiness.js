@@ -16,17 +16,17 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {generateActionTemplates} from '../generateActionTemplates'
 
-const I18n = useI18nScope('permissions_templates_view_course_readiness')
+const I18n = createI18nScope('permissions_templates_view_course_readiness')
 
 export const template = generateActionTemplates(
   [
     {
       title: I18n.t('Course Readiness'),
       description: I18n.t(
-        'Allows an account administrator to access the Course Readiness feature of Intelligent Insights.'
+        'Allows an account administrator to access the Course Readiness feature of Intelligent Insights.',
       ),
     },
   ],
@@ -34,8 +34,8 @@ export const template = generateActionTemplates(
     {
       title: I18n.t('Intelligent Insights'),
       description: I18n.t(
-        'Course Readiness is part of the Intelligent Insights upgrade in Canvas.'
+        'Course Readiness is part of the Intelligent Insights upgrade in Canvas.',
       ),
     },
-  ]
+  ],
 )
