@@ -17,17 +17,20 @@
  */
 
 import React, {useCallback, useMemo} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ClearableDateTimeInput from './ClearableDateTimeInput'
 import type {CustomDateTimeInputProps} from './types'
 import {generateMessages} from './utils'
 
-const I18n = useI18nScope('differentiated_modules')
+const I18n = createI18nScope('differentiated_modules')
 
 type RequiredRepliesDueDateTimeInputProps = CustomDateTimeInputProps & {
   requiredRepliesDueDate: string | null
   setRequiredRepliesDueDate: (requiredRepliesDueDate: string | null) => void
-  handleRequiredRepliesDueDateChange: (_event: React.SyntheticEvent, value: string | undefined) => void
+  handleRequiredRepliesDueDateChange: (
+    _event: React.SyntheticEvent,
+    value: string | undefined,
+  ) => void
   disabledWithGradingPeriod?: boolean
   clearButtonAltLabel: string
 }
@@ -47,16 +50,21 @@ export function RequiredRepliesDueDateTimeInput({
   ...otherProps
 }: RequiredRepliesDueDateTimeInputProps) {
   const key = 'required_replies_due_at'
-  const handleClear = useCallback(() => setRequiredRepliesDueDate(null), [setRequiredRepliesDueDate])
+  const handleClear = useCallback(
+    () => setRequiredRepliesDueDate(null),
+    [setRequiredRepliesDueDate],
+  )
   const dateInputRef = useCallback(
+    // @ts-expect-error
     el => (dateInputRefs[key] = el),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [],
   )
   const timeInputRef = useCallback(
+    // @ts-expect-error
     el => (timeInputRefs[key] = el),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [],
   )
   const onBlur = useMemo(() => handleBlur(key), [handleBlur])
   const messages = useMemo(
@@ -64,13 +72,12 @@ export function RequiredRepliesDueDateTimeInput({
       generateMessages(
         requiredRepliesDueDate,
         validationErrors[key] ?? null,
-        unparsedFieldKeys.has(key)
+        unparsedFieldKeys.has(key),
       ),
-    [requiredRepliesDueDate, validationErrors, unparsedFieldKeys]
+    [requiredRepliesDueDate, validationErrors, unparsedFieldKeys],
   )
 
   const requiredRepliesDueDateProps = {
-    key,
     id: key,
     disabled:
       Boolean(blueprintDateLocks?.includes('availability_dates')) || disabledWithGradingPeriod,

@@ -55,7 +55,7 @@ describe "Rubric form page" do
                          content_id: @outcome2.id,
                        })
     @rubric1 = @course.rubrics.create!(title: "Rubric 1", user: @user, context: @course, data: larger_rubric_data, points_possible: 12)
-    @rubric2 = @course.rubrics.create!(title: "Rubric 2", user: @user, context: @course, data: smallest_rubric_data, points_possible: 10, free_form_criterion_comments: true)
+    @rubric2 = @course.rubrics.create!(title: "Rubric 2", user: @user, context: @course, data: smallest_rubric_data, points_possible: 10, free_form_criterion_comments: false)
     RubricAssociation.create!(rubric: @rubric1, context: @course, association_object: @course, purpose: "bookmark")
     rubric_assoc = RubricAssociation.generate(@teacher, @rubric2, @course, ActiveSupport::HashWithIndifferentAccess.new({
                                                                                                                           hide_score_total: "0",
@@ -101,7 +101,7 @@ describe "Rubric form page" do
     ]
     @outcome_rubric.save!
     RubricAssociation.create!(rubric: @outcome_rubric, context: @course, association_object: @course, purpose: "bookmark")
-    @course.account.enable_feature!(:enhanced_rubrics)
+    @course.enable_feature!(:enhanced_rubrics)
     get "/courses/#{@course.id}/rubrics"
   end
 
@@ -131,11 +131,14 @@ describe "Rubric form page" do
   end
 
   it "does not save the rubric if cancel is selected" do
-    RubricsIndex.create_rubric_button.click
-    RubricsForm.rubric_title_input.send_keys("Rubric 4")
-    RubricsForm.cancel_rubric_button.click
+    RubricsIndex.rubric_popover(@rubric1.id).click
+    RubricsIndex.edit_rubric_button.click
+    RubricsForm.add_criterion_button.click
+    RubricsForm.cancel_criterion_button.click
+    RubricsForm.warning_exit_rubric_button.click
+    RubricsForm.save_rubric_button.click
 
-    expect(RubricsIndex.saved_rubrics_panel).not_to include_text("Rubric 4")
+    expect(RubricsIndex.rubric_criterion_count(0)).to include_text("2")
   end
 
   it "allows rubrics to be created" do
@@ -227,6 +230,11 @@ describe "Rubric form page" do
     RubricsForm.rubric_title_input.send_keys("Rubric 4")
     RubricsForm.add_criterion_button.click
     RubricsForm.criterion_name_input.send_keys("Criterion 1")
+
+    expect(RubricsForm.criterion_rating_scales.length).to eq(5)
+    expect(RubricsForm.criterion_rating_scales[0]).to include_text("4")
+
+    hover(RubricsForm.add_rating_row_button)
     RubricsForm.add_rating_row_button.click
     RubricsForm.rating_name_inputs[0].send_keys("new rating")
     RubricsForm.rating_description_inputs[0].send_keys("new rating description")
@@ -255,6 +263,7 @@ describe "Rubric form page" do
     RubricsForm.rubric_title_input.send_keys("Rubric 4")
     RubricsForm.add_criterion_button.click
     RubricsForm.criterion_name_input.send_keys("Criterion 1")
+    hover(RubricsForm.add_rating_row_button)
     RubricsForm.add_rating_row_button.click
     RubricsForm.save_criterion_button.click
 
@@ -294,6 +303,7 @@ describe "Rubric form page" do
     RubricsIndex.edit_rubric_button.click
     RubricsForm.add_criterion_button.click
     RubricsForm.cancel_criterion_button.click
+    RubricsForm.warning_exit_rubric_button.click
     RubricsForm.save_rubric_button.click
 
     expect(RubricsIndex.rubric_criterion_count(0)).to include_text("2")
@@ -400,6 +410,8 @@ describe "Rubric form page" do
   end
 
   it "allows free form comment rubrics to be previewed" do
+    @rubric2.update!(free_form_criterion_comments: true)
+
     RubricsIndex.rubric_popover(@rubric2.id).click
     RubricsIndex.edit_rubric_button.click
     RubricsForm.preview_rubric_button.click

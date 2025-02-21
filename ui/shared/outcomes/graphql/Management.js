@@ -18,7 +18,7 @@
 
 import axios from '@canvas/axios'
 import pluralize from '@canvas/util/stringPluralize'
-import {gql} from '@canvas/apollo'
+import {gql} from '@canvas/apollo-v3'
 
 export const groupFields = `
   _id
@@ -415,5 +415,5 @@ export const SEARCH_OUTCOME_ALIGNMENTS = gql`
 
 export const removeOutcomeGroup = (contextType, contextId, groupId) =>
   axios.delete(
-    `/api/v1/${pluralize(contextType).toLowerCase()}/${contextId}/outcome_groups/${groupId}`
+    `/api/v1/${pluralize(contextType).toLowerCase()}/${contextId}/outcome_groups/${groupId}`,
   )

@@ -26,7 +26,7 @@ import {
   IconCalendarReservedSolid,
 } from '@instructure/ui-icons'
 import {showFlashError} from '@canvas/alerts/react/FlashAlert'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import type {EnrollmentType, Role, TemporaryEnrollmentStatus} from './types'
 import {MODULE_NAME, PROVIDER, RECIPIENT, TOOLTIP_MAX_WIDTH} from './types'
 import {TempEnrollModal} from './TempEnrollModal'
@@ -38,7 +38,7 @@ import type {EnvCommon} from '@canvas/global/env/EnvCommon'
 
 declare const ENV: GlobalEnv & EnvCommon
 
-const I18n = useI18nScope('temporary_enrollment')
+const I18n = createI18nScope('temporary_enrollment')
 
 const analyticProps = createAnalyticPropsGenerator(MODULE_NAME)
 
@@ -81,7 +81,7 @@ interface Props {
     can_add_observer: boolean
     can_add_designer: boolean
     can_read_sis: boolean
-    can_manage_admin_users: boolean
+    can_allow_course_admin_actions: boolean
     can_add_temporary_enrollments: boolean
     can_edit_temporary_enrollments: boolean
     can_delete_temporary_enrollments: boolean
@@ -115,24 +115,23 @@ export default function TempEnrollUsersListRow(props: Props) {
   }
 
   useFetchApi(
-    // @ts-ignore - this hook isn't ts-ified
     {
       path: `/api/v1/users/${props.user.id}/temporary_enrollment_status`,
       ...(ENV.ACCOUNT_ID !== ENV.ROOT_ACCOUNT_ID && {params: {account_id: ENV.ACCOUNT_ID}}),
       success: setEnrollmentState,
       error: useCallback(
         () => showFlashError(I18n.t('Failed to fetch temporary enrollment data')),
-        []
+        [],
       ),
     },
-    [props.user.id]
+    [props.user.id],
   )
 
   function renderTempEnrollModal(
     enrollmentType: EnrollmentType,
     icon: JSX.Element,
     editModeStatus: boolean,
-    toggleOrSetEditModeFunction: () => boolean | void
+    toggleOrSetEditModeFunction: () => boolean | void,
   ): JSX.Element {
     const tooltipText = generateTooltipText(enrollmentType, props.user.name)
     const tooltipJsx = (

@@ -18,7 +18,7 @@
 
 import $ from 'jquery'
 import axios from '@canvas/axios'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React, {useState, useEffect} from 'react'
 
@@ -30,14 +30,14 @@ import {Button} from '@instructure/ui-buttons'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 
-const I18n = useI18nScope('DefaultToolForm')
+const I18n = createI18nScope('DefaultToolForm')
 
 const DefaultToolForm = props => {
   const [launchDefinitions, setLaunchDefinitions] = useState([])
   const toolMessageData = usePostMessage('defaultToolContentReady')
 
   const defaultToolData = launchDefinitions.find(definition =>
-    Object.values(definition.placements).find(placement => placement.url === props.toolUrl)
+    Object.values(definition.placements).find(placement => placement.url === props.toolUrl),
   )
 
   const contentTitle = () => {
@@ -49,7 +49,7 @@ const DefaultToolForm = props => {
   useEffect(() => {
     const fetchData = async () => {
       const result = await axios.get(
-        `/api/v1/courses/${props.courseId}/lti_apps/launch_definitions?per_page=100&placements%5B%5D=assignment_selection&placements%5B%5D=resource_selection`
+        `/api/v1/courses/${props.courseId}/lti_apps/launch_definitions?per_page=100&placements%5B%5D=assignment_selection&placements%5B%5D=resource_selection`,
       )
       setLaunchDefinitions(result.data)
     }

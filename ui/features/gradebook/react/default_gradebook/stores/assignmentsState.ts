@@ -16,15 +16,15 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import type {SetState, GetState} from 'zustand'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import type {StoreApi} from 'zustand'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {asJson, consumePrefetchedXHR} from '@canvas/util/xhr'
 import {maxAssignmentCount, otherGradingPeriodAssignmentIds} from '../Gradebook.utils'
 import type {GradebookStore} from './index'
 import type {GradingPeriodAssignmentMap} from '../gradebook.d'
 import type {AssignmentGroup, Assignment, AssignmentMap, SubmissionType} from '../../../../../api.d'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 export type AssignmentsState = {
   gradingPeriodAssignments: GradingPeriodAssignmentMap
@@ -33,15 +33,16 @@ export type AssignmentsState = {
   fetchGradingPeriodAssignments: () => Promise<GradingPeriodAssignmentMap>
   loadAssignmentGroupsForGradingPeriods: (
     params: AssignmentLoaderParams,
-    selectedPeriodId: string
+    selectedPeriodId: string,
   ) => Promise<AssignmentGroup[] | undefined>
   loadAssignmentGroups: (
     hideZeroPointQuizzes: boolean,
-    currentGradingPeriodId?: string
+    currentGradingPeriodId?: string,
   ) => Promise<AssignmentGroup[] | undefined>
   fetchAssignmentGroups: (
     params: AssignmentLoaderParams,
-    gradingPeriodIds?: string[]
+    isSelectedGradingPeriodId: boolean,
+    gradingPeriodIds?: string[],
   ) => Promise<AssignmentGroup[] | undefined>
   recentlyLoadedAssignmentGroups: {
     assignmentGroups: AssignmentGroup[]
@@ -65,8 +66,8 @@ type AssignmentLoaderParams = {
 export const normalizeGradingPeriodId = (id?: string) => (id === '0' ? null : id)
 
 export default (
-  set: SetState<GradebookStore>,
-  get: GetState<GradebookStore>
+  set: StoreApi<GradebookStore>['setState'],
+  get: StoreApi<GradebookStore>['getState'],
 ): AssignmentsState => ({
   gradingPeriodAssignments: {},
 
@@ -133,7 +134,7 @@ export default (
 
   loadAssignmentGroups: (
     hideZeroPointQuizzes: boolean = false,
-    selectedGradingPeriodId?: string
+    selectedGradingPeriodId?: string,
   ) => {
     const include = [
       'assignment_group_id',
@@ -142,6 +143,7 @@ export default (
       'grades_published',
       'post_manually',
       'checkpoints',
+      'has_rubric',
     ]
 
     if (get().hasModules) {
@@ -167,7 +169,7 @@ export default (
       return get().loadAssignmentGroupsForGradingPeriods(params, normalizeGradingdPeriodId)
     }
 
-    return get().fetchAssignmentGroups(params)
+    return get().fetchAssignmentGroups(params, true)
   },
 
   loadAssignmentGroupsForGradingPeriods(params: AssignmentLoaderParams, selectedPeriodId: string) {
@@ -176,7 +178,7 @@ export default (
     const {otherAssignmentIds, otherGradingPeriodIds} = otherGradingPeriodAssignmentIds(
       get().gradingPeriodAssignments,
       selectedAssignmentIds,
-      selectedPeriodId
+      selectedPeriodId,
     )
 
     const path = `/api/v1/courses/${get().courseId}/assignment_groups`
@@ -189,29 +191,30 @@ export default (
       selectedAssignmentIds.length > maxAssignments ||
       otherAssignmentIds.length > maxAssignments
     ) {
-      return get().fetchAssignmentGroups(params)
+      return get().fetchAssignmentGroups(params, true)
     }
 
     // If there are no assignments in the selected grading period, request all
     // assignments in a single query
     if (selectedAssignmentIds.length === 0) {
-      return get().fetchAssignmentGroups(params)
+      return get().fetchAssignmentGroups(params, true)
     }
 
     const ids1 = selectedAssignmentIds.join()
-    const gotGroups = get().fetchAssignmentGroups({...params, assignment_ids: ids1}, [
+    const gotGroups = get().fetchAssignmentGroups({...params, assignment_ids: ids1}, true, [
       selectedPeriodId,
     ])
 
     const ids2 = otherAssignmentIds.join()
-    get().fetchAssignmentGroups({...params, assignment_ids: ids2}, otherGradingPeriodIds)
+    get().fetchAssignmentGroups({...params, assignment_ids: ids2}, false, otherGradingPeriodIds)
 
     return gotGroups
   },
 
   fetchAssignmentGroups: (
     params: AssignmentLoaderParams,
-    gradingPeriodIds?: string[]
+    isSelectedGradingPeriodId: boolean,
+    gradingPeriodIds?: string[],
   ): Promise<undefined | AssignmentGroup[]> => {
     set({isAssignmentGroupsLoading: true})
 
@@ -227,11 +230,15 @@ export default (
             ...Object.fromEntries(assignments.map(assignment => [assignment.id, assignment])),
           }
           const assignmentList = get().assignmentList.concat(assignments)
+          if (isSelectedGradingPeriodId) {
+            set({
+              recentlyLoadedAssignmentGroups: {
+                assignmentGroups,
+                gradingPeriodIds,
+              },
+            })
+          }
           set({
-            recentlyLoadedAssignmentGroups: {
-              assignmentGroups,
-              gradingPeriodIds,
-            },
             assignmentMap,
             assignmentList,
             assignmentGroups: get().assignmentGroups.concat(assignmentGroups),

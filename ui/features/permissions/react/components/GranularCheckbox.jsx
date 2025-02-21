@@ -18,7 +18,7 @@
 
 import React from 'react'
 import {func, bool, string} from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {connect} from 'react-redux'
 import {Checkbox} from '@instructure/ui-checkbox'
 import {Spinner} from '@instructure/ui-spinner'
@@ -26,7 +26,7 @@ import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import actions from '../actions'
 import propTypes, {ENABLED_FOR_NONE} from '@canvas/permissions/react/propTypes'
 
-const I18n = useI18nScope('permission_button')
+const I18n = createI18nScope('permission_button')
 
 export default function GranularCheckbox({
   apiBusy,
@@ -81,7 +81,7 @@ GranularCheckbox.defaultProps = {
 
 function mapStateToProps(state, ownProps) {
   const apiBusy = state.apiBusy.some(
-    elt => elt.id === ownProps.roleId && elt.name === ownProps.permissionName
+    elt => elt.id === ownProps.roleId && elt.name === ownProps.permissionName,
   )
 
   return {apiBusy, ...ownProps}
@@ -93,5 +93,5 @@ const mapDispatchToProps = {
 
 export const ConnectedGranularCheckbox = connect(
   mapStateToProps,
-  mapDispatchToProps
+  mapDispatchToProps,
 )(GranularCheckbox)

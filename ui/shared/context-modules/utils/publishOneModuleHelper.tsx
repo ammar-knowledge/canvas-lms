@@ -18,8 +18,8 @@
 
 import $ from 'jquery'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import doFetchApi from '@canvas/do-fetch-api-effect'
+import ReactDOM from 'react-dom/client'
+import doFetchApi, {type DoFetchApiResults} from '@canvas/do-fetch-api-effect'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import ContextModulesPublishIcon from '../react/ContextModulesPublishIcon'
 import {updateModuleItem, itemContentKey} from '../jquery/utils'
@@ -31,10 +31,12 @@ import type {
   KeyedModuleItems,
   ModuleItem,
   ModuleItemStateData,
+  FetchedModuleItem,
+  FetchedModule,
 } from '../react/types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('context_modules_utils_publishmoduleitemhelper')
+const I18n = createI18nScope('context_modules_utils_publishmoduleitemhelper')
 
 export function publishModule(courseId: CanvasId, moduleId: CanvasId, skipItems: boolean) {
   const loadingMessage = skipItems
@@ -50,7 +52,7 @@ export function publishModule(courseId: CanvasId, moduleId: CanvasId, skipItems:
     true,
     skipItems,
     loadingMessage,
-    successMessage
+    successMessage,
   )
 }
 
@@ -67,7 +69,7 @@ export function unpublishModule(courseId: CanvasId, moduleId: CanvasId, skipItem
     false,
     skipItems,
     loadingMessage,
-    successMessage
+    successMessage,
   )
 }
 
@@ -77,7 +79,7 @@ export function batchUpdateOneModuleApiCall(
   newPublishedState: boolean,
   skipContentTags: boolean,
   loadingMessage: string,
-  successMessage: string
+  successMessage: string,
 ) {
   const path = `/api/v1/courses/${courseId}/modules/${moduleId}`
 
@@ -87,7 +89,7 @@ export function batchUpdateOneModuleApiCall(
   exportFuncs.disableContextModulesPublishMenu(true)
   const relockModulesDialog = new RelockModulesDialog()
   let published_result: boolean
-  return doFetchApi({
+  return doFetchApi<FetchedModule>({
     path,
     method: 'PUT',
     body: {
@@ -97,8 +99,8 @@ export function batchUpdateOneModuleApiCall(
       },
     },
   })
-    .then((result: DoFetchModuleResponse) => {
-      if (result.json.publish_warning) {
+    .then(result => {
+      if (result.json!.publish_warning) {
         showFlashAlert({
           message: I18n.t('Some module items could not be published'),
           type: 'warning',
@@ -110,7 +112,7 @@ export function batchUpdateOneModuleApiCall(
       return exportFuncs
         .fetchModuleItemPublishedState(courseId, moduleId)
         .then(() => {
-          published_result = result.json.published
+          published_result = result.json!.published
 
           showFlashAlert({
             message: successMessage,
@@ -126,7 +128,7 @@ export function batchUpdateOneModuleApiCall(
             moduleId,
             published_result,
             false,
-            loadingMessage
+            loadingMessage,
           )
         })
     })
@@ -143,16 +145,16 @@ export function batchUpdateOneModuleApiCall(
 export const fetchModuleItemPublishedState = (
   courseId: CanvasId,
   moduleId: CanvasId,
-  nextLink?: string
-) => {
-  return doFetchApi({
+  nextLink?: string,
+): Promise<DoFetchApiResults<FetchedModuleItem[]> | void> => {
+  return doFetchApi<FetchedModuleItem[]>({
     path: nextLink || `/api/v1/courses/${courseId}/modules/${moduleId}/items`,
     method: 'GET',
   })
-    .then((response: DoFetchModuleItemsResponse) => {
+    .then(response => {
       const {json, link} = response
       const moduleItems = exportFuncs.getAllModuleItems()
-      json.forEach((item: any) => {
+      json?.forEach(item => {
         exportFuncs.updateModuleItemPublishedState(item.id, item.published, false, moduleItems)
       })
       if (link?.next) {
@@ -166,7 +168,7 @@ export const fetchModuleItemPublishedState = (
         message: I18n.t('There was an error while saving your changes'),
         type: 'error',
         err: error,
-      })
+      }),
     )
 }
 
@@ -195,7 +197,7 @@ export function getAllModuleItems(): KeyedModuleItems {
 export function updateModuleItemsPublishedStates(
   moduleId: CanvasId,
   published: boolean | undefined,
-  isPublishing: boolean
+  isPublishing: boolean,
 ) {
   const moduleItems = exportFuncs.getAllModuleItems()
 
@@ -208,7 +210,7 @@ export function updateModuleItemsPublishedStates(
         element as HTMLElement,
         published,
         isPublishing,
-        moduleItems
+        moduleItems,
       )
     })
 }
@@ -218,7 +220,7 @@ export function updateModuleItemPublishedState(
   itemIdOrElem: string | HTMLElement,
   isPublished: boolean | undefined,
   isPublishing?: boolean,
-  allModuleItems?: KeyedModuleItems | undefined
+  allModuleItems?: KeyedModuleItems | undefined,
 ) {
   const publishIcon =
     typeof itemIdOrElem === 'string'
@@ -260,14 +262,23 @@ export function renderContextModulesPublishIcon(
   moduleId: string | number,
   published: boolean | undefined,
   isPublishing: boolean,
-  loadingMessage?: string
+  loadingMessage?: string,
 ) {
   const publishIcon = findModulePublishIcon(moduleId)
   if (publishIcon) {
+    const moduleElement = $(publishIcon).parents('.context_module')[0]
+    if (moduleElement) {
+      moduleElement.setAttribute('data-workflow-state', published ? 'active' : 'unpublished')
+    }
     const moduleName =
       publishIcon?.closest('.context_module')?.querySelector('.ig-header-title')?.textContent ||
       `module${moduleId}`
-    ReactDOM.render(
+    let root = publishIcon.reactRoot
+    if (root === undefined) {
+      root = ReactDOM.createRoot(publishIcon)
+      publishIcon.reactRoot = root
+    }
+    root?.render(
       <ContextModulesPublishIcon
         courseId={courseId}
         moduleId={moduleId}
@@ -276,13 +287,18 @@ export function renderContextModulesPublishIcon(
         published={published}
         loadingMessage={loadingMessage}
       />,
-      publishIcon
     )
   }
 }
 
-function findModulePublishIcon(moduleId: CanvasId) {
-  return document.querySelector(`#context_module_${moduleId} .module-publish-icon`)
+type PublishIcon = {
+  reactRoot?: ReactDOM.Root
+} & Element
+
+function findModulePublishIcon(moduleId: CanvasId): PublishIcon | null {
+  return document.querySelector(
+    `#context_module_${moduleId} .module-publish-icon`,
+  ) as PublishIcon | null
 }
 
 function getModulePublishState(moduleId: CanvasId) {

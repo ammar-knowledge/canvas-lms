@@ -30,6 +30,37 @@ describe "new groups" do
       course_with_teacher_logged_in
     end
 
+    context "differentiation_tags" do
+      before :once do
+        Account.default.enable_feature!(:differentiation_tags)
+      end
+
+      it "does not have Visit Group Homepage option in group actions for non_collaborative groups" do
+        # New scopes mean that we have to explicitly allow non_collaborative groups to
+        # Be returned on the groups controller before this test will work
+        skip "EGG-253"
+        category = @course.group_categories.build(name: "category 1", non_collaborative: true)
+        category.save!
+        category.groups.create!(context: @course)
+
+        get "/courses/#{@course.id}/groups"
+        f("a[id*='actions']").click
+        expect(fj("li a:contains('Edit')")).to be_present
+        expect(f("body")).not_to contain_jqcss("li a:contains('Visit Group Homepage')")
+      end
+
+      it "has Visit Group Homepage option in group actions for regular groups" do
+        category = @course.group_categories.build(name: "category 1")
+        category.save!
+        category.groups.create!(context: @course)
+
+        get "/courses/#{@course.id}/groups"
+        f("a[id*='actions']").click
+        expect(fj("li a:contains('Edit')")).to be_present
+        expect(fj("li a:contains('Visit Group Homepage')")).to be_present
+      end
+    end
+
     it "allows teachers to add a group set", priority: "1" do
       get "/courses/#{@course.id}/groups"
       click_add_group_set
@@ -179,7 +210,8 @@ describe "new groups" do
 
       click_add_group_set
       replace_and_proceed f("#new-group-set-name"), "Test Group Set"
-      fxpath("//input[@data-testid='checkbox-allow-self-signup']/..").click
+      f("body").send_keys(:tab)
+      f("span[data-testid='allow-self-signup-wrapper'] div div").click
       force_click('[data-testid="group-member-limit"]')
       f('[data-testid="group-member-limit"]').send_keys("2")
       f(%(button[data-testid="group-set-save"])).click
@@ -623,6 +655,22 @@ describe "new groups" do
       expect(f(".group[data-id=\"#{@testgroup[0].id}\"] .group-summary")).to include_text("4 / 5 students")
       expect(fj(".unassigned-users-heading.group-heading")).to include_text("Unassigned Students (1)")
       expect(fj(drop_target1)).to include_text("Test Student 3")
+    end
+
+    it "shows the users within a group one per line in 320px" do
+      group_test_setup(3, 1, 1)
+      3.times do |n|
+        add_user_to_group(@students[n], @testgroup.first, false)
+      end
+      driver.manage.window.resize_to(320, 900)
+      get "/courses/#{@course.id}/groups"
+
+      f(".group[data-id=\"#{@testgroup.first.id}\"] .toggle-group").click
+      wait_for_ajaximations
+      f(".group[data-id=\"#{@testgroup.first.id}\"] .toggle-group").click
+      # We hide the users in the group to get the width in % instead of px
+
+      expect(f("li.group .group-user").css_value("width")).to eq "93%"
     end
 
     it "moves leader via drag and drop", priority: "1" do
@@ -1125,17 +1173,7 @@ describe "new groups" do
   context "manage groups permissions as a teacher" do
     before { course_with_teacher_logged_in }
 
-    it "does not allow adding a group set if they don't have the permission" do
-      @course.root_account.disable_feature!(:granular_permissions_manage_groups)
-      @course.account.role_overrides.create!(permission: :manage_groups, role: teacher_role, enabled: false)
-
-      get "/courses/#{@course.id}/groups"
-
-      expect(f(".ic-Layout-contentMain")).not_to contain_css("button[title='Add Group Set']")
-    end
-
-    it "does not allow add/import group or group-set without :manage_groups_add (granular permissions)" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_groups)
+    it "does not allow add/import group or group-set without :manage_groups_add" do
       @course.account.role_overrides.create!(
         permission: "manage_groups_add",
         role: teacher_role,
@@ -1150,9 +1188,7 @@ describe "new groups" do
       expect(f(".ic-Layout-contentMain")).not_to contain_css("button[title='Add Group']")
     end
 
-    it "allows add/import group or group-set with :manage_groups_add (granular permissions)" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_groups)
-
+    it "allows add/import group or group-set with :manage_groups_add" do
       create_category
       get "/courses/#{@course.id}/groups"
 
@@ -1171,19 +1207,7 @@ describe "new groups" do
       expect(f(".al-options")).to contain_css("a.icon-edit")
     end
 
-    it "allows editing individual course-level groups (granular permissions)" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_groups)
-      gc = @course.group_categories.create!(name: "Course Groups")
-      group = Group.create!(name: "group", group_category: gc, context: @course)
-
-      get "/courses/#{@course.id}/groups"
-
-      f("#group-#{group.id}-actions").click
-      expect(f(".al-options")).to contain_css("a.icon-edit")
-    end
-
-    it "does not allow editing individual course-level groups (granular permissions)" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_groups)
+    it "does not allow editing individual course-level groups" do
       @course.account.role_overrides.create!(
         permission: "manage_groups_manage",
         role: teacher_role,

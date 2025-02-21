@@ -63,7 +63,7 @@
 class SmartSearchController < ApplicationController
   include Api::V1::SearchResult
 
-  before_action :require_context, only: :search
+  before_action :require_context
   before_action :require_user
 
   # TODO: Other ways of tuning results?
@@ -98,7 +98,7 @@ class SmartSearchController < ApplicationController
     if params[:q].present?
       scope = SmartSearch.perform_search(@context, @current_user, params[:q], Array(params[:filter]))
       items = Api.paginate(scope, self, api_v1_course_smart_search_query_url(@context))
-      response[:results].concat(search_results_json(items))
+      response[:results].concat(search_results_json(filter_for_current_user(items)))
     end
 
     render json: response
@@ -117,8 +117,6 @@ class SmartSearchController < ApplicationController
   end
 
   def show
-    @context = Course.find(params[:course_id])
-
     return render_unauthorized_action unless SmartSearch.smart_search_available?(@context)
 
     set_active_tab("search")
@@ -131,10 +129,15 @@ class SmartSearchController < ApplicationController
   end
 
   def index_status
-    @context = Course.find(params[:course_id])
     return render_unauthorized_action unless SmartSearch.smart_search_available?(@context)
 
     ready, progress = SmartSearch.check_course(@context)
     render json: { status: (ready ? "indexed" : "indexing"), progress: }
+  end
+
+  def filter_for_current_user(collection)
+    collection.select do |item|
+      item.respond_to?(:show_in_search_for_user?) ? item.show_in_search_for_user?(@current_user) : true
+    end
   end
 end

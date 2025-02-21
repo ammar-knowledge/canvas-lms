@@ -27,6 +27,7 @@ describe Account do
     it { is_expected.to have_many(:lti_resource_links).class_name("Lti::ResourceLink") }
     it { is_expected.to have_many(:lti_registrations).class_name("Lti::Registration").dependent(:destroy) }
     it { is_expected.to have_many(:lti_registration_account_bindings).class_name("Lti::RegistrationAccountBinding").dependent(:destroy) }
+    it { is_expected.to have_many(:block_editor_templates).class_name("BlockEditorTemplate") }
   end
 
   describe "validations" do
@@ -316,7 +317,6 @@ describe Account do
 
     it "is able to specify a list of enabled services" do
       @a.allowed_services = "fakeService"
-      # expect(@a.service_enabled?(:twitter)).to be_truthy
       expect(@a.service_enabled?(:diigo)).to be_falsey
       expect(@a.service_enabled?(:avatars)).to be_falsey
     end
@@ -600,7 +600,6 @@ describe Account do
     full_access = RoleOverride.permissions.keys +
                   limited_access - disabled_by_default - conditional_access +
                   [:create_courses]
-    full_access << :create_tool_manually unless root_account.feature_enabled?(:granular_permissions_manage_lti)
 
     full_root_access = full_access - RoleOverride.permissions.select { |_k, v| v[:account_only] == :site_admin }.map(&:first)
     full_sub_access = full_root_access - RoleOverride.permissions.select { |_k, v| v[:account_only] == :root }.map(&:first)
@@ -751,17 +750,6 @@ describe Account do
     end
   end
 
-  # TODO: deprecated; need to look into removing this setting
-  it "allows no_enrollments_can_create_courses correctly" do
-    a = Account.default
-    a.disable_feature!(:granular_permissions_manage_courses)
-    a.settings = { no_enrollments_can_create_courses: true }
-    a.save!
-
-    user_factory
-    expect(a.manually_created_courses_account.grants_right?(@user, :create_courses)).to be_truthy
-  end
-
   it "does not allow create_courses even to admins on site admin and children" do
     a = Account.site_admin
     a.settings = { no_enrollments_can_create_courses: true }
@@ -777,20 +765,6 @@ describe Account do
     a = Account.default
     a.settings = { no_enrollments_can_create_courses: true }
     a.save!
-
-    manual = a.manually_created_courses_account
-    course = manual.courses.create!
-    user = course.student_view_student
-
-    expect(a.grants_right?(user, :create_courses)).to be false
-    expect(manual.grants_right?(user, :create_courses)).to be false
-  end
-
-  it "does not allow create courses for student view students (granular permissions)" do
-    a = Account.default
-    a.settings = { no_enrollments_can_create_courses: true }
-    a.save!
-    a.enable_feature!(:granular_permissions_manage_courses)
 
     manual = a.manually_created_courses_account
     course = manual.courses.create!
@@ -876,6 +850,64 @@ describe Account do
     expect(account.group_categories.active.count).to eq 1
     expect(account.all_group_categories.count).to eq 2
     expect(account.group_categories.active.to_a).to eq [category2]
+  end
+
+  describe "group and differentiation tag associations" do
+    before(:once) do
+      @account = Account.default
+      @collaborative_category = GroupCategory.create!(context: @account, name: "Collab Category")
+      @course = course_factory(account: @account)
+      @non_collab_category = GroupCategory.create!(context: @course, name: "Tag Category", non_collaborative: true)
+
+      @collaborative_group = Group.create!(context: @account, group_category: @collaborative_category, name: "Collab Group")
+      @differentiation_tag = Group.create!(context: @course, group_category: @non_collab_category, name: "Tag")
+
+      @deleted_collab_group = Group.create!(context: @account, group_category: @collaborative_category, name: "Deleted Collab")
+      @deleted_collab_group.destroy
+
+      @sub_account = @account.sub_accounts.create!
+      @sub_course = course_factory(account: @sub_account)
+      @sub_collab_group = Group.create!(context: @sub_account, group_category: @collaborative_category, name: "Sub Collab", root_account: @account)
+      @sub_tag = Group.create!(context: @sub_course, group_category: @non_collab_category, name: "Sub Tag", root_account: @account)
+    end
+
+    context "collaborative groups" do
+      it "filters group categories by collaborative flag" do
+        expect(@account.group_categories).to contain_exactly(@collaborative_category)
+        expect(@account.all_group_categories).to contain_exactly(@collaborative_category)
+      end
+
+      it "filters groups by collaborative flag" do
+        expect(@account.groups).to contain_exactly(@collaborative_group, @deleted_collab_group)
+        expect(@account.all_groups).to contain_exactly(@collaborative_group, @deleted_collab_group, @sub_collab_group)
+      end
+    end
+
+    context "differentiation tags" do
+      it "filters group categories by non-collaborative flag" do
+        expect(@account.differentiation_tag_categories).to be_empty
+        expect(@account.all_differentiation_tag_categories).to contain_exactly(@non_collab_category)
+      end
+
+      it "filters groups by non-collaborative flag" do
+        expect(@account.differentiation_tags).to be_empty
+        expect(@account.all_differentiation_tags).to contain_exactly(@differentiation_tag, @sub_tag)
+      end
+    end
+
+    describe "memberships" do
+      before(:once) do
+        @student2 = user_factory
+        @student = user_factory
+        @collaborative_group.add_user(@student)
+        @differentiation_tag.add_user(@student2)
+      end
+
+      it "accesses memberships through all_groups/all_differentiation_tags" do
+        expect(@account.all_group_memberships.map(&:user_id)).to contain_exactly(@student.id)
+        expect(@account.all_differentiation_tag_memberships.map(&:user_id)).to contain_exactly(@student2.id)
+      end
+    end
   end
 
   it "returns correct values for login_handle_name_with_inference" do
@@ -1086,8 +1118,8 @@ describe Account do
       expect(@account.tabs_available(nil)).to include(mock_tab)
     end
 
-    it "uses :manage_assignments to determine question bank tab visibility" do
-      account_admin_user_with_role_changes(account: @account, role_changes: { manage_assignments: true, manage_grades: false })
+    it "uses :manage_assignments_edit to determine question bank tab visibility" do
+      account_admin_user_with_role_changes(account: @account, role_changes: { manage_assignments_edit: true, manage_grades: false })
       tabs = @account.tabs_available(@admin)
       expect(tabs.pluck(:id)).to include(Account::TAB_QUESTION_BANKS)
     end
@@ -1786,6 +1818,9 @@ describe Account do
       end
       @sub2.save!
 
+      @account.reload
+      @sub1.reload
+      @sub2.reload
       @settings.each do |key|
         expect(@account.send(key)).to eq({ locked: false, value: false })
         expect(@sub1.send(key)).to eq({ locked: true, value: true })
@@ -1804,6 +1839,9 @@ describe Account do
       end
       @sub2.save!
 
+      @account.reload
+      @sub1.reload
+      @sub2.reload
       @settings.each do |key|
         expect(@account.send(key)).to eq({ locked: false, value: true })
         expect(@sub1.send(key)).to eq({ locked: false, value: true, inherited: true })
@@ -1831,22 +1869,22 @@ describe Account do
 
       it "elides an empty setting" do
         @sub1.update settings: { sis_assignment_name_length_input: { value: "" } }
-        expect(@sub1.sis_assignment_name_length_input).to eq({ value: "100", inherited: true })
+        expect(@sub1.reload.sis_assignment_name_length_input).to eq({ value: "100", inherited: true })
       end
 
       it "elides a nil setting" do
         @sub1.update settings: { sis_assignment_name_length_input: { value: nil } }
-        expect(@sub1.sis_assignment_name_length_input).to eq({ value: "100", inherited: true })
+        expect(@sub1.reload.sis_assignment_name_length_input).to eq({ value: "100", inherited: true })
       end
 
       it "elides an explicitly-unlocked setting" do
         @sub1.update settings: { sis_assignment_name_length_input: { value: nil, locked: false } }
-        expect(@sub1.sis_assignment_name_length_input).to eq({ value: "100", inherited: true })
+        expect(@sub1.reload.sis_assignment_name_length_input).to eq({ value: "100", inherited: true })
       end
 
       it "doesn't elide a locked setting" do
         @sub1.update settings: { sis_assignment_name_length_input: { value: nil, locked: true } }
-        expect(@sub2.sis_assignment_name_length_input).to eq({ value: nil, inherited: true, locked: true })
+        expect(@sub2.reload.sis_assignment_name_length_input).to eq({ value: nil, inherited: true, locked: true })
       end
     end
 
@@ -2156,7 +2194,7 @@ describe Account do
     end
   end
 
-  context "#destroy on sub accounts" do
+  describe "#destroy on sub accounts" do
     before :once do
       @root_account = Account.create!
       @sub_account = @root_account.sub_accounts.create!
@@ -2276,7 +2314,7 @@ describe Account do
     end
   end
 
-  context "#roles_with_enabled_permission" do
+  describe "#roles_with_enabled_permission" do
     def create_role_override(permission, role, context, enabled = true)
       RoleOverride.create!(
         context:,
@@ -2288,19 +2326,6 @@ describe Account do
     let(:account) { account_model }
 
     it "returns expected roles with the given permission" do
-      account.disable_feature!(:granular_permissions_manage_courses)
-      role = account.roles.create name: "AssistantGrader"
-      role.base_role_type = "TaEnrollment"
-      role.workflow_state = "active"
-      role.save!
-      create_role_override("change_course_state", role, account)
-      expect(
-        account.roles_with_enabled_permission(:change_course_state).map(&:name).sort
-      ).to eq %w[AccountAdmin AssistantGrader DesignerEnrollment TeacherEnrollment]
-    end
-
-    it "returns expected roles with the given permission (granular permissions)" do
-      account.enable_feature!(:granular_permissions_manage_courses)
       role = account.roles.create name: "TeacherAdmin"
       role.base_role_type = "TeacherEnrollment"
       role.workflow_state = "active"
@@ -2563,7 +2588,7 @@ describe Account do
       account_model
       @account.enable_feature!(:restrict_quantitative_data)
 
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
     end
 
     it "restrict_quantitative_data? helper returns false by default" do
@@ -2575,7 +2600,7 @@ describe Account do
       @account.save!
       expect(@account.restrict_quantitative_data?).to be true
 
-      expect(InstStatsd::Statsd).to have_received(:increment).with("account.settings.restrict_quantitative_data.enabled").once
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("account.settings.restrict_quantitative_data.enabled").once
     end
 
     it "increments disabled log when setting is turned off" do
@@ -2586,8 +2611,8 @@ describe Account do
       @account.save!
       expect(@account.restrict_quantitative_data?).to be false
 
-      expect(InstStatsd::Statsd).to have_received(:increment).with("account.settings.restrict_quantitative_data.enabled").once.ordered
-      expect(InstStatsd::Statsd).to have_received(:increment).with("account.settings.restrict_quantitative_data.disabled").once.ordered
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("account.settings.restrict_quantitative_data.enabled").once.ordered
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("account.settings.restrict_quantitative_data.disabled").once.ordered
     end
 
     it "doesn't increment either log when settings update but RQD setting is unchanged" do
@@ -2596,8 +2621,8 @@ describe Account do
       @account.save!
       expect(@account.restrict_student_future_view[:value]).to be true
 
-      expect(InstStatsd::Statsd).not_to have_received(:increment).with("account.settings.restrict_quantitative_data.enabled")
-      expect(InstStatsd::Statsd).not_to have_received(:increment).with("account.settings.restrict_quantitative_data.disabled")
+      expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("account.settings.restrict_quantitative_data.enabled")
+      expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("account.settings.restrict_quantitative_data.disabled")
     end
 
     it "doesn't increment either counter when parent account setting is changed" do
@@ -2606,54 +2631,14 @@ describe Account do
       @sub_account.save!
 
       expect(@sub_account.restrict_quantitative_data?).to be true
-      expect(InstStatsd::Statsd).to have_received(:increment).with("account.settings.restrict_quantitative_data.enabled").once
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("account.settings.restrict_quantitative_data.enabled").once
 
       @account.settings[:restrict_quantitative_data] = { locked: true, value: false }
       @account.save!
       # Ignores changes completely
       expect(@sub_account.restrict_quantitative_data?).to be true
 
-      expect(InstStatsd::Statsd).not_to have_received(:increment).with("account.settings.restrict_quantitative_data.disabled")
-    end
-  end
-
-  describe "#enable_user_notes" do
-    let(:account) { account_model(enable_user_notes: true) }
-
-    context "when the deprecate_faculty_journal flag is enabled" do
-      before { Account.site_admin.enable_feature!(:deprecate_faculty_journal) }
-
-      it "returns false" do
-        expect(account.enable_user_notes).to be false
-      end
-    end
-
-    context "when the deprecate_faculty_journal flag is disabled" do
-      before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-      it "returns the value stored on the account model" do
-        expect(account.enable_user_notes).to be true
-        account.update_attribute(:enable_user_notes, false)
-        expect(account.enable_user_notes).to be false
-      end
-    end
-  end
-
-  describe ".having_user_notes_enabled" do
-    let!(:enabled_account) { account_model(enable_user_notes: true) }
-
-    before { account_model(enable_user_notes: false) }
-
-    context "when the deprecate_faculty_journal flag is disabled" do
-      before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-      it "only returns accounts having user notes enabled" do
-        expect(Account.having_user_notes_enabled).to match_array [enabled_account]
-      end
-    end
-
-    it "returns no accounts" do
-      expect(Account.having_user_notes_enabled).to be_empty
+      expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("account.settings.restrict_quantitative_data.disabled")
     end
   end
 
@@ -2754,6 +2739,235 @@ describe Account do
 
         expect(@sub_account3.default_grading_standard).to eq @sub_account1.grading_standard
       end
+    end
+  end
+
+  describe "available ip filters" do
+    before do
+      @account1 = Account.create!(name: "Account 1")
+      @course1 = @account1.courses.create!(name: "Test Course 1")
+
+      @account2 = Account.create!(name: "Account 2", consortium_parent_account: @account1)
+      @course2 = @account2.courses.create!(name: "Test Course 2")
+
+      @account3 = @account2.sub_accounts.create!(name: "Account 3")
+      @course3 = @account3.courses.create!(name: "Test Course 3")
+
+      @account4 = @account3.sub_accounts.create!(name: "Account 4")
+      @course4 = @account4.courses.create!(name: "Test Course 4")
+    end
+
+    context "when filters exist in the account chain" do
+      before do
+        @account1.settings[:ip_filters] = {
+          "filter1" => "192.168.1.0",
+          "filter2" => "10.0.0.0"
+        }
+        @account1.save!
+
+        @account3.settings[:ip_filters] = {
+          "filter3" => "172.16.0.0"
+        }
+        @account3.save!
+      end
+
+      it "gets all the filters up the chain" do
+        expected_filters = [
+          { name: "filter1", account: @account1.name, filter: "192.168.1.0" },
+          { name: "filter2", account: @account1.name, filter: "10.0.0.0" },
+          { name: "filter3", account: @account3.name, filter: "172.16.0.0" }
+        ]
+
+        expect(Account.default.available_ip_filters(@course4.uuid)).to match_array(expected_filters)
+      end
+    end
+
+    context "when no filters exist in the account chain" do
+      it "returns an empty array" do
+        expect(Account.default.available_ip_filters(@course4.uuid)).to be_empty
+      end
+    end
+
+    context "when settings is nil" do
+      before do
+        allow(@account1).to receive(:settings).and_return(nil)
+      end
+
+      it "handles nil settings gracefully" do
+        expect { Account.default.available_ip_filters(@course4.uuid) }.not_to raise_error
+        expect(Account.default.available_ip_filters(@course4.uuid)).to be_empty
+      end
+    end
+
+    context "when ip_filters is nil" do
+      before do
+        @account1.settings[:ip_filters] = nil
+        @account1.save!
+      end
+
+      it "handles nil ip_filters gracefully" do
+        expect { Account.default.available_ip_filters(@course4.uuid) }.not_to raise_error
+        expect(Account.default.available_ip_filters(@course4.uuid)).to be_empty
+      end
+    end
+
+    context "when there are duplicate filter names in different accounts" do
+      before do
+        @account1.settings[:ip_filters] = { "common_filter" => "192.168.1.0" }
+        @account1.save!
+        @account3.settings[:ip_filters] = { "common_filter" => "10.0.0.0" }
+        @account3.save!
+      end
+
+      it "includes both filters" do
+        expected_filters = [
+          { name: "common_filter", account: @account1.name, filter: "192.168.1.0" },
+          { name: "common_filter", account: @account3.name, filter: "10.0.0.0" }
+        ]
+        expect(Account.default.available_ip_filters(@course4.uuid)).to match_array(expected_filters)
+      end
+    end
+
+    context "when accessing filters from different levels" do
+      before do
+        @account1.settings[:ip_filters] = { "filter1" => "192.168.1.0" }
+        @account1.save!
+        @account2.settings[:ip_filters] = { "filter2" => "172.16.0.0" }
+        @account2.save!
+        @account3.settings[:ip_filters] = { "filter3" => "10.0.0.0" }
+        @account3.save!
+      end
+
+      it "returns correct filters for each account level" do
+        expect(Account.default.available_ip_filters(@course4.uuid).size).to eq(3)
+        expect(Account.default.available_ip_filters(@course3.uuid).size).to eq(3)
+        expect(Account.default.available_ip_filters(@course2.uuid).size).to eq(2)
+        expect(Account.default.available_ip_filters(@course1.uuid).size).to eq(1)
+      end
+    end
+  end
+
+  describe "#recompute_assignments_using_account_default" do
+    let_once(:data1) { [["A", 0.94], ["F", 0]] }
+    let_once(:data2) { [["A", 0.5], ["F", 0]] }
+
+    before do
+      Account.site_admin.enable_feature!(:archived_grading_schemes)
+      Account.site_admin.enable_feature!(:default_account_grading_scheme)
+      @root_account = Account.default
+      sub_account = @root_account.sub_accounts.create!
+      sub_sub_account = sub_account.sub_accounts.create!
+      admin = account_admin_user(account: @root_account)
+      user_session(admin)
+      grading_standard = GradingStandard.create!(context: @root_account, workflow_state: "active", data: data1, title: "current grading scheme")
+      @new_grading_standard = GradingStandard.create!(context: @root_account, workflow_state: "active", data: data2, title: "new grading scheme")
+      @root_account.update!(grading_standard_id: grading_standard.id)
+      course_inheriting_from_root = course_factory(account: @root_account)
+      course_not_inheriting_from_root = course_factory(account: @root_account)
+      course_not_inheriting_from_root.update!(grading_standard_id: grading_standard.id)
+      course_inheriting_from_sub = course_factory(account: sub_account)
+      course_inheriting_from_sub_sub = course_factory(account: sub_sub_account)
+      student1 = course_inheriting_from_root.enroll_user(user_factory(active_user: true), "StudentEnrollment", enrollment_state: "active").user
+      student2 = course_not_inheriting_from_root.enroll_user(user_factory(active_user: true), "StudentEnrollment", enrollment_state: "active").user
+      student3 = course_inheriting_from_sub.enroll_user(user_factory(active_user: true), "StudentEnrollment", enrollment_state: "active").user
+      student4 = course_inheriting_from_sub_sub.enroll_user(user_factory(active_user: true), "StudentEnrollment", enrollment_state: "active").user
+      assignment_root = course_inheriting_from_root.assignments.create!(title: "hi", grading_standard_id: nil, points_possible: 10, grading_type: "letter_grade")
+      assignment_not_inheriting = course_not_inheriting_from_root.assignments.create!(title: "hello", grading_standard_id: nil, points_possible: 10, grading_type: "letter_grade")
+      assignment_sub = course_inheriting_from_sub.assignments.create!(title: "hi2", grading_standard_id: nil, points_possible: 10, grading_type: "letter_grade")
+      assignment_sub_sub = course_inheriting_from_sub_sub.assignments.create!(title: "hi3", grading_standard_id: nil, points_possible: 10, grading_type: "letter_grade")
+      @submission_root = assignment_root.grade_student(student1, score: 6, grader: admin).first
+      @submission_not_inheriting = assignment_not_inheriting.grade_student(student2, score: 6, grader: admin).first
+      @submission_sub = assignment_sub.grade_student(student3, score: 6, grader: admin).first
+      @submission_sub_sub = assignment_sub_sub.grade_student(student4, score: 6, grader: admin).first
+    end
+
+    it "updates submission grades in account inheriting courses/assignments and all sub account courses/assignments" do
+      @root_account.recompute_assignments_using_account_default(@new_grading_standard)
+
+      expect(@submission_root.reload.grade).to eq "A"
+      expect(@submission_not_inheriting.reload.grade).to eq "F"
+      expect(@submission_sub.reload.grade).to eq "A"
+      expect(@submission_sub_sub.reload.grade).to eq "A"
+    end
+
+    it "updates the most recent submission version in all inheriting account and sub account courses" do
+      @root_account.recompute_assignments_using_account_default(@new_grading_standard)
+
+      expect(@submission_root.reload.versions.first.model.grade).to eq "A"
+      expect(@submission_not_inheriting.reload.versions.first.model.grade).to eq "F"
+      expect(@submission_sub.reload.versions.first.model.grade).to eq "A"
+      expect(@submission_sub_sub.reload.versions.first.model.grade).to eq "A"
+    end
+  end
+
+  describe "#recaptcha_key" do
+    let(:root_account) { Account.create! }
+
+    before do
+      allow(root_account).to receive_messages(root_account?: true, self_registration_captcha?: true)
+    end
+
+    it "returns the recaptcha_client_key when root_account? and self_registration_captcha? are true" do
+      allow(DynamicSettings).to receive(:find).with(tree: "private").and_return(
+        instance_double(DynamicSettings::PrefixProxy, :[] => "test_key")
+      )
+      expect(root_account.recaptcha_key).to eq("test_key")
+    end
+
+    it "returns nil if not a root account" do
+      allow(root_account).to receive(:root_account?).and_return(false)
+      expect(root_account.recaptcha_key).to be_nil
+    end
+
+    it "returns nil if self_registration_captcha? is false" do
+      allow(root_account).to receive(:self_registration_captcha?).and_return(false)
+      expect(root_account.recaptcha_key).to be_nil
+    end
+
+    it "returns nil if recaptcha_client_key is not present in DynamicSettings" do
+      allow(DynamicSettings).to receive(:find).with(tree: "private").and_return(
+        instance_double(DynamicSettings::PrefixProxy, :[] => nil)
+      )
+      expect(root_account.recaptcha_key).to be_nil
+    end
+
+    it "returns nil if not a root account even if self_registration_captcha? is true" do
+      allow(root_account).to receive_messages(root_account?: false, self_registration_captcha?: true)
+      expect(root_account.recaptcha_key).to be_nil
+    end
+
+    it "returns nil if both root_account? and self_registration_captcha? are false" do
+      allow(root_account).to receive_messages(root_account?: false, self_registration_captcha?: false)
+      expect(root_account.recaptcha_key).to be_nil
+    end
+  end
+
+  describe "#get_role_by_name" do
+    let(:account) { Account.default }
+    let(:role_name) { "Course Admin" }
+    let!(:active_role) do
+      account.roles.create(name: role_name, base_role_type: "TeacherEnrollment", workflow_state: "active")
+    end
+    let!(:inactive_role) do
+      account.roles.create(name: role_name, base_role_type: "TaEnrollment", workflow_state: "inactive")
+    end
+
+    it "returns the active role if both active and inactive roles are present" do
+      result = account.get_role_by_name(role_name)
+      expect(result).to eq(active_role)
+    end
+
+    it "returns the inactive role if no active role is present" do
+      active_role.destroy
+      result = account.get_role_by_name(role_name)
+      expect(result).to eq(inactive_role)
+    end
+
+    it "returns nil if no roles are present" do
+      active_role.destroy
+      inactive_role.destroy
+      result = account.get_role_by_name(role_name)
+      expect(result).to be_nil
     end
   end
 end

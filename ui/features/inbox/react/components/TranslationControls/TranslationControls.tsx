@@ -18,52 +18,67 @@
 
 import {Flex} from '@instructure/ui-flex'
 import {RadioInput} from '@instructure/ui-radio-input'
-import {SimpleSelect} from '@instructure/ui-simple-select'
 import {Checkbox} from '@instructure/ui-checkbox'
 
-import React, {useContext, useState, useRef, useEffect} from 'react'
+import React, {useContext, useState, useRef, useEffect, useMemo} from 'react'
 import {ModalBodyContext, signatureSeparator, translationSeparator} from '../../utils/constants'
 import {stripSignature} from '../../utils/inbox_translator'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import CanvasMultiSelect from '@canvas/multi-select/react'
 
-const I18n = useI18nScope('conversations_2')
+const I18n = createI18nScope('conversations_2')
 
 interface TranslationControlsProps {
   inboxSettingsFeature: boolean
   signature: string
 }
 
+interface Language {
+  id: string
+  name: string
+}
+
 const TranslationControls = (props: TranslationControlsProps) => {
-  const languages = useRef(ENV?.inbox_translation_languages ?? [])
-  const [language, setLanguage] = useState('English')
+  // @ts-expect-error
+  const languages = useRef<Language[]>(ENV?.inbox_translation_languages ?? [])
   const [includeTranslation, setIncludeTranslation] = useState(false)
-  const [primary, setIsPrimary] = useState(null)
-  const [translated, setTranslated] = useState(false)
   const {
     setMessagePosition,
     messagePosition,
     setTranslationTargetLanguage,
     translateBody,
+    body,
     setBody,
   } = useContext(ModalBodyContext)
+  const [input, setInput] = useState('English')
+  const [selected, setSelected] = useState<Language['id'] | null>(null)
 
-  const handleSelect = (e, {id, value}) => {
-    setLanguage(value)
-    setTranslationTargetLanguage(id)
-  }
+  // If we have a message position, the message has been translated.
+  const primary = useMemo(() => {
+    if (messagePosition === null) {
+      return null
+    }
+
+    return messagePosition === 'primary'
+  }, [messagePosition])
+
+  const translated = useMemo(() => {
+    return messagePosition !== null && body.includes(translationSeparator)
+  }, [messagePosition, body])
 
   /**
    * Handle placing translated message in primary or secondary position
    * */
+  // @ts-expect-error
   const handleChange = isPrimary => {
-    setIsPrimary(isPrimary)
+    // If not already translated, translate the body.
     setMessagePosition(isPrimary ? 'primary' : 'secondary')
     if (!translated) {
       translateBody(isPrimary)
-      setTranslated(true)
       return
     }
 
+    // @ts-expect-error
     setBody(prevBody => {
       let newBody = prevBody
       // Strip the signature
@@ -86,12 +101,13 @@ const TranslationControls = (props: TranslationControlsProps) => {
     })
   }
 
-  const handleIncludeTranslation = shouldInclude => {
-    setIncludeTranslation(shouldInclude)
-  }
+  // @ts-expect-error
+  const handleIncludeTranslation = shouldInclude => setIncludeTranslation(shouldInclude)
 
   useEffect(() => {
     if (!includeTranslation && translated) {
+      setMessagePosition(null)
+      // @ts-expect-error
       setBody(prevBody => {
         if (props.inboxSettingsFeature && props.signature !== '') {
           prevBody = stripSignature(prevBody)
@@ -106,17 +122,37 @@ const TranslationControls = (props: TranslationControlsProps) => {
 
         return newBody
       })
-      setTranslated(false)
-      setIsPrimary(null)
     }
   }, [
     includeTranslation,
+    setMessagePosition,
     messagePosition,
     props.inboxSettingsFeature,
     props.signature,
     setBody,
     translated,
   ])
+
+  const handleSelect = (selectedArray: string[]) => {
+    const id = selectedArray[0]
+    const result = languages.current.find(({id: _id}) => id === _id)
+
+    if (!result) {
+      return
+    }
+
+    setInput(result.name)
+    setSelected(result.id)
+    setTranslationTargetLanguage(result.id)
+  }
+
+  const filteredLanguages: Language[] = useMemo(() => {
+    if (!input) {
+      return languages.current
+    }
+
+    return languages.current.filter(({name}) => name.toLowerCase().startsWith(input.toLowerCase()))
+  }, [languages, input])
 
   return (
     <>
@@ -133,20 +169,24 @@ const TranslationControls = (props: TranslationControlsProps) => {
       {includeTranslation && (
         <Flex justifyItems="space-around" alignItems="center" margin="0 0 small">
           <Flex.Item padding="small 0 0">
-            <SimpleSelect
-              renderLabel={I18n.t('Select Translation Language')}
-              value={language}
+            <CanvasMultiSelect
+              label={I18n.t('Select Translation Language')}
               onChange={handleSelect}
-              width="360px"
+              inputValue={input}
+              onInputChange={e => setInput(e.target.value)}
             >
-              {languages.current.map(({id, name}) => {
-                return (
-                  <SimpleSelect.Option key={id} id={id} value={name}>
-                    {name}
-                  </SimpleSelect.Option>
-                )
-              })}
-            </SimpleSelect>
+              {filteredLanguages.map(({id, name}) => (
+                <CanvasMultiSelect.Option
+                  key={id}
+                  label={name}
+                  id={id}
+                  value={name}
+                  isSelected={id === selected}
+                >
+                  {name}
+                </CanvasMultiSelect.Option>
+              ))}
+            </CanvasMultiSelect>
           </Flex.Item>
           <Flex.Item>
             <RadioInput

@@ -16,8 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import {waitFor} from '@testing-library/react'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {createRoot} from 'react-dom/client'
 import Lti2Edit from '../Lti2Edit'
 
 const wrapper = document.getElementById('fixtures') || document.createElement('div') // Ensure the element exists
@@ -35,14 +36,23 @@ const createElement = data => (
   />
 )
 
-const renderComponent = data => ReactDOM.render(createElement(data), wrapper)
+let root = null
+
+const renderComponent = data => {
+  root = createRoot(wrapper)
+  root.render(createElement(data))
+  return wrapper.firstChild
+}
 
 describe('ExternalApps.Lti2Edit', () => {
   afterEach(() => {
-    ReactDOM.unmountComponentAtNode(wrapper)
+    if (root) {
+      root.unmount()
+      root = null
+    }
   })
 
-  test('renders', () => {
+  test('renders', async () => {
     const data = {
       tool: {
         app_id: 3,
@@ -50,14 +60,16 @@ describe('ExternalApps.Lti2Edit', () => {
         description: null,
         enabled: false,
         installed_locally: true,
-        name: 'Twitter',
+        name: 'SomeTool',
       },
       handleActivateLti2() {},
       handleDeactivateLti2() {},
       handleCancel() {},
     }
-    const component = renderComponent(data)
-    expect(component).toBeTruthy() // Checks if component has rendered
-    expect(ReactDOM.findDOMNode(component)).toBeTruthy() // Check if component is of type Lti2Edit
+    renderComponent(data)
+    await waitFor(() => {
+      expect(document.getElementById('fixtures')).toBeTruthy() // Checks if component has rendered
+      expect(document.getElementById('fixtures')).toBeInstanceOf(HTMLElement) // Check if component is rendered to DOM
+    })
   })
 })

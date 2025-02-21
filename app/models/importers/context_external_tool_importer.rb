@@ -60,14 +60,14 @@ module Importers
         url = migration.process_domain_substitutions(url) if migration
         item.url = url
       end
-      item.domain = hash[:domain] unless hash[:domain].blank?
+      item.domain = hash[:domain]
       item.privacy_level = hash[:privacy_level] || "name_only"
       item.not_selectable = hash[:not_selectable] if hash[:not_selectable]
       item.consumer_key ||= hash[:consumer_key] || "fake"
       item.shared_secret ||= hash[:shared_secret] || "fake"
       item.developer_key_id ||= hash.dig(:settings, :client_id)
       item.lti_version = hash[:lti_version] || (hash.dig(:settings, :client_id) && "1.3") || (hash.dig(:settings, :use_1_3) && "1.3") || "1.1"
-      item.unified_tool_id = hash[:unified_tool_id]
+      item.unified_tool_id = hash[:unified_tool_id] if hash[:unified_tool_id]
       item.settings = create_tool_settings(hash)
 
       Lti::ResourcePlacement::PLACEMENTS.each do |placement|
@@ -148,7 +148,11 @@ module Importers
             return tool
           end
         elsif tool.url.present?
-          match_domain = URI.parse(tool.url).host rescue nil
+          begin
+            match_domain = URI.parse(tool.url).host
+          rescue URI::InvalidURIError
+            # ignore
+          end
 
           if domain && match_domain == domain
             # turn the matched tool into a domain only tool
@@ -203,7 +207,11 @@ module Importers
       url = hash[:url].presence
 
       domain = hash[:domain]
-      domain ||= (URI.parse(url).host rescue nil) if url
+      begin
+        domain ||= URI.parse(url).host if url
+      rescue URI::InvalidURIError
+        # ignore
+      end
 
       settings = create_tool_settings(hash).with_indifferent_access.except(:custom_fields, :vendor_extensions)
 

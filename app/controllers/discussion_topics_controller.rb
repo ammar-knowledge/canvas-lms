@@ -235,7 +235,33 @@
 #           "type": "boolean"
 #         },
 #         "sort_by_rating": {
-#           "description": "Whether or not entries should be sorted by rating.",
+#           "description": "DEPRECATED, Whether or not entries should be sorted by rating.",
+#           "example": true,
+#           "type": "boolean"
+#         },
+#         "sort_order": {
+#           "description": "How entries should be sorted by default.",
+#           "example": "asc",
+#           "type": "string",
+#           "allowableValues": {
+#             "values": [
+#               "asc",
+#               "desc"
+#             ]
+#           }
+#         },
+#         "sort_order_locked": {
+#           "description": "Can users decide their preferred sort order.",
+#           "example": true,
+#           "type": "boolean"
+#         },
+#         "expand": {
+#           "description": "Threaded replies should be expanded by default.",
+#           "example": true,
+#           "type": "boolean"
+#         },
+#         "expand_locked": {
+#           "description": "Can users decide their preferred thread expand setting.",
 #           "example": true,
 #           "type": "boolean"
 #         }
@@ -244,6 +270,10 @@
 #
 class DiscussionTopicsController < ApplicationController
   before_action :require_context_and_read_access, except: :public_feed
+
+  include HorizonMode
+  before_action :redirect_student_to_horizon, only: [:index, :show]
+
   before_action :rce_js_env
 
   include Api::V1::DiscussionTopics
@@ -302,10 +332,16 @@ class DiscussionTopicsController < ApplicationController
   # @returns [DiscussionTopic]
   def index
     include_params = Array(params[:include])
+    page_has_instui_topnav
     if params[:only_announcements]
       return unless authorized_action(@context.announcements.temp_record, @current_user, :read)
     else
       return unless authorized_action(@context.discussion_topics.temp_record, @current_user, :read)
+
+      if !api_request? && @context.is_a?(Course) && @context.horizon_course?
+        redirect_to course_context_modules_path(@context.id)
+        return
+      end
     end
 
     return child_topic if is_child_topic?
@@ -319,7 +355,9 @@ class DiscussionTopicsController < ApplicationController
     # Specify the shard context, because downstream we use `union` which isn't
     # cross-shard compatible.
     @context.shard.activate do
-      scope = DiscussionTopic::ScopedToUser.new(@context, @current_user, scope).scope
+      unless params[:only_announcements]
+        scope = DiscussionTopic::ScopedToUser.new(@context, @current_user, scope).scope
+      end
       # see context for this separation in ScopedToSections
       scope = DiscussionTopic::ScopedToSections.for(self, @context, @current_user, scope).scope
     end
@@ -416,15 +454,21 @@ class DiscussionTopicsController < ApplicationController
                               nil
                             end
 
+        assign_to_tags = @context.account.feature_enabled?(:assign_to_differentiation_tags) && @context.account.allow_assign_to_differentiation_tags?
+
         hash = {
           USER_SETTINGS_URL: api_v1_user_settings_url(@current_user),
           FEATURE_FLAGS_URL: feature_flags_url,
+          DISCUSSION_CHECKPOINTS_ENABLED: @domain_root_account.feature_enabled?(:discussion_checkpoints),
+          ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS: assign_to_tags,
+          CAN_MANAGE_DIFFERENTIATION_TAGS: @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS),
+          HAS_SIDE_COMMENT_DISCUSSIONS: Account.site_admin.feature_enabled?(:disallow_threaded_replies_fix_alert) ? @context.active_discussion_topics.only_discussion_topics.where(discussion_type: DiscussionTopic::DiscussionTypes::SIDE_COMMENT).exists? : false,
           totalDiscussions: scope.count,
           permissions: {
             create: @context.discussion_topics.temp_record.grants_right?(@current_user, session, :create),
             moderate: user_can_moderate,
             change_settings: user_can_edit_course_settings?,
-            manage_content: @context.grants_any_right?(@current_user, session, :manage_content, :manage_course_content_edit),
+            manage_content: @context.grants_right?(@current_user, session, :manage_course_content_edit),
             publish: user_can_moderate,
             read_as_admin: @context.grants_right?(@current_user, session, :read_as_admin),
           },
@@ -437,6 +481,9 @@ class DiscussionTopicsController < ApplicationController
         }
         if @context.is_a?(Course) && @context.grants_right?(@current_user, session, :read) && @js_env&.dig(:COURSE_ID).blank?
           hash[:COURSE_ID] = @context.id.to_s
+          set_section_list_js_env
+          hash[:VALID_DATE_RANGE] = CourseDateRange.new(@context)
+          hash[:HAS_GRADING_PERIODS] = @context.grading_periods?
         end
         conditional_release_js_env(includes: :active_rules)
         append_sis_data(hash)
@@ -457,7 +504,7 @@ class DiscussionTopicsController < ApplicationController
         render html: "", layout: true
       end
 
-      InstStatsd::Statsd.increment("discussion_topic.index.visit")
+      InstStatsd::Statsd.distributed_increment("discussion_topic.index.visit")
       InstStatsd::Statsd.count("discussion_topic.index.visit.pinned", @topics&.count(&:pinned))
       InstStatsd::Statsd.count("discussion_topic.index.visit.discussions", @topics&.length)
       InstStatsd::Statsd.count("discussion_topic.index.visit.closed_for_comments", @topics&.count(&:locked))
@@ -489,7 +536,7 @@ class DiscussionTopicsController < ApplicationController
     root_topic_id = params[:root_discussion_topic_id]
 
     root_topic_id && @context.respond_to?(:context) &&
-      @context.context && @context.context.discussion_topics.find(root_topic_id)
+      @context.context&.discussion_topics&.find(root_topic_id)
   end
 
   def announcements_locked?
@@ -500,15 +547,18 @@ class DiscussionTopicsController < ApplicationController
 
   def new
     @topic = @context.send(params[:is_announcement] ? :announcements : :discussion_topics).new
-    add_discussion_or_announcement_crumb
-    add_crumb t :create_new_crumb, "Create new"
+    page_has_instui_topnav
 
     edit
   end
 
   def edit
     @topic ||= @context.all_discussion_topics.find(params[:id])
-
+    if !api_request? && @context.is_a?(Course) && @context.horizon_course? && !@topic.is_announcement
+      redirect_to course_context_modules_path(@context.id)
+      return
+    end
+    page_has_instui_topnav
     if @topic.root_topic_id && @topic.has_group_category?
       return redirect_to edit_course_discussion_topic_url(@context.context_id, @topic.root_topic_id)
     end
@@ -517,7 +567,7 @@ class DiscussionTopicsController < ApplicationController
     return render_unauthorized_action unless @topic.visible_for?(@current_user)
 
     @context.try(:require_assignment_group) unless @topic.is_announcement
-    can_set_group_category = ANONYMOUS_STATES.exclude?(@topic.anonymous_state) && @context.respond_to?(:group_categories) && @context.grants_right?(@current_user, session, :manage) # i.e. not anonymous and not a student
+    can_set_group_category = ANONYMOUS_STATES.exclude?(@topic.anonymous_state) && @context.respond_to?(:group_categories) && @context.grants_right?(@current_user, session, :manage_groups_add) # i.e. not anonymous and not a student
     hash = {
       URL_ROOT: named_context_url(@context, :api_v1_context_discussion_topics_url),
       PERMISSIONS: {
@@ -528,15 +578,14 @@ class DiscussionTopicsController < ApplicationController
         CAN_SET_GROUP: can_set_group_category,
         CAN_EDIT_GRADES: can_do(@context, @current_user, :manage_grades),
         # if not a course content manager, or if topic is graded, do not show add to todo list checkbox
-        CAN_MANAGE_CONTENT: @context.grants_any_right?(@current_user, session, :manage_content, :manage_course_content_add),
+        CAN_MANAGE_CONTENT: @context.grants_right?(@current_user, session, :manage_course_content_add),
         CAN_MANAGE_ASSIGN_TO_GRADED: @context.discussion_topics.temp_record(assignment_id: 0).grants_right?(@current_user, session, @topic.new_record? ? :create_assign_to : :manage_assign_to),
         CAN_MANAGE_ASSIGN_TO_UNGRADED: @context.discussion_topics.temp_record(assignment_id: nil).grants_right?(@current_user, session, @topic.new_record? ? :create_assign_to : :manage_assign_to),
       }
     }
 
     usage_rights_required = @context.try(:usage_rights_required?)
-    include_usage_rights = usage_rights_required &&
-                           @context.root_account.feature_enabled?(:usage_rights_discussion_topics)
+    include_usage_rights = usage_rights_required
     course_published = if @context.is_a?(Course)
                          @context.published?
                        elsif @context.is_a?(Group) && @context.context.is_a?(Course)
@@ -560,7 +609,8 @@ class DiscussionTopicsController < ApplicationController
         override_dates: false,
         include_usage_rights:
       )
-      hash[:ATTRIBUTES][:has_threaded_replies] = @topic.discussion_entries.where.not(parent_id: nil).where.not(workflow_state: "deleted").exists?
+
+      hash[:ATTRIBUTES][:has_threaded_replies] = @topic.has_threaded_replies?
     end
     (hash[:ATTRIBUTES] ||= {})[:is_announcement] = @topic.is_announcement
     hash[:ATTRIBUTES][:can_group] = @topic.can_group?
@@ -597,9 +647,9 @@ class DiscussionTopicsController < ApplicationController
       when :none
         []
       when :all
-        @context.course_sections.active.to_a
+        @context.course_sections.active.order(:name).to_a
       else
-        @context.course_sections.select { |s| s.active? && section_visibilities.include?(s.id) }
+        @context.course_sections.active.order(:name).select { |s| section_visibilities.include?(s.id) }
       end
 
     js_hash = {
@@ -608,7 +658,7 @@ class DiscussionTopicsController < ApplicationController
       CONTEXT_ID: @context.id,
       DISCUSSION_TOPIC: hash,
       GROUP_CATEGORIES: categories
-              .reject(&:student_organized?)
+              .reject { |c| c.student_organized? || c.non_collaborative? }
               .map { |category| { id: category.id, name: category.name } },
       HAS_GRADING_PERIODS: @context.grading_periods?,
       SECTION_LIST: sections.map { |section| { id: section.id, name: section.name } },
@@ -628,6 +678,8 @@ class DiscussionTopicsController < ApplicationController
       DISCUSSION_CHECKPOINTS_ENABLED: @context.root_account.feature_enabled?(:discussion_checkpoints),
       ASSIGNMENT_EDIT_PLACEMENT_NOT_ON_ANNOUNCEMENTS: Account.site_admin.feature_enabled?(:assignment_edit_placement_not_on_announcements),
       ANNOUNCEMENTS_COMMENTS_DISABLED: Announcement.new(context: @context).comments_disabled?,
+      DISCUSSION_DEFAULT_EXPAND_ENABLED: Account.site_admin.feature_enabled?(:discussion_default_expand),
+      DISCUSSION_DEFAULT_SORT_ENABLED: Account.site_admin.feature_enabled?(:discussion_default_sort),
     }
 
     post_to_sis = Assignment.sis_grade_export_enabled?(@context)
@@ -636,7 +688,7 @@ class DiscussionTopicsController < ApplicationController
       js_hash[:POST_TO_SIS_DEFAULT] = @context.account.sis_default_grade_export[:value]
     end
     js_hash[:STUDENT_PLANNER_ENABLED] =
-      @context.grants_any_right?(@current_user, session, :manage_content, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
+      @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
 
     if @topic.is_section_specific && @context.is_a?(Course)
       selected_section_ids = @topic.discussion_topic_section_visibilities.pluck(:course_section_id)
@@ -681,6 +733,7 @@ class DiscussionTopicsController < ApplicationController
       if Account.site_admin.feature_enabled?(:grading_scheme_updates)
         js_hash[:COURSE_DEFAULT_GRADING_SCHEME_ID] = @context.grading_standard_id || @context.default_grading_standard&.id
       end
+      js_hash[:RESTRICT_QUANTITATIVE_DATA] = @context.settings[:restrict_quantitative_data]
     end
 
     if @context.root_account.feature_enabled?(:discussion_create) && @context.feature_enabled?(:react_discussions_post) && @context.grants_right?(@current_user, session, :read)
@@ -697,19 +750,30 @@ class DiscussionTopicsController < ApplicationController
     set_master_course_js_env_data(@topic, @context)
     conditional_release_js_env(@topic.assignment)
 
-    if @context.root_account.feature_enabled?(:discussion_create) && @context.feature_enabled?(:react_discussions_post)
-      @page_title = topic_page_title(@topic)
+    respond_to do |format|
+      if @context.root_account.feature_enabled?(:discussion_create) && @context.feature_enabled?(:react_discussions_post)
+        @page_title = topic_page_title(@topic)
 
-      js_bundle :discussion_topic_edit_v2
-      css_bundle :discussions_index, :learning_outcomes, :conditional_release_editor
-      render html: "", layout: (params[:embed] == "true") ? "mobile_embed" : true
-    else
-      render :edit, layout: (params[:embed] == "true") ? "mobile_embed" : true
+        js_bundle :discussion_topic_edit_v2
+        css_bundle :discussions_index, :learning_outcomes, :conditional_release_editor
+        format.html do
+          render html: "", layout: (params[:embed] == "true") ? "mobile_embed" : true
+        end
+      else
+        format.html do
+          render :edit, layout: (params[:embed] == "true") ? "mobile_embed" : true
+        end
+      end
     end
   end
 
   def show
     @topic = @context.all_discussion_topics.find(params[:id])
+    if @context.is_a?(Course) && @context.horizon_course? && !@topic.is_announcement
+      redirect_to course_context_modules_path(@context.id)
+      return
+    end
+    page_has_instui_topnav
     # we still need the lock info even if the current user policies unlock the topic. check the policies manually later if you need to override the lockout.
     @locked = @topic.locked_for?(@current_user, check_policies: true, deep_check_if_needed: true)
 
@@ -765,19 +829,29 @@ class DiscussionTopicsController < ApplicationController
         split_screen_view_initial_page_size: 5,
         current_page: 0
       }
-      env_hash[:context_rubric_associations_url] = context_url(@context, :context_rubric_associations_url) rescue nil
-      if params[:entry_id]
+      unless @context.is_a?(Group)
+        env_hash[:context_rubric_associations_url] = context_url(@context, :context_rubric_associations_url)
+        env_hash[:VALID_DATE_RANGE] = CourseDateRange.new(@context)
+        env_hash[:HAS_GRADING_PERIODS] = @context.grading_periods?
+        set_section_list_js_env
+      end
+      if params[:entry_id] && @topic.discussion_entries.find_by(id: params[:entry_id])
         entry = @topic.discussion_entries.find(params[:entry_id])
         env_hash[:discussions_deep_link] = {
           root_entry_id: entry.root_entry_id,
           parent_id: entry.parent_id,
           entry_id: entry.id
         }
-        if entry.root_entry_id.nil?
-          condition = ">="
-          count_before = @topic.root_discussion_entries.where("created_at #{condition}?", entry.created_at).count
-          env_hash[:current_page] = (count_before / env_hash[:per_page]).ceil
-        end
+
+        entry = entry.highest_level_parent_or_self
+        sort_order = @topic.sort_order_for_user(@current_user)
+        condition = (sort_order == DiscussionTopic::SortOrder::DESC) ? ">=" : "<="
+        count_before = (sort_order == DiscussionTopic::SortOrder::ASC) ? 1 : 0
+        count_before += @topic.root_discussion_entries
+                              .where(parent_id: nil)
+                              .where("created_at #{condition}?", entry.created_at).count
+        env_hash[:current_page] = (count_before / env_hash[:per_page]).ceil
+
       end
       js_env(env_hash)
 
@@ -834,21 +908,27 @@ class DiscussionTopicsController < ApplicationController
 
       edit_url = context_url(@topic.context, :edit_context_discussion_topic_url, @topic)
       edit_url += "?embed=true" if params[:embed] == "true"
+
+      assign_to_tags = @context.account.feature_enabled?(:assign_to_differentiation_tags) && @context.account.allow_assign_to_differentiation_tags?
+
       js_env({
                course_id: params[:course_id] || @context.course&.id,
                context_type: @topic.context_type,
                context_id: @context.id,
                EDIT_URL: edit_url,
                PEER_REVIEWS_URL: @topic.assignment ? context_url(@topic.assignment.context, :context_assignment_peer_reviews_url, @topic.assignment.id) : nil,
-               discussion_topic_id: params[:id],
+               ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS: assign_to_tags,
+               CAN_MANAGE_DIFFERENTIATION_TAGS: @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS),
+               discussion_topic_id: @topic.id,
                manual_mark_as_read: @current_user&.manual_mark_as_read?,
                discussion_topic_menu_tools: external_tools_display_hashes(:discussion_topic_menu),
                rce_mentions_in_discussions: @context.feature_enabled?(:react_discussions_post) && !@topic.anonymous?,
                discussion_grading_view: Account.site_admin.feature_enabled?(:discussion_grading_view),
                draft_discussions: Account.site_admin.feature_enabled?(:draft_discussions),
                discussion_entry_version_history: Account.site_admin.feature_enabled?(:discussion_entry_version_history),
-               discussion_translation_available: Translation.available?(@domain_root_account, :translation), # Is translation enabled on the course.
-               discussion_translation_languages: Translation.available?(@domain_root_account, :translation) ? Translation.translated_languages(@current_user) : [],
+               discussion_translation_available: Translation.available?(@context, :translation), # Is translation enabled on the course.
+               ai_translation_improvements: Account.site_admin.feature_enabled?(:ai_translation_improvements),
+               discussion_translation_languages: Translation.available?(@context, :translation) ? Translation.languages : [],
                discussion_anonymity_enabled: @context.feature_enabled?(:react_discussions_post),
                user_can_summarize: @topic.user_can_summarize?(@current_user),
                discussion_summary_enabled: @topic.summary_enabled,
@@ -869,23 +949,33 @@ class DiscussionTopicsController < ApplicationController
                apollo_caching: @current_user &&
                  Account.site_admin.feature_enabled?(:apollo_caching),
                discussion_cache_key: @current_user &&
-                 Base64.encode64("#{@current_user.uuid}vyfW=;[p-0?:{P_=HUpgraqe;njalkhpvoiulkimmaqewg")
+                 Base64.encode64("#{@current_user.uuid}vyfW=;[p-0?:{P_=HUpgraqe;njalkhpvoiulkimmaqewg"),
+               checkpointed_discussion_without_feature_flag:
+                 @topic.assignment&.has_sub_assignments? && !@domain_root_account&.feature_enabled?(:discussion_checkpoints),
+               DISCUSSION_CHECKPOINTS_ENABLED: @domain_root_account.feature_enabled?(:discussion_checkpoints),
+               DISCUSSION_DEFAULT_EXPAND_ENABLED: Account.site_admin.feature_enabled?(:discussion_default_expand),
+               DISCUSSION_DEFAULT_SORT_ENABLED: Account.site_admin.feature_enabled?(:discussion_default_sort),
              })
-
       unless @locked
-        InstStatsd::Statsd.increment("discussion_topic.visit.redesign")
+        InstStatsd::Statsd.distributed_increment("discussion_topic.visit.redesign")
         InstStatsd::Statsd.count("discussion_topic.visit.entries.redesign", @topic.discussion_entries.count)
         InstStatsd::Statsd.count("discussion_topic.visit.pages.redesign", (@topic.discussion_entries.count / 20).ceil)
       end
 
       js_bundle :discussion_topics_post
       css_bundle :discussions_index, :learning_outcomes
-      render html: "", layout: (params[:embed] == "true") ? "mobile_embed" : true
+
+      respond_to do |format|
+        format.html do
+          render html: "", layout: (params[:embed] == "true") ? "mobile_embed" : true
+        end
+      end
+
       return
     end
 
     @assignment = @topic.for_assignment? ? AssignmentOverrideApplicator.assignment_overridden_for(@topic.assignment, @current_user) : nil
-    @context.require_assignment_group rescue nil
+    @context.try(:require_assignment_group)
 
     if can_read_and_visible
       @headers = !params[:headless]
@@ -1012,7 +1102,7 @@ class DiscussionTopicsController < ApplicationController
             css_bundle :tinymce, :discussions, :learning_outcomes
 
             unless @locked
-              InstStatsd::Statsd.increment("discussion_topic.visit.legacy")
+              InstStatsd::Statsd.distributed_increment("discussion_topic.visit.legacy")
               InstStatsd::Statsd.count("discussion_topic.visit.entries.legacy", @topic.discussion_entries.count)
               InstStatsd::Statsd.count("discussion_topic.visit.pages.legacy", (@topic.discussion_entries.count / 50).ceil)
             end
@@ -1101,8 +1191,20 @@ class DiscussionTopicsController < ApplicationController
   # @argument only_graders_can_rate [Boolean]
   #   If true, only graders will be allowed to rate entries.
   #
+  # @argument sort_order [String, "asc"|"desc"]
+  #   Default sort order of the discussion. Accepted values are "asc", "desc".
+  #
+  # @argument sort_order_locked [Boolean]
+  #   If true, users cannot choose their prefered sort order
+  #
+  # @argument expanded [Boolean]
+  #   If true, thread will be expanded by default
+  #
+  # @argument expanded_locked [Boolean]
+  #   If true, users cannot choose their prefered thread expansion setting
+  #
   # @argument sort_by_rating [Boolean]
-  #   If true, entries will be sorted by rating.
+  #  (DEPRECATED) If true, entries will be sorted by rating.
   #
   # @argument attachment [File]
   #   A multipart/form-data form-field-style attachment.
@@ -1114,6 +1216,9 @@ class DiscussionTopicsController < ApplicationController
   #   topic specific to sections, then this parameter may be omitted or set to
   #   "all".  Can only be present only on announcements and only those that are
   #   for a course (as opposed to a group).
+  #
+  # @argument lock_comment [Boolean]
+  #   If is_announcement and lock_comment are true, ‘Allow Participants to Comment’ setting is disabled.
   #
   # @example_request
   #     curl https://<canvas>/api/v1/courses/<course_id>/discussion_topics \
@@ -1131,6 +1236,7 @@ class DiscussionTopicsController < ApplicationController
   #         -H 'Authorization: Bearer <token>'
   #
   def create
+    page_has_instui_topnav
     process_discussion_topic(is_new: true)
   end
 
@@ -1199,8 +1305,20 @@ class DiscussionTopicsController < ApplicationController
   # @argument only_graders_can_rate [Boolean]
   #   If true, only graders will be allowed to rate entries.
   #
+  # @argument sort_order [String, "asc"|"desc"]
+  #   Default sort order of the discussion. Accepted values are "asc", "desc".
+  #
+  # @argument sort_order_locked [Boolean]
+  #   If true, users cannot choose their prefered sort order
+  #
+  # @argument expanded [Boolean]
+  #   If true, thread will be expanded by default
+  #
+  # @argument expanded_locked [Boolean]
+  #   If true, users cannot choose their prefered thread expansion setting
+  #
   # @argument sort_by_rating [Boolean]
-  #   If true, entries will be sorted by rating.
+  #   (DEPRECATED) If true, entries will be sorted by rating.
   #
   # @argument specific_sections [String]
   #   A comma-separated list of sections ids to which the discussion topic
@@ -1208,6 +1326,9 @@ class DiscussionTopicsController < ApplicationController
   #   topic specific to sections, then this parameter may be omitted or set to
   #   "all".  Can only be present only on announcements and only those that are
   #   for a course (as opposed to a group).
+  #
+  # @argument lock_comment [Boolean]
+  #   If is_announcement and lock_comment are true, ‘Allow Participants to Comment’ setting is disabled.
   #
   # @example_request
   #     curl https://<canvas>/api/v1/courses/<course_id>/discussion_topics/<topic_id> \
@@ -1476,6 +1597,22 @@ class DiscussionTopicsController < ApplicationController
     discussion_topic_hash = params.permit(*allowed_fields)
     only_pinning = discussion_topic_hash.except(*%w[pinned]).blank?
 
+    # Handle the locked parameter
+    if @topic.is_announcement
+      params[:locked] = if params[:lock_comment].present?
+                          value_to_boolean(params[:lock_comment])
+                        elsif params[:locked].present?
+                          value_to_boolean(params[:locked])
+                        else
+                          false
+                        end
+    end
+
+    if @topic.is_announcement && params[:locked]
+      discussion_topic_hash.delete(:discussion_type)
+      discussion_topic_hash.delete(:require_initial_post)
+    end
+
     # allow pinning/unpinning if a subtopic and we can update the root
     topic_to_check = (only_pinning && @topic.root_topic) ? @topic.root_topic : @topic
     return unless authorized_action(topic_to_check, @current_user, (is_new ? :create : :update))
@@ -1492,6 +1629,24 @@ class DiscussionTopicsController < ApplicationController
 
     if discussion_topic_hash.key?(:message)
       discussion_topic_hash[:message] = process_incoming_html_content(discussion_topic_hash[:message])
+    end
+
+    if Account.site_admin.feature_enabled?(:discussion_default_sort)
+      @topic.sort_order_locked = params[:sort_order_locked] unless params[:sort_order_locked].nil?
+      unless params[:sort_order].nil?
+        if DiscussionTopic::SortOrder::TYPES.include?(params[:sort_order])
+          @topic.sort_order = params[:sort_order]
+        else
+          @errors[:sort_order] = t(:error_sort_order,
+                                   "Sort order type not valid")
+        end
+
+      end
+    end
+
+    if Account.site_admin.feature_enabled?(:discussion_default_expand)
+      @topic.expanded = params[:expanded] unless params[:expanded].nil?
+      @topic.expanded_locked = params[:expanded_locked] unless params[:expanded_locked].nil?
     end
 
     prefer_assignment_availability_dates(discussion_topic_hash)
@@ -1546,46 +1701,45 @@ class DiscussionTopicsController < ApplicationController
         @topic = DiscussionTopic.find(@topic.id)
         @topic.broadcast_notifications(prior_version)
 
-        include_usage_rights = @context.root_account.feature_enabled?(:usage_rights_discussion_topics) &&
-                               @context.try(:usage_rights_required?)
+        include_usage_rights = @context.try(:usage_rights_required?)
 
         if is_new
-          InstStatsd::Statsd.increment("discussion_topic.created")
+          InstStatsd::Statsd.distributed_increment("discussion_topic.created")
 
           if params[:podcast_enabled] == "1"
-            InstStatsd::Statsd.increment("discussion_topic.created.podcast_feed_enabled")
+            InstStatsd::Statsd.distributed_increment("discussion_topic.created.podcast_feed_enabled")
           end
 
           if params[:allow_rating] == "1"
-            InstStatsd::Statsd.increment("discussion_topic.created.allow_liking_enabled")
+            InstStatsd::Statsd.distributed_increment("discussion_topic.created.allow_liking_enabled")
           end
 
           if params[:attachment]
-            InstStatsd::Statsd.increment("discussion_topic.created.attachment")
+            InstStatsd::Statsd.distributed_increment("discussion_topic.created.attachment")
           end
 
           if !params[:delayed_post_at]&.empty? || !params[:lock_at]&.empty?
-            InstStatsd::Statsd.increment("discussion_topic.created.scheduled")
+            InstStatsd::Statsd.distributed_increment("discussion_topic.created.scheduled")
           end
 
           if params[:anonymous_state] == "partial_anonymity"
-            InstStatsd::Statsd.increment("discussion_topic.created.partial_anonymity")
+            InstStatsd::Statsd.distributed_increment("discussion_topic.created.partial_anonymity")
           end
 
           if params[:anonymous_state] == "full_anonymity"
-            InstStatsd::Statsd.increment("discussion_topic.created.full_anonymity")
+            InstStatsd::Statsd.distributed_increment("discussion_topic.created.full_anonymity")
           end
 
           if params[:assignment]
-            InstStatsd::Statsd.increment("discussion_topic.created.graded")
+            InstStatsd::Statsd.distributed_increment("discussion_topic.created.graded")
           end
 
           if @context.is_a?(Group)
-            InstStatsd::Statsd.increment("discussion_topic.created.group")
+            InstStatsd::Statsd.distributed_increment("discussion_topic.created.group")
           end
 
           if request.params[:assignment] && request.params[:assignment][:assignment_overrides] && request.params[:assignment][:assignment_overrides].length > 1
-            InstStatsd::Statsd.increment("discussion_topic.created.multiple_due_dates")
+            InstStatsd::Statsd.distributed_increment("discussion_topic.created.multiple_due_dates")
           end
         end
 
@@ -1634,7 +1788,7 @@ class DiscussionTopicsController < ApplicationController
     end
     return unless params[:todo_date]
 
-    if !authorized_action(@topic.context, @current_user, [:manage_content, :manage_course_content_add])
+    if !authorized_action(@topic.context, @current_user, :manage_course_content_add)
       @errors[:todo_date] = t(:error_todo_date_unauthorized,
                               "You do not have permission to add this topic to the student to-do list.")
     elsif (@topic.assignment || params[:assignment]) && !remove_assign
@@ -1735,7 +1889,7 @@ class DiscussionTopicsController < ApplicationController
 
   def can_set_group_category?
     error =
-      if !@context.grants_right?(@current_user, session, :manage)
+      if !@context.grants_right?(@current_user, session, :manage_groups_add)
         t("You cannot set a grouped discussion as a student.")
       elsif @topic.is_announcement
         t(:error_group_announcement, "You cannot use grouped discussion on an announcement.")
@@ -1776,7 +1930,7 @@ class DiscussionTopicsController < ApplicationController
       attachment = params[:attachment].present? &&
                    params[:attachment]
 
-      return if attachment && attachment.size > 1.kilobytes &&
+      return if attachment && attachment.size > 1.kilobyte &&
                 quota_exceeded(@context, named_context_url(@context, :context_discussion_topics_url))
 
       if (params.key?(:remove_attachment) || attachment) && @topic.attachment
@@ -1801,7 +1955,6 @@ class DiscussionTopicsController < ApplicationController
   end
 
   def set_default_usage_rights(attachment)
-    return unless @context.root_account.feature_enabled?(:usage_rights_discussion_topics)
     return unless @context.try(:usage_rights_required?)
     return if @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_FILE_PERMISSIONS)
 
@@ -1888,5 +2041,34 @@ class DiscussionTopicsController < ApplicationController
       { group:, topic: topics.find { |t| t.context == group } }
     end
     topics
+  end
+
+  def set_section_list_js_env
+    section_visibilities =
+      if @context.respond_to?(:course_section_visibility)
+        @context.course_section_visibility(@current_user)
+      else
+        :none
+      end
+
+    sections =
+      case section_visibilities
+      when :none
+        []
+      when :all
+        @context.course_sections.active.to_a
+      else
+        @context.course_sections.select { |s| s.active? && section_visibilities.include?(s.id) }
+      end
+
+    js_env SECTION_LIST: sections.map { |section|
+      {
+        id: section.id,
+        name: section.name,
+        start_at: section.start_at,
+        end_at: section.end_at,
+        override_course_and_term_dates: section.restrict_enrollments_to_section_dates
+      }
+    }
   end
 end

@@ -103,6 +103,38 @@ describe SubmissionLifecycleManager do
         .and_return(@instance)
       SubmissionLifecycleManager.recompute(@assignment)
     end
+
+    context "discussion_checkpoints" do
+      before do
+        Account.site_admin.enable_feature!(:discussion_checkpoints)
+        topic = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+        @c1 = Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: topic,
+          checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+          dates: [{ type: "everyone", due_at: 1.week.from_now }],
+          points_possible: 5
+        )
+
+        @c2 = Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: topic,
+          checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+          dates: [{ type: "everyone", due_at: 2.weeks.from_now }],
+          points_possible: 10,
+          replies_required: 2
+        )
+        @topic_assignment = topic.assignment
+      end
+
+      it "makes singletons use SubAssignment for sub_assignments" do
+        expect(SubmissionLifecycleManager).to receive(:new).with(@course, [@c1.id], hash_including(update_grades: true))
+                                                           .and_return(@instance)
+        expect(@instance).to receive(:delay_if_production)
+          .with(singleton: "cached_due_date:calculator:SubAssignment:#{@c1.global_id}:UpdateGrades:1",
+                strand: "cached_due_date:calculator:Course:#{@course.global_id}",
+                max_attempts: 10).and_return(@instance)
+        SubmissionLifecycleManager.recompute(@c1, update_grades: true)
+      end
+    end
   end
 
   describe ".recompute_course" do
@@ -259,7 +291,7 @@ describe SubmissionLifecycleManager do
       let!(:student_1) { @student }
       let(:student_2) { student_in_course(course: @course) }
       let(:student_ids) { [student_1.id, student_2.id] }
-      let(:instance) { instance_double("SubmissionLifecycleManager", recompute: nil) }
+      let(:instance) { instance_double(SubmissionLifecycleManager, recompute: nil) }
 
       it "delegates to an instance" do
         expect(SubmissionLifecycleManager).to receive(:new).and_return(instance)
@@ -363,7 +395,7 @@ describe SubmissionLifecycleManager do
     let(:other_student) { User.create! }
     let(:course) { Course.create! }
     let(:assignment) { course.assignments.create!(title: "hi") }
-    let(:instance) { instance_double("SubmissionLifecycleManager", recompute: nil) }
+    let(:instance) { instance_double(SubmissionLifecycleManager, recompute: nil) }
 
     it "accepts a User" do
       expect do

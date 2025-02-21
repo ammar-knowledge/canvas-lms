@@ -22,6 +22,7 @@ class SisBatchRollBackData < ActiveRecord::Base
   belongs_to :context, polymorphic: %i[abstract_course
                                        account
                                        account_user
+                                       assignment_override_student
                                        communication_channel
                                        course
                                        course_section
@@ -34,6 +35,7 @@ class SisBatchRollBackData < ActiveRecord::Base
                                        user_observer]
 
   scope :expired_data, -> { where(created_at: ...30.days.ago) }
+  scope :not_expired, -> { where(created_at: 30.days.ago..) }
   scope :active, -> { where(workflow_state: "active") }
   scope :restored, -> { where(workflow_state: "restored") }
 
@@ -49,7 +51,8 @@ class SisBatchRollBackData < ActiveRecord::Base
                      Enrollment
                      GroupMembership
                      UserObserver
-                     AccountUser].freeze
+                     AccountUser
+                     AssignmentOverrideStudent].freeze
 
   def self.cleanup_expired_data
     expired_data.in_batches(of: 10_000).delete_all

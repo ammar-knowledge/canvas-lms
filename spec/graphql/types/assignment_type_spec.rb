@@ -47,8 +47,8 @@ describe Types::AssignmentType do
     expect(assignment_type.resolve("onlyVisibleToOverrides")).to eq assignment.only_visible_to_overrides
     expect(assignment_type.resolve("assignmentGroup { _id }")).to eq assignment.assignment_group.id.to_s
     expect(assignment_type.resolve("allowedExtensions")).to eq assignment.allowed_extensions
-    expect(assignment_type.resolve("createdAt").to_datetime).to eq assignment.created_at.to_s.to_datetime
-    expect(assignment_type.resolve("updatedAt").to_datetime).to eq assignment.updated_at.to_s.to_datetime
+    expect(Time.iso8601(assignment_type.resolve("createdAt")).to_i).to eq assignment.created_at.to_i
+    expect(Time.iso8601(assignment_type.resolve("updatedAt")).to_i).to eq assignment.updated_at.to_i
     expect(assignment_type.resolve("gradeGroupStudentsIndividually")).to eq assignment.grade_group_students_individually
     expect(assignment_type.resolve("originalityReportVisibility")).to eq assignment.turnitin_settings[:originality_report_visibility]
     expect(assignment_type.resolve("anonymousGrading")).to eq assignment.anonymous_grading
@@ -62,6 +62,17 @@ describe Types::AssignmentType do
     expect(assignment_type.resolve("postManually")).to eq assignment.post_manually?
     expect(assignment_type.resolve("published")).to eq assignment.published?
     expect(assignment_type.resolve("importantDates")).to eq assignment.important_dates
+  end
+
+  describe "graded_submissions_exist" do
+    it "returns true when graded submissions exist" do
+      assignment.grade_student(student, grade: 5, grader: teacher)
+      expect(assignment_type.resolve("gradedSubmissionsExist")).to be true
+    end
+
+    it "returns false when no graded submissions exist" do
+      expect(assignment_type.resolve("gradedSubmissionsExist")).to be false
+    end
   end
 
   it_behaves_like "types with enumerable workflow states" do
@@ -170,6 +181,30 @@ describe Types::AssignmentType do
     end
   end
 
+  describe "rubric self assessments" do
+    before do
+      rubric_for_course
+      rubric_association_model(context: course, rubric: @rubric, association_object: assignment, purpose: "grading")
+      course.enable_feature!(:enhanced_rubrics)
+      course.enable_feature!(:platform_service_speedgrader)
+      course.root_account.enable_feature!(:rubric_self_assessment)
+      assignment.update(rubric_self_assessment_enabled: true)
+    end
+
+    it "returns rubric self assessment enabled" do
+      expect(assignment_type.resolve("rubricSelfAssessmentEnabled")).to be true
+    end
+
+    it "returns can_update_rubric_self_assessment" do
+      expect(assignment_type.resolve("canUpdateRubricSelfAssessment")).to be true
+    end
+
+    it "returns can_update_rubric_self_assessment false if the due dates have passed" do
+      assignment.update(due_at: 1.day.ago)
+      expect(assignment_type.resolve("canUpdateRubricSelfAssessment")).to be false
+    end
+  end
+
   it "works with moderated grading" do
     assignment.moderated_grading = true
     assignment.grader_count = 1
@@ -189,7 +224,7 @@ describe Types::AssignmentType do
     assignment.save!
     expect(assignment_type.resolve("peerReviews { enabled }")).to eq assignment.peer_reviews
     expect(assignment_type.resolve("peerReviews { count }")).to eq assignment.peer_review_count
-    expect(assignment_type.resolve("peerReviews { dueAt }").to_datetime).to eq assignment.peer_reviews_due_at.to_s.to_datetime
+    expect(Time.iso8601(assignment_type.resolve("peerReviews { dueAt }")).to_i).to eq assignment.peer_reviews_due_at.to_i
     expect(assignment_type.resolve("peerReviews { intraReviews }")).to eq assignment.intra_group_peer_reviews
     expect(assignment_type.resolve("peerReviews { anonymousReviews }")).to eq assignment.anonymous_peer_reviews
     expect(assignment_type.resolve("peerReviews { automaticReviews }")).to eq assignment.automatic_peer_reviews
@@ -765,7 +800,6 @@ describe Types::AssignmentType do
     end
 
     it "works for Course tags" do
-      Account.site_admin.enable_feature!(:selective_release_backend)
       assignment.assignment_overrides.create!(set: course)
 
       expect(
@@ -940,7 +974,7 @@ describe Types::AssignmentType do
           query = GraphQLTypeTester.new(@topic.assignment, current_user: student)
 
           expect(query.resolve("checkpoints {pointsPossible}")).to eq [10]
-          expect(query.resolve("checkpoints {dueAt}")).to eq [@everyone_due_at.iso8601]
+          expect(query.resolve("checkpoints {dueAt}")).to eq [@section_due_at.iso8601]
           expect(query.resolve("checkpoints {assignmentOverrides {nodes {dueAt}}}")).to eq [[@section_due_at.iso8601]]
         end
       end
@@ -990,6 +1024,311 @@ describe Types::AssignmentType do
         expect(query.resolve("mySubAssignmentSubmissionsConnection {nodes {userId}}")).to match_array [student.id.to_s, student.id.to_s]
         expect(query.resolve("mySubAssignmentSubmissionsConnection {nodes {subAssignmentTag}}")).to match_array [CheckpointLabels::REPLY_TO_TOPIC, CheckpointLabels::REPLY_TO_ENTRY]
         expect(query.resolve("mySubAssignmentSubmissionsConnection {nodes {submissionStatus}}")).to match_array ["unsubmitted", "unsubmitted"]
+      end
+    end
+  end
+
+  describe "sub_assignment_submissions" do
+    context "when feature flag is enabled" do
+      before do
+        course.root_account.enable_feature!(:discussion_checkpoints)
+        @topic = DiscussionTopic.create_graded_topic!(course:, title: "Checkpointed Discussion")
+        @topic.reply_to_entry_required_count = 2
+        @topic.save!
+        @assignment = @topic.assignment
+        @assignment.update!(has_sub_assignments: true)
+        @c1 = @assignment.sub_assignments.create!(context: course, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC, points_possible: 5, due_at: 3.days.from_now)
+        @c2 = @assignment.sub_assignments.create!(context: course, sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY, points_possible: 10, due_at: 5.days.from_now)
+        @other_student = student_in_course(course:, active_all: true).user
+      end
+
+      it "sub_submissions return correct submissions corresponding to the sub assignments" do
+        root_entry = @topic.discussion_entries.create!(user: student, message: "my reply to topic")
+        2.times { |i| @topic.discussion_entries.create!(user: student, message: "my child reply #{i}", parent_entry: root_entry) }
+        @topic.discussion_entries.create!(user: @other_student, message: "other student reply to topic")
+
+        query = GraphQLTypeTester.new(@assignment, current_user: teacher)
+
+        expect(query.resolve("submissionsConnection {nodes {subAssignmentSubmissions {assignmentId}}}")).to match_array [[@c1.id.to_s, @c2.id.to_s]]
+      end
+    end
+  end
+
+  describe "supportsGradeByQuestion" do
+    it "returns false when the assignment does not support grade by question" do
+      expect(assignment_type.resolve("supportsGradeByQuestion")).to be false
+    end
+
+    it "returns true when the assignment supports grade by question" do
+      assignment.update!(submission_types: "online_quiz")
+      expect(assignment_type.resolve("supportsGradeByQuestion")).to be true
+    end
+  end
+
+  describe "gradeByQuestionEnabled" do
+    context "when the assignment does not support grade by question" do
+      it "returns false, even if the user's preference is set to true" do
+        teacher.update!(preferences: { enable_speedgrader_grade_by_question: true })
+        expect(teacher_assignment_type.resolve("gradeByQuestionEnabled")).to be false
+      end
+
+      it "returns false when the user's preference is set to false" do
+        expect(teacher_assignment_type.resolve("gradeByQuestionEnabled")).to be false
+      end
+    end
+
+    context "when the assignment supports grade by question" do
+      before do
+        assignment.update!(submission_types: "online_quiz")
+      end
+
+      it "returns true when the user's preference is set to true" do
+        teacher.update!(preferences: { enable_speedgrader_grade_by_question: true })
+        expect(teacher_assignment_type.resolve("gradeByQuestionEnabled")).to be true
+      end
+
+      it "returns false when the user's preference is set to false" do
+        expect(teacher_assignment_type.resolve("gradeByQuestionEnabled")).to be false
+      end
+    end
+  end
+
+  describe "submission stats" do
+    let_once(:student2) { student_in_course(course:, active_all: true).user }
+    let(:assignment2) do
+      course.assignments.create(title: "another assignment",
+                                points_possible: 10,
+                                submission_types: ["online_text_entry"],
+                                workflow_state: "published")
+    end
+    let(:teacher_assignment2_type) { GraphQLTypeTester.new(assignment2, current_user: teacher) }
+
+    before do
+      assignment.submit_homework(student, { body: "submission 1", submission_type: "online_text_entry" })
+      assignment.submit_homework(student2, { body: "submission 2", submission_type: "online_text_entry" })
+    end
+
+    context "total_submissions" do
+      context "when user has permissions to manage assignments" do
+        it "returns the total submissions for an assignment" do
+          expect(teacher_assignment_type.resolve("totalSubmissions")).to eq 2
+        end
+
+        it "calculates properly the total submissions for an assignment" do
+          assignment2.submit_homework(student, { body: "submission 1, assignment 2", submission_type: "online_text_entry" })
+          expect(teacher_assignment2_type.resolve("totalSubmissions")).to eq 1
+        end
+      end
+
+      context "when user does not have permissions to manage assignments" do
+        it "returns nil" do
+          expect(assignment_type.resolve("totalSubmissions")).to be_nil
+        end
+      end
+    end
+
+    context "total_graded_submissions" do
+      before do
+        assignment.grade_student(student, grade: 5, grader: teacher)
+      end
+
+      context "when user has permissions to manage assignments" do
+        it "returns the total graded submissions for an assignment" do
+          expect(teacher_assignment_type.resolve("totalGradedSubmissions")).to eq 1
+        end
+
+        it "calculates properly the total graded submissions for an assignment" do
+          assignment2.submit_homework(student, { body: "submission 1, assignment 2", submission_type: "online_text_entry" })
+          assignment2.grade_student(student, grade: 5, grader: teacher)
+          expect(teacher_assignment2_type.resolve("totalGradedSubmissions")).to eq 1
+        end
+      end
+
+      context "when user does not have permissions to manage assignments" do
+        it "returns nil" do
+          expect(assignment_type.resolve("totalGradedSubmissions")).to be_nil
+        end
+      end
+    end
+  end
+
+  describe "assignmentTargetConnection" do
+    before(:once) do
+      @overridden_assignment = course.assignments.create!(title: "assignment with overrides",
+                                                          workflow_state: "published",
+                                                          due_at: 5.weeks.from_now)
+
+      @override1 = assignment_override_model(assignment: @overridden_assignment,
+                                             title: "First override",
+                                             due_at: 2.weeks.from_now,
+                                             unlock_at: 1.week.from_now,
+                                             lock_at: 3.weeks.from_now)
+      @override1.assignment_override_students.build(user: student)
+      @override1.save!
+
+      @override2 = assignment_override_model(assignment: @overridden_assignment,
+                                             title: "Second override",
+                                             due_at: 3.weeks.from_now,
+                                             unlock_at: 2.weeks.from_now,
+                                             lock_at: 4.weeks.from_now)
+
+      @override2.assignment_override_students.build(user: student2)
+      @override2.save!
+    end
+
+    let_once(:student2) { student_in_course(course:, active_all: true).user }
+    let(:overridden_assignment_type) { GraphQLTypeTester.new(@overridden_assignment, current_user: teacher) }
+    let(:student_overridden_assignment_type) { GraphQLTypeTester.new(@overridden_assignment, current_user: student) }
+
+    def create_context_module_and_override_adhoc(context: @course, assignment: @overridden_assignment, name: "Module 1", student: student2)
+      context_module = context.context_modules.create!(name:)
+      assignment.context_module_tags.create! context_module:, context:, tag_type: "context_module"
+      module_override = context_module.assignment_overrides.create! title: "1 Student"
+      override_student = module_override.assignment_override_students.build
+      override_student.user = student
+      override_student.save!
+      module_override
+    end
+
+    def format_timestamps(timestamp)
+      timestamp.map { |t| t&.strftime("%Y-%m-%dT%H:%M:%SZ") } # rubocop:disable Specs/NoStrftime
+    end
+
+    def sorted_results(field, sort_by, direction = "ascending")
+      overridden_assignment_type.resolve(
+        "assignmentTargetConnection (orderBy: { field: #{sort_by}, direction: #{direction} }) { edges { node { #{field} } } }"
+      )
+    end
+
+    def paginated_results(field, first = 1)
+      overridden_assignment_type.resolve(
+        "assignmentTargetConnection (first: #{first}) { edges { node { #{field} } } }"
+      )
+    end
+
+    def paginated_results_next_page(first = 1)
+      overridden_assignment_type.resolve(
+        "assignmentTargetConnection (first: #{first}) { pageInfo { hasNextPage } }"
+      )
+    end
+
+    def expect_error(result, message)
+      errors = result["errors"] || result.dig("data", "assignmentTargetConnection", "errors")
+      expect(errors).not_to be_nil
+      expect(errors[0]["message"]).to match(message)
+    end
+
+    context "when user has permissions to manage assignments" do
+      it "returns assignment overrides for the assignment" do
+        expect(overridden_assignment_type.resolve(
+                 "assignmentTargetConnection { edges { node { title } } }"
+               )).to match_array([@override1.title, @override2.title])
+      end
+
+      it "returns module overrides for the assignment" do
+        module_override = create_context_module_and_override_adhoc
+        expect(overridden_assignment_type.resolve(
+                 "assignmentTargetConnection { edges { node { title } } }"
+               )).to match_array([@override1.title, @override2.title, module_override.title])
+      end
+
+      it "returns only active overrides for the assignment" do
+        @override2.assignment_override_students.first.delete
+        @override2.delete
+        expect(overridden_assignment_type.resolve(
+                 "assignmentTargetConnection { edges { node { title } } }"
+               )).to match_array([@override1.title])
+      end
+
+      context "sorting" do
+        it "sorts by title in ascending order" do
+          expect(sorted_results("title", "title")).to eq([@override1.title, @override2.title])
+        end
+
+        it "sorts by title in descending order" do
+          expect(sorted_results("title", "title", "descending")).to eq([@override2.title, @override1.title])
+        end
+
+        it "sorts by due_at in ascending order" do
+          expect(sorted_results("dueAt", "due_at")).to eq(format_timestamps([@override1.due_at, @override2.due_at]))
+        end
+
+        it "sorts by due_at in descending order" do
+          expect(sorted_results("dueAt", "due_at", "descending")).to eq(format_timestamps([@override2.due_at, @override1.due_at]))
+        end
+
+        it "sorts by unlock_at in ascending order" do
+          expect(sorted_results("unlockAt", "unlock_at")).to eq(format_timestamps([@override1.unlock_at, @override2.unlock_at]))
+        end
+
+        it "sorts by unlock_at in descending order" do
+          expect(sorted_results("unlockAt", "unlock_at", "descending")).to eq(format_timestamps([@override2.unlock_at, @override1.unlock_at]))
+        end
+
+        it "sorts by lock_at in ascending order" do
+          expect(sorted_results("lockAt", "lock_at")).to eq(format_timestamps([@override1.lock_at, @override2.lock_at]))
+        end
+
+        it "sorts by lock_at in descending order" do
+          expect(sorted_results("lockAt", "lock_at", "descending")).to eq(format_timestamps([@override2.lock_at, @override1.lock_at]))
+        end
+
+        it "orders NULL values at the end if descending order" do
+          expect(sorted_results("lockAt", "lock_at", "descending")).to eq(format_timestamps([@override2.lock_at, @override1.lock_at]))
+          @override2.lock_at = nil
+          @override2.save!
+          expect(sorted_results("lockAt", "lock_at", "descending")).to eq(format_timestamps([@override1.lock_at, @override2.lock_at]))
+        end
+
+        context "argument validation" do
+          it "raises graphql error if sort field is invalid" do
+            expect { sorted_results("title", "invalid_sort_field") }.to raise_error(GraphQLTypeTester::Error)
+          end
+
+          it "raises graphql error if sort direction is invalid" do
+            expect { sorted_results("title", "title", "invalid_sort_direction") }.to raise_error(GraphQLTypeTester::Error)
+          end
+        end
+      end
+
+      context "pagination" do
+        it "paginates results" do
+          expect(paginated_results("title", 1).length).to eq 1
+          expect(paginated_results_next_page(1)).to be true
+          expect(paginated_results("title", 2).length).to eq 2
+          expect(paginated_results_next_page(2)).to be false
+        end
+      end
+    end
+
+    context "when user does not have permissions to manage assignments" do
+      it "returns nil" do
+        expect(student_overridden_assignment_type.resolve(
+                 "assignmentTargetConnection { edges { node { title } } }"
+               )).to be_nil
+      end
+    end
+
+    context "anonymous_student_identities" do
+      context "when user does not have manage_grades permission" do
+        let(:context) { { current_user: student } }
+
+        it "returns null in place of the PostPolicy" do
+          resolver = GraphQLTypeTester.new(assignment, context)
+          expect(resolver.resolve("anonymousStudentIdentities {anonymousId}")).to be_nil
+        end
+      end
+
+      context "when user has manage_grades permission" do
+        let(:context) { { current_user: teacher } }
+        let(:resolver) { GraphQLTypeTester.new(assignment, context) }
+
+        it "returns the anonymous student identities for the assignment" do
+          assignment.anonymous_grading = true
+          assignment.save!
+          result = resolver.resolve("anonymousStudentIdentities {anonymousId}")
+          expect(result).to match_array(assignment.submissions.pluck(:anonymous_id))
+        end
       end
     end
   end

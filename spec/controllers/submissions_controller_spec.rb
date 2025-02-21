@@ -756,6 +756,27 @@ describe SubmissionsController do
         expect(response).to redirect_to(/[?&]submitted=2/)
       end
     end
+
+    it "returns redirect_url if should_redirect_to_assignment is true" do
+      course_with_student_logged_in(active_all: true)
+
+      assignment = @course.assignments.create!(
+        title: "some assignment",
+        submission_types: "online_url"
+      )
+
+      post "create",
+           params: {
+             course_id: @course.id,
+             assignment_id: assignment.id,
+             submission: { submission_type: "online_url", url: "url" },
+             should_redirect_to_assignment: true
+           },
+           format: "json"
+
+      json = response.parsed_body
+      expect(json["redirect_url"]).to include("/courses/#{@course.id}/assignments/#{assignment.id}?submitted=")
+    end
   end
 
   describe "GET zip" do
@@ -846,6 +867,87 @@ describe SubmissionsController do
       submission = Submission.find(@submission.id)
       expect(submission.read?(@student)).to be_falsey
       expect(submission.read?(@teacher)).to be_falsey
+    end
+
+    it "mark sub assignment submissions as read if reading parent assignment one's own submission" do
+      @course.root_account.enable_feature!(:discussion_checkpoints)
+      user_session(@student)
+      request.accept = Mime[:json].to_s
+
+      discussion_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "late discussion")
+      due_at = 1.week.from_now
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic:,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: }],
+        points_possible: 20
+      )
+
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic:,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "everyone", due_at: }],
+        points_possible: 10,
+        replies_required: 1
+      )
+
+      entry = discussion_topic.discussion_entries.create!(user: @student)
+      sub_entry = discussion_topic.discussion_entries.build
+      sub_entry.parent_id = entry.id
+      sub_entry.user_id = @student.id
+      sub_entry.save!
+      @submission.mark_unread(@student)
+      @submission.save!
+      checkpointed_assignment = Assignment.last
+      reply_to_topic = checkpointed_assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+      reply_to_entry = checkpointed_assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY)
+      reply_to_topic.grade_student(@student, grade: 15, grader: @teacher)
+      reply_to_entry.grade_student(@student, grade: 10, grader: @teacher)
+
+      expect(checkpointed_assignment.submissions.find_by(user: @student).unread?(@student)).to be_truthy
+      expect(reply_to_topic.submissions.find_by(user: @student).unread?(@student)).to be_truthy
+      expect(reply_to_entry.submissions.find_by(user: @student).unread?(@student)).to be_truthy
+
+      get :show, params: { course_id: @course.id, assignment_id: checkpointed_assignment.id, id: @student.id }, format: :json
+      expect(response).to be_successful
+
+      expect(checkpointed_assignment.submissions.find_by(user: @student).read?(@student)).to be_truthy
+      expect(reply_to_topic.submissions.find_by(user: @student).read?(@student)).to be_truthy
+      expect(reply_to_entry.submissions.find_by(user: @student).read?(@student)).to be_truthy
+    end
+
+    it "contains assignment checkpoint sub-assignment information" do
+      @course.root_account.enable_feature!(:discussion_checkpoints)
+      user_session(@student)
+      request.accept = Mime[:json].to_s
+
+      discussion_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "discussion")
+      due_at = 1.week.from_now
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic:,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: }],
+        points_possible: 20
+      )
+
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic:,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "everyone", due_at: }],
+        points_possible: 10,
+        replies_required: 1
+      )
+
+      discussion_topic.discussion_entries.create!(user: @student)
+      checkpointed_assignment = Assignment.last
+      reply_to_topic = checkpointed_assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+      reply_to_entry = checkpointed_assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY)
+
+      get :show, params: { course_id: @course.id, assignment_id: checkpointed_assignment.id, id: @student.id }, format: :json
+      expect(response).to be_successful
+
+      expect(assigns["reply_to_topic_assignment"]).to eq reply_to_topic
+      expect(assigns["reply_to_entry_assignment"]).to eq reply_to_entry
     end
 
     it "renders json with scores for teachers for unposted submissions" do
@@ -1264,10 +1366,10 @@ describe SubmissionsController do
       }
     end
 
-    it "renders unauthorized if user does not have view_audit_trail permission" do
+    it "renders forbidden if user does not have view_audit_trail permission" do
       @teacher.account.role_overrides.where(permission: :view_audit_trail).destroy_all
       get :audit_events, params:, format: :json
-      expect(response).to have_http_status(:unauthorized)
+      expect(response).to have_http_status(:forbidden)
     end
 
     it "renders ok if user does have view_audit_trail permission" do

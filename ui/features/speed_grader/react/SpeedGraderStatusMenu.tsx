@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Menu} from '@instructure/ui-menu'
 import {IconEditLine} from '@instructure/ui-icons'
 import {IconButton} from '@instructure/ui-buttons'
@@ -26,7 +26,7 @@ import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import TimeLateInput from '@canvas/grading/TimeLateInput'
 import FriendlyDatetime from '@canvas/datetime/react/components/FriendlyDatetime'
 
-const I18n = useI18nScope('speed_grader')
+const I18n = createI18nScope('speed_grader')
 
 const initialStatusesMap: Map<string, string> = new Map([
   ['extended', I18n.t('Extended')],
@@ -73,7 +73,6 @@ export default function SpeedGraderStatusMenu({
       data = {excuse: true}
     } else if (newSelection === 'late') {
       data = {latePolicyStatus: newSelection, secondsLateOverride: secondsLate}
-      // eslint-disable-next-line no-restricted-globals
     } else if (!isNaN(parseInt(newSelection, 10))) {
       data = {customGradeStatusId: newSelection}
     }
@@ -143,6 +142,8 @@ export default function SpeedGraderStatusMenu({
               />
             ) : null}
           </div>
+          {/* fill up the space of the absolute positioned element */}
+          <div className="time-late-input-spacer" />
         </>
       )}
     </>

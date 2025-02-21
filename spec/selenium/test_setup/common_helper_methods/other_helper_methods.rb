@@ -56,7 +56,7 @@ module OtherHelperMethods
 
     page_view.summarized = summarized
     page_view.request_id = SecureRandom.hex(10)
-    page_view.created_at = opts[:created_at] || Time.now
+    page_view.created_at = opts[:created_at] || Time.zone.now
 
     if opts[:participated]
       page_view.participated = true
@@ -102,6 +102,13 @@ module OtherHelperMethods
     [filename, fullpath, data, @file]
   end
 
+  def get_permanent_file(filename)
+    @file = File.new(filename)
+    fullpath = File.path(@file)
+    filename = File.basename(@file)
+    [filename, fullpath, @file]
+  end
+
   module EncryptedCookieStoreTestSecret
     cattr_accessor :test_secret
 
@@ -141,6 +148,10 @@ module OtherHelperMethods
 
   def clear_local_storage
     driver.execute_script "localStorage.clear();"
+  end
+
+  def clear_session_storage
+    driver.execute_script "sessionStorage.clear();"
   end
 
   def scroll_height

@@ -16,10 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* eslint-disable no-void */
-
 import {extend} from '@canvas/backbone/utils'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import {each, filter, intersection, includes, without} from 'lodash'
 import * as tz from '@instructure/moment-utils'
@@ -30,10 +28,10 @@ import userSettingOptionsTemplate from '../../jst/userSettingOptions.handlebars'
 import authenticity_token from '@canvas/authenticity-token'
 import numberHelper from '@canvas/i18n/numberHelper'
 import '@canvas/jquery/jquery.instructure_forms'
-import {encodeQueryString} from '@canvas/query-string-encoding'
+import {encodeQueryString} from '@instructure/query-string-encoding'
 import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
 
-const I18n = useI18nScope('conferences')
+const I18n = createI18nScope('conferences')
 
 extend(EditConferenceView, DialogBaseView)
 
@@ -179,7 +177,7 @@ EditConferenceView.prototype.toJSON = function () {
 }
 
 EditConferenceView.prototype.updateConferenceUserSettingDetailsForConference = function (
-  conferenceData
+  conferenceData,
 ) {
   // make handlebars comparisons easy
   each(ENV.conference_type_details, function (conferenceInfo) {
@@ -240,14 +238,14 @@ EditConferenceView.prototype.renderConferenceFormUserSettings = function () {
       settings: userSettings,
       conference: conferenceData,
       conference_started: !!conferenceData.started_at,
-    })
+    }),
   )
   this.$('.web_conference_member_user_settings').html(
     userSettingOptionsTemplate({
       settings: members,
       conference: conferenceData,
       conference_started: !!conferenceData.started_at,
-    })
+    }),
   )
   return this.$('.date_entry').each(function () {
     if (!this.disabled) {
@@ -289,7 +287,7 @@ EditConferenceView.prototype.markInvitedSectionsAndGroups = function () {
           return el.prop('disabled', true)
         }
       }
-    })(this)
+    })(this),
   )
   each(
     ENV.groups,
@@ -304,7 +302,7 @@ EditConferenceView.prototype.markInvitedSectionsAndGroups = function () {
           return el.prop('disabled', true)
         }
       }
-    })(this)
+    })(this),
   )
 }
 
@@ -345,7 +343,7 @@ EditConferenceView.prototype.setupGroupAndSectionEventListeners = function () {
           })
         })
       }
-    })(this)
+    })(this),
   )
   each(
     ENV.sections,
@@ -366,7 +364,7 @@ EditConferenceView.prototype.setupGroupAndSectionEventListeners = function () {
           })
         })
       }
-    })(this)
+    })(this),
   )
 }
 

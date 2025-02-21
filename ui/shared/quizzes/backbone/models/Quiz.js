@@ -22,12 +22,12 @@ import Assignment from '@canvas/assignments/backbone/models/Assignment'
 import DateGroup from '@canvas/date-group/backbone/models/DateGroup'
 import AssignmentOverrideCollection from '@canvas/assignments/backbone/collections/AssignmentOverrideCollection'
 import DateGroupCollection from '@canvas/date-group/backbone/collections/DateGroupCollection'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import '@canvas/jquery/jquery.ajaxJSON'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
 import PandaPubPoller from '@canvas/panda-pub-poller'
 
-const I18n = useI18nScope('modelsQuiz')
+const I18n = createI18nScope('modelsQuiz')
 
 export default class Quiz extends Backbone.Model {
   initialize() {
@@ -202,7 +202,7 @@ export default class Quiz extends Backbone.Model {
   disabledMessage() {
     return I18n.t(
       'cant_unpublish_when_students_submit',
-      "Can't unpublish if there are student submissions"
+      "Can't unpublish if there are student submissions",
     )
   }
 
@@ -281,7 +281,7 @@ export default class Quiz extends Backbone.Model {
       `/api/v1/courses/${course_id}/assignments/${assignment_id}/duplicate`,
       'POST',
       {quizzes: [assignment_id], result_type: 'Quiz'},
-      callback
+      callback,
     )
   }
 
@@ -300,7 +300,7 @@ export default class Quiz extends Backbone.Model {
       `/api/v1/courses/${original_course_id}/assignments/${original_assignment_id}/duplicate${query_string}`,
       'POST',
       {},
-      callback
+      callback,
     )
   }
 
@@ -318,7 +318,7 @@ export default class Quiz extends Backbone.Model {
       `/api/v1/courses/${original_course_id}/assignments/${original_assignment_id}/retry_alignment_clone${query_string}`,
       'POST',
       {},
-      callback
+      callback,
     )
   }
 
@@ -330,7 +330,7 @@ export default class Quiz extends Backbone.Model {
       `/api/v1/courses/${course_id}/content_exports?export_type=quizzes2&quiz_id=${original_quiz_id}&include[]=migrated_quiz`,
       'POST',
       {},
-      callback
+      callback,
     )
   }
 
@@ -389,7 +389,7 @@ export default class Quiz extends Backbone.Model {
 
   isOnlyVisibleToOverrides(overrideFlag) {
     if (!(arguments.length > 0)) {
-      if (ENV.FEATURES?.selective_release_ui_api && this.get('visible_to_everyone') != null) {
+      if (this.get('visible_to_everyone') != null) {
         return !this.get('visible_to_everyone')
       }
       return this.get('only_visible_to_overrides') || false

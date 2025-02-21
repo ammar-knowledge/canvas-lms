@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import ReactDOM from 'react-dom'
+import ReactDOM from 'react-dom/client'
 import React from 'react'
 import {
   createBrowserRouter,
@@ -27,12 +27,10 @@ import {
 import {Spinner} from '@instructure/ui-spinner'
 import accountGradingSettingsRoutes from '../../features/account_grading_settings/routes/accountGradingSettingsRoutes'
 import {RubricRoutes} from '../../features/rubrics/routes/rubricRoutes'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {NewLoginRoutes} from '../../features/new_login/routes/NewLoginRoutes'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {QueryProvider} from '@canvas/query'
-import {
-  LearnerPassportLearnerRoutes,
-  LearnerPassportAdminRoutes,
-} from '../../features/learner_passport/routes/LearnerPassportRoutes'
+import {AUPRoutes} from '../../features/acceptable_use_policy/routes/AUPRoutes'
 
 const portalRouter = createBrowserRouter(
   createRoutesFromElements(
@@ -44,6 +42,30 @@ const portalRouter = createBrowserRouter(
       <Route
         path="/users/:userId/masquerade"
         lazy={() => import('../../features/act_as_modal/react/ActAsModalRoute')}
+      />
+      <Route
+        path="/users/:userId"
+        lazy={() => import('../../features/page_views/react/PageViewsRoute')}
+      />
+      <Route
+        path="/accounts/site_admin/release_notes"
+        lazy={() => import('../../features/release_notes_edit/react/ReleaseNotesEditRoute')}
+      />
+      <Route
+        path="/accounts/:accountId/settings"
+        lazy={() => import('../../features/account_settings/react/AccountSettingsRoute')}
+      />
+      <Route
+        path="/accounts/:accountId/users/:userId"
+        lazy={() => import('../../features/page_views/react/PageViewsRoute')}
+      />
+      <Route
+        path="/accounts"
+        lazy={() => import('../../features/account_manage/react/AccountListRoute')}
+      />
+      <Route
+        path="/courses/:courseId/settings/*"
+        lazy={() => import('@canvas/student-alerts/react/AlertListRoute')}
       />
 
       {accountGradingSettingsRoutes}
@@ -57,29 +79,31 @@ const portalRouter = createBrowserRouter(
           />
         ))}
 
+      {window.ENV.FEATURES.login_registration_ui_identity && NewLoginRoutes}
+
+      {AUPRoutes}
+
       {window.ENV.enhanced_rubrics_enabled && RubricRoutes}
 
-      {window.ENV.FEATURES.learner_passport && LearnerPassportLearnerRoutes}
-      {window.ENV.FEATURES.learner_passport && LearnerPassportAdminRoutes}
-
       <Route path="*" element={<></>} />
-    </Route>
-  )
+    </Route>,
+  ),
 )
+
+// ensure lazy evaluation at render time, preventing `I18n.t()` eager lookup violations
+export function FallbackSpinner() {
+  const I18n = createI18nScope('main')
+  return <Spinner renderTitle={I18n.t('Loading page')} data-testid="fallback-spinner" />
+}
 
 export function loadReactRouter() {
   const mountNode = document.querySelector('#react-router-portals')
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const I18n = useI18nScope('main')
   if (mountNode) {
-    ReactDOM.render(
+    const root = ReactDOM.createRoot(mountNode)
+    root.render(
       <QueryProvider>
-        <RouterProvider
-          router={portalRouter}
-          fallbackElement={<Spinner renderTitle={I18n.t('Loading page')} />}
-        />
+        <RouterProvider router={portalRouter} fallbackElement={<FallbackSpinner />} />
       </QueryProvider>,
-      mountNode
     )
   }
 }

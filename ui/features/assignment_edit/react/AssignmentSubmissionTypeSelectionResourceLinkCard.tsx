@@ -18,14 +18,14 @@
 
 import React from 'react'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import {CloseButton} from '@instructure/ui-buttons'
 
 import {LtiToolIcon} from '../../../shared/lti/react/LtiToolIcon'
 
-const I18n = useI18nScope('assignment_editview_external_tool')
+const I18n = createI18nScope('assignment_editview_external_tool')
 
 export type CardProps = {
   resourceTitle?: string
@@ -49,30 +49,24 @@ export function AssignmentSubmissionTypeSelectionResourceLinkCard(props: CardPro
       data-testid="assignment-submission-type-selection-resource-link-card"
       display="flex"
       position="relative"
-      padding="small 0"
+      padding="small"
       margin="small 0"
       borderColor="primary"
       borderRadius="medium"
       borderWidth="small"
       background="primary"
     >
-      <CloseButton
-        placement="end"
-        offset="small"
-        screenReaderLabel="Close"
-        onClick={onCloseButton}
-        data-testid="close-button"
-      />
-      <div style={{display: 'flex', alignItems: 'center'}}>
-        <LtiToolIcon tool={tool} />
-        <View>
-          <Text weight="bold" id="resource_title">
-            {resourceTitle || I18n.t('Unnamed Document')}
-          </Text>
-          <Text as="div" color="secondary" size="small" id="tool_title">
-            {tool.title}
-          </Text>
-        </View>
+      <LtiToolIcon tool={tool} />
+      <View overflowX="auto">
+        <Text weight="bold" id="resource_title" wrap="break-word">
+          {resourceTitle || I18n.t('Unnamed Document')}
+        </Text>
+        <Text as="div" color="secondary" size="small" id="tool_title">
+          {tool.title}
+        </Text>
+      </View>
+      <div style={{textAlign: 'right', flexGrow: 1}}>
+        <CloseButton screenReaderLabel="Close" onClick={onCloseButton} data-testid="close-button" />
       </div>
     </View>
   )

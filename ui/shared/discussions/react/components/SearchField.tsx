@@ -17,20 +17,21 @@
  */
 
 import React, {useRef, useEffect, useCallback, type RefObject} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {IconSearchLine} from '@instructure/ui-icons'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {TextInput} from '@instructure/ui-text-input'
 import {debounce} from 'lodash'
 import {DEFAULT_SEARCH_DELAY} from '../utils/constants'
 
-const I18n = useI18nScope('searchfiled')
+const I18n = createI18nScope('searchfiled')
 
 interface CustomTextInput extends TextInput {
   inputRef: RefObject<TextInput>
 }
 
 type Props = {
+  id: string
   name: string
   onSearchEvent: (data: {searchTerm: string}) => void
   searchInputRef?: (input: TextInput | null) => void
@@ -39,6 +40,7 @@ type Props = {
 }
 
 export const SearchField: React.FC<Props> = ({
+  id,
   name,
   onSearchEvent,
   searchInputRef,
@@ -56,9 +58,9 @@ export const SearchField: React.FC<Props> = ({
       {
         leading: false,
         trailing: true,
-      }
+      },
     ),
-    [onSearchEvent]
+    [onSearchEvent],
   )
 
   const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -93,6 +95,7 @@ export const SearchField: React.FC<Props> = ({
       ref={handleRef}
       onChange={handleSearch}
       name={name}
+      id={id}
     />
   )
 }

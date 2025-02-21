@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
@@ -75,7 +76,7 @@ const ExternalIdField = ({currentValue, id, label, portalSelector}) => {
         />
       </td>
     </>,
-    document.querySelector(portalSelector)
+    document.querySelector(portalSelector),
   )
 }
 
@@ -131,10 +132,10 @@ const ExternalIds = ({integrationIdLabel, jqInterface, sisUserIdLabel}: External
 }
 
 const sisUserIdEl = document.querySelector(
-  '[data-external-placeholder="sis-user-id"]'
+  '[data-external-placeholder="sis-user-id"]',
 ) as HTMLElement
 const integrationIdEl = document.querySelector(
-  '[data-external-placeholder="integration-id"]'
+  '[data-external-placeholder="integration-id"]',
 ) as HTMLElement
 
 ReactDOM.render(
@@ -143,5 +144,5 @@ ReactDOM.render(
     sisUserIdLabel={sisUserIdEl?.dataset?.label}
     integrationIdLabel={integrationIdEl?.dataset?.label}
   />,
-  document.querySelector('[data-react-component="external-ids"]')
+  document.querySelector('[data-react-component="external-ids"]'),
 )

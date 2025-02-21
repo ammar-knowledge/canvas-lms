@@ -40,7 +40,7 @@ import {
   IconQuestionLine,
   IconXLine,
 } from '@instructure/ui-icons'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import HelpDialog from '@canvas/help-dialog'
 import {Link} from '@instructure/ui-link'
 import CoursesList from './lists/CoursesList'
@@ -54,7 +54,7 @@ import {filterAndProcessTools, getExternalApps, type ProcessedTool} from './util
 import {SVGIcon} from '@instructure/ui-svg-images'
 import {Img} from '@instructure/ui-img'
 
-const I18n = useI18nScope('MobileGlobalMenu')
+const I18n = createI18nScope('MobileGlobalMenu')
 
 type Props = {
   onDismiss: () => void
@@ -63,7 +63,7 @@ type Props = {
 export default function MobileGlobalMenu(props: Props) {
   const showGroups = useMemo(() => Boolean(document.getElementById('global_nav_groups_link')), [])
   const countsEnabled = Boolean(
-    window.ENV.current_user_id && !window.ENV.current_user?.fake_student
+    window.ENV.current_user_id && !window.ENV.current_user?.fake_student,
   )
   const k5User = window.ENV.K5_USER
   const showAdmin =
@@ -82,7 +82,7 @@ export default function MobileGlobalMenu(props: Props) {
   })
   const processedTools = useMemo(
     () => filterAndProcessTools(externalToolsData || []),
-    [externalToolsData]
+    [externalToolsData],
   )
 
   const {data: unreadConversationsCount, isSuccess: unreadConversationsCountHasLoaded} = useQuery({

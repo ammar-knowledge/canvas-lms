@@ -18,7 +18,7 @@
 
 import {z} from 'zod'
 import {executeQuery} from '@canvas/query/graphql'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 export const DELETE_SUBMISSION_COMMENT = gql`
   mutation DeleteSubmissionComment($submissionCommentId: ID!) {
@@ -45,7 +45,7 @@ export const ZDeleteSubmissionCommentParams = z.object({
 })
 
 export const deleteSubmissionComment = async (
-  params: z.infer<typeof ZDeleteSubmissionCommentParams>
+  params: z.infer<typeof ZDeleteSubmissionCommentParams>,
 ) => {
   return executeQuery(DELETE_SUBMISSION_COMMENT, params)
 }

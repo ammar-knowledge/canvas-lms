@@ -29,11 +29,11 @@ import {
 } from './types'
 import useFetchApi from '@canvas/use-fetch-api-hook'
 import {showFlashError} from '@canvas/alerts/react/FlashAlert'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('temporary_enrollment')
+const I18n = createI18nScope('temporary_enrollment')
 
-interface Props {
+export interface ManageTempEnrollButtonProps {
   user: {
     id: string
     name: string
@@ -44,7 +44,7 @@ interface Props {
   rolePermissions: RolePermissions
 }
 
-function ManageTempEnrollButton(props: Props) {
+function ManageTempEnrollButton(props: ManageTempEnrollButtonProps) {
   const [isProvider, setIsProvider] = useState(false)
   const [editMode, setEditMode] = useState(false)
 
@@ -53,17 +53,16 @@ function ManageTempEnrollButton(props: Props) {
   }, [])
 
   useFetchApi(
-    // @ts-ignore - this hook isn't ts-ified
     {
       path: `/api/v1/users/${props.user.id}/temporary_enrollment_status`,
       ...(ENV.ACCOUNT_ID !== ENV.ROOT_ACCOUNT_ID && {params: {account_id: ENV.ACCOUNT_ID}}),
       success: setProvider,
       error: useCallback(
         () => showFlashError(I18n.t('Failed to fetch temporary enrollment data')),
-        []
+        [],
       ),
     },
-    [props.user.id]
+    [props.user.id],
   )
 
   function toggleEditMode() {
@@ -85,6 +84,7 @@ function ManageTempEnrollButton(props: Props) {
         <Button
           onClick={toggleEditMode}
           textAlign="start"
+          // @ts-expect-error
           renderIcon={IconCalendarClockLine}
           display="block"
           color="success"

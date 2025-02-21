@@ -52,6 +52,8 @@ shared_context "advantage services context" do
   let(:http_success_status) { :ok }
   let(:expected_mime_type) { described_class::MIME_TYPE }
   let(:content_type) { nil }
+  let(:request_method) { :get }
+  let(:body_overrides) { raise "Override in spec" }
 
   def apply_headers
     request.headers["Authorization"] = "Bearer #{access_token_jwt}" if access_token_jwt
@@ -60,7 +62,12 @@ shared_context "advantage services context" do
   end
 
   def send_http
-    get action, params: params_overrides
+    case request_method
+    when :get, :delete
+      send request_method, action, params: params_overrides
+    when :post, :put
+      send request_method, action, params: (body_overrides || {}).merge(params_overrides)
+    end
   end
 
   def send_request

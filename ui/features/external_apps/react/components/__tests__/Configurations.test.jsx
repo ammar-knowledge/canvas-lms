@@ -17,109 +17,78 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
-import TestUtils from 'react-dom/test-utils'
+import {render} from '@testing-library/react'
 import Configurations from '../Configurations'
 
-const ok = a => expect(a).toBeTruthy()
-const notOk = a => expect(a).toBeFalsy()
-
-const container = document.createElement('div')
-container.setAttribute('id', 'fixtures')
-document.body.appendChild(container)
-
-const wrapper = document.getElementById('fixtures')
-const createElement = (data = {}) => <Configurations {...data} />
-const renderComponent = (data = {}) => ReactDOM.render(createElement(data), wrapper)
-
 describe('ExternalApps.Configurations', () => {
-  afterEach(() => {
-    ReactDOM.unmountComponentAtNode(wrapper)
+  const renderComponent = (props = {}) => {
+    return render(<Configurations {...props} />)
+  }
+
+  it('renders', () => {
+    const {container} = renderComponent({env: {APP_CENTER: {enabled: true}}})
+    expect(container).toBeInTheDocument()
   })
 
-  test('renders', () => {
-    const component = renderComponent({env: {APP_CENTER: {enabled: true}}})
-    ok(component)
-    ok(TestUtils.isCompositeComponentWithType(component, Configurations))
-  })
-
-  test('canNotAddEdit', () => {
-    const component = renderComponent({
-      env: {
-        PERMISSIONS: {create_tool_manually: false},
-        APP_CENTER: {enabled: true},
-      },
+  describe('permissions', () => {
+    it('shows add button when add_tool_manually permission is true', () => {
+      const {getByRole} = renderComponent({
+        env: {
+          PERMISSIONS: {add_tool_manually: true},
+          APP_CENTER: {enabled: true},
+        },
+      })
+      expect(getByRole('button', {name: /add app/i})).toBeInTheDocument()
     })
-    notOk(component.canAddEdit())
-  })
 
-  test('canAddEdit', () => {
-    const component = renderComponent({
-      env: {
-        PERMISSIONS: {create_tool_manually: true},
-        APP_CENTER: {enabled: true},
-      },
+    it('hides add button when add_tool_manually permission is false', () => {
+      const {queryByRole} = renderComponent({
+        env: {
+          PERMISSIONS: {add_tool_manually: false},
+          APP_CENTER: {enabled: true},
+        },
+      })
+      expect(queryByRole('button', {name: /add app/i})).not.toBeInTheDocument()
     })
-    ok(component.canAddEdit())
-  })
 
-  test('canAdd', () => {
-    const component = renderComponent({
-      env: {
-        PERMISSIONS: {add_tool_manually: true},
-        APP_CENTER: {enabled: true},
-      },
+    it('shows external tools table when edit_tool_manually permission is true', () => {
+      const {getByTestId} = renderComponent({
+        env: {
+          PERMISSIONS: {edit_tool_manually: true},
+          APP_CENTER: {enabled: true},
+        },
+      })
+      expect(getByTestId('dev-key-admin-table')).toBeInTheDocument()
     })
-    ok(component.canAdd())
-  })
 
-  test('canNotAdd', () => {
-    const component = renderComponent({
-      env: {
-        PERMISSIONS: {add_tool_manually: false},
-        APP_CENTER: {enabled: true},
-      },
+    it('shows external tools table when edit_tool_manually permission is false', () => {
+      const {getByTestId} = renderComponent({
+        env: {
+          PERMISSIONS: {edit_tool_manually: false},
+          APP_CENTER: {enabled: true},
+        },
+      })
+      expect(getByTestId('dev-key-admin-table')).toBeInTheDocument()
     })
-    notOk(component.canAdd())
-  })
 
-  test('canEdit', () => {
-    const component = renderComponent({
-      env: {
-        PERMISSIONS: {edit_tool_manually: true},
-        APP_CENTER: {enabled: true},
-      },
+    it('shows external tools table when delete_tool_manually permission is true', () => {
+      const {getByTestId} = renderComponent({
+        env: {
+          PERMISSIONS: {delete_tool_manually: true},
+          APP_CENTER: {enabled: true},
+        },
+      })
+      expect(getByTestId('dev-key-admin-table')).toBeInTheDocument()
     })
-    ok(component.canEdit())
-  })
 
-  test('canNotEdit', () => {
-    const component = renderComponent({
-      env: {
-        PERMISSIONS: {edit_tool_manually: false},
-        APP_CENTER: {enabled: true},
-      },
+    it('shows external tools table when delete_tool_manually permission is false', () => {
+      const {getByTestId} = renderComponent({
+        env: {
+          PERMISSIONS: {delete_tool_manually: false},
+          APP_CENTER: {enabled: true},
+        },
+      })
+      expect(getByTestId('dev-key-admin-table')).toBeInTheDocument()
     })
-    notOk(component.canEdit())
-  })
-
-  test('canDelete', () => {
-    const component = renderComponent({
-      env: {
-        PERMISSIONS: {delete_tool_manually: true},
-        APP_CENTER: {enabled: true},
-      },
-    })
-    ok(component.canDelete())
-  })
-
-  test('canNotDelete', () => {
-    const component = renderComponent({
-      env: {
-        PERMISSIONS: {delete_tool_manually: false},
-        APP_CENTER: {enabled: true},
-      },
-    })
-    notOk(component.canDelete())
   })
 })

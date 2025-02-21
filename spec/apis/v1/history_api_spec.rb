@@ -122,6 +122,18 @@ describe HistoryController, type: :request do
         expect(json["error"]).to_not be_nil
       end
 
+      it "gracefully handles an empty response" do
+        allow(Api).to receive(:paginate).and_raise(PageView::Pv4Client::Pv4EmptyResponse)
+        json = api_call(:get,
+                        "/api/v1/users/self/history",
+                        controller: "history",
+                        action: "index",
+                        format: "json",
+                        user_id: "self",
+                        expected_status: :service_unavailable)
+        expect(json["error"]).to_not be_nil
+      end
+
       it "removes verifier from file preview url" do
         page_view_for url: "http://example.com/courses/X/files/A/file_preview?annotate=B&verifier=C",
                       context: @course,
@@ -157,7 +169,7 @@ describe HistoryController, type: :request do
                          { controller: "history", action: "index", format: "json", user_id: @student.to_param },
                          {},
                          {},
-                         { expected_status: 401 })
+                         { expected_status: 403 })
         UserObservationLink.create_or_restore(observer:, student: @student, root_account: Account.default)
         api_call_as_user(observer,
                          :get,
@@ -187,7 +199,7 @@ describe HistoryController, type: :request do
                          { controller: "history", action: "index", format: "json", user_id: @student.to_param },
                          {},
                          {},
-                         { expected_status: 401 })
+                         { expected_status: 403 })
       end
     end
 

@@ -18,10 +18,10 @@
 
 import React from 'react'
 import {Pill} from '@instructure/ui-pill'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import type {StatusPillState} from './types'
 
-const I18n = useI18nScope('content_migrations_redesign')
+const I18n = createI18nScope('content_migrations_redesign')
 export type Color = 'primary' | 'success' | 'danger' | 'info' | 'warning' | 'alert'
 
 export type StatusPillProps = {
@@ -49,7 +49,7 @@ export const getColor = ({workflowState, hasIssues}: StatusPillProps): Color => 
 export const StatusPill: React.FC<StatusPillProps> = props => {
   const color = getColor(props)
 
-  const {workflowState} = props
+  const {workflowState, hasIssues} = props
 
   let text = ''
   if (workflowState === 'queued') {
@@ -60,7 +60,9 @@ export const StatusPill: React.FC<StatusPillProps> = props => {
     text = I18n.t('Running')
   } else if (workflowState === 'failed') {
     text = I18n.t('Failed')
-  } else if (workflowState === 'completed') {
+  } else if (workflowState === 'completed' && hasIssues) {
+    text = I18n.t('Partially Completed')
+  } else if (workflowState === 'completed' && !hasIssues) {
     text = I18n.t('Completed')
   }
 

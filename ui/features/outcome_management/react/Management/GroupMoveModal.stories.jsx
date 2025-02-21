@@ -18,10 +18,10 @@
 
 import React from 'react'
 import GroupMoveModal from './GroupMoveModal'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
 import OutcomesContext from '@canvas/outcomes/react/contexts/OutcomesContext'
 import {smallOutcomeTree} from '@canvas/outcomes/mocks/Management'
-import {createCache} from '@canvas/apollo'
+import {createCache} from '@canvas/apollo-v3'
 
 export default {
   title: 'Examples/Outcomes/GroupMoveModal',

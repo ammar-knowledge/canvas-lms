@@ -20,25 +20,26 @@ import React from 'react'
 import {render, waitFor} from '@testing-library/react'
 import fetchMock from 'fetch-mock'
 import ManageTempEnrollButton from '../ManageTempEnrollButton'
+import type {ManageTempEnrollButtonProps} from '../ManageTempEnrollButton'
 
-const defaultProps = {
+const defaultProps: ManageTempEnrollButtonProps = {
   user: {
     id: '1',
     name: 'User',
   },
-  tempEnrollPermissions: {
-    canEdit: true,
-    canAdd: true,
-    canDelete: true,
-  },
-  can_read_sis: true,
-  roles: [],
-  enrollPerm: {
+  rolePermissions: {
     teacher: true,
     ta: true,
     student: true,
     observer: true,
     designer: true,
+  },
+  can_read_sis: true,
+  roles: [],
+  modifyPermissions: {
+    canEdit: true,
+    canAdd: true,
+    canDelete: true,
   },
 }
 

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import {View} from '@canvas/backbone'
 import {debounce} from 'lodash'
@@ -30,7 +30,7 @@ import React from 'react'
 import ReactDOM from 'react-dom'
 import GroupCategoryProgress from '../../react/GroupCategoryProgress'
 
-const I18n = useI18nScope('groups')
+const I18n = createI18nScope('groups')
 
 let _previousSearchTerm = ''
 export default class GroupCategoryView extends View {
@@ -151,7 +151,7 @@ export default class GroupCategoryView extends View {
     if (container != null) {
       ReactDOM.render(
         <GroupCategoryProgress progressPercent={this.model.progressModel.attributes.completion} />,
-        container
+        container,
       )
     }
   }
@@ -171,8 +171,8 @@ export default class GroupCategoryView extends View {
       this.model.get('allows_multiple_memberships')
         ? I18n.t('everyone', 'Everyone (%{count})', {count})
         : ENV.group_user_type === 'student'
-        ? I18n.t('unassigned_students', 'Unassigned Students (%{count})', {count})
-        : I18n.t('unassigned_users', 'Unassigned Users (%{count})', {count})
+          ? I18n.t('unassigned_students', 'Unassigned Students (%{count})', {count})
+          : I18n.t('unassigned_users', 'Unassigned Users (%{count})', {count}),
     )
   }
 

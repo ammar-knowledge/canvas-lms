@@ -18,7 +18,7 @@
 
 import React, {useCallback, useState} from 'react'
 import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import CanvasModal from '@canvas/instui-bindings/react/Modal'
 import {Button} from '@instructure/ui-buttons'
 import {RadioInputGroup, RadioInput} from '@instructure/ui-radio-input'
@@ -26,7 +26,7 @@ import {View} from '@instructure/ui-view'
 import {Flex} from '@instructure/ui-flex'
 import type {Which, CalendarEvent} from './types'
 
-const I18n = useI18nScope('calendar_event')
+const I18n = createI18nScope('calendar_event')
 
 type Props = {
   readonly event: CalendarEvent
@@ -40,12 +40,13 @@ const UpdateCalendarEventDialog = ({event, isOpen, onUpdate, onCancel}: Props) =
 
   const handleCancel = useCallback(
     (e = null) => {
+      // @ts-expect-error
       if (e?.code !== 'Escape' && e?.target.type === 'radio') {
         return
       }
       onCancel?.()
     },
-    [onCancel]
+    [onCancel],
   )
 
   const handleSubmit = useCallback(() => {
@@ -55,6 +56,7 @@ const UpdateCalendarEventDialog = ({event, isOpen, onUpdate, onCancel}: Props) =
   const renderFooter = useCallback((): JSX.Element => {
     return (
       <Flex as="section" justifyItems="end">
+        {/* @ts-expect-error */}
         <Button color="secondary" margin="0 small 0" onClick={handleCancel}>
           {I18n.t('Cancel')}
         </Button>
@@ -114,7 +116,7 @@ const renderUpdateCalendarEventDialog = (selectedEvent: CalendarEvent) => {
           resolve(which)
         }}
       />,
-      modalContainer as HTMLElement
+      modalContainer as HTMLElement,
     )
   })
   return whichPromise

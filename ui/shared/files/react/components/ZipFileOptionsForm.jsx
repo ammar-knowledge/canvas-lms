@@ -16,14 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import PropTypes from 'prop-types'
 import Modal from '@canvas/modal'
 import ModalContent from '@canvas/modal/react/content'
 import ModalButtons from '@canvas/modal/react/buttons'
 
-const I18n = useI18nScope('zip_file_options_form')
+const I18n = createI18nScope('zip_file_options_form')
 
 class ZipFileOptionsForm extends React.Component {
   static displayName = 'ZipFileOptionsForm'
@@ -47,7 +47,7 @@ class ZipFileOptionsForm extends React.Component {
       message = I18n.t(
         'message',
         'Would you like to expand the contents of "%{fileName}" into the current folder, or upload the zip file as is?',
-        {fileName: name}
+        {fileName: name},
       )
     }
     return message

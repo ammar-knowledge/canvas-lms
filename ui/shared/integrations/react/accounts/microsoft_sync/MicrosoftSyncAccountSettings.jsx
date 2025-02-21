@@ -22,7 +22,7 @@ import {Spinner} from '@instructure/ui-spinner'
 import {View} from '@instructure/ui-view'
 import {Button, IconButton} from '@instructure/ui-buttons'
 import {IconInfoLine, IconUploadLine} from '@instructure/ui-icons'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {Table} from '@instructure/ui-table'
 import LoginAttributeSelector from './components/LoginAttributeSelector'
@@ -35,7 +35,7 @@ import {Tooltip} from '@instructure/ui-tooltip'
 import LoginAttributeSuffixInput from './components/LoginAttributeSuffixInput'
 import ActiveDirectoryLookupAttributeSelector from './components/ActiveDirectoryLookupAttributeSelector'
 
-const I18n = useI18nScope('account_settings_jsx_bundle')
+const I18n = createI18nScope('account_settings_jsx_bundle')
 
 export default function MicrosoftSyncAccountSettings() {
   const [state, dispatch] = useSettings()
@@ -124,7 +124,7 @@ export default function MicrosoftSyncAccountSettings() {
                 <span>{I18n.t('Login Attribute')}</span>
                 <Tooltip
                   renderTip={I18n.t(
-                    'The attribute to use when associating a Canvas User with a Microsoft User'
+                    'The attribute to use when associating a Canvas User with a Microsoft User',
                   )}
                   placement="top"
                   on={['hover', 'focus']}
@@ -155,7 +155,7 @@ export default function MicrosoftSyncAccountSettings() {
                 <span>{I18n.t('Suffix')}</span>
                 <Tooltip
                   renderTip={I18n.t(
-                    'Not Required. If this is populated the entered text will be appended to the Login Attribute'
+                    'Not Required. If this is populated the entered text will be appended to the Login Attribute',
                   )}
                   on={['hover', 'focus']}
                 >
@@ -185,7 +185,7 @@ export default function MicrosoftSyncAccountSettings() {
                 <span>{I18n.t('Active Directory Lookup Attribute')}</span>
                 <Tooltip
                   renderTip={I18n.t(
-                    'The Active Directory attribute that will be used to match a Canvas user to a Microsoft user'
+                    'The Active Directory attribute that will be used to match a Canvas user to a Microsoft user',
                   )}
                   on={['hover', 'focus']}
                 >

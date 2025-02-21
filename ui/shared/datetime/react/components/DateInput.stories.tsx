@@ -19,8 +19,7 @@
 import React, {useCallback, useEffect, useState} from 'react'
 // I don't know why, but this import creates a tsc error in jenkins
 // saying @storybook/react cannot be found, even though it's ok locally.
-// @ts-ignore
-import {Story, Meta} from '@storybook/react'
+import type {Story, Meta} from '@storybook/react'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import CanvasDateInput, {type CanvasDateInputProps} from './DateInput'
@@ -65,14 +64,14 @@ const Template: Story<typeof CanvasDateInput> = (args: UnknownSubset<CanvasDateI
   const [locale, setLocale] = useState(args.locale || 'en')
   const [timezone, setTimezone] = useState(args.timezone || 'UTC')
   const [date, setDate] = useState<Date | null>(
-    args.selectedDate ? new Date(args.selectedDate) : null
+    args.selectedDate ? new Date(args.selectedDate) : null,
   )
 
   const [messages] = useState<FormMessage[]>([
     {type: 'hint', text: "Default date will be today's date"},
   ])
   const [dateFormatter, setDateFormatter] = useState<(date: Date) => string>(() =>
-    createDateFormatter(locale, timezone)
+    createDateFormatter(locale, timezone),
   )
 
   useEffect(() => {
@@ -106,7 +105,7 @@ const Template: Story<typeof CanvasDateInput> = (args: UnknownSubset<CanvasDateI
         setDateFormatterError(null)
       }
     },
-    []
+    [],
   )
 
   return (

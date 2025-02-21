@@ -92,14 +92,14 @@ describe UsersController, type: :request do
     get("/api/v1/users/self/todo")
     assert_status(401)
 
-    @course = factory_with_protected_attributes(Course, course_valid_attributes)
+    @course = Course.create!(course_valid_attributes)
     raw_api_call(:get,
                  "/api/v1/courses/#{@course.id}/todo",
                  controller: "courses",
                  action: "todo_items",
                  format: "json",
                  course_id: @course.to_param)
-    assert_status(401)
+    assert_forbidden
   end
 
   it "returns a global user todo list" do
@@ -239,6 +239,25 @@ describe UsersController, type: :request do
     @a2_json["assignment"]["needs_grading_count"] = 2
     update_assignment_json
     expect(strip_secure_params(json.first)).to eq strip_secure_params(@a2_json)
+  end
+
+  it "supports ignore for sub assignments" do
+    @teacher_course.root_account.enable_feature!(:discussion_checkpoints)
+    rtt, _ = graded_discussion_topic_with_checkpoints(context: @teacher_course)
+    student = @teacher_course.students.first
+    rtt.submit_homework(student, body: "checkpoint submission for #{student.name}")
+    api_call(:delete,
+             "/api/v1/users/self/todo/sub_assignment_#{rtt.id}/grading",
+             controller: "users",
+             action: "ignore_item",
+             format: "json",
+             purpose: "grading",
+             asset_string: "sub_assignment_#{rtt.id}",
+             permanent: "0")
+
+    expect(response).to be_successful
+    ignored_asset = Ignore.last.asset
+    expect(ignored_asset).to eq rtt
   end
 
   it "ignores excused assignments for students" do

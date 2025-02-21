@@ -36,8 +36,8 @@ describe "AuthenticationAudit API", type: :request do
     @page_view.user = @viewing_user
     @page_view.request_id = @request_id
     @page_view.remote_ip = "10.10.10.10"
-    @page_view.created_at = Time.now
-    @page_view.updated_at = Time.now
+    @page_view.created_at = Time.zone.now
+    @page_view.updated_at = Time.zone.now
     @page_view.save!
 
     @event = Auditors::Authentication.record(@pseudonym, "login")
@@ -330,22 +330,22 @@ describe "AuthenticationAudit API", type: :request do
       allow(LoadAccount).to receive(:default_domain_root_account).and_return(new_root_account)
       @user, @pseudonym, @viewing_user = @user, @pseudonym, user_with_pseudonym(account: new_root_account)
 
-      fetch_for_context(@pseudonym, expected_status: 401, type: "login")
-      fetch_for_context(@account, expected_status: 401)
-      fetch_for_context(@user, expected_status: 401)
+      fetch_for_context(@pseudonym, expected_status: 403, type: "login")
+      fetch_for_context(@account, expected_status: 403)
+      fetch_for_context(@user, expected_status: 403)
     end
 
     context "no permission on account" do
       it "does not authorize the login endpoint" do
-        fetch_for_context(@pseudonym, expected_status: 401, type: "login")
+        fetch_for_context(@pseudonym, expected_status: 403, type: "login")
       end
 
       it "does not authorize the account endpoint" do
-        fetch_for_context(@account, expected_status: 401)
+        fetch_for_context(@account, expected_status: 403)
       end
 
       it "does not authorize the user endpoint" do
-        fetch_for_context(@user, expected_status: 401)
+        fetch_for_context(@user, expected_status: 403)
       end
     end
 

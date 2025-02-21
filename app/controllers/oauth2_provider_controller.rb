@@ -20,11 +20,12 @@
 
 class OAuth2ProviderController < ApplicationController
   rescue_from Canvas::OAuth::RequestError, with: :oauth_error
-  protect_from_forgery except: %i[token destroy], with: :exception
+  protect_from_forgery with: :exception, unless: :skip_csrf?
   before_action :run_login_hooks, only: %i[token]
   skip_before_action :require_reacceptance_of_terms, only: %i[token destroy]
 
   include Lti::Concerns::ParentFrame # allow_trusted_tools_to_embed_this_page!
+  include Login::Shared
 
   def auth
     if params[:code] || params[:error]
@@ -36,7 +37,16 @@ class OAuth2ProviderController < ApplicationController
 
     scopes = (params[:scope] || params[:scopes] || "").split
 
-    provider = Canvas::OAuth::Provider.new(params[:client_id], params[:redirect_uri], scopes, params[:purpose])
+    provider = Canvas::OAuth::Provider.new(
+      params[:client_id],
+      params[:redirect_uri],
+      scopes,
+      params[:purpose],
+      pkce: {
+        code_challenge: params[:code_challenge],
+        code_challenge_method: params[:code_challenge_method]
+      }
+    )
 
     raise Canvas::OAuth::RequestError, :invalid_client_id unless provider.has_valid_key?
     raise Canvas::OAuth::RequestError, :invalid_redirect unless provider.has_valid_redirect?
@@ -106,6 +116,8 @@ class OAuth2ProviderController < ApplicationController
     if session[:oauth2]
       @provider = Canvas::OAuth::Provider.new(session[:oauth2][:client_id], session[:oauth2][:redirect_uri], session[:oauth2][:scopes], session[:oauth2][:purpose])
       @special_confirm_message = special_confirm_message(@provider)
+      @custom_csrf_token = SecureRandom.hex(24)
+      session[:oauth2][:custom_csrf_token] = @custom_csrf_token
       allow_trusted_tools_to_embed_this_page!
 
       if mobile_device?
@@ -119,6 +131,13 @@ class OAuth2ProviderController < ApplicationController
 
   def accept
     return render plain: t("Invalid or missing session for oauth"), status: :bad_request unless session[:oauth2]
+
+    if Account.site_admin.feature_enabled?(:csrf_oauth2_fix)
+      return render plain: t("Missing custom CSRF token"), status: :bad_request unless session[:oauth2][:custom_csrf_token].present?
+      return render plain: t("Invalid custom CSRF token"), status: :bad_request unless params[:custom_csrf_token] == session[:oauth2][:custom_csrf_token]
+
+      session[:oauth2][:custom_csrf_token] = nil
+    end
 
     redirect_params = Canvas::OAuth::Provider.final_redirect_params(session[:oauth2], @current_user, logged_in_user, remember_access: params[:remember_access])
     redirect_to Canvas::OAuth::Provider.final_redirect(self, redirect_params)
@@ -139,7 +158,11 @@ class OAuth2ProviderController < ApplicationController
 
     granter = case grant_type
               when "authorization_code"
-                Canvas::OAuth::GrantTypes::AuthorizationCode.new(client_id, secret, params)
+                if Canvas::OAuth::PKCE.use_pkce_in_token?(params)
+                  Canvas::OAuth::GrantTypes::AuthorizationCodeWithPKCE.new(client_id, secret, params)
+                else
+                  Canvas::OAuth::GrantTypes::AuthorizationCode.new(client_id, secret, params)
+                end
               when "refresh_token"
                 Canvas::OAuth::GrantTypes::RefreshToken.new(client_id, secret, params)
               when "client_credentials"
@@ -170,8 +193,9 @@ class OAuth2ProviderController < ApplicationController
     if params[:expire_sessions]
       if session[:login_aac]
         # The AAC could have been deleted since the user logged in
-        aac = AuthenticationProvider.where(id: session[:login_aac]).first
-        redirect = aac.try(:user_logout_redirect, self, @current_user)
+        @aac = AuthenticationProvider.where(id: session[:login_aac]).first
+        redirect = @aac.try(:user_logout_redirect, self, @current_user)
+        increment_statsd(:attempts, action: :slo) if @aac.try(:slo?)
       end
       logout_current_user
     end
@@ -184,6 +208,13 @@ class OAuth2ProviderController < ApplicationController
   end
 
   private
+
+  def skip_csrf?
+    return true if %w[token destroy].include?(action_name)
+    return true if Account.site_admin.feature_enabled?(:csrf_oauth2_fix) && %w[accept].include?(action_name)
+
+    false
+  end
 
   def oauth_error(exception)
     response["WWW-Authenticate"] = "Canvas OAuth 2.0" if exception.http_status == 401

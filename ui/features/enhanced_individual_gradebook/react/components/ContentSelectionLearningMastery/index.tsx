@@ -17,7 +17,7 @@
  */
 
 import React, {useEffect, useRef, useState} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import LoadingIndicator from '@canvas/loading-indicator'
 import {View} from '@instructure/ui-view'
 import type {GradebookOptions, Outcome, SortableStudent} from '../../../types'
@@ -27,7 +27,7 @@ import {
   useUserDropdownOptions,
 } from '../../hooks/useContentDropdownOptions'
 
-const I18n = useI18nScope('enhanced_individual_gradebook')
+const I18n = createI18nScope('enhanced_individual_gradebook')
 
 export type ContentSelectionComponentProps = {
   students?: SortableStudent[]
@@ -74,7 +74,7 @@ export default function ContentSelection({
 
     if (selectedOutcomeId) {
       const outcomeIndex = outcomeDropdownOptions.findIndex(
-        outcomeOption => outcomeOption.id === selectedOutcomeId
+        outcomeOption => outcomeOption.id === selectedOutcomeId,
       )
 
       if (outcomeIndex !== -1) {
@@ -93,7 +93,7 @@ export default function ContentSelection({
 
     if (selectedStudentId) {
       const studentIndex = studentDropdownOptions.findIndex(
-        studentOption => studentOption.id === selectedStudentId
+        studentOption => studentOption.id === selectedStudentId,
       )
 
       if (studentIndex !== -1) {

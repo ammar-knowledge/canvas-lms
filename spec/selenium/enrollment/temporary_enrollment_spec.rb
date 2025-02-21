@@ -22,7 +22,7 @@ require_relative "../common"
 describe "temporary enrollment" do
   include_context "in-process server selenium tests"
 
-  before do
+  before :once do
     Account.default.enable_feature!(:temporary_enrollments)
     @teacher = user_factory(name: "teacher")
     @teacher.register!
@@ -31,6 +31,11 @@ describe "temporary enrollment" do
     user_with_pseudonym(name: "temp_teacher", active_user: true, username: "tempTeacher", account: Account.default)
     @temp_teacher = User.find_by(name: "temp_teacher")
 
+    user_with_pseudonym(name: "temp_teacher_2", active_user: true, username: "tempTeacher2", account: Account.default)
+    @temp_teacher_2 = User.find_by(name: "temp_teacher_2")
+  end
+
+  before do
     admin_logged_in
   end
 
@@ -54,8 +59,7 @@ describe "temporary enrollment" do
     f(".flashalert-message")
   end
 
-  # nearly every page of the modal requires an api call, so we wait before interacting with each
-  it "creates pairing" do
+  it "creates pairings" do
     # open modal
     load_people_page
     wait_for_ajax_requests
@@ -63,13 +67,14 @@ describe "temporary enrollment" do
 
     # search for user
     f("[for='peoplesearch_radio_unique_id']").click
-    f("input[data-analytics='TempEnrollTextInput']").send_keys("tempTeacher")
+    f("textarea").send_keys("tempTeacher,tempTeacher2")
     f("button[data-analytics='TempEnrollNext']").click
 
-    # successfully got user
+    # successfully got users
     expect(f("body")).not_to contain_css("svg[role='img'] circle")
     expect(f("svg[name='IconCheckMark']")).to be_displayed
     expect(f("span[alt='Avatar for #{@temp_teacher.name}']")).to be_displayed
+    expect(f("span[alt='Avatar for #{@temp_teacher_2.name}']")).to be_displayed
     f("button[data-analytics='TempEnrollNext']").click
 
     # create user
@@ -79,9 +84,28 @@ describe "temporary enrollment" do
     # expect icons to reflect temp enrollment
     load_people_page
     wait_for_ajax_requests
-    expect(is_recipient).to be_displayed
+    expect(ff("button[data-analytics='TempEnrollIconCalendarReservedSolid']").length).to eq(2)
     # displayed in the recipient's row since temp enrolls can chain
     expect(can_provide).to be_displayed
+  end
+
+  # since TempEnrollSearch checks internal state before making API call
+  # can only be tested via selenium
+  it "fails search" do
+    # open modal
+    load_people_page
+    wait_for_ajax_requests
+    can_provide.click
+
+    # search for user
+    f("[for='peoplesearch_radio_unique_id']").click
+    f("textarea").send_keys("no_one")
+    f("button[data-analytics='TempEnrollNext']").click
+
+    # page stays same and error message
+    expect(f("body")).not_to contain_css("svg[role='img'] circle")
+    expect(f("svg[name='IconNo']")).to be_displayed
+    expect(f("textarea")).to be_displayed
   end
 
   context "modify" do
@@ -135,6 +159,11 @@ describe "temporary enrollment" do
     end
 
     it "views pairing from user page" do
+      # add additional enrollment with same pairing id to test if rows are rendered correctly
+      course2 = course_with_teacher({ user: @teacher, active_course: true, active_enrollment: true }).course
+      temp_enrollment2 = create_enrollment(course2, @temp_teacher, temporary_enrollment_source_user_id: @teacher.id)
+      temp_enrollment2.update(temporary_enrollment_pairing_id: @temp_enrollment.temporary_enrollment_pairing_id)
+
       # load page
       get "/users/#{@teacher.id}"
 
@@ -142,7 +171,7 @@ describe "temporary enrollment" do
       f("#manage-temp-enrollments-mount-point > button").click
 
       expect(f("body")).not_to contain_css("svg[role='img'] circle")
-      expect(f("span[name='temp_teacher']")).to be_displayed
+      expect(ff("span[name='temp_teacher']").length).to eq(1)
     end
   end
 end

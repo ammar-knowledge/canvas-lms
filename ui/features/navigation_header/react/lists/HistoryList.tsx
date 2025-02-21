@@ -16,68 +16,136 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
-import React from 'react'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import React, {useEffect, useCallback, useState} from 'react'
 import {Link} from '@instructure/ui-link'
 import {List} from '@instructure/ui-list'
 import {Flex} from '@instructure/ui-flex'
 import {Spinner} from '@instructure/ui-spinner'
 import {Text} from '@instructure/ui-text'
-import _ from 'lodash'
 import {formatTimeAgoDate, formatTimeAgoTitle} from '@canvas/enhanced-user-content'
-import {useQuery} from '@canvas/query'
-import historyQuery from '../queries/historyQuery'
+import doFetchApi from '@canvas/do-fetch-api-effect'
+import {Alert} from '@instructure/ui-alerts'
+import {useInfiniteQuery} from '@tanstack/react-query'
 
-const I18n = useI18nScope('new_nav')
+const I18n = createI18nScope('new_nav')
 
 export default function HistoryList() {
-  const {data, isLoading, isSuccess} = useQuery({
+  const [lastItem, setLastItem] = useState<Element | null>(null)
+
+  const fetchHistory = useCallback(async ({pageParam = '/api/v1/users/self/history'}) => {
+    const {json, link} = await doFetchApi({path: pageParam})
+    const nextPage = link?.next ? link.next.url : null
+    return {json, nextPage}
+  }, [])
+
+  const {data, fetchNextPage, isFetching, hasNextPage, error} = useInfiniteQuery({
     queryKey: ['history'],
-    queryFn: historyQuery,
-    fetchAtLeastOnce: true,
+    queryFn: fetchHistory,
+    meta: {
+      fetchAtLeastOnce: true,
+    },
+    getNextPageParam: lastPage => lastPage.nextPage,
   })
 
-  const uniqueHistoryEntries = _.uniqBy(data, entry => entry.asset_code)
+  // @ts-expect-error
+  const combineHistoryEntries = pages => {
+    if (pages != null) {
+      // combine all entries into one array
+      // @ts-expect-error
+      const allEntries = pages.reduce((accumulator, page) => {
+        return [...accumulator, ...page.json]
+      }, [])
+      // iterate over all entries and combine based on asset_code
+      // @ts-expect-error
+      const historyEntries = allEntries.reduce((accumulator, historyItem) => {
+        // @ts-expect-error
+        const alreadyAdded = accumulator.some(entry => historyItem.asset_code === entry.asset_code)
+        if (!alreadyAdded) {
+          accumulator.push(historyItem)
+        }
+        return accumulator
+      }, [])
+      return historyEntries
+    }
+    return []
+  }
 
-  return (
-    <List isUnstyled={true} margin="small 0" itemSpacing="small">
-      {isLoading && (
-        <List.Item>
-          <Spinner size="small" renderTitle={I18n.t('Loading')} />
-        </List.Item>
-      )}
-      {isSuccess &&
-        uniqueHistoryEntries.map(entry => (
-          <List.Item key={entry.asset_code}>
-            <Flex>
-              <Flex.Item align="start" padding="none x-small none none">
-                <i className={entry.asset_icon} aria-hidden="true" />
-              </Flex.Item>
-              <Flex.Item shouldGrow={true}>
-                <Link
-                  href={entry.visited_url}
-                  aria-label={`${entry.asset_name}, ${entry.asset_readable_category}`}
-                >
-                  {entry.asset_name}
-                </Link>
-                <Text as="div" transform="uppercase" size="x-small" lineHeight="condensed">
-                  {entry.context_name}
-                </Text>
-                <Text
-                  as="div"
-                  size="x-small"
-                  color="secondary"
-                  lineHeight="condensed"
-                  className="time_ago_date"
-                  data-timestamp={entry.visited_at}
-                  title={formatTimeAgoTitle(entry.visited_at)}
-                >
-                  {formatTimeAgoDate(entry.visited_at)}
-                </Text>
-              </Flex.Item>
-            </Flex>
-          </List.Item>
-        ))}
-    </List>
-  )
+  useEffect(() => {
+    if (lastItem && hasNextPage) {
+      const observer = new IntersectionObserver(
+        entries => {
+          if (entries[0].isIntersecting) {
+            // reset observer and fetch
+            observer.disconnect()
+            setLastItem(null)
+            fetchNextPage()
+          }
+        },
+        {
+          root: null,
+          rootMargin: '0px',
+          threshold: 0.4,
+        },
+      )
+      observer.observe(lastItem)
+    }
+  }, [fetchNextPage, hasNextPage, lastItem])
+
+  if (error) {
+    return <Alert variant="error">{I18n.t('Failed to retrieve history')}</Alert>
+  } else if (isFetching || data == null) {
+    return <Spinner size="small" renderTitle={I18n.t('Loading')} />
+  } else {
+    const historyEntries = combineHistoryEntries(data.pages)
+    return (
+      <>
+        <List isUnstyled={true} margin="small 0" itemSpacing="small">
+          {/* @ts-expect-error */}
+          {historyEntries.map((entry, index) => {
+            const isLast = index === historyEntries.length - 1
+            return (
+              <List.Item
+                key={entry.asset_code}
+                elementRef={el => {
+                  if (isLast) {
+                    setLastItem(el)
+                  }
+                }}
+              >
+                <Flex>
+                  <Flex.Item align="start" padding="none x-small none none">
+                    <i className={entry.asset_icon} aria-hidden="true" />
+                  </Flex.Item>
+                  <Flex.Item shouldGrow={true}>
+                    <Link
+                      href={entry.visited_url}
+                      aria-label={`${entry.asset_name}, ${entry.asset_readable_category}`}
+                    >
+                      {entry.asset_name}
+                    </Link>
+                    <Text as="div" transform="uppercase" size="x-small" lineHeight="condensed">
+                      {entry.context_name}
+                    </Text>
+                    <Text
+                      data-testid={`${entry.asset_code}_time_ago`}
+                      as="div"
+                      size="x-small"
+                      color="secondary"
+                      lineHeight="condensed"
+                      className="time_ago_date"
+                      data-timestamp={entry.visited_at}
+                      title={formatTimeAgoTitle(entry.visited_at)}
+                    >
+                      {formatTimeAgoDate(entry.visited_at)}
+                    </Text>
+                  </Flex.Item>
+                </Flex>
+              </List.Item>
+            )
+          })}
+        </List>
+      </>
+    )
+  }
 }

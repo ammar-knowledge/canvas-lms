@@ -55,7 +55,7 @@ describe "Pace Contexts API" do
         expect(applied_pace_json["name"]).to eq course.name
         expect(applied_pace_json["type"]).to eq "Course"
         expect(applied_pace_json["duration"]).to eq 1
-        expect(Time.parse(applied_pace_json["last_modified"])).to be_within(1.second).of(default_pace.published_at)
+        expect(Time.zone.parse(applied_pace_json["last_modified"])).to be_within(1.second).of(default_pace.published_at)
       end
 
       context "when the course does not have a default pace" do
@@ -69,8 +69,7 @@ describe "Pace Contexts API" do
         end
       end
 
-      it "successfully calls the pace_context api when granular perms on" do
-        Account.root_accounts.first.enable_feature!(:granular_permissions_manage_course_content)
+      it "successfully calls the pace_context api" do
         get api_v1_pace_contexts_path(course.id), params: { type: "course", format: :json }
         expect(response).to have_http_status :ok
       end
@@ -237,7 +236,7 @@ describe "Pace Contexts API" do
 
       it "returns a 401" do
         get api_v1_pace_contexts_path(course.id), params: { format: :json }
-        expect(response).to have_http_status :unauthorized
+        expect(response).to have_http_status :forbidden
       end
     end
 

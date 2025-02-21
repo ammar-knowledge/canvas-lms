@@ -104,6 +104,9 @@
     "collaborations_5c56c15f": {
         "message": "Сумісна робота"
     },
+    "color_a363e1b0": {
+        "message": "Колір"
+    },
     "computer_1d7dfa6f": {
         "message": "Комп''ютер"
     },
@@ -151,6 +154,9 @@
     },
     "deep_purple_bb3e2907": {
         "message": "Темно-фіолетовий"
+    },
+    "default_9db103d": {
+        "message": "За замовчуванням"
     },
     "delimiters_4db4840d": {
         "message": "Розділювачі"
@@ -445,6 +451,9 @@
     },
     "submit_a3cc6859": {
         "message": "Підтвердити"
+    },
+    "submitting_b90fac62": {
+        "message": "Надсилання..."
     },
     "syllabus_f191f65b": {
         "message": "Навчальний план"

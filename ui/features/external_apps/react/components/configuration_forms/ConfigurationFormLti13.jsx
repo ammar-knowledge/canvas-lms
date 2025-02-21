@@ -17,12 +17,12 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {TextInput} from '@instructure/ui-text-input'
 import {IconLtiLine} from '@instructure/ui-icons'
 import {View} from '@instructure/ui-view'
 
-const I18n = useI18nScope('external_tools')
+const I18n = createI18nScope('external_tools')
 
 class ConfigurationFormLti13 extends React.Component {
   constructor(props) {
@@ -74,7 +74,7 @@ class ConfigurationFormLti13 extends React.Component {
           messages={[
             {
               text: I18n.t(
-                'To obtain a client ID, an account admin will need to generate an LTI developer key.'
+                'To obtain a client ID, an account admin will need to generate an LTI developer key.',
               ),
               type: 'hint',
             },

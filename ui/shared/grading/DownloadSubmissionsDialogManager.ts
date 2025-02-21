@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -31,8 +30,9 @@ class DownloadSubmissionsDialogManager {
 
   constructor(
     assignment: Assignment,
+    // @ts-expect-error
     downloadUrlTemplate,
-    submissionsDownloading: (assignmentId: string) => void
+    submissionsDownloading: (assignmentId: string) => void,
   ) {
     this.assignment = assignment
     this.downloadUrl = replaceTags(downloadUrlTemplate, 'assignment_id', assignment.id)
@@ -48,6 +48,7 @@ class DownloadSubmissionsDialogManager {
     )
   }
 
+  // @ts-expect-error
   showDialog(cb) {
     this.submissionsDownloading(this.assignment.id)
 

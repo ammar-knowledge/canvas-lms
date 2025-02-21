@@ -16,14 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import sendForm from './jst/sendForm.handlebars'
 import '@canvas/util/jquery/fixDialogButtons'
 import 'jqueryui/dialog'
 import 'jqueryui/tabs'
 
-const I18n = useI18nScope('messages')
+const I18n = createI18nScope('messages')
 
 $('.tabs').tabs()
 
@@ -87,9 +87,9 @@ class MessageModal {
       $.flashError(
         I18n.t(
           'messages.failure',
-          'There was an error sending your email. Please reload the page and try again.'
-        )
-      )
+          'There was an error sending your email. Please reload the page and try again.',
+        ),
+      ),
     )
     $.flashMessage(I18n.t('messages.success', 'Your email is being delivered.'))
   }

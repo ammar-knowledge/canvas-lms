@@ -61,14 +61,16 @@ describe('GradebookHistoryApp has component', () => {
 
   describe('GradebookMenu', () => {
     test('is passed the provided courseUrl prop', () => {
-      const wrapper = shallow(<GradebookHistoryApp courseUrl="/courseUrl" learningMasteryEnabled />)
+      const wrapper = shallow(
+        <GradebookHistoryApp courseUrl="/courseUrl" learningMasteryEnabled={true} />,
+      )
       const menu = wrapper.find(GradebookMenu)
       strictEqual(menu.prop('courseUrl'), '/courseUrl')
     })
 
     test('is passed the provided learningMasteryEnabled prop', () => {
       const wrapper = shallow(
-        <GradebookHistoryApp courseUrl="/courseUrl" learningMasteryEnabled={false} />
+        <GradebookHistoryApp courseUrl="/courseUrl" learningMasteryEnabled={false} />,
       )
       const menu = wrapper.find(GradebookMenu)
       strictEqual(menu.prop('learningMasteryEnabled'), false)

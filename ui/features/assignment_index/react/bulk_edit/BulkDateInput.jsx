@@ -68,7 +68,7 @@ function BulkDateInput({
 
   const setDate = useCallback(
     newDate => updateAssignmentDate({newDate, dateKey, assignmentId, overrideId}),
-    [updateAssignmentDate, dateKey, assignmentId, overrideId]
+    [updateAssignmentDate, dateKey, assignmentId, overrideId],
   )
 
   const handleSelectedDateChange = useCallback(
@@ -94,18 +94,22 @@ function BulkDateInput({
         const newMoment = moment.tz(newDate, timezone)
         const isMidnight =
           newMoment.hour() === 0 && newMoment.minute() === 0 && newMoment.second() === 0
-        if (defaultTime) {
-          const [h, m, s] = defaultTime.split(':').map(n => parseInt(n, 10))
-          newMoment.hour(h)
-          newMoment.minute(m)
-          newMoment.second(s)
-        } else if (fancyMidnight && isMidnight) {
-          newMoment.endOf('day')
+        if (isMidnight) {
+          // Only applys the default time or fancy midnight if user picked date from the calendar or typed a string without time (HH:ss).
+          // This prevents the update when the user manually updates the time (HH:ss).
+          if (defaultTime) {
+            const [h, m, s] = defaultTime.split(':').map(n => parseInt(n, 10))
+            newMoment.hour(h)
+            newMoment.minute(m)
+            newMoment.second(s)
+          } else if (fancyMidnight) {
+            newMoment.endOf('day')
+          }
         }
         setDate(newMoment.toDate())
       }
     },
-    [fancyMidnight, defaultTime, selectedDateString, setDate, timezone]
+    [fancyMidnight, defaultTime, selectedDateString, setDate, timezone],
   )
 
   const renderLabel = useCallback(() => <ScreenReaderContent>{label}</ScreenReaderContent>, [label])

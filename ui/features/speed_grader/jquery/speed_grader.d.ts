@@ -71,12 +71,24 @@ export const ZVersionedAttachment = z.object({
 
 export type VersionedAttachment = z.infer<typeof ZVersionedAttachment>
 
+export const ZRubricAssessmentData = z.object({
+  id: z.string(),
+  points: z.number(),
+  criterion_id: z.string(),
+  learning_outcome_id: z.string(),
+  comments: z.string(),
+  comments_enabled: z.boolean(),
+  description: z.string(),
+})
+
 export const ZRubricAssessment = z.object({
   id: z.string(),
   assessor_id: z.string(),
   anonymous_assessor_id: z.string(),
   assessment_type: z.string(),
   assessor_name: z.string().nullable(),
+  updated_at: z.string(),
+  data: z.array(ZRubricAssessmentData),
 })
 
 export type RubricAssessment = z.infer<typeof ZRubricAssessment>
@@ -161,6 +173,7 @@ const ZBaseSubmission = z.object({
   word_count: z.null(),
   workflow_state: z.string(),
   versioned_attachments: z.array(ZVersionedAttachment).optional(),
+  'partially_submitted?': z.boolean().optional(),
 })
 
 export const ZHistoricalSubmission = ZBaseSubmission
@@ -443,7 +456,7 @@ export const ZStudentSubmissionData = z.object({
   enrollments: z.array(
     z.object({
       workflow_state: z.string(),
-    })
+    }),
   ),
   fake_student: z.boolean().nullable(),
   id: z.string(),
@@ -468,7 +481,7 @@ export type SpeedGrader = {
   handleGradeSubmit: (event: unknown, use_existing_score: boolean) => void
   addCommentDeletionHandler: (commentElement: JQuery, comment: SubmissionComment) => void
   addCommentSubmissionHandler: (commentElement: JQuery, comment: SubmissionComment) => void
-  addSubmissionComment: (comment?: boolean) => void
+  addSubmissionComment: (comment?: boolean, studentId?: string) => void
   onProvisionalGradesFetched: (data: {
     needs_provisional_grade: boolean
     provisional_grades: ProvisionalGrade[]
@@ -492,7 +505,7 @@ export type SpeedGrader = {
   displayExpirationWarnings: (
     aggressiveWarnings: number[],
     count: number,
-    crocodocMessage: string
+    crocodocMessage: string,
   ) => void
   setGradeReadOnly: (readOnly: boolean) => void
   showStudent: () => void
@@ -518,7 +531,7 @@ export type SpeedGrader = {
   renderSubmissionPreview: () => void
   renderComment: (
     commentData: SubmissionComment,
-    incomingOpts?: CommentRenderingOptions
+    incomingOpts?: CommentRenderingOptions,
   ) => JQuery | undefined
   showSubmission: () => void
   showSubmissionDetails: () => void
@@ -526,7 +539,7 @@ export type SpeedGrader = {
   renderLtiLaunch: (
     $iframe_holder: JQuery,
     lti_retrieve_url: string,
-    submission: HistoricalSubmission
+    submission: HistoricalSubmission,
   ) => void
   setCurrentStudentAvatar: () => void
   setActiveProvisionalGradeFields: (options?: {
@@ -544,10 +557,10 @@ export type SpeedGrader = {
   renderProvisionalGradeSelector: (options?: {showingNewStudent?: boolean}) => void
   revertFromFormSubmit: (options?: {draftComment?: boolean; errorSubmitting?: boolean}) => void
   setUpAssessmentAuditTray: () => void
-  setUpRubricAssessmentTrayWrapper: () => void
+  setUpRubricAssessmentContainerWrapper: () => void
   saveRubricAssessment: (
     rubricAssessmentData: {[key: string]: string | boolean | number},
-    jqueryElement?: JQuery<HTMLElement>
+    jqueryElement?: JQuery<HTMLElement>,
   ) => void
   shouldParseGrade: () => boolean
   showDiscussion: () => void
@@ -556,7 +569,7 @@ export type SpeedGrader = {
   renderCommentAttachment: (
     comment: SubmissionComment,
     attachmentData: Attachment | AttachmentData,
-    options: any
+    options: any,
   ) => JQuery
   updateStatsInHeader: () => void
   setOrUpdateSubmission: (submission: any) => {
@@ -575,7 +588,7 @@ export type SpeedGrader = {
     turnitinAsset_: SubmissionOriginalityData,
     $turnitinScoreContainer: JQuery,
     $turnitinInfoContainer_: JQuery,
-    isMostRecent: boolean
+    isMostRecent: boolean,
   ) => void
   populateVeriCite: (
     submission: HistoricalSubmission,
@@ -583,7 +596,7 @@ export type SpeedGrader = {
     vericiteAsset: SubmissionOriginalityData,
     $vericiteScoreContainer: JQuery,
     $vericiteInfoContainer: JQuery,
-    isMostRecent: boolean
+    isMostRecent: boolean,
   ) => void
   current_prov_grade_index?: string
   getGradeToShow: (submission: Submission) => Grade
@@ -595,7 +608,7 @@ export type SpeedGrader = {
     isNewGrade: boolean
   }) => void
   compareStudentsBy: (
-    f: (student1: StudentWithSubmission) => number
+    f: (student1: StudentWithSubmission) => number,
   ) => (studentA: StudentWithSubmission, studentB: StudentWithSubmission) => any
   plagiarismIndicator: (options: {
     plagiarismAsset: SubmissionOriginalityData
@@ -604,7 +617,7 @@ export type SpeedGrader = {
   }) => JQuery
   loadSubmissionPreview: (
     attachment: Attachment | null,
-    submission: HistoricalSubmission | null
+    submission: HistoricalSubmission | null,
   ) => void
   hasUnsubmittedRubric: (originalRubric: any) => boolean
   refreshGrades: (
@@ -612,9 +625,9 @@ export type SpeedGrader = {
     retry?: (
       submission: Submission,
       originalSubmission: Submission,
-      numRequests: number
+      numRequests: number,
     ) => boolean,
-    retryDelay?: number
+    retryDelay?: number,
   ) => void
   setState: (state: any) => void
 }

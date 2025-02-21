@@ -82,7 +82,7 @@ describe('K5Announcement', () => {
 
     it('includes a link to the announcement for students in a subject', () => {
       const {getByText} = render(
-        <K5Announcement {...getProps({canEdit: false, showCourseDetails: false})} />
+        <K5Announcement {...getProps({canEdit: false, showCourseDetails: false})} />,
       )
       const announcementTitle = getByText('20 minutes of weekly reading')
       expect(announcementTitle).toBeInTheDocument()
@@ -102,7 +102,7 @@ describe('K5Announcement', () => {
     const announcementBody = getByText('You have this assignment', {exact: false})
     expect(announcementBody).toBeInTheDocument()
     expect(announcementBody.innerHTML).toBe(
-      'You have this assignment due <strong>tomorrow</strong>!'
+      'You have this assignment due <strong>tomorrow</strong>!',
     )
   })
 
@@ -136,17 +136,17 @@ describe('K5Announcement', () => {
 
   it('hides the course name but keeps the edit button if showCourseDetails is false', () => {
     const {getByRole, queryByText} = render(
-      <K5Announcement {...getProps({showCourseDetails: false})} />
+      <K5Announcement {...getProps({showCourseDetails: false})} />,
     )
     expect(queryByText("Mrs. Jensen's Homeroom")).not.toBeInTheDocument()
     expect(
-      getByRole('link', {name: 'Edit announcement 20 minutes of weekly reading'})
+      getByRole('link', {name: 'Edit announcement 20 minutes of weekly reading'}),
     ).toBeInTheDocument()
   })
 
   it("doesn't show the unpublished indicator if showCourseDetails is false", () => {
     const {queryByText} = render(
-      <K5Announcement {...getProps({published: false, showCourseDetails: false})} />
+      <K5Announcement {...getProps({published: false, showCourseDetails: false})} />,
     )
     expect(queryByText('Your homeroom is currently unpublished.')).not.toBeInTheDocument()
   })
@@ -176,11 +176,11 @@ describe('K5Announcement', () => {
             Link: '</api/v1/announcements>; rel="current",</api/v1/announcements>; rel="first",</api/v1/announcements>; rel="last"',
           },
         },
-        {}
+        {},
       )
       const date = '2021-05-14T17:06:21-06:00'
       const {getByText, queryByText} = render(
-        <K5Announcement {...getProps({}, {postedDate: new Date(date)})} />
+        <K5Announcement {...getProps({}, {postedDate: new Date(date)})} />,
       )
       await waitFor(() => {}, {timeout: 10})
       expect(getByText('Edit announcement 20 minutes of weekly reading')).toBeInTheDocument()
@@ -192,7 +192,7 @@ describe('K5Announcement', () => {
       fetchMock.get(
         /\/api\/v1\/announcements/,
         {
-          body: JSON.stringify([
+          body: [
             {
               id: '18',
               title: 'Announcement 2',
@@ -201,12 +201,12 @@ describe('K5Announcement', () => {
               posted_at: '2021-05-13T17:06:21-06:00',
               attachments: [],
             },
-          ]),
+          ],
           headers: {
             Link: '</api/v1/announcements>; rel="current",</api/v1/announcements>; rel="first",</api/v1/announcements>; rel="last"',
           },
         },
-        {}
+        {},
       )
       const date = '2021-05-14T17:06:21-06:00'
       const {getByText} = render(<K5Announcement {...getProps({}, {postedDate: new Date(date)})} />)
@@ -220,7 +220,7 @@ describe('K5Announcement', () => {
       fetchMock.get(
         /\/api\/v1\/announcements/,
         {
-          body: JSON.stringify([
+          body: [
             {
               id: '18',
               title: 'Announcement 2',
@@ -229,16 +229,16 @@ describe('K5Announcement', () => {
               posted_at: '2021-05-13T17:06:21-06:00',
               attachments: [],
             },
-          ]),
+          ],
           headers: {
             Link: '</api/v1/announcements>; rel="current",</api/v1/announcements>; rel="first",</api/v1/announcements>; rel="last"',
           },
         },
-        {}
+        {},
       )
       const date = '2021-05-14T17:06:21-06:00'
       const {findByText, getByText} = render(
-        <K5Announcement {...getProps({}, {postedDate: new Date(date)})} />
+        <K5Announcement {...getProps({}, {postedDate: new Date(date)})} />,
       )
       await waitFor(() => {}, {timeout: 10})
       const prevBtn = getByText('Previous announcement').closest('button')
@@ -263,7 +263,7 @@ describe('K5Announcement', () => {
       fetchMock.get(
         /\/api\/v1\/announcements/,
         {
-          body: JSON.stringify([
+          body: [
             {...props.firstAnnouncement},
             {
               id: '18',
@@ -273,12 +273,12 @@ describe('K5Announcement', () => {
               posted_at: postedAt,
               attachments: [],
             },
-          ]),
+          ],
           headers: {
             Link: '</api/v1/announcements>; rel="current",</api/v1/announcements>; rel="first",</api/v1/announcements>; rel="last"',
           },
         },
-        {}
+        {},
       )
       const {findByText, getByText} = render(<K5Announcement {...props} />)
       expect(getByText('20 minutes of weekly reading')).toBeInTheDocument()
@@ -296,7 +296,7 @@ describe('K5Announcement', () => {
       fetchMock.getOnce(
         /\/api\/v1\/announcements/,
         {
-          body: JSON.stringify([
+          body: [
             {
               id: '17',
               title: '20 minutes of weekly reading',
@@ -311,17 +311,17 @@ describe('K5Announcement', () => {
               html_url: '/courses/1/discussion_topics/18',
               attachments: [],
             },
-          ]),
+          ],
           headers: {
             Link: '</api/v1/announcements?active_only=true&context_codes[]=course_123&per_page=2&page=2>; rel="next"',
           },
         },
-        {}
+        {},
       )
       fetchMock.getOnce(
         /\/api\/v1\/announcements.*page=2.*/,
         {
-          body: JSON.stringify([
+          body: [
             {
               id: '19',
               title: 'Announcement C',
@@ -336,17 +336,17 @@ describe('K5Announcement', () => {
               html_url: '/courses/1/discussion_topics/20',
               attachments: [],
             },
-          ]),
+          ],
           headers: {
             Link: '</api/v1/announcements?active_only=true&context_codes[]=course_123&per_page=2&page=3>; rel="next"',
           },
         },
-        {}
+        {},
       )
       fetchMock.getOnce(
         /\/api\/v1\/announcements.*page=3.*/,
         {
-          body: JSON.stringify([
+          body: [
             {
               id: '21',
               title: 'Announcement E',
@@ -354,12 +354,12 @@ describe('K5Announcement', () => {
               html_url: '/courses/1/discussion_topics/21',
               attachments: [],
             },
-          ]),
+          ],
           headers: {
             Link: '',
           },
         },
-        {}
+        {},
       )
 
       const {findByText, getByText} = render(<K5Announcement {...getProps()} />)
@@ -415,7 +415,7 @@ describe('K5Announcement', () => {
                 Link: '</api/v1/announcements>; rel="current",</api/v1/announcements>; rel="first",</api/v1/announcements>; rel="last"',
               },
             },
-            {}
+            {},
           )
         })
 
@@ -430,7 +430,7 @@ describe('K5Announcement', () => {
           const {findByText} = render(<K5Announcement {...getCourseProps({canEdit: true})} />)
 
           expect(
-            await findByText('Create a new announcement now.', {exact: false})
+            await findByText('Create a new announcement now.', {exact: false}),
           ).toBeInTheDocument()
         })
       })
@@ -441,7 +441,7 @@ describe('K5Announcement', () => {
           fetchMock.get(
             /\/api\/v1\/announcements/,
             {
-              body: JSON.stringify([
+              body: [
                 {
                   id: '18',
                   title: 'Announcement 2',
@@ -450,18 +450,18 @@ describe('K5Announcement', () => {
                   posted_at: '2021-05-13T17:06:21-06:00',
                   attachments: [],
                 },
-              ]),
+              ],
               headers: {
                 Link: '</api/v1/announcements>; rel="current",</api/v1/announcements>; rel="first",</api/v1/announcements>; rel="last"',
               },
             },
-            {}
+            {},
           )
         })
 
         it('shows "no recent announcements" for a student', async () => {
           const {findByText, getByText, queryByText} = render(
-            <K5Announcement {...getCourseProps({canEdit: false})} />
+            <K5Announcement {...getCourseProps({canEdit: false})} />,
           )
 
           expect(await findByText('No recent announcements')).toBeInTheDocument()
@@ -474,7 +474,7 @@ describe('K5Announcement', () => {
 
         it('shows "no recent announcements" and a button for a teacher', async () => {
           const {findByText, getByText} = render(
-            <K5Announcement {...getCourseProps({canEdit: true})} />
+            <K5Announcement {...getCourseProps({canEdit: true})} />,
           )
 
           expect(await findByText('No recent announcements')).toBeInTheDocument()

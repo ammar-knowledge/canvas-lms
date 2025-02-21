@@ -21,9 +21,9 @@ import type {Module, Requirement} from '../react/types'
 import {updateModulePublishedState} from '../../utils/publishAllModulesHelper'
 import {datetimeString} from '@canvas/datetime/date-functions'
 import {convertFriendlyDatetimeToUTC} from './miscHelpers'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('differentiated_modules')
+const I18n = createI18nScope('differentiated_modules')
 
 const resourceTypeMap: Record<string, Requirement['resource']> = {
   assignment: 'assignment',
@@ -38,6 +38,7 @@ const resourceTypeMap: Record<string, Requirement['resource']> = {
 
 const requirementTypeMap: Record<string, Requirement['type']> = {
   min_score_requirement: 'score',
+  min_percentage_requirement: 'percentage',
   must_view_requirement: 'view',
   must_mark_done_requirement: 'mark',
   must_contribute_requirement: 'contribute',
@@ -46,6 +47,7 @@ const requirementTypeMap: Record<string, Requirement['type']> = {
 
 const requirementTypeMapReverse: Record<Requirement['type'], string> = {
   score: 'min_score_requirement',
+  percentage: 'min_percentage_requirement',
   view: 'must_view_requirement',
   mark: 'must_mark_done_requirement',
   contribute: 'must_contribute_requirement',
@@ -54,6 +56,7 @@ const requirementTypeMapReverse: Record<Requirement['type'], string> = {
 
 const requirementFriendlyLabelMap: Record<Requirement['type'], string> = {
   score: I18n.t('Score at least'),
+  percentage: I18n.t('Score at least'),
   view: I18n.t('View'),
   mark: I18n.t('Mark done'),
   contribute: I18n.t('Contribute'),
@@ -74,6 +77,10 @@ function requirementScreenreaderMessage(requirement: Requirement) {
       return I18n.t('Must contribute to this module item to complete it')
     case 'submit':
       return I18n.t('Must submit this module item to complete it')
+    case 'percentage':
+      return I18n.t('Must score at least %{points}% to complete this module item', {
+        points: requirement.minimumScore,
+      })
   }
 }
 
@@ -116,7 +123,7 @@ function parsePrerequisites(element: HTMLDivElement) {
 
 export function parseModuleList() {
   const potentialModules = Array.from(
-    document.querySelectorAll('.item-group-condensed.context_module.editable_context_module')
+    document.querySelectorAll('.item-group-condensed.context_module.editable_context_module'),
   )
   const parsedModules = potentialModules.reduce((moduleList: Module[], moduleNode: Element) => {
     const id = moduleNode.getAttribute('data-module-id') ?? ''
@@ -131,46 +138,16 @@ export function parseModuleList() {
 
 function parseRequirements(element: HTMLDivElement) {
   const requirementElements = Array.from(
-    element.querySelectorAll('.ig-row.with-completion-requirements')
+    element.querySelectorAll('.ig-row.with-completion-requirements'),
   )
-  return requirementElements.map((requirementNode: Element) => {
-    const id = requirementNode.querySelector('.id')?.textContent
-    const name = requirementNode.querySelector('.item_name a')?.getAttribute('title')?.trim() || ''
-    const resource =
-      resourceTypeMap[requirementNode.querySelector('.type')?.textContent || 'external_url']
-    // One of these (the active one) has "display: block;" and the others are hidden
-    const activeRequirementNode = Array.from(
-      requirementNode.querySelectorAll('.requirement_type')
-    ).filter(node => window.getComputedStyle(node).display !== 'none')[0]
-    const type = requirementTypeMap[activeRequirementNode.classList[1] as Requirement['type']]
-    if (resource === 'assignment' || resource === 'quiz') {
-      const minimumScore = activeRequirementNode.querySelector('.min_score')?.textContent || '0'
-      const pointsPossibleString = requirementNode.querySelector(
-        '.points_possible_display'
-      )?.textContent
-      const pointsPossible = pointsPossibleString ? pointsPossibleString.split(/\s/)[0] : null
-      return {id, name, resource, type, minimumScore, pointsPossible}
-    } else {
-      return {id, name, resource, type}
-    }
-  }) as Requirement[]
+  return requirementElements.map((requirementNode: Element) =>
+    parseModuleItemData(requirementNode, true),
+  ) as Requirement[]
 }
 
 function parseModuleItems(element: HTMLDivElement) {
   const moduleItemElements = Array.from(element.querySelectorAll('.ig-row'))
-  return moduleItemElements.map(moduleItem => {
-    const id = moduleItem.querySelector('.id')?.textContent
-    const name = moduleItem.querySelector('.item_name a')?.getAttribute('title')?.trim() || ''
-    const resource =
-      resourceTypeMap[moduleItem.querySelector('.type')?.textContent || 'external_url']
-    if (resource === 'assignment' || resource === 'quiz') {
-      const pointsPossibleString = moduleItem.querySelector('.points_possible_display')?.textContent
-      const pointsPossible = pointsPossibleString ? pointsPossibleString.split(/\s/)[0] : null
-      return {id, name, resource, pointsPossible}
-    } else {
-      return {id, name, resource}
-    }
-  })
+  return moduleItemElements.map(moduleItem => parseModuleItemData(moduleItem, false))
 }
 
 export function updateModuleUI(moduleElement: HTMLDivElement, moduleSettings: SettingsPanelState) {
@@ -193,7 +170,7 @@ function updateName(moduleElement: HTMLDivElement, moduleSettings: SettingsPanel
       if (messageElement.textContent?.includes(oldModuleName)) {
         messageElement.textContent = messageElement.textContent.replace(
           oldModuleName,
-          moduleSettings.moduleName
+          moduleSettings.moduleName,
         )
       }
     })
@@ -222,7 +199,7 @@ function updateName(moduleElement: HTMLDivElement, moduleSettings: SettingsPanel
     button.setAttribute('title', moduleSettings.moduleName)
     button.setAttribute(
       'aria-label',
-      I18n.t('%{name} toggle module visibility', {name: moduleSettings.moduleName})
+      I18n.t('%{name} toggle module visibility', {name: moduleSettings.moduleName}),
     )
   })
 
@@ -241,7 +218,7 @@ function updateName(moduleElement: HTMLDivElement, moduleSettings: SettingsPanel
   if (kebabMenuButton) {
     kebabMenuButton.setAttribute(
       'aria-label',
-      I18n.t('Manage %{name}', {name: moduleSettings.moduleName})
+      I18n.t('Manage %{name}', {name: moduleSettings.moduleName}),
     )
   }
 
@@ -249,7 +226,7 @@ function updateName(moduleElement: HTMLDivElement, moduleSettings: SettingsPanel
   if (duplicateButton) {
     duplicateButton.setAttribute(
       'aria-label',
-      I18n.t('Duplicate %{name}', {name: moduleSettings.moduleName})
+      I18n.t('Duplicate %{name}', {name: moduleSettings.moduleName}),
     )
   }
 
@@ -324,7 +301,7 @@ function updateRequirements(moduleElement: HTMLDivElement, moduleSettings: Setti
   if (requirementsMessageElement) {
     requirementsMessageElement.setAttribute(
       'data-requirement-type',
-      moduleSettings.requirementCount
+      moduleSettings.requirementCount,
     )
 
     if (moduleSettings.requirements.length === 0) {
@@ -362,13 +339,15 @@ function updateRequirements(moduleElement: HTMLDivElement, moduleSettings: Setti
       const descriptionElement = moduleItemElement.querySelector('.requirement-description')
       if (descriptionElement) {
         const scoreElement =
-          requirement.type === 'score'
+          (requirement.type === 'score' || requirement.type === 'percentage')
             ? `<span class="min_score"> ${requirement.minimumScore}</span>`
             : ''
+
+        const percentageSymbol = requirement.type === 'percentage' ? '%' : '';
         descriptionElement.innerHTML = `
           <span class="requirement_type ${requirementTypeMapReverse[requirement.type]}">
             <span class="unfulfilled">
-              ${requirementFriendlyLabelMap[requirement.type]}${scoreElement}
+              ${requirementFriendlyLabelMap[requirement.type]}${scoreElement}${percentageSymbol}
               <span class="screenreader-only">${requirementScreenreaderMessage(requirement)}</span>
             </span>
           </span>
@@ -377,7 +356,7 @@ function updateRequirements(moduleElement: HTMLDivElement, moduleSettings: Setti
 
       const pointsPossibleElement = moduleItemElement.querySelector('.points_possible_display')
       if (pointsPossibleElement) {
-        if (requirement.type === 'score' && requirement.pointsPossible) {
+        if (requirement.pointsPossible) {
           pointsPossibleElement.textContent = I18n.t('%{points} pts', {
             points: I18n.n(requirement.pointsPossible),
           })
@@ -389,9 +368,44 @@ function updateRequirements(moduleElement: HTMLDivElement, moduleSettings: Setti
   })
 }
 
+function parseModuleItemData(element: Element, isRequirement: boolean) {
+  const data = {
+    id: element.querySelector('.id')?.textContent,
+    name: element.querySelector('.item_name a')?.getAttribute('title')?.trim() || '',
+    resource: resourceTypeMap[element.querySelector('.type')?.textContent || 'external_url'],
+  }
+  let activeRequirementNode
+  if (isRequirement) {
+    // One of these (the active one) has "display: block;" and the others are hidden
+    activeRequirementNode = Array.from(element.querySelectorAll('.requirement_type')).filter(
+      node => window.getComputedStyle(node).display !== 'none',
+    )[0]
+    // @ts-expect-error
+    data.type = requirementTypeMap[activeRequirementNode.classList[1] as Requirement['type']]
+  }
+
+  if (
+    data.resource === 'assignment' ||
+    data.resource === 'quiz' ||
+    data.resource === 'discussion'
+  ) {
+    // @ts-expect-error
+    data.graded = element.querySelector('.graded')?.textContent === '1'
+    const pointsPossibleString = element.querySelector('.points_possible_display')?.textContent
+    // @ts-expect-error
+    data.pointsPossible = pointsPossibleString ? pointsPossibleString.split(/\s/)[0] : null
+    if (isRequirement) {
+      // @ts-expect-error
+      data.minimumScore = activeRequirementNode.querySelector('.min_score, .min_percentage')?.textContent || '0'
+      
+    }
+  }
+  return data
+}
+
 function updatePublishFinalGrade(
   moduleElement: HTMLDivElement,
-  moduleSettings: SettingsPanelState
+  moduleSettings: SettingsPanelState,
 ) {
   const publishFinalGradeElement = moduleElement.querySelector('.publish_final_grade')
   if (publishFinalGradeElement) {

@@ -119,9 +119,8 @@ describe('enhanced_user_content/instructure_helpers', () => {
         {
           subject: 'preview_file',
           file_id: '2',
-          verifier: null,
         },
-        canvasOrigin
+        canvasOrigin,
       )
     })
 
@@ -136,7 +135,23 @@ describe('enhanced_user_content/instructure_helpers', () => {
           file_id: '2',
           verifier: 'xyzzy',
         },
-        canvasOrigin
+        canvasOrigin,
+      )
+    })
+
+    it('posts a message with the access token and instfs_id', () => {
+      const link = document.createElement('a')
+      link.href = 'http://localhost/courses/1/files/2?instfs_id=stuff&access_token=xyzzy'
+      const event = makeEvent({target: link})
+      showFilePreviewInOverlay(event, canvasOrigin)
+      expect(window.postMessage).toHaveBeenCalledWith(
+        {
+          subject: 'preview_file',
+          file_id: '2',
+          access_token: 'xyzzy',
+          instfs_id: 'stuff',
+        },
+        canvasOrigin,
       )
     })
 
@@ -165,9 +180,8 @@ describe('enhanced_user_content/instructure_helpers', () => {
         {
           subject: 'preview_file',
           file_id: '17~76640',
-          verifier: null,
         },
-        canvasOrigin
+        canvasOrigin,
       )
     })
   })

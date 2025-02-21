@@ -18,26 +18,24 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {createRoot} from 'react-dom/client'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import CustomEmojiDenyList from './react/custom_emoji_deny_list/CustomEmojiDenyList'
 import CustomHelpLinkSettings from './react/custom_help_link_settings/CustomHelpLinkSettings'
 import {Spinner} from '@instructure/ui-spinner'
 import {View} from '@instructure/ui-view'
 import './jquery/index'
-import './backbone/account_quota_settings'
-import FeatureFlags from '@canvas/feature-flags'
 import ready from '@instructure/ready'
 import MicrosoftSyncAccountSettings from '@canvas/integrations/react/accounts/microsoft_sync/MicrosoftSyncAccountSettings'
 import CourseCreationSettings from './react/course_creation_settings/CourseCreationSettings'
 import {InternalSettings} from './react/internal_settings/InternalSettings'
+import QuotasTabContent from './react/quotas/QuotasTabContent'
 import {initializeTopNavPortal} from '@canvas/top-navigation/react/TopNavPortal'
 
-const I18n = useI18nScope('account_settings_jsx_bundle')
+const I18n = createI18nScope('account_settings_jsx_bundle')
 
 ready(() => {
   initializeTopNavPortal()
-
-  ReactDOM.render(<FeatureFlags />, document.getElementById('tab-features'))
 
   if (document.getElementById('custom_help_link_settings')) {
     ReactDOM.render(
@@ -49,7 +47,7 @@ ready(() => {
           defaultLinks: window.ENV.DEFAULT_HELP_LINKS,
         }}
       />,
-      document.getElementById('custom_help_link_settings')
+      document.getElementById('custom_help_link_settings'),
     )
   }
 
@@ -63,7 +61,7 @@ ready(() => {
       <View as="div" margin="large" padding="large" textAlign="center">
         <Spinner size="large" renderTitle={I18n.t('Loading')} />
       </View>,
-      document.getElementById('tab-security')
+      document.getElementById('tab-security'),
     )
   }
 
@@ -80,7 +78,16 @@ ready(() => {
   if (courseCreationSettingsContainer) {
     ReactDOM.render(
       <CourseCreationSettings currentValues={ENV.COURSE_CREATION_SETTINGS} />,
-      courseCreationSettingsContainer
+      courseCreationSettingsContainer,
     )
+  }
+
+  if (ENV.ACCOUNT) {
+    ready(function () {
+      const mountPoint = document.getElementById('quotas_tab_content_mount_point')
+      const root = createRoot(mountPoint)
+
+      root.render(<QuotasTabContent accountWithQuotas={ENV.ACCOUNT} />)
+    })
   }
 })

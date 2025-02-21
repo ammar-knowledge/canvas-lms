@@ -18,17 +18,17 @@
 
 import {useEffect, useMemo, useState} from 'react'
 import {uniqBy, uniq} from 'lodash'
-import {useApolloClient, useQuery} from 'react-apollo'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useApolloClient, useQuery} from '@apollo/client'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import {CHILD_GROUPS_QUERY, groupFields, SEARCH_GROUP_OUTCOMES} from '../graphql/Management'
 import {FIND_GROUPS_QUERY} from '../graphql/Outcomes'
 import useSearch from './hooks/useSearch'
 import useGroupCreate from './hooks/useGroupCreate'
 import useCanvasContext from './hooks/useCanvasContext'
-import {gql} from '@canvas/apollo'
+import {gql} from '@canvas/apollo-v3'
 
-const I18n = useI18nScope('OutcomeManagement')
+const I18n = createI18nScope('OutcomeManagement')
 
 const structFromGroup = g => ({
   id: g._id,
@@ -119,8 +119,8 @@ const useTreeBrowser = queryVariables => {
     fetchPolicy: 'cache-only',
     variables: queryVariables,
   })
-  const groups = cacheData.groups || []
-  const loadedGroups = loadedGroupsData.loadedGroups || []
+  const groups = cacheData?.groups || []
+  const loadedGroups = loadedGroupsData?.loadedGroups || []
 
   const addLoadedGroups = ids => {
     client.writeQuery({
@@ -157,7 +157,7 @@ const useTreeBrowser = queryVariables => {
           collections: collectionsByParentId[g._id] || [],
         },
       }),
-      {}
+      {},
     )
   }, [groups])
 
@@ -176,6 +176,14 @@ const useTreeBrowser = queryVariables => {
   }
 
   const updateCache = newGroups => {
+    // First evict the cache to show that the data is being replaced, and does not need to be merged.
+    // https://github.com/apollographql/apollo-client/issues/6451#issuecomment-645612063
+    client.cache.evict({
+      fieldName: 'groups',
+      broadcast: false,
+      variables: queryVariables,
+    })
+
     client.writeQuery({
       query: GROUPS_QUERY,
       variables: queryVariables,
@@ -364,7 +372,7 @@ export const useManageOutcomes = ({
     clearTreeBrowserCache()
   }
 
-  const rootGroupId = contextGroupLoadedData.rootGroupId
+  const rootGroupId = contextGroupLoadedData?.rootGroupId
 
   const {
     search: searchString,
@@ -612,7 +620,7 @@ export const useFindOutcomeModal = open => {
                 _id: ACCOUNT_GROUP_ID,
                 __typename: 'LearningOutcomeGroup',
               },
-            })
+            }),
           ),
           ...extractGroups({
             _id: ROOT_GROUP_ID,

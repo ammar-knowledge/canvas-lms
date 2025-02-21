@@ -16,9 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
-import {render} from '@testing-library/react'
 import {Editor, Frame} from '@craftjs/core'
+import {render} from '@testing-library/react'
+import React from 'react'
+import {black, white} from '../../../../../utils/colorUtils'
 import {ButtonBlock, type ButtonBlockProps} from '../ButtonBlock'
 
 const renderBlock = (props: Partial<ButtonBlockProps> = {}) => {
@@ -27,7 +28,7 @@ const renderBlock = (props: Partial<ButtonBlockProps> = {}) => {
       <Frame>
         <ButtonBlock text="A Button" {...props} />
       </Frame>
-    </Editor>
+    </Editor>,
   )
 }
 
@@ -39,17 +40,19 @@ describe('ButtonBlock', () => {
     // this gets into the instui implementation of things
     // but it's the only way I can think of to test the effect
     // of props on the style of the rendered component
-    const btn = getByText('A Button').closest('a') as HTMLAnchorElement
+    const btn = getByText('A Button').closest('button') as HTMLButtonElement
     const firstSpan = btn.querySelector('span')
     expect(firstSpan).toHaveStyle({fontSize: '1rem'}) // medium
-    expect(firstSpan).toHaveStyle({backgroundColor: '--var(ic-brand-primary)'})
+
+    expect(firstSpan).toHaveStyle({backgroundColor: black})
+    expect(firstSpan).toHaveStyle({color: white})
     expect(firstSpan).toHaveStyle({paddingLeft: '0.75rem'})
     expect(btn.querySelector('svg')).not.toBeInTheDocument()
   })
 
   it('accepts a size prop', () => {
     const {getByText} = renderBlock({size: 'large'})
-    const btn = getByText('A Button').closest('a') as HTMLAnchorElement
+    const btn = getByText('A Button').closest('button') as HTMLButtonElement
     const firstSpan = btn.querySelector('span')
     expect(firstSpan).toHaveStyle({fontSize: '1.375rem'})
   })
@@ -60,40 +63,45 @@ describe('ButtonBlock', () => {
     expect(btn?.getAttribute('href')).toBe('https://example.com')
   })
 
-  it('accepts the condensed variant prop', () => {
-    const {getByText} = renderBlock({variant: 'condensed'})
-    const btn = getByText('A Button').closest('a') as HTMLAnchorElement
-    const firstSpan = btn.querySelector('span')
-    expect(firstSpan).toHaveStyle({backgroundColor: 'transparent'})
-    expect(firstSpan).toHaveStyle({paddingLeft: '0px'})
+  it('accepts the text variant prop', () => {
+    const {getByTestId} = renderBlock({variant: 'text'})
+    const btn = getByTestId('button-block')
+    expect(btn).toHaveAttribute('type', 'button')
+    expect(btn).toBeInTheDocument()
   })
 
   it('accepts the outlined variant prop', () => {
-    const {getByText} = renderBlock({variant: 'outlined'})
-    const btn = getByText('A Button').closest('a') as HTMLAnchorElement
-    const firstSpan = btn.querySelector('span')
-    expect(firstSpan).toHaveStyle({backgroundColor: 'transparent'})
-    expect(firstSpan).toHaveStyle({paddingLeft: '0.75rem'})
+    const {getByTestId} = renderBlock({variant: 'outlined'})
+    const btn = getByTestId('button-block')
+    expect(btn).toHaveAttribute('type', 'button')
+    expect(btn).toBeInTheDocument()
   })
 
   it('accepts a standard button color prop', () => {
     const {getByText} = renderBlock({color: 'success'})
-    const btn = getByText('A Button').closest('a') as HTMLAnchorElement
+    const btn = getByText('A Button').closest('button') as HTMLButtonElement
     const firstSpan = btn.querySelector('span')
     expect(firstSpan).toHaveStyle({backgroundColor: '--var(ic-brand-success)'})
   })
 
-  it('accepts a custom color prop', () => {
-    const {getByText} = renderBlock({color: '#ff0000'})
-    const btn = getByText('A Button').closest('a') as HTMLAnchorElement
+  it('accepts a custom color props', () => {
+    const {getByText} = renderBlock({
+      color: '#ff0000',
+      background: '#00ff00',
+      borderColor: '#0000ff',
+    })
+    const btn = getByText('A Button').closest('button') as HTMLButtonElement
     const firstSpan = btn.querySelector('span')
-    expect(firstSpan).toHaveStyle({backgroundColor: '#ff0000'})
+    expect(firstSpan).toHaveStyle({color: '#ff0000'})
+    expect(firstSpan).toHaveStyle({backgroundColor: '#00ff00'})
+    expect(firstSpan).toHaveStyle({borderColor: '#0000ff'})
   })
 
   it('accepts an icon prop', () => {
     const {getByText} = renderBlock({iconName: 'alarm'})
-    const btn = getByText('A Button').closest('a') as HTMLAnchorElement
+    const btn = getByText('A Button').closest('button') as HTMLButtonElement
     const icon = btn.querySelector('svg')
     expect(icon).toBeInTheDocument()
+    expect(icon?.querySelector('title')?.textContent).toEqual('alarm')
   })
 })

@@ -47,6 +47,12 @@ module Plannable
   end
 
   def planner_override_for(user)
+    if is_a?(SubAssignment)
+      return PlannerOverride.for_user(user)
+                            .where(plannable_id: id, plannable_type: type)
+                            .where.not(workflow_state: "deleted").take
+    end
+
     if respond_to? :submittable_object
       submittable_override = submittable_object&.planner_override_for(user)
       return submittable_override if submittable_override
@@ -156,9 +162,14 @@ module Plannable
     end
 
     TYPE_MAP = {
+      text: ->(val) { val.is_a?(String) },
       string: ->(val) { val.is_a?(String) },
       integer: ->(val) { val.is_a?(Integer) },
-      datetime: ->(val) { val.is_a?(String) && !!(DateTime.parse(val) rescue false) }
+      datetime: lambda do |val|
+        val.is_a?(String) && Time.zone.parse(val)
+      rescue ArgumentError
+        false
+      end
     }.freeze
 
     def validate(bookmark)

@@ -95,7 +95,7 @@ describe DiscussionEntry do
     end
 
     before do
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
     end
 
     let(:student) { student_in_course(active_all: true).user }
@@ -107,7 +107,7 @@ describe DiscussionEntry do
       expect { entry.save! }.to change { entry.mentions.count }.from(0).to(1)
       expect(entry.mentions.take.user_id).to eq mentioned_student.id
       expect(entry.mentioned_users.count).to eq 1
-      expect(InstStatsd::Statsd).to have_received(:increment).with("discussion_entry.created").at_least(:once)
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("discussion_entry.created").at_least(:once)
     end
 
     describe "edits to an entry" do
@@ -596,18 +596,7 @@ describe DiscussionEntry do
       course_with_teacher
     end
 
-    it "forces a root entry as parent if the discussion isn't threaded" do
-      discussion_topic_model
-      root = @topic.reply_from(user: @teacher, text: "root entry")
-      sub1 = root.reply_from(user: @teacher, html: "sub entry")
-      expect(sub1.parent_entry).to eq root
-      expect(sub1.root_entry).to eq root
-      sub2 = sub1.reply_from(user: @teacher, html: "sub-sub entry")
-      expect(sub2.parent_entry).to eq root
-      expect(sub2.root_entry).to eq root
-    end
-
-    it "allows a sub-entry as parent if the discussion is threaded" do
+    it "allows a sub-entry as parent" do
       discussion_topic_model(threaded: true)
       root = @topic.reply_from(user: @teacher, text: "root entry")
       sub1 = root.reply_from(user: @teacher, html: "sub entry")
@@ -636,7 +625,7 @@ describe DiscussionEntry do
       topic_with_nested_replies
     end
 
-    context ".read_entry_ids" do
+    describe ".read_entry_ids" do
       it "returns the ids of the read entries" do
         @root2.change_read_state("read", @teacher)
         @reply_reply1.change_read_state("read", @teacher)
@@ -649,7 +638,7 @@ describe DiscussionEntry do
       end
     end
 
-    context ".forced_read_state_entry_ids" do
+    describe ".forced_read_state_entry_ids" do
       it "returns the ids of entries that have been marked as force_read_state" do
         marked_entries = [@root2, @reply_reply1, @reply_reply2, @reply3]
         marked_entries.each do |e|
@@ -666,7 +655,7 @@ describe DiscussionEntry do
       end
     end
 
-    context ".find_existing_participant" do
+    describe ".find_existing_participant" do
       it "returns existing data" do
         @root2.change_read_state("read", @teacher, forced: true)
         participant = @root2.find_existing_participant(@teacher)
@@ -1075,10 +1064,30 @@ describe DiscussionEntry do
     reply3 = reply1.reply_from(user: @teacher, html: "sub-sub sibling entry")
     reply4 = reply2.reply_from(user: @teacher, html: "sub-sub-sub entry")
 
-    expect(root.depth).to eq 1
-    expect(reply1.depth).to eq 2
-    expect(reply2.depth).to eq 3
-    expect(reply3.depth).to eq 3
-    expect(reply4.depth).to eq 4
+    expect(root.depth).to be 1
+    expect(reply1.depth).to be 2
+    expect(reply2.depth).to be 3
+    expect(reply3.depth).to be 3
+    expect(reply4.depth).to be 4
+  end
+
+  describe "edited_at" do
+    it "returns null if no change to the title or message occurred" do
+      topic = discussion_topic_model
+      root = topic.reply_from(user: @teacher, text: "root entry")
+      expect(root.edited_at).to be_nil
+      root.depth = 3
+      root.save!
+      expect(root.edited_at).to be_nil
+    end
+
+    it "returns not null if a change to the message occured" do
+      topic = discussion_topic_model
+      root = topic.reply_from(user: @teacher, text: "root entry")
+      expect(root.edited_at).to be_nil
+      root.message = "Brand new shinny message"
+      root.save!
+      expect(root.edited_at).not_to be_nil
+    end
   end
 end

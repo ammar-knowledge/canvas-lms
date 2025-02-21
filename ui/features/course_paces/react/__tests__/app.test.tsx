@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -20,8 +19,9 @@
 import React from 'react'
 import {renderConnected} from './utils'
 import {PRIMARY_PACE} from './fixtures'
-import {App} from '../app'
+import {App, type ResponsiveComponentProps} from '../app'
 import {enableFetchMocks} from 'jest-fetch-mock'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 enableFetchMocks()
 
@@ -29,7 +29,7 @@ const pollForPublishStatus = jest.fn()
 const setBlueprintLocked = jest.fn()
 const setResponsiveSize = jest.fn()
 
-const defaultProps = {
+const defaultProps: ResponsiveComponentProps = {
   loadingMessage: '',
   pollForPublishStatus,
   setBlueprintLocked,
@@ -37,17 +37,26 @@ const defaultProps = {
   setResponsiveSize,
   showLoadingOverlay: false,
   unpublishedChanges: [],
+  modalOpen: false,
+  coursePace: PRIMARY_PACE,
+  hidePaceModal: jest.fn(),
 }
 
-beforeAll(() => {
-  window.ENV.VALID_DATE_RANGE = {
-    end_at: {date: '2021-09-30', date_context: 'course'},
-    start_at: {date: '2021-09-01', date_context: 'course'},
-  }
+beforeEach(() => {
+  fakeENV.setup({
+    VALID_DATE_RANGE: {
+      end_at: {date: '2021-09-30', date_context: 'course'},
+      start_at: {date: '2021-09-01', date_context: 'course'},
+    },
+    FEATURES: {
+      course_paces_redesign: false,
+    },
+  })
 })
 
 afterEach(() => {
   jest.clearAllMocks()
+  fakeENV.teardown()
 })
 
 describe('App', () => {
@@ -65,14 +74,26 @@ describe('App', () => {
   })
 
   describe('with course paces redesign ON', () => {
-    beforeAll(() => {
-      window.ENV.FEATURES ||= {}
-      window.ENV.FEATURES.course_paces_redesign = true
+    beforeEach(() => {
+      fakeENV.setup({
+        FEATURES: {
+          course_paces_redesign: true,
+        },
+      })
     })
 
     it('renders empty state if supplied shell course pace', () => {
       const {getByRole} = renderConnected(
-        <App {...defaultProps} coursePace={{id: undefined, context_type: 'Course'}} />
+        <App
+          {...defaultProps}
+          coursePace={{
+            ...PRIMARY_PACE,
+            id: undefined,
+            context_type: 'Course',
+            context_id: '1',
+            workflow_state: 'active',
+          }}
+        />,
       )
       const getStartedButton = getByRole('button', {name: 'Get Started'})
       expect(getStartedButton).toBeInTheDocument()

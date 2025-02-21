@@ -149,6 +149,9 @@
     "collapse_to_hide_types_1ab46d2e": {
         "message": "{ types } gizlemek için daraltın"
     },
+    "color_a363e1b0": {
+        "message": "Renk"
+    },
     "computer_1d7dfa6f": {
         "message": "Bilgisayar"
     },
@@ -211,6 +214,9 @@
     },
     "deep_purple_bb3e2907": {
         "message": "Koyu Mor"
+    },
+    "default_9db103d": {
+        "message": "Varsayılan"
     },
     "delimiters_4db4840d": {
         "message": "Ayıraçlar"
@@ -556,6 +562,9 @@
     },
     "submit_a3cc6859": {
         "message": "Gönder"
+    },
+    "submitting_b90fac62": {
+        "message": "Gönderiliyor..."
     },
     "syllabus_f191f65b": {
         "message": "Ders Programı"

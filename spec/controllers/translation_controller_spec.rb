@@ -16,58 +16,184 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
+require "aws-sdk-translate"
+
 describe TranslationController do
+  let(:context) { instance_double(Course) }
+  let(:params) do
+    {
+      text: "Hello world",
+      src_lang: "en",
+      tgt_lang: "es"
+    }
+  end
+
   before :once do
     @user = user_factory(active_all: true)
     @student = course_with_student(active_all: true).user
   end
 
   before do
-    allow(Translation).to receive_messages(available?: true, create: "translated.")
-    allow(InstStatsd::Statsd).to receive(:increment)
+    allow(InstStatsd::Statsd).to receive(:distributed_increment)
+    allow(Account.site_admin).to receive(:feature_enabled?).and_return(false)
+    allow(Account.site_admin).to receive(:feature_enabled?).with(:ai_translation_improvements).and_return(true)
     user_session(@user)
   end
 
-  it "POST #translate_paragraph" do
-    post :translate_paragraph, params: { course_id: @course.id, inputs: { text: "test text.\nthis is test text.", src_lang: "en", tgt_lang: "es" } }
+  describe "#translate" do
+    before do
+      allow(Translation).to receive_messages(available?: true, translate_html: "translated.")
+      allow(controller).to receive(:user_can_read?).and_return(true)
+    end
 
-    # Should have been two sentences.
-    expect(response).to be_successful
-    expect(Translation).to have_received(:create).exactly(2)
-    expect(response.parsed_body["translated_text"]).to eq("translated.\ntranslated.")
-    expect(InstStatsd::Statsd).to have_received(:increment).with("translation.inbox_compose")
-  end
+    context "when user is unauthorized" do
+      it "renders unauthorized action" do
+        allow(controller).to receive(:user_can_read?).and_return(false)
+        post :translate, params: { course_id: @course.id, inputs: params }
 
-  it "POST #translate" do
-    # Arrange
-    user_session(@student)
+        expect(response).to have_http_status(:unauthorized)
+      end
+    end
 
-    # Act
-    post :translate, params: { course_id: @course.id, inputs: { text: "Test text", src_lang: "en", tgt_lang: "es" } }
+    context "feature is not enabled" do
+      it "renders unauthorized action" do
+        allow(Translation).to receive_messages(available?: false)
+        post :translate, params: { course_id: @course.id, inputs: params }
 
-    # Assert
-    expect(response).to be_successful
-    expect(InstStatsd::Statsd).to have_received(:increment).with("translation.discussions")
-    expect(response.parsed_body["translated_text"]).to eq("translated.")
-  end
-
-  describe "POST #translate_message" do
-    it "matches language, no tranlation" do
-      # Act
-      post :translate_message, params: { inputs: { text: "Test text." } }
-
-      # Assert
-      expect(response).to be_successful
-      expect(response.parsed_body["status"]).to eq("language_matches")
+        expect(response).to have_http_status(:unauthorized)
+      end
     end
 
     it "logs the metric" do
-      # Act
-      post :translate_message, params: { inputs: { text: "¿Dónde está el baño?" } }
+      post :translate, params: { course_id: @course.id, inputs: params }
 
-      # Assert
       expect(response).to be_successful
-      expect(InstStatsd::Statsd).to have_received(:increment).with("translation.inbox")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("translation.discussions")
+    end
+
+    it "responds with translated message" do
+      post :translate, params: { course_id: @course.id, inputs: params }
+
+      expect(response).to be_successful
+      expect(response.parsed_body["translated_text"]).to eq("translated.")
+    end
+  end
+
+  describe "#translate_paragraph" do
+    before do
+      allow(Translation).to receive_messages(available?: true, translate_text: "translated.")
+    end
+
+    context "feature is not enabled" do
+      it "renders unauthorized action" do
+        allow(Translation).to receive_messages(available?: false)
+        post :translate_paragraph, params: { course_id: @course.id, inputs: params }
+
+        expect(response).to have_http_status(:unauthorized)
+      end
+    end
+
+    it "logs the metric" do
+      post :translate_paragraph, params: { course_id: @course.id, inputs: params }
+
+      expect(response).to be_successful
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("translation.inbox_compose")
+    end
+
+    it "responds with translated message" do
+      post :translate_paragraph, params: { course_id: @course.id, inputs: params }
+
+      expect(response).to be_successful
+      expect(response.parsed_body["translated_text"]).to eq("translated.")
+    end
+  end
+
+  describe "Exception Handling" do
+    context "when Translation::SameLanguageTranslationError is raised" do
+      before do
+        error = Translation::SameLanguageTranslationError
+        allow_any_instance_of(TranslationController).to receive(:translate).and_raise(error)
+      end
+
+      it "renders a same-language error response" do
+        post :translate, params: { course_id: @course.id, inputs: params }
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response.parsed_body.deep_symbolize_keys).to eq({ translationError: { type: "info", message: "Translation is identical to source language." } })
+      end
+    end
+
+    context "when Aws::Translate::Errors::UnsupportedLanguagePairException is raised" do
+      before do
+        mock_response = OpenStruct.new(body: StringIO.new({
+          "__type" => "UnsupportedLanguagePairException",
+          "Message" => "Unsupported language pair: en to hu.",
+          "SourceLanguageCode" => "en",
+          "TargetLanguageCode" => "hu"
+        }.to_json))
+
+        mock_context = OpenStruct.new(http_response: mock_response)
+        error = Aws::Translate::Errors::UnsupportedLanguagePairException.new(mock_context, "Detected language low confidence")
+        allow_any_instance_of(TranslationController).to receive(:translate).and_raise(error)
+      end
+
+      it "renders an unsupported language pair error" do
+        post :translate, params: { course_id: @course.id, inputs: params }
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response.parsed_body.deep_symbolize_keys).to eq({ translationError: { type: "error", message: "Translation from English to Hungarian is not supported." } })
+      end
+    end
+
+    context "when Aws::Translate::Errors::DetectedLanguageLowConfidenceException is raised" do
+      before do
+        error = Aws::Translate::Errors::DetectedLanguageLowConfidenceException.new(
+          Aws::EmptyStructure.new, "Detected language low confidence"
+        )
+
+        allow_any_instance_of(TranslationController).to receive(:translate).and_raise(error)
+      end
+
+      it "renders a low confidence error response" do
+        post :translate, params: { course_id: @course.id, inputs: params }
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response.parsed_body.deep_symbolize_keys).to eq({ translationError: { type: "error", message: "Couldn’t identify source language." } })
+      end
+    end
+
+    context "when Aws::Translate::Errors::TextSizeLimitExceededException is raised" do
+      before do
+        error = Aws::Translate::Errors::TextSizeLimitExceededException.new(
+          Aws::EmptyStructure.new, "Couldn’t translate because the text is too long."
+        )
+
+        allow_any_instance_of(TranslationController).to receive(:translate).and_raise(error)
+      end
+
+      it "renders a text size limit exceeded error response" do
+        post :translate, params: { course_id: @course.id, inputs: params }
+
+        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response.parsed_body.deep_symbolize_keys).to eq({ translationError: { type: "error", message: "Couldn’t translate because the text is too long." } })
+      end
+    end
+
+    context "when a generic Aws::Translate::Errors::ServiceError is raised" do
+      before do
+        error = Aws::Translate::Errors::ServiceError.new(
+          Aws::EmptyStructure.new, "There was an unexpected error during translation."
+        )
+
+        allow_any_instance_of(TranslationController).to receive(:translate).and_raise(error)
+      end
+
+      it "renders a generic AWS Translate error response" do
+        post :translate, params: { course_id: @course.id, inputs: params }
+
+        expect(response).to have_http_status(:internal_server_error)
+        expect(response.parsed_body.deep_symbolize_keys).to eq({ translationError: { type: "error", message: "There was an unexpected error during translation." } })
+      end
     end
   end
 end

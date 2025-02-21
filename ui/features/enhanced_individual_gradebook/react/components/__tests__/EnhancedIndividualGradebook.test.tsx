@@ -19,9 +19,9 @@
 import React from 'react'
 import $ from 'jquery'
 import axios from 'axios'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
 import {render, within, fireEvent} from '@testing-library/react'
-import {setGradebookOptions, setupGraphqlMocks} from './fixtures'
+import {setGradebookOptions, setupCanvasQueries} from './fixtures'
 import {BrowserRouter, Route, Routes} from 'react-router-dom'
 import EnhancedIndividualGradebook from '../EnhancedIndividualGradebook'
 import userSettings from '@canvas/user-settings'
@@ -29,6 +29,7 @@ import {GradebookSortOrder} from '../../../types/gradebook.d'
 import * as ReactRouterDom from 'react-router-dom'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 import {executeApiRequest} from '@canvas/do-fetch-api-effect/apiRequest'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 jest.mock('axios') // mock axios for final grade override helper API call
 jest.mock('@canvas/do-fetch-api-effect', () => jest.fn()) // mock doFetchApi for final grade override helper API call
@@ -63,16 +64,27 @@ const mockSearchParams = (defaultSearchParams = {}) => {
   return {searchParamsMock, setSearchParamsMock}
 }
 
+const CUSTOM_TIMEOUT_LIMIT = 1000
+
 describe('Enhanced Individual Gradebook', () => {
   beforeEach(() => {
-    ;(window.ENV as any) = setGradebookOptions()
-    window.ENV.FEATURES = {instui_nav: true}
+    const options = setGradebookOptions()
+    fakeENV.setup({
+      ...options,
+      FEATURES: {
+        instui_nav: true
+      }
+    })
     mockedAxios.get.mockResolvedValue({
       data: [],
     })
     $.subscribe = jest.fn()
+
+    setupCanvasQueries()
   })
+
   afterEach(() => {
+    fakeENV.teardown()
     jest.spyOn(ReactRouterDom, 'useSearchParams').mockClear()
     jest.resetAllMocks()
   })
@@ -84,13 +96,13 @@ describe('Enhanced Individual Gradebook', () => {
           <Route
             path="/"
             element={
-              <MockedProvider mocks={setupGraphqlMocks(mockOverrides)} addTypename={false}>
+              <MockedQueryProvider>
                 <EnhancedIndividualGradebook />
-              </MockedProvider>
+              </MockedQueryProvider>
             }
           />
         </Routes>
-      </BrowserRouter>
+      </BrowserRouter>,
     )
   }
 
@@ -130,40 +142,40 @@ describe('Enhanced Individual Gradebook', () => {
       const gradebookHistoryLink = getByTestId('gradebook-history-link')
       expect(gradebookHistoryLink).toBeInTheDocument()
 
-      await new Promise(resolve => setTimeout(resolve, 0))
+      await new Promise(resolve => setTimeout(resolve, CUSTOM_TIMEOUT_LIMIT))
 
       const contentSelectionStudent = getByTestId('content-selection-student')
       expect(within(contentSelectionStudent).getByText('No Student Selected')).toBeInTheDocument()
       const contentSelectionAssignment = getByTestId('content-selection-assignment')
       expect(
-        within(contentSelectionAssignment).getByText('No Assignment Selected')
+        within(contentSelectionAssignment).getByText('No Assignment Selected'),
       ).toBeInTheDocument()
 
       const gradingResults = getByTestId('grading-results-empty')
       expect(
         within(gradingResults).getByText(
-          'Select a student and an assignment to view and edit grades.'
-        )
+          'Select a student and an assignment to view and edit grades.',
+        ),
       ).toBeInTheDocument()
 
       const studentInformation = getByTestId('student-information-empty')
       expect(
         within(studentInformation).getByText(
-          'Select a student to view additional information here.'
-        )
+          'Select a student to view additional information here.',
+        ),
       ).toBeInTheDocument()
 
       const assignmentInformation = getByTestId('assignment-information-empty')
       expect(
         within(assignmentInformation).getByText(
-          'Select an assignment to view additional information here.'
-        )
+          'Select an assignment to view additional information here.',
+        ),
       ).toBeInTheDocument()
     })
 
     it('renders page with preselected options', async () => {
       mockUserSettings()
-      ;(window.ENV as any) = setGradebookOptions({
+      const options = setGradebookOptions({
         grading_period_set: {
           grading_periods: [
             {
@@ -193,7 +205,12 @@ describe('Enhanced Individual Gradebook', () => {
         },
         attachment_url: 'https://www.testattachment.com/attachment',
       })
-      window.ENV.FEATURES = {instui_nav: true}
+      fakeENV.setup({
+        ...options,
+        FEATURES: {
+          instui_nav: true
+        }
+      })
       mockSearchParams({student: '5', assignment: '1'})
       // dropdowns
       const {getByTestId} = renderEnhancedIndividualGradebook()
@@ -234,12 +251,12 @@ describe('Enhanced Individual Gradebook', () => {
       expect(gradebookExportLink).toBeInTheDocument()
       expect(gradebookExportLink).toHaveAttribute(
         'href',
-        'https://www.testattachment.com/attachment'
+        'https://www.testattachment.com/attachment',
       )
       expect(gradebookExportLink).toHaveTextContent('Download Scores Generated on')
 
       // content selection query params
-      await new Promise(resolve => setTimeout(resolve, 0))
+      await new Promise(resolve => setTimeout(resolve, CUSTOM_TIMEOUT_LIMIT))
       const contentSelectionStudent = getByTestId('content-selection-student')
       expect(contentSelectionStudent).toBeInTheDocument()
       expect(within(contentSelectionStudent).getByText('Student 1')).toBeInTheDocument()
@@ -247,7 +264,7 @@ describe('Enhanced Individual Gradebook', () => {
       const contentSelectionAssignment = getByTestId('content-selection-assignment')
       expect(contentSelectionAssignment).toBeInTheDocument()
       expect(
-        within(contentSelectionAssignment).getByText('Missing Assignment 1')
+        within(contentSelectionAssignment).getByText('Missing Assignment 1'),
       ).toBeInTheDocument()
 
       // grading results
@@ -255,7 +272,7 @@ describe('Enhanced Individual Gradebook', () => {
       const gradingResults = getByTestId('grading-results')
       expect(gradingResults).toBeInTheDocument()
       expect(
-        within(gradingResults).getByText('Grade for Student 1 - Missing Assignment 1')
+        within(gradingResults).getByText('Grade for Student 1 - Missing Assignment 1'),
       ).toBeInTheDocument()
 
       // student information
@@ -267,24 +284,24 @@ describe('Enhanced Individual Gradebook', () => {
       const assignmentInformationName = getByTestId('assignment-information-name')
       expect(assignmentInformationName).toBeInTheDocument()
       expect(
-        within(assignmentInformationName).getByText('Missing Assignment 1')
+        within(assignmentInformationName).getByText('Missing Assignment 1'),
       ).toBeInTheDocument()
     })
 
     it('renders a dropped message if the assignment is being dropped from grade calculation for the current student', async () => {
       mockUserSettings()
       const {getByTestId} = renderEnhancedIndividualGradebook()
-      await new Promise(resolve => setTimeout(resolve, 0))
+      await new Promise(resolve => setTimeout(resolve, CUSTOM_TIMEOUT_LIMIT))
       fireEvent.change(getByTestId('content-selection-assignment-select'), {target: {value: '1'}})
       fireEvent.change(getByTestId('content-selection-student-select'), {target: {value: '5'}})
       await new Promise(resolve => setTimeout(resolve, 0))
 
       const gradingResults = getByTestId('grading-results')
       expect(
-        within(gradingResults).getByText('Grade for Student 1 - Missing Assignment 1')
+        within(gradingResults).getByText('Grade for Student 1 - Missing Assignment 1'),
       ).toBeInTheDocument()
       expect(
-        within(gradingResults).queryByText('This grade is currently dropped for this student.')
+        within(gradingResults).queryByText('This grade is currently dropped for this student.'),
       ).not.toBeInTheDocument()
 
       fireEvent.change(getByTestId('content-selection-assignment-select'), {target: {value: '2'}})
@@ -292,17 +309,17 @@ describe('Enhanced Individual Gradebook', () => {
       await new Promise(resolve => setTimeout(resolve, 0))
 
       expect(
-        within(gradingResults).getByText('Grade for Student 1 - Missing Assignment 2')
+        within(gradingResults).getByText('Grade for Student 1 - Missing Assignment 2'),
       ).toBeInTheDocument()
       expect(
-        within(gradingResults).getByText('This grade is currently dropped for this student.')
+        within(gradingResults).getByText('This grade is currently dropped for this student.'),
       ).toBeInTheDocument()
     })
 
     it('does not render another flash message when switching students after setting default grades for the assignment', async () => {
       mockUserSettings()
       const {getByTestId, getByRole} = renderEnhancedIndividualGradebook()
-      await new Promise(resolve => setTimeout(resolve, 0))
+      await new Promise(resolve => setTimeout(resolve, CUSTOM_TIMEOUT_LIMIT))
       mockedExecuteApiRequest.mockResolvedValue({
         data: [],
         status: 201,
@@ -310,6 +327,7 @@ describe('Enhanced Individual Gradebook', () => {
       fireEvent.change(getByTestId('content-selection-assignment-select'), {target: {value: '1'}})
       fireEvent.click(getByTestId('default-grade-button'))
       fireEvent.change(getByTestId('default-grade-input'), {target: {value: '10'}})
+      fireEvent.blur(getByTestId('default-grade-input'))
       fireEvent.click(getByTestId('default-grade-submit-button'))
       await new Promise(resolve => setTimeout(resolve, 0))
       fireEvent.change(getByTestId('content-selection-student-select'), {target: {value: '5'}})
@@ -325,7 +343,7 @@ describe('Enhanced Individual Gradebook', () => {
       const {getByTestId} = renderEnhancedIndividualGradebook()
       await new Promise(resolve => setTimeout(resolve, 0))
       expect(searchParamsMock.get('student')).toBe(null)
-      await new Promise(resolve => setTimeout(resolve, 0))
+      await new Promise(resolve => setTimeout(resolve, CUSTOM_TIMEOUT_LIMIT))
       const contentSelectionStudent = getByTestId('content-selection-student-select')
       expect(contentSelectionStudent).toBeInTheDocument()
       fireEvent.change(contentSelectionStudent, {target: {value: '5'}})
@@ -336,7 +354,7 @@ describe('Enhanced Individual Gradebook', () => {
       const {searchParamsMock, setSearchParamsMock} = mockSearchParams({student: '5'})
       await new Promise(resolve => setTimeout(resolve, 0))
       const {getByTestId} = renderEnhancedIndividualGradebook()
-      await new Promise(resolve => setTimeout(resolve, 0))
+      await new Promise(resolve => setTimeout(resolve, CUSTOM_TIMEOUT_LIMIT))
       expect(searchParamsMock.get('student')).toBe('5')
       const contentSelectionStudent = getByTestId('content-selection-student-select')
       fireEvent.change(contentSelectionStudent, {target: {value: '-1'}})
@@ -348,7 +366,7 @@ describe('Enhanced Individual Gradebook', () => {
       const {getByTestId} = renderEnhancedIndividualGradebook()
       await new Promise(resolve => setTimeout(resolve, 0))
       expect(searchParamsMock.get('assignment')).toBe(null)
-      await new Promise(resolve => setTimeout(resolve, 0))
+      await new Promise(resolve => setTimeout(resolve, CUSTOM_TIMEOUT_LIMIT))
       const contentSelectionAssignment = getByTestId('content-selection-assignment-select')
       expect(contentSelectionAssignment).toBeInTheDocument()
       fireEvent.change(contentSelectionAssignment, {target: {value: '1'}})
@@ -360,7 +378,7 @@ describe('Enhanced Individual Gradebook', () => {
       const {getByTestId} = renderEnhancedIndividualGradebook()
       await new Promise(resolve => setTimeout(resolve, 0))
       expect(searchParamsMock.get('assignment')).toBe('1')
-      await new Promise(resolve => setTimeout(resolve, 0))
+      await new Promise(resolve => setTimeout(resolve, CUSTOM_TIMEOUT_LIMIT))
       const contentSelectionAssignment = getByTestId('content-selection-assignment-select')
       expect(contentSelectionAssignment).toBeInTheDocument()
       fireEvent.change(contentSelectionAssignment, {target: {value: '-1'}})
@@ -383,8 +401,13 @@ describe('Enhanced Individual Gradebook', () => {
     })
 
     it('makes api call when "View Ungraded as 0" checkbox is checked & save-view-ungraded-as-zero-to-server is true', async () => {
-      ;(window.ENV as any) = setGradebookOptions({save_view_ungraded_as_zero_to_server: true})
-      window.ENV.FEATURES = {instui_nav: true}
+      const options = setGradebookOptions({save_view_ungraded_as_zero_to_server: true})
+      fakeENV.setup({
+        ...options,
+        FEATURES: {
+          instui_nav: true
+        }
+      })
       mockUserSettings(false)
       const {getByTestId} = renderEnhancedIndividualGradebook()
       await new Promise(resolve => setTimeout(resolve, 0))
@@ -417,10 +440,15 @@ describe('Enhanced Individual Gradebook', () => {
     })
 
     it('makes api call when "Show Concluded Enrollments" checkbox is checked', async () => {
-      ;(window.ENV as any) = setGradebookOptions({
+      const options = setGradebookOptions({
         settings_update_url: 'http://canvas.docker/api/v1/courses/2/gradebook_settings',
       })
-      window.ENV.FEATURES = {instui_nav: true}
+      fakeENV.setup({
+        ...options,
+        FEATURES: {
+          instui_nav: true
+        }
+      })
       const {getByTestId} = renderEnhancedIndividualGradebook()
       await new Promise(resolve => setTimeout(resolve, 0))
       const showConcludedEnrollmentsCheckbox = getByTestId('show-concluded-enrollments-checkbox')
@@ -440,7 +468,7 @@ describe('Enhanced Individual Gradebook', () => {
     })
 
     it('makes api call when "Show Notes in Student Info" checkbox is checked', async () => {
-      ;(window.ENV as any) = setGradebookOptions({
+      const options = setGradebookOptions({
         custom_column_url: 'http://canvas.docker/api/v1/courses/2/custom_gradebook_columns/:id',
         custom_columns_url: 'http://canvas.docker/api/v1/courses/2/custom_gradebook_columns',
         reorder_custom_columns_url:
@@ -454,7 +482,12 @@ describe('Enhanced Individual Gradebook', () => {
           title: 'Notes',
         },
       })
-      window.ENV.FEATURES = {instui_nav: true}
+      fakeENV.setup({
+        ...options,
+        FEATURES: {
+          instui_nav: true
+        }
+      })
       mockedExecuteApiRequest.mockResolvedValue({
         data: [
           {
@@ -497,10 +530,15 @@ describe('Enhanced Individual Gradebook', () => {
     })
 
     it('makes api call when "Allow Final Grade Override" checkbox is checked', async () => {
-      ;(window.ENV as any) = setGradebookOptions({
+      const options = setGradebookOptions({
         final_grade_override_enabled: true,
       })
-      window.ENV.FEATURES = {instui_nav: true}
+      fakeENV.setup({
+        ...options,
+        FEATURES: {
+          instui_nav: true
+        }
+      })
       const {getByTestId} = renderEnhancedIndividualGradebook()
       await new Promise(resolve => setTimeout(resolve, 0))
       const allowFinalGradeOverrideCheckbox = getByTestId('allow-final-grade-override-checkbox')

@@ -61,7 +61,7 @@ export default function useDebouncedSearchTerm(
   }: {
     timeout?: number
     isSearchableTerm?: (term: string) => boolean
-  } = {}
+  } = {},
 ) {
   const [searchTerm, rawSetSearchTerm] = useState(defaultValue)
   const [searchTermIsPending, setSearchIsPending] = useState(false)
@@ -69,8 +69,9 @@ export default function useDebouncedSearchTerm(
   // We only want to set the searchTerm state if the final value is actually
   // different than the old value, and only if the new value is valid.
   const searchTermWillChange = useCallback(
+    // @ts-expect-error
     (oldTerm, newTerm) => oldTerm !== newTerm && isSearchableTerm(newTerm),
-    [isSearchableTerm]
+    [isSearchableTerm],
   )
 
   const [debouncedSetSearchTerm, cancelCallback, callPending] = useDebouncedCallback(
@@ -84,7 +85,7 @@ export default function useDebouncedSearchTerm(
       // longer be pending because this callback has now been called.
       setSearchIsPending(false)
     },
-    timeout
+    timeout,
   )
 
   const wrappedCancelCallback = (...args: any[]) => {
@@ -102,7 +103,7 @@ export default function useDebouncedSearchTerm(
       setSearchIsPending(searchTermWillChange(searchTerm, newSearchTerm))
       debouncedSetSearchTerm(newSearchTerm)
     },
-    [debouncedSetSearchTerm, searchTermWillChange, searchTerm]
+    [debouncedSetSearchTerm, searchTermWillChange, searchTerm],
   )
 
   return {

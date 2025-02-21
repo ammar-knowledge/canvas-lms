@@ -18,7 +18,7 @@
 
 import React from 'react'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import Avatar from './Avatar'
 import LastActivity from './LastActivity'
 import MetricsList from './MetricsList'
@@ -35,7 +35,7 @@ import {Tray} from '@instructure/ui-tray'
 
 import {Link} from '@instructure/ui-link'
 
-const I18n = useI18nScope('student_context_trayStudentContextTray')
+const I18n = createI18nScope('student_context_trayStudentContextTray')
 
 const courseShape = PropTypes.shape({
   permissions: PropTypes.shape({}).isRequired,
@@ -62,7 +62,7 @@ export default class StudentContextTray extends React.Component {
       PropTypes.shape({
         base_url: PropTypes.string.isRequired,
         title: PropTypes.string.isRequired,
-      })
+      }),
     ),
   }
 
@@ -139,7 +139,7 @@ export default class StudentContextTray extends React.Component {
       },
       () => {
         this.messageStudentsButton.focus()
-      }
+      },
     )
   }
 
@@ -159,7 +159,7 @@ export default class StudentContextTray extends React.Component {
           I18n.t('View grades for %{name}', {name: user.short_name}),
           `/courses/${this.props.courseId}/grades/${this.props.studentId}`,
 
-          () => course.permissions.manage_grades || course.permissions.view_all_grades
+          () => course.permissions.manage_grades || course.permissions.view_all_grades,
         )}
         {
           // only include analytics 1 link if analytics 2 is not among the external tool links
@@ -171,7 +171,7 @@ export default class StudentContextTray extends React.Component {
                 I18n.t('Analytics'),
                 I18n.t('View analytics for %{name}', {name: user.short_name}),
                 `/courses/${this.props.courseId}/analytics/users/${this.props.studentId}`,
-                () => course.permissions.view_analytics && user.analytics
+                () => course.permissions.view_analytics && user.analytics,
               )
         }
         {this.props.externalTools
@@ -181,7 +181,7 @@ export default class StudentContextTray extends React.Component {
                 tool.title,
                 tool.title,
                 `${tool.base_url}&student_id=${this.props.studentId}`,
-                () => true
+                () => true,
               )
             })
           : null}
@@ -249,6 +249,7 @@ export default class StudentContextTray extends React.Component {
                         <div className="StudentContextTray-Header__Name">
                           <Heading level="h3" as="h2">
                             <Link
+                              data-testid="student-name-link"
                               size="large"
                               href={`/courses/${this.props.courseId}/users/${this.props.studentId}`}
                               isWithinText={false}

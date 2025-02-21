@@ -107,14 +107,20 @@ describe "announcements" do
         expect(Message.last.body).not_to include "Hi, this is my EDITED message"
       end
 
-      it "for delayed posting notification sending is not available", :ignore_js_errors do
+      it "for delayed posting don't send notifications", :ignore_js_errors do
         @announcement.delayed_post_at = 1.day.from_now
         @announcement.save!
         get "/courses/#{@course.id}/discussion_topics/#{@announcement.id}/edit"
 
         type_in_tiny("#discussion-topic-message-body", "Hi, this is my EDITED message")
 
-        expect_new_page_load { AnnouncementNewEdit.submit_button.click }
+        AnnouncementNewEdit.save_button.click
+
+        expect(AnnouncementNewEdit.notification_modal).to be_displayed
+
+        AnnouncementNewEdit.notification_modal_dont_send.click
+
+        expect(Message.last.body).not_to include "Hi, this is my EDITED message"
       end
 
       it "should not send notifications at all if we hit Cancel", :ignore_js_errors do
@@ -154,6 +160,39 @@ describe "announcements" do
 
         @announcement.reload
         expect(@announcement.lock_at).to be_nil
+      end
+
+      context "selective release assignment embedded in discussions edit page" do
+        it "allows create", :ignore_js_errors do
+          title = "Announcement"
+          message = "this is an announcement"
+          get "/courses/#{@course.id}/discussion_topics/new?is_announcement=true"
+          AnnouncementNewEdit.title_field.send_keys title
+          type_in_tiny(AnnouncementNewEdit.message_body_selector, message)
+          AnnouncementNewEdit.submit
+          wait_for_ajaximations
+          expect(driver.current_url).not_to end_with("/courses/#{@course.id}/discussion_topics/new")
+        end
+
+        it "allows edit", :ignore_js_errors do
+          title = "Announcement"
+          message = "this is an announcement"
+          get "/courses/#{@course.id}/discussion_topics/#{@announcement.id}/edit"
+
+          AnnouncementNewEdit.title_field.clear
+          AnnouncementNewEdit.title_field.send_keys title
+          clear_tiny(AnnouncementNewEdit.message_body, "discussion-topic-message-body_ifr")
+          type_in_tiny(AnnouncementNewEdit.message_body_selector, message)
+          AnnouncementNewEdit.submit
+          wait_for_ajaximations
+
+          # Expect Modal to appear with proper header
+          expect(AnnouncementNewEdit.notification_modal).to be_displayed
+
+          # Choose sending Notification along with our change
+          AnnouncementNewEdit.notification_modal_send.click
+          expect(driver.current_url).not_to end_with("/courses/#{@course.id}/discussion_topics/#{@announcement.id}/edit")
+        end
       end
     end
 

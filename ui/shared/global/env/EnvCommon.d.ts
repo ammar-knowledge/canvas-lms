@@ -66,6 +66,35 @@ export type GroupOutcome = {
   description: string
 }
 
+export interface BlueprintCourse {
+  id: number | string
+  name: string
+  enrollment_term_id: number | string
+}
+
+export interface SubAccount {
+  id: number | string
+  name: string
+}
+
+export interface Term {
+  id: number | string
+  name: string
+}
+
+export interface BlueprintCoursesData {
+  isMasterCourse: boolean
+  isChildCourse: boolean
+  accountId: number | string
+  masterCourse: BlueprintCourse
+  course: BlueprintCourse
+  subAccounts?: SubAccount[]
+  terms?: Term[]
+  canManageCourse?: boolean
+  canAutoPublishCourses?: boolean
+  itemNotificationFeatureEnabled?: boolean
+}
+
 export interface EnvCommon {
   ASSET_HOST: string
   active_brand_config_json_url: string
@@ -121,6 +150,7 @@ export interface EnvCommon {
   SETTINGS: Record<Setting, boolean>
   RAILS_ENVIRONMENT: 'development' | 'CD' | 'Beta' | 'Production' | string
   IN_PACED_COURSE: boolean
+  CONDITIONAL_RELEASE_SERVICE_ENABLED?: boolean
   PARSE_LINK_HEADER_THROW_ON_MAXLEN_EXCEEDED?: boolean
   PREFERENCES?: {
     hide_dashcard_color_overlays: boolean
@@ -202,6 +232,8 @@ export interface EnvCommon {
   K5_SUBJECT_COURSE: string
   LOCALE_TRANSLATION_FILE: string
   DEFAULT_DUE_TIME?: string
+  TIMEZONES: Array<{name: string; name_with_hour_offset: string}>
+  DEFAULT_TIMEZONE_NAME: string
 
   FEATURES: Partial<
     Record<
@@ -221,14 +253,18 @@ export interface EnvCommon {
     type?: string
     classes?: string
   }>
-  breadcrumbs: {name: string; url: string | null}[]
+  breadcrumbs?: {name: string; url: string | null}[]
   enhanced_rubrics_enabled?: boolean
+  enhanced_rubrics_copy_to?: boolean
+  rubric_imports_exports?: boolean
 
   /**
    * Used by ui/features/top_navigation_tools/react/TopNavigationTools.tsx
    * and ui/shared/trays/react/ContentTypeExternalToolDrawer.tsx
    */
   top_navigation_tools: Tool[]
+
+  BLUEPRINT_COURSES_DATA: BlueprintCoursesData | undefined
 }
 
 /**
@@ -239,9 +275,6 @@ export type SiteAdminFeatureId =
   | 'account_level_blackout_dates'
   | 'course_paces_for_students'
   | 'course_paces_redesign'
-  | 'selective_release_backend'
-  | 'selective_release_ui_api'
-  | 'selective_release_edit_page'
   | 'enhanced_course_creation_account_fetching'
   | 'explicit_latex_typesetting'
   | 'featured_help_links'
@@ -250,7 +283,6 @@ export type SiteAdminFeatureId =
   | 'media_links_use_attachment_id'
   | 'multiselect_gradebook_filters'
   | 'permanent_page_links'
-  | 'platform_service_speedgrader'
   | 'render_both_to_do_lists'
   | 'instui_header'
   | 'lti_registrations_discover_page'
@@ -265,32 +297,44 @@ export type RootAccountFeatureId =
   | 'buttons_and_icons_root_account'
   | 'create_course_subaccount_picker'
   | 'extended_submission_state'
-  | 'granular_permissions_manage_users'
   | 'instui_nav'
   | 'lti_deep_linking_module_index_menu_modal'
-  | 'lti_dynamic_registration'
-  | 'lti_multiple_assignment_deep_linking'
-  | 'lti_overwrite_user_url_input_select_content_dialog'
+  | 'lti_registrations_next'
+  | 'lti_registrations_page'
   | 'mobile_offline_mode'
   | 'product_tours'
   | 'rce_transform_loaded_content'
   | 'scheduled_page_publication'
   | 'send_usage_metrics'
-  | 'usage_rights_discussion_topics'
   | 'account_level_mastery_scales'
   | 'non_scoring_rubrics'
   | 'rubric_criterion_range'
+  | 'rce_lite_enabled_speedgrader_comments'
+  | 'login_registration_ui_identity'
+  | 'course_paces_skip_selected_days'
+  | 'course_pace_download_document'
+  | 'course_pace_draft_state'
+  | 'course_pace_time_selection'
+  | 'course_pace_pacing_status_labels'
+  | 'course_pace_pacing_with_mastery_paths'
+  | 'modules_requirements_allow_percentage'
+  | 'lti_asset_processor'
+  | 'discussion_checkpoints'
+  | 'course_pace_weighted_assignments'
 
 /**
  * From ApplicationController#JS_ENV_BRAND_ACCOUNT_FEATURES
  */
-export type BrandAccountFeatureId = 'embedded_release_notes'
+export type BrandAccountFeatureId =
+  | 'embedded_release_notes'
+  | 'consolidated_media_player'
+  | 'discussions_speedgrader_revisit'
 
 /**
  * Feature id exported in ApplicationController that aren't mentioned in
  * JS_ENV_SITE_ADMIN_FEATURES or JS_ENV_ROOT_ACCOUNT_FEATURES or JS_ENV_BRAND_ACCOUNT_FEATURES
  */
-export type OtherFeatureId = 'canvas_k6_theme' | 'new_math_equation_handling' | 'learner_passport'
+export type OtherFeatureId = 'canvas_k6_theme' | 'new_math_equation_handling'
 
 /**
  * From ApplicationHelper#set_tutorial_js_env
