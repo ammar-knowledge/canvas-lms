@@ -34,7 +34,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useCallback, useState} from 'react'
+import React, {useCallback, useEffect, useState} from 'react'
 import {useNode, type Node} from '@craftjs/core'
 import {Button, IconButton} from '@instructure/ui-buttons'
 import {
@@ -49,19 +49,19 @@ import {Flex} from '@instructure/ui-flex'
 import {Menu, type MenuItemProps, type MenuItem} from '@instructure/ui-menu'
 import {Text} from '@instructure/ui-text'
 import {type ViewOwnProps} from '@instructure/ui-view'
-import {
-  isSelectionAllStyled,
-  isElementBold,
-  makeSelectionBold,
-  unstyleSelection,
-  unboldElement,
-} from '../../../../utils'
+import {isCaretAtBoldText, isCaretAtStyledText, getCaretPosition} from '../../../../utils'
 import {ColorModal} from '../../common/ColorModal'
 import {type TextBlockProps} from './types'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('block-editor/text-block')
+const I18n = createI18nScope('block-editor')
+
+// NOTE: This component uses document.execCommand which is deprecated, but there
+//       (1) is still supported by browsers, and
+//       (2) no reasonable alternative exists for the functionality it provides.
+// Should it ever go away, we'll deal with the consequences then (which will mean writing
+// a boatload of code to replace a 1-liner.)
 
 const TextBlockToolbar = () => {
   const {
@@ -73,26 +73,71 @@ const TextBlockToolbar = () => {
     props: n.data.props as TextBlockProps,
   }))
   const [colorModalOpen, setColorModalOpen] = useState(false)
+  const [editableNode, setEditableNode] = useState(node.dom?.querySelector('[contenteditable]'))
+  const [caretPos, setCaretPos] = useState(() => {
+    return editableNode ? getCaretPosition(editableNode) : 0
+  })
+  const [isBold, setIsBold] = useState(isCaretAtBoldText())
+  const [isItalic, setIsItalic] = useState(isCaretAtStyledText('font-style', 'italic'))
+  const [isUnderline, setIsUnderline] = useState(
+    isCaretAtStyledText('text-decoration-line', 'underline'),
+  )
+  const [isStrikeThrough, setIsStrikeThrough] = useState(
+    isCaretAtStyledText('text-decoration-line', 'line-through'),
+  )
+
+  useEffect(() => {
+    setEditableNode(node.dom?.querySelector('[contenteditable]'))
+  }, [node.dom])
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      if (editableNode) setCaretPos(getCaretPosition(editableNode))
+    }
+
+    document.addEventListener('selectionchange', handleSelectionChange)
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange)
+    }
+  }, [editableNode])
+
+  useEffect(() => {
+    setIsBold(isCaretAtBoldText())
+    setIsItalic(isCaretAtStyledText('font-style', 'italic'))
+    setIsUnderline(isCaretAtStyledText('text-decoration-line', 'underline'))
+    setIsStrikeThrough(isCaretAtStyledText('text-decoration-line', 'line-through'))
+  }, [caretPos])
 
   const handleBold = useCallback(() => {
-    if (isSelectionAllStyled(isElementBold)) {
-      unstyleSelection(isElementBold, unboldElement)
-    } else {
-      makeSelectionBold()
-    }
-    setProp((prps: TextBlockProps) => (prps.text = node.dom?.firstElementChild?.innerHTML))
-  }, [node.dom, setProp])
+    document.execCommand('bold')
+    setIsBold(isCaretAtBoldText())
+  }, [])
+
+  const handleItalic = useCallback(() => {
+    document.execCommand('italic')
+    setIsItalic(isCaretAtStyledText('font-style', 'italic'))
+  }, [])
+
+  const handleUnderline = useCallback(() => {
+    document.execCommand('underline')
+    setIsUnderline(isCaretAtStyledText('text-decoration-line', 'underline'))
+  }, [])
+
+  const handleStrikeThrough = useCallback(() => {
+    document.execCommand('strikeThrough')
+    setIsStrikeThrough(isCaretAtStyledText('text-decoration-line', 'line-through'))
+  }, [])
 
   const handleFontSizeChange = useCallback(
     (
-      e: React.MouseEvent<ViewOwnProps, MouseEvent>,
+      _e: any,
       value: MenuItemProps['value'] | MenuItemProps['value'][],
       _selected: MenuItemProps['selected'],
-      _args: MenuItem
+      _args: MenuItem,
     ) => {
       setProp((prps: TextBlockProps) => (prps.fontSize = value as string))
     },
-    [setProp]
+    [setProp],
   )
 
   const handleColorChange = useCallback(
@@ -100,7 +145,7 @@ const TextBlockToolbar = () => {
       setProp((prps: TextBlockProps) => (prps.color = color))
       setColorModalOpen(false)
     },
-    [setProp]
+    [setProp],
   )
 
   const handleColorButtonClick = useCallback(() => {
@@ -114,25 +159,44 @@ const TextBlockToolbar = () => {
   return (
     <>
       <IconButton
-        screenReaderLabel="Bold"
+        screenReaderLabel={I18n.t('Bold')}
+        title={I18n.t('Bold')}
+        size="small"
         withBackground={false}
-        withBorder={false}
+        withBorder={isBold}
         onClick={handleBold}
       >
-        <IconBoldLine size="x-small" />
+        <IconBoldLine />
       </IconButton>
-      <IconButton screenReaderLabel={I18n.t('Italic')} withBackground={false} withBorder={false}>
-        <IconItalicLine size="x-small" />
+      <IconButton
+        screenReaderLabel={I18n.t('Italic')}
+        title={I18n.t('Italic')}
+        size="small"
+        withBackground={false}
+        withBorder={isItalic}
+        onClick={handleItalic}
+      >
+        <IconItalicLine />
       </IconButton>
-      <IconButton screenReaderLabel={I18n.t('Underline')} withBackground={false} withBorder={false}>
-        <IconUnderlineLine size="x-small" />
+      <IconButton
+        screenReaderLabel={I18n.t('Underline')}
+        title={I18n.t('Underline')}
+        size="small"
+        withBackground={false}
+        withBorder={isUnderline}
+        onClick={handleUnderline}
+      >
+        <IconUnderlineLine />
       </IconButton>
       <IconButton
         screenReaderLabel={I18n.t('Strikethrough')}
+        title={I18n.t('Strikethrough')}
+        size="small"
         withBackground={false}
-        withBorder={false}
+        withBorder={isStrikeThrough}
+        onClick={handleStrikeThrough}
       >
-        <IconStrikethroughLine size="x-small" />
+        <IconStrikethroughLine />
       </IconButton>
       <Menu
         label="Font size"
@@ -140,7 +204,7 @@ const TextBlockToolbar = () => {
           <Button size="small">
             <Flex gap="x-small">
               <Text size="small">{props.fontSize || I18n.t('Size')}</Text>
-              <IconMiniArrowDownLine size="x-small" />
+              <IconMiniArrowDownLine />
             </Flex>
           </Button>
         }
@@ -163,9 +227,10 @@ const TextBlockToolbar = () => {
         withBackground={false}
         withBorder={false}
         screenReaderLabel={I18n.t('Color')}
+        title={I18n.t('Color')}
         onClick={handleColorButtonClick}
       >
-        <IconTextColorLine size="x-small" />
+        <IconTextColorLine />
       </IconButton>
 
       <ColorModal

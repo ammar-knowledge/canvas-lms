@@ -22,155 +22,239 @@ import {
   rawDaysBetweenInclusive,
   inBlackoutDate,
   daysBetween,
+  getEndDateValue,
+  generateDatesCaptions,
 } from '../date_stuff/date_helpers'
+import { END_DATE_CAPTIONS, START_DATE_CAPTIONS } from '../../../constants'
+import {
+  PRIMARY_PACE,
+  STUDENT_PACE,
+} from '../../__tests__/fixtures'
+import { ContextTypes, Pace } from '../../types'
 
 moment.tz.setDefault('America/Denver')
 
 describe('date_helpers', () => {
   describe('addDays', () => {
-    it('add days to the given start', () => {
-      const start = moment('2022-05-02T00:00:00')
-      const end = addDays(start, 4, false)
-      expect(end).toEqual('2022-05-06T00:00:00.000-06:00')
-    })
+    const testCases = [
+      {
+        description: 'add days to the given start_date - No days skipped',
+        start_date: '2022-05-02T00:00:00',
+        daysToAdd: 4,
+        excludeWeekends: false,
+        skipDays: [],
+        blackouts: [],
+        expected: '2022-05-06T00:00:00.000-06:00',
+      },
+      {
+        description: 'weekend days selected to be skipped',
+        start_date: '2022-04-29T00:00:00',
+        daysToAdd: 4,
+        excludeWeekends: true,
+        skipDays: ['sat', 'sun'],
+        blackouts: [],
+        expected: '2022-05-05T00:00:00.000-06:00',
+      },
+      {
+        description: 'weekend days selected to be skipped when they fall on the start_date date',
+        start_date: '2022-04-30T00:00:00',
+        daysToAdd: 4,
+        excludeWeekends: true,
+        skipDays: ['sat', 'sun'],
+        blackouts: [],
+        expected: '2022-05-06T00:00:00.000-06:00',
+      },
+      {
+        description: 'skips blackout dates',
+        start_date: '2022-05-02T00:00:00',
+        daysToAdd: 4,
+        excludeWeekends: false,
+        skipDays: [],
+        blackouts: [
+          {
+            event_title: 'Tues and Wed',
+            start_date: moment('2022-05-03T00:00:00'),
+            end_date: moment('2022-05-04T00:00:00'),
+          },
+        ],
+        expected: '2022-05-08T00:00:00.000-06:00',
+      },
+      {
+        description: 'weekend days selected to be skipped and blackout dates',
+        start_date: '2022-05-02T00:00:00',
+        daysToAdd: 4,
+        excludeWeekends: true,
+        skipDays: ['sat', 'sun'],
+        blackouts: [
+          {
+            event_title: 'Tues and Wed',
+            start_date: moment('2022-05-03T00:00:00'),
+            end_date: moment('2022-05-04T00:00:00'),
+          },
+        ],
+        expected: '2022-05-10T00:00:00.000-06:00',
+      },
+      {
+        description: 'skips single-day blackout dates',
+        start_date: '2022-05-02T00:00:00',
+        daysToAdd: 4,
+        excludeWeekends: false,
+        skipDays: [],
+        blackouts: [
+          {
+            event_title: 'Tues',
+            start_date: moment('2022-05-03T00:00:00'),
+            end_date: moment('2022-05-03T00:00:00'),
+          },
+        ],
+        expected: '2022-05-07T00:00:00.000-06:00',
+      },
+      {
+        description: 'skips blackout dates that cover the start_date',
+        start_date: '2022-05-02T00:00:00',
+        daysToAdd: 4,
+        excludeWeekends: false,
+        skipDays: [],
+        blackouts: [
+          {
+            event_title: 'Tues and Wed',
+            start_date: moment('2022-04-30T00:00:00'),
+            end_date: moment('2022-05-04T00:00:00'),
+          },
+        ],
+        expected: '2022-05-09T00:00:00.000-06:00',
+      },
+    ]
 
-    it('skips weekends', () => {
-      // a Friday
-      const start = moment('2022-04-29T00:00:00')
-      const end = addDays(start, 4, true)
-      // the following thrusday
-      expect(end).toEqual('2022-05-05T00:00:00.000-06:00')
-    })
+    const runTests = (skipSelectedDays: boolean) => {
+      beforeAll(() => {
+        window.ENV.FEATURES ||= {}
+        window.ENV.FEATURES.course_paces_skip_selected_days = skipSelectedDays
+      })
 
-    it('skips weekends when they fall on teh start date', () => {
-      // a Saturday
-      const start = moment('2022-04-30T00:00:00')
-      const end = addDays(start, 4, true)
-      // the following Friday
-      expect(end).toEqual('2022-05-06T00:00:00.000-06:00')
-    })
-
-    it('skips blackout dates', () => {
-      const blackouts = [
-        {
-          event_title: 'Tues and Wed',
-          start_date: moment('2022-05-03T00:00:00'), // Tues
-          end_date: moment('2022-05-04T00:00:00'), // Wed
+      testCases.forEach(
+        ({ description, start_date, daysToAdd, excludeWeekends, skipDays, blackouts, expected }) => {
+          it(description, () => {
+            const end = addDays(moment(start_date), daysToAdd, excludeWeekends, skipDays, blackouts)
+            expect(end).toEqual(expected)
+          })
         },
-      ]
-      const start = moment('2022-05-02T00:00:00') // Mon
-      const end = addDays(start, 4, false, blackouts)
-      expect(end).toEqual('2022-05-08T00:00:00.000-06:00')
+      )
+    }
+
+    describe('course_paces_skip_selected_days = false', () => {
+      runTests(false)
     })
 
-    it('skips weekends and blackout dates', () => {
-      const blackouts = [
-        {
-          event_title: 'Tues and Wed',
-          start_date: moment('2022-05-03T00:00:00'), // Tues
-          end_date: moment('2022-05-04T00:00:00'), // Wed
-        },
-      ]
-      const start = moment('2022-05-02T00:00:00') // Mon
-      const end = addDays(start, 4, true, blackouts)
-      expect(end).toEqual('2022-05-10T00:00:00.000-06:00')
-    })
-
-    it('skips single-day blackout dates', () => {
-      const blackouts = [
-        {
-          event_title: 'Tues',
-          start_date: moment('2022-05-03T00:00:00'), // Tues
-          end_date: moment('2022-05-03T00:00:00'),
-        },
-      ]
-      const start = moment('2022-05-02T00:00:00') // Mon
-      const end = addDays(start, 4, false, blackouts)
-      expect(end).toEqual('2022-05-07T00:00:00.000-06:00')
-    })
-
-    it('skips blackout dates that cover the start', () => {
-      const blackouts = [
-        {
-          event_title: 'Tues and Wed',
-          start_date: moment('2022-04-30T00:00:00'), // Sat before
-          end_date: moment('2022-05-04T00:00:00'), // Wed after start
-        },
-      ]
-      const start = moment('2022-05-02T00:00:00') // Mon
-      const end = addDays(start, 4, false, blackouts)
-      expect(end).toEqual('2022-05-09T00:00:00.000-06:00')
+    describe('course_paces_skip_selected_days = true', () => {
+      runTests(true)
     })
   })
 
   describe('daysBetween', () => {
-    it('counts unskipped days, inclusive', () => {
-      const count = daysBetween(
-        moment('2022-05-16T00:00:00-06:00'),
-        moment('2022-05-20T00:00:00-06:00'),
-        false,
-        [],
-        true
-      )
-      expect(count).toEqual(5)
-    })
+    const testCases = [
+      {
+        description: 'counts unskipped days, inclusive',
+        start_date: '2022-05-16T00:00:00',
+        end_date: '2022-05-20T00:00:00',
+        excludeWeekends: false,
+        skipDays: [],
+        blackouts: [],
+        inclusive: true,
+        expected: 5,
+      },
+      {
+        description: 'counts unskipped days, exclusive',
+        start_date: '2022-05-16T00:00:00',
+        end_date: '2022-05-20T00:00:00',
+        excludeWeekends: false,
+        skipDays: [],
+        blackouts: [],
+        inclusive: false,
+        expected: 4,
+      },
+      {
+        description: 'skips weekends',
+        start_date: '2022-05-13T00:00:00',
+        end_date: '2022-05-20T00:00:00',
+        excludeWeekends: true,
+        skipDays: ['sat', 'sun'],
+        blackouts: [],
+        inclusive: true,
+        expected: 6,
+      },
+      {
+        description: 'skips blackout dates',
+        start_date: '2022-05-02T00:00:00',
+        end_date: '2022-05-06T00:00:00',
+        excludeWeekends: true,
+        skipDays: ['sat', 'sun'],
+        blackouts: [
+          {
+            event_title: 'Tues and Wed',
+            start_date: moment('2022-05-03T00:00:00').endOf('day'),
+            end_date: moment('2022-05-04T00:00:00').endOf('day'),
+          },
+        ],
+        inclusive: true,
+        expected: 3,
+      },
+      {
+        description: 'skips blackout dates and weekends',
+        start_date: '2022-05-05T00:00:00',
+        end_date: '2022-05-13T00:00:00',
+        excludeWeekends: true,
+        skipDays: ['sat', 'sun'],
+        blackouts: [
+          {
+            event_title: 'Tues and Wed',
+            start_date: moment('2022-05-06T00:00:00').endOf('day'),
+            end_date: moment('2022-05-10T00:00:00').endOf('day'),
+          },
+        ],
+        inclusive: true,
+        expected: 4,
+      },
+    ]
 
-    it('counts unskipped days, exclusive', () => {
-      const count = daysBetween(
-        moment('2022-05-16T00:00:00-06:00'),
-        moment('2022-05-20T00:00:00-06:00'),
-        false,
-        [],
-        false
-      )
-      expect(count).toEqual(4)
-    })
+    const runTests = (skipSelectedDaysFeatureFlag: boolean) => {
+      beforeAll(() => {
+        window.ENV.FEATURES ||= {}
+        window.ENV.FEATURES.course_paces_skip_selected_days = skipSelectedDaysFeatureFlag
+      })
 
-    it('skips weekends', () => {
-      const count = daysBetween(
-        moment('2022-05-13T00:00:00-06:00'),
-        moment('2022-05-20T00:00:00-06:00'),
-        true,
-        [],
-        true
-      )
-      expect(count).toEqual(6)
-    })
-
-    it('skips blackout dates', () => {
-      const blackouts = [
-        {
-          event_title: 'Tues and Wed',
-          start_date: moment('2022-05-03T00:00:00').endOf('day'), // Tues
-          end_date: moment('2022-05-04T00:00:00').endOf('day'), // Wed
+      testCases.forEach(
+        ({
+          description,
+          start_date,
+          end_date,
+          excludeWeekends,
+          skipDays,
+          blackouts,
+          inclusive,
+          expected,
+        }) => {
+          it(description, () => {
+            const count = daysBetween(
+              moment(start_date),
+              moment(end_date),
+              excludeWeekends,
+              skipDays,
+              blackouts,
+              inclusive,
+            )
+            expect(count).toEqual(expected)
+          })
         },
-      ]
-      const count = daysBetween(
-        moment('2022-05-02T00:00:00-06:00'),
-        moment('2022-05-06T00:00:00-06:00'),
-        true,
-        blackouts,
-        true
       )
-      expect(count).toEqual(3)
+    }
+
+    describe('course_paces_skip_selected_days = false', () => {
+      runTests(false)
     })
 
-    it('skips blackout dates and weekends', () => {
-      const blackouts = [
-        {
-          event_title: 'Tues and Wed',
-          start_date: moment('2022-05-06T00:00:00').endOf('day'), // Fri
-          end_date: moment('2022-05-10T00:00:00').endOf('day'), // tues
-        },
-      ]
-      const count = daysBetween(
-        moment('2022-05-05T00:00:00-06:00'), // thurs
-        moment('2022-05-13T00:00:00-06:00'), // fri
-        true,
-        blackouts,
-        true
-      )
-      expect(count).toEqual(4)
+    describe('course_paces_skip_selected_days = true', () => {
+      runTests(true)
     })
   })
 
@@ -178,7 +262,7 @@ describe('date_helpers', () => {
     it('counts days', () => {
       const count = rawDaysBetweenInclusive(
         moment('2022-05-16T00:00:00-06:00'), // monday
-        moment('2022-05-20T00:00:00-06:00') // friday
+        moment('2022-05-20T00:00:00-06:00'), // friday
       )
       expect(count).toEqual(5)
     })
@@ -186,7 +270,7 @@ describe('date_helpers', () => {
     it('handles start == end', () => {
       const count = rawDaysBetweenInclusive(
         moment('2022-05-16T00:00:00-06:00'), // monday
-        moment('2022-05-16T00:00:00-06:00') // friday
+        moment('2022-05-16T00:00:00-06:00'), // friday
       )
       expect(count).toEqual(1)
     })
@@ -213,6 +297,99 @@ describe('date_helpers', () => {
         },
       ]
       expect(inBlackoutDate('2022-05-03T00:00:00-06:00', blackouts)).toBeTruthy()
+    })
+  })
+
+  describe('getEndDateValue', () => {
+    const plannedEndDate = '2022-06-01T00:00:00-06:00'
+
+    it('Student pace and course pace end date is not null', () => {
+      window.ENV.FEATURES ||= {}
+      window.ENV.FEATURES.course_paces_for_students = true
+
+      const result = getEndDateValue(STUDENT_PACE, plannedEndDate)
+      expect(result).toEqual(STUDENT_PACE.end_date)
+    })
+
+    it('Student pace and course pace end date is null', () => {
+      window.ENV.FEATURES ||= {}
+      window.ENV.FEATURES.course_paces_for_students = true
+
+      const coursePace = {
+        ...STUDENT_PACE,
+        end_date: null
+      }
+
+      const result = getEndDateValue(coursePace, plannedEndDate)
+      expect(result).toEqual(plannedEndDate)
+    })
+
+    it('Student pace and students flag is off', () => {
+      window.ENV.FEATURES ||= {}
+      window.ENV.FEATURES.course_paces_for_students = false
+
+      const result = getEndDateValue(STUDENT_PACE, plannedEndDate)
+      expect(result).toEqual(plannedEndDate)
+    })
+
+    it("Course Pace and end_date_context is 'hypothetical'", () => {
+      const contextType : ContextTypes = 'hypothetical'
+      const coursePace = {
+        ...PRIMARY_PACE,
+        end_date_context: contextType
+      }
+      const result = getEndDateValue(coursePace, plannedEndDate)
+      expect(result).toEqual(plannedEndDate)
+    })
+
+    it("Course Pace and end_date_context is NOT 'hypothetical'", () => {
+      const result = getEndDateValue(PRIMARY_PACE, plannedEndDate)
+      expect(result).toEqual(PRIMARY_PACE.end_date)
+    })
+  })
+
+  describe('generateDatesCaptions', () => {
+    const appliedPace: Pace = {
+      name: 'LS3432',
+      type: 'Course',
+      duration: 6,
+      last_modified: '2022-10-17T23:12:24Z',
+    }
+
+    it('Course Pace whith course_pace_time_selection disabled', () => {
+      window.ENV.FEATURES.course_pace_time_selection = false
+      const captions = generateDatesCaptions(STUDENT_PACE, '2022-05-01T00:00:00-06:00', '2022-05-20T00:00:00-06:00', appliedPace)
+      expect(captions.endDate).toEqual(END_DATE_CAPTIONS['course'])
+      expect(captions.startDate).toEqual('Student enrollment date')
+    })
+
+    it('Student Pace whith course_pace_time_selection disabled', () => {
+      window.ENV.FEATURES.course_pace_time_selection = false
+
+      const pace = {
+        ...appliedPace,
+        type: 'Student'
+      }
+      const captions = generateDatesCaptions(STUDENT_PACE, '2022-05-01T00:00:00-06:00', '2022-05-20T00:00:00-06:00', pace)
+      expect(captions.endDate).toEqual(END_DATE_CAPTIONS['default'])
+      expect(captions.startDate).toEqual('Student enrollment date')
+    })
+
+    it('captions are returned for Course Pace"', () => {
+      const captions = generateDatesCaptions(PRIMARY_PACE, '2022-05-01T00:00:00-06:00', '2022-05-20T00:00:00-06:00', appliedPace)
+      expect(captions.endDate).toEqual(END_DATE_CAPTIONS['course'])
+      expect(captions.startDate).toEqual(START_DATE_CAPTIONS['course'])
+    })
+
+    it('Student Pace with course_pace_time_selection is enabled', () => {
+      window.ENV.FEATURES.course_pace_time_selection = true
+
+      const pace = {
+        ...appliedPace,
+        type: 'Student'
+      }
+      const captions = generateDatesCaptions(STUDENT_PACE, '2022-05-01T00:00:00-06:00', '2022-05-20T00:00:00-06:00', pace)
+      expect(captions.startDate).toEqual('Determined by student enrollment date')
     })
   })
 })

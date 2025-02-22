@@ -45,6 +45,7 @@ export interface exportedOverride {
   course_id?: string | null
   group_id?: string
   group_category_id?: string
+  non_collaborative?: boolean
   name: string
   type: string
   noop_id: string
@@ -79,6 +80,7 @@ export interface ItemAssignToCardSpec {
   key: string
   isValid: boolean
   isEdited?: boolean
+  hasInitialOverride?: boolean
   hasAssignees: boolean
   due_at: string | null
   unlock_at: string | null
@@ -86,6 +88,7 @@ export interface ItemAssignToCardSpec {
   required_replies_due_at: string | null
   lock_at: string | null
   selectedAssigneeIds: string[]
+  initialAssigneeOptions?: AssigneeOption[]
   defaultOptions?: string[]
   contextModuleId?: string | null
   contextModuleName?: string | null
@@ -127,6 +130,7 @@ export interface AssigneeOption {
   value: string
   sisID?: string
   groupCategoryId?: string
+  groupCategoryName?: string
   overrideId?: string
   group?: string
 }

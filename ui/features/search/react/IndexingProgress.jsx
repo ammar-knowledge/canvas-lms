@@ -17,24 +17,24 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Text} from '@instructure/ui-text'
 import {ProgressBar} from '@instructure/ui-progress'
 
-const I18n = useI18nScope('SmartSearch')
+const I18n = createI18nScope('SmartSearch')
 
 export default function IndexingProgress({progress}) {
   return (
     <div>
       <Text>
         {I18n.t(
-          'Please wait a moment while we get Smart Search ready for this course. This only needs to happen once.'
+          'Please wait a moment while we get Smart Search ready for this course. This only needs to happen once.',
         )}
       </Text>
       <br />
       <Text fontStyle="italic">
         {I18n.t(
-          'You can leave this page and come back, and we will keep working in the background.'
+          'You can leave this page and come back, and we will keep working in the background.',
         )}
       </Text>
       <ProgressBar

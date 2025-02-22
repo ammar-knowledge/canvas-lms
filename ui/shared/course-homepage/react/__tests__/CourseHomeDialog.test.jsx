@@ -64,7 +64,7 @@ describe('CourseHomeDialog', () => {
     ok(isWikiDisabled(noWiki), 'wiki radio should be disabled')
 
     const hasWiki = shallow(
-      <CourseHomeDialog {...getDefaultProps()} wikiFrontPageTitle="Welcome" />
+      <CourseHomeDialog {...getDefaultProps()} wikiFrontPageTitle="Welcome" />,
     )
     ok(!isWikiDisabled(hasWiki), 'wiki radio should be enabled')
   })
@@ -92,7 +92,7 @@ describe('CourseHomeDialog', () => {
   test('calls onRequestClose when cancel is clicked', () => {
     const onRequestClose = sinon.spy()
     const dialog = shallow(
-      <CourseHomeDialog {...getDefaultProps()} onRequestClose={onRequestClose} />
+      <CourseHomeDialog {...getDefaultProps()} onRequestClose={onRequestClose} />,
     )
     const cancelBtn = dialog.find('Button').at(0)
     equal(cancelBtn.props().children, 'Cancel')
@@ -102,7 +102,7 @@ describe('CourseHomeDialog', () => {
 
   test('save button disabled when publishing if modules selected', () => {
     store.setState({selectedDefaultView: 'modules'})
-    let dialog = shallow(<CourseHomeDialog {...getDefaultProps()} isPublishing />)
+    let dialog = shallow(<CourseHomeDialog {...getDefaultProps()} isPublishing={true} />)
     ok(submitButton(dialog).props().disabled, 'submit disabled when modules selected')
 
     store.setState({selectedDefaultView: 'feed'})

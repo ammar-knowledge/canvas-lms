@@ -21,11 +21,17 @@ import {Avatar} from '@instructure/ui-avatar'
 import {Link} from '@instructure/ui-link'
 import {Text} from '@instructure/ui-text'
 
-export default function UserLink({size, avatar_url, name, pronouns, avatarName, ...propsToPassOnToLink}) {
+export default function UserLink({
+  size,
+  avatar_url,
+  name,
+  pronouns,
+  avatarName,
+  ...propsToPassOnToLink
+}) {
   return (
     <Link
       themeOverride={{mediumPaddingHorizontal: '0', mediumHeight: '1rem'}}
-      data-heap-redact-text=""
       {...propsToPassOnToLink}
     >
       <Avatar
@@ -34,7 +40,6 @@ export default function UserLink({size, avatar_url, name, pronouns, avatarName, 
         src={avatar_url}
         margin="0 x-small xxx-small 0"
         data-fs-exclude={true}
-        data-heap-redact-attributes="name"
       />
       {name} {pronouns && <Text fontStyle="italic">({pronouns})</Text>}
     </Link>

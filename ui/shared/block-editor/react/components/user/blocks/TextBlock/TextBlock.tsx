@@ -18,111 +18,111 @@
 
 import React, {useCallback, useEffect, useRef, useState} from 'react'
 import ContentEditable from 'react-contenteditable'
-import {useEditor, useNode} from '@craftjs/core'
-import {
-  useClassNames,
-  shouldAddNewNode,
-  shouldDeleteNode,
-  addNewNodeAsNextSibling,
-  deleteNodeAndSelectPrevSibling,
-  removeLastParagraphTag,
-} from '../../../../utils'
+import {useEditor, useNode, type Node} from '@craftjs/core'
+import {useClassNames} from '../../../../utils'
 import {TextBlockToolbar} from './TextBlockToolbar'
 import {type TextBlockProps} from './types'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('block-editor/text-block')
+const I18n = createI18nScope('block-editor')
+
+const isAParagraph = (text: string) => /<p>[\s\S]*?<\/p>/s.test(text)
 
 export const TextBlock = ({text = '', fontSize, textAlign, color}: TextBlockProps) => {
-  const {actions, enabled, query} = useEditor(state => ({
+  const {enabled} = useEditor(state => ({
     enabled: state.options.enabled,
   }))
   const {
     connectors: {connect, drag},
     actions: {setProp},
-    id,
     selected,
-  } = useNode(state => ({
-    id: state.id,
-    selected: state.events.selected,
+    node,
+  } = useNode((n: Node) => ({
+    selected: n.events.selected,
+    node: n,
   }))
   const clazz = useClassNames(enabled, {empty: !text}, ['block', 'text-block'])
-  const focusableElem = useRef<HTMLDivElement | null>(null)
-
+  const focusableElem = useRef<HTMLElement | null>(null)
   const [editable, setEditable] = useState(true)
-  const lastChar = useRef<string>('')
-
-  useEffect(() => {
-    if (editable && selected) {
-      focusableElem.current?.focus()
-    }
-    setEditable(selected)
-  }, [editable, focusableElem, selected])
 
   const handleChange = useCallback(
+    // @ts-expect-error
     e => {
       let html = e.target.value
-      if (html === '<p><br></p>' || html === '<div><br></div>') {
-        html = ''
+      if (!isAParagraph(html)) {
+        html = `<p>${html}</p>`
       }
 
       setProp((prps: TextBlockProps) => {
         prps.text = html
       })
     },
-    [setProp]
+    [setProp],
   )
 
   const handleKey = useCallback(
-    e => {
-      if (shouldAddNewNode(e, lastChar.current)) {
+    (e: React.KeyboardEvent) => {
+      if (editable) {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          setEditable(false)
+        } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+          e.stopPropagation()
+        }
+      } else if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()
-        removeLastParagraphTag(e.currentTarget)
-        setProp((prps: TextBlockProps) => {
-          prps.text = e.currentTarget.innerHTML
-        })
-        addNewNodeAsNextSibling(<TextBlock text="" />, id, actions, query)
-      } else if (shouldDeleteNode(e)) {
-        e.preventDefault()
-        deleteNodeAndSelectPrevSibling(id, actions, query)
+        setEditable(true)
       }
-      lastChar.current = e.key
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [actions, id, lastChar.current, query]
+    [editable],
   )
+
+  const styl: React.CSSProperties = {fontSize, textAlign, color}
+  if (node.data.props.width) {
+    styl.width = `${node.data.props.width}px`
+  }
+  if (node.data.props.height) {
+    styl.height = `${node.data.props.height}px`
+  }
 
   if (enabled) {
     return (
-      // eslint-disable-next-line jsx-a11y/interactive-supports-focus, jsx-a11y/click-events-have-key-events
-      <div
-        ref={el => {
+      <ContentEditable
+        role="treeitem"
+        aria-label={TextBlock.craft.displayName}
+        aria-selected={selected}
+        tabIndex={-1}
+        innerRef={(el: HTMLElement) => {
           if (el) {
             connect(drag(el))
           }
+          focusableElem.current = el
         }}
-        role="textbox"
+        data-placeholder={I18n.t('Type something')}
+        className={clazz}
+        disabled={!editable}
+        html={text}
+        tagName="div"
+        style={styl}
+        onChange={handleChange}
         onClick={e => setEditable(true)}
-      >
-        <ContentEditable
-          innerRef={focusableElem}
-          data-placeholder={I18n.t('Type something')}
-          className={clazz}
-          disabled={!editable}
-          html={text}
-          onChange={handleChange}
-          onKeyUp={handleKey}
-          tagName="div"
-          style={{fontSize, textAlign, color}}
-        />
-      </div>
+        onKeyDown={selected ? handleKey : undefined}
+        onBlur={() => {
+          setEditable(false)
+        }}
+      />
     )
   } else {
     return (
       <div
+        role="treeitem"
+        aria-label={TextBlock.craft.displayName}
+        aria-selected={selected}
+        tabIndex={-1}
         className={clazz}
-        style={{fontSize, textAlign, color}}
+        style={styl}
         dangerouslySetInnerHTML={{__html: text}}
       />
     )
@@ -138,5 +138,9 @@ TextBlock.craft = {
   },
   related: {
     toolbar: TextBlockToolbar,
+  },
+  custom: {
+    isResizable: true,
+    isBlock: true,
   },
 }

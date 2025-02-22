@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
  *
@@ -28,12 +27,12 @@ import {
   STUDENT_PACE,
 } from '../../../__tests__/fixtures'
 
-import {PaceModal} from '..'
+import {PaceModal, type ResponsiveComponentProps} from '..'
 
 const onClose = jest.fn(),
   clearCategoryError = jest.fn()
 
-const defaultProps = {
+const defaultProps: ResponsiveComponentProps = {
   coursePace: PRIMARY_PACE,
   isOpen: true,
   onClose,
@@ -48,6 +47,7 @@ const defaultProps = {
   paceDuration: {weeks: 2, days: 3},
   plannedEndDate: '2022-12-01',
   compression: 0,
+  outerResponsiveSize: 'large',
   compressDates: jest.fn(),
   uncompressDates: jest.fn(),
   setOuterResponsiveSize: jest.fn(),
@@ -78,5 +78,36 @@ describe('PaceModal', () => {
   it('renders the student enrollment title', () => {
     const {getByText} = renderConnected(<PaceModal {...defaultProps} coursePace={STUDENT_PACE} />)
     expect(getByText('Student Pace: Custom Pace')).toBeInTheDocument()
+  })
+
+  describe('course_pace_time_selection is enabled', () => {
+    beforeAll(() => {
+      window.ENV.FEATURES ||= {}
+      window.ENV.FEATURES.course_pace_time_selection = true
+    })
+
+    it('Time selection section is shown', () => {
+      const {getByTestId} = renderConnected(<PaceModal {...defaultProps} coursePace={STUDENT_PACE} />)
+      expect(getByTestId('time-selection-section')).toBeInTheDocument()
+    })
+  })
+
+  describe('course_pace_weighted_assignments is enabled', () => {
+    beforeAll(() => {
+      window.ENV.FEATURES ||= {}
+      window.ENV.FEATURES.course_pace_weighted_assignments = true
+    })
+
+    it('set weighted assignment duration tray is shown', () => {
+      const {getByTestId, getByRole} = renderConnected(<PaceModal {...defaultProps} coursePace={STUDENT_PACE} />)
+
+      const settingsButton = getByRole('button', {name: 'Modify Settings'})
+      act(() => settingsButton.click())
+
+      const weightedAssignmentsOpgion = getByTestId('weighted-assignment-duration-option')
+      act(() => weightedAssignmentsOpgion.click())
+
+      expect(getByTestId('weighted-assignments-tray')).toBeInTheDocument()
+    })
   })
 })

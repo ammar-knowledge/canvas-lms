@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
  *
@@ -27,12 +26,12 @@ import {AccessibleContent} from '@instructure/ui-a11y-content'
 import {Tooltip} from '@instructure/ui-tooltip'
 import {View} from '@instructure/ui-view'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('course_paces_flaggable_number_input')
+const I18n = createI18nScope('course_paces_flaggable_number_input')
 
 const baseTheme = ENV.use_high_contrast ? canvasHighContrast : canvas
-const borderRadiusMedium = baseTheme.variables.borders.radiusMedium
+const borderRadiusMedium = baseTheme.borders.radiusMedium
 
 interface ComponentProps {
   readonly label: React.ReactNode | string
@@ -40,8 +39,12 @@ interface ComponentProps {
   readonly value: string | number
   readonly onChange: (e: React.FormEvent<HTMLInputElement>, value: string) => void
   readonly onBlur?: (e: React.FormEvent<HTMLInputElement>) => void
-  readonly onDecrement: (_e: React.FormEvent<HTMLInputElement>, direction: number) => void
-  readonly onIncrement: (_e: React.FormEvent<HTMLInputElement>, direction: number) => void
+  readonly onDecrement: (
+    event: React.KeyboardEvent<HTMLInputElement> | React.MouseEvent<HTMLButtonElement>,
+  ) => void
+  readonly onIncrement: (
+    event: React.KeyboardEvent<HTMLInputElement> | React.MouseEvent<HTMLButtonElement>,
+  ) => void
   readonly showTooltipOn?: 'click' | 'hover' | 'focus' | ('click' | 'hover' | 'focus')[]
   readonly showFlag?: boolean
 }
@@ -82,6 +85,7 @@ export const FlaggableNumberInput = ({
           on={showTooltipOn}
         >
           <NumberInput
+            allowStringValue={true}
             renderLabel={label}
             interaction={interaction}
             width="5.5rem"

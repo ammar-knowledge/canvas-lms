@@ -25,10 +25,7 @@ import type {
   UpdateMigrationItemType,
 } from './types'
 import {datetimeString} from '@canvas/datetime/date-functions'
-import {Grid} from '@instructure/ui-grid'
-import {View} from '@instructure/ui-view'
 import {Table} from '@instructure/ui-table'
-import {Flex} from '@instructure/ui-flex'
 import {Text} from '@instructure/ui-text'
 import StatusPill from './status_pill'
 import {ActionButton} from './action_button'
@@ -36,16 +33,16 @@ import {CompletionProgressBar} from './completion_progress_bar'
 import {SourceLink} from './source_link'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 import {timeout} from './utils'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {ContentSelectionModal} from './content_selection_modal'
 
-const I18n = useI18nScope('content_migrations_redesign')
+const I18n = createI18nScope('content_migrations_redesign')
 
 const done_states = ['completed', 'failed', 'waiting_for_select']
 
 type ContentMigrationsRowProps = {
   migration: ContentMigrationItem
-  view: 'expanded' | 'condensed'
+  layout?: 'auto' | 'fixed' | 'stacked'
   updateMigrationItem: UpdateMigrationItemType
 }
 
@@ -77,9 +74,9 @@ const mapProgress = (cm_workflow_state: ContentMigrationWorkflowState): StatusPi
     : 'queued'
 }
 
-const MigrationRow = ({migration, view, updateMigrationItem}: ContentMigrationsRowProps) => {
+const MigrationRow = ({migration, layout = 'auto', updateMigrationItem}: ContentMigrationsRowProps) => {
   const [statusPillState, setStatusPillState] = useState<StatusPillState>(
-    mapProgress(migration.workflow_state)
+    mapProgress(migration.workflow_state),
   )
 
   const fetchProgress = useCallback(async () => {
@@ -111,34 +108,27 @@ const MigrationRow = ({migration, view, updateMigrationItem}: ContentMigrationsR
     }
   }, [fetchProgress, migration.progress_url, migration.workflow_state])
 
-  return view === 'condensed'
-    ? condensedMarkup(migration, updateMigrationItem, statusPillState)
-    : extendedMarkup(migration, updateMigrationItem, statusPillState)
-}
-MigrationRow.displayName = 'Row'
+  migration.migration_type_title ||= I18n.t('Content Migration')
 
-const extendedMarkup = (
-  migration: ContentMigrationItem,
-  updateMigrationItem: UpdateMigrationItemType,
-  statusPillState: StatusPillState
-) => {
-  const cellPaddingStyle = {padding: '1.1rem 0rem'}
+  const cellStyle = layout === 'stacked' ? {} : {padding: '1.1rem 0rem'}
+  const conditionalCenterAlign = layout === 'stacked' ? 'start' : 'center'
+
   return (
     <Table.Row key={migration.id}>
-      <Table.Cell themeOverride={cellPaddingStyle}>{migration.migration_type_title}</Table.Cell>
-      <Table.Cell themeOverride={cellPaddingStyle}>
-        <SourceLink item={migration} />
+      <Table.Cell themeOverride={cellStyle}>{migration.migration_type_title}</Table.Cell>
+      <Table.Cell themeOverride={cellStyle}>
+        <SourceLink item={migration} ellipsis={layout !== 'stacked'}/>
       </Table.Cell>
-      <Table.Cell themeOverride={cellPaddingStyle}>
+      <Table.Cell themeOverride={cellStyle}>
         {datetimeString(migration.created_at, {timezone: ENV.CONTEXT_TIMEZONE})}
       </Table.Cell>
-      <Table.Cell themeOverride={cellPaddingStyle} textAlign="center">
+      <Table.Cell themeOverride={cellStyle} textAlign={conditionalCenterAlign}>
         <StatusPill
           hasIssues={migration.migration_issues_count !== 0}
           workflowState={statusPillState}
         />
       </Table.Cell>
-      <Table.Cell themeOverride={cellPaddingStyle} textAlign="center">
+      <Table.Cell themeOverride={cellStyle} textAlign={conditionalCenterAlign}>
         {['failed', 'completed'].includes(migration.workflow_state) &&
         migration.migration_issues_count > 0 ? (
           <Text>{I18n.t('%{count} issues', {count: migration.migration_issues_count})}</Text>
@@ -153,7 +143,7 @@ const extendedMarkup = (
           updateMigrationItem={updateMigrationItem}
         />
       </Table.Cell>
-      <Table.Cell themeOverride={cellPaddingStyle} textAlign="center">
+      <Table.Cell themeOverride={cellStyle} textAlign={conditionalCenterAlign}>
         <ActionButton
           migration_type_title={migration.migration_type_title}
           migration_issues_count={migration.migration_issues_count}
@@ -163,87 +153,7 @@ const extendedMarkup = (
     </Table.Row>
   )
 }
+MigrationRow.displayName = 'Row'
 
-const condensedMarkup = (
-  migration: ContentMigrationItem,
-  updateMigrationItem: UpdateMigrationItemType,
-  statusPillState: StatusPillState
-) => {
-  return (
-    <Flex.Item key={migration.id}>
-      <View as="div" padding="small" background="secondary">
-        <Grid as="table" vAlign="middle" rowSpacing="medium">
-          <Grid.Row as="tr">
-            <Grid.Col as="th" width={5}>
-              <Text weight="bold">{I18n.t('Content Type')}</Text>
-            </Grid.Col>
-            <Grid.Col as="td">
-              <Text>{migration.migration_type_title}</Text>
-            </Grid.Col>
-          </Grid.Row>
-          <Grid.Row as="tr">
-            <Grid.Col as="th" width={5}>
-              <Text weight="bold">{I18n.t('Source Link')}</Text>
-            </Grid.Col>
-            <Grid.Col as="td">
-              <SourceLink item={migration} />
-            </Grid.Col>
-          </Grid.Row>
-          <Grid.Row as="tr">
-            <Grid.Col as="th" width={5}>
-              <Text weight="bold">{I18n.t('Date Imported')}</Text>
-            </Grid.Col>
-            <Grid.Col as="td">
-              <Text>{datetimeString(migration.created_at, {timezone: ENV.CONTEXT_TIMEZONE})}</Text>
-            </Grid.Col>
-          </Grid.Row>
-          <Grid.Row as="tr">
-            <Grid.Col as="th" width={5}>
-              <Text weight="bold">{I18n.t('Status')}</Text>
-            </Grid.Col>
-            <Grid.Col as="td">
-              <StatusPill
-                hasIssues={migration.migration_issues_count !== 0}
-                workflowState={statusPillState}
-              />
-            </Grid.Col>
-          </Grid.Row>
-          <Grid.Row as="tr">
-            <Grid.Col as="th" width={5}>
-              <Text weight="bold">{I18n.t('Progress')}</Text>
-            </Grid.Col>
-            <Grid.Col as="td">
-              {['failed', 'completed'].includes(migration.workflow_state) &&
-              migration.migration_issues_count > 0 ? (
-                <Text>{I18n.t('%{count} issues', {count: migration.migration_issues_count})}</Text>
-              ) : null}
-              <CompletionProgressBar
-                workflowState={migration.workflow_state}
-                completion={migration.completion}
-              />
-              <ContentSelectionModal
-                courseId={ENV.COURSE_ID}
-                migration={migration}
-                updateMigrationItem={updateMigrationItem}
-              />
-            </Grid.Col>
-          </Grid.Row>
-          <Grid.Row as="tr">
-            <Grid.Col as="th" width={5}>
-              <Text weight="bold">{I18n.t('Action')}</Text>
-            </Grid.Col>
-            <Grid.Col as="td">
-              <ActionButton
-                migration_type_title={migration.migration_type_title}
-                migration_issues_count={migration.migration_issues_count}
-                migration_issues_url={migration.migration_issues_url}
-              />
-            </Grid.Col>
-          </Grid.Row>
-        </Grid>
-      </View>
-    </Flex.Item>
-  )
-}
 
 export default MigrationRow

@@ -20,7 +20,6 @@ require_relative "../common"
 require_relative "../helpers/context_modules_common"
 require_relative "../helpers/items_assign_to_tray"
 require_relative "page_objects/wiki_page"
-require_relative "../../helpers/selective_release_common"
 
 describe "wiki pages show page assign to" do
   include_context "in-process server selenium tests"
@@ -28,11 +27,8 @@ describe "wiki pages show page assign to" do
   include ContextModulesCommon
   include ItemsAssignToTray
   include CourseWikiPage
-  include SelectiveReleaseCommon
 
   before :once do
-    differentiated_modules_on
-
     course_with_teacher(active_all: true)
     @page = @course.wiki_pages.create!(title: "wikiwiki", body: "a very cool page body")
     @student1 = student_in_course(course: @course, active_all: true, name: "Student 1").user
@@ -77,6 +73,7 @@ describe "wiki pages show page assign to" do
 
       keep_trying_until { expect(element_exists?(module_item_edit_tray_selector)).to be_falsey }
       expect(@page.assignment_overrides.last.assignment_override_students.count).to eq(1)
+      expect(@page.only_visible_to_overrides?).to be_falsey
       # TODO: check that the dates are saved with date under the title of the item
     end
 

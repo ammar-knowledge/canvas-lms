@@ -21,7 +21,6 @@ import 'jquery-migrate'
 import InvitationsView from '../InvitationsView'
 import RosterUser from '../../models/RosterUser'
 import {isAccessible} from '@canvas/test-utils/jestAssertions'
-import sinon from 'sinon'
 
 const equal = x => expect(x).toEqual(true)
 const strictEqual = (x, y) => expect(x).toEqual(y)
@@ -29,9 +28,6 @@ const strictEqual = (x, y) => expect(x).toEqual(y)
 describe('InvitationsView', () => {
   beforeEach(() => {
     ENV = {
-      FEATURES: {
-        granular_permissions_manage_users: true,
-      },
       permissions: {
         active_granular_enrollment_permissions: ['StudentEnrollment'],
       },
@@ -84,13 +80,13 @@ describe('InvitationsView', () => {
     ]
     const view = buildView(enrollments)
     const event = {
-      preventDefault: sinon.stub(),
+      preventDefault: jest.fn(),
     }
     const previousAjaxJson = $.ajaxJSON
-    const ajaxStub = sinon.stub()
+    const ajaxStub = jest.fn()
     $.ajaxJSON = ajaxStub
     view.resend(event)
-    strictEqual($.ajaxJSON.callCount, 1)
+    strictEqual(ajaxStub.mock.calls.length, 1)
     $.ajaxJSON = previousAjaxJson
   })
 
@@ -105,13 +101,13 @@ describe('InvitationsView', () => {
     ]
     const view = buildView(enrollments)
     const event = {
-      preventDefault: sinon.stub(),
+      preventDefault: jest.fn(),
     }
     const previousAjaxJson = $.ajaxJSON
-    const ajaxStub = sinon.stub()
+    const ajaxStub = jest.fn()
     $.ajaxJSON = ajaxStub
     view.resend(event)
-    strictEqual($.ajaxJSON.callCount, 0)
+    strictEqual(ajaxStub.mock.calls.length, 0)
     $.ajaxJSON = previousAjaxJson
   })
 })

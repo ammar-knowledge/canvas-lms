@@ -19,7 +19,7 @@
 
 describe Lti::LogService do
   let(:service) do
-    Lti::LogService.new(tool:, context:, user:, session_id:, placement:, launch_type:)
+    Lti::LogService.new(tool:, context:, user:, session_id:, placement:, launch_type:, launch_url:)
   end
 
   let_once(:session_id) { SecureRandom.hex }
@@ -29,6 +29,7 @@ describe Lti::LogService do
   let_once(:context) { course_model(root_account: account) }
   let_once(:placement) { :course_navigation }
   let_once(:launch_type) { :direct_link }
+  let_once(:launch_url) { "https://example.com/basic_lti_tool/" }
 
   describe ".new" do
     context "when context is not valid type" do
@@ -58,9 +59,9 @@ describe Lti::LogService do
       allow(service).to receive(:log_data).and_return(data)
     end
 
-    context "when account-level flag is disabled" do
+    context "when log_lti_launches setting is disabled" do
       before do
-        account.disable_feature!(:lti_log_launches)
+        allow(Setting).to receive(:get).with("log_lti_launches", "true").and_return("false")
       end
 
       it "does not send an event to PandataEvents" do
@@ -69,35 +70,17 @@ describe Lti::LogService do
       end
     end
 
-    context "when site-admin-level flag is disabled" do
-      before do
-        Account.site_admin.disable_feature!(:lti_log_launches_site_admin)
-      end
-
-      it "does not send an event to PandataEvents" do
-        subject
-        expect(PandataEvents).not_to have_received(:send_event)
-      end
+    it "sends an event to PandataEvents" do
+      subject
+      expect(PandataEvents).to have_received(:send_event).with(:lti_launch, data, for_user_id: user.global_id)
     end
 
-    context "when both flags are enabled" do
-      before do
-        account.enable_feature!(:lti_log_launches)
-        Account.site_admin.enable_feature!(:lti_log_launches_site_admin)
-      end
+    context "without user" do
+      let(:user) { nil }
 
-      it "sends an event to PandataEvents" do
+      it "sends event without sub" do
         subject
-        expect(PandataEvents).to have_received(:send_event).with(:lti_launch, data, for_user_id: user.global_id)
-      end
-
-      context "without user" do
-        let(:user) { nil }
-
-        it "sends event without sub" do
-          subject
-          expect(PandataEvents).to have_received(:send_event).with(:lti_launch, data, for_user_id: nil)
-        end
+        expect(PandataEvents).to have_received(:send_event).with(:lti_launch, data, for_user_id: nil)
       end
     end
   end
@@ -124,6 +107,7 @@ describe Lti::LogService do
                               account_id: account.id.to_s,
                               root_account_uuid: account.uuid,
                               launch_type:,
+                              launch_url:,
                               message_type: service.message_type,
                               placement:,
                               context_id: context.id.to_s,

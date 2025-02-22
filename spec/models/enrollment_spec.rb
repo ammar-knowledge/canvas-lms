@@ -2895,7 +2895,7 @@ describe Enrollment do
     end
 
     it "follows chain of fallbacks in correct order if no enrollment_dates" do
-      allow(@enrollment).to receive(:enrollment_dates).and_return([[nil, Time.now]])
+      allow(@enrollment).to receive(:enrollment_dates).and_return([[nil, Time.zone.now]])
 
       # start peeling away things from most preferred to least preferred to
       # test fallback chain
@@ -3165,13 +3165,12 @@ describe Enrollment do
   end
 
   describe "#can_be_deleted_by" do
-    describe "on a student enrollment with granular_permissions_manage_users" do
+    describe "on a student enrollment" do
       let(:user) { double(id: 42) }
       let(:session) { double }
 
       before do
         course_with_student
-        @course.root_account.enable_feature!(:granular_permissions_manage_users)
         @enrollment.reload
       end
 
@@ -3202,13 +3201,12 @@ describe Enrollment do
       end
     end
 
-    describe "on an observer enrollment with granular_permission_manage_users" do
+    describe "on an observer enrollment" do
       let(:user) { double(id: 42) }
       let(:session) { double }
 
       before do
         course_with_observer
-        @course.root_account.enable_feature!(:granular_permissions_manage_users)
         @enrollment.reload
       end
 
@@ -3230,13 +3228,12 @@ describe Enrollment do
       end
     end
 
-    describe "on a teacher enrollment with granular_permission_manage_users" do
+    describe "on a teacher enrollment" do
       let(:user) { double(id: 42) }
       let(:session) { double }
 
       before do
         course_with_teacher
-        @course.root_account.enable_feature!(:granular_permissions_manage_users)
         @enrollment.reload
       end
 
@@ -3699,6 +3696,40 @@ describe Enrollment do
             expect { enroll_user }.to not_change { Delayed::Job.where(tag: "MicrosoftSync::StateMachineJob#run_later").count }
           end
         end
+      end
+    end
+  end
+
+  describe ".all_student" do
+    before(:once) do
+      @student = @user
+      @enrollment = @course.enroll_student(@student, enrollment_state: :active)
+    end
+
+    context "course workflow_state" do
+      it "available" do
+        @course.update_attribute(:workflow_state, "available")
+        expect(Enrollment.all_student).to include(@enrollment)
+      end
+
+      it "completed" do
+        @course.update_attribute(:workflow_state, "completed")
+        expect(Enrollment.all_student).to include(@enrollment)
+      end
+
+      it "created" do
+        @course.update_attribute(:workflow_state, "created")
+        expect(Enrollment.all_student).to include(@enrollment)
+      end
+
+      it "claimed" do
+        @course.update_attribute(:workflow_state, "claimed")
+        expect(Enrollment.all_student).to include(@enrollment)
+      end
+
+      it "deleted" do
+        @course.update_attribute(:workflow_state, "deleted")
+        expect(Enrollment.all_student).not_to include(@enrollment)
       end
     end
   end

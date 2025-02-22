@@ -19,11 +19,12 @@
 import React from 'react'
 import {render as testingLibraryRender, act} from '@testing-library/react'
 import NavigationBadges from '../NavigationBadges'
-import {QueryProvider, queryClient} from '@canvas/query'
+import {queryClient} from '@canvas/query'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
 import fetchMock from 'fetch-mock'
 
 const render = (children: unknown) =>
-  testingLibraryRender(<QueryProvider>{children}</QueryProvider>)
+  testingLibraryRender(<MockedQueryProvider>{children}</MockedQueryProvider>)
 
 const unreadComponent = jest.fn(() => <></>)
 
@@ -59,8 +60,15 @@ describe('GlobalNavigation', () => {
       await act(async () => {
         render(<NavigationBadges />)
       })
+
+      // Wait for React Query to settle
+      await act(async () => {
+        await queryClient.invalidateQueries({queryKey: ['unread_count', 'content_shares']})
+        await queryClient.refetchQueries({queryKey: ['unread_count', 'content_shares']})
+      })
+
       expect(
-        fetchMock.calls().every(([url]) => url !== '/api/v1/users/self/content_shares/unread_count')
+        fetchMock.calls().some(([url]) => url === '/api/v1/users/self/content_shares/unread_count'),
       ).toBe(true)
     })
 
@@ -69,8 +77,16 @@ describe('GlobalNavigation', () => {
       await act(async () => {
         render(<NavigationBadges />)
       })
+
+      // Wait for React Query to settle
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
+
       expect(
-        fetchMock.calls().every(([url]) => url !== '/api/v1/users/self/content_shares/unread_count')
+        fetchMock
+          .calls()
+          .every(([url]) => url !== '/api/v1/users/self/content_shares/unread_count'),
       ).toBe(true)
     })
 
@@ -79,10 +95,19 @@ describe('GlobalNavigation', () => {
       await act(async () => {
         render(<NavigationBadges />)
       })
+
+      // Wait for React Query to settle
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
+
       expect(
-        fetchMock.calls().every(([url]) => url !== '/api/v1/users/self/content_shares/unread_count')
+        fetchMock
+          .calls()
+          .every(([url]) => url !== '/api/v1/users/self/content_shares/unread_count'),
       ).toBe(true)
     })
+
     // FOO-4218 - remove or rewrite to remove spies on imports
     it.skip('fetches inbox count when user has not opted out of notifications', async () => {
       ENV.current_user_disabled_inbox = false
@@ -90,18 +115,20 @@ describe('GlobalNavigation', () => {
         render(<NavigationBadges />)
       })
       expect(fetchMock.calls().some(([url]) => url === '/api/v1/conversations/unread_count')).toBe(
-        true
+        true,
       )
     })
+
     it('does not fetch inbox count when user has opted out of notifications', async () => {
       ENV.current_user_disabled_inbox = true
       await act(async () => {
         render(<NavigationBadges />)
       })
       expect(fetchMock.calls().every(([url]) => url !== '/api/v1/conversations/unread_count')).toBe(
-        true
+        true,
       )
     })
+
     it('does not fetch the release notes unread count when user has opted out of notifications', async () => {
       ENV.SETTINGS.release_notes_badge_disabled = true
       queryClient.setQueryData(['settings', 'release_notes_badge_disabled'], true)
@@ -109,7 +136,7 @@ describe('GlobalNavigation', () => {
         render(<NavigationBadges />)
       })
       expect(fetchMock.calls().every(([url]) => url !== '/api/v1/release_notes/unread_count')).toBe(
-        true
+        true,
       )
     })
   })

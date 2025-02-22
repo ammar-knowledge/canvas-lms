@@ -19,6 +19,7 @@
 import {render} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import MediaAttempt from '../MediaAttempt'
+// eslint-disable-next-line import/default
 import MediaPlayer from '@instructure/ui-media-player'
 import {mockAssignmentAndSubmission} from '@canvas/assignments/graphql/studentMocks'
 import React from 'react'
@@ -97,7 +98,7 @@ describe('MediaAttempt', () => {
       const {getByTestId} = render(
         <StudentViewContext.Provider value={{allowChangesToSubmission: false, isObserver: true}}>
           <MediaAttempt {...props} />
-        </StudentViewContext.Provider>
+        </StudentViewContext.Provider>,
       )
       expect(getByTestId('open-record-media-modal-button')).toBeDisabled()
       expect(getByTestId('open-upload-media-modal-button')).toBeDisabled()
@@ -119,7 +120,7 @@ describe('MediaAttempt', () => {
     it('renders an iframe if iframeURL is given', async () => {
       const props = await makeProps(submissionDraftOverrides)
       const wrapper = render(
-        <MediaAttempt {...props} iframeURL="https://www.youtube.com/embed/U9t-slLl30E" />
+        <MediaAttempt {...props} iframeURL="https://www.youtube.com/embed/U9t-slLl30E" />,
       )
       expect(wrapper.getByTitle('preview')).toBeInTheDocument()
     })
@@ -153,7 +154,7 @@ describe('MediaAttempt', () => {
         },
       })
       const {getByTestId, queryByTestId} = render(
-        <MediaAttempt {...props} uploadingFiles={false} />
+        <MediaAttempt {...props} uploadingFiles={false} />,
       )
       expect(queryByTestId('remove-media-recording')).not.toBeInTheDocument()
       expect(getByTestId('media-recording')).toBeInTheDocument()
@@ -205,6 +206,45 @@ describe('MediaAttempt', () => {
       render(<MediaAttempt {...props} uploadingFiles={false} />)
       // doesn't render anything, so nothing to check for
       // expect no errors to be thrown
+    })
+  })
+
+  describe('MediaPlayer', () => {
+    it('renders MediaPlayer', async () => {
+      const props = await makeProps({
+        Submission: {
+          mediaObject: {
+            _id: 'm-123456',
+            id: '1',
+            title: 'dope_vid.mov',
+            mediaTracks: [
+              {
+                _id: 1,
+                locale: 'en',
+                kind: 'captions',
+              },
+              {
+                _id: 2,
+                locale: 'es',
+                kind: 'captions',
+              },
+            ],
+          },
+          state: 'submitted',
+        },
+      })
+      const {getByTestId} = render(<MediaAttempt {...props} />)
+      expect(getByTestId('media-recording')).toBeInTheDocument()
+    })
+
+    it('does not render MediaPlayer when mediaObject is null', async () => {
+      const props = await makeProps({
+        Submission: {
+          mediaObject: null,
+        },
+      })
+      const {queryByTestId} = render(<MediaAttempt {...props} />)
+      expect(queryByTestId('media-recording')).not.toBeInTheDocument()
     })
   })
 

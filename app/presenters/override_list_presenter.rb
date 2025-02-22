@@ -51,6 +51,46 @@ class OverrideListPresenter
     multiple_due_dates? ? I18n.t("overrides.everyone_else", "Everyone else") : I18n.t("overrides.everyone", "Everyone")
   end
 
+  def formatted_due_for(formatted_override, other_due_dates_exist: false)
+    everyone = false
+    section_count = 0
+    group_count = 0
+    student_count = 0
+    mastery_paths = false
+
+    formatted_override[:options].each do |option|
+      everyone = true if option == "everyone"
+      section_count += 1 if /\Asection-\d+\z/.match?(option)
+      group_count += 1 if /\Agroup-\d+\z/.match?(option)
+      student_count += 1 if /\Astudent-\d+\z/.match?(option)
+      mastery_paths = true if option == "mastery_paths"
+    end
+
+    have_multiple_due_dates = other_due_dates_exist || section_count > 0 || group_count > 0 || student_count > 0 || mastery_paths
+    result = []
+    if everyone
+      result << (have_multiple_due_dates ? I18n.t("overrides.everyone_else", "Everyone else") : I18n.t("overrides.everyone", "Everyone"))
+    end
+
+    if section_count > 0
+      result << I18n.t(:section_count, { one: "%{count} Section", other: "%{count} Sections" }, count: section_count)
+    end
+
+    if group_count > 0
+      result << I18n.t(:group_count, { one: "%{count} Group", other: "%{count} Groups" }, count: group_count)
+    end
+
+    if student_count > 0
+      result << I18n.t(:student_count, { one: "%{count} Student", other: "%{count} Students" }, count: student_count)
+    end
+
+    if mastery_paths
+      result << I18n.t("overrides.mastery_paths", "Mastery Paths")
+    end
+
+    result.join(", ")
+  end
+
   def formatted_date_string(date_field, date_hash = {})
     date = date_hash[date_field]
     if date.present? && CanvasTime.is_fancy_midnight?(date_hash[date_field]) &&
@@ -92,6 +132,31 @@ class OverrideListPresenter
       due_date[:unlock_at] = unlock_at due_date
       due_date[:due_at] = due_at due_date
       due_date[:due_for] = due_for due_date
+    end
+  end
+
+  def grouped_and_sorted_by_visible_due_dates
+    return [] unless assignment
+
+    # Only supports classic quizzes and normal assignments
+    type_is_allowed = assignment.is_a?(Assignment) ? assignment.submission_types != "discussion_topic" : assignment.is_a?(Quizzes::Quiz)
+    if type_is_allowed
+      overrides = assignment.formatted_dates_hash_visible_to(user, assignment.context)
+      overrides = assignment.merge_overrides_by_date(overrides)
+      other_due_dates_exist = overrides.length > 1
+      overrides.sort_by! { |card| [card[:due_at].nil? ? 1 : 0, card[:due_at]] }
+
+      overrides.map do |due_date|
+        result = {}
+        result[:raw] = due_date.dup
+        result[:lock_at] = lock_at due_date
+        result[:unlock_at] = unlock_at due_date
+        result[:due_at] = due_at due_date
+        result[:due_for] = formatted_due_for(due_date, other_due_dates_exist:)
+        result
+      end
+    else
+      visible_due_dates
     end
   end
 end

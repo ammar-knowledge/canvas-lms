@@ -18,13 +18,12 @@
 
 import React from 'react'
 
-export type ContainerLayout = 'default' | 'row' | 'column'
 export type ContainerProps = {
   id?: string
   className?: string
   'data-placeholder'?: string
   background?: string
   style?: React.CSSProperties
-  layout?: ContainerLayout
+  onKeyDown?: (e: React.KeyboardEvent) => void
   children?: React.ReactNode
 }

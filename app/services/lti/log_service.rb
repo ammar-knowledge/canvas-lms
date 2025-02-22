@@ -26,7 +26,7 @@ module Lti
       resource_selection
     ].freeze
 
-    def initialize(tool:, context:, user:, session_id:, launch_type:, placement: nil)
+    def initialize(tool:, context:, user:, session_id:, launch_type:, launch_url: nil, placement: nil)
       raise ArgumentError, "context must be a Course, Account, or Group" unless [Course, Account, Group].include? context.class
       raise ArgumentError, "launch_type must be one of #{LAUNCH_TYPES.join(", ")}" unless LAUNCH_TYPES.include?(launch_type.to_sym)
 
@@ -35,13 +35,17 @@ module Lti
       @context = context
       @user = user
       @launch_type = launch_type
+      @launch_url = launch_url
       @placement = placement
       @session_id = session_id
     end
 
+    def log_lti_launches?
+      Setting.get("log_lti_launches", "true") == "true"
+    end
+
     def call
-      return unless @context.root_account.feature_enabled?(:lti_log_launches)
-      return unless Account.site_admin.feature_enabled?(:lti_log_launches_site_admin)
+      return unless log_lti_launches?
 
       PandataEvents.send_event(:lti_launch, log_data, for_user_id: @user&.global_id)
     end
@@ -59,6 +63,7 @@ module Lti
         account_id: account_for_context.id.to_s,
         root_account_uuid: @context.root_account.uuid,
         launch_type: @launch_type,
+        launch_url: @launch_url,
         message_type:,
         placement: @placement,
         context_id: @context.id.to_s,

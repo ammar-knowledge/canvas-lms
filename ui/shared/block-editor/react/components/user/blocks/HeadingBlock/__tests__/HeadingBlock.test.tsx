@@ -17,46 +17,85 @@
  */
 
 import React from 'react'
-import {render} from '@testing-library/react'
+import {render, screen, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {Editor, Frame} from '@craftjs/core'
 import {HeadingBlock, type HeadingBlockProps} from '..'
 
 const renderBlock = (enabled: boolean, props: Partial<HeadingBlockProps> = {}) => {
-  return render(
-    <Editor enabled={enabled} resolver={{HeadingBlock}}>
-      <Frame>
-        <HeadingBlock text="A Heading" {...props} />
-      </Frame>
-    </Editor>
+  const user = userEvent.setup()
+  const result = render(
+    <>
+      <div id="another-element" tabIndex={-1} data-testid="another-element">Another Element</div>
+      <Editor enabled={enabled} resolver={{HeadingBlock}}>
+        <Frame>
+          <HeadingBlock text="A Heading" {...props} />
+        </Frame>
+      </Editor>
+    </>,
   )
+  return {
+    ...result,
+    user,
+  }
 }
 
 describe('HeadingBlock', () => {
-  describe('in an enabled Editor', () => {
-    it('should render editable version with default props', () => {
-      const {container, getByText} = renderBlock(true)
-      expect(getByText('A Heading')).toBeInTheDocument()
+  afterEach(() => {
+    jest.clearAllMocks()
+  })
 
+  describe('in an enabled Editor', () => {
+    it('should render editable version with default props', async () => {
+      const {container} = renderBlock(true)
       const heading = container.querySelector('h2')
       expect(heading).toBeInTheDocument()
+      expect(screen.getByText('A Heading')).toBeInTheDocument()
 
-      const contentEditable = container.querySelector('[contenteditable]') as HTMLElement
-      expect(contentEditable).toBeInTheDocument()
-      expect(contentEditable.getAttribute('data-placeholder')).toBe('Heading 2')
-      expect(contentEditable.getAttribute('disabled')).not.toBeNull()
+      await waitFor(() => {
+        expect(heading).toHaveAttribute('contenteditable', 'true')
+        expect(heading).toHaveAttribute('data-placeholder', 'Heading 2')
+      })
+    })
+
+    it('should stop being editable on blur', async () => {
+      const {container, user} = renderBlock(true)
+      const heading = container.querySelector('h2') as HTMLElement
+      const otherElement = screen.getByTestId('another-element')
+
+      // Focus the heading
+      await user.click(heading)
+      await waitFor(() => {
+        expect(heading).toHaveAttribute('contenteditable', 'true')
+      })
+
+      // Move focus away
+      await user.click(otherElement)
+      await waitFor(() => {
+        expect(heading).toHaveAttribute('contenteditable', 'false')
+      })
     })
 
     it('should render active editable version on click', async () => {
-      const {container} = renderBlock(true)
-      const contentEditable = container.querySelector('[contenteditable]') as HTMLElement
-      await userEvent.click(contentEditable)
+      const {container, user} = renderBlock(true)
+      const heading = container.querySelector('h2') as HTMLElement
+      const otherElement = screen.getByTestId('another-element')
 
-      expect(contentEditable.getAttribute('contenteditable')).toBe('true')
-      expect(contentEditable.getAttribute('disabled')).toBeNull()
+      // First focus and blur to get to non-editable state
+      await user.click(heading)
+      await user.click(otherElement)
+      await waitFor(() => {
+        expect(heading).toHaveAttribute('contenteditable', 'false')
+      })
+
+      // Then click to make editable again
+      await user.click(heading)
+      await waitFor(() => {
+        expect(heading).toHaveAttribute('contenteditable', 'true')
+      })
     })
 
-    it('respects the level prop', () => {
+    it('respects the level prop', async () => {
       const {container} = renderBlock(true, {level: 'h3'})
       const heading = container.querySelector('h3')
       expect(heading).toBeInTheDocument()
@@ -64,21 +103,17 @@ describe('HeadingBlock', () => {
   })
 
   describe('in a disabled Editor', () => {
-    it('should render non-editable version with default props', () => {
-      const {container, getByText} = renderBlock(false)
-      expect(getByText('A Heading')).toBeInTheDocument()
-
-      const heading = container.querySelector('h2')
-      expect(heading).toBeInTheDocument()
-
-      const contentEditable = container.querySelector('[contenteditable]')
-      expect(contentEditable).toBeNull()
+    it('should render non-editable version with default props', async () => {
+      const {container} = renderBlock(false)
+      
+      expect(screen.getByText('A Heading')).toBeInTheDocument()
+      expect(container.querySelector('h2')).toBeInTheDocument()
+      expect(container.querySelector('[contenteditable]')).toBeNull()
     })
 
-    it('respects the level prop', () => {
+    it('respects the level prop', async () => {
       const {container} = renderBlock(false, {level: 'h3'})
-      const heading = container.querySelector('h3')
-      expect(heading).toBeInTheDocument()
+      expect(container.querySelector('h3')).toBeInTheDocument()
     })
   })
 })

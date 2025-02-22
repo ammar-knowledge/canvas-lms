@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
  *
@@ -18,21 +17,24 @@
  */
 
 import React, {useEffect, useState} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Text} from '@instructure/ui-text'
 import {IconButton} from '@instructure/ui-buttons'
 import {IconDiscussionLine} from '@instructure/ui-icons'
 import {Flex} from '@instructure/ui-flex'
 import {View} from '@instructure/ui-view'
 import canvas from '@instructure/ui-themes'
-import {Attachment, SubmissionComment, MediaSource, MediaTrack} from '../../../api.d'
+import type {Attachment, SubmissionComment, MediaSource, MediaTrack} from '../../../api.d'
 import useStore from './stores'
 import {Badge} from '@instructure/ui-badge'
 import {Link} from '@instructure/ui-link'
+// @ts-expect-error
 import {MediaPlayer} from '@instructure/ui-media-player'
 import {getIconByType} from '@canvas/mime/react/mimeClassIconHelper'
+import sanitizeHtml from 'sanitize-html-with-tinymce'
+import {containsHtmlTags, formatMessage} from '@canvas/util/TextHelper'
 
-const I18n = useI18nScope('grade_summary')
+const I18n = createI18nScope('grade_summary')
 
 type AttachmentProps = Pick<Attachment, 'id' | 'mime_class' | 'display_name' | 'url'>
 type SubmissionCommentProps = Pick<
@@ -89,12 +91,14 @@ type SubmissionAttemptProps = {
 function SubmissionAttemptComments({comments}: SubmissionAttemptProps) {
   if (!comments) return null
 
-  const {borders, colors, spacing} = canvas.variables
+  const {borders, colors, spacing} = canvas
 
   return (
     <>
       {comments.map((comment, i) => {
+        // @ts-expect-error
         let mediaTracks: MediaTrack[] = null
+        // @ts-expect-error
         let mediaSources: MediaSource[] = null
         const mediaObject = comment.media_object
         if (mediaObject) {
@@ -103,6 +107,7 @@ function SubmissionAttemptComments({comments}: SubmissionAttemptProps) {
             mediaSource.src = mediaSource.url
             return mediaSource
           })
+          // @ts-expect-error
           mediaTracks = mediaObject.media_tracks.map(track => {
             return {
               id: track.id,
@@ -113,6 +118,9 @@ function SubmissionAttemptComments({comments}: SubmissionAttemptProps) {
             }
           })
         }
+        const formattedComment = containsHtmlTags(comment.comment)
+          ? sanitizeHtml(comment.comment)
+          : formatMessage(comment.comment)
         return (
           <Flex as="div" direction="column" key={comment.id} data-testid="submission-comment">
             <div
@@ -139,7 +147,13 @@ function SubmissionAttemptComments({comments}: SubmissionAttemptProps) {
               )}
             </div>
             <View as="div" margin="0 medium 0 small">
-              <Text size="small">{I18n.t('%{comment}', {comment: comment.comment})}</Text>
+              <Text
+                size="small"
+                data-testid="submission-comment-content"
+                dangerouslySetInnerHTML={{
+                  __html: formattedComment,
+                }}
+              />
             </View>
             {comment.attachments?.map(attachment => (
               <View

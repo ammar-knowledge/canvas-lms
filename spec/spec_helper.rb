@@ -98,7 +98,7 @@ module WebMock::API
 end
 
 require "delayed/testing"
-Dir[Rails.root.join("spec/support/**/*.rb")].each { |f| require f }
+Rails.root.glob("spec/support/**/*.rb") { |f| require f }
 require "sharding_spec_helper"
 
 # nuke the db (say, if `rake db:migrate RAILS_ENV=test` created records),
@@ -160,14 +160,18 @@ module RSpec::Core::Hooks
   end
 end
 
-Time.class_eval do
-  def compare_with_round(other)
-    other = Time.at(other.to_i, other.usec) if other.respond_to?(:usec)
-    Time.at(to_i, usec).compare_without_round(other)
+module TimeComparisonWithRounding
+  # ignore nanoseconds, since the database doesn't persist them
+  def <=>(other)
+    other = other.change(usec: other.usec) if other.respond_to?(:usec)
+    if nsec % 1_000 == 0
+      super
+    else
+      change(usec: usec) <=> other
+    end
   end
-  alias_method :compare_without_round, :<=>
-  alias_method :<=>, :compare_with_round
 end
+Time.prepend(TimeComparisonWithRounding)
 
 # we use ivars too extensively for factories; prevent them from
 # being propagated to views in view specs
@@ -220,6 +224,8 @@ module RSpec::Rails
         node.attr("checked") == "checked"
       elsif node.respond_to?(:checked?)
         node.checked?
+      else
+        node.attribute("checked")
       end
     end
   end
@@ -305,7 +311,11 @@ module RenderWithHelpers
   end
 
   def render(*args)
-    controller_class = ("#{@controller.controller_path.camelize}Controller".constantize rescue nil) || ApplicationController
+    controller_class = begin
+      "#{@controller.controller_path.camelize}Controller".constantize
+    rescue NameError
+      ApplicationController
+    end
 
     controller_class.instance_variable_set(:@js_env, nil)
     # this extends the controller's helper methods to the view
@@ -423,6 +433,7 @@ RSpec.configure do |config|
   config.raise_errors_for_deprecations!
   config.color = true
   config.order = :random
+  config.filter_run_when_matching :focus
 
   # The Pact specs have prerequisite setup steps so we exclude them by default
   config.filter_run_excluding :pact_live_events if ENV.fetch("RUN_LIVE_EVENTS_CONTRACT_TESTS", "0") == "0"
@@ -497,7 +508,6 @@ RSpec.configure do |config|
     ActiveRecord::Migration.verbose = false
     RequestStore.clear!
     MultiCache.reset
-    Course.enroll_user_call_count = 0
     TermsOfService.skip_automatic_terms_creation = true
     LiveEvents.clear_context!
     $spec_api_tokens = {}
@@ -579,16 +589,6 @@ RSpec.configure do |config|
       GuardRail.activate(:deploy) { CanvasCache::Redis.redis.flushdb(failsafe: nil) }
     end
     CanvasCache::Redis.redis_used = false
-  end
-
-  if Canvas::Plugin.value_to_boolean(ENV["N_PLUS_ONE_DETECTION"])
-    config.before do
-      Prosopite.scan
-    end
-
-    config.after do
-      Prosopite.finish
-    end
   end
 
   # ****************************************************************
@@ -772,7 +772,7 @@ RSpec.configure do |config|
     BACKENDS = %w[FileSystem S3].map { |backend| AttachmentFu::Backends.const_get(:"#{backend}Backend") }.freeze
 
     class As # :nodoc:
-      private(*instance_methods.grep_v(/(^__|^\W|^binding$|^untaint$)/)) # rubocop:disable Style/AccessModifierDeclarations
+      private(*instance_methods.grep_v(/(^__|^\W|^binding$|^untaint$|^object_id$)/)) # rubocop:disable Style/AccessModifierDeclarations
 
       def initialize(subject, ancestor)
         @subject = subject
@@ -1012,7 +1012,7 @@ module I18nStubs
 end
 I18n.backend.class.prepend(I18nStubs)
 
-Dir[Rails.root.join("{gems,vendor}/plugins/*/spec_canvas/spec_helper.rb")].each { |file| require file }
+Rails.root.glob("{gems,vendor}/plugins/*/spec_canvas/spec_helper.rb") { |file| require file }
 
 Shoulda::Matchers.configure do |config|
   config.integrate do |with|
@@ -1027,12 +1027,20 @@ Shoulda::Matchers.configure do |config|
 end
 
 module DeveloperKeyStubs
-  def get_special_key(default_key_name)
+  @@original_get_special_key = DeveloperKey.method(:get_special_key)
+
+  def original_get_special_key(*, **)
+    @@original_get_special_key.call(*, **)
+  end
+
+  def get_special_key(default_key_name, create_if_missing: true)
     Shard.birth.activate do
       @special_keys ||= {}
 
       # TODO: we have to do this because tests run in transactions
       testkey = DeveloperKey.where(name: default_key_name).first_or_initialize
+      return nil if testkey.new_record? && !create_if_missing
+
       testkey.auto_expire_tokens = false if testkey.new_record?
       testkey.sns_arn = "arn:aws:s3:us-east-1:12345678910:foo/bar"
       testkey.save! if testkey.changed?

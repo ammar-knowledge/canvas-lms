@@ -16,66 +16,123 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useState} from 'react'
-import {Element, useEditor} from '@craftjs/core'
+import React from 'react'
+import {Element, useEditor, useNode, type Node} from '@craftjs/core'
 
 import {Container} from '../../blocks/Container'
-import {NoSections} from '../../common'
 import {ColumnsSectionToolbar} from './ColumnsSectionToolbar'
-import {useClassNames} from '../../../../utils'
-import {SectionMenu} from '../../../editor/SectionMenu'
+import {useClassNames, getContrastingColor} from '../../../../utils'
+import {GroupBlock} from '../../blocks/GroupBlock'
 import {type ColumnsSectionProps} from './types'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('block-editor/columns-section')
+const I18n = createI18nScope('block-editor')
 
-export const ColumnsSection = ({columns, variant}: ColumnsSectionProps) => {
+export type ColumnsSectionInnerProps = {
+  children?: React.ReactNode
+}
+
+export const ColumnsSectionInner = ({children}: ColumnsSectionInnerProps) => {
   const {enabled} = useEditor(state => ({
     enabled: state.options.enabled,
   }))
-  const [cid] = useState<string>('columns-section') // uid('columns-section', 2)
+  const {
+    connectors: {connect},
+  } = useNode()
+  const clazz = useClassNames(enabled, {empty: !children}, ['columns-section__inner'])
+
+  return (
+    <div ref={el => el && connect(el)} className={clazz} data-placeholder="Drop Groups here">
+      {children}
+    </div>
+  )
+}
+
+ColumnsSectionInner.craft = {
+  displayName: 'Columns Inner',
+  rules: {
+    canMoveIn: (incomingNodes: Node[]) =>
+      incomingNodes.every(incomingNode => incomingNode.data.type === GroupBlock),
+    canMoveOut: (outgoingNodes: Node[], currentNode: Node) => {
+      return currentNode.data.nodes.length > outgoingNodes.length
+    },
+  },
+  custom: {
+    noToolbar: true,
+  },
+}
+
+export const ColumnsSection = ({background, columns}: ColumnsSectionProps) => {
+  const {enabled} = useEditor(state => ({
+    enabled: state.options.enabled,
+  }))
   const clazz = useClassNames(enabled, {empty: false}, [
     'section',
     'columns-section',
-    variant || ColumnsSection.craft.defaultProps.variant,
     `columns-${columns}`,
   ])
 
-  const renderCols = () => {
-    if (variant === 'fixed') {
-      const cols: JSX.Element[] = []
-      for (let i = 0; i < columns; i++) {
-        cols.push(
-          <Element
-            key={`${cid}-${i}`}
-            id={`${cid}-${i}`}
-            is={NoSections}
-            canvas={true}
-            className="columns-section__inner"
-          />
-        )
-      }
-      return cols
-    } else {
-      return <Element id={cid} is={NoSections} canvas={true} className="columns-section__inner" />
+  // To me, it this makes more sense than to handle adding GroupBlock columns
+  // in the toolbar, but from here it triggers a React warning about updating
+  // a component while rendering it.
+  // Interesting that it does not happen when building against the craft.js dev build.
+  //
+  // useEffect(() => {
+  //   const innerid = query.node(node.id).linkedNodes()[0]
+  //   const inner = query.node(innerid).get()
+
+  //   const missingCols = columns - inner.data.nodes.length
+  //   if (missingCols > 0) {
+  //     for (let i = 0; i < missingCols; i++) {
+  //       requestAnimationFrame(() => {
+  //         const column = query
+  //           .parseReactElement(<GroupBlock resizable={false} isColumn={true} />)
+  //           .toNodeTree()
+  //         actions.addNodeTree(column, inner.id)
+  //       })
+  //     }
+  //   }
+  // }, [actions, columns, node.id, query])
+
+  const renderColumns = () => {
+    const cols = []
+    for (let i = 0; i < columns; i++) {
+      cols.push(<GroupBlock key={i} resizable={false} isColumn={true} />)
     }
+    return cols
   }
 
-  return <Container className={clazz}>{renderCols()}</Container>
+  const styl: React.CSSProperties = {}
+  if (background) {
+    styl.backgroundColor = background
+    styl.color = getContrastingColor(background)
+  } else {
+    styl.backgroundColor = 'transparent'
+  }
+
+  return (
+    <Container className={clazz} style={styl}>
+      <Element id="columns__inner" is={ColumnsSectionInner} canvas={true}>
+        {renderColumns()}
+      </Element>
+    </Container>
+  )
 }
 
 ColumnsSection.craft = {
   displayName: I18n.t('Columns'),
   defaultProps: {
-    columns: 2,
-    variant: 'fixed',
+    columns: 1,
+  },
+  rules: {
+    // canMoveIn: (nodes: Node[]) => !nodes.some(node => node.data.custom.isSection || node.data.name !== 'GroupBlock'),
+    canMoveIn: () => false,
   },
   custom: {
     isSection: true,
   },
   related: {
     toolbar: ColumnsSectionToolbar,
-    sectionMenu: SectionMenu,
   },
 }

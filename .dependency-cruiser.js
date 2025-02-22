@@ -4,11 +4,84 @@ module.exports = {
   forbidden: [
     {
       name: 'no-circular',
-      severity: 'info',
+      severity: 'error',
       comment:
         'This dependency is part of a circular relationship. You might want to revise ' +
         'your solution (i.e. use dependency inversion, make sure the modules have a single responsibility) ',
-      from: {},
+      from: {
+        pathNot: [
+          // TODO: remove these
+          'packages/canvas-rce/es/rce/plugins/instructure_rce_external_tools/components/ExternalToolDialog/ExternalToolDialog.js',
+          'packages/canvas-rce/es/rce/plugins/instructure_rce_external_tools/dialog-helper.js',
+          'packages/canvas-rce/es/rce/plugins/instructure_rce_external_tools/ExternalToolsEnv.js',
+          'packages/canvas-rce/es/rce/plugins/instructure_rce_external_tools/lti11-content-items/RceLti11ContentItem.js',
+          'packages/canvas-rce/es/rce/plugins/instructure_rce_external_tools/lti13-content-items/models/ResourceLinkContentItem.js',
+          'packages/canvas-rce/es/rce/plugins/instructure_rce_external_tools/lti13-content-items/processEditorContentItems.js',
+          'packages/canvas-rce/es/rce/plugins/instructure_rce_external_tools/lti13-content-items/rceLti13ContentItemFromJson.js',
+          'packages/canvas-rce/es/rce/plugins/instructure_rce_external_tools/RceToolWrapper.js',
+          'packages/canvas-rce/es/rce/RCEWrapper.js',
+          'packages/canvas-rce/src/rce/plugins/instructure_rce_external_tools/components/ExternalToolDialog/ExternalToolDialog.tsx',
+          'packages/canvas-rce/src/rce/plugins/instructure_rce_external_tools/components/ExternalToolSelectionDialog/ExternalToolSelectionDialog.tsx',
+          'packages/canvas-rce/src/rce/plugins/instructure_rce_external_tools/dialog-helper.tsx',
+          'packages/canvas-rce/src/rce/plugins/instructure_rce_external_tools/ExternalToolsEnv.ts',
+          'packages/canvas-rce/src/rce/plugins/instructure_rce_external_tools/lti11-content-items/RceLti11ContentItem.tsx',
+          'packages/canvas-rce/src/rce/plugins/instructure_rce_external_tools/lti13-content-items/models/ResourceLinkContentItem.ts',
+          'packages/canvas-rce/src/rce/plugins/instructure_rce_external_tools/lti13-content-items/processEditorContentItems.ts',
+          'packages/canvas-rce/src/rce/plugins/instructure_rce_external_tools/lti13-content-items/rceLti13ContentItemFromJson.ts',
+          'packages/canvas-rce/src/rce/plugins/instructure_rce_external_tools/RceToolWrapper.ts',
+          'packages/canvas-rce/src/rce/RCEWrapper.jsx',
+          'ui/features/course_paces/react/actions/course_paces.ts',
+          'ui/features/course_paces/react/actions/pace_contexts.ts',
+          'ui/features/course_paces/react/actions/ui.ts',
+          'ui/features/course_paces/react/api/blackout_dates_api.ts',
+          'ui/features/course_paces/react/reducers/course_paces.ts',
+          'ui/features/course_paces/react/reducers/original.ts',
+          'ui/features/course_paces/react/shared/actions/blackout_dates.ts',
+          'ui/features/course_paces/react/shared/reducers/blackout_dates.ts',
+          'ui/features/enhanced_individual_gradebook/react/components/GradingResults/CheckpointGradeInputs.tsx',
+          'ui/features/enhanced_individual_gradebook/react/components/GradingResults/DefaultGradeInput.tsx',
+          'ui/features/enhanced_individual_gradebook/react/components/GradingResults/index.tsx',
+          'ui/features/enhanced_individual_gradebook/react/components/GradingResults/SubmissionDetailModal.tsx',
+          'ui/features/enhanced_individual_gradebook/react/components/LearningMasteryTabsView.tsx',
+          'ui/features/enhanced_individual_gradebook/react/components/OutcomeInformation/index.tsx',
+          'ui/features/enhanced_individual_gradebook/react/hooks/useSubmitScore.tsx',
+          'ui/features/enhanced_individual_gradebook/utils/gradebookUtils.ts',
+          'ui/features/enhanced_individual_gradebook/utils/gradeInputUtils.ts',
+          'ui/features/gradebook/react/default_gradebook/components/GradebookGrid.tsx',
+          'ui/features/gradebook/react/default_gradebook/components/InputsForCheckpoints.tsx',
+          'ui/features/gradebook/react/default_gradebook/components/SubmissionTray.tsx',
+          'ui/features/gradebook/react/default_gradebook/Gradebook.tsx',
+          'ui/features/gradebook/react/default_gradebook/GradebookGrid/formatters/AssignmentGroupCellFormatter.ts',
+          'ui/features/gradebook/react/default_gradebook/GradebookGrid/formatters/CellFormatterFactory.ts',
+          'ui/features/lti_registrations/manage/lti_1p3_registration_form/Lti1p3RegistrationOverlayState.ts',
+          'ui/features/lti_registrations/manage/lti_1p3_registration_form/Lti1p3RegistrationOverlayStateHelpers.ts',
+          'ui/features/speed_grader/react/SpeedGraderCheckpoints/SpeedGraderCheckpoint.tsx',
+          'ui/features/speed_grader/react/SpeedGraderCheckpoints/SpeedGraderCheckpointsContainer.tsx',
+          'ui/shared/assignments/react/AssignmentHeader.tsx',
+          'ui/shared/assignments/react/OptionsMenu.tsx',
+          'ui/shared/block-editor/react/assets/globalTemplates/index.ts',
+          'ui/shared/block-editor/react/components/user/blocks/IconBlock/IconBlock.tsx',
+          'ui/shared/block-editor/react/components/user/blocks/IconBlock/IconBlockToolbar.tsx',
+          'ui/shared/block-editor/react/components/user/blocks/IconBlock/index.ts',
+          'ui/shared/block-editor/react/components/user/common/IconPopup.tsx',
+          'ui/shared/block-editor/react/utils/getTemplates.tsx',
+          'ui/shared/block-editor/react/utils/index.ts',
+          'ui/shared/context-modules/differentiated-modules/react/Item/ItemAssignToTray.tsx',
+          'ui/shared/context-modules/differentiated-modules/react/Item/ItemAssignToTrayContent.tsx',
+          'ui/shared/context-modules/react/ContextModulesPublishIcon.tsx',
+          'ui/shared/context-modules/utils/publishOneModuleHelper.tsx',
+          'ui/shared/files/backbone/models/Folder.js',
+          'ui/shared/files/react/modules/filesEnv.js',
+          'ui/shared/lti/jquery/messages.ts',
+          'ui/shared/lti/jquery/subjects/lti.resourceImported.ts',
+          'ui/shared/lti/jquery/subjects/requestFullWindowLaunch.ts',
+          'ui/shared/mediaelement/index.js',
+          'ui/shared/mediaelement/mep-feature-tracks-instructure.jsx',
+          'ui/shared/mediaelement/UploadMediaTrackForm.jsx',
+          'ui/shared/temporary-enrollment/react/EnrollmentTreeGroup.tsx',
+          'ui/shared/temporary-enrollment/react/EnrollmentTreeItem.tsx',
+        ],
+      },
       to: {
         circular: true,
       },
@@ -28,7 +101,7 @@ module.exports = {
           '(^|/)[.][^/]+[.](?:js|cjs|mjs|ts|cts|mts|json)$', // dot files
           '[.]d[.]ts$', // TypeScript declaration files
           '(^|/)tsconfig[.]json$', // TypeScript config
-          '(^|/)(?:babel|webpack)[.]config[.](?:js|cjs|mjs|ts|cts|mts|json)$', // other configs
+          '(^|/)(?:babel|webpack|jest|vitest|eslint)[.]config[.](?:js|cjs|mjs|ts|cts|mts|json)$',
         ],
       },
       to: {},
@@ -129,7 +202,7 @@ module.exports = {
       severity: 'error',
       from: {},
       to: {
-        path: '[.](?:spec|test)[.](?:js|mjs|cjs|jsx|ts|mts|cts|tsx|ls|coffee|litcoffee|coffee[.]md)$',
+        path: '[.](?:spec|test)[.](?:js|mjs|cjs|jsx|ts|mts|cts|tsx[.]md)$',
       },
     },
     {
@@ -144,14 +217,18 @@ module.exports = {
       from: {
         path: '^(packages)',
         pathNot:
-          '[.](?:spec|test)[.](?:js|mjs|cjs|jsx|ts|mts|cts|tsx|ls|coffee|litcoffee|coffee[.]md)$',
+          '[.](?:|config|spec|setup|test|jest-setup)[.](?:js|mjs|cjs|jsx|ts|mts|cts|tsx[.]md)$',
       },
       to: {
         dependencyTypes: ['npm-dev'],
         // type only dependencies are not a problem as they don't end up in the
         // production code or are ignored by the runtime.
         dependencyTypesNot: ['type-only'],
-        pathNot: ['node_modules/@types/', 'node_modules/sinon/'],
+        pathNot: [
+          'node_modules/@types/',
+          'node_modules/sinon/',
+          'node_modules/@testing-library/jest-dom/',
+        ],
       },
     },
     {
@@ -219,8 +296,13 @@ module.exports = {
     },
   ],
   options: {
+    skipAnalysisNotInRules: true,
     doNotFollow: {
-      path: ['node_modules'],
+      path: [
+        'node_modules',
+        // when we no longer import from /es/ build dirs
+        // '/es/'
+      ],
     },
 
     includeOnly: ['ui', 'packages'],

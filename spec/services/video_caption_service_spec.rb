@@ -39,7 +39,7 @@ RSpec.describe VideoCaptionService, type: :service do
       before do
         allow(service).to receive_messages(
           url: "https://example.com/video.mp4",
-          request_handoff: { "media" => { "id" => "1234" } },
+          handoff_video_for_processing: "1234",
           request_caption: double("Response", code: 200),
           media: { "media" => { "captions" => [{ "language" => "en", "status" => "succeeded" }] } },
           grab_captions: "Captions for the video",
@@ -60,6 +60,11 @@ RSpec.describe VideoCaptionService, type: :service do
       it "sets auto_caption_status to complete" do
         service.call
         expect(media_object.auto_caption_status).to eq("complete")
+      end
+
+      it "sets auto_caption_media_id" do
+        service.call
+        expect(media_object.auto_caption_media_id).to eq("1234")
       end
     end
 
@@ -112,7 +117,7 @@ RSpec.describe VideoCaptionService, type: :service do
       before do
         allow(service).to receive_messages(
           url: "https://example.com/video.mp4",
-          request_handoff: nil,
+          handoff_video_for_processing: nil,
           config: { "app-host" => "https://example.com" },
           auth_token: "token"
         )
@@ -133,7 +138,7 @@ RSpec.describe VideoCaptionService, type: :service do
       before do
         allow(service).to receive_messages(
           url: "https://example.com/video.mp4",
-          request_handoff: { "media" => { "id" => "1234" } },
+          handoff_video_for_processing: "1234",
           request_caption: double("Response", code: 500),
           config: { "app-host" => "https://example.com" },
           auth_token: "token"
@@ -155,7 +160,7 @@ RSpec.describe VideoCaptionService, type: :service do
       before do
         allow(service).to receive_messages(
           url: "https://example.com/video.mp4",
-          request_handoff: { "media" => { "id" => "1234" } },
+          handoff_video_for_processing: "1234",
           request_caption: double("Response", code: 200),
           media: { "media" => { "captions" => [{ "status" => "in_progress" }] } },
           config: { "app-host" => "https://example.com" },
@@ -174,34 +179,11 @@ RSpec.describe VideoCaptionService, type: :service do
       end
     end
 
-    context "when non-English language is detected" do
-      before do
-        allow(service).to receive_messages(
-          url: "https://example.com/video.mp4",
-          request_handoff: { "media" => { "id" => "1234" } },
-          request_caption: double("Response", code: 200),
-          media: { "media" => { "captions" => [{ "language" => "es", "status" => "succeeded" }] } },
-          config: { "app-host" => "https://example.com" },
-          auth_token: "token"
-        )
-        allow(media_object).to receive_messages(media_type: "video", media_id: "valid_media_id")
-      end
-
-      it "does not create a media track" do
-        expect { service.call }.not_to change { MediaTrack.count }
-      end
-
-      it "sets auto_caption_status to non_english_captions" do
-        service.call
-        expect(media_object.auto_caption_status).to eq("non_english_captions")
-      end
-    end
-
     context "when captions cannot be pulled" do
       before do
         allow(service).to receive_messages(
           url: "https://example.com/video.mp4",
-          request_handoff: { "media" => { "id" => "1234" } },
+          handoff_video_for_processing: "1234",
           request_caption: double("Response", code: 200),
           media: { "media" => { "captions" => [{ "language" => "en", "status" => "succeeded" }] } },
           grab_captions: nil,

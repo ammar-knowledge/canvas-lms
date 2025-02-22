@@ -16,10 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
-// @ts-expect-error
+import React, {KeyboardEvent, MouseEvent} from 'react'
 import {connect} from 'react-redux'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {debounce, pick} from 'lodash'
 import moment from 'moment-timezone'
 
@@ -32,14 +31,14 @@ import {
   IconPublishSolid,
   IconQuizLine,
   IconUnpublishedLine,
+  IconWarningLine
 } from '@instructure/ui-icons'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {Table} from '@instructure/ui-table'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
-
 import {coursePaceDateFormatter} from '../../shared/api/backend_serializer'
-import type {CoursePaceItem, CoursePace, StoreState} from '../../types'
+import type {CoursePaceItem, CoursePace, StoreState, MasteryPathsData} from '../../types'
 import type {BlackoutDate} from '../../shared/types'
 import {
   getCoursePace,
@@ -47,6 +46,7 @@ import {
   getCoursePaceItemPosition,
   isStudentPace,
   getCoursePaceItemChanges,
+  getSelectedDaysToSkip,
 } from '../../reducers/course_paces'
 import {actions} from '../../actions/course_pace_items'
 import * as DateHelpers from '../../utils/date_stuff/date_helpers'
@@ -58,8 +58,11 @@ import {
 } from '../../reducers/ui'
 import {getBlackoutDates} from '../../shared/reducers/blackout_dates'
 import type {Change} from '../../utils/change_tracking'
+import CyoeHelper from '@canvas/conditional-release-cyoe-helper'
+import {Link} from '@instructure/ui-link'
+import {Pill} from '@instructure/ui-pill'
 
-const I18n = useI18nScope('course_paces_assignment_row')
+const I18n = createI18nScope('course_paces_assignment_row')
 
 interface PassedProps {
   readonly datesVisible: boolean
@@ -74,6 +77,7 @@ interface StoreProps {
   readonly coursePace: CoursePace
   readonly blueprintLocked: boolean | undefined
   readonly excludeWeekends: boolean
+  readonly selectedDaysToSkip: string[]
   readonly coursePaceItemPosition: number
   readonly blackoutDates: BlackoutDate[]
   readonly isSyncing: boolean
@@ -92,7 +96,7 @@ interface LocalState {
   readonly hovering: boolean
 }
 
-type ComponentProps = PassedProps & StoreProps & DispatchProps
+export type ComponentProps = PassedProps & StoreProps & DispatchProps
 
 export class AssignmentRow extends React.Component<ComponentProps, LocalState> {
   state: LocalState = {
@@ -121,6 +125,7 @@ export class AssignmentRow extends React.Component<ComponentProps, LocalState> {
       nextState.duration !== this.state.duration ||
       nextState.hovering !== this.state.hovering ||
       nextProps.coursePace.exclude_weekends !== this.props.coursePace.exclude_weekends ||
+      nextProps.coursePace.selected_days_to_skip !== this.props.coursePace.selected_days_to_skip ||
       nextProps.coursePace.context_type !== this.props.coursePace.context_type ||
       (nextProps.coursePace.context_type === this.props.coursePace.context_type &&
         nextProps.coursePace.context_id !== this.props.coursePace.context_id) ||
@@ -147,8 +152,9 @@ export class AssignmentRow extends React.Component<ComponentProps, LocalState> {
       this.props.dueDate,
       newDueDate,
       this.props.excludeWeekends,
+      this.props.selectedDaysToSkip,
       this.props.blackoutDates,
-      false
+      false,
     )
     return parseInt(this.state.duration, 10) + daysDiff
   }
@@ -177,13 +183,14 @@ export class AssignmentRow extends React.Component<ComponentProps, LocalState> {
     }
   }
 
-  onDecrementOrIncrement = (_e: React.FormEvent<HTMLInputElement>, direction: number) => {
-    // it's either this error or a typescript typing error using the function version of setState
-    // eslint-disable-next-line react/no-access-state-in-setstate
-    const newValue = (this.parsePositiveNumber(this.state.duration) || 0) + direction
-    if (newValue < 0) return
-    this.setState({duration: newValue.toString()})
-    this.debouncedCommitChanges()
+  onDecrementOrIncrement = (
+    e: KeyboardEvent<HTMLInputElement> | MouseEvent<HTMLButtonElement>,
+    direction: number,
+  ) => {
+    const newDuration = this.parsePositiveNumber(this.state.duration)
+    if (newDuration !== false) {
+      this.onChangeItemDuration(e as any, (newDuration + direction).toString())
+    }
   }
 
   onBlur = (e: React.FormEvent<HTMLInputElement>) => {
@@ -266,7 +273,7 @@ export class AssignmentRow extends React.Component<ComponentProps, LocalState> {
     }
     const disabledByBlueprintLock = this.props.blueprintLocked
     const itemChange = this.props.coursePaceItemChanges.find(
-      c => c.newValue.module_item_id === this.props.coursePaceItem.module_item_id
+      c => c.newValue.module_item_id === this.props.coursePaceItem.module_item_id,
     )
     const durationHasChanged = itemChange?.oldValue?.duration !== itemChange?.newValue.duration
 
@@ -316,7 +323,7 @@ export class AssignmentRow extends React.Component<ComponentProps, LocalState> {
               <Text size="x-small">
                 {I18n.t(
                   {one: '1 pt', other: '%{count} pts'},
-                  {count: this.props.coursePaceItem.points_possible}
+                  {count: this.props.coursePaceItem.points_possible},
                 )}
               </Text>
             </div>
@@ -324,6 +331,56 @@ export class AssignmentRow extends React.Component<ComponentProps, LocalState> {
         </div>
       </Flex>
     )
+  }
+
+  renderSubmissionStatus = () => {
+    const { submittable, submitted_at } = this.props.coursePaceItem
+    const dueDate = moment(this.props.dueDate)
+    const now = moment()
+    const isFeatureEnabled = window.ENV.FEATURES.course_pace_pacing_status_labels
+
+    // Not submittable or not due yet, no label needed
+    if (!submittable || dueDate.isAfter(now) || !isFeatureEnabled) {
+      return null
+    }
+
+    const submittedAt = submitted_at ? moment(submitted_at) : null
+    const status = !submittedAt
+      ? I18n.t("No Submission")
+      : submittedAt.isAfter(dueDate)
+      ? I18n.t("Late Submission")
+      : null
+
+    return status ? (
+      <span style={{whiteSpace: "nowrap"}}>
+        <Text color="danger">
+          <IconWarningLine size="x-small" /> {status}
+        </Text>
+      </span>
+    ) : null
+  }
+
+  renderMasteryPathsInfo({ isTrigger, releasedLabel }: MasteryPathsData, moduleItemId: string) {
+    if (!isTrigger && !releasedLabel) return null;
+
+    return (
+      <Flex gap="small" data-testid={`mastery-paths-data-${moduleItemId}`}>
+        {isTrigger && moduleItemId && (
+          <Flex.Item>
+            <Link href={`${ENV.CONTEXT_URL_ROOT}/modules/items/${moduleItemId}/edit_mastery_paths`}>
+              {I18n.t('Mastery Paths')}
+            </Link>
+          </Flex.Item>
+        )}
+        {releasedLabel && (
+          <Flex.Item>
+            <Pill data-testid={`${releasedLabel}-${moduleItemId}`}>
+              <i className="icon-mastery-paths" /> {releasedLabel}
+            </Pill>
+          </Flex.Item>
+        )}
+      </Flex>
+    );
   }
 
   render() {
@@ -334,9 +391,14 @@ export class AssignmentRow extends React.Component<ComponentProps, LocalState> {
         background: this.state.hovering ? '#eef7ff' : '#fff',
       },
     }
+    const contextType = this.props.context_type
+
+    const coursePaceItem = this.props.coursePaceItem;
+    const masteryPathsData: MasteryPathsData = CyoeHelper.getItemData(coursePaceItem.assignment_id, coursePaceItem.submittable);
 
     return (
       <InstUISettingsProvider theme={{componentOverrides}}>
+        {/* @ts-expect-error */}
         <Table.Row
           data-testid="pp-module-item-row"
           onMouseEnter={() => this.setState({hovering: true})}
@@ -344,21 +406,31 @@ export class AssignmentRow extends React.Component<ComponentProps, LocalState> {
           {...pick(this.props, ['hover', 'isStacked', 'headers'])}
         >
           <Table.Cell data-testid="pp-title-cell">
-            <View margin={labelMargin}>{this.renderTitle()}</View>
+            <Flex justifyItems="space-between">
+              <Flex.Item>
+                <View margin={labelMargin}>{this.renderTitle()}</View>
+              </Flex.Item>
+              <Flex.Item>
+                {masteryPathsData && ENV.FEATURES.course_pace_pacing_with_mastery_paths && this.renderMasteryPathsInfo(masteryPathsData, coursePaceItem.module_item_id)}
+              </Flex.Item>
+            </Flex>
           </Table.Cell>
           <Table.Cell data-testid="pp-duration-cell" textAlign="center">
             <View data-testid="duration-input" margin={labelMargin}>
               {this.renderDurationInput()}
             </View>
           </Table.Cell>
-          {(this.props.showProjections || this.props.datesVisible) && (
+          {this.props.showProjections || this.props.datesVisible ? (
             <Table.Cell data-testid="pp-due-date-cell" textAlign="center">
               <View data-testid="assignment-due-date" margin={labelMargin}>
                 <span style={{whiteSpace: this.props.isStacked ? 'normal' : 'nowrap'}}>
                   {this.renderDate()}
                 </span>
+                {contextType === 'Enrollment' && this.renderSubmissionStatus()}
               </View>
             </Table.Cell>
+          ) : (
+            <></>
           )}
           <Table.Cell
             data-testid="pp-status-cell"
@@ -378,6 +450,7 @@ const mapStateToProps = (state: StoreState, props: PassedProps): StoreProps => {
   return {
     coursePace,
     excludeWeekends: getExcludeWeekends(state),
+    selectedDaysToSkip: getSelectedDaysToSkip(state),
     blueprintLocked: getBlueprintLocked(state),
     coursePaceItemPosition: getCoursePaceItemPosition(state, props),
     blackoutDates: getBlackoutDates(state),

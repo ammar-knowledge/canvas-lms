@@ -19,11 +19,11 @@
 import $ from 'jquery'
 import React from 'react'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import '@canvas/jquery/jquery.instructure_forms'
 import '@canvas/rails-flash-notifications'
 
-const I18n = useI18nScope('TeacherFeedbackForm')
+const I18n = createI18nScope('TeacherFeedbackForm')
 
 class TeacherFeedbackForm extends React.Component {
   static propTypes = {
@@ -59,7 +59,7 @@ class TeacherFeedbackForm extends React.Component {
       required: ['recipients[]', 'body'],
       processData: data => {
         const selectedCourseId = document.querySelector(
-          'select[name="recipients[]"] option:checked'
+          'select[name="recipients[]"] option:checked',
         ).dataset.courseId
         const subject = this.state.courses.find(c => c.id === selectedCourseId).name
         const extraData = {
@@ -116,7 +116,7 @@ class TeacherFeedbackForm extends React.Component {
       <form ref={c => (this.form = c)} action="/api/v1/conversations" method="POST">
         <fieldset className="ic-Form-group ic-HelpDialog__form-fieldset">
           <legend className="screenreader-only">{I18n.t('Ask your instructor a question')}</legend>
-          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+          {}
           <label className="ic-Form-control">
             <span className="ic-Label">{I18n.t('Which course is this question about?')}</span>
             <select
@@ -131,11 +131,11 @@ class TeacherFeedbackForm extends React.Component {
             </select>
             <span className="ic-Form-help-text">
               {I18n.t(
-                'Message will be sent to all the teachers and teaching assistants in the course.'
+                'Message will be sent to all the teachers and teaching assistants in the course.',
               )}
             </span>
           </label>
-          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+          {}
           <label className="ic-Form-control">
             <span className="ic-Label">{I18n.t('Message')}</span>
             <textarea className="ic-Input" required={true} aria-required="true" name="body" />

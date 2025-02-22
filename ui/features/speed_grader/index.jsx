@@ -22,106 +22,40 @@ import ReactDOM from 'react-dom'
 import {captureException} from '@sentry/browser'
 import {Spinner} from '@instructure/ui-spinner'
 import ready from '@instructure/ready'
-import {getCurrentTheme} from '@instructure/theme-registry'
 
-import {getAssignment} from './queries/assignmentQuery'
-import {getCourse} from './queries/courseQuery'
-import {getSectionsByAssignment} from './queries/sectionsByAssignmentQuery'
-import {getSubmission} from './queries/submissionQuery'
-import {getSubmissionsByAssignment} from './queries/submissionsByAssignmentQuery'
-import {getSubmissionsByStudentIds} from './queries/submissionsByStudentsIdsQuery'
-
+import {updateSpeedGraderSettings} from './mutations/updateSpeedGraderSettingsMutation'
 import {updateSubmissionGrade} from './mutations/updateSubmissionGradeMutation'
 import {createSubmissionComment} from './mutations/createSubmissionCommentMutation'
 import {hideAssignmentGradesForSections} from './mutations/hideAssignmentGradesForSectionsMutation'
 import {postDraftSubmissionComment} from './mutations/postDraftSubmissionCommentMutation'
 import {updateSubmissionGradeStatus} from './mutations/updateSubmissionGradeStatusMutation'
 import {deleteSubmissionComment} from './mutations/deleteSubmissionCommentMutation'
-import {
-  postAssignmentGradesForSections,
-  resolvePostAssignmentGradesStatus,
-} from './mutations/postAssignmentGradesForSectionsMutation'
+import {postAssignmentGradesForSections} from './mutations/postAssignmentGradesForSectionsMutation'
+import {createCommentBankItem} from './mutations/comment_bank/createCommentBankItemMutation'
+import {deleteCommentBankItem} from './mutations/comment_bank/deleteCommentBankItemMutation'
+import {updateCommentBankItem} from './mutations/comment_bank/updateCommentBankItemMutation'
+import {updateCommentSuggestionsEnabled} from './mutations/comment_bank/updateCommentSuggestionsEnabled'
+import {saveRubricAssessment} from './mutations/saveRubricAssessmentMutation'
+import {updateSubmissionSecondsLate} from './mutations/updateSubmissionSecondsLateMutation'
+import {reassignAssignment} from './mutations/reassignAssignmentMutation'
+import {deleteAttachment} from './mutations/deleteAttachmentMutation'
+import iframeAllowances from '@canvas/external-apps/iframeAllowances'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import GenericErrorPage from '@canvas/generic-error-page'
 import errorShipUrl from '@canvas/images/ErrorShip.svg'
+import {executeQuery} from '@canvas/query/graphql'
 import speedGrader from './jquery/speed_grader'
+import SGUploader from './sg_uploader'
 
-const I18n = useI18nScope('speed_grader')
+const I18n = createI18nScope('speed_grader')
 
 ready(() => {
-  // The feature must be enabled AND we must be handed the speedgrader platform URL
-  if (window.ENV.FEATURES.platform_service_speedgrader && window.REMOTES?.speedgrader) {
-    const theme = getCurrentTheme()
-    const mountPoint = document.querySelector('#react-router-portals')
-    const params = new URLSearchParams(window.location.search)
-    const postMessageAliases = {
-      'quizzesNext.register': 'tool.register',
-      'quizzesNext.nextStudent': 'tool.nextStudent',
-      'quizzesNext.previousStudent': 'tool.previousStudent',
-      'quizzesNext.submissionUpdate': 'tool.submissionUpdate',
-    }
+  const classicContainer = document.querySelector('#classic_speedgrader_container')
 
-    import('speedgrader/appInjector')
-      .then(module => {
-        module.render(mountPoint, {
-          theme,
-          queryFns: {
-            getAssignment,
-            getCourse,
-            getSectionsByAssignment,
-            getSubmission,
-            getSubmissionsByAssignment,
-            getSubmissionsByStudentIds,
-            resolvePostAssignmentGradesStatus,
-          },
-          mutationFns: {
-            updateSubmissionGrade,
-            createSubmissionComment,
-            deleteSubmissionComment,
-            hideAssignmentGradesForSections,
-            postAssignmentGradesForSections,
-            postDraftSubmissionComment,
-            updateSubmissionGradeStatus,
-          },
-          postMessageAliases,
-          context: {
-            courseId: window.ENV.course_id,
-            userId: window.ENV.current_user_id,
-            assignmentId: params.get('assignment_id'),
-            studentId: params.get('student_id'),
-            hrefs: {
-              heroIcon: `/courses/${window.ENV.course_id}/gradebook`,
-            },
-            emojisDenyList: window.ENV.EMOJI_DENY_LIST?.split(','),
-            mediaSettings: window.INST.kalturaSettings,
-            lang: window.navigator.language || ENV.LOCALE || ENV.BIGEASY_LOCALE,
-          },
-          features: {
-            extendedSubmissionState: window.ENV.FEATURES.extended_submission_state,
-            gradeByQuestion: {
-              supported: window.ENV.GRADE_BY_QUESTION_SUPPORTED,
-              enabled: window.ENV.GRADE_BY_QUESTION,
-            },
-            emojisEnabled: !!window.ENV.EMOJIS_ENABLED,
-          },
-        })
-      })
-      .catch(error => {
-        // eslint-disable-next-line no-console
-        console.error('Failed to load SpeedGrader', error)
-        captureException(error)
-        ReactDOM.render(
-          <GenericErrorPage
-            imageUrl={errorShipUrl}
-            errorSubject={I18n.t('SpeedGrader loading error')}
-            errorCategory={I18n.t('SpeedGrader Error Page')}
-          />,
-          mountPoint
-        )
-      })
-  } else {
+  if (classicContainer instanceof HTMLElement) {
     // touch punch simulates mouse events for touch devices
+
     require('./touch_punch.js')
 
     const mountPoint = document.getElementById('speed_grader_loading')
@@ -141,8 +75,114 @@ ready(() => {
       >
         <Spinner renderTitle={I18n.t('Loading')} margin="large auto 0 auto" />
       </div>,
-      mountPoint
+      mountPoint,
     )
     speedGrader.setup()
+    return
   }
+
+  speedGrader.setupForSG2()
+
+  const mountPoint = document.querySelector('#react-router-portals')
+
+  // The feature must be enabled AND we must be handed the speedgrader platform URL
+  if (!window.ENV.PLATFORM_SERVICE_SPEEDGRADER_ENABLED || !window.REMOTES?.speedgrader) {
+    ReactDOM.render(
+      <GenericErrorPage
+        imageUrl={errorShipUrl}
+        errorMessage={
+          <>
+            {window.ENV.PLATFORM_SERVICE_SPEEDGRADER_ENABLED ||
+              I18n.t('SpeedGrader Platform is not enabled')}
+            {window.REMOTES?.speedgrader || 'window.REMOTES?.speedgrader is missing'}
+          </>
+        }
+        errorSubject={I18n.t('SpeedGrader loading error')}
+        errorCategory={I18n.t('SpeedGrader Error Page')}
+      />,
+      mountPoint,
+    )
+    return
+  }
+
+  const params = new URLSearchParams(window.location.search)
+  const postMessageAliases = {
+    'quizzesNext.register': 'tool.register',
+    'quizzesNext.nextStudent': 'tool.nextStudent',
+    'quizzesNext.previousStudent': 'tool.previousStudent',
+    'quizzesNext.submissionUpdate': 'tool.submissionUpdate',
+  }
+
+  const sgUploader = window.INST.kalturaSettings
+    ? new SGUploader('any', {defaultTitle: 'Upload Media'})
+    : null
+
+  import('speedgrader/appInjector')
+    .then(module => {
+      module.render(mountPoint, {
+        executeQuery,
+        mutationFns: {
+          updateSubmissionGrade,
+          createSubmissionComment,
+          deleteSubmissionComment,
+          deleteAttachment,
+          hideAssignmentGradesForSections,
+          postAssignmentGradesForSections,
+          postDraftSubmissionComment,
+          updateSubmissionGradeStatus,
+          updateSubmissionSecondsLate,
+          createCommentBankItem,
+          deleteCommentBankItem,
+          updateCommentBankItem,
+          updateCommentSuggestionsEnabled,
+          updateSpeedGraderSettings,
+          postSubmissionCommentMedia: sgUploader?.doUploadByFile,
+          saveRubricAssessment,
+          reassignAssignment,
+        },
+        platform: 'canvas',
+        postMessageAliases,
+        context: {
+          userId: window.ENV.current_user_id,
+          grading_role: window.ENV.grading_role,
+          assignmentId: params.get('assignment_id'),
+          studentId: params.get('student_id'),
+          hrefs: {
+            heroIcon: `/courses/${window.ENV.course_id}/gradebook`,
+          },
+          emojisDenyList: window.ENV.EMOJI_DENY_LIST ? window.ENV.EMOJI_DENY_LIST.split(',') : [],
+          mediaSettings: window.INST.kalturaSettings,
+          lang: ENV.LOCALE || ENV.BIGEASY_LOCALE || window.navigator.language,
+          currentUserIsAdmin: ENV.current_user_is_admin ?? false,
+          themeOverrides: window.CANVAS_ACTIVE_BRAND_VARIABLES ?? null,
+          useHighContrast: window.ENV.use_high_contrast ?? false,
+          commentLibrarySuggestionsEnabled: window.ENV.comment_library_suggestions_enabled ?? false,
+          lateSubmissionInterval: window.ENV.late_policy?.late_submission_interval || 'day',
+          ltiIframeAllowances: iframeAllowances(),
+        },
+        features: {
+          extendedSubmissionState: window.ENV.FEATURES.extended_submission_state ?? false,
+          emojisEnabled: !!window.ENV.EMOJIS_ENABLED,
+          enhancedRubricsEnabled: window.ENV.ENHANCED_RUBRICS_ENABLED ?? false,
+          commentLibraryEnabled: window.ENV.COMMENT_LIBRARY_FEATURE_ENABLED ?? false,
+          restrictQuantitativeDataEnabled: window.ENV.RESTRICT_QUANTITATIVE_DATA_ENABLED ?? false,
+          gradeByStudentEnabled: window.ENV.GRADE_BY_STUDENT_ENABLED ?? false,
+          discussionCheckpointsEnabled: window.ENV.FEATURES.discussion_checkpoints ?? false,
+        },
+      })
+    })
+    .catch(error => {
+      console.error('Failed to load SpeedGrader', error)
+      captureException(error)
+
+      ReactDOM.render(
+        <GenericErrorPage
+          imageUrl={errorShipUrl}
+          errorMessage={error.message}
+          errorSubject={I18n.t('SpeedGrader loading error')}
+          errorCategory={I18n.t('SpeedGrader Error Page')}
+        />,
+        mountPoint,
+      )
+    })
 })

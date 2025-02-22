@@ -16,13 +16,13 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {TextInput} from '@instructure/ui-text-input'
 import type {FormMessage} from '@instructure/ui-form-field'
 import type {TextInputChangeHandler} from './types'
 
-const I18n = useI18nScope('external_tools')
+const I18n = createI18nScope('external_tools')
 
 export interface ConfigurationFormLti2Props {
   registrationUrl?: string
@@ -76,7 +76,6 @@ export default class ConfigurationFormLti2 extends React.Component<
         <TextInput
           id="registrationUrl"
           type="url"
-          // @ts-ignore
           // The LTI 2 registration form is the _only_ form that actually submits values
           // using form.submit as opposed to XHR/fetch, so this name is required for it to work
           // properly. InstUI will propagate this value down to the input element. This is largely

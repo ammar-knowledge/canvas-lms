@@ -223,7 +223,7 @@ describe Api do
 
     it "finds group by lti_context_id" do
       lti_group = Group.create!(context: course_factory)
-      Lti::Asset.opaque_identifier_for(lti_group)
+      Lti::V1p1::Asset.opaque_identifier_for(lti_group)
       expect(@api.api_find(Group, "lti_context_id:#{lti_group.lti_context_id}")).to eq lti_group
     end
 
@@ -681,7 +681,7 @@ describe Api do
     end
 
     it "properly generates an escaped arg string" do
-      expect(Api.relation_for_sis_mapping_and_columns(User, { "id" => { ids: ["1", 2, 3] } }, { scope: "scope" }, Account.default).to_sql).to match(/\(scope = #{Account.default.id} AND \(id IN \('1',2,3\)\)\)/)
+      expect(Api.relation_for_sis_mapping_and_columns(User, { "id" => { ids: ["1", 2, 3] } }, { root_account_id_column: "scope" }, Account.default).to_sql).to match(/\(scope = #{Account.default.id} AND \(id IN \('1',2,3\)\)\)/)
     end
 
     it "works with no columns" do
@@ -689,11 +689,11 @@ describe Api do
     end
 
     it "adds in joins if the sis_mapping has some with columns" do
-      expect(Api.relation_for_sis_mapping_and_columns(User, { "id" => { ids: ["1", 2, 3] } }, { scope: "scope", joins: "some joins" }, Account.default).eager_load_values).to eq ["some joins"]
+      expect(Api.relation_for_sis_mapping_and_columns(User, { "id" => { ids: ["1", 2, 3] } }, { root_account_id_column: "scope", joins: "some joins" }, Account.default).eager_load_values).to eq ["some joins"]
     end
 
     it "works with a few different column types and account scopings" do
-      expect(Api.relation_for_sis_mapping_and_columns(User, { "id1" => { ids: [1, 2, 3] }, "id2" => { ids: %w[a b c] }, "id3" => { ids: %w[s1 s2 s3] } }, { scope: "some_scope", is_not_scoped_to_account: ["id3"] }, Account.default).to_sql).to match(/\(\(some_scope = #{Account.default.id} AND \(id1 IN \(1,2,3\)\)\) OR \(some_scope = #{Account.default.id} AND \(id2 IN \('a','b','c'\)\)\) OR id3 IN \('s1','s2','s3'\)\)/)
+      expect(Api.relation_for_sis_mapping_and_columns(User, { "id1" => { ids: [1, 2, 3] }, "id2" => { ids: %w[a b c] }, "id3" => { ids: %w[s1 s2 s3] } }, { root_account_id_column: "some_scope", is_not_scoped_to_account: ["id3"] }, Account.default).to_sql).to match(/\(\(some_scope = #{Account.default.id} AND \(id1 IN \(1,2,3\)\)\) OR \(some_scope = #{Account.default.id} AND \(id2 IN \('a','b','c'\)\)\) OR id3 IN \('s1','s2','s3'\)\)/)
     end
 
     it "fails if we're scoping to an account and the scope isn't provided" do
@@ -817,27 +817,27 @@ describe Api do
 
   context "ISO8601 regex" do
     it "does not allow invalid dates" do
-      expect("10/01/2014").to_not match Api::ISO8601_REGEX
+      expect(Api::ISO8601_REGEX).to_not match "10/01/2014"
     end
 
     it "does not allow non ISO8601 dates" do
-      expect("2014-10-01").to_not match Api::ISO8601_REGEX
+      expect(Api::ISO8601_REGEX).to_not match "2014-10-01"
     end
 
     it "does not allow garbage dates" do
-      expect("bad_data").to_not match Api::ISO8601_REGEX
+      expect(Api::ISO8601_REGEX).to_not match "bad_data"
     end
 
     it "allows valid dates" do
-      expect("2014-10-01T00:00:00-06:00").to match Api::ISO8601_REGEX
+      expect(Api::ISO8601_REGEX).to match "2014-10-01T00:00:00-06:00"
     end
 
     it "does not allow valid dates BC" do
-      expect("-2014-10-01T00:00:00-06:00").to_not match Api::ISO8601_REGEX
+      expect(Api::ISO8601_REGEX).to_not match "-2014-10-01T00:00:00-06:00"
     end
   end
 
-  context ".api_user_content" do
+  describe ".api_user_content" do
     let(:klass) do
       Class.new do
         include Api
@@ -920,8 +920,8 @@ describe Api do
 
           res = proxy_instance.api_user_content(html, @course, @student)
           expect(res).to eq <<~HTML
-            <img src="https://school.instructure.com/equation_images/1%2520%252B%25201%2520%252B%2520n%2520%252B%25202%250A2%2520%252B%25201n%2520%252B%25202n%250A3%2520%252B%2520n%250Ax%2520%252B%250A4%2520%252B%250An?scale=1">
-            <img src="https://school.instructure.com/courses/#{@shard1.id}~#{@course.local_id}/files/#{@shard1.id}~#{@file.local_id}/download?verifier=#{@file.uuid}&amp;wrap=1" data-api-returntype="File" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~#{@course.local_id}/files/#{@shard1.id}~#{@file.local_id}">
+            <img src="https://school.instructure.com/equation_images/1%2520%252B%25201%2520%252B%2520n%2520%252B%25202%250A2%2520%252B%25201n%2520%252B%25202n%250A3%2520%252B%2520n%250Ax%2520%252B%250A4%2520%252B%250An?scale=1" loading="lazy">
+            <img src="https://school.instructure.com/courses/#{@shard1.id}~#{@course.local_id}/files/#{@shard1.id}~#{@file.local_id}/download?verifier=#{@file.uuid}&amp;wrap=1" data-api-returntype="File" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~#{@course.local_id}/files/#{@shard1.id}~#{@file.local_id}" loading="lazy">
             <a href="https://school.instructure.com/courses/#{@shard1.id}~#{@course.local_id}/pages/module-1" data-api-returntype="Page" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~#{@course.local_id}/pages/module-1">link</a>
           HTML
         end
@@ -941,13 +941,13 @@ describe Api do
     end
   end
 
-  context ".process_incoming_html_content" do
+  describe ".process_incoming_html_content" do
     let(:klass) do
       Class.new do
         extend Api
 
         def self.request
-          OpenStruct.new({ host: "some-host.com", port: 80 })
+          @request ||= ActionDispatch::Request.new("HTTP_HOST" => "some-host.com")
         end
       end
     end
@@ -996,7 +996,7 @@ describe Api do
     end
   end
 
-  context ".paginate" do
+  describe ".paginate" do
     let(:request) { double("request", query_parameters: {}) }
     let(:response) { double("response", headers: {}) }
     let(:controller) { double("controller", request:, response:, params: {}) }
@@ -1075,7 +1075,7 @@ describe Api do
     end
   end
 
-  context ".jsonapi_paginate" do
+  describe ".jsonapi_paginate" do
     let(:request) { double("request", query_parameters: {}) }
     let(:response) { double("response", headers: {}) }
     let(:controller) { double("controller", request:, response:, params: {}) }
@@ -1101,7 +1101,7 @@ describe Api do
     end
   end
 
-  context ".build_links" do
+  describe ".build_links" do
     it "does not build links if not pagination is provided" do
       expect(Api.build_links("www.example.com")).to be_empty
     end

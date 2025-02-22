@@ -23,14 +23,14 @@ import {datetimeString} from '@canvas/datetime/date-functions'
 import environment from './environment'
 import GradeFormatHelper from '@canvas/grading/GradeFormatHelper'
 import NumberHelper from '@canvas/i18n/numberHelper'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {IconOffLine} from '@instructure/ui-icons'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {Tooltip} from '@instructure/ui-tooltip'
 import {Table} from '@instructure/ui-table'
 import {Text} from '@instructure/ui-text'
 
-const I18n = useI18nScope('gradebook_history')
+const I18n = createI18nScope('gradebook_history')
 
 // Unclear on why that tab-index is there but not going to mess with it right now
 /* eslint-disable jsx-a11y/no-noninteractive-tabindex */
@@ -74,12 +74,22 @@ function displayStudentName(studentName, assignment) {
   return studentName
 }
 
+function getCheckpointedName(name, subAssignmentTag) {
+  return subAssignmentTag === 'reply_to_topic'
+    ? I18n.t(`%{name} (Reply to Topic)`, {name})
+    : I18n.t(`%{name} (Required Replies)`, {name})
+}
+
 function displayAssignmentName(assignment, courseOverrideGrade) {
   if (courseOverrideGrade) {
     return <Text fontStyle="italic">{I18n.t('Final Grade Override')}</Text>
   }
 
-  return <Text>{assignment?.name || I18n.t('Not available')}</Text>
+  const nameToDisplay = assignment.subAssignmentTag
+    ? getCheckpointedName(assignment.name, assignment.subAssignmentTag)
+    : assignment.name
+
+  return <Text>{assignment?.name ? nameToDisplay : I18n.t('Not available')}</Text>
 }
 
 function SearchResultsRow(props) {
@@ -121,6 +131,7 @@ SearchResultsRow.propTypes = {
       anonymousGrading: bool.isRequired,
       muted: bool.isRequired,
       name: string.isRequired,
+      subAssignmentTag: string,
     }),
     courseOverrideGrade: bool.isRequired,
     date: string.isRequired,

@@ -19,7 +19,7 @@
 import React, {Component} from 'react'
 import {connect} from 'react-redux'
 import {arrayOf, func, shape, string} from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import * as tz from '@instructure/moment-utils'
 import moment from 'moment'
 import {debounce} from 'lodash'
@@ -35,7 +35,7 @@ import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import environment from './environment'
 import CanvasDateInput from '@canvas/datetime/react/components/DateInput'
 
-const I18n = useI18nScope('gradebook_history')
+const I18n = createI18nScope('gradebook_history')
 
 const DEBOUNCE_DELAY = 500 // milliseconds
 
@@ -45,7 +45,7 @@ const recordShape = shape({
     shape({
       id: string.isRequired,
       name: string.isRequired,
-    })
+    }),
   ),
   nextPage: string.isRequired,
 })
@@ -195,7 +195,7 @@ class SearchFormComponent extends Component {
     return (
       moment(this.state.selected.from.value).diff(
         moment(this.state.selected.to.value),
-        'seconds'
+        'seconds',
       ) >= 0
     )
   }

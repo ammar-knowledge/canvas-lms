@@ -54,7 +54,7 @@ describe AssignmentVisibility::AssignmentVisibilityService do
     end
 
     def assignment_with_false_only_visible_to_overrides
-      make_assignment({ date: Time.now, ovto: false })
+      make_assignment({ date: Time.zone.now, ovto: false })
     end
 
     def group_assignment_with_true_only_visible_to_overrides(opts = {})
@@ -146,16 +146,13 @@ describe AssignmentVisibility::AssignmentVisibilityService do
     end
 
     def ensure_user_does_not_see_assignment
-      visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_student(user_id: @user.id, course_id: @course.id).map(&:assignment_id)
+      visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: @user.id, course_ids: @course.id).map(&:assignment_id)
       expect(visible_assignment_ids.map(&:to_i).include?(@assignment.id)).to be_falsey
-      expect(AssignmentVisibility::AssignmentVisibilityService.visible_assignment_ids_in_course_for_user(user_id: @user.id, course_id: @course.id)[@user.id]).not_to include(@assignment.id)
     end
 
     def ensure_user_sees_assignment
-      visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_student(user_id: @user.id, course_id: @course.id).map(&:assignment_id)
+      visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: @user.id, course_ids: @course.id).map(&:assignment_id)
       expect(visible_assignment_ids.map(&:to_i).include?(@assignment.id)).to be_truthy
-      expect(AssignmentVisibility::AssignmentVisibilityService.visible_assignment_ids_in_course_for_user(user_id: @user.id, course_id: @course.id)[@user.id]).to include(@assignment.id)
-      expect(AssignmentVisibility::AssignmentVisibilityService.visible_assignment_ids_in_course_for_user(user_id: @user.id, course_id: @course.id, use_global_id: true)[Shard.global_id_for(@user.id)]).to include(@assignment.id)
     end
 
     context "course_with_differentiated_assignments_enabled" do
@@ -178,7 +175,7 @@ describe AssignmentVisibility::AssignmentVisibilityService do
             give_section_due_date(@assignment, @section_foo)
             enroller_user_in_section(@section_foo)
             ensure_user_sees_assignment
-            expect(AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_student(user_id: @user.id, course_id: @course.id).count).to eq 1
+            expect(AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: @user.id, course_ids: @course.id).count).to eq 1
           end
 
           it "does not return a visibility for a student without an ADHOC override" do
@@ -256,7 +253,7 @@ describe AssignmentVisibility::AssignmentVisibilityService do
             it "does not return duplicate visibilities with multiple visible sections" do
               enroll_user_in_group(@group_bar, { user: @user })
               give_group_due_date(@assignment, @group_bar)
-              visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_student(user_id: @user.id, course_id: @course.id)
+              visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: @user.id, course_ids: @course.id)
               expect(visible_assignment_ids.count).to eq 1
             end
           end
@@ -266,6 +263,40 @@ describe AssignmentVisibility::AssignmentVisibilityService do
 
             it "shows the assignment to the user" do
               ensure_user_sees_assignment
+            end
+          end
+
+          context "user is non-collaborative group" do
+            before do
+              @course.account.enable_feature!(:differentiation_tags)
+              @course.account.enable_feature!(:assign_to_differentiation_tags)
+
+              group_category = @group_foo.group_category
+              group_category.update!(role: nil)
+              group_category.update!(non_collaborative: true)
+
+              groups = group_category.groups
+              groups.each do |group|
+                group.update!(non_collaborative: true)
+              end
+
+              @student = user_model
+              @course.enroll_user(@student)
+              @course.save!
+
+              enroll_user_in_group(@group_foo, { user: @student })
+            end
+
+            it "sees the assignment" do
+              visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: @student.id, course_ids: @course.id).map(&:assignment_id)
+              expect(visible_assignment_ids.map(&:to_i).include?(@assignment.id)).to be_truthy
+            end
+
+            it "does not sees the assignment if the override is deleted" do
+              @assignment.assignment_overrides.each(&:destroy)
+
+              visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: @student.id, course_ids: @course.id).map(&:assignment_id)
+              expect(visible_assignment_ids.map(&:to_i).include?(@assignment.id)).to be_falsy
             end
           end
         end
@@ -357,7 +388,7 @@ describe AssignmentVisibility::AssignmentVisibilityService do
             it "does not return duplicate visibilities with multiple visible sections" do
               enroller_user_in_section(@section_bar, { user: @user })
               give_section_due_date(@assignment, @section_bar)
-              visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_student(user_id: @user.id, course_id: @course.id)
+              visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: @user.id, course_ids: @course.id)
               expect(visible_assignment_ids.count).to eq 1
             end
           end
@@ -381,11 +412,7 @@ describe AssignmentVisibility::AssignmentVisibilityService do
           end
         end
 
-        context "module overrides" do
-          before do
-            Account.site_admin.enable_feature!(:selective_release_backend)
-          end
-
+        shared_examples_for "module overrides" do
           it "includes everyone else if there no modules and no overrides" do
             assignment_with_false_only_visible_to_overrides
             ensure_user_sees_assignment
@@ -468,7 +495,7 @@ describe AssignmentVisibility::AssignmentVisibilityService do
 
             quiz.context_module_tags.create! context_module: module1, context: @course, tag_type: "context_module"
 
-            expect(AssignmentVisibility::AssignmentVisibilityService.assignment_visible_in_course(assignment_id: quiz.assignment, course_id: @course.id).map(&:user_id)).to include @user.id
+            expect(AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(assignment_ids: quiz.assignment, course_ids: @course.id).map(&:user_id)).to include @user.id
           end
 
           it "applies overrides from unpublished modules" do
@@ -508,9 +535,21 @@ describe AssignmentVisibility::AssignmentVisibilityService do
           end
         end
 
+        context "assignments with modules" do
+          it_behaves_like "module overrides" do
+            before :once do
+              Account.site_admin.disable_feature!(:visibility_performance_improvements)
+            end
+          end
+          it_behaves_like "module overrides" do
+            before :once do
+              Account.site_admin.enable_feature!(:visibility_performance_improvements)
+            end
+          end
+        end
+
         context "unassign item overrides" do
           before do
-            Account.site_admin.enable_feature!(:selective_release_backend)
             assignment_with_true_only_visible_to_overrides
           end
 
@@ -565,17 +604,10 @@ describe AssignmentVisibility::AssignmentVisibilityService do
             student_in_course_with_adhoc_override(@assignment, { unassign_item: "true" })
             ensure_user_does_not_see_assignment
           end
-
-          it "does not unassign if the flag is off" do
-            Account.site_admin.disable_feature!(:selective_release_backend)
-            student_in_course_with_adhoc_override(@assignment, { unassign: "true" })
-            ensure_user_sees_assignment
-          end
         end
 
         context "course overrides" do
           before do
-            Account.site_admin.enable_feature!(:selective_release_backend)
             assignment_with_true_only_visible_to_overrides
             give_course_due_date(@assignment)
           end
@@ -656,7 +688,24 @@ describe AssignmentVisibility::AssignmentVisibilityService do
       end
     end
 
-    describe AssignmentStudentVisibility do
+    context "with caching" do
+      specs_require_cache(:redis_cache_store)
+
+      it "does not treat nil and [] as the same cache key" do
+        # the visibility query has different results for nil arguments and [] arguments
+        # so we must ensure the cache key is different as well
+        course_with_differentiated_assignments_enabled
+        assignment_with_false_only_visible_to_overrides
+        # with passing nil assignment_ids
+        visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: @user.id, course_ids: @course.id).map(&:assignment_id)
+        expect(visible_assignment_ids.map(&:to_i).include?(@assignment.id)).to be_truthy
+        # with passing an empty array to assignment_ids
+        visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: @user.id, course_ids: @course.id, assignment_ids: []).map(&:assignment_id)
+        expect(visible_assignment_ids.map(&:to_i).include?(@assignment.id)).to be_falsey
+      end
+    end
+
+    describe AssignmentVisibility do
       let!(:course) do
         course = Course.create!
         course.enroll_student(first_student)
@@ -678,16 +727,6 @@ describe AssignmentVisibility::AssignmentVisibilityService do
       let(:first_student) { User.create! }
       let(:second_student) { User.create! }
       let(:fake_student) { User.create! }
-
-      describe ".assignments_visible_to_all_students" do
-        let(:assignments_visible_to_all_students) do
-          AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_all_students([assignment])
-        end
-
-        it "returns a hash with an empty visibility array for each assignment" do
-          expect(assignments_visible_to_all_students).to eq({ assignment.id => [] })
-        end
-      end
 
       describe ".assignments_with_user_visibilities" do
         let(:assignment_only_visible_to_overrides) do

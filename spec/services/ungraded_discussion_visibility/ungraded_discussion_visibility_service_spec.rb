@@ -23,7 +23,7 @@ describe "UngradedDiscussionVisibility" do
   include StudentVisibilityCommon
 
   def assignment_ids_visible_to_user(user)
-    AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_student(course_id: @course.id, user_id: user.id).map(&:assignment_id)
+    AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(course_ids: @course.id, user_ids: user.id).map(&:assignment_id)
   end
 
   before :once do
@@ -41,7 +41,16 @@ describe "UngradedDiscussionVisibility" do
     let(:learning_object2) { @discussion2 }
     let(:learning_object_type) { "discussion_topic" }
 
-    it_behaves_like "learning object visiblities with modules"
+    it_behaves_like "learning object visiblities with modules" do
+      before :once do
+        Account.site_admin.disable_feature!(:visibility_performance_improvements)
+      end
+    end
+    it_behaves_like "learning object visiblities with modules" do
+      before :once do
+        Account.site_admin.enable_feature!(:visibility_performance_improvements)
+      end
+    end
     it_behaves_like "learning object visiblities"
 
     it "does not include unpublished discussion topics" do
@@ -72,7 +81,7 @@ describe "UngradedDiscussionVisibility" do
       expect(ids_visible_to_user(@student1, "discussion_topic")).to contain_exactly(@discussion1.id, @discussion2.id)
     end
 
-    it "assignment_student_visibilities shows correct visibilities for graded discussion topic's assignment" do
+    it "assignment_ids_visible_to_user shows correct visibilities for graded discussion topic's assignment" do
       @discussion1_assignment.only_visible_to_overrides = true
       @discussion1_assignment.save!
 

@@ -17,7 +17,7 @@
  */
 
 import {AuditLogForm, AuditLogResults, MUTATION_LOG_QUERY} from '../MutationAuditLog'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
 import React from 'react'
 import {fireEvent, render, waitFor} from '@testing-library/react'
 
@@ -28,7 +28,7 @@ describe('AuditLogForm', () => {
     expect(getByText(/Find/)).toBeInTheDocument()
   })
 
-  it('calls onSubmit when clicked', () => {
+  it('calls onSubmit when clicked', async () => {
     const cb = jest.fn()
     const {getByLabelText, getByText} = render(<AuditLogForm onSubmit={cb} />)
 
@@ -37,12 +37,19 @@ describe('AuditLogForm', () => {
 
     // doesn't fire when assetString is blank
     fireEvent.click(submitButton)
-    expect(cb.mock.calls.length).toBe(0)
+    expect(cb.mock.calls).toHaveLength(0)
 
     fireEvent.change(assetStringInput, {target: {value: 'user_123'}})
     fireEvent.click(submitButton)
-    expect(cb.mock.calls.length).toBe(1)
-    expect(cb.mock.calls[0][0]).toEqual({assetString: 'user_123', startDate: null, endDate: null})
+
+    await waitFor(() => {
+      expect(cb.mock.calls).toHaveLength(1)
+      expect(cb.mock.calls[0][0]).toEqual({
+        assetString: 'user_123',
+        startDate: undefined,
+        endDate: undefined,
+      })
+    })
   })
 })
 
@@ -180,7 +187,7 @@ describe('AuditLogResults', () => {
     const {getByText} = render(
       <MockedProvider mocks={mocks}>
         <AuditLogResults assetString="user_123" pageSize={1} />
-      </MockedProvider>
+      </MockedProvider>,
     )
 
     // renders loading state first
@@ -194,7 +201,7 @@ describe('AuditLogResults', () => {
     const {getByText} = render(
       <MockedProvider mocks={mocks}>
         <AuditLogResults assetString="user_123" pageSize={1} />
-      </MockedProvider>
+      </MockedProvider>,
     )
     const loadMoreButton = await waitFor(() => getByText(/load more/i))
     expect(loadMoreButton).toBeInTheDocument()
@@ -208,7 +215,7 @@ describe('AuditLogResults', () => {
     const {getByText} = render(
       <MockedProvider mocks={mocks}>
         <AuditLogResults assetString="user_456" pageSize={100} />
-      </MockedProvider>
+      </MockedProvider>,
     )
 
     expect(await waitFor(() => getByText(/no results/i))).toBeInTheDocument()
@@ -218,7 +225,7 @@ describe('AuditLogResults', () => {
     const {getByText} = render(
       <MockedProvider mocks={mocks}>
         <AuditLogResults assetString="error_1" pageSize={100} />
-      </MockedProvider>
+      </MockedProvider>,
     )
 
     expect(await waitFor(() => getByText(/went wrong/))).toBeInTheDocument()
@@ -228,7 +235,7 @@ describe('AuditLogResults', () => {
     const {getByText} = render(
       <MockedProvider mocks={mocks}>
         <AuditLogResults assetString="user_123" pageSize={1} />
-      </MockedProvider>
+      </MockedProvider>,
     )
 
     const showParamsBtn = await waitFor(() => getByText('Show params'))

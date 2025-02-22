@@ -140,7 +140,7 @@ class ContextModule < ActiveRecord::Base
   end
 
   def check_for_stale_cache_after_unlocking!
-    GuardRail.activate(:primary) { touch } if unlock_at && unlock_at < Time.now && updated_at < unlock_at
+    GuardRail.activate(:primary) { touch } if unlock_at && unlock_at < Time.zone.now && updated_at < unlock_at
   end
 
   def is_prerequisite_for?(mod)
@@ -363,7 +363,7 @@ class ContextModule < ActiveRecord::Base
     where("name ILIKE ?", "#{name}%")
   }
   scope :visible_to_students_in_course_with_da, lambda { |user_ids, course_ids|
-    visible_module_ids = ModuleVisibility::ModuleVisibilityService.modules_visible_to_students_in_courses(course_ids:, user_ids:).map(&:context_module_id)
+    visible_module_ids = ModuleVisibility::ModuleVisibilityService.modules_visible_to_students(course_ids:, user_ids:).map(&:context_module_id)
     if visible_module_ids.any?
       where(id: visible_module_ids)
     else
@@ -390,29 +390,18 @@ class ContextModule < ActiveRecord::Base
   end
 
   set_policy do
-    #################### Begin legacy permission block #########################
     given do |user, session|
-      user && !context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_right?(user, session, :manage_content)
-    end
-    can :read and can :create and can :update and can :delete and can :read_as_admin
-    ##################### End legacy permission block ##########################
-
-    given do |user, session|
-      user && context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_right?(user, session, :manage_course_content_add)
+      user && context.grants_right?(user, session, :manage_course_content_add)
     end
     can :read and can :read_as_admin and can :create
 
     given do |user, session|
-      user && context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_right?(user, session, :manage_course_content_edit)
+      user && context.grants_right?(user, session, :manage_course_content_edit)
     end
     can :read and can :read_as_admin and can :update
 
     given do |user, session|
-      user && context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_right?(user, session, :manage_course_content_delete)
+      user && context.grants_right?(user, session, :manage_course_content_delete)
     end
     can :read and can :read_as_admin and can :delete
 
@@ -425,7 +414,7 @@ class ContextModule < ActiveRecord::Base
     given { |user, session| context.grants_right?(user, session, :read) && active? }
     can :read
 
-    given { |user, session| user && context.grants_any_right?(user, session, :manage_content, :manage_course_content_edit) }
+    given { |user, session| user && context.grants_right?(user, session, :manage_course_content_edit) }
     can :manage_assign_to
   end
 
@@ -498,7 +487,7 @@ class ContextModule < ActiveRecord::Base
   end
 
   def gather_prerequisites(module_names)
-    all_prereqs = read_attribute(:prerequisites)
+    all_prereqs = self["prerequisites"]
     return [] unless all_prereqs&.any?
 
     all_prereqs.select { |pre| module_names.key?(pre[:id]) }.map { |pre| pre.merge(name: module_names[pre[:id]]) }
@@ -531,7 +520,7 @@ class ContextModule < ActiveRecord::Base
     end
     @prerequisites = nil
     @active_prerequisites = nil
-    write_attribute(:prerequisites, prereqs)
+    super
   end
 
   def completion_requirements=(val)
@@ -553,7 +542,7 @@ class ContextModule < ActiveRecord::Base
     else
       val = nil
     end
-    write_attribute(:completion_requirements, val)
+    super
   end
 
   def validate_completion_requirements(requirements)
@@ -563,15 +552,17 @@ class ContextModule < ActiveRecord::Base
         type: req[:type],
       }
       new_req[:min_score] = req[:min_score].to_f if req[:type] == "min_score" && req[:min_score]
+      new_req[:min_percentage] = req[:min_percentage].to_f if req[:type] == "min_percentage" && req[:min_percentage]
       new_req
     end
 
     tags = content_tags.not_deleted.index_by(&:id)
+    scoreable_types = %w[must_submit min_score min_percentage]
     validated_reqs = requirements.select do |req|
       if req[:id] && (tag = tags[req[:id]])
         if %w[must_view must_mark_done must_contribute].include?(req[:type])
           true
-        elsif %w[must_submit min_score].include?(req[:type])
+        elsif scoreable_types.include?(req[:type])
           true if tag.scoreable?
         end
       end
@@ -780,7 +771,7 @@ class ContextModule < ActiveRecord::Base
     else
       return nil unless item
 
-      title = params[:title] || (item.title rescue item.name)
+      title = params[:title] || item.try(:title) || item.name
       added_item ||= content_tags.build(context:)
       added_item.attributes = {
         content: item,
@@ -865,7 +856,7 @@ class ContextModule < ActiveRecord::Base
         action == :done
       when "must_contribute"
         action == :contributed
-      when "must_submit", "min_score"
+      when "must_submit", "min_score", "min_percentage"
         action == :scored || # rubocop:disable Style/MultipleComparison
           action == :submitted # to mark progress in the incomplete_requirements (moves from 'unlocked' to 'started')
       else
@@ -886,6 +877,8 @@ class ContextModule < ActiveRecord::Base
       t("requirements.must_submit", "must submit the assignment")
     when "min_score"
       t("requirements.min_score", "must score at least a %{score}", score: req[:min_score])
+    when "min_percentage"
+      t("requirements.min_percentage", "must score at least a %{percentage}%", percentage: req[:min_score])
     else
       nil
     end
@@ -941,7 +934,7 @@ class ContextModule < ActiveRecord::Base
   end
 
   def to_be_unlocked
-    unlock_at && unlock_at > Time.now
+    unlock_at && unlock_at > Time.zone.now
   end
 
   def migration_position
@@ -953,16 +946,16 @@ class ContextModule < ActiveRecord::Base
   VALID_COMPLETION_EVENTS = [:publish_final_grade].freeze
 
   def completion_events
-    (read_attribute(:completion_events) || "").split(",").map(&:to_sym)
+    (super || "").split(",").map(&:to_sym)
   end
 
   def completion_events=(value)
     unless value.present?
-      write_attribute(:completion_events, nil)
+      super(nil)
       return
     end
 
-    write_attribute(:completion_events, (value.map(&:to_sym) & VALID_COMPLETION_EVENTS).join(","))
+    super((value.map(&:to_sym) & VALID_COMPLETION_EVENTS).join(","))
   end
 
   VALID_COMPLETION_EVENTS.each do |event|
@@ -998,15 +991,16 @@ class ContextModule < ActiveRecord::Base
   end
 
   def update_assignment_submissions(module_assignments = current_items_with_assignment)
-    if Account.site_admin.feature_enabled?(:selective_release_backend)
-      module_assignments.clear_cache_keys(:availability)
-      SubmissionLifecycleManager.recompute_course(context, assignments: module_assignments, update_grades: true)
+    create_sub_assignment_submissions = false
+    if context.root_account.feature_enabled?(:discussion_checkpoints) && module_assignments.has_sub_assignments.any?
+      create_sub_assignment_submissions = true
     end
+
+    module_assignments.clear_cache_keys(:availability)
+    SubmissionLifecycleManager.recompute_course(context, assignments: module_assignments, update_grades: true, create_sub_assignment_submissions:)
   end
 
   def current_items_with_assignment
-    return unless Account.site_admin.feature_enabled?(:selective_release_backend)
-
     module_assignments = Assignment.active.where(id: content_tags.not_deleted.where(content_type: "Assignment").select(:content_id)).pluck(:id)
 
     module_discussions_assignment_ids = DiscussionTopic.active.where(id: content_tags.not_deleted.where(content_type: "DiscussionTopic").select(:content_id)).select(:assignment_id)

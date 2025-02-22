@@ -19,11 +19,11 @@
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {TextInput} from '@instructure/ui-text-input'
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {IconSearchLine, IconTroubleLine} from '@instructure/ui-icons'
 import {IconButton} from '@instructure/ui-buttons'
 
-const I18n = useI18nScope('lti_registrations')
+const I18n = createI18nScope('lti_registrations')
 
 type AppsSearchBarProps = {
   value: string
@@ -48,17 +48,14 @@ const renderClearButton = (value: string, handleClear: () => void) =>
 export const AppsSearchBar = (props: AppsSearchBarProps) => {
   const label = I18n.t('Search names & nicknames')
   return (
-    <form name="appsSearch" autoComplete="off">
-      <TextInput
-        renderLabel={<ScreenReaderContent>{label}</ScreenReaderContent>}
-        placeholder={label}
-        value={props.value}
-        onChange={props.handleChange}
-        // inputRef={el => (this.inputRef = el)}
-        renderBeforeInput={<IconSearchLine inline={false} />}
-        renderAfterInput={renderClearButton(props.value, props.handleClear)}
-        shouldNotWrap={true}
-      />
-    </form>
+    <TextInput
+      renderLabel={<ScreenReaderContent>{label}</ScreenReaderContent>}
+      placeholder={label}
+      value={props.value}
+      onChange={props.handleChange}
+      renderBeforeInput={<IconSearchLine inline={false} />}
+      renderAfterInput={renderClearButton(props.value, props.handleClear)}
+      shouldNotWrap={true}
+    />
   )
 }

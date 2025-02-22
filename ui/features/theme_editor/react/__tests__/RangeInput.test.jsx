@@ -17,57 +17,61 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render, fireEvent} from '@testing-library/react'
 import RangeInput from '../RangeInput'
-import sinon from 'sinon'
-
-const ok = value => expect(value).toBeTruthy()
-const equal = (value, expected) => expect(value).toEqual(expected)
-
-let elem, props
 
 describe('RangeInput Component', () => {
-  beforeEach(() => {
-    elem = document.createElement('div')
-    props = {
-      min: 1,
-      max: 10,
-      defaultValue: 5,
-      labelText: 'Input Label',
-      name: 'input_name',
-      formatValue: sinon.stub(),
-      onChange: sinon.stub(),
+  const defaultProps = {
+    min: 1,
+    max: 10,
+    defaultValue: 5,
+    labelText: 'Input Label',
+    name: 'input_name',
+    formatValue: jest.fn(value => `${value}%`),
+    onChange: jest.fn(),
+  }
+
+  afterEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('renders with default props', () => {
+    const {getByLabelText, getByText} = render(<RangeInput {...defaultProps} />)
+
+    const slider = getByLabelText(defaultProps.labelText)
+    expect(slider).toBeInTheDocument()
+    expect(slider).toHaveAttribute('type', 'range')
+    expect(slider).toHaveAttribute('name', defaultProps.name)
+    expect(slider).toHaveAttribute('value', String(defaultProps.defaultValue))
+
+    expect(getByText('5%')).toBeInTheDocument()
+  })
+
+  it('updates value and calls onChange when slider value changes', () => {
+    const {getByLabelText} = render(<RangeInput {...defaultProps} />)
+
+    const slider = getByLabelText(defaultProps.labelText)
+    fireEvent.change(slider, {target: {value: '8'}})
+
+    expect(defaultProps.onChange).toHaveBeenCalledWith('8')
+    expect(defaultProps.formatValue).toHaveBeenCalledWith('8')
+  })
+
+  it('formats the output value correctly', () => {
+    const {getByText} = render(<RangeInput {...defaultProps} />)
+    expect(getByText('5%')).toBeInTheDocument()
+  })
+
+  it('applies min, max, and step constraints', () => {
+    const props = {
+      ...defaultProps,
+      step: 2,
     }
-  })
+    const {getByLabelText} = render(<RangeInput {...props} />)
 
-  test('renders range input', () => {
-    const component = ReactDOM.render(<RangeInput {...props} />, elem)
-    const input = component.rangeInput
-    equal(input.type, 'range', 'renders range input')
-    equal(String(input.value), String(props.defaultValue), 'renders default value')
-    equal(input.name, props.name, 'renders with name from props')
-  })
-
-  test('renders formatted output', done => {
-    const component = ReactDOM.render(<RangeInput {...props} />, elem)
-    const expected = 47
-    const expectedFormatted = '47%'
-    props.formatValue.returns(expectedFormatted)
-    component.setState({value: 47}, () => {
-      const output = component.outputElement
-      ok(output, 'renders the output element')
-      ok(props.formatValue.calledWith(expected), 'formats the value')
-      equal(output.textContent, expectedFormatted, 'outputs value')
-      done()
-    })
-  })
-
-  test('handleChange', () => {
-    const component = ReactDOM.render(<RangeInput {...props} />, elem)
-    sinon.spy(component, 'setState')
-    const event = {target: {value: 8}}
-    component.handleChange(event)
-    ok(component.setState.calledWithMatch({value: event.target.value}), 'updates value in state')
-    ok(props.onChange.calledWith(event.target.value), 'calls onChange with the new value')
+    const slider = getByLabelText(props.labelText)
+    expect(slider).toHaveAttribute('min', String(props.min))
+    expect(slider).toHaveAttribute('max', String(props.max))
+    expect(slider).toHaveAttribute('step', String(props.step))
   })
 })

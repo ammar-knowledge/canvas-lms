@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 import {Assignment} from './Assignment'
 import {ExternalTool} from './ExternalTool'
@@ -24,7 +24,7 @@ import {Rubric} from './Rubric'
 import {RubricAssessment} from './RubricAssessment'
 import {RubricAssociation} from './RubricAssociation'
 import {Submission} from './Submission'
-import {SubmissionComment} from './SubmissionComment'
+import {SubmissionHtmlComment} from './SubmissionComment'
 import {SubmissionHistory} from './SubmissionHistory'
 import {UserGroups} from './UserGroups'
 
@@ -153,13 +153,13 @@ export const SUBMISSION_COMMENT_QUERY = gql`
             hasPreviousPage
           }
           nodes {
-            ...SubmissionComment
+            ...SubmissionHtmlComment
           }
         }
       }
     }
   }
-  ${SubmissionComment.fragment}
+  ${SubmissionHtmlComment.fragment}
 `
 
 export const SUBMISSION_HISTORIES_QUERY = gql`

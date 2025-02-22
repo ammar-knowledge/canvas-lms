@@ -17,7 +17,7 @@
  */
 
 import React, {useState, useEffect, useLayoutEffect, useCallback, useRef} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {TextInput} from '@instructure/ui-text-input'
 import {Flex} from '@instructure/ui-flex'
 import {SimpleSelect} from '@instructure/ui-simple-select'
@@ -47,9 +47,9 @@ import {
 } from '@canvas/calendar/react/RecurringEvents/FrequencyPicker/utils'
 import {renderUpdateCalendarEventDialog} from '@canvas/calendar/react/RecurringEvents/UpdateCalendarEventDialog'
 import FrequencyPicker from '@canvas/calendar/react/RecurringEvents/FrequencyPicker/FrequencyPicker'
-import {encodeQueryString} from '@canvas/query-string-encoding'
+import {encodeQueryString} from '@instructure/query-string-encoding'
 
-const I18n = useI18nScope('calendar.edit_calendar_event')
+const I18n = createI18nScope('calendar.edit_calendar_event')
 
 const screenReaderMessageCallback = msg => {
   showFlashAlert({message: msg, type: 'info', srOnly: true})
@@ -72,7 +72,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
   const [endTime, setEndTime] = useState(initTime(event.calendarEvent?.end_at))
   const [rrule, setRRule] = useState(event.object.rrule ? event.object.rrule : null)
   const [frequency, setFrequency] = useState(
-    rrule ? RRULEToFrequencyOptionValue(moment.tz(date, timezone), rrule) : null
+    rrule ? RRULEToFrequencyOptionValue(moment.tz(date, timezone), rrule) : null,
   )
   const [webConference, setWebConference] = useState(event.webConference)
   const [shouldShowConferences, setShouldShowConferences] = useState(false)
@@ -125,21 +125,21 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
 
       if (propagate !== false) contextChangeCB(context.asset_string)
     },
-    [context, event.contextInfo, shouldShowBlackoutDateCheckbox, contextChangeCB]
+    [context, event.contextInfo, shouldShowBlackoutDateCheckbox, contextChangeCB],
   )
 
   const contextFromCode = useCallback(
     code => {
       return allContexts.find(ctxt => ctxt.asset_string === code) || null
     },
-    [allContexts]
+    [allContexts],
   )
 
   const setContextWithCode = useCallback(
     code => {
       setContext(contextFromCode(code))
     },
-    [contextFromCode]
+    [contextFromCode],
   )
 
   const canUpdateConference = useCallback(() => !event.lockedTitle, [event])
@@ -150,7 +150,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
       const context_code = ctxt.asset_string
       return filterConferenceTypes(conferenceTypes, context_code)
     },
-    [context]
+    [context],
   )
 
   const shouldShowConferenceWidget = useCallback(() => {
@@ -276,7 +276,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
       const newRRule = updateRRuleForNewDate(moment.tz(d, timezone), rrule)
       setRRule(newRRule)
     },
-    [frequency, rrule, timezone, formErrors]
+    [frequency, rrule, timezone, formErrors],
   )
 
   const addTimeToDate = time => {
@@ -331,7 +331,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
             calendar_event: {
               web_conference: webConf,
             },
-          })
+          }),
         )
         for (const [key, value] of conferenceParams.entries()) {
           params[key] = value
@@ -366,7 +366,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
         () => {
           screenReaderMessageCallback(I18n.t('Event creation failed'))
           closeCB()
-        }
+        },
       )
     } else {
       event.title = params['calendar_event[title]']
@@ -398,7 +398,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
         },
         () => {
           closeCB()
-        }
+        },
       )
     }
     setIsWorking(true)
@@ -586,7 +586,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
               <Flex.Item padding="none x-small" shouldShrink={true}>
                 <Tooltip
                   renderTip={I18n.t(
-                    'Enabling this option automatically moves Course Pacing assignment due dates to after the end date. Input for Time, Location and Calendar will be disabled.'
+                    'Enabling this option automatically moves Course Pacing assignment due dates to after the end date. Input for Time, Location and Calendar will be disabled.',
                   )}
                   on={['click', 'hover', 'focus']}
                 >
@@ -617,6 +617,7 @@ const CalendarEventDetailsForm = ({event, closeCB, contextChangeCB, setSetContex
           <Flex.Item padding="none xxx-small" shouldShrink={true}>
             <Tooltip renderTip={I18n.t('A save is in progress')} on={isWorking ? undefined : []}>
               <Button
+                id="edit-calendar-event-submit-button"
                 data-testid="edit-calendar-event-submit-button"
                 color="primary"
                 onClick={e => {

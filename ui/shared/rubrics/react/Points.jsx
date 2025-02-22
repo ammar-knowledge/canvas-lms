@@ -21,11 +21,13 @@ import PropTypes from 'prop-types'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {TextInput} from '@instructure/ui-text-input'
 import {Flex} from '@instructure/ui-flex'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import {assessmentShape} from './types'
+import {IconWarningSolid} from "@instructure/ui-icons";
+import {Text} from "@instructure/ui-text";
 
-const I18n = useI18nScope('edit_rubricPoints')
+const I18n = createI18nScope('edit_rubricPoints')
 
 export const roundIfWhole = n =>
   I18n.toNumber(n, {
@@ -52,7 +54,16 @@ export const scoreString = (points, possible) =>
     possible: possibleString(possible),
   })
 
-const invalid = () => [{text: I18n.t('Invalid score'), type: 'error'}]
+const invalid = () => [{text: (
+    <Flex justifyItems="start" gap="xx-small">
+      <Flex.Item align="start">
+        <IconWarningSolid color="error" />
+      </Flex.Item>
+      <Flex.Item>
+        <Text color="danger">{I18n.t('Invalid score')}</Text>
+      </Flex.Item>
+    </Flex>
+  ), type: 'error'}]
 const pointError = points => (points.valid ? [] : invalid())
 
 const noExtraCredit = () => [{text: I18n.t('Cannot give outcomes extra credit'), type: 'error'}]
@@ -74,8 +85,9 @@ const Points = props => {
       return (
         <div className="react-rubric-cell graded-points">
           <Flex alignItems="end" wrap="wrap">
-            <Flex.Item size="4rem" margin="none small none none">
+            <Flex.Item margin="none small none none">
               <TextInput
+                autoComplete="off"
                 display="inline-block"
                 renderLabel={<ScreenReaderContent>{I18n.t('Points')}</ScreenReaderContent>}
                 messages={[

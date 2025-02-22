@@ -31,10 +31,10 @@ import LockManager from '@canvas/blueprint-courses/react/components/LockManager/
 import SectionsAutocomplete from './react/SectionsAutocomplete'
 import {Alert} from '@instructure/ui-alerts'
 import {View} from '@instructure/ui-view'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {AnonymousPostSelector} from './react/AnonymousPostSelector/AnonymousPostSelector'
 
-const I18n = useI18nScope('discussions')
+const I18n = createI18nScope('discussions')
 
 const isAnnouncement =
   ENV.DISCUSSION_TOPIC.ATTRIBUTES != null
@@ -45,7 +45,7 @@ const isUnpublishedAnnouncement =
 const isEditingAnnouncement = isAnnouncement && ENV.DISCUSSION_TOPIC.ATTRIBUTES.id
 const model = new (isAnnouncement ? Announcement : DiscussionTopic)(
   ENV.DISCUSSION_TOPIC.ATTRIBUTES,
-  {parse: true}
+  {parse: true},
 )
 model.urlRoot = ENV.DISCUSSION_TOPIC.URL_ROOT
 const assignment = model.get('assignment')
@@ -77,6 +77,7 @@ function renderSectionsAutocomplete(view) {
       }
 
       const sectionsAreDisabled = isGradedDiscussion || isGroupDiscussion
+
       ReactDOM.render(
         <SectionsAutocomplete
           selectedSections={ENV.SELECTED_SECTION_LIST}
@@ -85,7 +86,7 @@ function renderSectionsAutocomplete(view) {
           enableDiscussionOptions={enableDiscussionOptions}
           sections={ENV.SECTION_LIST}
         />,
-        container
+        container,
       )
     }
   }
@@ -154,7 +155,7 @@ ready(() => {
           key: 'announcement-course-unpublished-alert',
           variant: 'warning',
           text: I18n.t(
-            'Notifications will not be sent retroactively for announcements created before publishing your course or before the course start date. You may consider using the Delay Posting option and set to publish on a future date.'
+            'Notifications will not be sent retroactively for announcements created before publishing your course or before the course start date. You may consider using the Delay Posting option and set to publish on a future date.',
           ),
         }
       : {
@@ -162,14 +163,15 @@ ready(() => {
           key: 'announcement-no-notification-on-edit',
           variant: 'info',
           text: I18n.t(
-            'Users do not receive updated notifications when editing an announcement. If you wish to have users notified of this update via their notification settings, you will need to create a new announcement.'
+            'Users do not receive updated notifications when editing an announcement. If you wish to have users notified of this update via their notification settings, you will need to create a new announcement.',
           ),
         }
+
     ReactDOM.render(
       <View display="block" id={alertProps.id} key={alertProps.key}>
         <Alert variant={alertProps.variant}>{alertProps.text}</Alert>
       </View>,
-      document.querySelector('#announcement-alert-holder')
+      document.querySelector('#announcement-alert-holder'),
     )
   }
 
@@ -186,7 +188,7 @@ ready(() => {
       radioButton.addEventListener('change', () => {
         const anonymousState = document.querySelector('input[name=anonymous_state]:checked').value
         const hasGroupCategory = document.querySelector(
-          'input[name=has_group_category][type=checkbox]'
+          'input[name=has_group_category][type=checkbox]',
         )
         const isPartiallyAnonymous = anonymousState === 'partial_anonymity'
         const isFullyAnonymous = anonymousState === 'full_anonymity'
@@ -211,7 +213,7 @@ ready(() => {
           {I18n.t('Grading and Groups are not supported in Anonymous Discussions.')}
         </Alert>
       </View>,
-      groupsNotAllowedRoot
+      groupsNotAllowedRoot,
     )
 
     if (anonymousPostSelector) {

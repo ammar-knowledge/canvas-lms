@@ -38,8 +38,8 @@ class Folder < ActiveRecord::Base
   has_many :file_attachments, class_name: "Attachment"
   has_many :active_file_attachments, -> { where("attachments.file_state<>'deleted'") }, class_name: "Attachment"
   has_many :visible_file_attachments, -> { where(file_state: ["available", "public"]) }, class_name: "Attachment"
-  has_many :sub_folders, class_name: "Folder", foreign_key: "parent_folder_id", dependent: :destroy
-  has_many :active_sub_folders, -> { where("folders.workflow_state<>'deleted'") }, class_name: "Folder", foreign_key: "parent_folder_id", dependent: :destroy
+  has_many :sub_folders, class_name: "Folder", foreign_key: "parent_folder_id", dependent: :destroy, inverse_of: :parent_folder
+  has_many :active_sub_folders, -> { where("folders.workflow_state<>'deleted'") }, class_name: "Folder", foreign_key: "parent_folder_id", dependent: :destroy, inverse_of: :parent_folder
 
   acts_as_list scope: :parent_folder
 
@@ -132,7 +132,7 @@ class Folder < ActiveRecord::Base
             )
             SELECT id FROM associated_folders WHERE associated_folders.workflow_state <> 'deleted' ORDER BY id LIMIT 1000 FOR UPDATE
           SQL
-          Attachment.batch_destroy(Attachment.active.where(folder_id: associated_folders).order(:id))
+          Attachment.batch_destroy(Attachment.not_deleted.where(folder_id: associated_folders).order(:id))
           delete_time = Time.now.utc
           Folder.where(id: associated_folders).update_all(workflow_state: "deleted", deleted_at: delete_time, updated_at: delete_time)
           folder_count = associated_folders.length
@@ -161,7 +161,7 @@ class Folder < ActiveRecord::Base
   end
 
   def full_name(reload = false)
-    return read_attribute(:full_name) if !reload && read_attribute(:full_name)
+    return super() if !reload && super()
 
     folder = self
     names = [name]
@@ -318,7 +318,7 @@ class Folder < ActiveRecord::Base
         end
       end
     end
-    dup.updated_at = Time.now
+    dup.updated_at = Time.zone.now
     dup.clone_updated = true
     dup
   end
@@ -345,14 +345,23 @@ class Folder < ActiveRecord::Base
     return root_folders unless context.respond_to?(:folders)
 
     context.shard.activate do
-      Folder.unique_constraint_retry do
-        root_folder = context.folders.active.where(parent_folder_id: nil, name:).first
-        root_folder ||= GuardRail.activate(:primary) { context.folders.create!(name:, full_name: name, workflow_state: "visible") }
-        root_folders = [root_folder]
-      end
+      root_folder = get_or_create_root_folder_for(context, name)
+      root_folders = Array(root_folder)
     end
 
     root_folders
+  end
+
+  def self.get_or_create_root_folder_for(context, name)
+    root_folder = get_root_folder_for(context, name)
+    root_folder || GuardRail.activate(:primary) do
+      folder = context.folders.build(name:, full_name: name, workflow_state: "visible")
+      folder.insert(on_conflict: -> { get_root_folder_for(context, name) })
+    end
+  end
+
+  def self.get_root_folder_for(context, name)
+    context.folders.active.where(parent_folder_id: nil, name:).first
   end
 
   def self.unique_folder(context, unique_type, default_name_proc)

@@ -94,6 +94,7 @@ export type GradebookOptions = {
   allow_apply_score_to_ungraded: boolean
   allow_separate_first_last_names: boolean
   allow_view_ungraded_as_zero: boolean
+  assignment_enhancements_enabled: boolean
   assignment_missing_shortcut: boolean
   attachment_url: null | string
   attachment: null | AttachmentData
@@ -144,7 +145,6 @@ export type GradebookOptions = {
   grading_standard_points_based: boolean
   group_weighting_scheme: null | string
   has_modules: boolean
-  individual_gradebook_enhancements: boolean
   late_policy: LatePolicy | null
   login_handle_name: null | string
   message_attachment_upload_folder_id: string
@@ -159,6 +159,7 @@ export type GradebookOptions = {
   publish_to_sis_url: string
   re_upload_submissions_url: string
   reorder_custom_columns_url: string
+  rubric_assessment_imports_exports_enabled: boolean
   save_view_ungraded_as_zero_to_server: boolean
   sections: Section[]
   setting_update_url: string
@@ -172,6 +173,7 @@ export type GradebookOptions = {
   sis_app_url: null | string
   sis_name: string
   speed_grader_enabled: boolean
+  stickers_enabled: boolean
   student_groups: StudentGroupCategoryMap
   user_asset_string: string
   teacher_notes: {

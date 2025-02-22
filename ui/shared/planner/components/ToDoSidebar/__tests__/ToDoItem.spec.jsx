@@ -58,6 +58,11 @@ it('renders discussion icon for discussions', () => {
   expect(wrapper.find('IconDiscussionLine').exists()).toBe(true)
 })
 
+it('renders discussion icon for discussion checkpoints', () => {
+  const wrapper = shallow(<ToDoItem {...getDefaultProps({type: 'Discussion Checkpoint'})} />)
+  expect(wrapper.find('IconDiscussionLine').exists()).toBe(true)
+})
+
 it('renders announcement icon for announcements', () => {
   const wrapper = shallow(<ToDoItem {...getDefaultProps({type: 'Announcement'})} />)
   expect(wrapper.find('IconAnnouncementLine').exists()).toBe(true)
@@ -124,7 +129,7 @@ it('renders unique text for dismiss button', () => {
 it('calls the handleDismissClick prop when the dismiss X is clicked', () => {
   const handleDismissClick = jest.fn()
   const wrapper = render(
-    <ToDoItem {...getDefaultProps()} handleDismissClick={handleDismissClick} />
+    <ToDoItem {...getDefaultProps()} handleDismissClick={handleDismissClick} />,
   )
   const btn = wrapper.getByTestId('todo-sidebar-item-close-button')
   fireEvent.click(btn)
@@ -133,7 +138,7 @@ it('calls the handleDismissClick prop when the dismiss X is clicked', () => {
       expect.objectContaining({
         type: 'Assignment',
         title: 'Introduction to Board Games',
-      })
+      }),
     )
   })
 })

@@ -16,10 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import React, {useState} from 'react'
-import {func, string} from 'prop-types'
+import {func, string, bool} from 'prop-types'
 import {Alert} from '@instructure/ui-alerts'
 
 import doFetchApi from '@canvas/do-fetch-api-effect'
@@ -28,7 +28,7 @@ import ConfirmActionButtonBar from './ConfirmActionButtonBar'
 import CourseAndModulePicker from './CourseAndModulePicker'
 import DirectShareOperationStatus from './DirectShareOperationStatus'
 
-const I18n = useI18nScope('direct_share_course_panel')
+const I18n = createI18nScope('direct_share_course_panel')
 
 // eventually this will have options for where to place the item in the new course.
 // for now, it just has the selector plus some buttons
@@ -37,12 +37,23 @@ DirectShareCoursePanel.propTypes = {
   sourceCourseId: string,
   contentSelection: contentSelectionShape,
   onCancel: func,
+  showAssignments: bool,
 }
 
-export default function DirectShareCoursePanel({sourceCourseId, contentSelection, onCancel}) {
+DirectShareCoursePanel.defaultProps = {
+  showAssignments: false,
+}
+
+export default function DirectShareCoursePanel({
+  sourceCourseId,
+  contentSelection,
+  onCancel,
+  showAssignments = false,
+}) {
   const [selectedCourse, setSelectedCourse] = useState(null)
   const [startCopyOperationPromise, setStartCopyOperationPromise] = useState(null)
   const [selectedModule, setSelectedModule] = useState(null)
+  const [selectedAssignment, setSelectedAssignment] = useState(null)
   const [selectedPosition, setSelectedPosition] = useState(null)
 
   function startCopyOperation() {
@@ -56,16 +67,19 @@ export default function DirectShareCoursePanel({sourceCourseId, contentSelection
           settings: {
             source_course_id: sourceCourseId,
             insert_into_module_id: selectedModule?.id || null,
+            associate_with_assignment_id: selectedAssignment?._id || null,
+            is_copy_to: true,
             insert_into_module_type: contentSelection ? Object.keys(contentSelection)[0] : null,
             insert_into_module_position: selectedPosition,
           },
         },
-      })
+      }),
     )
   }
 
   function handleSelectedCourse(course) {
     setSelectedModule(null)
+    setSelectedAssignment(null)
     setSelectedCourse(course)
   }
 
@@ -82,6 +96,8 @@ export default function DirectShareCoursePanel({sourceCourseId, contentSelection
         setSelectedCourse={handleSelectedCourse}
         selectedModuleId={selectedModule?.id || null}
         setSelectedModule={setSelectedModule}
+        setSelectedAssignment={setSelectedAssignment}
+        showAssignments={showAssignments}
         setModuleItemPosition={setSelectedPosition}
         disableModuleInsertion={contentSelection && 'modules' in contentSelection}
         moduleFilteringOpts={{per_page: 50}}
@@ -89,7 +105,7 @@ export default function DirectShareCoursePanel({sourceCourseId, contentSelection
       />
       <Alert variant="warning" hasShadow={false}>
         {I18n.t(
-          'Importing the same course content more than once will overwrite any existing content in the course.'
+          'Importing the same course content more than once will overwrite any existing content in the course.',
         )}
       </Alert>
       <ConfirmActionButtonBar

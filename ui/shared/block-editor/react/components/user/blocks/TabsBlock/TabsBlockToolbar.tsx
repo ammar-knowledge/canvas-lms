@@ -24,9 +24,9 @@ import {Menu} from '@instructure/ui-menu'
 import {uid} from '@instructure/uid'
 import {type TabsBlockProps, type TabsBlockTab} from './types'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('block-editor/tabs-block')
+const I18n = createI18nScope('block-editor')
 
 const TabsBlockToolbar = () => {
   const {
@@ -50,20 +50,27 @@ const TabsBlockToolbar = () => {
   }, [setProp, tabs])
 
   const handleSelectVariant = useCallback(
+    // @ts-expect-error
     (e, value) => {
       setProp((prps: TabsBlockProps) => {
         prps.variant = value
       })
     },
-    [setProp]
+    [setProp],
   )
 
   return (
     <>
       <Menu
         trigger={
-          <IconButton screenReaderLabel="Style" withBackground={false} withBorder={false}>
-            <IconFolderLine size="x-small" />
+          <IconButton
+            screenReaderLabel={I18n.t('Style')}
+            title={I18n.t('Style')}
+            size="small"
+            withBackground={false}
+            withBorder={false}
+          >
+            <IconFolderLine />
           </IconButton>
         }
       >
@@ -87,11 +94,13 @@ const TabsBlockToolbar = () => {
 
       <IconButton
         screenReaderLabel={I18n.t('Add Tab')}
+        title={I18n.t('Add Tab')}
+        size="small"
         withBackground={false}
         withBorder={false}
         onClick={handleAddTab}
       >
-        <IconAddLine size="x-small" />
+        <IconAddLine />
       </IconButton>
     </>
   )

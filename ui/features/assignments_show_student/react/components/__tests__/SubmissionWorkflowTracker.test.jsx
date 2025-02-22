@@ -23,8 +23,6 @@ import {SubmissionMocks} from '@canvas/assignments/graphql/student/Submission'
 import SubmissionWorkflowTracker from '../SubmissionWorkflowTracker'
 import * as tz from '@instructure/moment-utils'
 
-const {colors} = canvas.variables
-
 describe('when a submission is graded', () => {
   describe('when the grade is visible', () => {
     it('renders as "Review Feedback"', async () => {
@@ -40,7 +38,7 @@ describe('when a submission is graded', () => {
 
       const {getByTestId} = render(<SubmissionWorkflowTracker submission={submission} />)
       expect(getByTestId('submission-workflow-tracker-subtitle')).toHaveTextContent(
-        'SUBMITTED: Jun 1, 2021 7:27pm'
+        'SUBMITTED: Jun 1, 2021 7:27pm',
       )
     })
 
@@ -50,7 +48,7 @@ describe('when a submission is graded', () => {
 
       const {getByTestId} = render(<SubmissionWorkflowTracker submission={submission} />)
       expect(getByTestId('submission-workflow-tracker-subtitle')).toHaveStyle(
-        `color: ${colors.textSuccess}`
+        `color: ${canvas.colors.textSuccess}`,
       )
     })
 
@@ -96,7 +94,7 @@ it('renders the proxy submitter name when submission was proxy', async () => {
   const submission = await mockSubmission({Submission: {...SubmissionMocks.proxySubmitted}})
   const {getByTestId} = render(<SubmissionWorkflowTracker submission={submission} />)
   expect(getByTestId('submission-workflow-tracker-proxy-indicator')).toHaveTextContent(
-    'by Marty McFly'
+    'by Marty McFly',
   )
 })
 

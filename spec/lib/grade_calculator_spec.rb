@@ -825,26 +825,6 @@ describe GradeCalculator do
     end
   end
 
-  describe "#number_or_null" do
-    it "returns a valid score" do
-      calc = GradeCalculator.new [@user.id], @course.id
-      score = 23.4
-      expect(calc.send(:number_or_null, score)).to equal(score)
-    end
-
-    it "converts NaN to NULL" do
-      calc = GradeCalculator.new [@user.id], @course.id
-      score = 0 / 0.0
-      expect(calc.send(:number_or_null, score)).to eql("NULL::float")
-    end
-
-    it "converts nil to NULL" do
-      calc = GradeCalculator.new [@user.id], @course.id
-      score = nil
-      expect(calc.send(:number_or_null, score)).to eql("NULL::float")
-    end
-  end
-
   describe "memoization" do
     it "only fetches groups once" do
       expect(GradeCalculator).to receive(:new).twice.and_call_original
@@ -1957,6 +1937,26 @@ describe GradeCalculator do
       scores = calc.compute_scores
 
       expect(scores.first[:current][:grade]).to eq 50
+    end
+  end
+
+  context "include_discussion_checkpoints" do
+    before(:once) do
+      @course.root_account.enable_feature!(:discussion_checkpoints)
+      student_in_course(course: @course, active_all: true)
+      @reply_to_topic, @reply_to_entry = graded_discussion_topic_with_checkpoints(context: @course)
+    end
+
+    it "includes discussion checkpoints when true" do
+      calc = GradeCalculator.new([@student.id], @course, include_discussion_checkpoints: true)
+      expect(calc.submissions.pluck(:assignment_id)).to include(@reply_to_topic.id)
+      expect(calc.submissions.pluck(:assignment_id)).to include(@reply_to_entry.id)
+    end
+
+    it "does not include discussion checkpoints when false" do
+      calc = GradeCalculator.new([@student.id], @course, include_discussion_checkpoints: false)
+      expect(calc.submissions.pluck(:assignment_id)).to_not include(@reply_to_topic.id)
+      expect(calc.submissions.pluck(:assignment_id)).to_not include(@reply_to_entry.id)
     end
   end
 end

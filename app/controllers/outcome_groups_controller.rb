@@ -38,18 +38,20 @@ class OutcomeGroupsController < ApplicationController
 
   def import
     if authorized_action(@context, @current_user, :manage_outcomes)
-      data = JSON.parse(params[:file].read).with_indifferent_access rescue nil
+      data = begin
+        JSON.parse(params[:file].read).with_indifferent_access
+      rescue JSON::ParserError
+        nil
+      end
       if data && data[:category] && data[:title] && data[:description] && data[:outcomes]
         group = @context.learning_outcome_groups.create
         data[:outcomes].each do
           group.learning_outcomes.create
         end
-        render json: group.as_json(include: :learning_outcomes),
-               as_text: true
+        render json: group.as_json(include: :learning_outcomes)
       else
         render json: { errors: { base: t(:invalid_file, "Invalid outcome group file") } },
-               status: :bad_request,
-               as_text: true
+               status: :bad_request
       end
     end
   end

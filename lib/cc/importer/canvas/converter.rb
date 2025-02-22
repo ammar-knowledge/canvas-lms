@@ -39,6 +39,7 @@ module CC::Importer::Canvas
       @resources = {}
       @resource_nodes_for_flat_manifest = {}
       @canvas_converter = true
+      @is_discussion_checkpoints_enabled = settings[:is_discussion_checkpoints_enabled] || false
     end
 
     # exports the package into the intermediary json

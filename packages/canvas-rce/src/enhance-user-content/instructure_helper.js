@@ -98,12 +98,21 @@ export function showFilePreviewInOverlay(event, canvasOrigin) {
     event.preventDefault()
     const url = new URL(target.href)
     const verifier = url?.searchParams.get('verifier')
+    const access_token = url?.searchParams.get('access_token')
+    const instfs_id = url?.searchParams.get('instfs_id')
     const file_id = matches[1]
+
+    const params = {subject: 'preview_file', file_id}
+    if (verifier) params.verifier = verifier
+    if (access_token && instfs_id) {
+      params.access_token = access_token
+      params.instfs_id = instfs_id
+    }
     // TODO:
-    // 1. what window should be be using
+    // 1. what window should we be using
     // 2. is that the right origin?
     // 3. this is temporary until we can decouple the file previewer from canvas
-    window.top.postMessage({subject: 'preview_file', file_id, verifier}, canvasOrigin)
+    window.top.postMessage(params, canvasOrigin)
   }
 }
 
@@ -131,7 +140,7 @@ export function showFilePreviewInline(event, canvasOrigin, disableGooglePreviews
       method: 'GET',
       headers: {Accept: 'application/json'},
       credentials: 'include',
-    }
+    },
   )
     .then(response => {
       if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`)
@@ -187,7 +196,7 @@ export function showFilePreviewInline(event, canvasOrigin, disableGooglePreviews
         message: formatMessage('Failed getting file contents'),
         type: 'error',
       })
-      // eslint-disable-next-line no-console
+       
       console.error(ex)
       resetInlinePreview($link)
 

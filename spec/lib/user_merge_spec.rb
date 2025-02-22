@@ -81,7 +81,7 @@ describe UserMerge do
       expect(user1.reload.past_lti_ids.take.user_lti_id).to eq old_lti
       expect(user1.past_lti_ids.take.user_lti_context_id).to eq old_lti_context
       user3 = user_model
-      Lti::Asset.opaque_identifier_for(user3)
+      Lti::V1p1::Asset.opaque_identifier_for(user3)
       UserMerge.from(user1).into(user3)
       expect(user3.reload.past_lti_ids.find_by(context_id: course1).user_lti_id).to eq user_1_old_lti
       expect(user3.past_lti_ids.find_by(context_id: course2).user_lti_id).to eq old_lti
@@ -139,7 +139,7 @@ describe UserMerge do
     end
 
     it "recalculates cached_due_date on unsubmitted placeholder submissions for the new user" do
-      due_date_timestamp = DateTime.now.iso8601
+      due_date_timestamp = Time.zone.now.iso8601
       course1.enroll_user(user2, "StudentEnrollment", enrollment_state: "active")
       assignment = course1.assignments.create!(
         title: "some assignment",
@@ -158,7 +158,7 @@ describe UserMerge do
     end
 
     it "recalculates cached_due_date on submissions for assignments with overrides" do
-      due_date_timestamp = DateTime.now.iso8601
+      due_date_timestamp = Time.zone.now.iso8601
       course1.enroll_user(user2, "StudentEnrollment", enrollment_state: "active")
       assignment = course1.assignments.create!(
         title: "Assignment with student due date override",
@@ -185,7 +185,7 @@ describe UserMerge do
     end
 
     it "deletes from user's assignment override student when both users have them" do
-      due_date_timestamp = DateTime.now.iso8601
+      due_date_timestamp = Time.zone.now.iso8601
       course1.enroll_user(user1, "StudentEnrollment", enrollment_state: "active")
       course1.enroll_user(user2, "StudentEnrollment", enrollment_state: "active")
       a1 = assignment_model(course: course1)
@@ -215,7 +215,7 @@ describe UserMerge do
     end
 
     it "moves and swap assignment override student to target user" do
-      due_date_timestamp = DateTime.now.iso8601
+      due_date_timestamp = Time.zone.now.iso8601
       course1.enroll_user(user2, "StudentEnrollment", enrollment_state: "active")
       assignment = course1.assignments.create!(
         title: "Assignment with student due date override",
@@ -677,8 +677,8 @@ describe UserMerge do
                                    participants_per_appointment: 1,
                                    min_appointments_per_participant: 1,
                                    new_appointments: [
-                                     ["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"],
-                                     ["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]
+                                     ["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"],
+                                     ["#{Time.zone.now.year + 1}-01-01 13:00:00", "#{Time.zone.now.year + 1}-01-01 14:00:00"]
                                    ])
       res1 = ag.appointments.first.reserve_for(user1, @teacher)
       ag.appointments.last.reserve_for(user2, @teacher)
@@ -717,7 +717,7 @@ describe UserMerge do
 
     it "freshens moved topics" do
       topic = course1.discussion_topics.create!(user: user2)
-      now = Time.at(5.minutes.from_now.to_i) # truncate milliseconds
+      now = Time.zone.at(5.minutes.from_now.to_i) # truncate milliseconds
       Timecop.freeze(now) do
         UserMerge.from(user2).into(user1)
         expect(topic.reload.updated_at).to eq now
@@ -727,7 +727,7 @@ describe UserMerge do
     it "freshens topics with moved entries" do
       topic = course1.discussion_topics.create!(user: user1)
       topic.discussion_entries.create!(user: user2)
-      now = Time.at(5.minutes.from_now.to_i) # truncate milliseconds
+      now = Time.zone.at(5.minutes.from_now.to_i) # truncate milliseconds
       Timecop.freeze(now) do
         UserMerge.from(user2).into(user1)
         expect(topic.reload.updated_at).to eq now
@@ -870,7 +870,7 @@ describe UserMerge do
       @shard1.activate do
         account = Account.create!
         @user1 = user_with_pseudonym(username: "user1@example.com", active_all: 1, account:)
-        Lti::Asset.opaque_identifier_for(@user1)
+        Lti::V1p1::Asset.opaque_identifier_for(@user1)
       end
       course = course_factory(active_all: true)
       user2 = user_with_pseudonym(username: "user2@example.com", active_all: 1)
@@ -891,7 +891,7 @@ describe UserMerge do
         @shard1.activate do
           account1 = Account.create!
           @user1 = user_with_pseudonym(username: "user1@example.com", account: account1)
-          @lti_context_id_1 = Lti::Asset.opaque_identifier_for(@user1)
+          @lti_context_id_1 = Lti::V1p1::Asset.opaque_identifier_for(@user1)
           @lti_id_1 = @user1.lti_id
           @uuid1 = @user1.uuid
           course_with_student account: account1, user: @user1, active_all: true
@@ -920,9 +920,9 @@ describe UserMerge do
       it "falls back on the old behavior if unique constraint check fails" do
         # force a constraint violation by stubbing out the shadow record update
         expect(@user1).to receive(:update_shadow_records_synchronously!).at_least(:once).and_return(nil)
-        allow(InstStatsd::Statsd).to receive(:increment)
+        allow(InstStatsd::Statsd).to receive(:distributed_increment)
         expect { UserMerge.from(@user1).into(@user2) }.not_to raise_error
-        expect(InstStatsd::Statsd).to have_received(:increment).with("user_merge.move_lti_ids.unique_constraint_failure")
+        expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("user_merge.move_lti_ids.unique_constraint_failure")
         expect(@user1.reload).to be_deleted
         expect(@user1.lti_context_id).to eq @lti_context_id_1
         expect(@user2.past_lti_ids.shard(@shard1).where(user_lti_context_id: @lti_context_id_1)).to exist
@@ -951,7 +951,7 @@ describe UserMerge do
       end
 
       it "doesn't move lti ids if the target user has an lti_context_id" do
-        lti_context_id_2 = Lti::Asset.opaque_identifier_for(@user2)
+        lti_context_id_2 = Lti::V1p1::Asset.opaque_identifier_for(@user2)
         UserMerge.from(@user1).into(@user2)
         expect(@user1.reload.lti_context_id).to eq @lti_context_id_1
         expect(@user2.reload.lti_context_id).to eq lti_context_id_2

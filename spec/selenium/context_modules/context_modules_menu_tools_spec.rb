@@ -20,14 +20,12 @@
 require_relative "../helpers/context_modules_common"
 require_relative "page_objects/modules_index_page"
 require_relative "page_objects/modules_settings_tray"
-require_relative "../../helpers/selective_release_common"
 
 describe "context modules" do
   include_context "in-process server selenium tests"
   include ContextModulesCommon
   include ModulesIndexPage
   include ModulesSettingsTray
-  include SelectiveReleaseCommon
 
   context "module index tool placement" do
     before do
@@ -41,55 +39,91 @@ describe "context modules" do
       @module2 = @course.context_modules.create!(name: "module2")
     end
 
-    it "is able to launch the index menu tool via the tray", custom_timeout: 30 do
-      visit_modules_index_page(@course.id)
-      modules_index_settings_button.click
-      expect(module_index_settings_menu).to include_text("Import Stuff")
+    context "index menu tool" do
+      shared_examples "launches the index menu tool via the tray" do |expected_resource_types|
+        it "is able to launch the index menu tool via the tray", custom_timeout: 30 do
+          visit_modules_index_page(@course.id)
+          modules_index_settings_button.click
+          expect(module_index_settings_menu).to include_text("Import Stuff")
 
-      module_index_menu_tool_link("Import Stuff").click
-      wait_for_ajaximations
-      expect(tool_dialog_header).to include_text("Import Stuff")
-      expect(tool_dialog_iframe["src"]).to include("/courses/#{@course.id}/external_tools/#{@tool.id}")
+          module_index_menu_tool_link("Import Stuff").click
+          wait_for_ajaximations
+          expect(tool_dialog_header).to include_text("Import Stuff")
+          expect(tool_dialog_iframe["src"]).to include("/courses/#{@course.id}/external_tools/#{@tool.id}")
 
-      query_params = Rack::Utils.parse_nested_query(URI.parse(tool_dialog_iframe["src"]).query)
-      expect(query_params["launch_type"]).to eq "module_index_menu"
-      expect(query_params["com_instructure_course_allow_canvas_resource_selection"]).to eq "true"
-      expect(query_params["com_instructure_course_canvas_resource_type"]).to eq "module"
-      expect(query_params["com_instructure_course_accept_canvas_resource_types"]).to match_array(%w[
-                                                                                                   assignment audio discussion_topic document image module quiz page video
-                                                                                                 ])
-      expect(query_params["com_instructure_course_available_canvas_resources"].values).to eq [{
-        "course_id" => @course.id.to_s, "type" => "module"
-      }] # will replace with the modules on the variable expansion
+          query_params = Rack::Utils.parse_nested_query(URI.parse(tool_dialog_iframe["src"]).query)
+          expect(query_params["launch_type"]).to eq "module_index_menu"
+          expect(query_params["com_instructure_course_allow_canvas_resource_selection"]).to eq "true"
+          expect(query_params["com_instructure_course_canvas_resource_type"]).to eq "module"
+          expect(query_params["com_instructure_course_accept_canvas_resource_types"]).to match_array(expected_resource_types)
+          expect(query_params["com_instructure_course_available_canvas_resources"].values).to eq [{
+            "course_id" => @course.id.to_s, "type" => "module"
+          }] # will replace with the modules on the variable expansion
+        end
+      end
+
+      context "new_quizzes_media_type feature flag is disabled" do
+        before do
+          Account.site_admin.disable_feature!(:new_quizzes_media_type)
+        end
+
+        include_examples "launches the index menu tool via the tray", %w[assignment audio discussion_topic document image module quiz page video]
+      end
+
+      context "new_quizzes_media_type feature flag is enabled" do
+        before do
+          Account.site_admin.enable_feature!(:new_quizzes_media_type)
+        end
+
+        include_examples "launches the index menu tool via the tray", %w[assignment audio discussion_topic document image module quiz page video quizzesnext]
+      end
     end
 
     it "is able to work with granular permisions properly" do
-      @teacher.account.enable_feature!(:granular_permissions_manage_course_content)
       visit_modules_index_page(@course.id)
       modules_index_settings_button.click
       expect(module_index_settings_menu).to include_text("Import Stuff")
     end
 
-    it "is able to launch the individual module menu tool via the tray", custom_timeout: 60 do
-      visit_modules_index_page(@course.id)
-      manage_module_button(@module2).click
-      expect(module_settings_menu(@module2.id)).to include_text("Import Stuff Here")
+    context "individual module menu tool" do
+      shared_examples "launches the individual module menu tool via the tray" do |expected_resource_types|
+        it "is able to launch the individual module menu tool via the tray", custom_timeout: 60 do
+          visit_modules_index_page(@course.id)
+          manage_module_button(@module2).click
+          expect(module_settings_menu(@module2.id)).to include_text("Import Stuff Here")
 
-      module_index_menu_tool_link("Import Stuff Here").click
-      wait_for_ajaximations
-      expect(tool_dialog_header).to include_text("Import Stuff Here")
+          module_index_menu_tool_link("Import Stuff Here").click
+          wait_for_ajaximations
+          expect(tool_dialog_header).to include_text("Import Stuff Here")
 
-      expect(tool_dialog_iframe["src"]).to include("/courses/#{@course.id}/external_tools/#{@tool.id}")
+          expect(tool_dialog_iframe["src"]).to include("/courses/#{@course.id}/external_tools/#{@tool.id}")
 
-      query_params = Rack::Utils.parse_nested_query(URI.parse(tool_dialog_iframe["src"]).query)
-      expect(query_params["launch_type"]).to eq "module_group_menu"
-      expect(query_params["com_instructure_course_allow_canvas_resource_selection"]).to eq "false"
-      expect(query_params["com_instructure_course_canvas_resource_type"]).to eq "module"
-      expect(query_params["com_instructure_course_accept_canvas_resource_types"]).to match_array(%w[
-                                                                                                   assignment audio discussion_topic document image module quiz page video
-                                                                                                 ])
-      module_data = [@module2].map { |m| { "id" => m.id.to_s, "name" => m.name } } # just @module2
-      expect(query_params["com_instructure_course_available_canvas_resources"].values).to match_array(module_data)
+          query_params = Rack::Utils.parse_nested_query(URI.parse(tool_dialog_iframe["src"]).query)
+          expect(query_params["launch_type"]).to eq "module_group_menu"
+          expect(query_params["com_instructure_course_allow_canvas_resource_selection"]).to eq "false"
+          expect(query_params["com_instructure_course_canvas_resource_type"]).to eq "module"
+          expect(query_params["com_instructure_course_accept_canvas_resource_types"]).to match_array(expected_resource_types)
+
+          module_data = [@module2].map { |m| { "id" => m.id.to_s, "name" => m.name } } # just @module2
+          expect(query_params["com_instructure_course_available_canvas_resources"].values).to match_array(module_data)
+        end
+      end
+
+      context "new_quizzes_media_type feature flag is disabled" do
+        before do
+          Account.site_admin.disable_feature!(:new_quizzes_media_type)
+        end
+
+        include_examples "launches the individual module menu tool via the tray", %w[assignment audio discussion_topic document image module quiz page video]
+      end
+
+      context "new_quizzes_media_type feature flag is enabled" do
+        before do
+          Account.site_admin.enable_feature!(:new_quizzes_media_type)
+        end
+
+        include_examples "launches the individual module menu tool via the tray", %w[assignment audio discussion_topic document image module quiz page video quizzesnext]
+      end
     end
   end
 
@@ -169,30 +203,7 @@ describe "context modules" do
       expect(f("#context_module_item_#{@subheader_tag.id}")).not_to contain_css("a.menu_tool_link")
     end
 
-    it "adds links to newly created modules" do
-      Account.site_admin.disable_feature! :selective_release_ui_api
-      get "/courses/#{@course.id}/modules"
-      f(".add_module_link").click
-      wait_for_ajaximations
-      form = f("#add_context_module_form")
-      replace_content(form.find_element(:id, "context_module_name"), "new module")
-      submit_form(form)
-      wait_for_ajaximations
-
-      new_module = ContextModule.last
-      expect(new_module.name).to eq "new module"
-
-      gear = f("#context_module_#{new_module.id} .header .al-trigger")
-      gear.click
-      link = f("#context_module_#{new_module.id} .header li a.menu_tool_link")
-      expect(link).to be_displayed
-      expect(link.text).to match_ignoring_whitespace(@tool.label_for(:module_menu))
-      expect(link["href"]).to eq course_external_tool_url(@course, @tool, launch_type: "module_menu", modules: [new_module.id])
-    end
-
     it "adds links to newly created modules with differentiated modules tray" do
-      differentiated_modules_on
-
       go_to_modules
       click_new_module_link
       update_module_name("new module")

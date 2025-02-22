@@ -251,17 +251,20 @@
     <div class="form-column-left">
       <legend id="assignment_overrides">
         <label for="assignment_overrides">
-          {{#if differentiatedModulesEnabled}}
-            {{#t}}Assign Access{{/t}}
-          {{else}}
-            {{#t}}Assign{{/t}}
-          {{/if}}
+          {{#t}}Assign Access{{/t}}
         </label>
       </legend>
     </div>
     <div class="overrides-column-right js-assignment-overrides overrideFormFlex">
     </div>
   </fieldset>
+  {{#if coursePaceWithMasteryPath}}
+    <div class="form-column-left">
+      {{#t}}Mastery Paths{{/t}}
+    </div>
+    <div class="overrides-column-right js-assignment-overrides-mastery-path overrideFormFlex">
+    </div>
+  {{/if}}
 </div>
 
 {{#if conditionalReleaseServiceEnabled}}
@@ -292,9 +295,11 @@
       {{#t "#buttons.cancel"}}Cancel{{/t}}
     </button>
     {{#unless published}}
-      <button type="button" class="btn btn-default save_and_publish">
-        {{#t "buttons.save_and_publish"}}Save & Publish{{/t}}
-      </button>
+      {{#unless is_horizon_course}}
+        <button type="button" class="btn btn-default save_and_publish">
+          {{#t "buttons.save_and_publish"}}Save & Publish{{/t}}
+        </button>
+      {{/unless}}
     {{/unless}}
     {{#if showBuildButton}}
       <button type="button" class="btn btn-default save_button">

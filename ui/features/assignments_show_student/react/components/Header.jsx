@@ -22,7 +22,7 @@ import PeerReviewsCounter from './PeerReviewsCounter'
 import {Flex} from '@instructure/ui-flex'
 import GradeDisplay from './GradeDisplay'
 import {Heading} from '@instructure/ui-heading'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import LatePolicyToolTipContent from './LatePolicyStatusDisplay/LatePolicyToolTipContent'
 import React from 'react'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
@@ -32,7 +32,7 @@ import {Submission} from '@canvas/assignments/graphql/student/Submission'
 import {Tooltip} from '@instructure/ui-tooltip'
 import PeerReviewNavigationLink from './PeerReviewNavigationLink'
 
-const I18n = useI18nScope('assignments_2_student_header')
+const I18n = createI18nScope('assignments_2_student_header')
 
 class Header extends React.Component {
   static propTypes = {
@@ -131,7 +131,7 @@ class Header extends React.Component {
               <PeerReviewNavigationLink
                 assignedAssessments={this.props.peerReviewLinkData?.assignedAssessments}
                 currentAssessmentIndex={this.currentAssessmentIndex(
-                  this.props.peerReviewLinkData?.assignedAssessments
+                  this.props.peerReviewLinkData?.assignedAssessments,
                 )}
               />
             </Flex.Item>
@@ -142,7 +142,7 @@ class Header extends React.Component {
                 <Flex.Item margin="0 small 0 0">
                   <PeerReviewsCounter
                     current={this.currentAssessmentIndex(
-                      this.props.reviewerSubmission?.assignedAssessments
+                      this.props.reviewerSubmission?.assignedAssessments,
                     )}
                     total={this.props.reviewerSubmission?.assignedAssessments?.length || 0}
                   />
@@ -152,7 +152,7 @@ class Header extends React.Component {
                 <PeerReviewNavigationLink
                   assignedAssessments={this.props.reviewerSubmission?.assignedAssessments}
                   currentAssessmentIndex={this.currentAssessmentIndex(
-                    this.props.reviewerSubmission?.assignedAssessments
+                    this.props.reviewerSubmission?.assignedAssessments,
                   )}
                 />
               </Flex.Item>

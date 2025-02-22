@@ -75,7 +75,7 @@ Javascript debugging may work but is not yet guaranteed in `inst` CLI.
 
 If you're using VSCode to debug you must install [this](https://marketplace.visualstudio.com/items?itemName=KoichiSasada.vscode-rdbg) VSCode extension.
 
-With `inst` CLI, Ruby debugging in Canvas LMS is on by default. You can change this default in your `~/.inst-cli/config.yml`:
+With `inst` CLI, Ruby debugging in Canvas LMS is on by default. You can change this default in your `~/.inst-cli/inst.yml`:
 
 ```yaml
 inst:
@@ -124,43 +124,7 @@ Running tests in Canvas works best after `inst canvas setup`.
 ### Running Ruby tests
 
 ```bash
-$ docker compose exec web bundle exec rspec spec
-```
-
-### Running javascript tests
-
-First add `docker-compose/js-tests.override.yml` to your `COMPOSE_FILE` var in `.env`. Then prepare that container with:
-
-```bash
-docker compose run --rm js-tests yarn install
-```
-
-If you run into issues with `yarn install`, either during initial setup or after updating master, try to fix it with a `nuke_node`:
-
-```bash
-docker compose run --rm js-tests ./script/nuke_node.sh
-docker compose run --rm js-tests yarn install
-```
-
-#### QUnit Karma Tests in Headless Chrome
-
-Run all QUnit tests in watch mode with:
-
-```bash
-docker compose up js-tests
-```
-
-Or, if you're iterating on something and want to just run a targeted test file in watch mode, set the `JSPEC_PATH` env var, e.g.:
-
-```bash
-export JSPEC_PATH=spec/coffeescripts/util/deparamSpec.js
-docker compose up js-tests
-```
-
-To run a targeted test without watch mode:
-
-```bash
-docker compose run --rm -e JSPEC_PATH=spec/coffeescripts/util/deparamSpec.js js-tests yarn test:karma:headless
+docker compose exec web bundle exec rspec spec
 ```
 
 #### Jest Tests
@@ -168,30 +132,24 @@ docker compose run --rm -e JSPEC_PATH=spec/coffeescripts/util/deparamSpec.js js-
 Run all Jest tests with:
 
 ```bash
-docker compose run --rm js-tests yarn test:jest
+docker compose run --rm web yarn test:jest
 ```
 
 Or run a targeted subset of tests:
 
 ```bash
-docker compose run --rm js-tests yarn test:jest ui/features/speed_grader/react/__tests__/CommentArea.test.js
+docker compose run --rm web yarn test:jest ui/features/speed_grader/react/__tests__/CommentArea.test.js
 ```
 
 To run a targeted subset of tests in watch mode, use `test:jest:watch` and specify the paths to the test files as one or more arguments, e.g.:
 
 ```bash
-docker compose run --rm js-tests yarn test:jest:watch ui/features/speed_grader/react/__tests__/CommentArea.test.js
+docker compose run --rm web yarn test:jest:watch ui/features/speed_grader/react/__tests__/CommentArea.test.js
 ```
 
 ### Selenium
 
 To enable Selenium: Add `docker-compose/selenium.override.yml` to your `COMPOSE_FILE` var in `.env`.
-
-For M1 Mac users using Chrome, the official selenium images are not ARM compatible so a standalone chromium image must be used. In the `docker-compose/selenium.override.yml` file, replace the image with the following:
-
-```bash
-image: seleniarm/standalone-chromium
-```
 
 The container used to run the selenium browser is only started when spinning up all docker compose containers, or when specified explicitly. The selenium container needs to be started before running any specs that require selenium. Select a browser to run in selenium through `config/selenium.yml` and then ensure that only the corresponding browser is configured in `docker-compose/selenium.override.yml`.
 
@@ -201,11 +159,7 @@ docker compose up -d selenium-hub
 
 With the container running, you should be able to open a VNC session:
 
-```bash
-open vnc://secret:secret@localhost:5900   # (firefox)
-open vnc://secret:secret@localhost:5901   # (chrome)
-open vnc://secret:secret@localhost:5902   # (edge)
-```
+<http://127.0.0.1:7900/?autoconnect=1&resize=scale&password=secret>
 
 Now just run your choice of selenium specs:
 
@@ -246,6 +200,7 @@ colorized rails log and a browser screenshot taken at the time of the failure.
 ## Extra Services
 
 ### Mail Catcher
+Mail Catcher is used to both send and view email in a development environment.
 
 To enable Mail Catcher: Add `docker-compose/mailcatcher.override.yml` to your `COMPOSE_FILE` var in `.env`. Then you can `docker compose up mailcatcher`.
 

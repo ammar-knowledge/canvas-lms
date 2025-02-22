@@ -15,19 +15,23 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import Backbone from '@canvas/backbone'
 import template from '../../jst/index.handlebars'
 import ValidatedMixin from '@canvas/forms/backbone/views/ValidatedMixin'
 import AddPeopleApp from '@canvas/add-people'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {each, isString, defer, find, partial, isArray} from 'lodash'
+import {createRoot} from 'react-dom/client'
 import {TextInput} from '@instructure/ui-text-input'
 import {IconSearchLine} from '@instructure/ui-icons'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
+import {initializeTopNavPortalWithDefaults} from '@canvas/top-navigation/react/TopNavPortalWithDefaults'
+import UserDifferentiationTagManager from '@canvas/differentiation-tags/react/UserDifferentiationTagManager/UserDifferentiationTagManager'
+import MessageBus from '@canvas/util/MessageBus'
 
-const I18n = useI18nScope('RosterView')
+const I18n = createI18nScope('RosterView')
 
 export default class RosterView extends Backbone.View {
   static initClass() {
@@ -55,38 +59,53 @@ export default class RosterView extends Backbone.View {
       '#addUsers': '$addUsersButton',
       '#createUsersModalHolder': '$createUsersModalHolder',
     }
+    const handleBreadCrumbSetter = ({getCrumbs, setCrumbs}) => {
+      const crumbs = getCrumbs()
+      crumbs.push({name: I18n.t('People'), url: ''})
+      setCrumbs(crumbs)
+    }
+    initializeTopNavPortalWithDefaults({
+      getBreadCrumbSetter: handleBreadCrumbSetter,
+      useStudentView: true,
+    })
+  }
+
+  constructor(options) {
+    super(options)
+    this.root = null
   }
 
   afterRender() {
-    ReactDOM.render(
-      <TextInput
-        onChange={e => {
-          // Sends events to hidden input to utilize backbone
-          const hiddenInput = $('[data-view=inputFilter]')
-          hiddenInput[0].value = e.target?.value
-          hiddenInput.keyup()
-        }}
-        display="inline-block"
-        type="text"
-        placeholder={I18n.t('Search people')}
-        renderLabel={
-          <ScreenReaderContent>
-            {I18n.t(
-              'Search people. As you type in this field, the list of people will be automatically filtered to only include those whose names match your input.'
-            )}
-          </ScreenReaderContent>
-        }
-        renderBeforeInput={() => <IconSearchLine />}
-      />,
-      this.$el.find('#search_input_container')[0]
-    )
+    const container = this.$el.find('#search_input_container')[0]
+    if (container) {
+      this.root = createRoot(container)
+      this.root.render(
+        <TextInput
+          onChange={e => {
+            // Sends events to hidden input to utilize backbone
+            const hiddenInput = $('[data-view=inputFilter]')
+            hiddenInput[0].value = e.target?.value
+            hiddenInput.keyup()
+          }}
+          display="inline-block"
+          type="text"
+          placeholder={I18n.t('Search people')}
+          renderLabel={
+            <ScreenReaderContent>
+              {I18n.t(
+                'Search people. As you type in this field, the list of people will be automatically filtered to only include those whose names match your input.',
+              )}
+            </ScreenReaderContent>
+          }
+          renderBeforeInput={() => <IconSearchLine />}
+        />,
+      )
+    }
 
     this.$addUsersButton.on('click', this.showCreateUsersModal.bind(this))
-
+    this.mountUserDiffTagManager([])
     const canReadSIS = 'permissions' in ENV ? !!ENV.permissions.read_sis : true
-    const canAddUser = ENV.FEATURES.granular_permissions_manage_users
-      ? role => role.addable_by_user
-      : role => role.manageable_by_user
+    const canAddUser = role => role.addable_by_user
 
     return (this.addPeopleApp = new AddPeopleApp(this.$createUsersModalHolder[0], {
       courseId: (ENV.course && ENV.course.id) || 0,
@@ -100,9 +119,14 @@ export default class RosterView extends Backbone.View {
   }
 
   attach() {
+    MessageBus.on('userSelectionChanged', this.HandleUserSelected, this)
+    MessageBus.on('removeUserTagIcon', this.removeTagIcon, this)
     return this.collection.on('setParam deleteParam', this.fetch, this)
   }
-
+  removeTagIcon(event) {
+    if(event.hasOwnProperty('userId'))
+      $(`#tag-icon-id-${event.userId}`).remove()
+  }
   fetchOnCreateUsersClose() {
     if (this.addPeopleApp.usersHaveBeenEnrolled()) return this.collection.fetch()
   }
@@ -120,6 +144,10 @@ export default class RosterView extends Backbone.View {
 
   canAddCategories() {
     return ENV.canManageCourse
+  }
+
+  isHorizonCourse() {
+    return ENV.horizon_course
   }
 
   toJSON() {
@@ -140,9 +168,42 @@ export default class RosterView extends Backbone.View {
   showCreateUsersModal() {
     return this.addPeopleApp.open()
   }
+
+  mountUserDiffTagManager(users) {
+    const userDTManager = this.$el.find('#userDiffTagManager')[0]
+    if (userDTManager && ENV.permissions.can_manage_differentiation_tags) {
+      if(!this.userDTManager)
+        this.userDTManager = createRoot(userDTManager) 
+      this.userDTManager.render(
+        <UserDifferentiationTagManager
+        courseId={ENV.course.id}  
+        users={users}
+        />,
+      )
+    }
+  }
+
+  HandleUserSelected(event) {
+    this.mountUserDiffTagManager(event.selectedUsers)
+  }
+
+  remove() {
+    if (this.root) {
+      this.root.unmount()
+      this.root = null
+    }
+    if (this.differentiationTagTrayRoot) {
+      this.differentiationTagTrayRoot.unmount()
+      this.differentiationTagTrayRoot = null
+    }
+    if (this.userDTManager) {
+      this.userDTManager.unmount()
+      this.userDTManager = null
+    }
+    super.remove()
+  }
 }
 RosterView.initClass()
-
 function __guard__(value, transform) {
   return typeof value !== 'undefined' && value !== null ? transform(value) : undefined
 }

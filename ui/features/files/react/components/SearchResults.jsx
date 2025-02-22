@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {indexOf} from 'lodash'
 import React from 'react'
 import createReactClass from 'create-react-class'
@@ -33,7 +33,7 @@ import FocusStore from '../legacy/modules/FocusStore'
 import DirectShareUserModal from '@canvas/direct-sharing/react/components/DirectShareUserModal'
 import DirectShareCourseTray from '@canvas/direct-sharing/react/components/DirectShareCourseTray'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 SearchResults.displayErrors = function (errors) {
   let error_message = null
@@ -50,7 +50,7 @@ SearchResults.displayErrors = function (errors) {
             one: 'Your search encountered the following error:',
             other: 'Your search encountered the following errors:',
           },
-          {count: errors.length}
+          {count: errors.length},
         )}
       </p>
       <ul>{error_message}</ul>
@@ -101,7 +101,7 @@ SearchResults.render = function () {
               tabIndex="0"
             >
               {I18n.t(
-                'Warning: For improved accessibility in moving files, please use the Move To Dialog option found in the menu.'
+                'Warning: For improved accessibility in moving files, please use the Move To Dialog option found in the menu.',
               )}
             </div>
           )}
@@ -119,8 +119,8 @@ SearchResults.render = function () {
               Folder.prototype.childrenSorter.bind(
                 this.state.collection,
                 this.props.query.sort,
-                this.props.query.order
-              )
+                this.props.query.order,
+              ),
             )
             .map(child => (
               <FolderChild

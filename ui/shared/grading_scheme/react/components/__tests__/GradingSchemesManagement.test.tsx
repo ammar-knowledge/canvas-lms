@@ -29,11 +29,14 @@ jest.mock('@canvas/do-fetch-api-effect')
 
 describe('Grading Schemes Management Tests', () => {
   beforeEach(() => {
+    // @ts-expect-error
     doFetchApi.mockResolvedValueOnce({response: {ok: true}, json: AccountGradingSchemes})
+    // @ts-expect-error
     doFetchApi.mockResolvedValueOnce({response: {ok: true}, json: DefaultGradingScheme})
   })
 
   afterEach(() => {
+    // @ts-expect-error
     doFetchApi.mockClear()
   })
 
@@ -46,7 +49,7 @@ describe('Grading Schemes Management Tests', () => {
         defaultAccountGradingSchemeEnabled={false}
         onGradingSchemesChanged={() => {}}
         {...props}
-      />
+      />,
     )
   }
 
@@ -101,7 +104,7 @@ describe('Grading Schemes Management Tests', () => {
 
   describe('archived grading schemes', () => {
     const renderArchivedGradingSchemesManagement = (
-      props: Partial<GradingSchemesManagementProps> = {}
+      props: Partial<GradingSchemesManagementProps> = {},
     ) => {
       return renderGradingSchemesManagement({archivedGradingSchemesEnabled: true, ...props})
     }

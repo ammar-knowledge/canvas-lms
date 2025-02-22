@@ -17,7 +17,7 @@
  */
 
 import AnonymousResponseSelector from '@canvas/discussions/react/components/AnonymousResponseSelector/AnonymousResponseSelector'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {useRef, useState, useEffect, useContext} from 'react'
 import {Flex} from '@instructure/ui-flex'
 import {Button} from '@instructure/ui-buttons'
@@ -34,7 +34,7 @@ import {ReplyPreview} from '../ReplyPreview/ReplyPreview'
 import {AttachmentDisplay} from '@canvas/discussions/react/components/AttachmentDisplay/AttachmentDisplay'
 import {DiscussionManagerUtilityContext} from '../../utils/constants'
 
-const I18n = useI18nScope('discussion_posts')
+const I18n = createI18nScope('discussion_posts')
 
 export const DiscussionEdit = props => {
   const rceRef = useRef()
@@ -42,7 +42,7 @@ export const DiscussionEdit = props => {
   const [includeQuotedReply, setIncludeQuotedReply] = useState(!!props.quotedEntry?.message)
   const textAreaId = useRef(`message-body-${props.rceIdentifier}`)
   const [anonymousAuthorState, setAnonymousAuthorState] = useState(
-    !!props.discussionAnonymousState && props.canReplyAnonymously
+    !!props.discussionAnonymousState && props.canReplyAnonymously,
   )
 
   const [attachment, setAttachment] = useState(null)
@@ -189,13 +189,13 @@ export const DiscussionEdit = props => {
                           return
                         }
                         localStorage.removeItem(
-                          `rceautosave:${ENV.current_user_id}${window.location?.href}:${textAreaId.current}`
+                          `rceautosave:${ENV.current_user_id}${window.location?.href}:${textAreaId.current}`,
                         )
                         props.onSubmit(
                           rceContent,
                           includeQuotedReply ? props.quotedEntry._id : null,
                           attachment,
-                          anonymousAuthorState
+                          anonymousAuthorState,
                         )
                       }
                     }}
@@ -203,7 +203,7 @@ export const DiscussionEdit = props => {
                     color="primary"
                     data-testid="DiscussionEdit-submit"
                     key="rce-reply-button"
-                    interaction={(attachmentToUpload || props.isSubmitting) ? 'disabled' : 'enabled'}
+                    interaction={attachmentToUpload || props.isSubmitting ? 'disabled' : 'enabled'}
                   >
                     <Text size="medium">{props.isEdit ? I18n.t('Save') : I18n.t('Reply')}</Text>
                   </Button>
@@ -267,7 +267,7 @@ DiscussionEdit.propTypes = {
   quotedEntry: PropTypes.object,
   onInit: PropTypes.func,
   isAnnouncement: PropTypes.bool.isRequired,
-  isSubmitting: PropTypes.bool
+  isSubmitting: PropTypes.bool,
 }
 
 DiscussionEdit.defaultProps = {

@@ -597,8 +597,7 @@ class SisImportsApiController < ApplicationController
       raise "invalid import type parameter" unless SisBatch.valid_import_types.key?(params[:import_type])
 
       if !api_request? && @account.current_sis_batch.try(:importing?)
-        return render json: { error: true, error_message: t(:sis_import_in_process_notice, "An SIS import is already in process."), batch_in_progress: true },
-                      as_text: true
+        return render json: { error: true, error_message: t(:sis_import_in_process_notice, "An SIS import is already in process."), batch_in_progress: true }
       end
 
       file_obj = nil
@@ -741,6 +740,9 @@ class SisImportsApiController < ApplicationController
   # group_membership was also deleted as a result of the enrollment deletion,
   # both items would be restored when the sis batch is restored.
   #
+  # Restore data is retained for 30 days post-import. This endpoint is
+  # unavailable after that time.
+  #
   # @argument batch_mode [Boolean]
   #   If set, will only restore items that were deleted from batch_mode.
   #
@@ -760,11 +762,15 @@ class SisImportsApiController < ApplicationController
   def restore_states
     if authorized_action(@account, @current_user, :manage_sis)
       @batch = @account.sis_batches.find(params[:id])
+      unless @batch.roll_back_data.not_expired.exists?
+        return render json: { message: "restore data unavailable" }, status: :bad_request
+      end
+
       batch_mode = value_to_boolean(params[:batch_mode])
       undelete_only = value_to_boolean(params[:undelete_only])
       unconclude_only = value_to_boolean(params[:unconclude_only])
       if undelete_only && unconclude_only
-        return render json: "cannot set both undelete_only and unconclude_only", status: :bad_request
+        return render json: { message: "cannot set both undelete_only and unconclude_only" }, status: :bad_request
       end
 
       progress = @batch.restore_states_later(batch_mode:, undelete_only:, unconclude_only:)

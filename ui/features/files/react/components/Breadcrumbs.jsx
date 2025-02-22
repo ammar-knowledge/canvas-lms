@@ -18,13 +18,13 @@
 
 import React from 'react'
 import createReactClass from 'create-react-class'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import Breadcrumbs from '../legacy/components/Breadcrumbs'
 import filesEnv from '@canvas/files/react/modules/filesEnv'
 import BreadcrumbCollapsedContainer from './BreadcrumbCollapsedContainer'
 import splitAssetString from '@canvas/util/splitAssetString'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 const MIN_CRUMB_WIDTH = 80
 
@@ -86,7 +86,7 @@ Breadcrumbs.renderDynamicCrumbs = function () {
     // Formerly, in CoffeeScript [...foldersInMiddle, lastFolder] = this.props.rootTillCurrentFolder
     const foldersInMiddle = this.props.rootTillCurrentFolder.slice(
       0,
-      this.props.rootTillCurrentFolder.length - 1
+      this.props.rootTillCurrentFolder.length - 1,
     )
     const lastFolder = this.props.rootTillCurrentFolder[this.props.rootTillCurrentFolder.length - 1]
 

@@ -23,16 +23,20 @@ import {
 } from '../../graphql/Queries'
 import {Discussion} from '../../graphql/Discussion'
 import {DiscussionEntry} from '../../graphql/DiscussionEntry'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from '@canvas/rails-flash-notifications'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 
-const I18n = useI18nScope('discussion_topics_post')
+const I18n = createI18nScope('discussion_topics_post')
 
-export const getSpeedGraderUrl = (authorId = null) => {
+export const getSpeedGraderUrl = (authorId = null, entryId = null) => {
   let speedGraderUrl = ENV.SPEEDGRADER_URL_TEMPLATE
   if (authorId !== null) {
     speedGraderUrl = speedGraderUrl.replace(/%3Astudent_id/, authorId)
+  }
+
+  if (entryId !== null) {
+    speedGraderUrl = speedGraderUrl.concat(`&entry_id=${entryId}`)
   }
 
   return speedGraderUrl
@@ -49,7 +53,7 @@ export const getReviewLinkUrl = (courseId, assignmentId, revieweeId) => {
 export const updateDiscussionTopicEntryCounts = (
   cache,
   discussionTopicGraphQLId,
-  entryCountChange
+  entryCountChange,
 ) => {
   const options = {
     id: discussionTopicGraphQLId,
@@ -133,7 +137,7 @@ export const addReplyToDiscussionEntry = (cache, variables, newDiscussionEntry) 
       }
 
       const currentSubentriesQueryData = JSON.parse(
-        JSON.stringify(cache.readQuery(subEntriesOptions))
+        JSON.stringify(cache.readQuery(subEntriesOptions)),
       )
       if (currentSubentriesQueryData) {
         const subentriesLegacyNode = currentSubentriesQueryData.legacyNode
@@ -336,6 +340,7 @@ export const getOptimisticResponse = ({
               __typename: 'AnonymousUser',
             }
           : null,
+        editedAt: null,
         editor: null,
         lastReply: null,
         permissions: {
@@ -355,10 +360,7 @@ export const getOptimisticResponse = ({
         attachment: attachment
           ? {...attachment, id: 'ATTACHMENT_PLACEHOLDER', __typename: 'File'}
           : null,
-        discussionEntryVersionsConnection: {
-          nodes: [],
-          __typename: 'DiscussionEntryVersionConnection',
-        },
+        discussionEntryVersions: [],
         reportTypeCounts: {
           inappropriateCount: 0,
           offensiveCount: 0,
@@ -380,7 +382,7 @@ export const getOptimisticResponse = ({
 export const getCheckpointSubmission = (data, subAssignmentTag) => {
   return (
     data.createDiscussionEntry.mySubAssignmentSubmissions?.find(
-      sub => sub.subAssignmentTag === subAssignmentTag
+      sub => sub.subAssignmentTag === subAssignmentTag,
     ) || {}
   )
 }
@@ -454,24 +456,12 @@ export const showErrorWhenMessageTooLong = message => {
   return false
 }
 
-export const getTranslation = async (
-  text,
-  translateTargetLanguage,
-  setter,
-  setIsTranslating = () => {}
-) => {
-  if (text === undefined || text == null) {
-    return // Do nothing, there is no text to translate
-  }
+export const getTranslation = async (text, translateTargetLanguage) => {
+  if (!text) return // Don't translate, if no content
 
   const apiPath = `/courses/${ENV.course_id}/translate`
 
-  // Remove any tags from the string to be translated
-  const parsedDocument = new DOMParser().parseFromString(text, 'text/html')
-  const toTranslate = parsedDocument.documentElement.textContent
-
   try {
-    setIsTranslating(true)
     const {json} = await doFetchApi({
       method: 'POST',
       path: apiPath,
@@ -479,17 +469,16 @@ export const getTranslation = async (
         inputs: {
           src_lang: 'en', // TODO: detect source language.
           tgt_lang: translateTargetLanguage,
-          text: toTranslate,
+          text,
         },
       },
     })
-    // Join together all the text with a separator, so that the original text remains separate
-    setter([text, translationSeparator, json.translated_text].join(''))
+
+    return json.translated_text
   } catch (e) {
-    // TODO: Do something with the error message.
+    const response = await e.response.json()
+    const error = new Error()
+    Object.assign(error, {...response})
+    throw error
   }
-
-  setIsTranslating(false)
 }
-
-export const translationSeparator = '\n\n----------\n\n\n'

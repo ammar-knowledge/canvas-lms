@@ -83,6 +83,11 @@ module Api::V1::User
           if pseudonym && context.grants_right?(current_user, session, :view_user_logins)
             json[:login_id] = pseudonym.unique_id
           end
+
+          if includes.include?("deleted_pseudonyms")
+            json[:login_ids] = user.pseudonyms.pluck(:unique_id).join(",")
+            json[:sis_user_ids] = user.pseudonyms.pluck(:sis_user_id).join(",")
+          end
         end
       end
 
@@ -172,13 +177,14 @@ module Api::V1::User
       end
 
       if tool_includes.include?("lti_id") || includes.include?("lti_id")
-        json[:lti_id] = Lti::Asset.old_id_for_user_in_context(user, context) || user.lti_context_id
+        json[:lti_id] = Lti::V1p1::Asset.old_id_for_user_in_context(user, context) || user.lti_context_id
       end
 
       if includes.include?("uuid")
         past_uuid = UserPastLtiId.uuid_for_user_in_context(user, context)
         json[:past_uuid] = past_uuid unless past_uuid == user.uuid
         json[:uuid] = user.uuid
+        json[:account_uuid] = @domain_root_account&.uuid
       end
     end
   end
@@ -313,13 +319,14 @@ module Api::V1::User
         json[:course_integration_id] = enrollment.course.integration_id
         json[:sis_section_id] = enrollment.course_section.sis_source_id
         json[:section_integration_id] = enrollment.course_section.integration_id
-        pseudonym = opts.key?(:sis_pseudonym) ? opts[:sis_pseudonym] : SisPseudonym.for(enrollment.user, enrollment, type: :trusted, root_account: @domain_root_account)
-        json[:sis_user_id] = pseudonym.try(:sis_user_id)
+        pseudonym = opts[:sis_pseudonym] if opts.key?(:sis_pseudonym)
+        pseudonym ||= SisPseudonym.for(enrollment.user, enrollment, type: :trusted, root_account: @domain_root_account) if enrollment.user
+        json[:sis_user_id] = pseudonym&.sis_user_id
       end
       json[:html_url] = course_user_url(enrollment.course_id, enrollment.user_id)
       user_includes = includes & %w[avatar_url group_ids uuid email]
 
-      json[:user] = user_json(enrollment.user, user, session, user_includes, @context, nil, []) if includes.include?(:user)
+      json[:user] = user_json(enrollment.user, user, session, user_includes, @context, nil, []) if includes.include?(:user) && enrollment.user
       if includes.include?("locked")
         lockedbysis = enrollment.defined_by_sis?
         lockedbysis &&= !enrollment.course.account.grants_any_right?(@current_user, session, :manage_account_settings, :manage_sis)

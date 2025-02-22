@@ -355,7 +355,7 @@ describe DiscussionTopicsApiController do
 
       get "summary", params: { topic_id: @topic.id, course_id: @course.id, user_id: @teacher.id }, format: "json"
 
-      expect(response).to be_unauthorized
+      expect(response).to be_forbidden
     end
 
     it "returns an error if there is no llm config" do
@@ -403,7 +403,7 @@ describe DiscussionTopicsApiController do
 
       post "summary_feedback", params: { topic_id: @topic.id, course_id: @course.id, user_id: @teacher.id, summary_id: @refined_summary.id, _action: "like" }, format: "json"
 
-      expect(response).to be_unauthorized
+      expect(response).to be_forbidden
     end
 
     it "returns an error if the summary is not found" do
@@ -454,7 +454,7 @@ describe DiscussionTopicsApiController do
 
       put "disable_summary", params: { topic_id: @topic.id, course_id: @course.id, user_id: @teacher.id }, format: "json"
 
-      expect(response).to be_unauthorized
+      expect(response).to be_forbidden
     end
 
     it "disables the summary" do
@@ -528,6 +528,38 @@ describe DiscussionTopicsApiController do
 
       expect(response).to be_successful
       expect(topic.reload.read_state(@teacher)).to eq("unread")
+    end
+  end
+
+  context "migrate_disallow" do
+    before do
+      course_with_teacher(active_all: true)
+      @topic = @course.discussion_topics.create!(title: "discussion", discussion_type: "side_comment")
+      user_session(@teacher)
+    end
+
+    it "should return 404 if feature flag is not turned on" do
+      put "migrate_disallow", params: { course_id: @course.id }
+      expect(response).to be_not_found
+    end
+
+    it "should update the discussion type to 'threaded' if the feature flag is turned on" do
+      allow(Account.site_admin).to receive(:feature_enabled?).and_return(true)
+
+      put "migrate_disallow", params: { course_id: @course.id }
+
+      expect(response).to be_successful
+      expect(@topic.reload.discussion_type).to eq("threaded")
+    end
+
+    it "should not update the discussion type for announcements" do
+      allow(Account.site_admin).to receive(:feature_enabled?).and_return(true)
+      announcement = @course.announcements.create!(title: "announcement", message: "test", discussion_type: "side_comment")
+
+      put "migrate_disallow", params: { course_id: @course.id }
+
+      expect(response).to be_successful
+      expect(announcement.reload.discussion_type).to eq("side_comment")
     end
   end
 end

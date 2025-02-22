@@ -30,7 +30,7 @@ describe CommunicationChannel do
   end
 
   it "creates a new instance given valid attributes" do
-    factory_with_protected_attributes(CommunicationChannel, communication_channel_valid_attributes)
+    CommunicationChannel.create!(communication_channel_valid_attributes)
   end
 
   describe "::trusted_confirmation_redirect?" do
@@ -230,7 +230,7 @@ describe CommunicationChannel do
     expect(HostUrl).to receive(:context_host).and_return("test.canvas.com")
     expect(CanvasSlug).to receive(:generate).and_return("abc123")
     communication_channel_model
-    mock_request = instance_double("ActionDispatch::Request", host_with_port: "test.canvas.com")
+    mock_request = instance_double(ActionDispatch::Request, host_with_port: "test.canvas.com")
     presenter = CommunicationChannelPresenter.new(@cc, mock_request)
     expect(presenter.confirmation_url).to eql("https://test.canvas.com/register/abc123")
   end
@@ -635,6 +635,7 @@ describe CommunicationChannel do
           set_root_account_ids
           after_save_flag_old_microsoft_sync_user_mappings
           consider_building_notification_policies
+          initialize_synced_with_identity
         ]
         expect(CommunicationChannel._save_callbacks.collect(&:filter).select { |k| k.is_a? Symbol } - accounted_for_callbacks).to eq []
       end
@@ -835,13 +836,13 @@ describe CommunicationChannel do
       it "doesn't flag old mappings if path type is not email" do
         cc.update!(path_type: described_class::TYPE_SMS, path: "8005551212")
         expect(MicrosoftSync::UserMapping).to_not receive(:flag_as_needs_updating_if_using_email)
-        cc.update!(path_type: described_class::TYPE_TWITTER)
+        cc.update!(path_type: described_class::TYPE_PUSH)
         cc.update!(path: "instructure")
       end
 
       it "doesn't flag old mappings if nothing relevant has changed" do
         expect(MicrosoftSync::UserMapping).to_not receive(:flag_as_needs_updating_if_using_email)
-        cc.update!(updated_at: cc.updated_at + 1, last_bounce_at: Time.now)
+        cc.update!(updated_at: cc.updated_at + 1, last_bounce_at: Time.zone.now)
       end
     end
   end
@@ -903,7 +904,7 @@ describe CommunicationChannel do
 
     it "sends directly via SMS if configured" do
       expect(cc.e164_path).to eq "+18015555555"
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
       account = double
       allow(account).to receive_messages(feature_enabled?: true, global_id: "totes_an_ID")
       expect(Services::NotificationService).to receive(:process).with(
@@ -915,7 +916,7 @@ describe CommunicationChannel do
       )
       expect(cc).not_to receive(:send_otp_via_sms_gateway!)
       cc.send_otp!("123456", account)
-      expect(InstStatsd::Statsd).to have_received(:increment).with(
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
         "message.deliver.sms.one_time_password",
         {
           short_stat: "message.deliver",
@@ -923,7 +924,7 @@ describe CommunicationChannel do
         }
       )
 
-      expect(InstStatsd::Statsd).to have_received(:increment).with(
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
         "message.deliver.sms.totes_an_ID",
         {
           short_stat: "message.deliver_per_account",

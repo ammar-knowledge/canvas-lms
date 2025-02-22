@@ -19,12 +19,11 @@
 import React from 'react'
 
 import {View} from '@instructure/ui-view'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {AssignmentGroupSelect} from './AssignmentGroupSelect'
 import {DisplayGradeAs} from './DisplayGradeAs'
 import {PointsPossible} from './PointsPossible'
 import {PeerReviewOptions} from './PeerReviewOptions'
-import {AssignmentDueDatesManager} from './AssignmentDueDatesManager'
 import {SyncToSisCheckbox} from './SyncToSisCheckbox'
 import {GradingSchemesSelector} from '@canvas/grading-scheme'
 import {CheckpointsSettings} from './CheckpointsSettings'
@@ -35,7 +34,7 @@ import CoursePacingNotice from '@canvas/due-dates/react/CoursePacingNotice'
 type Props = {
   assignmentGroups: [{_id: string; name: string}]
   pointsPossible: number
-  setPointsPossible: (points: number) => void
+  setPointsPossible: (points: number | string) => void
   displayGradeAs: string
   setDisplayGradeAs: (id: string | undefined) => void
   assignmentGroup: string
@@ -56,7 +55,7 @@ type Props = {
   canManageAssignTo: boolean
 }
 
-const I18n = useI18nScope('discussion_create')
+const I18n = createI18nScope('discussion_create')
 
 export const GradedDiscussionOptions = ({
   assignmentGroups,
@@ -81,7 +80,6 @@ export const GradedDiscussionOptions = ({
   isCheckpoints,
   canManageAssignTo,
 }: Props) => {
-  const differentiatedModulesEnabled = ENV.FEATURES?.selective_release_ui_api
   const isPacedDiscussion = ENV?.DISCUSSION_TOPIC?.ATTRIBUTES?.in_paced_course
 
   const renderDiffModulesAssignTo = () => {
@@ -90,7 +88,7 @@ export const GradedDiscussionOptions = ({
     }
     return (
       <>
-        <Text size="large">{I18n.t('Assignment Settings')}</Text>
+        <Text size="large" as="h2">{I18n.t('Assignment Settings')}</Text>
         {isPacedDiscussion ? (
           <CoursePacingNotice courseId={ENV.COURSE_ID} />
         ) : (
@@ -105,7 +103,7 @@ export const GradedDiscussionOptions = ({
       {!isCheckpoints && (
         <View as="div" margin="medium 0">
           <PointsPossible
-            pointsPossible={pointsPossible || 0}
+            pointsPossible={pointsPossible}
             setPointsPossible={setPointsPossible}
             pointsPossibleLabel={I18n.t('Points Possible')}
             pointsPossibleDataTestId="points-possible-input"
@@ -153,11 +151,7 @@ export const GradedDiscussionOptions = ({
       </View>
       {isCheckpoints && <CheckpointsSettings />}
       <View as="div" margin="medium 0">
-        {!differentiatedModulesEnabled ? (
-          <AssignmentDueDatesManager />
-        ) : (
-          renderDiffModulesAssignTo()
-        )}
+          {renderDiffModulesAssignTo()}
       </View>
     </View>
   )

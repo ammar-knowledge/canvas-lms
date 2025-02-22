@@ -24,6 +24,7 @@ describe FeatureFlag do
   let_once(:t_course) { course_factory account: t_sub_account, active_all: true }
 
   before do
+    allow(Account.site_admin).to receive(:feature_enabled?).with(:instructure_identity_global_flag)
     allow(Feature).to receive(:definitions).and_return({
                                                          "root_account_feature" => Feature.new(feature: "root_account_feature", applies_to: "RootAccount"),
                                                          "account_feature" => Feature.new(feature: "account_feature", applies_to: "Account"),
@@ -115,6 +116,39 @@ describe FeatureFlag do
     it "is true on a sub-account root-opt-in feature flag with no root or site admin flags set" do
       t_course.enable_feature! :hidden_root_opt_in_feature
       expect(t_course.feature_flag(:hidden_root_opt_in_feature)).to be_unhides_feature
+    end
+  end
+
+  describe "#clear_cache" do
+    specs_require_cache(:redis_cache_store)
+
+    context "with sharding" do
+      specs_require_sharding
+
+      before do
+        allow(Feature).to receive(:definitions).and_return(
+          { "high_contrast" => Feature.new(feature: "high_contrast", applies_to: "User") }
+        )
+        @acting_user = user_model
+        @acting_user.associate_with_shard(@shard1)
+        @shard1.activate do
+          @flag = @acting_user.feature_flags.build(feature: "high_contrast", state: "off")
+          @flag.current_user = @acting_user
+          @flag.save!
+        end
+      end
+
+      it "deletes the feature flag cache using the context's shard prefix" do
+        context = @acting_user
+        redis = context.feature_flag_cache
+        cache_key = context.feature_flag_cache_key("high_contrast")
+        @shard1.activate do
+          allow(redis).to receive(:delete)
+          @flag.update!(state: "on")
+          expect(redis).to have_received(:delete).with(cache_key)
+          expect(context.prefers_high_contrast?).to be_truthy
+        end
+      end
     end
   end
 

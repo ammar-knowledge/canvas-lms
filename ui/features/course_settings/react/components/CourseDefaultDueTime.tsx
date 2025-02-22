@@ -20,11 +20,15 @@ import React, {useState} from 'react'
 import {TimeSelect} from '@instructure/ui-time-select'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {FormFieldGroup} from '@instructure/ui-form-field'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('course_default_due_time')
+const I18n = createI18nScope('course_default_due_time')
 
-export default function CourseDefaultDueTime() {
+interface CourseDefaultDueTimeProps {
+  canManage: boolean
+}
+
+export default function CourseDefaultDueTime({canManage} : CourseDefaultDueTimeProps) {
   const FORM_IDS = {
     COURSE_DEFAULT_DUE_TIME: 'course_default_due_time',
   }
@@ -89,6 +93,7 @@ export default function CourseDefaultDueTime() {
         onInputChange={(e, value, isoValue) => handleChange(isoValue)}
         defaultValue={stringTimeToDate(defaultValue)}
         allowNonStepInput={true}
+        interaction={canManage ? 'enabled' : 'disabled'}
       />
     </FormFieldGroup>
   )

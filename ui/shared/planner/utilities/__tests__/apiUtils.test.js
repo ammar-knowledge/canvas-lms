@@ -88,6 +88,28 @@ function makePlannerNoteApiResponse(overrides = {}) {
   })
 }
 
+function makeDiscussionCheckpointApiResponse(overrides = {}) {
+  return addContextInfo({
+    plannable_id: '11',
+    context_type: 'Course',
+    course_id: '1',
+    type: 'submitting',
+    ignore: `/api/v1/users/self/todo/sub_assignment_11/submitting?permanent=0`,
+    ignore_permanently: `/api/v1/users/self/todo/sub_assignment_11/submitting?permanent=1`,
+    planner_override: null,
+    plannable_type: 'sub_assignment',
+    plannable: makeDiscussionCheckpoint(),
+    submissions: false,
+    new_activity: false,
+    plannable_date: '2024-09-08T18:58:51Z',
+    details: {
+      reply_to_entry_required_count: 3,
+    },
+    html_url: '/courses/1/assignments/10',
+    ...overrides,
+  })
+}
+
 function makePlannerNote(overrides = {}) {
   return {
     id: 10,
@@ -130,6 +152,20 @@ function makeGradedDiscussionTopic(overrides = {}) {
     assignment_id: 10,
     due_at: '2017-05-15T16:32:34Z',
     unread_count: 0,
+    ...overrides,
+  }
+}
+
+function makeDiscussionCheckpoint(overrides = {}) {
+  return {
+    id: '15',
+    due_at: '2024-09-10T05:59:59Z',
+    points_possible: 10.0,
+    sub_assignment_tag: 'reply_to_topic',
+    created_at: '2024-09-08T14:36:03Z',
+    updated_at: '2017-08-08T16:20:35Z',
+    title: 'How to be a good friend',
+    unread_count: 2,
     ...overrides,
   }
 }
@@ -265,6 +301,34 @@ describe('transformApiToInternalItem', () => {
     })
     const result = transformApiToInternalItem(apiResponse, courses, groups, 'UTC')
     expect(result).toMatchObject({newActivity: false})
+  })
+
+  describe('dicusssion checkpoint', () => {
+    it('extracts and transforms the proper data for a discussion checkpoint response', () => {
+      const apiResponse = makeDiscussionCheckpointApiResponse()
+      const result = transformApiToInternalItem(apiResponse, courses, groups, 'UTC')
+      expect(result).toMatchSnapshot()
+    })
+
+    it('modifies properly title for reply to topic checkpoint', () => {
+      const apiResponse = makeDiscussionCheckpointApiResponse()
+      const result = transformApiToInternalItem(apiResponse, courses, groups, 'UTC')
+      expect(result.title).toEqual('How to be a good friend Reply to Topic')
+    })
+
+    it('modifies properly title for reply to entry checkpoint', () => {
+      const apiResponse = makeDiscussionCheckpointApiResponse({
+        plannable: makeDiscussionCheckpoint({sub_assignment_tag: 'reply_to_entry'}),
+      })
+      const result = transformApiToInternalItem(apiResponse, courses, groups, 'UTC')
+      expect(result.title).toEqual('How to be a good friend Required Replies (3)')
+    })
+
+    it('moves unread_count property to status internal property', () => {
+      const apiResponse = makeDiscussionCheckpointApiResponse()
+      const result = transformApiToInternalItem(apiResponse, courses, groups, 'UTC')
+      expect(result.status).toHaveProperty('unread_count')
+    })
   })
 
   it('extracts and transforms the proper data for an assignment response', () => {
@@ -637,7 +701,7 @@ describe('transformApiToInternalGrade', () => {
             current_period_computed_current_grade: 'D',
           },
         ],
-      })
+      }),
     ).toMatchSnapshot()
   })
 
@@ -654,7 +718,7 @@ describe('transformApiToInternalGrade', () => {
             current_period_computed_current_grade: 'D',
           },
         ],
-      })
+      }),
     ).toMatchSnapshot()
   })
 })
@@ -686,7 +750,7 @@ describe('observedUserContextCodes', () => {
       observedUserContextCodes({
         currentUser: {id: '3'},
         selectedObservee: '3',
-      })
+      }),
     ).toBeUndefined()
   })
 
@@ -696,7 +760,7 @@ describe('observedUserContextCodes', () => {
         currentUser: {id: '3'},
         selectedObservee: '17',
         courses: [{id: '20'}, {id: '4'}],
-      })
+      }),
     ).toStrictEqual(['course_4', 'course_20'])
   })
 })
@@ -715,7 +779,7 @@ describe('buildURL', () => {
       start_date: 'a',
     })
     expect(url).toStrictEqual(
-      '/here/there?start_date=a&end_date=b&include=i&filter=c&order=d&per_page=e&observed_user_id=f&context_codes%5B%5D=g_5&context_codes%5B%5D=g_30&course_ids%5B%5D=7&course_ids%5B%5D=50'
+      '/here/there?start_date=a&end_date=b&include=i&filter=c&order=d&per_page=e&observed_user_id=f&context_codes%5B%5D=g_5&context_codes%5B%5D=g_30&course_ids%5B%5D=7&course_ids%5B%5D=50',
     )
   })
 
@@ -753,7 +817,7 @@ describe('getContextCodesFromState', () => {
     expect(
       getContextCodesFromState({
         courses: [{id: '20'}, {id: '4'}],
-      })
+      }),
     ).toStrictEqual(['course_4', 'course_20'])
   })
 })

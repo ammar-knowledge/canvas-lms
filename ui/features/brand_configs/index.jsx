@@ -24,8 +24,9 @@ import {initializeTopNavPortal} from '@canvas/top-navigation/react/TopNavPortal'
 
 ready(() => {
   initializeTopNavPortal()
+
   ReactDOM.render(
     <CollectionView {...window.ENV.brandConfigStuff} />,
-    document.getElementById('content')
+    document.getElementById('content'),
   )
 })

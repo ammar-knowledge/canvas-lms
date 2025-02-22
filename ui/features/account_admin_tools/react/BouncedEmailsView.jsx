@@ -26,14 +26,14 @@ import {View} from '@instructure/ui-view'
 import {Link} from '@instructure/ui-link'
 import {Responsive} from '@instructure/ui-responsive'
 import {string} from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 import CanvasDateInput from '@canvas/datetime/react/components/DateInput'
 import FriendlyDatetime from '@canvas/datetime/react/components/FriendlyDatetime'
 import * as tz from '@instructure/moment-utils'
-import {encodeQueryString} from '@canvas/query-string-encoding'
+import {encodeQueryString} from '@instructure/query-string-encoding'
 
-const I18n = useI18nScope('bounced_emails')
+const I18n = createI18nScope('bounced_emails')
 
 BouncedEmailsView.propTypes = {
   accountId: string.isRequired,
@@ -95,7 +95,7 @@ export default function BouncedEmailsView({accountId}) {
     body_data => {
       return <Table.Body>{renderTableRows(body_data)}</Table.Body>
     },
-    [renderTableRows]
+    [renderTableRows],
   )
 
   const onFetch = useCallback(
@@ -104,7 +104,7 @@ export default function BouncedEmailsView({accountId}) {
       setFetchError('')
       setLoading(false)
     },
-    [setLoading, setData]
+    [setLoading, setData],
   )
 
   const onError = useCallback(() => {
@@ -127,8 +127,8 @@ export default function BouncedEmailsView({accountId}) {
     setLoading(true)
     setCsvReportPath(
       `/api/v1/accounts/${accountId}/bounced_communication_channels.csv?${encodeQueryString(
-        params
-      )}`
+        params,
+      )}`,
     )
     doFetchApi({path, params}).then(onFetch).catch(onError)
   }, [accountId, searchTerm, onFetch, onError, before, after])
@@ -164,7 +164,7 @@ export default function BouncedEmailsView({accountId}) {
         </>
       )
     },
-    [loading, renderTableHeader, renderTableBody, csvReportPath]
+    [loading, renderTableHeader, renderTableBody, csvReportPath],
   )
 
   return (

@@ -20,9 +20,9 @@ import {useState, useEffect} from 'react'
 import {groupBy} from 'lodash'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import {loadRollups} from '../apiClient'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('OutcomeManagement')
+const I18n = createI18nScope('OutcomeManagement')
 
 const getRow = (studentRollups, outcomes) =>
   studentRollups[0].scores.map(score => {
@@ -42,7 +42,7 @@ const findRating = (ratings, score) => {
     (r, i) =>
       r.points === score ||
       (i === 0 && score > r.points) ||
-      (score > r.points && ratings[i - 1].points > score)
+      (score > r.points && ratings[i - 1].points > score),
   )
   return rating || ratings[ratings.length - 1]
 }

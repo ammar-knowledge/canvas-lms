@@ -35,8 +35,8 @@ describe DataFixup::BulkColumnUpdater do
   end
 
   before do
-    # Reconnecting in Rails test env actually clears the table, so stop that
-    allow(ContextExternalTool.connection).to receive(:reconnect!)
+    # Disconnecting in Rails test env actually clears the table, so stop that
+    allow(ContextExternalTool.connection).to receive(:disconnect!)
   end
 
   describe "happy path" do
@@ -50,14 +50,15 @@ describe DataFixup::BulkColumnUpdater do
       expect_values %w[one two three]
     end
 
-    it "returns true on success" do
+    it "returns the number of returned rows on success" do
       with_temp_file do |log_file|
         log_filename = log_file.path
         bcu = described_class.new(ContextExternalTool, :unified_tool_id, log_filename:)
         result = bcu.update! do |add_rows_fn|
+          add_rows_fn.call [[tools[1].id, "two"]]
           add_rows_fn.call [[tools[2].id, "three"]]
         end
-        expect(result).to be true
+        expect(result).to eq 2
       end
     end
 
@@ -135,14 +136,14 @@ describe DataFixup::BulkColumnUpdater do
     end
   end
 
-  it "rescues exceptions and returns false when used with a log file" do
+  it "rescues exceptions and returns -1 when used with a log file" do
     log_lines = with_temp_file do |log_file|
       log_filename = log_file.path
       bcu = described_class.new(ContextExternalTool, :unified_tool_id, log_filename:)
       result = bcu.update! do |_add_rows_fn|
         raise "oh no"
       end
-      expect(result).to be false
+      expect(result).to be(-1)
     end
     expect(log_lines).to include(a_string_matching(/ERROR: #<RuntimeError: oh no>/))
   end
@@ -187,7 +188,7 @@ describe DataFixup::BulkColumnUpdater do
   end
 
   it "drops the temp table after the block is done" do
-    expect(ContextExternalTool.connection).to receive(:reconnect!).once.and_call_original
+    expect(ContextExternalTool.connection).to receive(:disconnect!).once.and_call_original
 
     bcu = described_class.new(ContextExternalTool, :unified_tool_id)
     temp_table_name = nil

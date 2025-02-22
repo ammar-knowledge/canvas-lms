@@ -22,7 +22,7 @@ import {Assignment} from '@canvas/assignments/graphql/student/Assignment'
 import {bool, func, string} from 'prop-types'
 import elideString from '../../helpers/elideString'
 import {isSubmitted} from '../../helpers/SubmissionHelpers'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {IconTrashLine, IconUploadLine, IconAttachMediaSolid} from '@instructure/ui-icons'
 import {Img} from '@instructure/ui-img'
 import LoadingIndicator from '@canvas/loading-indicator'
@@ -46,7 +46,7 @@ import {MediaPlayer} from '@instructure/ui-media-player'
 import theme from '@instructure/canvas-theme'
 import {View} from '@instructure/ui-view'
 
-const I18n = useI18nScope('assignments_2_media_attempt')
+const I18n = createI18nScope('assignments_2_media_attempt')
 
 export const VIDEO_SIZE_OPTIONS = {height: '400px', width: '768px'}
 
@@ -118,9 +118,10 @@ class MediaAttempt extends React.Component {
     if (!mediaObject) {
       return null
     }
-    mediaObject.mediaSources.forEach(mediaSource => {
-      mediaSource.label = `${mediaSource.width}x${mediaSource.height}`
-    })
+    const mediaSources = mediaObject.mediaSources.map(mediaSource => ({
+      ...mediaSource,
+      label: `${mediaSource.width}x${mediaSource.height}`,
+    }))
     const mediaTracks = mediaObject.mediaTracks.map(track => ({
       src: `/media_objects/${mediaObject._id}/media_tracks/${track._id}`,
       label: track.locale,
@@ -129,6 +130,7 @@ class MediaAttempt extends React.Component {
     }))
     const shouldRenderWithIframeURL = mediaObject.mediaSources.length === 0 && this.props.iframeURL
     const autoCCTrack = getAutoTrack(mediaObject.mediaTracks)
+
     return (
       <Flex direction="column" alignItems="center">
         <Flex.Item data-testid="media-recording" width="100%">
@@ -155,7 +157,7 @@ class MediaAttempt extends React.Component {
           ) : (
             <MediaPlayer
               tracks={mediaTracks}
-              sources={mediaObject.mediaSources}
+              sources={mediaSources}
               captionPosition="bottom"
               autoShowCaption={autoCCTrack}
             />
@@ -268,7 +270,7 @@ class MediaAttempt extends React.Component {
                   <Flex.Item>
                     <div
                       style={{
-                        backgroundColor: theme.variables.colors.backgroundDark,
+                        backgroundColor: theme.colors.backgroundDark,
                         height: desktop ? '9em' : '1px',
                         width: desktop ? '1px' : '9em',
                       }}
@@ -280,7 +282,7 @@ class MediaAttempt extends React.Component {
                   <Flex.Item>
                     <div
                       style={{
-                        backgroundColor: theme.variables.colors.backgroundDark,
+                        backgroundColor: theme.colors.backgroundDark,
                         height: desktop ? '9em' : '1px',
                         width: desktop ? '1px' : '9em',
                       }}

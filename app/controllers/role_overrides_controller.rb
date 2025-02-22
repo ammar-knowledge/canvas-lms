@@ -295,16 +295,17 @@ class RoleOverridesController < ApplicationController
   #     create_forum                     -- [STADo] Discussions - create
   #     generate_observer_pairing_code   -- [ tado] Users - Generate observer pairing codes for students
   #     import_outcomes                  -- [ TaDo] Learning Outcomes - import
-  #     lti_add_edit                     -- [ TAD ] LTI - add / edit / delete
   #     manage_account_banks             -- [ td  ] Item Banks - manage account
   #     share_banks_with_subaccounts     -- [ tad ] Item Banks - share with subaccounts
-  #     manage_assignments               -- [ TADo] Assignments and Quizzes - add / edit / delete (deprecated)
   #     Manage Assignments and Quizzes granular permissions
   #         manage_assignments_add       -- [ TADo] Assignments and Quizzes - add
   #         manage_assignments_edit      -- [ TADo] Assignments and Quizzes - edit / manage
   #         manage_assignments_delete    -- [ TADo] Assignments and Quizzes - delete
   #     manage_calendar                  -- [sTADo] Course Calendar - add / edit / delete
-  #     manage_content                   -- [ TADo] Course Content - add / edit / delete
+  #     Manage Course Content granular permissions
+  #         manage_course_content_add    -- [ TADo] Course Content - add
+  #         manage_course_content_edit   -- [ TADo] Course Content - edit
+  #         manage_course_content_delete -- [ TADo] Course Content - delete
   #     manage_course_visibility         -- [ TAD ] Course - change visibility
   #     Manage Courses granular permissions
   #         manage_courses_conclude      -- [ TaD ] Courses - conclude
@@ -329,7 +330,6 @@ class RoleOverridesController < ApplicationController
   #         manage_sections_edit         -- [ TaD ] Course Sections - edit
   #         manage_sections_delete       -- [ TaD ] Course Sections - delete
   #     manage_students                  -- [ TAD ] Users - manage students in courses
-  #     manage_user_notes                -- [ TA  ] Faculty Journal - manage entries
   #     manage_rubrics                   -- [ TAD ] Rubrics - add / edit / delete
   #     Manage Pages granular permissions
   #         manage_wiki_create           -- [ TADo] Pages - create

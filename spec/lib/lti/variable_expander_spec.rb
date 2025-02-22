@@ -29,7 +29,7 @@ module Lti
     let(:group_category) { course.group_categories.new(name: "Category") }
     let(:group) { course.groups.new(name: "Group", group_category:) }
     let(:user) { User.new }
-    let(:assignment) { Assignment.new }
+    let(:assignment) { Assignment.new(context: course) }
     let(:collaboration) do
       ExternalToolCollaboration.new(
         title: "my collab",
@@ -38,7 +38,7 @@ module Lti
       )
     end
     let(:substitution_helper) { double.as_null_object }
-    let(:right_now) { DateTime.now }
+    let(:right_now) { Time.current }
     let(:tool) do
       shard_mock = double("shard")
       allow(shard_mock).to receive(:settings).and_return({ encription_key: "abc" })
@@ -121,6 +121,10 @@ module Lti
         editor_contents:,
         editor_selection:
       }
+    end
+
+    before do
+      root_account.disable_feature!(:refactor_custom_variables)
     end
 
     def self.it_expands(expansion, val = nil, &blk)
@@ -582,7 +586,6 @@ module Lti
           # truthy setting
           Account.default.settings[:restrict_quantitative_data] = { value: true, locked: true }
           Account.default.save!
-
           course.save!
           managed_pseudonym(user, account: root_account, username: "login_id", sis_user_id: "sis id!")
           login = managed_pseudonym(user, account: root_account, username: "login_id2", sis_user_id: "sis id2!")
@@ -672,6 +675,9 @@ module Lti
       end
 
       it "has a substitution for com.instructure.Assignment.lti.id when there is no tool setting" do
+        # the account does not have an `id` hence the mock below.
+        # creating the account with Account.create! creates an ID bu t breaks other tests.
+        allow(course).to receive(:horizon_course?).and_return(false)
         assignment.update(context: course)
         expander = VariableExpander.new(root_account,
                                         account,
@@ -1414,7 +1420,7 @@ module Lti
 
               it "produces a comma-separated string of user UUIDs" do
                 expect(subject.split(",")).to match_array [
-                  Lti::Asset.opaque_identifier_for(student)
+                  Lti::V1p1::Asset.opaque_identifier_for(student)
                 ]
               end
 
@@ -1717,15 +1723,7 @@ module Lti
             )
           end
 
-          context "when the resource_link_uuid_in_custom_substitution feature flag is on" do
-            before :once do
-              Account.site_admin.enable_feature!(:resource_link_uuid_in_custom_substitution)
-            end
-
-            it_expands("$ResourceLink.id") { resource_link_uuid }
-          end
-
-          it_expands "$ResourceLink.id", "abc"
+          it_expands("$ResourceLink.id") { resource_link_uuid }
           it_expands "$ResourceLink.description", "This is a super fun activity"
           it_expands "$ResourceLink.title", "Activity XYZ"
           it_expands("$ResourceLink.available.startDateTime") { right_now.iso8601(3) }
@@ -1860,6 +1858,23 @@ module Lti
           end
         end
 
+        describe "$LineItem.resultValue.max" do
+          it "has substitution for $LineItem.resultValue.max" do
+            allow(assignment).to receive(:points_possible).and_return(10.0)
+            expect(expand!("$LineItem.resultValue.max")).to eq 10
+          end
+
+          it "does not round if not whole" do
+            allow(assignment).to receive(:points_possible).and_return(9.5)
+            expect(expand!("$LineItem.resultValue.max").to_s).to eq "9.5"
+          end
+
+          it "rounds if whole" do
+            allow(assignment).to receive(:points_possible).and_return(9.0)
+            expect(expand!("$LineItem.resultValue.max").to_s).to eq "9"
+          end
+        end
+
         it "has substitution for $Canvas.assignment.unlockAt" do
           allow(assignment).to receive(:unlock_at).and_return(right_now.to_s)
           expect(expand!("$Canvas.assignment.unlockAt")).to eq right_now.to_s
@@ -1967,9 +1982,66 @@ module Lti
             expect(expand!("$Canvas.assignment.lockAt.iso8601")).to eq right_now.utc.iso8601
           end
 
-          it "has substitution for $Canvas.assignment.dueAt.iso8601" do
-            allow(assignment).to receive(:due_at).and_return(right_now)
-            expect(expand!("$Canvas.assignment.dueAt.iso8601")).to eq right_now.utc.iso8601
+          describe "$Canvas.assignment.dueAt.iso8601" do
+            before do
+              course.save!
+              user.save!
+              assignment.update!(course:)
+            end
+
+            context "for student" do
+              before do
+                course.enroll_user(user, "StudentEnrollment")
+              end
+
+              it "is expanded" do
+                assignment.update!(due_at: right_now)
+                expect(expand!("$Canvas.assignment.dueAt.iso8601")).to eq right_now.utc.iso8601
+              end
+
+              it "handles a nil due_at" do
+                assignment.update!(due_at: nil)
+                expect_unexpanded! "$Canvas.assignment.dueAt.iso8601"
+              end
+            end
+
+            context "for teacher" do
+              before do
+                course.enroll_user(user, "TeacherEnrollment")
+              end
+
+              context "with enrollments" do
+                before do
+                  course.enroll_user(User.create!, "StudentEnrollment")
+                  course.enroll_user(User.create!, "StudentEnrollment")
+                end
+
+                it "is expanded" do
+                  subm1, subm2 = assignment.submissions.to_a
+                  subm1.update! cached_due_date: right_now
+                  subm2.update! cached_due_date: right_now - 1.day
+                  expect(assignment.due_at).to be_nil
+                  expect(expand!("$Canvas.assignment.dueAt.iso8601")).to eq right_now.utc.iso8601
+                end
+
+                it "handles a nil due_at" do
+                  assignment.update!(due_at: nil)
+                  expect_unexpanded! "$Canvas.assignment.dueAt.iso8601"
+                end
+              end
+
+              context "without enrollments" do
+                it "is expanded if there is due date set" do
+                  assignment.update!(due_at: right_now)
+                  expect(expand!("$Canvas.assignment.dueAt.iso8601")).to eq right_now.utc.iso8601
+                end
+
+                it "handles a nil due_at" do
+                  assignment.update!(due_at: nil)
+                  expect_unexpanded! "$Canvas.assignment.dueAt.iso8601"
+                end
+              end
+            end
           end
 
           it "has substitution for $Canvas.assignment.allDueAts.iso8601" do
@@ -1985,11 +2057,6 @@ module Lti
           it "handles a nil lock_at" do
             allow(assignment).to receive(:lock_at).and_return(nil)
             expect_unexpanded! "$Canvas.assignment.lockAt.iso8601"
-          end
-
-          it "handles a nil due_at" do
-            allow(assignment).to receive(:lock_at).and_return(nil)
-            expect_unexpanded! "$Canvas.assignment.dueAt.iso8601"
           end
         end
 
@@ -2063,6 +2130,9 @@ module Lti
 
         it "has substitution for $com.instructure.Person.pronouns" do
           user.pronouns = "She/Her"
+          user.account.settings[:can_add_pronouns] = true
+          user.account.save!
+
           expect(expand!("$com.instructure.Person.pronouns")).to eq "She/Her"
         end
 
@@ -2306,6 +2376,78 @@ module Lti
         it "has substitution for ToolConsumerProfile.url" do
           expander = VariableExpander.new(root_account, account, controller, current_user: user, tool: ToolProxy.new)
           expect(expand!("$ToolConsumerProfile.url", expander:)).to eq "url"
+        end
+
+        it "has substitution for $com.instructure.user.lti_1_1_id.history" do
+          course.save!
+          user.lti_context_id = "current_context_id"
+          UserPastLtiId.create!(user:, context: account, user_lti_id: "old_lti_id", user_lti_context_id: "old_context_id", user_uuid: "old_uuid")
+          UserPastLtiId.create!(user:, context: course, user_lti_id: "old_lti_id", user_lti_context_id: "old_context_id", user_uuid: "old_uuid")
+          UserPastLtiId.create!(user: User.new, context: account, user_lti_id: "old_lti_id2", user_lti_context_id: "", user_uuid: "old_uuid2")
+          expect(expand!("$com.instructure.user.lti_1_1_id.history")).to eq "old_context_id,current_context_id"
+        end
+      end
+
+      context "refactor_custom_variables FF is on" do
+        before do
+          root_account.enable_feature!(:refactor_custom_variables)
+        end
+
+        it "has substitution for $Canvas.api.domain" do
+          allow(root_account).to receive(:environment_specific_domain).and_return("localhost")
+          expect(expand!("$Canvas.api.domain")).to eq "localhost"
+        end
+
+        context "context is a course with an assignment" do
+          let(:variable_expander) { VariableExpander.new(root_account, course, nil, tool:, collaboration:) }
+
+          it "has substitution for $Canvas.api.collaborationMembers.url" do
+            allow(collaboration).to receive(:id).and_return(1)
+            allow(tool.context).to receive(:environment_specific_domain).and_return("localhost")
+            allow(Rails.application.routes.url_helpers).to receive(:api_v1_collaboration_members_url)
+              .and_return("https://www.example.com/api/v1/collaborations/1/members")
+            expect(expand!("$Canvas.api.collaborationMembers.url")).to \
+              eq "https://www.example.com/api/v1/collaborations/1/members"
+          end
+
+          it "has substitution for $ToolProxyBinding.memberships.url even if the controller is unset" do
+            course.save!
+            allow(root_account).to receive(:environment_specific_domain).and_return("localhost")
+            variable_expander.instance_variable_set(:@controller, nil)
+            variable_expander.instance_variable_set(:@request, nil)
+            expect(expand!("$ToolProxyBinding.memberships.url")).to eq \
+              "http://localhost/api/lti/courses/#{course.id}/membership_service"
+          end
+
+          it "has substitution for $Canvas.externalTool.url even if the controller is unset" do
+            course.save!
+            allow(root_account).to receive(:environment_specific_domain).and_return("localhost")
+            tool = course.context_external_tools.create!(domain: "example.com", consumer_key: "12345", shared_secret: "secret", privacy_level: "anonymous", name: "tool")
+            expander = VariableExpander.new(root_account, course, controller, current_user: user, tool:)
+            expander.instance_variable_set(:@controller, nil)
+            expander.instance_variable_set(:@request, nil)
+            expect(expand!("$Canvas.externalTool.url", expander:)).to eq "http://localhost/api/v1/courses/#{course.id}/external_tools/#{tool.id}"
+          end
+
+          it "has substitution for $Canvas.xapi.url even if no controller" do
+            course.save!
+            allow(Lti::AnalyticsService).to receive(:create_token).and_return("--token--")
+            variable_expander.instance_variable_set(:@controller, nil)
+            variable_expander.instance_variable_set(:@request, nil)
+            variable_expander.instance_variable_set(:@current_user, user)
+            allow(root_account).to receive(:environment_specific_domain).and_return("localhost")
+            expect(expand!("$Canvas.xapi.url")).to eq "http://localhost/api/lti/v1/xapi/--token--"
+          end
+
+          it "has substitution for $Caliper.url even if no controller" do
+            course.save!
+            allow(Lti::AnalyticsService).to receive(:create_token).and_return("--token--")
+            variable_expander.instance_variable_set(:@controller, nil)
+            variable_expander.instance_variable_set(:@request, nil)
+            variable_expander.instance_variable_set(:@current_user, user)
+            allow(root_account).to receive(:environment_specific_domain).and_return("localhost")
+            expect(expand!("$Caliper.url")).to eq "http://localhost/api/lti/v1/caliper/--token--"
+          end
         end
       end
 

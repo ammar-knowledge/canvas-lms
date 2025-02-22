@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {bool} from 'prop-types'
 import React, {useEffect, useState, useRef} from 'react'
 import doFetchApi from '@canvas/do-fetch-api-effect'
@@ -30,7 +30,7 @@ import {Checkbox} from '@instructure/ui-checkbox'
 import {IconButton} from '@instructure/ui-buttons'
 import {IconInfoLine} from '@instructure/ui-icons'
 
-const I18n = useI18nScope('ProfileTray')
+const I18n = createI18nScope('ProfileTray')
 
 const {porcelain, licorice, shamrock, brand} = hcmColors.values
 
@@ -152,8 +152,11 @@ export default function HighContrastModeToggle({isMobile}: HighContrastModeToggl
         method: 'PUT',
         body: {feature: 'high_contrast', state: newState},
       })
+      // @ts-expect-error
       if (json.feature !== 'high_contrast') throw new Error('Unexpected response from API call')
+      // @ts-expect-error
       setEnabled(json.state === 'on')
+      // @ts-expect-error
       ENV.use_high_contrast = json.state === 'on'
     } catch (err) {
       if (err instanceof Error) {

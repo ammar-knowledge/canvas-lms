@@ -27,12 +27,12 @@ import {Button} from '@instructure/ui-buttons'
 import {View} from '@instructure/ui-view'
 import {Flex} from '@instructure/ui-flex'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import PostTypes from './PostTypes'
 import SpecificSections from '@canvas/grading/react/SpecificSections'
 
-const I18n = useI18nScope('post_assignment_grades_tray')
+const I18n = createI18nScope('post_assignment_grades_tray')
 
 export default function FormContent({
   assignment: {anonymousGrading, gradesPublished},
@@ -47,6 +47,7 @@ export default function FormContent({
   sections,
   selectedSectionIds,
   unpostedCount,
+  showSectionValidation,
 }) {
   if (postingGrades) {
     return (
@@ -100,6 +101,7 @@ export default function FormContent({
           sections={sections}
           sectionSelectionChanged={sectionSelectionChanged}
           selectedSectionIds={selectedSectionIds}
+          showSectionValidation={showSectionValidation}
         />
       )}
 
@@ -140,7 +142,7 @@ FormContent.propTypes = {
     shape({
       id: string.isRequired,
       name: string.isRequired,
-    })
+    }),
   ).isRequired,
   sectionSelectionChanged: func.isRequired,
   selectedSectionIds: arrayOf(string).isRequired,

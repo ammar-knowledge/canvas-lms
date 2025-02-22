@@ -338,6 +338,24 @@ describe Types::UserType do
 
       expect(user_type.resolve("enrollments { _id }", current_user: @student)).to eq [@student.enrollments.where(course_id: @course2).first.to_param]
     end
+
+    it "return only horizon courses if inlcuded" do
+      course3 = course_factory
+      course3.update!(horizon_course: true)
+
+      course3.enroll_student(@student, enrollment_state: "active")
+
+      expect(user_type.resolve("enrollments(horizonCourses: true) { _id }", current_user: @student).length).to eq 1
+    end
+
+    it "returns only non-horizon courses if false" do
+      course3 = course_factory
+      course3.update!(horizon_course: true)
+
+      course3.enroll_student(@student, enrollment_state: "active")
+
+      expect(user_type.resolve("enrollments(horizonCourses: false) { _id }", current_user: @student).length).to eq @student.enrollments.length - 1
+    end
   end
 
   context "email" do
@@ -625,7 +643,7 @@ describe Types::UserType do
     end
 
     it "scopes the conversations" do
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
       conversation(@student, @teacher, { body: "You get that thing I sent ya?" })
       conversation(@teacher, @student, { body: "oh yea =)" })
       conversation(@student, @random_person, { body: "Whats up?", starred: true })
@@ -638,21 +656,21 @@ describe Types::UserType do
       )
       expect(result.flatten.count).to eq 3
       expect(result.flatten).to match_array ["You get that thing I sent ya?", "oh yea =)", "Whats up?"]
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.inbox.pages_loaded.react")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.inbox.pages_loaded.react")
 
       result = type.resolve(
         "conversationsConnection(scope: \"starred\") { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }"
       )
       expect(result.count).to eq 1
       expect(result[0][0]).to eq "Whats up?"
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.starred.pages_loaded.react")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.starred.pages_loaded.react")
 
       type = GraphQLTypeTester.new(@student, current_user: @student, domain_root_account: @student.account, request: ActionDispatch::TestRequest.create)
       result = type.resolve(
         "conversationsConnection(scope: \"unread\") { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }"
       )
       expect(result.flatten.count).to eq 2
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.unread.pages_loaded.react")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.unread.pages_loaded.react")
 
       type = GraphQLTypeTester.new(
         @random_person,
@@ -662,7 +680,7 @@ describe Types::UserType do
       )
       result = type.resolve("conversationsConnection(scope: \"sent\") { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }")
       expect(result[0][0]).to eq "Help! Please make me non-random!"
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.sent.pages_loaded.react")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.sent.pages_loaded.react")
 
       @conversation.update!(workflow_state: "archived")
       type = GraphQLTypeTester.new(
@@ -673,7 +691,7 @@ describe Types::UserType do
       )
       result = type.resolve("conversationsConnection(scope: \"archived\") { nodes { conversation { conversationMessagesConnection { nodes { body } } } } }")
       expect(result[0][0]).to eq "Help! Please make me non-random!"
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.archived.pages_loaded.react")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.archived.pages_loaded.react")
       @conversation.update!(workflow_state: "read")
     end
   end
@@ -683,6 +701,24 @@ describe Types::UserType do
       GraphQLTypeTester.new(
         @student,
         current_user: @student,
+        domain_root_account: @course.account.root_account,
+        request: ActionDispatch::TestRequest.create
+      )
+    end
+
+    let(:teacher_type) do
+      GraphQLTypeTester.new(
+        @teacher,
+        current_user: @teacher,
+        domain_root_account: @course.account.root_account,
+        request: ActionDispatch::TestRequest.create
+      )
+    end
+
+    let(:ta_type) do
+      GraphQLTypeTester.new(
+        @ta,
+        current_user: @ta,
         domain_root_account: @course.account.root_account,
         request: ActionDispatch::TestRequest.create
       )
@@ -744,6 +780,92 @@ describe Types::UserType do
       known_users = @student.address_book.search_users(context: "course_#{@course.id}_students").paginate(per_page: 3)
       result = type.resolve("recipients(context: \"course_#{@course.id}_students\") { usersConnection { nodes { _id } } }")
       expect(result).to match_array(known_users.pluck(:id).map(&:to_s))
+    end
+
+    context "differentiation tags" do
+      before do
+        Account.default.enable_feature!(:differentiation_tags)
+        @collaborative_category = @course.group_categories.create!(name: "Collaborative Category", non_collaborative: false)
+        @collaborative_group = @course.groups.create!(name: "Collaborative group", group_category: @collaborative_category)
+        @collaborative_group.add_user(@student)
+
+        @non_collaborative_category = @course.group_categories.create!(name: "Non-Collaborative Category", non_collaborative: true)
+        @non_collaborative_group = @course.groups.create!(name: "non Collaborative group", group_category: @non_collaborative_category)
+        @non_collaborative_group.add_user(@student)
+      end
+
+      describe "teacher type" do
+        it "returns differentiation tags" do
+          result = teacher_type.resolve("recipients(context: \"course_#{@course.id}\") { contextsConnection { nodes { name } } }")
+          expect(result).to include("Differentiation Tags")
+        end
+
+        it "returns differentiation tag details" do
+          result = teacher_type.resolve("recipients(context: \"course_#{@course.id}_differentiation_tags\") { contextsConnection { nodes { name } } }")
+          expect(result).to eq(["non Collaborative group"])
+        end
+
+        it "returns differentiation tag users" do
+          result = teacher_type.resolve("recipients(context: \"differentiation_tag_#{@non_collaborative_group.id}\") { usersConnection { nodes { name } } }")
+          expect(result).to eq([@student.name])
+        end
+
+        it "returns group tag users" do
+          result = teacher_type.resolve("recipients(context: \"group_#{@collaborative_group.id}\") { usersConnection { nodes { name } } }")
+          expect(result).to eq([@student.name])
+        end
+
+        it "does not return differentiation tags when flag is off" do
+          Account.default.disable_feature!(:differentiation_tags)
+
+          result = teacher_type.resolve("recipients(context: \"course_#{@course.id}\") { contextsConnection { nodes { name } } }")
+          expect(result).not_to include("Differentiation Tags")
+        end
+      end
+
+      describe "student type" do
+        it "does not return differentiation tags" do
+          result = type.resolve("recipients(context: \"course_#{@course.id}\") { contextsConnection { nodes { name } } }")
+          expect(result).not_to include("Differentiation Tags")
+        end
+
+        it "does not return differentiation tag details" do
+          result = type.resolve("recipients(context: \"course_#{@course.id}_differentiation_tags\") { contextsConnection { nodes { name } } }")
+          expect(result).to eq([])
+        end
+
+        it "does not return differentiation tag users" do
+          result = type.resolve("recipients(context: \"differentiation_tag_#{@non_collaborative_group.id}\") { usersConnection { nodes { name } } }")
+          expect(result).to eq([])
+        end
+
+        it "does not allow circumventing permissions by calling group" do
+          result = type.resolve("recipients(context: \"group_#{@non_collaborative_group.id}\") { usersConnection { nodes { name } } }")
+          expect(result).to eq([])
+        end
+      end
+
+      describe "ta type" do
+        it "does not return differentiation tags" do
+          result = ta_type.resolve("recipients(context: \"course_#{@course.id}\") { contextsConnection { nodes { name } } }")
+          expect(result).not_to include("Differentiation Tags")
+        end
+
+        it "does not return differentiation tag details" do
+          result = ta_type.resolve("recipients(context: \"course_#{@course.id}_differentiation_tags\") { contextsConnection { nodes { name } } }")
+          expect(result).to eq([])
+        end
+
+        it "does not return differentiation tag users" do
+          result = ta_type.resolve("recipients(context: \"differentiation_tag_#{@non_collaborative_group.id}\") { usersConnection { nodes { name } } }")
+          expect(result).to eq([])
+        end
+
+        it "does not allow circumventing permissions by calling group" do
+          result = ta_type.resolve("recipients(context: \"group_#{@non_collaborative_group.id}\") { usersConnection { nodes { name } } }")
+          expect(result).to eq([])
+        end
+      end
     end
   end
 
@@ -1030,6 +1152,51 @@ describe Types::UserType do
       result = type.resolve("favoriteGroupsConnection { nodes { _id } }")
       expect(result).to match_array([@group.id.to_s])
     end
+
+    it "includes non_collaborative group when asked for by someone with permissions" do
+      Account.default.enable_feature!(:differentiation_tags)
+      allow_any_instance_of(Course).to receive(:grants_any_right?).with(@student, anything, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS).and_return(true)
+
+      @non_collaborative_category = @course.group_categories.create!(name: "Non-Collaborative Groups", non_collaborative: true)
+      group_with_user(user: @student, active_all: true)
+      favorite_group = @group
+      @student.favorites.create!(context: favorite_group)
+
+      hidden_group_membership = group_with_user(user: @student, active_all: true, group_category: @non_collaborative_category, context: @course)
+      hidden_group = hidden_group_membership.group
+      @student.favorites.create!(context: hidden_group)
+      allow(hidden_group).to receive(:grants_any_right?).and_return(true)
+
+      result = type.resolve("favoriteGroupsConnection(includeNonCollaborative: true) { nodes { _id } }")
+      expect(result).to match_array([favorite_group.id.to_s, hidden_group.id.to_s])
+    end
+
+    it "excludes non_collaborative groups when asked for by someone without permissions" do
+      Account.default.enable_feature!(:differentiation_tags)
+      @non_collaborative_category = @course.group_categories.create!(name: "Non-Collaborative Groups", non_collaborative: true)
+      group_with_user(user: @student, active_all: true)
+      favorite_group = @group
+      @student.favorites.create!(context: favorite_group)
+
+      hidden_group_membership = group_with_user(user: @student, active_all: true, group_category: @non_collaborative_category, context: @course)
+      hidden_group = hidden_group_membership.group
+      @student.favorites.create!(context: hidden_group)
+
+      result = type.resolve("favoriteGroupsConnection { nodes { _id } }")
+      expect(result).to match_array([favorite_group.id.to_s])
+    end
+
+    it "excludes non_collaborative groups when asked for by someone without permissions and no favorite groups" do
+      Account.default.enable_feature!(:differentiation_tags)
+      @non_collaborative_category = @course.group_categories.create!(name: "Non-Collaborative Groups", non_collaborative: true)
+
+      hidden_group_membership = group_with_user(user: @student, active_all: true, group_category: @non_collaborative_category, context: @course)
+      hidden_group = hidden_group_membership.group
+      @student.favorites.create!(context: hidden_group)
+
+      result = type.resolve("favoriteGroupsConnection { nodes { _id } }")
+      expect(result).to be_empty
+    end
   end
 
   context "CommentBankItemsConnection" do
@@ -1205,6 +1372,53 @@ describe Types::UserType do
     end
   end
 
+  describe "course_progression" do
+    let(:progress_helper) do
+      progress_helper = double(CourseProgress.name)
+      allow(progress_helper).to receive_messages(can_evaluate_progression?: true, normalized_requirement_count: 1)
+      progress_helper
+    end
+
+    before do
+      allow(CourseProgress).to receive(:new).and_return(progress_helper)
+    end
+
+    it "returns nil in a non-course context" do
+      type = GraphQLTypeTester.new(@student, current_user: @student)
+
+      expect(type.resolve("courseProgression { requirements { total } }")).to be_nil
+    end
+
+    it "returns nil when progress cannot be evaluated" do
+      type = GraphQLTypeTester.new(@student, current_user: @teacher, course: @course)
+
+      expect(progress_helper).to receive(:can_evaluate_progression?).and_return(false)
+      expect(type.resolve("courseProgression { requirements { total } }")).to be_nil
+    end
+
+    context "for a user with view_all_grades permission in the course" do
+      it "returns progression for another user" do
+        type = GraphQLTypeTester.new(@student, current_user: @teacher, course: @course)
+
+        expect(type.resolve("courseProgression { requirements { total } }")).to be_truthy
+      end
+    end
+
+    context "for a user without view_all_grades permission in the course" do
+      it "does not return progression for another user" do
+        type = GraphQLTypeTester.new(@student, current_user: @other_student, course: @course)
+
+        expect(type.resolve("courseProgression { requirements { total } }")).to be_nil
+      end
+
+      it "returns progression for self" do
+        type = GraphQLTypeTester.new(@student, current_user: @student, course: @course)
+
+        expect(type.resolve("courseProgression { requirements { total } }")).to be_truthy
+      end
+    end
+  end
+
   describe "submission comments" do
     before(:once) do
       course = Course.create! name: "TEST"
@@ -1307,16 +1521,16 @@ describe Types::UserType do
       end
 
       it "can retrieve submission comments" do
-        allow(InstStatsd::Statsd).to receive(:increment)
+        allow(InstStatsd::Statsd).to receive(:distributed_increment)
         query_result = teacher_type.resolve("viewableSubmissionsConnection { nodes { commentsConnection { nodes { comment }} }  }")
         expect(query_result[0].count).to eq 3
         expect(query_result[0]).to match_array ["First comment", "Second comment", "Third comment"]
-        expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.submission_comments.pages_loaded.react")
+        expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.submission_comments.pages_loaded.react")
       end
 
       it "can get createdAt" do
         query_result = teacher_type.resolve("viewableSubmissionsConnection { nodes { commentsConnection { nodes { createdAt }} }  }")
-        retrieved_values = query_result[0].map { |string_date| Time.parse(string_date) }
+        retrieved_values = query_result[0].map { |string_date| Time.zone.parse(string_date) }
         expect(retrieved_values).to all(be_within(1.minute).of(@sc1.created_at))
       end
 

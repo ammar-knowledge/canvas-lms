@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {string, func, bool} from 'prop-types'
 import SVGWrapper from '@canvas/svg-wrapper'
@@ -24,7 +24,7 @@ import SVGWrapper from '@canvas/svg-wrapper'
 import Modal from '@canvas/instui-bindings/react/InstuiModal'
 import {Button} from '@instructure/ui-buttons'
 
-const I18n = useI18nScope('theme_editor')
+const I18n = createI18nScope('theme_editor')
 
 export default function ThemeCard(props) {
   const getVar = props.getVariable
@@ -175,7 +175,7 @@ export default function ThemeCard(props) {
                 className="Button Button--icon-action-rev"
                 data-tooltip='{"tooltipClass":"popover popover-padded", "position":"right"}'
                 title={I18n.t(
-                  'Multiple are marked "Current theme" because the same values have been saved under multiple names—i.e., they\'re each the same as what\'s currently applied'
+                  'Multiple are marked "Current theme" because the same values have been saved under multiple names—i.e., they\'re each the same as what\'s currently applied',
                 )}
               >
                 <i className="icon-question" aria-hidden="true" />

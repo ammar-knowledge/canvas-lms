@@ -111,7 +111,7 @@ class PseudonymsController < ApplicationController
       if @domain_root_account
         @domain_root_account.pseudonyms.active_only.by_unique_id(email).each do |p|
           cc = p.communication_channel if p.communication_channel && p.user
-          cc ||= p.user.communication_channel rescue nil
+          cc ||= p.user.communication_channel
           @ccs << cc
         end
       end
@@ -119,7 +119,7 @@ class PseudonymsController < ApplicationController
 
     @ccs = @ccs.flatten.compact.uniq.select do |cc|
       if cc.user
-        cc.pseudonym ||= cc.user.pseudonym rescue nil
+        cc.pseudonym ||= cc.user.pseudonym
         cc.save if cc.changed?
         found = false
         Shard.partition_by_shard([@domain_root_account.id] + @domain_root_account.trusted_account_ids) do |account_ids|
@@ -176,9 +176,20 @@ class PseudonymsController < ApplicationController
         flash[:error] = t 'The link you used has expired. Click "Forgot Password?" to get a new reset-password link.'
         redirect_to canvas_login_url
       end
-      @password_pseudonyms = @cc.user.pseudonyms.active_only.select { |p| p.account.canvas_authentication? }
+      @password_pseudonyms = @cc.user.pseudonyms_visible_to(@cc.user).select { |p| p.active? && p.account.canvas_authentication? }
+      password_policies = @password_pseudonyms.to_h do |p|
+        [p.id, { pseudonym: { unique_id: p.unique_id, account_display_name: p.account.display_name }, policy: p.account.password_policy }]
+      end
       js_env PASSWORD_POLICY: @domain_root_account.password_policy,
-             PASSWORD_POLICIES: @password_pseudonyms.to_h { |p| [p.id, p.account.password_policy] }
+             PASSWORD_POLICIES: password_policies,
+             CC: {
+               confirmation_code: @cc.confirmation_code,
+               path: @cc.path,
+             },
+             PSEUDONYM: {
+               id: @pseudonym.id,
+               user_name: @pseudonym.user.name,
+             }
     end
   end
 
@@ -189,15 +200,22 @@ class PseudonymsController < ApplicationController
       @pseudonym.require_password = true
       @pseudonym.password = params[:pseudonym][:password]
       @pseudonym.password_confirmation = params[:pseudonym][:password_confirmation]
-      if @pseudonym.save_without_session_maintenance
-        # If they changed the password (and we subsequently log them in) then
-        # we're pretty confident this is the right user, and the communication
-        # channel is valid, so register the user and approve the channel.
-        @cc.set_confirmation_code(true)
-        @cc.confirm
-        @cc.save
-        @pseudonym.user.register
 
+      pseudo_saved = User.transaction do
+        saved = @pseudonym.save_without_session_maintenance
+        if saved
+          # If they changed the password (and we subsequently log them in) then
+          # we're pretty confident this is the right user, and the communication
+          # channel is valid, so register the user and approve the channel.
+          @cc.set_confirmation_code(true)
+          @cc.confirm
+          @cc.save
+          @pseudonym.user.register
+        end
+        saved
+      end
+
+      if pseudo_saved
         # reset the session id cookie to prevent session fixation.
         reset_session
 
@@ -320,9 +338,9 @@ class PseudonymsController < ApplicationController
     end
 
     @pseudonym = @account.pseudonyms.build(user: @user)
-    return unless authorized_action(@pseudonym, @current_user, :create)
     return unless find_authentication_provider
     return unless update_pseudonym_from_params
+    return unless authorized_action(@pseudonym, @current_user, :create)
 
     @pseudonym.generate_temporary_password unless params[:pseudonym][:password]
     if Pseudonym.unique_constraint_retry { @pseudonym.save_without_session_maintenance }
@@ -358,8 +376,12 @@ class PseudonymsController < ApplicationController
   #   The new unique ID for the login.
   #
   # @argument login[password] [String]
-  #   The new password for the login. Can only be set by an admin user if admins
-  #   are allowed to change passwords for the account.
+  #   The new password for the login. Admins can only set a password for another
+  #   user if the "Password setting by admins" account setting is enabled.
+  #
+  # @argument login[old_password] [String]
+  #   The prior password for the login. Required if the caller is changing
+  #   their own password.
   #
   # @argument login[sis_user_id] [String]
   #   SIS ID for the login. To set this parameter, the caller must be able to
@@ -425,6 +447,11 @@ class PseudonymsController < ApplicationController
       return unless (@user = @pseudonym.user)
 
       params[:login] ||= {}
+
+      if params[:login][:password] && @user == @current_user
+        return render json: @pseudonym.errors, status: :bad_request unless allow_self_password_change?
+      end
+
       params[:login][:password_confirmation] = params[:login][:password] if params[:login][:password]
       params[:pseudonym] = params[:login]
     else
@@ -434,9 +461,9 @@ class PseudonymsController < ApplicationController
       raise ActiveRecord::RecordNotFound unless @pseudonym.user_id == @user.id
     end
 
-    return unless authorized_action(@pseudonym, @current_user, [:update, :change_password])
     return unless find_authentication_provider
     return unless update_pseudonym_from_params
+    return unless authorized_action(@pseudonym, @current_user, [:update, :change_password])
 
     if @pseudonym.save_without_session_maintenance
       flash[:notice] = t "notices.account_updated", "Account updated!"
@@ -529,7 +556,7 @@ class PseudonymsController < ApplicationController
       :workflow_state,
       :declared_user_type
     ).blank?
-      render json: nil, status: :bad_request
+      render json: { message: "missing required parameter" }, status: :bad_request
       return false
     end
 
@@ -618,5 +645,12 @@ class PseudonymsController < ApplicationController
 
   def can_modify_field(override_sis_stickiness, stick_fields_set, key)
     override_sis_stickiness || !stick_fields_set.include?(key)
+  end
+
+  def allow_self_password_change?
+    @pseudonym.errors.add(:old_password, "parameter is required to change your password") unless params[:login][:old_password]
+    @pseudonym.errors.add(:old_password, "parameter is incorrect") if params[:login][:old_password] && !@pseudonym.valid_arbitrary_credentials?(params[:login][:old_password])
+
+    @pseudonym.errors.none?
   end
 end

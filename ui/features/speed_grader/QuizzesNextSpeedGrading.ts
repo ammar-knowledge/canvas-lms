@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2016 - present Instructure, Inc.
  *
@@ -34,6 +33,7 @@
 import type {Submission} from '../../api.d'
 import $ from 'jquery'
 
+// @ts-expect-error
 function sendPostMessage($iframe_holder, message) {
   const contentWindow = $iframe_holder.children()[0]?.contentWindow
   if (contentWindow) {
@@ -41,7 +41,9 @@ function sendPostMessage($iframe_holder, message) {
   }
 }
 
+// @ts-expect-error
 function setup(EG, $iframe_holder, registerCb, refreshGradesCb, speedGraderWindow = window) {
+  // @ts-expect-error
   function quizzesNextChange(submission) {
     EG.refreshSubmissionsToView()
     if (submission && submission.submission_history) {
@@ -60,7 +62,7 @@ function setup(EG, $iframe_holder, registerCb, refreshGradesCb, speedGraderWindo
   function retryRefreshGrades(
     submission: Submission,
     originalSubmission: Submission,
-    numRequests: number
+    numRequests: number,
   ) {
     const maxRequests = 20
     if (numRequests >= maxRequests) return false
@@ -70,6 +72,7 @@ function setup(EG, $iframe_holder, registerCb, refreshGradesCb, speedGraderWindo
     return Date.parse(submission.graded_at) <= Date.parse(originalSubmission.graded_at)
   }
 
+  // @ts-expect-error
   // gets the submission from the speed_grader.js
   // function that will call this
   function postChangeSubmissionMessage(submission) {
@@ -79,18 +82,39 @@ function setup(EG, $iframe_holder, registerCb, refreshGradesCb, speedGraderWindo
     quizzesNextChange(submission)
   }
 
+  // @ts-expect-error
   function onMessage(e) {
     const message = e.data
+    const prevButton = document.getElementById('prev-student-button')
     switch (message.subject) {
       case 'quizzesNext.register':
         EG.setGradeReadOnly(true)
         return registerCb(postChangeSubmissionMessage, message.payload || {singleLtiLaunch: true})
+
       case 'quizzesNext.submissionUpdate':
         return refreshGradesCb(quizzesNextChange, retryRefreshGrades, 1000)
+      /* falls through */
       case 'quizzesNext.previousStudent':
         return EG.prev()
+      /* falls through */
       case 'quizzesNext.nextStudent':
         return EG.next()
+      /* falls through */
+      case 'SG.focusPreviousStudentButton':
+        if (prevButton) {
+          return prevButton.focus()
+        }
+      /* falls through */
+      case 'SG.switchToIndividualPosts':
+        EG.renderSubmissionPreview('iframe', 'discussion_view_no_context')
+        EG.clearDiscussionsNavigation()
+        return
+      /* falls through */
+      case 'SG.switchToFullContext':
+        EG.renderSubmissionPreview('iframe', 'discussion_view_with_context')
+        EG.renderDiscussionsNavigation('discussion_view_with_context')
+        return
+      /* falls through */
     }
   }
 
@@ -104,11 +128,13 @@ function setup(EG, $iframe_holder, registerCb, refreshGradesCb, speedGraderWindo
   }
 }
 
+// @ts-expect-error
 export function postGradeByQuestionChangeMessage($iframe_holder, enabled) {
   const message = {subject: 'canvas.speedGraderGradeByQuestionChange', enabled}
   sendPostMessage($iframe_holder, message)
 }
 
+// @ts-expect-error
 export function postChangeSubmissionVersionMessage($iframe_holder, submission) {
   const message = {
     subject: 'canvas.speedGraderSubmissionChange',

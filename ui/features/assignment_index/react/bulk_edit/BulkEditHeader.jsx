@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {arrayOf, bool, func, number} from 'prop-types'
 import {Button} from '@instructure/ui-buttons'
@@ -29,7 +29,7 @@ import CanvasInlineAlert from '@canvas/alerts/react/InlineAlert'
 import {originalDateField} from './utils'
 import {AssignmentShape} from './BulkAssignmentShape'
 
-const I18n = useI18nScope('assignments_bulk_edit')
+const I18n = createI18nScope('assignments_bulk_edit')
 
 BulkEditHeader.propTypes = {
   assignments: arrayOf(AssignmentShape).isRequired,
@@ -63,13 +63,13 @@ export default function BulkEditHeader({
         originalDateField('due_at'),
         originalDateField('unlock_at'),
         originalDateField('lock_at'),
-      ].some(originalField => override.hasOwnProperty(originalField))
+      ].some(originalField => override.hasOwnProperty(originalField)),
     )
   })()
 
   const validationErrorsExist = (() => {
     return assignments.some(assignment =>
-      assignment.all_dates.some(override => Object.keys(override.errors || {}).length > 0)
+      assignment.all_dates.some(override => Object.keys(override.errors || {}).length > 0),
     )
   })()
 
@@ -88,7 +88,7 @@ export default function BulkEditHeader({
             <Text>
               {I18n.t(
                 {one: '%{count} assignment selected', other: '%{count} assignments selected'},
-                {count: selectedAssignmentsCount}
+                {count: selectedAssignmentsCount},
               )}
             </Text>
           </Flex.Item>
@@ -161,7 +161,7 @@ export default function BulkEditHeader({
           <Text>
             {I18n.t(
               {one: '%{count} assignment selected', other: '%{count} assignments selected'},
-              {count: selectedAssignmentsCount}
+              {count: selectedAssignmentsCount},
             )}
           </Text>
         </Flex.Item>

@@ -16,75 +16,121 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
-import {render} from '@testing-library/react'
 import {Editor, Frame} from '@craftjs/core'
+import {render} from '@testing-library/react'
+import React from 'react'
 import {Container, type ContainerProps} from '..'
 
-const renderBlock = (props: Partial<ContainerProps> = {}) => {
-  const {container} = render(
+const mockNode = {
+  id: 'xyzzy',
+  data: {
+    displayName: Container.craft.displayName,
+    custom: {
+      isExpanded: false,
+    },
+  },
+  events: {
+    selected: false,
+  },
+}
+
+jest.mock('@craftjs/core', () => {
+  const module = jest.requireActual('@craftjs/core')
+  return {
+    ...module,
+    useNode: jest.fn(() => ({
+      node: mockNode,
+      connectors: {
+        connect: jest.fn(),
+        drag: jest.fn(),
+      },
+    })),
+  }
+})
+
+const renderContainer = (props: Partial<ContainerProps> = {}) => {
+  return render(
     <Editor enabled={true} resolver={{Container}}>
       <Frame>
         <Container {...props} />
       </Frame>
-    </Editor>
+    </Editor>,
   )
-  return container.querySelector('.container-block') as HTMLElement
 }
 
-// the container is just a div  with no content of its own
-// so we have to test by peeking into the rendered element
 describe('Container', () => {
-  it('should render with default props', () => {
-    const containerBlock = renderBlock()
-    expect(containerBlock.getAttribute('data-placeholder')).toBe('Drop blocks here')
+  beforeEach(() => {
+    mockNode.events.selected = false
+    mockNode.data.custom.isExpanded = false
   })
 
-  it('has a default background of transparent', () => {
-    const containerBlock = renderBlock()
-    expect(containerBlock).toHaveStyle({background: 'transparent'})
+  it('renders with default props', () => {
+    const {getByTestId} = renderContainer()
+    const container = getByTestId('container-block')
+    expect(container).toBeInTheDocument()
+    expect(container).toHaveAttribute('data-placeholder', 'Drop blocks here')
+    expect(container).toHaveAttribute('id', 'container-xyzzy')
+    expect(container).toHaveClass('container-block')
   })
 
-  it('respects any background color passed to it', () => {
-    const containerBlock = renderBlock({background: 'blue'})
-    expect(containerBlock).toHaveStyle({background: 'blue'})
+  it('renders with custom id', () => {
+    const {getByTestId} = renderContainer({id: 'custom-id'})
+    const container = getByTestId('container-block')
+    expect(container).toHaveAttribute('id', 'custom-id')
   })
 
-  it('respects any style attribute passed to it', () => {
-    const containerBlock = renderBlock({id: 'myid', style: {color: 'red'}})
-    expect(containerBlock).toHaveStyle({color: 'red'})
+  it('renders with custom background color', () => {
+    const {getByTestId} = renderContainer({background: 'rgb(0, 0, 255)'})
+    const container = getByTestId('container-block')
+    expect(container).toHaveStyle({backgroundColor: 'rgb(0, 0, 255)'})
   })
 
-  it('sets a className matching the layout prop', () => {
-    const containerBlock = renderBlock({layout: 'row'})
-    expect(containerBlock).toHaveClass('row-layout')
+  it('renders with custom styles', () => {
+    const {getByTestId} = renderContainer({style: {color: 'rgb(255, 0, 0)'}})
+    const container = getByTestId('container-block')
+    expect(container).toHaveStyle({color: 'rgb(255, 0, 0)'})
   })
 
-  it('sets the data-placeholder attribute from props', () => {
-    const containerBlock = renderBlock({'data-placeholder': 'My placeholder'})
-    expect(containerBlock.getAttribute('data-placeholder')).toBe('My placeholder')
+  it('renders with custom placeholder', () => {
+    const {getByTestId} = renderContainer({'data-placeholder': 'Custom placeholder'})
+    const container = getByTestId('container-block')
+    expect(container).toHaveAttribute('data-placeholder', 'Custom placeholder')
   })
 
-  it('includes the className prop', () => {
-    const containerBlock = renderBlock({className: 'my-class'})
-    expect(containerBlock).toHaveClass('my-class')
+  it('renders with custom class names', () => {
+    const {getByTestId} = renderContainer({className: 'custom-class'})
+    const container = getByTestId('container-block')
+    expect(container).toHaveClass('custom-class')
+    expect(container).toHaveClass('container-block')
   })
 
-  it('renders its children', () => {
-    const containerBlock = renderBlock({children: <div>Child</div>})
-    expect(containerBlock).toHaveTextContent('Child')
+  it('renders children', () => {
+    const {getByText} = renderContainer({children: <div>Child content</div>})
+    expect(getByText('Child content')).toBeInTheDocument()
   })
 
-  it('renders its children reprise', () => {
-    const {getByText} = render(
-      <Editor enabled={true} resolver={{Container}}>
-        <Frame>
-          <Container>
-            <div>Another child</div>
-          </Container>
-        </Frame>
-      </Editor>
-    )
-    expect(getByText('Another child')).toBeInTheDocument()
+  describe('accessibility attributes', () => {
+    it('sets correct aria attributes', () => {
+      const {getByTestId} = renderContainer()
+      const container = getByTestId('container-block')
+      expect(container).toHaveAttribute('aria-label', Container.craft.displayName)
+      expect(container).toHaveAttribute('aria-selected', 'false')
+      expect(container).toHaveAttribute('aria-expanded', 'false')
+      expect(container).toHaveAttribute('role', 'treeitem')
+    })
+
+    it('reflects selection state', () => {
+      mockNode.events.selected = true
+      const {getByTestId} = renderContainer()
+      const container = getByTestId('container-block')
+      expect(container).toHaveAttribute('aria-selected', 'true')
+    })
+
+    it('reflects expansion state', () => {
+      mockNode.data.custom.isExpanded = true
+      const {getByTestId} = renderContainer()
+      const container = getByTestId('container-block')
+      expect(container).toHaveAttribute('aria-expanded', 'true')
+    })
   })
 })

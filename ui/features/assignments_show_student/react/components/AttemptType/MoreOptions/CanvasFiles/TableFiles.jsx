@@ -19,7 +19,7 @@
 import {formatFileSize, getFileThumbnail} from '@canvas/util/fileHelper'
 import FriendlyDatetime from '@canvas/datetime/react/components/FriendlyDatetime'
 import {arrayOf, func, object, shape, string} from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import * as tz from '@instructure/moment-utils'
 
@@ -34,7 +34,7 @@ import {TruncateText} from '@instructure/ui-truncate-text'
 import {Text} from '@instructure/ui-text'
 import {Tooltip} from '@instructure/ui-tooltip'
 
-const I18n = useI18nScope('assignments_2')
+const I18n = createI18nScope('assignments_2')
 
 const FileButton = props => {
   return (
@@ -87,13 +87,13 @@ class TableFiles extends React.Component {
     description.push(I18n.t('type: file'))
     description.push(I18n.t('name: %{name}', {name: file.display_name}))
     description.push(
-      I18n.t('date created: %{createdAt}', {createdAt: this.formattedDateTime(file.created_at)})
+      I18n.t('date created: %{createdAt}', {createdAt: this.formattedDateTime(file.created_at)}),
     )
     if (file.hasOwnProperty('updated_at')) {
       description.push(
         I18n.t('date modified: %{modifiedAt}', {
           modifiedAt: this.formattedDateTime(file.updated_at),
-        })
+        }),
       )
     }
     if (file.hasOwnProperty('user')) {

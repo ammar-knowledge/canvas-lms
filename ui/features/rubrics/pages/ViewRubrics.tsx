@@ -18,21 +18,21 @@
 
 import React, {useRef, useState} from 'react'
 import {useParams} from 'react-router-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ProficiencyTable from '@canvas/rubrics/react/components/ProficiencyTable'
 import {Portal} from '@instructure/ui-portal'
 import {Tabs} from '@instructure/ui-tabs'
 import {ViewRubrics} from '../components/ViewRubrics'
-import {ApolloProvider, createClient} from '@canvas/apollo'
+import {ApolloProvider, createClient} from '@canvas/apollo-v3'
 import {RubricBreadcrumbs} from '../components/RubricBreadcrumbs'
 import {Heading} from '@instructure/ui-heading'
 import {View} from '@instructure/ui-view'
 
-const I18n = useI18nScope('ViewRubrics')
+const I18n = createI18nScope('ViewRubrics')
 
 export const Component = () => {
   const [breadcrumbMountPoint] = React.useState(
-    document.querySelector('.ic-app-crumbs-enhanced-rubrics')
+    document.querySelector('.ic-app-crumbs-enhanced-rubrics'),
   )
   const {accountId} = useParams()
 
@@ -58,6 +58,7 @@ export const Component = () => {
   return (
     <>
       <Portal open={true} mountNode={breadcrumbMountPoint}>
+        {/* @ts-expect-error */}
         <RubricBreadcrumbs breadcrumbs={ENV.breadcrumbs} />
       </Portal>
       <Portal open={true} mountNode={mountPoint}>
@@ -70,7 +71,10 @@ export const Component = () => {
               <TabbedView accountId={accountId} />
             </>
           ) : (
-            <ViewRubrics canManageRubrics={ENV.PERMISSIONS?.manage_rubrics} />
+            <ViewRubrics
+              canManageRubrics={ENV.PERMISSIONS?.manage_rubrics}
+              canImportExportRubrics={ENV.rubric_imports_exports}
+            />
           )}
         </ApolloProvider>
       </Portal>
@@ -101,7 +105,11 @@ const TabbedView = ({accountId}: TabbedViewProps) => {
         isSelected={tab === 'tab-panel-rubrics'}
       >
         <View as="div" margin="small 0 0 0">
-          <ViewRubrics canManageRubrics={ENV.PERMISSIONS?.manage_rubrics} showHeader={false} />
+          <ViewRubrics
+            canManageRubrics={ENV.PERMISSIONS?.manage_rubrics}
+            canImportExportRubrics={ENV.rubric_imports_exports}
+            showHeader={false}
+          />
         </View>
       </Tabs.Panel>
       <Tabs.Panel

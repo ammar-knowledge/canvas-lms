@@ -34,6 +34,7 @@ module.exports = {
     ],
   ],
   setupFilesAfterEnv: [
+    '@testing-library/jest-dom',
     '<rootDir>/jest/jest-setup-framework.js',
     '<rootDir>/../../jest/stubInstUi.js',
   ],
@@ -41,13 +42,15 @@ module.exports = {
   testMatch: ['**/__tests__/**/?(*.)(spec|test).[jt]s?(x)'],
   modulePathIgnorePatterns: ['<rootDir>/es', '<rootDir>/canvas'],
   transformIgnorePatterns: [`/node_modules/(?!${esModules})`],
-  testEnvironment: '<rootDir>../../jest/strictTimeLimitEnvironment.js',
+  testEnvironment: 'jsdom',
   moduleNameMapper: {
     // jest can't import css
     '\\.(css|less)$': '<rootDir>/src/rce/__mocks__/styleMock.js',
     // mock the tinymce-react Editor component
     '@tinymce/tinymce-react': '<rootDir>/src/rce/__mocks__/tinymceReact.jsx',
     'crypto-es': '<rootDir>/src/rce/__mocks__/_mockCryptoEs.ts',
+    '@instructure/studio-player':
+      '<rootDir>/__mocks__/@instructure/studio-player/_mockStudioPlayer.js',
   },
 
   transform: {
@@ -60,9 +63,7 @@ module.exports = {
           ['@babel/preset-react', {}],
           ['@babel/preset-typescript', {}],
         ],
-        plugins: [
-          ['@babel/plugin-proposal-decorators', {legacy: true}],
-        ],
+        plugins: [['@babel/plugin-proposal-decorators', {legacy: true}]],
       },
     ],
   },

@@ -112,24 +112,22 @@ module SmartSearch
       version = context.search_embedding_version || EMBEDDING_VERSION
       embedding = SmartSearch.generate_embedding(query, version:, query: true)
       collections = []
-      ActiveRecord::Base.with_pgvector do
-        SmartSearch.search_scopes(context, user).each do |klass, item_scope|
-          item_scope = apply_filter(klass, item_scope, type_filter)
-          next unless item_scope
+      SmartSearch.search_scopes(context, user).each do |klass, item_scope|
+        item_scope = apply_filter(klass, item_scope, type_filter)
+        next unless item_scope
 
-          item_scope = item_scope.select(
-            ActiveRecord::Base.send(:sanitize_sql, ["#{klass.table_name}.*, MIN(embedding <=> ?) AS distance", embedding.to_s])
-          )
-                                 .joins(:embeddings)
-                                 .where(klass.embedding_class.table_name => { version: })
-                                 .group("#{klass.table_name}.id")
-                                 .reorder("distance ASC")
-          collections << [klass.name,
-                          BookmarkedCollection.wrap(
-                            BookmarkedCollection::SimpleBookmarker.new(klass, { distance: { type: :float, null: false } }, :id),
-                            item_scope
-                          )]
-        end
+        item_scope = item_scope.select(
+          ActiveRecord::Base.send(:sanitize_sql, ["#{klass.table_name}.*, MIN(embedding OPERATOR(#{PG::Connection.quote_ident(ActiveRecord::Base.connection.extension("vector").schema)}.<=>) ?) AS distance", embedding.to_s])
+        )
+                               .joins(:embeddings)
+                               .where(klass.embedding_class.table_name => { version: })
+                               .group("#{klass.table_name}.id")
+                               .reorder("distance ASC")
+        collections << [klass.name,
+                        BookmarkedCollection.wrap(
+                          BookmarkedCollection::SimpleBookmarker.new(klass, { distance: { type: :float, null: false } }, :id),
+                          item_scope
+                        )]
       end
       BookmarkedCollection.merge(*collections)
     end
@@ -232,7 +230,7 @@ module SmartSearch
                     SmartSearch.smart_search_available?(content_migration.context)
 
       content_migration.imported_asset_id_map&.each do |class_name, id_mapping|
-        klass = class_name.constantize
+        klass = class_name.safe_constantize
         next unless klass.respond_to?(:embedding_class)
 
         fk = klass.embedding_foreign_key # i.e. :wiki_page_id

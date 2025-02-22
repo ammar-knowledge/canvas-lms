@@ -247,6 +247,24 @@ describe Quizzes::QuizzesController do
       expect(assigns[:js_env][:MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT]).to be(false)
     end
 
+    context "assign to differentiation tags" do
+      before :once do
+        @course.account.enable_feature! :assign_to_differentiation_tags
+        @course.account.enable_feature! :differentiation_tags
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = true
+          a.save!
+        end
+      end
+
+      it "differentiation tags information is true if account setting is on and user can manage tags" do
+        user_session(@teacher)
+        get "index", params: { course_id: @course.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be true
+      end
+    end
+
     context "DIRECT_SHARE_ENABLED" do
       before :once do
         course_quiz
@@ -506,6 +524,25 @@ describe Quizzes::QuizzesController do
       expect(assigns[:js_env][:MAX_NAME_LENGTH]).to eq(15)
     end
 
+    context "assign to differentiation tags" do
+      before do
+        @course.account.enable_feature! :assign_to_differentiation_tags
+        @course.account.enable_feature! :differentiation_tags
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = true
+          a.save!
+        end
+      end
+
+      it "differentiation tags information is true if account setting is on and user can manage tags" do
+        course_quiz
+        user_session(@teacher)
+        get "edit", params: { course_id: @course.id, id: @quiz.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be true
+      end
+    end
+
     context "conditional release" do
       before do
         allow(ConditionalRelease::Service).to receive(:env_for).and_return({ dummy: "charliemccarthy" })
@@ -616,6 +653,33 @@ describe Quizzes::QuizzesController do
       attach = assigns[:js_env][:ATTACHMENTS][attachment.id]
       expect(attach[:id]).to eq attachment.id
       expect(attach[:display_name]).to eq attachment.display_name
+    end
+
+    context "assign to differentiation tags" do
+      before do
+        @course.account.enable_feature! :assign_to_differentiation_tags
+        @course.account.enable_feature! :differentiation_tags
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = true
+          a.save!
+        end
+      end
+
+      it "differentiation tags information is true if account setting is on and user can manage tags" do
+        course_quiz
+        user_session(@teacher)
+        get "show", params: { course_id: @course.id, id: @quiz.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "differentiation tags information is not available if user can not manage tags" do
+        course_quiz
+        user_session(@student)
+        get "show", params: { course_id: @course.id, id: @quiz.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be_nil
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be_nil
+      end
     end
 
     describe "js_env SUBMISSION_VERSIONS_URL" do
@@ -1141,12 +1205,12 @@ describe Quizzes::QuizzesController do
     it "lets them take the quiz if it's locked but unlocked by an override" do
       user_session(@student)
       course_quiz(true)
-      @quiz.lock_at = Time.now
+      @quiz.lock_at = Time.zone.now
       @quiz.save!
       override = AssignmentOverride.new
       override.title = "ADHOC quiz override"
       override.quiz = @quiz
-      override.lock_at = Time.now + 1.day
+      override.lock_at = 1.day.from_now
       override.lock_at_overridden = true
       override.save!
       override_student = override.assignment_override_students.build
@@ -2190,7 +2254,7 @@ describe Quizzes::QuizzesController do
         course_quiz
         @quiz.generate_quiz_data
         @quiz.workflow_state = "available"
-        @quiz.published_at = Time.now
+        @quiz.published_at = Time.zone.now
         @quiz.save!
 
         @quiz.update_attribute(:created_at, 1.day.ago)
