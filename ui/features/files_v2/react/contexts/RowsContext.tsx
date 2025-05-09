@@ -16,23 +16,30 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
-import useStore from '@canvas/rubrics/stores'
-import {RubricSelfAssessmentSettings} from '@canvas/rubrics/react/RubricAssignment'
-import {QueryClientProvider} from '@tanstack/react-query'
-import {queryClient} from '@canvas/query'
+import {createContext, useContext} from 'react'
+import {File, Folder} from '../../interfaces/File'
 
-type RubricSelfAssessmentSettingsWrapperProps = {
-  assignmentId: string
+type RowsContextType = {
+  setCurrentRows: (rows: (File | Folder)[]) => void
+  currentRows: (File | Folder)[]
 }
-export const RubricSelfAssessmentSettingsWrapper = ({
-  assignmentId,
-}: RubricSelfAssessmentSettingsWrapperProps) => {
-  const rubricId = useStore(state => state.rubricId)
 
-  return (
-    <QueryClientProvider client={queryClient}>
-      <RubricSelfAssessmentSettings assignmentId={assignmentId} rubricId={rubricId} />
-    </QueryClientProvider>
-  )
+export const RowsContext = createContext<RowsContextType | undefined>(undefined)
+
+export const useRows = () => {
+  const context = useContext(RowsContext)
+  if (!context) {
+    throw new Error('useRows must be used within a RowsProvider')
+  }
+  return context
+}
+
+export function RowsProvider({
+  children,
+  value,
+}: {
+  children: React.ReactNode
+  value: RowsContextType
+}) {
+  return <RowsContext.Provider value={value}>{children}</RowsContext.Provider>
 }

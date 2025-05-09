@@ -70,6 +70,33 @@ describe "context modules" do
 
     it_behaves_like "context modules for teachers"
 
+    context "when the module is empty" do
+      before(:once) do
+        @empty_module = @course.context_modules.create!(name: "empty module")
+      end
+
+      it "displays an empty module" do
+        get "/courses/#{@course.id}/modules"
+        expect(context_module(@empty_module.id)).to contain_css(module_file_drop_selector)
+      end
+
+      it "collapses and expands" do
+        get "/courses/#{@course.id}/modules"
+        collapse_module_link(@empty_module.id).click
+        expect(f(module_file_drop_selector)).not_to be_displayed
+        expand_module_link(@empty_module.id).click
+        expect(f(module_file_drop_selector)).to be_displayed
+      end
+
+      it "collapses after duplication" do
+        get "/courses/#{@course.id}/modules"
+        duplicate_module(@empty_module)
+        expect(f(module_file_drop_selector)).to be_displayed
+        collapse_module_link(@empty_module.id).click
+        expect(f(module_file_drop_selector)).not_to be_displayed
+      end
+    end
+
     context "when lazy loading fails" do
       it "displays an error message" do
         allow_any_instance_of(ContextModulesController).to receive(:items_html).and_raise(404)
@@ -139,41 +166,6 @@ describe "context modules" do
         wait_for_ajaximations
 
         expect(copy_to_tray_exists?).to be true
-      end
-    end
-
-    context "show all or less" do
-      before(:once) do
-        @module = @course.context_modules.create!(name: "module 1")
-        11.times do |i|
-          @module.add_item(type: "assignment", id: @course.assignments.create!(title: "assignment #{i}").id)
-        end
-      end
-
-      it_behaves_like "module show all or less", :context_modules
-      it_behaves_like "module show all or less", :course_homepage
-
-      context "with modules_teacher_module_selection feature enabled" do
-        before(:once) do
-          @course.context_modules.create!(name: "module 2")
-          @course.account.enable_feature!(:modules_teacher_module_selection)
-          s = @course.settings.dup
-          s[:show_teacher_only_module_id] = @module.id
-          @course.settings = s
-          @course.save!
-        end
-
-        before do
-          user_session(@teacher)
-        end
-
-        it "displays the selected module with no show all or less button" do
-          go_to_modules
-          mods = all_modules
-          expect(mods).to have_size(1)
-          expect(mods.first.attribute("id")).to eq("context_module_#{@module.id}")
-          expect(mods.first).not_to contain_css(show_all_or_less_button_selector)
-        end
       end
     end
   end

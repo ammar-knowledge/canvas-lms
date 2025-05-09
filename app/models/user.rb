@@ -145,6 +145,7 @@ class User < ActiveRecord::Base
   has_many :current_group_memberships, -> { GroupMembership.for_collaborative_groups.where("group_memberships.workflow_state = 'accepted' AND groups.workflow_state <> 'deleted'") }, class_name: "GroupMembership"
   has_many :groups, -> { where("group_memberships.workflow_state<>'deleted'").merge(Group.collaborative) }, class_name: "Group", through: :group_memberships
   has_many :current_groups, -> { merge(Group.collaborative).where("groups.workflow_state <> 'deleted'") }, class_name: "Group", through: :current_group_memberships, source: :group
+  has_many :current_active_groups, -> { merge(Group.collaborative.active.context_active) }, class_name: "Group", through: :current_group_memberships, source: :group
   has_many :differentiation_tag_memberships, -> { GroupMembership.for_non_collaborative_groups }, class_name: "GroupMembership", dependent: :destroy
   has_many :current_differentiation_tag_memberships, -> { GroupMembership.for_non_collaborative_groups.where("group_memberships.workflow_state = 'accepted' AND groups.workflow_state <> 'deleted'") }, class_name: "GroupMembership"
   has_many :differentiation_tags, -> { where("group_memberships.workflow_state<>'deleted'").merge(Group.non_collaborative) }, class_name: "Group", through: :differentiation_tag_memberships, source: :group
@@ -1940,6 +1941,21 @@ class User < ActiveRecord::Base
     !!feature_enabled?(:use_dyslexic_font)
   end
 
+  # the logic here is copied from feature_flags_controller#index
+  # we don't want to add use_dyslexic_font to ENV if
+  # (a) the flag is shadowed or (b) the flag is off/locked at site admin
+  def can_see_dyslexic_font_feature_flag?(session)
+    can_read_site_admin = Account.site_admin.grants_right?(@current_user, session, :read)
+
+    !!lookup_feature_flag(
+      "use_dyslexic_font",
+      override_hidden: can_read_site_admin,
+      include_shadowed: can_read_site_admin,
+      skip_cache: false,
+      hide_inherited_enabled: true
+    )
+  end
+
   def auto_show_cc?
     !!feature_enabled?(:auto_show_cc)
   end
@@ -2012,6 +2028,10 @@ class User < ActiveRecord::Base
 
   def text_editor_preference
     preferences[:text_editor_preference]
+  end
+
+  def files_ui_version
+    get_preference(:files_ui_version) || "v2"
   end
 
   # ***** OHI If you're going to add a lot of data into `preferences` here maybe take a look at app/models/user_preference_value.rb instead ***
@@ -3212,10 +3232,11 @@ class User < ActiveRecord::Base
     end
     return :required if pseudonym_hint&.authentication_provider&.mfa_required?
 
-    pseudonyms = self.pseudonyms.shard(self).preload(:account, authentication_provider: :account)
+    pseudonyms = self.pseudonyms.active.shard(self).preload(:account, authentication_provider: :account)
     return :required if pseudonyms.any? { |p| p.authentication_provider&.mfa_required? }
 
-    result = pseudonyms.map(&:account).uniq.map do |account|
+    associated_pseudonym_account_ids = pseudonyms.unscope(:order).distinct.pluck(:account_id)
+    result = Account.root_accounts.active.where(id: associated_pseudonym_account_ids).map do |account|
       case account.mfa_settings
       when :disabled
         0

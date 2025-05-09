@@ -262,11 +262,11 @@ class ApplicationController < ActionController::Base
           group_information:,
           DOMAIN_ROOT_ACCOUNT_ID: @domain_root_account&.global_id,
           DOMAIN_ROOT_ACCOUNT_UUID: @domain_root_account&.uuid,
+          HORIZON_DOMAIN: @domain_root_account&.horizon_domain,
           k12: k12?,
           help_link_name:,
           help_link_icon:,
           use_high_contrast: @current_user&.prefers_high_contrast?,
-          use_dyslexic_font: @current_user&.prefers_dyslexic_font?,
           auto_show_cc: @current_user&.auto_show_cc?,
           disable_celebrations: @current_user&.prefers_no_celebrations?,
           disable_keyboard_shortcuts: @current_user&.prefers_no_keyboard_shortcuts?,
@@ -280,8 +280,10 @@ class ApplicationController < ActionController::Base
             can_add_pronouns: @domain_root_account&.can_add_pronouns?,
             show_sections_in_course_tray: @domain_root_account&.show_sections_in_course_tray?
           },
+          INIT_DRAWER_LAYOUT_MUTEX: "init-drawer-layout",
           RAILS_ENVIRONMENT: Canvas.environment
         }
+        @js_env[:use_dyslexic_font] = @current_user&.prefers_dyslexic_font? if @current_user&.can_see_dyslexic_font_feature_flag?(session)
         @js_env[:IN_PACED_COURSE] = @context.enable_course_paces? if @context.is_a?(Course)
         unless SentryExtensions::Settings.settings.blank?
           @js_env[:SENTRY_FRONTEND] = {

@@ -3490,6 +3490,7 @@ hy:
   cc_attribution_non_commercial_39e0d30d: "CC-ին պատկանելություն, ոչ կոմերցիոն"
   cc_attribution_non_commercial_no_derivatives_9fe74c00: "CC-ին պատկանելություն, ոչ կոմերցիոն, առանց ածանցյալների"
   cc_attribution_non_commercial_share_alike_c7edb1e5: "CC-ին պատկանելություն, ոչ կոմերցիոն, հավասար բաժիններով"
+  cc_attribution_share_alike_669e7f16: "CC-ին պատկանելություն, հավասարապես"
   cell_number_69a7c309: "Բջջային հեռախոսի համարը"
   cell_number_is_invalid_bd6faee0: "Հեռախոսահամարը սխալ է"
   cell_number_is_required_2edcee60: "Անհրաժեշտ է հեռախոսահամար"
@@ -4665,6 +4666,9 @@ hy:
   count_files_updated_4570a8a: 
     one: "1 ֆայլ թարմացվել է"
     other: "%{count}  ֆայլեր թարմացվել են"
+  count_groups_90e215b1: 
+    one: "1 խումբ"
+    other: "%{count} խումբ"
   count_hours_1bd03883: 
     one: "1 ժամ"
     other: "%{count} ժամ"
@@ -4694,6 +4698,9 @@ hy:
   count_people_489946e7: "%{count} մարդ"
   count_people_found_1ab374c0: 
     zero: "Ոչ մի օգտատեր չի գտնվել"
+  count_sections_bf1baf0a: 
+    one: "1 բաժին"
+    other: "%{count} բաժին"
   count_students_30e46120: 
     one: "1 ուսանող"
     other: "%{count} ունկնդիր"
@@ -12595,6 +12602,7 @@ hy:
   priority_dd4381ee: Առաջնահերթություն
   privacy_290109ea: Գաղտնիություն
   privacy_policy_c68f482a: "Գաղտնիության պահպանման քաղաքականություն"
+  private_copyrighted_3cac9686: "Մասնավոր (պաշտպանված է հեղինակային իրավունքով)"
   process_as_ui_changes_8e34ed2a: "Մշակվում են  որպես UI փոփոխություններ "
   process_data_2f5f962f: "Մշակել տվյալները"
   processing_8c569014: "Մշակվում է..."
@@ -17204,6 +17212,7 @@ hy:
   use_new_folder_tree_in_files_eb5a451b: "Ֆայլերում օգտագործել նոր թղթապանակի ծառը "
   use_the_new_quiz_lti_tool_in_place_of_regular_canv_d7cb0c7f: "Օգտագործել նոր թեստերի LTI գործիքը Canvas սովորական թեստերի փոխարեն:"
   use_this_configuration_for_parent_observer_registr_e49f8f66: "Օգտագործել այս կոնֆիգուրացիան ծնողի/դիտորդի գրանցման համար"
+  use_this_rubric_for_assignment_grading_a02fd079: "Օգտագործել այս ռուբրիկը հանձնարարությունը գնահատելու համար"
   use_this_same_grade_for_the_resubmission_eaa6bf55: "Օգտագործել գնահատման նույն սխեման հանձնարարության կրկնակի ուղարկման համար"
   used_by_permission_314a78dd: "Օգտագործվում է թույլտվության հիման վրա"
   user: 

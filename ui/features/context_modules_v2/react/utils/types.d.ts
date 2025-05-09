@@ -47,7 +47,39 @@ export type ModuleItemContent = {
   thumbnailUrl?: string
   externalUrl?: string
   newTab?: boolean
+  fileState?: string
+  locked?: boolean
+  assignmentOverrides?: AssignmentOverrideGraphQLResult
 } | null
+
+interface AssignmentOverrideGraphQLResult {
+  edges: Array<{
+    cursor: string
+    node: AssignmentOverride
+  }>
+}
+
+export interface AssignmentOverride {
+  dueAt?: string
+  set: {
+    students?: Array<{
+      id: string
+    }>
+    sectionId?: string
+    courseId?: string
+    groupId?: string
+  }
+}
+
+export type DueAtCount = {
+  groups?: number
+  sections?: number
+  students?: number
+}
+
+export type DueAtCounts = {
+  [key: string]: DueAtCount
+}
 
 export interface CompletionRequirement {
   id: string

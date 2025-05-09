@@ -167,6 +167,8 @@ describe "files index page" do
           edit_name_from_kebab_menu(1, file_rename_to)
           expect(file_rename_to).to be_present
           expect(content).not_to contain_link(a_txt_file_name)
+          action_button = get_item_files_table(1, 7).find_element(:css, "button")
+          check_element_has_focus(action_button)
         end
 
         it "deletes file", priority: "1" do
@@ -219,7 +221,7 @@ describe "files index page" do
           toolbox_menu_button("edit-permissions-button").click
           edit_item_permissions(:unpublished)
           expect(unpublished_status_button).to be_present
-          select_item_to_edit_from_kebab_menu(1)
+          toolbox_menu_button("more-button").click
           toolbox_menu_button("edit-permissions-button").click
           edit_item_permissions(:published)
           expect(published_status_button).to be_present

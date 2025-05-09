@@ -4420,6 +4420,7 @@ tr:
   cc_attribution_non_commercial_39e0d30d: "CC Özelliği Ticari Olmayan"
   cc_attribution_non_commercial_no_derivatives_9fe74c00: "CC Özelliği Ticari kullanılamayacak Özgün hali korunacak"
   cc_attribution_non_commercial_share_alike_c7edb1e5: "CC Özelliği Ticari kullanılamayacak İlk lisans modeli korunacak"
+  cc_attribution_share_alike_669e7f16: "CC Özelliği İlk lisans modeli korunacak"
   cc_subtitles_a0d16ff6: Altyazılar
   ccp_zero_activity_73d094c3: "CCP Zero Aktivitesi"
   cell_number_69a7c309: "Telefon Numarası"
@@ -5824,6 +5825,9 @@ tr:
   count_files_updated_4570a8a: 
     one: "1 dosya güncellendi"
     other: "%{count} dosya güncellendi"
+  count_groups_90e215b1: 
+    one: "1 grup"
+    other: "%{count} grup"
   count_hours_1bd03883: 
     one: "1 saat"
     other: "%{count} saat"
@@ -5878,6 +5882,9 @@ tr:
   count_results_displayed_ed39a0f0: 
     one: "Bir sonuç gösteriliyor"
     other: "%{count} sonuç gösteriliyor"
+  count_sections_bf1baf0a: 
+    one: "1 bölüm"
+    other: "%{count} bölüm"
   count_sets_of_grading_periods_found_c8857ae9: 
     one: "1 notlandırma peryodu seti bulundu."
     other: "%{count} notlandırma peryodu seti bulundu."
@@ -14947,6 +14954,7 @@ tr:
   privacy_290109ea: Gizlilik
   privacy_policy_c68f482a: "Gizlilik Sözleşmesi"
   private_3883d133: Özel
+  private_copyrighted_3cac9686: "Özel (Telif Hakkı Saklı)"
   process_as_ui_changes_8e34ed2a: "Arayüz Değişim Süreçleri "
   process_data_2f5f962f: "Veriyi İşle"
   processing_8c569014: İşleniyor...
@@ -19798,6 +19806,7 @@ tr:
   use_the_new_assignments_page_dd292b9d: "Yeni ödevler sayfasını kullan"
   use_the_new_collaborations_external_tool_enabling__5f0ed73: "İşbirliğine yönelik çalışmalarda kullanmak amacıyla daha fazla seçeneği etkilnleştirmek için yeni İşbirliği harici aracını kullanın"
   use_the_new_scheduler_1273b832: "Yeni zamanlayıcıyı kullanın"
+  use_this_rubric_for_assignment_grading_a02fd079: "Ödev değerlendirmesi için bu ölçeği kullan"
   use_this_same_grade_for_the_resubmission_eaa6bf55: "Tekrar gönderimde aynı notu kullan"
   used_by_permission_314a78dd: "İzinli Kullanıldı"
   user: 

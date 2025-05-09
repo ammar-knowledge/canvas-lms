@@ -3853,6 +3853,7 @@ uk:
   cc_attribution_no_derivatives_b006744f: "CC атрибуція непохідна"
   cc_attribution_non_commercial_no_derivatives_9fe74c00: "CC атрибуція некомерційна і непохідна"
   cc_attribution_non_commercial_share_alike_c7edb1e5: "CC атрибуція некомерційна розповсюджена таким чином"
+  cc_attribution_share_alike_669e7f16: "CC атрибуція розповсюджена таким чином"
   cell_number_69a7c309: "Номер мобільного"
   cell_number_is_invalid_bd6faee0: "Номер мобільного телефона недійсний!"
   cell_number_is_required_2edcee60: "Номер мобільного телефона обов'язковий"
@@ -5103,6 +5104,11 @@ uk:
     many: "%{count} файлів оновлено"
     one: "1 файл оновлено"
     other: "%{count} файлів оновлено"
+  count_groups_90e215b1: 
+    few: "%{count}групи"
+    many: "%{count}груп"
+    one: "1 група"
+    other: "%{count}груп"
   count_hours_1bd03883: 
     few: "%{count} годин"
     many: "%{count} годин"
@@ -5179,6 +5185,11 @@ uk:
     many: "%{count} результатів показано"
     one: "один результат показано"
     other: "%{count} результатів показано"
+  count_sections_bf1baf0a: 
+    few: "%{count}розділи"
+    many: "%{count}розділів"
+    one: "1 розділ"
+    other: "%{count}розділів"
   count_sets_of_grading_periods_found_c8857ae9: 
     one: "1 налаштування періоду оцінювання знайдено."
     other: "%{count} налаштувань періодів оцінювання знайдено."
@@ -13354,6 +13365,7 @@ uk:
   priority_dd4381ee: Пріоритет
   privacy_290109ea: Приватність
   privacy_policy_c68f482a: "Політика конфіденційності"
+  private_copyrighted_3cac9686: "Приватний (Захищено авторським правом)"
   proceed_f3d33864: Продовжувати
   process_as_ui_changes_8e34ed2a: "Обробка змін графічного інтерфейсу користувача"
   process_data_2f5f962f: "Обробка даних"
@@ -15316,6 +15328,7 @@ uk:
   restrict_students_from_accessing_courses_before_st_f7c22c00: "Обмежити студентам доступ до курсів до початкової дати"
   restrict_students_from_viewing_future_courses_in_e_67486caf: "Обмежити студентів від перегляду майбутніх курсів в списку реєстрацій"
   restricted_access_d3e99a39: "Обмежений доступ"
+  resubmit_63cf65ef: "Повторити відправку"
   resubmit_to_the_associated_tool_for_plagiarism_ana_8d84d913: "Повторно подати до відповідної служби для перевірки на плагіат"
   resubmit_to_tool_name_1cf02a31: "Повторно подати до %{tool_name}"
   resubmitted_2080646f: "Повторно поданий"
@@ -18243,6 +18256,7 @@ uk:
   use_this_list_to_remove_assigned_students_add_new__ad6205ad: "Використовуйте цей список для видалення призначених студентів. Додайте нових студентів з вікна під списком."
   use_this_panel_to_resolve_duplicate_results_or_peo_856d1c96: "Використовуйте цю панель для вирішення проблеми дублювання результатів або людей, не знайдені у вашому пошуку."
   use_this_panel_to_search_for_people_you_wish_to_ad_a3d726a7: "Використовуйте цю панель, щоб шукати людей, яких ви хочете додати до цього курсу."
+  use_this_rubric_for_assignment_grading_a02fd079: "Використовуйте цю рубрику для оцінювання завдання"
   use_this_same_grade_for_the_resubmission_eaa6bf55: "Використати саме цю оцінку для цього  повторного завдання"
   used_by_permission_314a78dd: "Використовується дозволом"
   user: 

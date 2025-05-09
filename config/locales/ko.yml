@@ -2955,6 +2955,7 @@ ko:
   cc_attribution_non_commercial_39e0d30d: "CC 유형 비영리"
   cc_attribution_non_commercial_no_derivatives_9fe74c00: "CC 유형 비영리 변경금지"
   cc_attribution_non_commercial_share_alike_c7edb1e5: "CC 유형 비영리 동일조건변경허락 "
+  cc_attribution_share_alike_669e7f16: "CC 유형 동일조건변경허락"
   cell_number_69a7c309: "휴대 전화 번호"
   change_beginning_date_to_39dbd06e: "시작 날짜를 다음으로 변경"
   change_ending_date_to_d2cebd54: "끝 날짜를 다음으로 변경"
@@ -4031,6 +4032,9 @@ ko:
   count_days_de0c6a32: 
     one: "%{count}일"
     other: "%{count}일"
+  count_groups_90e215b1: 
+    one: "그룹 %{count}개"
+    other: "그룹 %{count}개"
   count_hours_ago_322dcc79: 
     one: "%{count}시간 전"
     other: "%{count}시간 전"
@@ -4050,6 +4054,9 @@ ko:
   count_points_4735a2e8: 
     one: "%{count} 점"
     other: "%{count} 점"
+  count_sections_bf1baf0a: 
+    one: "섹션 %{count}개"
+    other: "섹션 %{count}개"
   count_students_c9920376: 
     one: "학생(%{count})"
     other: "학생(%{count})"
@@ -10518,6 +10525,7 @@ ko:
   privacy_level_f0ec09a3: "개인 정보 보호 수준"
   privacy_policy_c68f482a: "개인 정보 보호 정책"
   private_3883d133: 비공개
+  private_copyrighted_3cac9686: "비공개 (저작권 있음)"
   process_as_ui_changes_8e34ed2a: "UI 변경으로 처리"
   process_data_2f5f962f: "자료 처리"
   processing_8c569014: "처리 중..."
@@ -14143,6 +14151,7 @@ ko:
   upper_limit_of_range_c454a8f2: "범위의 상한"
   url_22a5f3b8: URL
   url_preview_5d1f4a4e: "URL 미리 보기"
+  use_this_rubric_for_assignment_grading_a02fd079: "과제 평가에 이 루브릭 사용"
   use_this_same_grade_for_the_resubmission_eaa6bf55: "다시 제출한 것에 대해 같은 평점 사용"
   user: 
     default_user_name: 사용자

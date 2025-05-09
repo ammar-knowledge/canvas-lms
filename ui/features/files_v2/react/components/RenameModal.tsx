@@ -24,19 +24,19 @@ import {Heading} from '@instructure/ui-heading'
 import FileFolderInfo from './shared/FileFolderInfo'
 import {TextInput} from '@instructure/ui-text-input'
 import type {File, Folder} from '../../interfaces/File'
-import {queryClient} from '@canvas/query'
-import doFetchApi from '@canvas/do-fetch-api-effect'
+import {doFetchApiWithAuthCheck, UnauthorizedError} from '../../utils/apiUtils'
 import {showFlashError, showFlashSuccess} from '@canvas/alerts/react/FlashAlert'
 import type {FormMessage} from '@instructure/ui-form-field'
-import {isFile, getName} from '../../utils/fileFolderUtils'
+import {isFile, getName, getUniqueId} from '../../utils/fileFolderUtils'
 import {View} from '@instructure/ui-view'
 import {Spinner} from '@instructure/ui-spinner'
 import {MAX_FOLDER_NAME_LENGTH} from '../../utils/folderUtils'
+import {useRows} from '../contexts/RowsContext'
 
 const I18n = createI18nScope('files_v2')
 
 const updateItemName = (item: File | Folder, name: string) => {
-  return doFetchApi({
+  return doFetchApiWithAuthCheck({
     method: 'PUT',
     path: `/api/v1/${isFile(item) ? 'files' : 'folders'}/${item.id}`,
     body: {name: name},
@@ -56,6 +56,7 @@ export const RenameModal = ({
   const [errorMessages, setErrorMessages] = useState<FormMessage[]>()
   const [isRequestInFlight, setIsRequestInFlight] = useState(false)
   const inputRef = useRef<TextInput>(null)
+  const {currentRows, setCurrentRows} = useRows()
 
   const handleSave = () => {
     const trimmedNewItemName = newItemName.trim()
@@ -80,10 +81,24 @@ export const RenameModal = ({
         showFlashSuccess(
           I18n.t('Successfully renamed %{item}.', {item: isFile(renamingItem) ? 'file' : 'folder'}),
         )()
+        const newRows = [...currentRows]
+        const index = newRows.findIndex(row => getUniqueId(row) === getUniqueId(renamingItem))
+        if (index !== -1) {
+          if (isFile(renamingItem)) {
+            newRows[index].filename = trimmedNewItemName
+            newRows[index].display_name = trimmedNewItemName
+          } else {
+            newRows[index].name = trimmedNewItemName
+          }
+          setCurrentRows(newRows)
+        }
         onClose()
-        await queryClient.refetchQueries({queryKey: ['files'], type: 'active'})
       })
       .catch(err => {
+        if (err instanceof UnauthorizedError) {
+          window.location.href = '/login'
+          return
+        }
         if (err?.response?.status == 409) {
           showFlashError(
             I18n.t('A file named "%{name}" already exists in this folder.', {
