@@ -27,7 +27,15 @@ export type ModuleItemContent = {
   id?: string
   _id?: string
   title: string
-  type?: string
+  type?:
+    | 'Assignment'
+    | 'Quiz'
+    | 'Discussion'
+    | 'File'
+    | 'Page'
+    | 'ExternalUrl'
+    | 'Attachment'
+    | 'SubHeader'
   pointsPossible?: number
   published?: boolean
   canUnpublish?: boolean
@@ -35,7 +43,14 @@ export type ModuleItemContent = {
   dueAt?: string
   lockAt?: string
   unlockAt?: string
+  cachedDueDate?: string
   todoDate?: string
+  submissionsConnection?: {
+    nodes: Array<{
+      _id: string
+      cachedDueDate?: string
+    }>
+  }
   url?: string
   isLockedByMasterCourse?: boolean
   assignmentGroupId?: string
@@ -47,7 +62,39 @@ export type ModuleItemContent = {
   thumbnailUrl?: string
   externalUrl?: string
   newTab?: boolean
+  fileState?: string
+  locked?: boolean
+  assignmentOverrides?: AssignmentOverrideGraphQLResult
 } | null
+
+interface AssignmentOverrideGraphQLResult {
+  edges: Array<{
+    cursor: string
+    node: AssignmentOverride
+  }>
+}
+
+export interface AssignmentOverride {
+  dueAt?: string
+  set: {
+    students?: Array<{
+      id: string
+    }>
+    sectionId?: string
+    courseId?: string
+    groupId?: string
+  }
+}
+
+export type DueAtCount = {
+  groups?: number
+  sections?: number
+  students?: number
+}
+
+export type DueAtCounts = {
+  [key: string]: DueAtCount
+}
 
 export interface CompletionRequirement {
   id: string
@@ -56,6 +103,31 @@ export interface CompletionRequirement {
   minPercentage?: number
   completed?: boolean
   fulfillmentStatus?: string
+}
+
+export interface ModuleRequirement {
+  id: string | number
+  type: string
+  min_score?: number
+  min_percentage?: number
+  score?: number
+}
+
+export interface ModuleProgression {
+  id: string
+  _id: string
+  workflowState: string
+  completedAt?: string
+  currentPosition?: number
+  collapsed?: boolean
+  requirementsMet: ModuleRequirement[]
+  incompleteRequirements?: ModuleRequirement[]
+  current?: boolean
+  evaluatedAt?: string
+  completed: boolean
+  locked: boolean
+  unlocked: boolean
+  started: boolean
 }
 
 export interface Prerequisite {
@@ -76,10 +148,12 @@ export interface Module {
   requireSequentialProgress: boolean
   unlockAt: string | null
   moduleItems: ModuleItem[]
+  progression?: ModuleProgression
 }
 
 export interface ModulesResponse {
   modules: Module[]
+  courseName?: string
   pageInfo: {
     hasNextPage: boolean
     endCursor: string | null
@@ -88,6 +162,7 @@ export interface ModulesResponse {
 
 interface GraphQLResult {
   legacyNode?: {
+    name?: string
     modulesConnection?: {
       edges: Array<{
         cursor: string

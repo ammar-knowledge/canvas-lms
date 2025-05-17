@@ -220,6 +220,39 @@ describe Types::CourseType do
         expect(course_type.resolve("assignmentsConnection { edges { node { _id } } }", current_user: @student).size).to eq 0
       end
 
+      context "hide_in_gradebook filter" do
+        before(:once) do
+          @regular_assignment = course.assignments.create!(
+            name: "Regular Assignment",
+            points_possible: 10,
+            workflow_state: "published"
+          )
+          @hidden_assignment = course.assignments.create!(
+            name: "Hidden Assignment",
+            points_possible: 0,
+            workflow_state: "published",
+            hide_in_gradebook: true,
+            omit_from_final_grade: true
+          )
+        end
+
+        it "filters out assignments with hide_in_gradebook when feature flag is enabled" do
+          Account.site_admin.enable_feature!(:hide_zero_point_quizzes_option)
+          result = course_type.resolve("assignmentsConnection { edges { node { _id } } }", current_user: @student)
+          assignment_ids = result.map(&:to_i)
+          expect(assignment_ids).to include(@regular_assignment.id)
+          expect(assignment_ids).not_to include(@hidden_assignment.id)
+        end
+
+        it "includes all assignments when feature flag is disabled" do
+          Account.site_admin.disable_feature!(:hide_zero_point_quizzes_option)
+          result = course_type.resolve("assignmentsConnection { edges { node { _id } } }", current_user: @student)
+          assignment_ids = result.map(&:to_i)
+          expect(assignment_ids).to include(@regular_assignment.id)
+          expect(assignment_ids).to include(@hidden_assignment.id)
+        end
+      end
+
       context "grading periods" do
         before(:once) do
           gpg = GradingPeriodGroup.create! title: "asdf",
@@ -1279,6 +1312,104 @@ describe Types::CourseType do
               expect(get_sorted_results(:total_activity_time, :desc, "enrollments { totalActivityTime }")[0..2].flatten).to eq @sorted_by_total_activity_time_asc.reverse
             end
           end
+        end
+      end
+
+      describe "users_connection_count" do
+        before(:once) do
+          @course = course_factory
+          @teacher = @course.enroll_teacher(user_factory, enrollment_state: "active").user
+          @student1 = @course.enroll_student(user_factory, enrollment_state: "active").user
+          @student2 = @course.enroll_student(user_factory, enrollment_state: "active").user
+          @student3 = @course.enroll_student(user_factory(name: "Searchable Student"), enrollment_state: "active").user
+          @inactive_student = @course.enroll_student(user_factory, enrollment_state: "inactive").user
+          @test_student = @course.student_view_student
+        end
+
+        let(:course_type) { GraphQLTypeTester.new(@course, current_user: @teacher) }
+
+        it "counts all course users" do
+          users = course_type.resolve("usersConnection { edges { node { _id } } }")
+          count = course_type.resolve("usersConnectionCount")
+          expect(users.size).to eq count
+          # All active students + teacher + test student + inactive student
+          expect(count).to eq 6
+        end
+
+        it "counts users filtered by user_ids with legacy parameter" do
+          users = course_type.resolve("usersConnection(userIds: [#{@student1.id}, #{@student2.id}]) { edges { node { _id } } }")
+          count = course_type.resolve("usersConnectionCount(userIds: [#{@student1.id}, #{@student2.id}])")
+          expect(users.size).to eq count
+          expect(count).to eq 2
+        end
+
+        it "counts users filtered by user_ids with filter parameter" do
+          users = course_type.resolve("usersConnection(filter: {userIds: [#{@student1.id}, #{@student2.id}]}) { edges { node { _id } } }")
+          count = course_type.resolve("usersConnectionCount(filter: {userIds: [#{@student1.id}, #{@student2.id}]})")
+          expect(users.size).to eq count
+          expect(count).to eq 2
+        end
+
+        it "counts users filtered by search_term" do
+          users = course_type.resolve('usersConnection(filter: {searchTerm: "Searchable"}) { edges { node { _id } } }')
+          count = course_type.resolve('usersConnectionCount(filter: {searchTerm: "Searchable"})')
+          expect(users.size).to eq count
+          expect(count).to eq 1
+        end
+
+        it "counts users filtered by enrollment_states" do
+          users = course_type.resolve("usersConnection(filter: {enrollmentStates: [inactive]}) { edges { node { _id } } }")
+          count = course_type.resolve("usersConnectionCount(filter: {enrollmentStates: [inactive]})")
+          expect(users.size).to eq count
+          expect(count).to eq 1
+        end
+
+        it "counts users filtered by enrollment_types" do
+          users = course_type.resolve("usersConnection(filter: {enrollmentTypes: [TeacherEnrollment]}) { edges { node { _id } } }")
+          count = course_type.resolve("usersConnectionCount(filter: {enrollmentTypes: [TeacherEnrollment]})")
+          expect(users.size).to eq count
+          expect(count).to eq 1
+        end
+
+        it "excludes from count test students when requested" do
+          users = course_type.resolve("usersConnection(filter: {excludeTestStudents: true}) { edges { node { _id } } }")
+          count = course_type.resolve("usersConnectionCount(filter: {excludeTestStudents: true})")
+          expect(users.size).to eq count
+          expect(count).to eq 5 # All users except test student
+        end
+
+        it "requires appropriate permissions to return count" do
+          other_user = user_factory
+          resolver = GraphQLTypeTester.new(@course, current_user: other_user)
+          users = resolver.resolve("usersConnection { edges { node { _id } } }")
+          count = resolver.resolve("usersConnectionCount")
+          expect(users).to be_nil
+          expect(count).to be_nil
+        end
+
+        it "counts users filtered by multiple filters" do
+          users_with_multiple_filters = <<~GQL
+            usersConnection(
+              filter: {
+                enrollmentTypes: [StudentEnrollment]
+                enrollmentStates: [active]
+                excludeTestStudents: true
+              }
+            ){ edges { node { _id } } }
+          GQL
+          count_with_multiple_filters = <<~GQL
+            usersConnectionCount(
+              filter: {
+                enrollmentTypes: [StudentEnrollment]
+                enrollmentStates: [active]
+                excludeTestStudents: true
+              }
+            )
+          GQL
+          users = course_type.resolve(users_with_multiple_filters)
+          count = course_type.resolve(count_with_multiple_filters)
+          expect(users.size).to eq count
+          expect(count).to eq 3 # Three active students
         end
       end
     end

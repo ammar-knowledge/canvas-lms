@@ -47,6 +47,14 @@ module Types
 
     field :word_count, Integer, null: true
 
+    field :file_state, String, null: true
+
+    field :locked, Boolean
+
+    field :lock_at, Types::DateTimeType, null: true
+
+    field :unlock_at, Types::DateTimeType, null: true
+
     field :size, String, null: true
     def size
       ActiveSupport::NumberHelper.number_to_human_size(object.size)
@@ -72,7 +80,11 @@ module Types
         host: context[:request].host_with_port,
         protocol: context[:request].protocol
       }
-      opts[:verifier] = object.uuid if context[:in_app]
+
+      unless context[:domain_root_account]&.feature_enabled?(:disable_adding_uuid_verifier_in_api)
+        opts[:verifier] = object.uuid if context[:in_app]
+      end
+
       GraphQLHelpers::UrlHelpers.file_download_url(object, opts)
     end
 

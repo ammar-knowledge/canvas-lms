@@ -2521,6 +2521,7 @@ hu:
   allow_the_ability_to_send_notifications_through_ou_13cc8537: "Annak engedélyezése, hogy az értesítések az elküldési soron kerüljenek kiküldésre."
   allow_the_item_banks_share_with_subaccounts_permis_a8a6e87f: "Engedélyezze a \"Tételbankok - megosztás alfiókokkal\" engedélyt."
   allow_this_tool_to_access_the_ims_names_and_role_p_33e16d7f: "Engedélyezze ennek az eszköznek az IMS-nevek és szerepkör-kiosztási szolgáltatás elérését"
+  allow_threaded_replies_43b2311e: "Engedélyezi a szálakba rendezett válaszokat"
   allow_to_clone_alignments_after_the_course_copy_pr_2f3a6421: "Engedélyezi az összehangolások klónozását a kurzus másolási folyamat után"
   allow_unconfirmed_e_mail_addresses_when_adding_use_47b7d5a2: "Meg nem erősített e-mail címek engedélyezése felhasználók hozzáadásakor"
   allow_users_to_comment_45b8f753: "Felhasználói hozzászólások engedélyezése"
@@ -5451,6 +5452,7 @@ hu:
   cc_attribution_non_commercial_39e0d30d: "CC Nevezd meg!-Ne add el!"
   cc_attribution_non_commercial_no_derivatives_9fe74c00: "CC Nevezd meg!-Ne add el!-Ne változtasd!"
   cc_attribution_non_commercial_share_alike_c7edb1e5: "CC Nevezd meg!-Ne add el!-Így add tovább!"
+  cc_attribution_share_alike_669e7f16: "CC Nevezd meg!-Így add tovább!"
   cc_subtitles_a0d16ff6: CC/Feliratok
   ccp_zero_activity_73d094c3: "CCP nulla aktivitás"
   cell_number_69a7c309: Mobilszám
@@ -7177,6 +7179,9 @@ hu:
     one: "1 szűrő"
     other: "{{count}} Szűrők"
     zero: "Nincsenek szűrők"
+  count_groups_90e215b1: 
+    one: "1 csoport"
+    other: "%{count} csoport"
   count_hidden_e8d2c57c: "%{count} elrejtve"
   count_hours_1bd03883: 
     one: "1 óra"
@@ -7299,6 +7304,9 @@ hu:
   count_rows_added_dacc9daf: "%{count} sor hozzáadva"
   count_rows_removed_c6ff7bc: "%{count} sor eltávolítva"
   count_sections_466dcd5c: 
+    one: "1 szekció"
+    other: "%{count} szekció"
+  count_sections_bf1baf0a: 
     one: "1 szekció"
     other: "%{count} szekció"
   count_sets_of_grading_periods_found_c8857ae9: 
@@ -9990,6 +9998,7 @@ hu:
   ending_date_e1ea13a4: Záródátum
   ends_4fcb632: "Véget ér:"
   ends_at_9a62b528: "Befejezés ideje"
+  ends_e3a6843f: "Véget ér"
   enforce_scopes_be28989c: "Alkalmazási körök érvényesítése"
   engagement_report_986e9621: "Kötelezettségi jelentés"
   english_australia_dc405d82: "English (Australia)"
@@ -12299,6 +12308,7 @@ hu:
   haven_t_submitted_yet_e63834db: "Még nem adott be"
   he_him_99aea1a8: Ő
   header_f28f73db: Fejléc
+  headings_should_not_contain_more_than_120_characte_3c0e0cb3: "A címsorok nem tartalmazhatnak 120 karakternél többet."
   heads_up_a_valid_salesforce_account_id_should_be_a_999cbf7d: "Fel a fejjel! Az érvényes Salesforce-fiókazonosítónak 15–18 alfanumerikus karakterből álló sorozatnak kell lennie."
   hebrew_88fbf778: Héber
   height_69b03e15: Magasság
@@ -12827,6 +12837,7 @@ hu:
   image_search_b0944fc2: Képkeresés
   image_url_and_image_id_cannot_both_be_set_9d6cbba4: "image_url és  image_id nem állítható be egyszerre."
   image_url_is_not_a_valid_url_4e31c8b0: "image_url nem érvényes URL"
+  images_should_include_an_alt_attribute_describing__b86d6a86: "A képeknek tartalmazniuk kell egy alt attribútumot, amely leírja a kép tartalmát."
   immediately_c128ede6: Azonnal
   immersive_reader_7b87538: "Imerzív olvasó"
   immersive_reader_failed_to_load_bc8d4dd4: "Az Immersive Reader nem tudott betölteni"
@@ -13649,7 +13660,10 @@ hu:
   learn_more_about_quiz_statistics_315a378: "Tudjon meg többet a kvízstatisztikákról."
   learn_more_about_the_differences_a1217479: "Tudjon meg többet a különbségekről."
   learn_more_about_this_feature_in_the_course_pacing_687ceb39: "Tudjon meg többet erről a funkcióról a *kurzus ütemezés felhasználói csoportban*."
+  learn_more_about_using_alt_text_for_images_5698df9a: "További információ az alternatív szövegek képekhez való használatáról"
+  learn_more_about_using_captions_with_tables_36fe496f: "További információ a feliratok táblázatokkal való használatáról"
   learn_more_about_using_commons_and_blueprints_3df953f6: "Tudjon meg többet a Commons és a Blueprints használatáról."
+  learn_more_about_using_lists_4e6eb860: "További információ a listák használatáról"
   learn_more_about_video_conferencing_5f0e76e4: "Tudjon meg többet a videokonferenciáról"
   learn_more_in_the_canvas_community_3bba7b11: "További információk a Canvas közösségi oldalon"
   learner_passport_prototype_1c3446b3: "Hallgatói útlevél prototípus"
@@ -13892,6 +13906,7 @@ hu:
   list_of_pseudonyms_to_get_report_for_af38e1c6: "A jelentéshez szükséges álnevek listája"
   list_of_students_and_observers_f7f1a58a: "A hallgatók és megfigyelők listája"
   list_view_430aecce: Listanézet
+  lists_should_be_formatted_as_lists_f862de8d: "A listákat listákként kell formázni."
   lithuanian_5adcbe24: Litván
   little_lost_try_here_first_9e24e575: "Elveszve érzi magát? Próbálkozzon először itt!"
   live_events_subscriptions_service_is_not_configure_8c6024e2: "Az élő eseményekre való feliratkozás nincs konfigurálva"
@@ -18345,6 +18360,7 @@ hu:
   please_enter_a_name_for_this_link_318f01a4: "Kérjük, adjon nevet ennek a hivatkozásnak"
   please_enter_a_number_between_0_and_100_for_the_mi_c6527eec: "Kérjük, adjon meg egy 0 és 100 közötti számot a migrációs arányhoz."
   please_enter_a_search_term_with_three_or_more_char_53fd5ed8: "Kérjük, olyan keresési kifejezést írjon be, ami három vagy több karakterből áll"
+  please_enter_a_valid_format_for_a_date_66ed0587: "Ez nem egy dátum!"
   please_enter_a_valid_search_term_5c69b0b0: "Kérjük, adjon meg egy érvényes keresési kifejezést"
   please_enter_a_valid_url_e_g_https_example_com_87675bca: "Kérjük, adjon meg egy érvényes url-t (pl. https://example.com)."
   please_enter_a_valid_url_protocol_is_required_e_g__4bc49ab1: " Kérjük, adjon meg egy érvényes URL-t. Protokoll szükséges (pl. http://, https://, ftp://, tel:, mailto:)."
@@ -19025,6 +19041,7 @@ hu:
   privacy_level_f0ec09a3: "Adatvédelmi szint"
   privacy_policy_c68f482a: "Adatvédelmi irányelvek"
   private_3883d133: Privát
+  private_copyrighted_3cac9686: "Magán (jogvédett)"
   private_key_is_present_in_certificate_file_1a1b7b42: "A magánkulcs jelen van a tanúsítványfájlban"
   pro_tip_30e41fa3: "PRO TIPP!"
   proceed_f3d33864: Folytatás
@@ -21296,6 +21313,7 @@ hu:
   restrict_view_of_quantitative_data_b6089ee9: "A mennyiségi adatok korlátozott megtekintése"
   restricted_access_d3e99a39: "Korlátozott hozzáférés"
   restricted_view_for_teachers_in_lmgb_52c78a62: "Korlátozott nézet az oktatók számára az LMGB-ben"
+  resubmit_63cf65ef: Újraküldés
   resubmit_to_the_associated_tool_for_plagiarism_ana_8d84d913: "Újra elküldés a hozzárendelt eszköznek plágium analizálásra."
   resubmit_to_tool_name_1cf02a31: "Újraküldés ennek: %{tool_name}"
   resubmitted_2080646f: Újraküldve
@@ -21731,6 +21749,8 @@ hu:
   scored_more_than_d1646bd5: "Több pontot szerzett, mint"
   scored_more_than_score_on_assignmenttitle_2afa1d32: "Több pontot ért el, mint %{score}, ezen a feladaton: %{assignmentTitle}"
   scoring_range_upperbound_to_lowerbound_c017669b: "Pontszámtartomány %{upperBound} és %{lowerBound} között"
+  screen_readers_cannot_determine_what_is_displayed__a57e6723: "A képernyőolvasók nem tudják meghatározni, hogy mi jelenik meg a képen az alternatív szöveg nélkül, amely leírja a kép tartalmát és jelentését."
+  screen_readers_cannot_interpret_tables_without_the_e62912d5: "A képernyőolvasók nem tudják értelmezni a táblázatokat megfelelő szerkezet nélkül. A táblázat feliratai leírják a táblázat kontextusát és általános értelmezését."
   screen_recording_is_in_progress_6e3993ac: "A képernyőfelvétel folyamatban van "
   screenreader_gradebook: 
     assignment_information: 
@@ -23145,6 +23165,7 @@ hu:
   showing_search_results_below_4c9a63d9: "Az alábbi keresési eredmények megjelenítése"
   shrink_permission_74b01aed: "Csökkentés %{permission}"
   shuffle_answers_edb602b7: "Válaszok összekeverése"
+  sighted_users_browse_web_pages_quickly_looking_for_ade806f5: "A látó felhasználók gyorsan böngésznek a weboldalakon, nagy vagy félkövér fejléceket keresve. A képernyőolvasó felhasználói a fejlécekre hagyatkoznak a kontextus megértéséhez. A fejléceknek tömörnek kell lenniük a megfelelő szerkezeten belül."
   sign_in_c6858e26: Bejelentkezés
   sign_up_dafdee18: Feliratkozás
   signature_8d0141c8: Aláírás
@@ -23548,6 +23569,7 @@ hu:
   starting_publish_5e4f16b9: "Publikálás megkezdése..."
   starts_at_29843f98: Kezdés
   starts_ce584f1c: "Kezdődik:"
+  starts_fa6bf3f5: Kezdődik
   starttime_to_endtime_4c46601f: "%{startTime} - %{endTime}"
   state_66a67ba2: Állapot
   state_published_e42697da: "állapot: publikált"
@@ -24208,6 +24230,7 @@ hu:
     type: Típus
   table_of_contents_544d9471: Tartalomjegyzék
   table_of_contents_d2d11ba6: Tartalomjegyzék
+  tables_should_include_a_caption_describing_the_con_e91e78fc: "A táblázatoknak tartalmazniuk kell egy feliratot, amely leírja a táblázat tartalmát."
   tabs: 
     announcements: Hirdetmények
     assignments: Feladatok
@@ -26410,6 +26433,7 @@ hu:
   use_this_panel_to_resolve_duplicate_results_or_peo_856d1c96: "Használja ezt a panelt a duplikált találatok vagy a kereséssel nem talált személyek feloldására."
   use_this_panel_to_search_for_people_you_wish_to_ad_a3d726a7: "Ezen a panelen kereshet olyan személyeket, akiket hozzá szeretne adni ehhez a kurzushoz.                        "
   use_this_photo_3a594830: "Használja ezt a fotót"
+  use_this_rubric_for_assignment_grading_a02fd079: "Értékelőtábla használata a feladat értékeléséhez"
   use_this_same_grade_for_the_resubmission_eaa6bf55: "Az újraküldött megoldásnál is legyen ugyanez az osztályzat"
   use_webcam_1ed0bf6b: "Webkamera használata"
   use_window_parent_in_deep_linking_response_8fe5f845: "A window.parent használata a Deep Linking válaszban"
@@ -26892,6 +26916,7 @@ hu:
   users_manage_students_in_courses_d6168815: "Felhasználók - a hallgatók kezelése a kurzusokban"
   users_matching_search_term_c604db9e: "\"%{search_term}\" keresésnek megfelelő felhasználók"
   users_moderate_content_36d6eed7: "Felhasználók - moderálja a tartalmat"
+  users_must_post_before_seeing_replies_d1761968: "A felhasználóknak először bejegyzést kell írniuk ahhoz, hogy láthassák a válaszokat."
   users_observers_e0e66c52: "Felhasználók - Megfigyelők"
   users_of_screen_readers_may_need_to_turn_off_the_v_98811cd: "A képernyőfelolvasót használóknak ki kell kapcsolniuk a virtuális kurzort, hogy használhassák a billentyűparancsokat"
   users_over_time_9a2ee74a: "felhasználók időn túl"
@@ -27262,6 +27287,7 @@ hu:
                                     új lapon.
   when_hiding_grades_for_anonymous_assignments_grade_1b0ef682: " Az anonim feladatok osztályzatainak elrejtésekor az osztályzatokat mindenki számára\n\
       \x20                             elrejti a kurzusban. "
+  when_markup_is_used_that_visually_formats_items_as_f941fc1b: "Ha olyan jelölést használnak, amely vizuálisan formázza az elemeket listaként, de nem jelzi a lista kapcsolatát, akkor a felhasználók nehézségekbe ütközhetnek az információk közötti navigáció során."
   when_masquerading_as_course_admin_roles_teacher_ta_e3e3c0a9: |-
       A kurzus adminisztrátori szerepkörnek (tanár/segédoktató/tervező alapszerepkör) álcázásakor a
        Canvas biztosítja, hogy az álcázó felhasználó minden olyan (vagy több) jogosultsággal

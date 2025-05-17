@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-RSpec.describe Lti::AssetReport, type: :model do
+RSpec.describe Lti::AssetReport do
   describe "validations" do
     subject { lti_asset_report_model }
 
@@ -44,15 +44,6 @@ RSpec.describe Lti::AssetReport, type: :model do
         %i[title comment indication_alt error_code].each do |field|
           expect(lti_asset_report_model(field => nil)).to be_valid
         end
-      end
-
-      it "is invalid if score_given is provided without score_maximum" do
-        expect do
-          lti_asset_report_model(score_given: 1, score_maximum: nil)
-        end.to raise_error(ActiveRecord::RecordInvalid, /Score maximum must be present if score_given is present/)
-        expect(lti_asset_report_model(score_given: nil, score_maximum: 1)).to be_valid
-        expect(lti_asset_report_model(score_given: nil, score_maximum: nil)).to be_valid
-        expect(lti_asset_report_model(score_given: 1, score_maximum: 1)).to be_valid
       end
 
       it "requires indication_color to be a hex code" do
@@ -97,10 +88,6 @@ RSpec.describe Lti::AssetReport, type: :model do
       ar.update!(workflow_state: "deleted")
       expect(lti_asset_report_model(attrs)).to be_valid
     end
-
-    it "sets the default processing progress if the given progress is not recognized" do
-      expect(lti_asset_report_model(processing_progress: "Unrecognized")).to have_attributes(processing_progress: "NotReady")
-    end
   end
 
   describe "PRIORITIES" do
@@ -114,6 +101,216 @@ RSpec.describe Lti::AssetReport, type: :model do
       expect(Lti::AssetReport::PROGRESSES).to match_array(
         %w[Processed Processing Pending PendingManual Failed NotProcessed NotReady]
       )
+    end
+  end
+
+  describe ".info_for_display_by_submission" do
+    subject do
+      # Ensure the factory objects are created
+      [rep1aIi, rep1aIii, rep1bIi, rep2aIi, rep2aIIi]
+      Lti::AssetReport.info_for_display_by_submission(submission_ids: [sub1.id, sub2.id])
+    end
+
+    let(:course) { course_factory }
+    let(:assignment) { assignment_model(course:) }
+    let(:processorI) { lti_asset_processor_model(assignment:) }
+    let(:processorII) { lti_asset_processor_model(assignment:) }
+
+    # Student 1
+    let(:student1) { student_in_course(course:).user }
+    let(:sub1) { assignment.submissions.find_by(user: student1) }
+    let(:att1a) { attachment_model(context: student1) }
+    let(:asset1a) { lti_asset_model(submission: sub1, attachment: att1a) }
+    let(:att1b) { attachment_model(context: student1) }
+    let(:asset1b) { lti_asset_model(submission: sub1, attachment: att1b) }
+
+    # Student 2
+    let(:student2) { student_in_course(course:).user }
+    let(:sub2) { assignment.submissions.find_by(user: student2) }
+    let(:att2a) { attachment_model(context: student2) }
+    let(:asset2a) { lti_asset_model(submission: sub2, attachment: att2a) }
+
+    # Student 1 (submission 1) reports:
+    # Student 1, attachment a (1a), processor I, report type i
+    let(:rep1aIi) { lti_asset_report_model(asset: asset1a, asset_processor: processorI, report_type: "type_i") }
+    let(:rep1aIii) { lti_asset_report_model(asset: asset1a, asset_processor: processorI, report_type: "type_ii") }
+    let(:rep1bIi) { lti_asset_report_model(asset: asset1b, asset_processor: processorI) }
+
+    # Student 2 (submission 2) reports:
+    let(:rep2aIi) { lti_asset_report_model(asset: asset2a, asset_processor: processorI) }
+    let(:rep2aIIi) { lti_asset_report_model(asset: asset2a, asset_processor: processorII) }
+
+    let(:by_submission) { subject[:reports_by_submission] }
+
+    it "includes the asset processor ID in the asset_processor_ids set" do
+      expect(subject[:asset_processor_ids]).to match_array([processorI.id, processorII.id])
+    end
+
+    it "organizes reports by submission and attachment" do
+      expect(by_submission.keys).to match_array([sub1.id, sub2.id])
+      expect(by_submission[sub1.id]).to \
+        match({
+                by_attachment: {
+                  att1a.id => { processorI.id => an_instance_of(Array) },
+                  att1b.id => { processorI.id => an_instance_of(Array) },
+                }
+              })
+      expect(by_submission[sub2.id]).to \
+        match({
+                by_attachment: {
+                  att2a.id => {
+                    processorI.id => an_instance_of(Array),
+                    processorII.id => an_instance_of(Array)
+                  }
+                }
+              })
+
+      sub1_reports = by_submission[sub1.id][:by_attachment]
+      sub2_reports = by_submission[sub2.id][:by_attachment]
+
+      expect(sub1_reports[att1a.id][processorI.id].map { _1[:id] }).to \
+        match_array([rep1aIi.id, rep1aIii.id])
+      expect(sub1_reports[att1b.id][processorI.id].map { _1[:id] }).to \
+        match_array([rep1bIi.id])
+      expect(sub2_reports[att2a.id][processorI.id].map { _1[:id] }).to \
+        match_array([rep2aIi.id])
+      expect(sub2_reports[att2a.id][processorII.id].map { _1[:id] }).to \
+        match_array([rep2aIIi.id])
+    end
+
+    it "includes report details in the result" do
+      r = by_submission[sub1.id][:by_attachment][att1a.id][processorI.id].find do |r|
+        r[:id] == rep1aIi.id
+      end
+      expect(r).to eq(rep1aIi.info_for_display)
+    end
+
+    context "when some reports are deleted" do
+      before { rep2aIIi.destroy! }
+
+      it "does not include the reports or their processor ids" do
+        expect(subject[:asset_processor_ids]).not_to include(processorII.id)
+        expect(subject[:reports_by_submission][sub2.id][:by_attachment][att2a.id].keys).not_to \
+          include(processorII.id)
+      end
+    end
+
+    context "when a processor is deleted" do
+      before { processorII.destroy! }
+
+      it "does not include the reports or their processor ids" do
+        expect(subject[:asset_processor_ids]).not_to include(processorII.id)
+        expect(subject[:reports_by_submission][sub2.id][:by_attachment][att2a.id].keys).not_to \
+          include(processorII.id)
+      end
+    end
+
+    it "returns empty results when no matching reports exist" do
+      rep1aIi
+      result = Lti::AssetReport.info_for_display_by_submission(submission_ids: Submission.last.id + 1)
+      expect(result[:asset_processor_ids]).to be_empty
+      expect(result[:reports_by_submission]).to be_empty
+    end
+
+    context "when submission_ids is nil" do
+      it "returns empty results" do
+        rep1aIi
+        result = Lti::AssetReport.info_for_display_by_submission(submission_ids: nil)
+        expect(result[:asset_processor_ids]).to be_empty
+        expect(result[:reports_by_submission]).to be_empty
+      end
+    end
+
+    context "when submission_ids is empty" do
+      it "returns empty results" do
+        rep1aIi
+        result = Lti::AssetReport.info_for_display_by_submission(submission_ids: [])
+        expect(result[:asset_processor_ids]).to be_empty
+        expect(result[:reports_by_submission]).to be_empty
+      end
+    end
+  end
+
+  describe "#info_for_display" do
+    subject { report.info_for_display }
+
+    let(:report) do
+      lti_asset_report_model(
+        title: "My cool report",
+        comment: "What a great report",
+        indication_color: "#008800",
+        indication_alt: "WOW",
+        result: "8/10",
+        error_code: "MYERRORCODE",
+        processing_progress: "Processed"
+      )
+    end
+
+    it "returns a hash with the report's details" do
+      expect(subject[:id]).to eq(report.id)
+      expect(subject[:title]).to eq("My cool report")
+      expect(subject[:comment]).to eq("What a great report")
+      expect(subject[:result]).to eq("8/10")
+      expect(subject).to_not have_key(:result_truncated)
+      expect(subject[:indication_color]).to eq("#008800")
+      expect(subject[:indication_alt]).to eq("WOW")
+      expect(subject[:error_code]).to eq("MYERRORCODE")
+      expect(subject[:processing_progress]).to eq("Processed")
+    end
+
+    it "truncates result_truncated to 16 characters" do
+      report.update!(result: "12345678901234567890")
+      expect(subject[:result_truncated]).to eq("123456789012345…")
+      expect(subject[:result]).to eq("12345678901234567890")
+    end
+
+    it "includes launch_url_path for processed reports" do
+      expect(subject[:launch_url_path]).to \
+        eq "/asset_processors/#{report.lti_asset_processor_id}/reports/#{report.id}/launch"
+    end
+  end
+
+  describe "#resubmit_url_path" do
+    let(:processing_progress) { "Failed" }
+    let(:error_code) { "MYERRORCODE" }
+    let(:standard_report) { lti_asset_report_model(processing_progress:, error_code:) }
+
+    context "when processing_progress is Failed" do
+      ["EULA_NOT_ACCEPTED", "DOWNLOAD_FAILED"].each do |error_code|
+        context "when error_code is #{error_code}" do
+          let(:error_code) { error_code }
+
+          it "returns a resubmit URL path" do
+            expect(standard_report.resubmit_url_path).to eq(
+              "/api/lti/asset_processors/#{standard_report.lti_asset_processor_id}/notices/#{standard_report.asset.submission.user_id}"
+            )
+          end
+        end
+      end
+
+      context "when error_code does not need action" do
+        it "resubmit_url_path is nil" do
+          expect(standard_report.resubmit_url_path).to be_nil
+        end
+      end
+    end
+
+    context "when processing_progress is PendingManual" do
+      let(:processing_progress) { "PendingManual" }
+
+      it "returns a resubmit URL path" do
+        expect(standard_report.resubmit_url_path).to eq(
+          "/api/lti/asset_processors/#{standard_report.lti_asset_processor_id}/notices/#{standard_report.asset.submission.user_id}"
+        )
+      end
+    end
+
+    context "when processing_progress is not Failed or PendingManual" do
+      let(:processing_progress) { "Processed" }
+
+      it "returns nil" do
+        expect(standard_report.resubmit_url_path).to be_nil
+      end
     end
   end
 end

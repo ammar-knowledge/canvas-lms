@@ -84,6 +84,8 @@ class ContextExternalTool < ActiveRecord::Base
 
   scope :disabled, -> { where(workflow_state: DISABLED_STATE) }
   scope :quiz_lti, -> { where(tool_id: QUIZ_LTI) }
+  scope :lti_1_3, -> { where(lti_version: "1.3") }
+  scope :lti_1_1, -> { where(lti_version: "1.1") }
 
   STANDARD_EXTENSION_KEYS = [
     :canvas_icon_class,
@@ -978,8 +980,8 @@ class ContextExternalTool < ActiveRecord::Base
     end
   end
 
-  def check_for_duplication(verify_uniqueness)
-    if duplicated_in_context? && verify_uniqueness
+  def check_for_duplication
+    if duplicated_in_context?
       errors.add(:tool_currently_installed, "The tool is already installed in this context.")
     end
   end

@@ -53,6 +53,14 @@ buttons_and_icons_root_account:
     production:
       state: hidden
 
+canvas_content_builder:
+  applies_to: Account
+  state: hidden
+  display_name: Canvas Content Builder
+  description: |-
+    Enable the new Canvas Content Builder for the Rich Content Editor.
+  shadow: true
+
 consolidated_media_player:
   applies_to: SiteAdmin
   state: hidden
@@ -134,12 +142,12 @@ files_a11y_rewrite:
   description: |-
     Enables the new Files a11y Rewrite page.
 
-files_a11y_rewrite_toogle:
+files_a11y_rewrite_toggle:
   applies_to: SiteAdmin
   state: hidden
   display_name: Files a11y Rewrite Toggle
   description: |-
-    Controls whether users can see the "Switch to Old UI" toggle in the Files component.
+    Allows users to switch to the old files ui when the Files A11y Rewrite flag is enabled.
   environments:
     development:
       state: allowed_on

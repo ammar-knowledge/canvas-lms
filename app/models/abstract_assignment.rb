@@ -264,7 +264,7 @@ class AbstractAssignment < ActiveRecord::Base
     self.automatic_peer_reviews = false
     self.group_category_id = nil
     self.rubric_association = nil
-    self.submission_types = "online_text_entry" unless HORIZON_SUBMISSION_TYPES.include?(submission_types)
+    self.submission_types = "online_text_entry" unless (submission_types_array - HORIZON_SUBMISSION_TYPES).empty?
     self.workflow_state = "unpublished" if context_module_tags.none? { |t| t.tag_type == "context_module" && t.context_module&.published? }
   end
 
@@ -938,7 +938,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def needs_to_update_submissions?
-    !id_before_last_save.nil? &&
+    !previously_new_record? &&
       (saved_change_to_points_possible? || saved_change_to_grading_type? || saved_change_to_grading_standard_id?) &&
       submissions.graded.exists?
   end
@@ -965,7 +965,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def needs_to_recompute_grade?
-    !id_before_last_save.nil? && (
+    !previously_new_record? && (
       saved_change_to_points_possible? ||
       saved_change_to_workflow_state? ||
       saved_change_to_assignment_group_id? ||
@@ -984,7 +984,7 @@ class AbstractAssignment < ActiveRecord::Base
   private :update_grades_if_details_changed
 
   def update_grading_period_grades
-    return true unless saved_change_to_due_at? && !saved_change_to_id? && context.grading_periods? && saved_by != :migration
+    return true unless saved_change_to_due_at? && !previously_new_record? && context.grading_periods? && saved_by != :migration
 
     grading_period_was = GradingPeriod.for_date_in_course(date: due_at_before_last_save, course: context)
     grading_period = GradingPeriod.for_date_in_course(date: due_at, course: context)
@@ -1632,7 +1632,9 @@ class AbstractAssignment < ActiveRecord::Base
     scope ||= context.all_students.where("enrollments.workflow_state NOT IN ('inactive', 'rejected')")
     return scope unless differentiated_assignments_applies?
 
-    scope.able_to_see_assignment_in_course_with_da(id, context.id, user_ids)
+    context.shard.activate do
+      scope.able_to_see_assignment_in_course_with_da(id, context.id, user_ids)
+    end
   end
 
   def process_if_quiz
@@ -3625,7 +3627,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def update_cached_due_dates?
-    new_record? || just_created ||
+    new_record? || previously_new_record? ||
       will_save_change_to_due_at? || saved_change_to_due_at? ||
       will_save_change_to_workflow_state? || saved_change_to_workflow_state? ||
       will_save_change_to_only_visible_to_overrides? ||

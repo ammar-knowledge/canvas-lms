@@ -109,7 +109,16 @@ class Lti::Registration < ActiveRecord::Base
     Lti::Overlay.find_in_site_admin(self)
   end
 
-  def new_external_tool(context, existing_tool: nil)
+  # Returns a new ContextExternalTool for this Registration and the given context.
+  # If an existing tool is provided, it will be updated with the new configuration.
+  # If errors occur during the update, a ContextExternalToolErrors exception will be raised,
+  # containing the errors from the update.
+  #
+  # @param context [Account | Course] The context for which to create the tool.
+  # @param existing_tool [ContextExternalTool | nil] An existing tool to update.
+  # @param verify_uniqueness [Boolean] Whether or not to check for uniqueness.
+  # @return [ContextExternalTool] A new ContextExternalTool for this Registration and the given context.
+  def new_external_tool(context, existing_tool: nil, verify_uniqueness: false)
     # disabled tools should stay disabled while getting updated
     # deleted tools are never updated during a dev key update so can be safely ignored
     tool_is_disabled = existing_tool&.workflow_state == ContextExternalTool::DISABLED_STATE
@@ -125,6 +134,15 @@ class Lti::Registration < ActiveRecord::Base
     tool.lti_registration = self
     tool.developer_key = developer_key
     tool.workflow_state = (tool_is_disabled && ContextExternalTool::DISABLED_STATE) || privacy_level
+
+    if verify_uniqueness
+      tool.check_for_duplication
+    end
+
+    if tool.errors.any? || !tool.save
+      raise Lti::ContextExternalToolErrors, tool.errors
+    end
+
     tool
   end
 
@@ -242,6 +260,7 @@ class Lti::Registration < ActiveRecord::Base
   # causes the destroy callbacks to fail, leaving the registration undeleted. Foreign key maybe?
   # The ims_registration and developer_key delete just fine, so we'll just handle it manually.
   # Additionally, dependent: :destroy removes the bindings from the association which we do not want.
+  # Finally, dependent: :destroy on the tool_configuration will also hard delete it, which we also don't want.
   def destroy_associations
     ims_registration&.destroy
     developer_key&.destroy

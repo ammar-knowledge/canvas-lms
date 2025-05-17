@@ -19,7 +19,6 @@
 import $ from 'jquery'
 import ModuleDuplicationSpinner from '../react/ModuleDuplicationSpinner'
 import React from 'react'
-import ReactDOM from 'react-dom'
 import {createRoot} from 'react-dom/client'
 import {reorderElements, renderTray} from '@canvas/move-item-tray'
 import LockIconView from '@canvas/lock-icon'
@@ -82,7 +81,18 @@ import {addModuleElement} from '../utils/moduleHelpers'
 import ContextModulesHeader from '../react/ContextModulesHeader'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 import {ModuleItemsLazyLoader} from '../utils/ModuleItemsLazyLoader'
-import {addShowAllOrLess, isModuleSelectedByTEACHER_MODULE_SELECTION} from '../utils/showAllOrLess'
+import {
+  isModuleCollapsed,
+  isModulePaginated,
+  addShowAllOrLess,
+  maybeExpandAndLoadAll,
+  loadFirstPage,
+  isModuleCurrentPageEmpty,
+  MODULE_EXPAND_AND_LOAD_ALL,
+  MODULE_LOAD_ALL,
+  MODULE_LOAD_FIRST_PAGE,
+} from '../utils/showAllOrLess'
+import {ModuleItemsStore} from '../utils/ModuleItemsStore'
 
 if (!('INST' in window)) window.INST = {}
 
@@ -587,6 +597,9 @@ window.modules = (function () {
       } else {
         $before.before($item.show())
       }
+      if (ENV.FEATURE_MODULES_PERF && $module[0]?.dataset.moduleId) {
+        maybeExpandAndLoadAll($module[0].dataset.moduleId)
+      }
       refreshDuplicateLinkStatus($module)
       return $item
     },
@@ -607,7 +620,11 @@ window.modules = (function () {
         addShowAllOrLess(moduleId)
       }
 
-      const moduleItemsLazyLoader = new ModuleItemsLazyLoader(ENV.COURSE_ID, itemsCallback)
+      const moduleItemsLazyLoader = new ModuleItemsLazyLoader(
+        ENV.COURSE_ID,
+        itemsCallback,
+        new ModuleItemsStore(ENV.COURSE_ID, ENV.current_user_id, ENV.ACCOUNT_ID),
+      )
       moduleItemsLazyLoader.fetchModuleItems(moduleIds, allPages)
     },
 
@@ -946,13 +963,15 @@ const updatePublishMenuDisabledState = function (disabled) {
       const $publishMenu = $(publishMenu)
       $publishMenu.data('disabled', disabled)
 
-      ReactDOM.render(
+      if (!publishMenu.reactRoot) {
+        publishMenu.reactRoot = createRoot(publishMenu)
+      }
+      publishMenu.reactRoot.render(
         <ContextModulesPublishMenu
           courseId={$publishMenu.data('courseId')}
           runningProgressId={$publishMenu.data('progressId')}
           disabled={disabled}
         />,
-        publishMenu,
       )
     }
   }
@@ -1112,7 +1131,14 @@ modules.initModuleManagement = async function (duplicate) {
     const $tempElement = $('<div id="temporary-spinner" class="item-group-condensed"></div>')
     $tempElement.insertAfter(duplicatedModuleElement)
 
-    ReactDOM.render(spinner, $('#temporary-spinner')[0])
+    const spinnerContainer = $('#temporary-spinner')[0]
+    if (spinnerContainer) {
+      if (!spinnerContainer.reactRoot) {
+        spinnerContainer.reactRoot = createRoot(spinnerContainer)
+      }
+      spinnerContainer.reactRoot.render(spinner)
+    }
+
     $.screenReaderFlashMessage(I18n.t('Duplicating Module, this may take some time'))
     const renderDuplicatedModule = function (response) {
       response.data.ENV_UPDATE.forEach(newAttachmentItem => {
@@ -1131,20 +1157,23 @@ modules.initModuleManagement = async function (duplicate) {
           const $newModule = ENV.FEATURE_MODULES_PERF
             ? $(getResponse.data)
             : $(getResponse.data).find(`#context_module_${newModuleId}`)
+          spinnerContainer?.reactRoot?.unmount()
           $tempElement.remove()
           $newModule.insertAfter(duplicatedModuleElement)
           const module_dnd = $newModule.find('.module_dnd')[0]
           if (module_dnd) {
             const contextModules = document.getElementById('context_modules')
+            if (!module_dnd.reactRoot) {
+              module_dnd.reactRoot = createRoot(module_dnd)
+            }
 
-            ReactDOM.render(
+            module_dnd.reactRoot.render(
               <ModuleFileDrop
                 courseId={ENV.course_id}
                 moduleId={newModuleId}
                 contextModules={contextModules}
                 moduleName={moduleName}
               />,
-              module_dnd,
             )
           }
           $newModule.find('.collapse_module_link').focus()
@@ -1165,7 +1194,7 @@ modules.initModuleManagement = async function (duplicate) {
             $(document).off('click', '.add_module_link')
           }
           $('#context_modules').off('addFileToModule')
-          $('.context_module')
+          $newModule
             .find('.expand_module_link,.collapse_module_link')
             .bind('click keyclick', toggleModuleCollapse)
           modules.initModuleManagement($newModule)
@@ -1207,7 +1236,11 @@ modules.initModuleManagement = async function (duplicate) {
             : $addModuleButton
           const module_dnd = $(this).find('.module_dnd')[0]
           if (module_dnd) {
-            ReactDOM.unmountComponentAtNode(module_dnd)
+            const module_dnd_root = module_dnd.reactRoot
+            if (module_dnd_root) {
+              module_dnd_root.unmount()
+              module_dnd.reactRoot = undefined
+            }
           }
           $(this).slideUp(function () {
             $(this).remove()
@@ -1393,6 +1426,13 @@ modules.initModuleManagement = async function (duplicate) {
             modules.updateEstimatedDurations()
             $placeToFocus.focus()
             refreshDuplicateLinkStatus($currentModule)
+            if (
+              ENV.FEATURE_MODULES_PERF &&
+              isModulePaginated($currentModule[0]) &&
+              isModuleCurrentPageEmpty($currentModule[0])
+            ) {
+              loadFirstPage($currentModule[0]?.dataset.moduleId)
+            }
           })
           $.flashMessage(
             I18n.t('Module item %{module_item_name} was successfully removed.', {
@@ -1817,7 +1857,10 @@ function toggleModuleCollapse(event, fetchAllPages) {
   const expandCallback = null
   const collapse = $(this).hasClass('collapse_module_link') ? '1' : '0'
   const $module = $(this).parents('.context_module')
-  const reload_entries = $module.find('.content .context_module_items').children().length === 0
+  const reload_entries =
+    fetchAllPages ||
+    ($module.find('.content .context_module_items').children().length === 0 &&
+      $module.find('.module_dnd').length === 0)
   const toggle = function (show) {
     const callback = function () {
       $module
@@ -1977,11 +2020,14 @@ function initContextModuleItems(moduleId) {
 
     const currentItem = $(this).parents('.context_module_item')[0]
     const modules = document.querySelectorAll('#context_modules .context_module')
-    const groups = Array.prototype.map.call(modules, module => {
+    const groups = Array.from(modules).map(module => {
       const id = module.getAttribute('id').substring('context_module_'.length)
       const title = module.querySelector('.header > .collapse_module_link > .name').textContent
+      if (ENV.FEATURE_MODULES_PERF && (isModuleCollapsed(module) || isModulePaginated(module))) {
+        return {id, title, items: false}
+      }
       const moduleItems = module.querySelectorAll('.context_module_item')
-      const items = Array.prototype.map.call(moduleItems, item => ({
+      const items = Array.from(moduleItems).map(item => ({
         id: item.getAttribute('id').substring('context_module_item_'.length),
         title: item.querySelector('.title').textContent.trim(),
       }))
@@ -2003,25 +2049,50 @@ function initContextModuleItems(moduleId) {
       formatSaveUrl: ({groupId}) => `${ENV.CONTEXT_URL_ROOT}/modules/${groupId}/reorder`,
       onMoveSuccess: ({data, itemIds, groupId}) => {
         const itemId = itemIds[0]
-        const $container = $(`#context_module_${groupId} .ui-sortable`)
-        $container.sortable('disable')
-
         const item = document.querySelector(`#context_module_item_${itemId}`)
-        $container[0].appendChild(item)
+        const $container = $(`#context_module_${groupId} .ui-sortable`)
+        if ($container.length) {
+          $container.sortable('disable')
+          $container[0].appendChild(item)
 
-        const order = data.context_module.content_tags.map(item => item.content_tag.id)
-        reorderElements(order, $container[0], id => `#context_module_item_${id}`)
-        $container.sortable('enable').sortable('refresh')
+          const order = data.context_module.content_tags.map(item => item.content_tag.id)
+          reorderElements(order, $container[0], id => `#context_module_item_${id}`)
+          $container.sortable('enable').sortable('refresh')
+        } else {
+          item.remove()
+        }
+        if (ENV.FEATURE_MODULES_PERF) {
+          maybeExpandAndLoadAll(groupId)
+        }
       },
       focusOnExit: () => currentItem.querySelector('.al-trigger'),
     }
 
-    renderTray(moveTrayProps, document.getElementById('not_right_side'))
+    fetchModuleItemsAndRenderTray(moveTrayProps, document.getElementById('not_right_side'))
   })
 
   if (ENV.FEATURE_MODULES_PERF) {
     addShowAllOrLess(moduleId)
   }
+}
+
+async function fetchModuleItemsAndRenderTray(moveTrayProps, rootContainer) {
+  const missing_groups = moveTrayProps.moveOptions.groups.filter(group => {
+    return group.items === false
+  })
+
+  const promises = missing_groups.map(async group => {
+    return fetch(
+      `/api/v1/courses/${ENV.COURSE_ID}/modules/${group.id}/items?include[]=title_only&per_page=1000`,
+    )
+      .then(res => res.json())
+      .then(items => {
+        group.items = items.map(item => ({id: String(item.id), title: item.title}))
+      })
+  })
+
+  await Promise.all(promises)
+  renderTray(moveTrayProps, rootContainer)
 }
 
 // TODO: call this on the current page when getting a new page of items
@@ -2086,7 +2157,12 @@ function renderItemAssignToTray(open, returnFocusTo, itemProps) {
 }
 
 function renderCopyToTray(open, contentSelection, returnFocusTo) {
-  ReactDOM.render(
+  const mountPoint = document.getElementById('direct-share-mount-point')
+  if (!mountPoint) return
+  if (!mountPoint.reactRoot) {
+    mountPoint.reactRoot = createRoot(mountPoint)
+  }
+  mountPoint.reactRoot.render(
     <DirectShareCourseTray
       open={open}
       sourceCourseId={ENV.COURSE_ID}
@@ -2096,12 +2172,16 @@ function renderCopyToTray(open, contentSelection, returnFocusTo) {
         returnFocusTo.focus()
       }}
     />,
-    document.getElementById('direct-share-mount-point'),
   )
 }
 
 function renderSendToTray(open, contentSelection, returnFocusTo) {
-  ReactDOM.render(
+  const mountPoint = document.getElementById('direct-share-mount-point')
+  if (!mountPoint) return
+  if (!mountPoint.reactRoot) {
+    mountPoint.reactRoot = createRoot(mountPoint)
+  }
+  mountPoint.reactRoot.render(
     <DirectShareUserModal
       open={open}
       sourceCourseId={ENV.COURSE_ID}
@@ -2111,12 +2191,16 @@ function renderSendToTray(open, contentSelection, returnFocusTo) {
         returnFocusTo.focus()
       }}
     />,
-    document.getElementById('direct-share-mount-point'),
   )
 }
 
 function renderExternalAppsTray(open, contentSelection, moduleId, returnFocusTo) {
-  ReactDOM.render(
+  const mountPoint = document.getElementById('direct-share-mount-point')
+  if (!mountPoint) return
+  if (!mountPoint.reactRoot) {
+    mountPoint.reactRoot = createRoot(mountPoint)
+  }
+  mountPoint.reactRoot.render(
     <ExternalAppsMenuTray
       open={open}
       sourceCourseId={ENV.COURSE_ID}
@@ -2127,7 +2211,6 @@ function renderExternalAppsTray(open, contentSelection, moduleId, returnFocusTo)
         returnFocusTo.focus()
       }}
     />,
-    document.getElementById('direct-share-mount-point'),
   )
 }
 
@@ -2393,9 +2476,12 @@ function initContextModules() {
 
   function renderHeaderComponent() {
     const root = $('#context-modules-header-root')
-    if (root[0]) {
-      ReactDOM.render(<ContextModulesHeader {...root.data('props')} />, root[0])
+    if (!root.length) return
+    const mountPoint = root[0]
+    if (!mountPoint.reactRoot) {
+      mountPoint.reactRoot = createRoot(mountPoint)
     }
+    mountPoint.reactRoot.render(<ContextModulesHeader {...root.data('props')} />)
   }
 
   $(document).on('click', '.module_copy_to', event => {
@@ -2521,7 +2607,6 @@ $(() => {
   const allModules = Array.from(document.querySelectorAll('.context_module'))
     .map(m => parseInt(m.dataset.moduleId, 10))
     .filter(mid => !isNaN(mid))
-  let allPages = false
 
   if (ENV.FEATURE_MODULES_PERF) {
     // ENV.COLLAPSED_MODULES are those that have been collapsed by the user
@@ -2537,7 +2622,6 @@ $(() => {
           if (allModules.includes(moduleId)) {
             ENV.EXPANDED_MODULES = [moduleId]
             ENV.COLLAPSED_MODULES = []
-            allPages = true
           }
         }
       }
@@ -2554,7 +2638,7 @@ $(() => {
         ENV.COLLAPSED_MODULES = allModules.filter(mid => !ENV.EXPANDED_MODULES.includes(mid))
       }
 
-      modules.lazyLoadItems(ENV.EXPANDED_MODULES, allPages)
+      modules.lazyLoadItems(ENV.EXPANDED_MODULES)
     }
     for (const module of allModules) {
       addShowAllOrLess(module)
@@ -2562,21 +2646,29 @@ $(() => {
     // Handle Show All and Show Less events
     // I don't bother with removeEventListener because the events are
     // bound to the document and will be dealt with on page unload
-    document.addEventListener('module-expand-and-load-all', event => {
+    document.addEventListener(MODULE_EXPAND_AND_LOAD_ALL, event => {
       $(`#context_module_${event.detail.moduleId} .expand_module_link`).trigger(
         'click',
         event.detail.allPages,
       )
     })
-    document.addEventListener('module-load-all', event => {
-      modules.lazyLoadItems([event.detail.moduleId], true)
+    document.addEventListener(MODULE_LOAD_ALL, event => {
+      const moduleId = event.detail.moduleId
+      document
+        .querySelector(`#context_module_content_${moduleId} ul.context_module_items`)
+        ?.remove()
+      modules.lazyLoadItems([moduleId], true)
     })
-    document.addEventListener('module-load-first-page', event => {
+    document.addEventListener(MODULE_LOAD_FIRST_PAGE, event => {
       // TODO: rather than re-querying, maybe delete all items
       //       beyond the first page and trigger
       //       re-render of ModuleItemPaging
       //       (but this is easier)
-      modules.lazyLoadItems([event.detail.moduleId], false)
+      const moduleId = event.detail.moduleId
+      document
+        .querySelector(`#context_module_content_${moduleId} ul.context_module_items`)
+        ?.remove()
+      modules.lazyLoadItems([moduleId], false)
     })
   } else {
     if ($('#context_modules').hasClass('editable')) {

@@ -36,7 +36,7 @@ class GradebooksController < ApplicationController
   before_action :require_user, only: %i[speed_grader speed_grader_settings grade_summary grading_rubrics update_final_grade_overrides]
 
   include HorizonMode
-  before_action :redirect_student_to_horizon, only: [:show, :grade_summary]
+  before_action :load_canvas_career, only: [:show, :grade_summary]
 
   include K5Mode
 
@@ -875,7 +875,7 @@ class GradebooksController < ApplicationController
                                        :media_comment_type,
                                        :group_comment,
                                        :late_policy_status).to_unsafe_h
-        is_default_grade_for_missing = value_to_boolean(submission.delete(:set_by_default_grade)) && submission_record.missing? && submission_record.late_policy_status.nil?
+        is_default_grade_for_missing = value_to_boolean(submission.delete(:set_by_default_grade)) && submission_record && submission_record.missing? && submission_record.late_policy_status.nil?
 
         submission[:grader] = @current_user unless is_default_grade_for_missing
         submission.delete(:provisional) unless @assignment.moderated_grading?

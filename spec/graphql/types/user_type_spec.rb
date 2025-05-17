@@ -318,6 +318,20 @@ describe Types::UserType do
                                current_user: @student).map(&:to_i)).to eq [@course2.id, @course1.id]
     end
 
+    it "throws when orderBy is SQL injection" do
+      error = assert_raises GraphQLTypeTester::Error do
+        user_type.resolve('enrollments(orderBy: ["pg_sleep(3)::text"]) {
+          _id
+          course {
+            _id
+          }
+        }')
+      end
+
+      separator = (RUBY_VERSION >= "3.4.0") ? " => " : "=>"
+      expect(error.message).to eq(%([{"message"#{separator}"orderBy is not included in the list", "locations"#{separator}[{"line"#{separator}4, "column"#{separator}7}], "path"#{separator}["node", "enrollments"]}]))
+    end
+
     context "sort" do
       before(:once) do
         @course1 = course_factory

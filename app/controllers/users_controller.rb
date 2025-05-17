@@ -383,8 +383,10 @@ class UsersController < ApplicationController
   #   This can be a base role type of 'student', 'teacher',
   #   'ta', 'observer', or 'designer'.
   #
-  # @argument sort [String, "username"|"email"|"sis_id"|"integration_id"|"last_login"]
-  #   The column to sort results by.
+  # @argument sort [String, "username"|"email"|"sis_id"|"integration_id"|"last_login"|"id"]
+  #   The column to sort results by. For efficiency, use +id+ if you intend to retrieve
+  #   many pages of results. In the future, other sort options may be rate-limited
+  #   after 50 pages.
   #
   # @argument order [String, "asc"|"desc"]
   #   The order to sort the given column by.
@@ -436,15 +438,18 @@ class UsersController < ApplicationController
                                    })
       users = users.with_last_login if params[:sort] == "last_login"
     end
+    users.preload(:pseudonyms) if includes.include? "deleted_pseudonyms"
 
     page_opts = { total_entries: nil }
     if includes.include?("ui_invoked")
       page_opts = {} # let Folio calculate total entries
       includes.delete("ui_invoked")
+    elsif params[:sort] == "id"
+      # for a more efficient way to retrieve many pages in bulk
+      users = BookmarkedCollection.wrap(UserSearch::Bookmarker.new(order: params[:order]), users)
     end
 
     GuardRail.activate(:secondary) do
-      users.preload(:pseudonyms) if includes.include? "deleted_pseudonyms"
       users = Api.paginate(users, self, api_v1_account_users_url, page_opts)
 
       user_json_preloads(users, includes.include?("email"))
@@ -1977,6 +1982,41 @@ class UsersController < ApplicationController
 
     if user.set_preference(:text_editor_preference, params[:text_editor_preference])
       render(json: { text_editor_preference: user.reload.get_preference(:text_editor_preference) })
+    else
+      render(json: user.errors, status: :bad_request)
+    end
+  end
+
+  # @API Update files UI version preference
+  # Updates a user's default choice for files UI version. This allows
+  # the files UI to preload the user's preference.
+  #
+  # @argument files_ui_version [String, "v1"|"v2"]
+  #   The identifier for the files UI version.
+  #
+  # @example_request
+  #
+  #   curl 'https://<canvas>/api/v1/users/<user_id>/files_ui_version_preference \
+  #     -X PUT \
+  #     -F 'files_ui_version=v2'
+  #     -H 'Authorization: Bearer <token>'
+  #
+  # @example_response
+  #   {
+  #     "files_ui_version": "v2"
+  #   }
+
+  def set_files_ui_version_preference
+    user = api_find(User, params[:id])
+
+    return unless authorized_action(user, @current_user, [:manage, :manage_user_details])
+
+    if %w[v1 v2].exclude?(params[:files_ui_version])
+      return render(json: { message: "Invalid files_ui_version provided" }, status: :bad_request)
+    end
+
+    if user.set_preference(:files_ui_version, params[:files_ui_version])
+      render(json: { files_ui_version: user.reload.get_preference(:files_ui_version) })
     else
       render(json: user.errors, status: :bad_request)
     end

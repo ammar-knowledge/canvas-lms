@@ -132,14 +132,14 @@ class DiscussionEntry < ActiveRecord::Base
     p.dispatch :new_discussion_entry
     p.to { discussion_topic.subscribers - [user] - mentioned_users }
     p.whenever do |record|
-      record.just_created && record.active?
+      record.previously_new_record? && record.active?
     end
     p.data { course_broadcast_data }
 
     p.dispatch :announcement_reply
     p.to { discussion_topic.user }
     p.whenever do |record|
-      record.discussion_topic.is_announcement && record.just_created && record.active?
+      record.discussion_topic.is_announcement && record.previously_new_record? && record.active?
     end
     p.data { course_broadcast_data }
   end
@@ -642,7 +642,9 @@ class DiscussionEntry < ActiveRecord::Base
   def broadcast_report_notification(report_type)
     return unless root_account.feature_enabled?(:discussions_reporting)
 
-    to_list = context.instructors_in_charge_of(user_id)
+    course = context.is_a?(Group) ? context.course : context
+
+    to_list = course.instructors_in_charge_of(user_id)
 
     notification_type = "Reported Reply"
     notification = BroadcastPolicy.notification_finder.by_name(notification_type)
