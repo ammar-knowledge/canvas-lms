@@ -129,14 +129,18 @@ export const DiscussionPostToolbar = props => {
 
   const renderTranslate = () => {
     const text = showTranslate ? I18n.t('Hide Translate Text') : I18n.t('Translate Text')
-    const improvedText = showTranslationControl
-      ? I18n.t('Turn off Translation')
+
+    const translationText = props.isAnnouncement
+      ? I18n.t('Translate Announcement')
       : I18n.t('Translate Discussion')
+
+    const improvedText = showTranslationControl ? I18n.t('Turn off Translation') : translationText
 
     return (
       <Button
         onClick={toggleTranslateText}
         data-testid="translate-button"
+        data-action-state={showTranslationControl ? 'disableTranslation' : 'enableTranslation'}
         renderIcon={<IconAiLine />}
       >
         {ENV.ai_translation_improvements ? improvedText : text}
@@ -209,6 +213,7 @@ export const DiscussionPostToolbar = props => {
     <>
       <TranslationTriggerModal
         isModalOpen={isModalOpen}
+        isAnnouncement={props.isAnnouncement}
         closeModal={() => {
           setModalOpen(false)
         }}
@@ -399,13 +404,11 @@ export const DiscussionPostToolbar = props => {
                       />
                     </Flex.Item>
                   )}
-                  {!props.isAnnouncement &&
-                    translationLanguages.current.length > 0 &&
-                    !isSpeedGraderInTopUrl && (
-                      <Flex.Item margin="0 small 0 0" padding={responsiveProps.padding}>
-                        {renderTranslate()}
-                      </Flex.Item>
-                    )}
+                  {translationLanguages.current.length > 0 && !isSpeedGraderInTopUrl && (
+                    <Flex.Item margin="0 small 0 0" padding={responsiveProps.padding}>
+                      {renderTranslate()}
+                    </Flex.Item>
+                  )}
                   {isSpeedGraderInTopUrl && window?.ENV?.FEATURES?.discussion_checkpoints && (
                     <Flex.Item
                       margin="0 small 0 0"
@@ -481,6 +484,7 @@ export const DiscussionPostToolbar = props => {
                     >
                       <span data-testid="toggle-filter-menu">
                         <SimpleSelect
+                          id="viewSelect"
                           renderLabel={
                             <ScreenReaderContent>{I18n.t('Filter by')}</ScreenReaderContent>
                           }

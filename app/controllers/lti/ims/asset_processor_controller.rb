@@ -58,8 +58,7 @@ module Lti::IMS
       indicationColor
       priority
       processingProgress
-      scoreGiven
-      scoreMaximum
+      result
       timestamp
       title
       type
@@ -97,18 +96,15 @@ module Lti::IMS
     #   use the value 0.
     #
     # @argument processingProgress [String]
-    #   Indicates the status of the report. Must be one of the following:
+    #   Indicates the status of the report. Should be one of the following:
     #   Processed, Processing, PendingManual, Failed, NotProcessed, NotReady.
-    #   If an unrecognized value is given, Canvas will assume `NotReady`.
+    #   If an unrecognized value is given, the value will be stored, but will
+    #   be treated by Canvas as `NotReady`.
     #
-    # @argument scoreGiven [Optional, Float]
-    #   The report's score. Must be greater or equal to zero. Required
-    #   if scoreMaximum is provided. scoreGiven may be greater than scoreMaximum.
-    #
-    # @argument scoreMaximum [Optional, Float]
-    #   The denominator in a score value (e.g. total calculated score is
-    #   scoreGiven / scoreMaximum). Must be positive. Required if scoreGiven is
-    #   provided.
+    # @argument result [Optional, String]
+    #   A short string (16 characters or fewer) that briefly describes the
+    #   successful result of the processing. This should be provided if
+    #   processingProgress is Processed, and not provided otherwise.
     #
     # @argument timestamp [String]
     #   An ISO8601 date time value with microsecond precision. Reports with newer
@@ -133,8 +129,7 @@ module Lti::IMS
     #     "type": "originality",
     #     "timestamp": "2025-01-24T17:56:53.221+00:00",
     #     "title": "Originality Report",
-    #     "scoreGiven" : 75,
-    #     "scoreMaximum" : 100,
+    #     "result" : "75/100",
     #     "indicationColor" : "#EC0000",
     #     "indicationAlt" : "High percentage of matched text.",
     #     "priority": 5,
@@ -158,8 +153,7 @@ module Lti::IMS
     #     "type": "originality",
     #     "timestamp": "2025-01-24T17:56:53.221+00:00",
     #     "title": "Originality Report",
-    #     "scoreGiven" : 75,
-    #     "scoreMaximum" : 100,
+    #     "result" : "75/100",
     #     "indicationColor" : "#EC0000",
     #     "indicationAlt" : "High percentage of matched text.",
     #     "priority": 5,

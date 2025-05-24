@@ -1491,6 +1491,38 @@ describe "Users API", type: :request do
       expect(json.length).to eq 1
       expect(response.headers["Link"]).to_not include("rel=\"next\"")
     end
+
+    it "does bookmarked pagination when sorting by id" do
+      @account = Account.default
+      3.times { |x| user_with_pseudonym(name: "testuser #{x}") }
+      account_admin_user
+      json = api_call(:get,
+                      "/api/v1/accounts/#{@account.id}/users?search_term=testuser&sort=id&per_page=1",
+                      { controller: "users",
+                        action: "api_index",
+                        format: "json",
+                        account_id: @account.id.to_param,
+                        search_term: "testuser",
+                        per_page: "1",
+                        sort: "id" })
+      expect(json.map { |user| user["name"] }).to eq ["testuser 0"]
+
+      links = Api.parse_pagination_links(response.headers["Link"])
+      next_link = links.detect { |link| link[:rel] == "next" }
+      expect(next_link["page"]).to start_with "bookmark:"
+
+      json = api_call(:get,
+                      next_link[:uri].to_s,
+                      { controller: "users",
+                        action: "api_index",
+                        format: "json",
+                        account_id: @account.id.to_param,
+                        search_term: "testuser",
+                        per_page: "1",
+                        sort: "id",
+                        page: next_link["page"] })
+      expect(json.map { |user| user["name"] }).to eq ["testuser 1"]
+    end
   end
 
   describe "user account creation" do
@@ -3158,6 +3190,64 @@ describe "Users API", type: :request do
                         { expected_status: 200 })
         expect(json["custom_colors"]["course_#{@local_course.global_id}"]).to eq "#ababab"
       end
+    end
+  end
+
+  describe "files ui version preference" do
+    before do
+      @a = Account.default
+      @user = user_factory(active_all: true)
+      @a.account_users.create!(user: @user)
+    end
+
+    it "defaults to v2 if no preference has been set" do
+      expect(@user.files_ui_version).to eq "v2"
+    end
+
+    it "updates the files ui version for a user" do
+      json = api_call(
+        :put,
+        "/api/v1/users/#{@user.id}/files_ui_version_preference",
+        { controller: "users",
+          action: "set_files_ui_version_preference",
+          format: "json",
+          id: @user.to_param },
+        { files_ui_version: "v1" },
+        {},
+        { expected_status: 200 }
+      )
+      expect(json["files_ui_version"]).to eq "v1"
+      expect(@user.reload.files_ui_version).to eq "v1"
+    end
+
+    it "returns a 400 if the files ui version is invalid" do
+      json = api_call(
+        :put,
+        "/api/v1/users/#{@user.id}/files_ui_version_preference",
+        { controller: "users",
+          action: "set_files_ui_version_preference",
+          format: "json",
+          id: @user.to_param },
+        { files_ui_version: "v3" },
+        {},
+        { expected_status: 400 }
+      )
+      expect(json["message"]).to eq "Invalid files_ui_version provided"
+    end
+
+    it "returns a 400 if the files ui version is not provided" do
+      json = api_call(
+        :put,
+        "/api/v1/users/#{@user.id}/files_ui_version_preference",
+        { controller: "users",
+          action: "set_files_ui_version_preference",
+          format: "json",
+          id: @user.to_param },
+        {},
+        {},
+        { expected_status: 400 }
+      )
+      expect(json["message"]).to eq "Invalid files_ui_version provided"
     end
   end
 

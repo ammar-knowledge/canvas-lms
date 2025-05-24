@@ -35,6 +35,26 @@ class ModuleItemsVisibleLoader < GraphQL::Batch::Loader
   end
 end
 
+class ModuleProgressionLoader < GraphQL::Batch::Loader
+  def initialize(user)
+    super()
+    @user = user
+  end
+
+  def perform(context_modules)
+    GuardRail.activate(:secondary) do
+      progressions = ContextModuleProgression.where(
+        context_module_id: context_modules.map(&:id),
+        user_id: @user.id
+      ).index_by(&:context_module_id)
+      context_modules.each do |context_module|
+        progression = progressions[context_module.id]
+        fulfill(context_module, progression)
+      end
+    end
+  end
+end
+
 module Types
   class ModuleType < ApplicationObjectType
     graphql_name "Module"
@@ -72,7 +92,9 @@ module Types
     field :require_sequential_progress, Boolean, null: true
 
     field :completion_requirements, [ModuleCompletionRequirementType], null: true
-    delegate :completion_requirements, to: :context_module
+    def completion_requirements
+      context_module.completion_requirements_visible_to(current_user, is_teacher: false)
+    end
 
     field :requirement_count, Integer, null: true
     delegate :requirement_count, to: :context_module
@@ -84,6 +106,11 @@ module Types
       ModuleItemsVisibleLoader.for(current_user).load(context_module)
     end
 
+    field :submission_statistics, Types::ModuleStatisticsType, null: true
+    def submission_statistics
+      Loaders::ModuleStatisticsLoader.for(current_user:).load(context_module)
+    end
+
     field :estimated_duration, GraphQL::Types::ISO8601Duration, null: true
     def estimated_duration
       module_items.then do |content_tags|
@@ -91,6 +118,20 @@ module Types
 
         content_tags.sum { |item| item.estimated_duration&.duration || 0 }.iso8601
       end
+    end
+
+    field :progression, Types::ModuleProgressionType, null: true, description: "The current user's progression through the module"
+    def progression
+      ModuleProgressionLoader.for(current_user).load(context_module)
+    end
+
+    field :has_active_overrides, Boolean, null: false
+
+    def has_active_overrides
+      AssignmentOverride.where(
+        context_module_id: object.id,
+        workflow_state: "active"
+      ).exists?
     end
   end
 end

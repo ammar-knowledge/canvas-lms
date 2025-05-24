@@ -26,7 +26,7 @@ class ContextModulesController < ApplicationController
   before_action :require_context
 
   include HorizonMode
-  before_action :redirect_student_to_horizon, only: [:index, :show]
+  before_action :load_canvas_career, only: [:index, :show]
 
   add_crumb(proc { t("#crumbs.modules", "Modules") }) { |c| c.send :named_context_url, c.instance_variable_get(:@context), :context_context_modules_url }
   before_action { |c| c.active_tab = "modules" }
@@ -278,7 +278,7 @@ class ContextModulesController < ApplicationController
       js_env(CONTEXT_MODULE_ESTIMATED_DURATION_INFO_URL: context_url(@context, :context_context_modules_estimated_duration_info_url))
       css_bundle :content_next, :context_modules2
 
-      if @context.root_account.feature_enabled?(:modules_page_rewrite)
+      if (@context.grants_right?(@current_user, session, :read_as_admin) && @context.root_account.feature_enabled?(:modules_page_rewrite)) || (@is_student && @context.feature_enabled?(:modules_page_rewrite_student_view))
         # Load new modules page assets
         context_modules_header_props = {
           title: t("Modules"),

@@ -190,6 +190,9 @@ class DeveloperKeysController < ApplicationController
   before_action :require_manage_developer_keys
   before_action :require_root_account, only: %i[index create]
 
+  include HorizonMode
+  before_action :load_canvas_career, only: [:index]
+
   include Api::V1::DeveloperKey
 
   # @API List Developer Keys
@@ -323,7 +326,10 @@ class DeveloperKeysController < ApplicationController
   #
   # @returns DeveloperKey
   def destroy
-    @key.destroy
+    DeveloperKey.transaction do
+      raise ActiveRecord::RecordNotDestroyed unless @key.destroy
+    end
+
     render json: developer_key_json(@key, @current_user, session, account_context)
   rescue => e
     report_error(e)

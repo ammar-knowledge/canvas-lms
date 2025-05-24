@@ -1241,6 +1241,7 @@ EditView.prototype.afterRender = function () {
   this.$anonymousGradingBox = $('' + ANONYMOUS_GRADING_BOX)
   this.renderModeratedGradingFormFieldGroup()
   this.renderAllowedAttempts()
+  // this.renderEnhancedRubrics()
   this.$graderCommentsVisibleToGradersBox = $('#assignment_grader_comment_visibility')
   this.$gradersAnonymousToGradersLabel = $('label[for="assignment_graders_anonymous_to_graders"]')
   this.similarityDetectionTools = SimilarityDetectionTools.attach(
@@ -1263,6 +1264,9 @@ EditView.prototype.afterRender = function () {
       courseId: ENV.COURSE_ID,
       secureParams: this.$secureParams.val(),
       initialAttachedProcessors: ENV.ASSET_PROCESSORS || [],
+      hideErrors: () => {
+        this.hideErrors('asset_processors_errors')
+      },
     })
   }
 
@@ -1587,6 +1591,9 @@ EditView.prototype.fieldSelectors = Object.assign(
   },
   {
     usage_rights_legal_copyright: COPYRIGHT_HOLDER,
+  },
+  {
+    asset_processors: '#asset_processors_container',
   },
 )
 

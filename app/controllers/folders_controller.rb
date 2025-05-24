@@ -168,13 +168,13 @@ class FoldersController < ApplicationController
     opts = opts.merge(include: params[:include]) if params[:include].present?
 
     folder_column_map = {
-      "name" => "name",
+      "name" => Folder.best_unicode_collation_key("folders.name"),
       "updated_at" => "updated_at",
       "created_at" => "created_at"
     }
 
     file_column_map = {
-      "name" => "display_name",
+      "name" => Attachment.best_unicode_collation_key("attachments.display_name"),
       "updated_at" => "updated_at",
       "created_at" => "created_at",
       "size" => "size",
@@ -187,8 +187,8 @@ class FoldersController < ApplicationController
     file_sort = file_column_map[params[:sort]] || "display_name"
     file_desc = params[:order] == "desc"
 
-    folder_scope = folder_index_scope(opts[:can_view_hidden_files])
-    file_scope = file_index_scope(@folder, @current_user, session)
+    folder_scope = folder_index_scope(opts[:can_view_hidden_files]).preload(:active_file_attachments, :active_sub_folders)
+    file_scope = file_index_scope(@folder, @current_user, session).preload(:attachment_upload_statuses, :root_attachment)
 
     # Explicit LEFT JOIN for sorting by modified_by and rights
     if params[:sort] == "modified_by"
@@ -199,9 +199,10 @@ class FoldersController < ApplicationController
 
     folder_bookmarker = Plannable::Bookmarker.new(Folder, folder_desc, folder_sort, :id)
     folders_collection = BookmarkedCollection.wrap(folder_bookmarker, folder_scope)
-    file_bookmarker = Plannable::Bookmarker.new(Attachment, file_desc, file_sort, :id)
 
+    file_bookmarker = Plannable::Bookmarker.new(Attachment, file_desc, file_sort, :id)
     files_collection = BookmarkedCollection.wrap(file_bookmarker, file_scope)
+
     collections = [
       ["folders", folders_collection],
       ["files", files_collection]

@@ -26,6 +26,7 @@ module Api::V1::Assignment
   include Api::V1::AssignmentOverride
   include SubmittablesGradingPeriodProtection
   include Api::V1::PlannerOverride
+  include Api::V1::EstimatedDuration
 
   ALL_DATES_LIMIT = 25
 
@@ -377,10 +378,10 @@ module Api::V1::Assignment
           hash["all_dates"] = []
 
           assignment.sub_assignments.each do |sub_assignment|
-            hash["all_dates"].concat(sub_assignment.dates_hash_visible_to(user))
+            hash["all_dates"].concat(sub_assignment.formatted_dates_hash_visible_to(user))
           end
         elsif override_count < ALL_DATES_LIMIT
-          hash["all_dates"] = assignment.dates_hash_visible_to(user)
+          hash["all_dates"] = assignment.formatted_dates_hash_visible_to(user)
         else
           hash["all_dates_count"] = override_count
         end
@@ -511,6 +512,10 @@ module Api::V1::Assignment
 
     if opts[:migrated_urls_content_migration_id]
       hash["migrated_urls_content_migration_id"] = opts[:migrated_urls_content_migration_id]
+    end
+
+    if estimated_duration_enabled?(assignment) && assignment.estimated_duration&.marked_for_destruction? == false
+      hash["estimated_duration"] = estimated_duration_json(assignment.estimated_duration, user, session)
     end
 
     hash
@@ -1104,6 +1109,7 @@ module Api::V1::Assignment
     unless assignment.new_record?
       assignment.restore_attributes
       old_assignment = assignment.clone
+      old_assignment.instance_variable_set(:@new_record, false)
       old_assignment.id = assignment.id
     end
 
@@ -1119,8 +1125,12 @@ module Api::V1::Assignment
     end
 
     apply_external_tool_settings(assignment, assignment_params)
-    apply_asset_processor_settings(assignment, assignment_params) if assignment.root_account.feature_enabled?(:lti_asset_processor)
-
+    begin
+      apply_asset_processor_settings(assignment, assignment_params) if assignment.root_account.feature_enabled?(:lti_asset_processor)
+    rescue Schemas::Base::InvalidSchema
+      assignment.errors.add("asset_processors", I18n.t("The document processing app is invalid. Please contact the tool provider"))
+      return invalid
+    end
     overrides = pull_overrides_from_params(assignment_params)
 
     if assignment_params[:allowed_extensions].present? && assignment_params[:allowed_extensions].length > Assignment.maximum_string_length
@@ -1187,6 +1197,11 @@ module Api::V1::Assignment
     :created
   end
 
+  def remove_differentiation_tag_overrides(overrides_to_delete)
+    tag_overrides = overrides_to_delete.select { |o| o.set_type == "Group" && o.set.non_collaborative? }
+    tag_overrides.each(&:destroy!)
+  end
+
   def update_api_assignment_with_overrides(prepared_update, user)
     assignment = prepared_update[:assignment]
     overrides = prepared_update[:overrides]
@@ -1199,6 +1214,13 @@ module Api::V1::Assignment
 
     assignment.transaction do
       assignment.validate_overrides_for_sis(prepared_batch)
+
+      # remove differentiation tag overrides if they are being deleted
+      # and account setting is disabled. The assignment will fail validation
+      # if these overrides exist and the account setting is disabled
+      unless @context.account.allow_assign_to_differentiation_tags?
+        remove_differentiation_tag_overrides(prepared_batch[:overrides_to_delete])
+      end
 
       # validate_assignment_overrides runs as a save callback, but if the group
       # category is changing, remove overrides for old groups first so we don't
@@ -1329,7 +1351,12 @@ module Api::V1::Assignment
       { "external_tool_tag_attributes" => strong_anything },
       ({ "submission_types" => strong_anything } if should_update_submission_types),
       { "ab_guid" => strong_anything },
+      ({ "estimated_duration_attributes" => strong_anything } if estimated_duration_enabled?(assignment)),
     ].compact
+  end
+
+  def estimated_duration_enabled?(assignment)
+    assignment.context.is_a?(Course) && assignment.context.horizon_course?
   end
 
   def update_lockdown_browser?(assignment_params)

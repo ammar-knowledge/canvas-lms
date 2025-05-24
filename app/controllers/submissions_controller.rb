@@ -96,7 +96,7 @@ class SubmissionsController < SubmissionsBaseController
   before_action :require_context
 
   include HorizonMode
-  before_action :redirect_student_to_horizon, only: [:index, :show]
+  before_action :load_canvas_career, only: [:index, :show]
 
   include K5Mode
 
@@ -569,17 +569,17 @@ class SubmissionsController < SubmissionsBaseController
           cancel_cache_buster
 
           format.html do
-            send_file(attachment.full_filename, {
-                        type: attachment.content_type_with_encoding,
-                        disposition: "inline"
-                      })
+            safe_send_file(attachment.full_filename, {
+                             type: attachment.content_type_with_encoding,
+                             disposition: "inline"
+                           })
           end
 
           format.zip do
-            send_file(attachment.full_filename, {
-                        type: attachment.content_type_with_encoding,
-                        disposition: "inline"
-                      })
+            safe_send_file(attachment.full_filename, {
+                             type: attachment.content_type_with_encoding,
+                             disposition: "inline"
+                           })
           end
         else
           inline_url = authenticated_inline_url(attachment)
