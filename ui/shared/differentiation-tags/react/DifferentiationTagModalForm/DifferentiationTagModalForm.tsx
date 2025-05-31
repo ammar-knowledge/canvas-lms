@@ -74,6 +74,8 @@ export default function DifferentiationTagModalForm(props: DifferentiationTagMod
 
   const tagSetNameRef = useRef<HTMLInputElement | null>(null)
   const inputRefs = useRef<Record<number, HTMLInputElement | null>>({})
+  const focusElRef = useRef<(HTMLElement | null)[]>([])
+  const [focusIndex, setFocusIndex] = useState<number | null>(null)
 
   const getInitialState = useCallback(() => {
     let computedTagMode: ModalTagMode = MULTIPLE_TAGS
@@ -134,6 +136,24 @@ export default function DifferentiationTagModalForm(props: DifferentiationTagMod
     setPreviousTags(newState.previousTags)
   }, [mode, differentiationTagSet, getInitialState])
 
+  useEffect(() => {
+    switch (focusIndex) {
+      case -1:
+        inputRefs.current[tags[0]?.id]?.focus()
+        setFocusIndex(null)
+        break
+      case -2:
+        inputRefs.current[tags[tags.length - 1]?.id]?.focus()
+        setFocusIndex(null)
+        break
+      case null:
+        break
+      // Put focus on the corresponding tag delete button
+      default:
+        focusElRef.current[focusIndex]?.focus()
+    }
+  }, [focusIndex])
+
   const handleSetSubmitting = (submitting: boolean) => {
     setIsSubmitting(submitting)
   }
@@ -186,9 +206,11 @@ export default function DifferentiationTagModalForm(props: DifferentiationTagMod
       }
     }
     setTags(prev => [...prev, {id: Date.now(), name: ''}])
+    setFocusIndex(-2)
   }
 
   const handleRemoveTag = (id: number) => {
+    const tagIndex = tags.findIndex(t => t.id === id)
     setTags(prev => {
       const newTags = prev.filter(t => t.id !== id)
       if (newTags.length === 1 && selectedCategoryId === CREATE_NEW_SET_OPTION) {
@@ -202,6 +224,7 @@ export default function DifferentiationTagModalForm(props: DifferentiationTagMod
       delete newErrors[String(id)]
       return newErrors
     })
+    setFocusIndex((tagIndex > 1 && tags[tagIndex - 1]?.id) || -1)
   }
 
   const handleChangeTag = (id: number, value: string) => {
@@ -494,6 +517,7 @@ export default function DifferentiationTagModalForm(props: DifferentiationTagMod
                 onChange={(id, value) => handleChangeTag(id, value)}
                 onRemove={handleRemoveTagClick}
                 inputRef={el => (inputRefs.current[tag.id] = el)}
+                focusElRef={focusElRef}
               />
             ))}
 
@@ -501,7 +525,7 @@ export default function DifferentiationTagModalForm(props: DifferentiationTagMod
               <CondensedButton
                 onClick={handleAddTagClick}
                 margin="0 0 small 0"
-                aria-label={I18n.t('+ Add another tag')}
+                aria-label={I18n.t('Add another tag')}
               >
                 {I18n.t('+ Add another tag')}
               </CondensedButton>

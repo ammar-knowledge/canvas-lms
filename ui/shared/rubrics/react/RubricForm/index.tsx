@@ -28,6 +28,7 @@ import {colors} from '@instructure/canvas-theme'
 import {Alert} from '@instructure/ui-alerts'
 import {View} from '@instructure/ui-view'
 import {TextInput} from '@instructure/ui-text-input'
+import {TextArea} from '@instructure/ui-text-area'
 import {Heading} from '@instructure/ui-heading'
 import {Text} from '@instructure/ui-text'
 import {SimpleSelect} from '@instructure/ui-simple-select'
@@ -85,6 +86,7 @@ export const defaultGenerateCriteriaForm: GenerateCriteriaFormProps = {
   ratingCount: 4,
   pointsPerCriterion: '20',
   useRange: false,
+  additionalPromptInfo: '',
 }
 
 type RubricFormValidationProps = {
@@ -538,7 +540,7 @@ export const RubricForm = ({
             <Flex margin="medium 0 0" gap="medium">
               <Flex.Item>
                 <Checkbox
-                  label={"Don't post to Learning Mastery Gradebook"}
+                  label={I18n.t("Don't post to Learning Mastery Gradebook")}
                   checked={rubricForm.hideOutcomeResults}
                   onChange={e => setRubricFormField('hideOutcomeResults', e.target.checked)}
                   data-testid="hide-outcome-results-checkbox"
@@ -548,7 +550,7 @@ export const RubricForm = ({
                 <>
                   <Flex.Item>
                     <Checkbox
-                      label="Use this rubric for assignment grading"
+                      label={I18n.t('Use this rubric for assignment grading')}
                       checked={rubricForm.useForGrading}
                       onChange={e => {
                         setRubricFormField('useForGrading', e.target.checked)
@@ -561,7 +563,7 @@ export const RubricForm = ({
                   {!rubricForm.useForGrading && (
                     <Flex.Item>
                       <Checkbox
-                        label="Hide rubric score total from students"
+                        label={I18n.t('Hide rubric score total from students')}
                         checked={rubricForm.hideScoreTotal}
                         onChange={e => setRubricFormField('hideScoreTotal', e.target.checked)}
                         data-testid="hide-score-total-checkbox"
@@ -573,7 +575,7 @@ export const RubricForm = ({
             </Flex>
           )}
 
-          <View as="div" margin="large 0 large 0">
+          <View as="div" margin="large 0 small 0">
             <Flex>
               <Flex.Item shouldGrow={true}>
                 <Heading
@@ -603,7 +605,7 @@ export const RubricForm = ({
           {showGenerateCriteriaForm && (
             <View
               as="div"
-              margin="large 0 large 0"
+              margin="medium 0 small 0"
               padding="small"
               borderRadius="medium"
               background="secondary"
@@ -694,6 +696,37 @@ export const RubricForm = ({
                   </Flex.Item>
                 )}
                 <Flex.Item shouldGrow={true}></Flex.Item>
+              </Flex>
+              <Flex alignItems="end" gap="medium" margin="medium 0 0">
+                <Flex.Item shouldGrow={true}>
+                  <TextArea
+                    data-testid="additional-prompt-info-input"
+                    label={I18n.t('Additional Prompt Information')}
+                    placeholder={I18n.t(
+                      'Optional. For example, "Target a college-level seminar." or "Focus on argument substance." or "Be lenient."',
+                    )}
+                    value={generateCriteriaForm.additionalPromptInfo}
+                    onChange={event =>
+                      setGenerateCriteriaForm({
+                        ...generateCriteriaForm,
+                        additionalPromptInfo: event.target.value,
+                      })
+                    }
+                    messages={
+                      generateCriteriaForm.additionalPromptInfo.length > 1000
+                        ? [
+                            {
+                              text: I18n.t(
+                                'Additional prompt information must be less than 1000 characters',
+                              ),
+                              type: 'error',
+                            },
+                          ]
+                        : undefined
+                    }
+                    height="4rem"
+                  />
+                </Flex.Item>
                 <Flex.Item>
                   <span className="instui-button-ignite-ai-gradient">
                     <Button
@@ -701,6 +734,7 @@ export const RubricForm = ({
                       data-testid="generate-criteria-button"
                       color="primary"
                       renderIcon={<IconAiSolid />}
+                      disabled={generateCriteriaForm.additionalPromptInfo.length > 1000}
                     >
                       {I18n.t('Generate Criteria')}
                     </Button>
@@ -740,6 +774,7 @@ export const RubricForm = ({
                             rowIndex={index + 1}
                             unassessed={rubricForm.unassessed}
                             isGenerated={criterion.isGenerated}
+                            nextIsGenerated={rubricForm.criteria[index + 1]?.isGenerated}
                             onDeleteCriterion={() => deleteCriterion(criterion)}
                             onDuplicateCriterion={() => duplicateCriterion(criterion)}
                             onEditCriterion={() => openCriterionModal(criterion)}
@@ -867,7 +902,7 @@ const RubricRatingOrderSelect = ({ratingOrder, onChangeOrder}: RubricRatingOrder
       renderLabel={I18n.t('Rating Order')}
       width="10.563rem"
       value={ratingOrder}
-      onChange={(e, {value}) => onChange(value !== undefined ? value.toString() : '')}
+      onChange={(_e, {value}) => onChange(value !== undefined ? value.toString() : '')}
       data-testid="rubric-rating-order-select"
     >
       <SimpleSelectOption
@@ -905,7 +940,7 @@ const GradingTypeSelect = ({freeFormCriterionComments, onChange}: GradingTypeSel
       renderLabel={I18n.t('Type')}
       width="10.563rem"
       value={gradingType}
-      onChange={(e, {value}) => handleChange(value !== undefined ? value.toString() : '')}
+      onChange={(_e, {value}) => handleChange(value !== undefined ? value.toString() : '')}
       data-testid="rubric-rating-type-select"
     >
       <SimpleSelectOption id="scaleOption" value="scale" data-testid="rating_type_scale">
@@ -935,7 +970,7 @@ const ScoringTypeSelect = ({hidePoints, onChange}: ScoreTypeSelectProps) => {
       renderLabel={I18n.t('Scoring')}
       width="10.563rem"
       value={scoreType}
-      onChange={(e, {value}) => handleChange(value !== undefined ? value.toString() : '')}
+      onChange={(_e, {value}) => handleChange(value !== undefined ? value.toString() : '')}
       data-testid="rubric-rating-scoring-type-select"
     >
       <SimpleSelectOption id="scoredOption" value="scored" data-testid="scoring_type_scored">

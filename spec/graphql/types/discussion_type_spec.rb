@@ -973,4 +973,86 @@ describe Types::DiscussionType do
       end
     end
   end
+
+  context "checkpoints" do
+    before do
+      course_with_teacher(active_all: true)
+    end
+
+    it "returns the reply to entry required count" do
+      cdt = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: cdt,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: Time.zone.now }],
+        points_possible: 6
+      )
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: cdt,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "everyone", due_at: Time.zone.now }],
+        points_possible: 7,
+        replies_required: 3
+      )
+
+      discussion_type = GraphQLTypeTester.new(cdt, current_user: @teacher)
+      replies_required = discussion_type.resolve("replyToEntryRequiredCount")
+      expect(replies_required).to eq cdt.reply_to_entry_required_count
+      expect(replies_required).to eq 3
+    end
+
+    it "returns the parent's reply to entry required count for child topics" do
+      cgdt = group_discussion_assignment
+      GroupCategory.last
+
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: cgdt,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: Time.zone.now }],
+        points_possible: 6
+      )
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: cgdt,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "everyone", due_at: Time.zone.now }],
+        points_possible: 7,
+        replies_required: 3
+      )
+
+      child_topic = cgdt.child_topics.first
+      discussion_type = GraphQLTypeTester.new(child_topic, current_user: @teacher)
+      replies_required = discussion_type.resolve("replyToEntryRequiredCount")
+      expect(replies_required).to eq child_topic.root_topic.reply_to_entry_required_count
+      expect(replies_required).to eq 3
+    end
+  end
+
+  context "admin groups" do
+    before do
+      @account = Account.create!
+      @group = Group.create!(name: "Admin Group", context: @account)
+      @group_student, @group_teacher = create_users(2, return_type: :record)
+      puts @group_teacher
+      puts "Hello"
+      group.bulk_add_users_to_group([@group_teacher, @group_student])
+
+      @group_topic = DiscussionTopic.create!(title: "Admin Group Topic", context: group, user: @group_teacher, editor: @group_teacher)
+      @group_topic.discussion_entries.create!(message: "Group Entry", user: @group_student)
+    end
+
+    it "returns the correct htmlUrl for" do
+      puts @group_topic
+      discussion_type = GraphQLTypeTester.new(
+        @group_topic,
+        current_user: @group_teacher,
+        request: ActionDispatch::TestRequest.create
+      )
+      expect(discussion_type.resolve("author { htmlUrl }")).to end_with("/groups/#{@group.id}/users/#{@group_teacher.id}")
+      entries_url = discussion_type.resolve("discussionEntriesConnection { nodes { author { htmlUrl }}}")
+
+      entries_url.each do |entry|
+        expect(entry).to end_with("/groups/#{@group.id}/users/#{@group_student.id}")
+      end
+    end
+  end
 end

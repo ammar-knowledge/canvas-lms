@@ -565,7 +565,7 @@ module Api
   end
 
   def self.api_bulk_load_user_content_attachments(htmls, context = nil)
-    regex = context ? %r{/#{context.class.name.tableize}/#{context.id}/files/(\d+)} : %r{/files/(\d+)}
+    regex = context ? %r{/#{context.class.name.tableize}/#{context.id}/files/(\d+)} : %r{/(?:files|media_attachments_iframe)/(\d+)}
 
     attachment_ids = []
     htmls.compact.each do |html|
@@ -680,13 +680,6 @@ module Api
   def process_incoming_html_content(html)
     host, port = [request.host, request.port] if respond_to?(:request)
     Html::Content.process_incoming(html, host:, port:)
-  end
-
-  def process_attachment_links(html, context, context_field_name = nil, user = @current_user, session = nil)
-    attachment_ids = Html::Content.collect_attachment_ids(html)
-    return if attachment_ids.blank?
-
-    AttachmentAssociation.update_associations(context, attachment_ids, user, session, context_field_name)
   end
 
   delegate :value_to_boolean, to: :"Canvas::Plugin"

@@ -105,6 +105,7 @@ class LearningObjectDatesController < ApplicationController
   include Api::V1::Assignment
   include Api::V1::AssignmentOverride
   include SubmittableHelper
+  include DifferentiationTag
 
   OBJECTS_WITH_ASSIGNMENTS = %w[DiscussionTopic WikiPage].freeze
 
@@ -214,6 +215,26 @@ class LearningObjectDatesController < ApplicationController
     when "Attachment"
       update_ungraded_object(asset, object_update_params)
     end
+  end
+
+  def convert_tag_overrides_to_adhoc_overrides
+    # Graded discussions have an assignment for due dates so use that
+    learning_object = if asset.is_a?(DiscussionTopic) && asset.assignment
+                        asset.assignment
+                      else
+                        asset
+                      end
+
+    errors = OverrideConverterService.convert_tags_to_adhoc_overrides_for(
+      learning_object:,
+      course: @context
+    )
+
+    if errors
+      return render json: { errors: }, status: :bad_request
+    end
+
+    head :no_content
   end
 
   private
@@ -343,6 +364,11 @@ class LearningObjectDatesController < ApplicationController
     }
   end
 
+  def remove_differentiation_tag_overrides(overrides_to_delete)
+    tag_overrides = overrides_to_delete.select { |o| o.set_type == "Group" && o.set.non_collaborative? }
+    tag_overrides.each(&:destroy!)
+  end
+
   def update_quiz(quiz, params)
     return render json: quiz.errors, status: :forbidden unless grading_periods_allow_submittable_update?(quiz, params)
 
@@ -356,6 +382,13 @@ class LearningObjectDatesController < ApplicationController
 
     Assignment.suspend_due_date_caching do
       quiz.transaction do
+        # remove differentiation tag overrides if they are being deleted
+        # and account setting is disabled. The quiz will fail validation
+        # if these overrides exist and the account setting is disabled
+        if !@context.account.allow_assign_to_differentiation_tags? && batch.present?
+          remove_differentiation_tag_overrides(batch[:overrides_to_delete])
+        end
+
         quiz.update!(params)
         perform_batch_update_assignment_overrides(quiz, batch) if overrides
       end

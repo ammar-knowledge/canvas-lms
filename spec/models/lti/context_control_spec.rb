@@ -63,11 +63,11 @@ describe Lti::ContextControl do
         expect { create! }.not_to raise_error
       end
 
-      context "when registration is not unique" do
+      context "when deployment is not unique" do
         before { create! }
 
         it "is invalid" do
-          expect { create! }.to raise_error(ActiveRecord::RecordInvalid, /Registration has already been taken/)
+          expect { create! }.to raise_error(ActiveRecord::RecordInvalid, /Deployment has already been taken/)
         end
       end
 
@@ -102,11 +102,11 @@ describe Lti::ContextControl do
       end
     end
 
-    context "when registration is not unique" do
+    context "when deployment is not unique" do
       before { create! }
 
       it "is invalid" do
-        expect { create! }.to raise_error(ActiveRecord::RecordInvalid, /Registration has already been taken/)
+        expect { create! }.to raise_error(ActiveRecord::RecordInvalid, /Deployment has already been taken/)
       end
     end
 
@@ -247,6 +247,20 @@ describe Lti::ContextControl do
           expect(control.reload.path).to eq(path_for(root_account, parent_account, course))
         end
       end
+    end
+  end
+
+  describe "self.calculate_path_for_course_id" do
+    it "returns the correct path" do
+      expect(described_class.calculate_path_for_course_id(123, [1, 2, 3]))
+        .to eq("a3.a2.a1.c123.")
+    end
+  end
+
+  describe "self.calculate_path_for_account_ids" do
+    it "returns the correct path" do
+      expect(described_class.calculate_path_for_account_ids([1, 2, 3]))
+        .to eq("a3.a2.a1.")
     end
   end
 end

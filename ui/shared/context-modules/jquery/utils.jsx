@@ -31,6 +31,7 @@ import {ltiState} from '@canvas/lti/jquery/messages'
 import {addDeepLinkingListener} from '@canvas/deep-linking/DeepLinking'
 import ExternalToolModalLauncher from '@canvas/external-tools/react/components/ExternalToolModalLauncher'
 import {getResourceTypes} from '@canvas/util/resourceTypeUtil'
+import {addShowAllOrLess} from '../utils/showAllOrLess'
 
 const I18n = createI18nScope('context_modulespublic')
 
@@ -149,11 +150,15 @@ export function initPublishButton($el, data) {
     const fileFauxView = {
       render: () => {
         const model = $el.data('view').model
-
-        const root = createRoot($el[0])
-        root.render(<PublishCloud {...props} model={model} disabled={model.get('disabled')} />)
+        const elem = $el[0]
+        if (!elem.reactRoot) {
+          elem.reactRoot = createRoot(elem)
+        }
+        elem.reactRoot.render(
+          <PublishCloud {...props} model={model} disabled={model.get('disabled')} />,
+        )
         // to look disable, we need to add the class here
-        $el[0].classList[model.get('disabled') ? 'add' : 'remove']('disabled')
+        elem.classList[model.get('disabled') ? 'add' : 'remove']('disabled')
       },
       model: file,
     }
@@ -231,6 +236,7 @@ export function setExpandAllButton() {
 
 export function setExpandAllButtonHandler(lazy_load_callback) {
   $('#expand_collapse_all').click(function () {
+    $('#expand_collapse_all').prop('disabled', true)
     const shouldExpand = $(this).data('expand')
 
     if (ENV.FEATURES.instui_header) {
@@ -262,6 +268,7 @@ export function setExpandAllButtonHandler(lazy_load_callback) {
           $module.find('.expand_module_link').css('display', shouldExpand ? 'none' : 'inline-block')
           $module.find('.footer .manage_module').css('display', '')
           $module.toggleClass('collapsed_module', !shouldExpand)
+          addShowAllOrLess($module.data('module-id'))
         }
         $module.find('.content').slideToggle({
           queue: false,
@@ -275,6 +282,8 @@ export function setExpandAllButtonHandler(lazy_load_callback) {
     $.ajaxJSON(url, 'POST', {collapse}, _data => {
       if (shouldExpand) {
         lazy_load_callback?.()
+      } else {
+        $(this).prop('disabled', false)
       }
     })
   })

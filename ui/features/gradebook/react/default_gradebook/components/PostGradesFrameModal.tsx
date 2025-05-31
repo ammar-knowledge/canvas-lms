@@ -16,14 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useMemo} from 'react'
+import React, {useEffect, useMemo} from 'react'
 import iframeAllowances from '@canvas/external-apps/iframeAllowances'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import {Modal} from '@instructure/ui-modal'
 import {Lti} from '../gradebook.d'
 import {CloseButton} from '@instructure/ui-buttons'
 import {Heading} from '@instructure/ui-heading'
-import {ScreenReaderContent} from '@instructure/ui-a11y-content'
+import {onLtiClosePostMessage} from '@canvas/lti/jquery/messages'
 
 const I18n = createI18nScope('gradebook')
 
@@ -37,6 +37,12 @@ function PostGradesFrameModal({postGradesLtis, selectedLtiId, onClose}: PostGrad
   const baseUrl = useMemo(() => {
     return postGradesLtis.filter(lti => lti.id === selectedLtiId)[0]?.data_url
   }, [postGradesLtis, selectedLtiId])
+
+  useEffect(() => {
+    if (onClose) {
+      return onLtiClosePostMessage('post_grades', onClose)
+    }
+  }, [])
 
   return (
     <Modal
@@ -57,9 +63,6 @@ function PostGradesFrameModal({postGradesLtis, selectedLtiId, onClose}: PostGrad
         />
       </Modal.Header>
       <Modal.Body padding="none">
-        <ScreenReaderContent>
-          {I18n.t('The following content is partner provided')}
-        </ScreenReaderContent>
         {baseUrl ? (
           <iframe
             src={baseUrl}
@@ -70,9 +73,6 @@ function PostGradesFrameModal({postGradesLtis, selectedLtiId, onClose}: PostGrad
             data-lti-launch="true"
           />
         ) : null}
-        <ScreenReaderContent>
-          {I18n.t('The preceding content is partner provided')}
-        </ScreenReaderContent>
       </Modal.Body>
     </Modal>
   )

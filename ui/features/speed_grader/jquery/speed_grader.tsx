@@ -73,6 +73,7 @@ import ScreenCaptureIcon from '../react/ScreenCaptureIcon'
 import SpeedGraderAlerts from '../react/SpeedGraderAlerts'
 import SpeedGraderProvisionalGradeSelector from '../react/SpeedGraderProvisionalGradeSelector'
 import SpeedGraderStatusMenu from '../react/SpeedGraderStatusMenu'
+import {LtiAssetReportsWrapper} from '../react/LtiAssetReportsWrapper'
 import useStore from '../stores/index'
 import type {
   Attachment,
@@ -159,7 +160,6 @@ import {isPreviewable} from '@instructure/canvas-rce/es/rce/plugins/shared/Previ
 import {createRoot} from 'react-dom/client'
 import sanitizeHtml from 'sanitize-html-with-tinymce'
 import {SpeedGraderCheckpointsWrapper} from '../react/SpeedGraderCheckpoints/SpeedGraderCheckpointsWrapper'
-import {SpeedGraderDiscussionsNavigation} from '../react/SpeedGraderDiscussionsNavigation'
 import {SpeedGraderDiscussionsNavigation2} from '../react/SpeedGraderDiscussionsNavigation2'
 
 declare global {
@@ -177,6 +177,7 @@ declare const ENV: GlobalEnv & EnvGradebookSpeedGrader
 const I18n = createI18nScope('speed_grader')
 
 const selectors = new JQuerySelectorCache()
+const SPEED_GRADER_LTI_ASSET_REPORTS_MOUNT_POINT = 'speed_grader_lti_asset_reports_mount_point'
 const SPEED_GRADER_COMMENT_TEXTAREA_MOUNT_POINT = 'speed_grader_comment_textarea_mount_point'
 const SPEED_GRADER_SUBMISSION_COMMENTS_DOWNLOAD_MOUNT_POINT =
   'speed_grader_submission_comments_download_mount_point'
@@ -870,6 +871,27 @@ function renderHiddenSubmissionPill(submission: Submission) {
   } else {
     ReactDOM.unmountComponentAtNode(mountPoint)
   }
+}
+
+function renderLtiAssetReports(
+  submission: Submission,
+  historicalSubmission: HistoricalSubmission,
+  jsonData: SpeedGraderResponse,
+) {
+  if (!ENV.FEATURES?.lti_asset_processor) return
+  if (!jsonData.lti_asset_processors) return
+
+  const mountPoint = document.getElementById(SPEED_GRADER_LTI_ASSET_REPORTS_MOUNT_POINT)
+  if (!mountPoint) throw new Error('LTI Asset Reports mount point not found')
+
+  const props = {
+    versionedAttachments: historicalSubmission?.versioned_attachments,
+    reportsByAttachment: submission.lti_asset_reports?.by_attachment,
+    assetProcessors: jsonData.lti_asset_processors,
+    studentId: submission.user_id,
+    attempt: historicalSubmission.attempt,
+  }
+  ReactDOM.render(<LtiAssetReportsWrapper {...props} />, mountPoint)
 }
 
 function renderCheckpoints(submission: Submission) {
@@ -2504,6 +2526,8 @@ EG = {
         submissionHistory[currentSelectedIndex]
     }
 
+    renderLtiAssetReports(submissionHolder, submission, window.jsonData)
+
     const turnitinEnabled =
       submission.turnitin_data && typeof submission.turnitin_data.provider === 'undefined'
     const vericiteEnabled =
@@ -3267,6 +3291,13 @@ EG = {
       const assessmentsByMe = EG.currentStudent.rubric_assessments.filter(assessment =>
         assessmentBelongsToCurrentUser(assessment),
       )
+      const hasPeerReviewAssessments = EG.currentStudent.rubric_assessments.some(
+        assessment => assessment.assessment_type === 'peer_review',
+      )
+      const hasGradedAssessments = EG.currentStudent.rubric_assessments.some(
+        assessment => assessment.assessment_type === 'grading',
+      )
+
       if (assessmentsByMe.length > 0) {
         assessmentsByMe.forEach(assessment => {
           const displayName = isModerator ? customProvisionalGraderLabel : assessment.assessor_name
@@ -3275,6 +3306,8 @@ EG = {
       } else if (isModerator) {
         // Moderators can create a custom assessment if they don't have one
         selectMenuOptions.push({id: '', name: customProvisionalGraderLabel})
+      } else if (hasPeerReviewAssessments && !hasGradedAssessments) {
+        selectMenuOptions.unshift({id: '', name: I18n.t('Add your assessment')})
       }
 
       const {assessmentsByOthers, selfAssessment} = EG.currentStudent.rubric_assessments.reduce(

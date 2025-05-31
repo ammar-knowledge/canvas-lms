@@ -576,6 +576,17 @@ module Types
       end
     end
 
+    field :lti_asset_processors_connection, LtiAssetProcessorType.connection_type, null: true
+    def lti_asset_processors_connection
+      load_association(:context).then do |course|
+        # In the future we may need this for students, but for now
+        # this is safest
+        if course.root_account.feature_enabled?(:lti_asset_processor) && course.grants_right?(current_user, :manage_grades)
+          load_association(:lti_asset_processors)
+        end
+      end
+    end
+
     field :post_policy, PostPolicyType, null: true
     def post_policy
       load_association(:context).then do |course|
@@ -668,6 +679,11 @@ module Types
     field :auto_grade_assignment_errors, [String], null: false, description: "Issues related to the assignment"
     def auto_grade_assignment_errors
       GraphQLHelpers::AutoGradeEligibilityHelper.validate_assignment(assignment:)
+    end
+
+    field :is_new_quiz, Boolean, null: false, description: "Assignment is connected to a New Quiz"
+    def is_new_quiz
+      assignment.quiz_lti?
     end
   end
 end

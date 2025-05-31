@@ -242,6 +242,33 @@ describe Submission do
     end
   end
 
+  describe "#body_for_attempt" do
+    before(:once) do
+      @assignment.update!(submission_types: "online_text_entry,online_url")
+      now = Time.zone.now
+      Timecop.freeze(10.minutes.from_now(now)) do
+        @assignment.submit_homework(@student, body: "body1", submission_type: "online_text_entry")
+      end
+
+      Timecop.freeze(20.minutes.from_now(now)) do
+        @assignment.submit_homework(@student, body: "body2", submission_type: "online_text_entry")
+      end
+    end
+
+    let(:submission) { @assignment.submissions.find_by(user: @student) }
+
+    it "returns the correct body given the attempt number" do
+      aggregate_failures do
+        expect(submission.body_for_attempt(1)).to eq "body1"
+        expect(submission.body_for_attempt(2)).to eq "body2"
+      end
+    end
+
+    it "returns nil if given a non-existent attempt number" do
+      expect(submission.body_for_attempt(3)).to be_nil
+    end
+  end
+
   describe ".anonymous_ids_for" do
     subject { Submission.anonymous_ids_for(@first_assignment) }
 
@@ -2064,6 +2091,33 @@ describe Submission do
       expect(ConditionalRelease::Rule).to receive(:is_trigger_assignment?).with(submission.assignment).once
       submission.update! score: 1, workflow_state: :graded, posted_at: Time.zone.now
       submission.grade_change_audit(force_audit: true)
+    end
+
+    context "with flag mastery_path_submission_trigger_reloaded_evaluation" do
+      before(:once) do
+        Account.site_admin.enable_feature!(:mastery_path_submission_trigger_reloaded_evaluation)
+      end
+
+      it "uses persisted values for mastery path evaluation even when attributes change within transaction" do
+        allow(submission.assignment).to receive(:queue_conditional_release_grade_change_handler?).and_return(true)
+        expect(submission).to receive(:queue_conditional_release_grade_change_handler).once
+
+        ActiveRecord::Base.transaction do
+          submission.update!(score: 11, workflow_state: :graded, posted_at: Time.zone.now)
+          submission.posted_at = nil
+        end
+      end
+
+      it "uses persisted values for mastery path evaluation even when attributes are updated with a different instance of the record" do
+        allow(submission.assignment).to receive(:queue_conditional_release_grade_change_handler?).and_return(true)
+        expect(submission).to receive(:queue_conditional_release_grade_change_handler).once
+
+        ActiveRecord::Base.transaction do
+          submission.update!(score: 11, workflow_state: :graded, posted_at: nil)
+          submission2 = Submission.find(submission.id)
+          submission2.update(posted_at: Time.zone.now)
+        end
+      end
     end
   end
 

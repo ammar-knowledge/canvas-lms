@@ -19,9 +19,14 @@
 import React, {useCallback} from 'react'
 import {View} from '@instructure/ui-view'
 import {Button} from '@instructure/ui-buttons'
-import {Flex} from '@instructure/ui-flex'
-import {IconCollapseLine, IconExpandLine} from '@instructure/ui-icons'
 import {useScope as createI18nScope} from '@canvas/i18n'
+import ContextModulesHeader from '@canvas/context-modules/react/ContextModulesHeader'
+import {Heading} from '@instructure/ui-heading'
+import {Text} from '@instructure/ui-text'
+import {useCourseStudent} from '../hooks/queriesStudent/useCourseStudent'
+import {useContextModule} from '../hooks/useModuleContext'
+import {Flex} from '@instructure/ui-flex'
+import {IconAssignmentLine, IconWarningLine} from '@instructure/ui-icons'
 
 const I18n = createI18nScope('context_modules_v2')
 
@@ -29,13 +34,18 @@ interface ModulePageActionHeaderStudentProps {
   onCollapseAll: () => void
   onExpandAll: () => void
   anyModuleExpanded?: boolean
+  disabled?: boolean
 }
 
 const ModulePageActionHeaderStudent: React.FC<ModulePageActionHeaderStudentProps> = ({
   onCollapseAll,
   onExpandAll,
   anyModuleExpanded = true,
+  disabled = false,
 }) => {
+  const {courseId} = useContextModule()
+  const {data, isLoading} = useCourseStudent(courseId)
+
   const handleCollapseExpandClick = useCallback(() => {
     if (anyModuleExpanded) {
       onCollapseAll()
@@ -44,16 +54,102 @@ const ModulePageActionHeaderStudent: React.FC<ModulePageActionHeaderStudentProps
     }
   }, [anyModuleExpanded, onCollapseAll, onExpandAll])
 
+  const renderExpandCollapseAll = useCallback(() => {
+    const labelText = anyModuleExpanded ? I18n.t('Collapse All') : I18n.t('Expand All')
+    return (
+      <Button
+        onClick={handleCollapseExpandClick}
+        display="block"
+        aria-expanded={anyModuleExpanded}
+        data-expand={anyModuleExpanded}
+        aria-label={labelText}
+      >
+        {labelText}
+      </Button>
+    )
+  }, [anyModuleExpanded, handleCollapseExpandClick])
+
   return (
-    <View as="div" padding="small">
-      <Flex justifyItems="space-between" gap="small">
-        <Flex.Item>
-          <Button onClick={handleCollapseExpandClick}>
-            {anyModuleExpanded ? I18n.t('Collapse All') : I18n.t('Expand All')}
-          </Button>
-        </Flex.Item>
-      </Flex>
-    </View>
+    !isLoading && (
+      <View as="div">
+        {data?.name && (
+          <View as="div" margin="0 0 small 0">
+            <Heading level="h1">
+              {data?.name ? `${I18n.t('Welcome to ')} ${data.name}!` : I18n.t('Welcome!')}
+            </Heading>
+          </View>
+        )}
+        <View as="div" margin="0 0 medium 0">
+          <Text size="large">
+            {I18n.t(
+              'Your course content is organized into modules below. Explore each one to learn and complete activities.',
+            )}
+          </Text>
+        </View>
+        {data?.submissionStatistics?.submissionsDueThisWeekCount ||
+        data?.submissionStatistics?.missingSubmissionsCount ? (
+          <View as="div" margin="0 0 medium 0">
+            <Flex gap="small">
+              {data?.submissionStatistics?.submissionsDueThisWeekCount > 0 ? (
+                <Flex.Item>
+                  <Button
+                    data-testid="assignment-due-this-week-button"
+                    color="primary"
+                    renderIcon={() => <IconAssignmentLine />}
+                    withBackground={false}
+                    href={`/courses/${courseId}/assignments`}
+                  >
+                    {I18n.t(
+                      {
+                        one: '1 Assignment Due This Week',
+                        other: '%{count} Assignments Due This Week',
+                      },
+                      {
+                        count: data?.submissionStatistics?.submissionsDueThisWeekCount || 0,
+                      },
+                    )}
+                  </Button>
+                </Flex.Item>
+              ) : null}
+              {data?.submissionStatistics?.missingSubmissionsCount > 0 ? (
+                <Flex.Item>
+                  <Button
+                    data-testid="missing-assignment-button"
+                    color="danger"
+                    renderIcon={() => <IconWarningLine />}
+                    withBackground={false}
+                    href={`/courses/${courseId}/assignments`}
+                  >
+                    {I18n.t(
+                      {
+                        one: '1 Missing Assignment',
+                        other: '%{count} Missing Assignments',
+                      },
+                      {
+                        count: data?.submissionStatistics?.missingSubmissionsCount || 0,
+                      },
+                    )}
+                  </Button>
+                </Flex.Item>
+              ) : null}
+            </Flex>
+          </View>
+        ) : null}
+        {/* @ts-expect-error */}
+        {ENV.CONTEXT_MODULES_HEADER_PROPS && (
+          <ContextModulesHeader
+            // @ts-expect-error
+            {...ENV.CONTEXT_MODULES_HEADER_PROPS}
+            overrides={{
+              expandCollapseAll: {
+                renderComponent: renderExpandCollapseAll,
+              },
+              hideTitle: true,
+            }}
+          />
+        )}
+      </View>
+    )
   )
 }
 

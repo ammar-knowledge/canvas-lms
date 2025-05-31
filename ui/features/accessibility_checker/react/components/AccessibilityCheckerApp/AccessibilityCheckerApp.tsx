@@ -29,11 +29,10 @@ import {Table} from '@instructure/ui-table'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import React, {useState, useEffect} from 'react'
-import {AccessibilityData, ContentItem, ContentItemIssues, ContentItemType} from '../../types'
+import {AccessibilityData, ContentItem, ContentItemType} from '../../types'
 import {AccessibilityIssuesModal} from '../AccessibilityIssuesModal/AccessibilityIssuesModal'
 import doFetchApi from '@canvas/do-fetch-api-effect'
-
-type SeverityFilter = 'all' | 'high' | 'medium' | 'low' | 'none'
+import {TypeToKeyMap} from '../../constants'
 
 export const AccessibilityCheckerApp: React.FC = () => {
   const [accessibilityIssues, setAccessibilityIssues] = useState<AccessibilityData | null>(null)
@@ -41,8 +40,27 @@ export const AccessibilityCheckerApp: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    const snakeToCamel = function (str: string): string {
+      return str.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
+    }
+
+    const convertKeysToCamelCase = function (input: any): object | boolean {
+      if (Array.isArray(input)) {
+        return input.map(convertKeysToCamelCase)
+      } else if (input !== null && typeof input === 'object') {
+        return Object.fromEntries(
+          Object.entries(input).map(([key, value]) => [
+            snakeToCamel(key),
+            convertKeysToCamelCase(value),
+          ]),
+        )
+      }
+      return input !== null && input !== undefined ? input : {}
+    }
     doFetchApi({path: window.location.href + '/issues', method: 'GET'})
-      .then(data => setAccessibilityIssues(data.json as AccessibilityData))
+      .then(data => {
+        setAccessibilityIssues(convertKeysToCamelCase(data.json) as AccessibilityData)
+      })
       .catch(err => {
         setError('Error loading accessibility issues. Error is:' + err.message)
         setAccessibilityIssues(null)
@@ -50,89 +68,67 @@ export const AccessibilityCheckerApp: React.FC = () => {
       .finally(() => setLoading(false))
   }, [])
 
-  const courseContextPath = `/courses/${ENV.course_id}`
-
   const I18n = createI18nScope('accessibility_checker')
   const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [tableData, setTableData] = useState<ContentItem[]>([])
-  const [severityFilter, _setSeverityFilter] = useState<SeverityFilter>('all')
-  const [filteredData, setFilteredData] = useState<ContentItem[]>([])
 
   useEffect(() => {
     const processData = () => {
       const flatData: ContentItem[] = []
 
-      if (accessibilityIssues?.pages) {
-        Object.entries(accessibilityIssues.pages).forEach(([id, pageData]) => {
-          if (pageData) {
+      const processContentItems = (
+        items: Record<string, ContentItem> | undefined,
+        type: ContentItemType,
+        defaultTitle: string,
+      ) => {
+        if (!items) return
+
+        Object.entries(items).forEach(([id, itemData]) => {
+          if (itemData) {
             flatData.push({
-              id,
-              type: ContentItemType.Page,
-              name: pageData.title || 'Untitled Page',
-              contentType: 'Page',
-              published: pageData.published || false,
-              updatedAt: pageData.updated_at || '',
-              count: pageData.count || 0,
-              severity: pageData.severity || 'none',
-              url: pageData.url,
-              editUrl: pageData.edit_url,
+              id: Number(id),
+              type,
+              title: itemData?.title || defaultTitle,
+              published: itemData?.published || false,
+              updatedAt: itemData?.updatedAt || '',
+              count: itemData?.count || 0,
+              url: itemData?.url,
+              editUrl: itemData?.editUrl,
             })
           }
         })
       }
 
-      if (accessibilityIssues?.assignments) {
-        Object.entries(accessibilityIssues.assignments).forEach(([id, assignmentData]) => {
-          if (assignmentData) {
-            flatData.push({
-              id,
-              type: ContentItemType.Assignment,
-              name: assignmentData.title || 'Untitled Assignment',
-              contentType: 'Assignment',
-              published: assignmentData.published || false,
-              updatedAt: assignmentData.updated_at || '',
-              count: assignmentData.count || 0,
-              severity: assignmentData.severity || 'none',
-              url: assignmentData.url,
-              editUrl: assignmentData.edit_url,
-            })
-          }
-        })
-      }
+      processContentItems(accessibilityIssues?.pages, ContentItemType.WikiPage, 'Untitled Page')
+
+      processContentItems(
+        accessibilityIssues?.assignments,
+        ContentItemType.Assignment,
+        'Untitled Assignment',
+      )
+
+      processContentItems(
+        accessibilityIssues?.attachments,
+        ContentItemType.Attachment,
+        'Untitled Attachment',
+      )
 
       setTableData(flatData)
     }
 
     processData()
-  }, [accessibilityIssues, courseContextPath])
-
-  useEffect(() => {
-    if (severityFilter === 'all') {
-      setFilteredData(tableData)
-    } else {
-      setFilteredData(tableData.filter(item => item.severity === severityFilter))
-    }
-  }, [tableData, severityFilter])
-
-  const getIssuesForItem = (
-    type: 'page' | 'assignment' | 'file',
-    id: string,
-  ): ContentItemIssues | null => {
-    const typeKey = type === 'page' ? 'pages' : type === 'assignment' ? 'assignments' : 'files'
-
-    if (accessibilityIssues?.[typeKey]?.[id]) {
-      return structuredClone(accessibilityIssues[typeKey]?.[id])
-    }
-
-    return null
-  }
+  }, [accessibilityIssues])
 
   const handleRowClick = (item: ContentItem) => {
-    const issues = getIssuesForItem(item.type, item.id)
+    const typeKey = TypeToKeyMap[item.type]
+
+    const contentItem = accessibilityIssues?.[typeKey]?.[item.id]
+      ? structuredClone(accessibilityIssues[typeKey]?.[item.id])
+      : undefined
     setSelectedItem({
       ...item,
-      issues: issues?.issues || [],
+      issues: contentItem?.issues || [],
     })
     setShowModal(true)
   }
@@ -141,38 +137,9 @@ export const AccessibilityCheckerApp: React.FC = () => {
     window.location.reload()
   }
 
-  const getSeverityVariant = (
-    severity: 'high' | 'medium' | 'low' | 'none',
-  ): 'danger' | 'primary' => {
-    switch (severity) {
-      case 'high':
-        return 'danger'
-      case 'medium':
-        return 'danger'
-      case 'low':
-        return 'primary'
-      default:
-        return 'primary'
-    }
-  }
-
-  const getSeverityText = (severity: 'high' | 'medium' | 'low' | 'none'): string => {
-    switch (severity) {
-      case 'high':
-        return I18n.t('High')
-      case 'medium':
-        return I18n.t('Medium')
-      case 'low':
-        return I18n.t('Low')
-      case 'none':
-        return I18n.t('None')
-      default:
-        return I18n.t('All')
-    }
-  }
-
   const closeModal = () => {
     setShowModal(false)
+    window.location.reload()
   }
 
   if (loading)
@@ -199,17 +166,37 @@ export const AccessibilityCheckerApp: React.FC = () => {
       </Alert>
     )
   else {
+    const lastCheckedDate =
+      accessibilityIssues.lastChecked &&
+      new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+      }).format(new Date(accessibilityIssues.lastChecked))
+
     return (
       <View as="div">
-        <Flex as="div" margin="medium 0" alignItems="start" direction="column">
+        <Flex as="div" alignItems="start" direction="row">
           <Flex.Item>
-            <Heading level="h1">{I18n.t('Accessibility Checker')}</Heading>
+            <Heading level="h1">{I18n.t('Course Accessibility Checker')}</Heading>
           </Flex.Item>
-          <Flex.Item margin="0 0 0 auto" padding="small">
+          <Flex.Item margin="0 0 0 auto" padding="small 0">
             <Button color="primary" onClick={handleReload}>
               {I18n.t('Scan course')}
             </Button>
           </Flex.Item>
+        </Flex>
+        <Flex as="div" alignItems="start" direction="row">
+          {lastCheckedDate && (
+            <Flex.Item>
+              <Text size="small" color="secondary">
+                <>
+                  {I18n.t('Last checked at ')}
+                  {lastCheckedDate}
+                </>
+              </Text>
+            </Flex.Item>
+          )}
         </Flex>
 
         <View as="div" margin="medium 0 0 0" borderWidth="small" borderRadius="medium">
@@ -245,31 +232,19 @@ export const AccessibilityCheckerApp: React.FC = () => {
               </Table.Row>
             </Table.Head>
             <Table.Body>
-              {filteredData.length === 0 ? (
+              {tableData.length === 0 ? (
                 <Table.Row>
                   <Table.Cell colSpan={5} textAlign="center">
-                    <Text color="secondary">
-                      {severityFilter !== 'all'
-                        ? I18n.t('No %{severity} severity accessibility issues found', {
-                            severity: getSeverityText(severityFilter).toLowerCase(),
-                          })
-                        : I18n.t('No accessibility issues found')}
-                    </Text>
+                    <Text color="secondary">{I18n.t('No accessibility issues found')}</Text>
                   </Table.Cell>
                 </Table.Row>
               ) : (
-                filteredData.map(item => (
+                tableData.map(item => (
                   <Table.Row key={`${item.type}-${item.id}`}>
                     <Table.Cell>
                       <Flex alignItems="center">
-                        <Flex.Item>
-                          {item.type === ContentItemType.Page && <i className="icon-document"></i>}
-                          {item.type === ContentItemType.Assignment && (
-                            <i className="icon-assignment"></i>
-                          )}
-                        </Flex.Item>
                         <Flex.Item margin="0 0 0 x-small">
-                          <a href={item.url}>{item.name}</a>
+                          <a href={item.url}>{item.title}</a>
                         </Flex.Item>
                       </Flex>
                     </Table.Cell>
@@ -278,16 +253,18 @@ export const AccessibilityCheckerApp: React.FC = () => {
                         <Badge
                           count={item.count}
                           countUntil={999}
-                          variant={getSeverityVariant(item.severity)}
+                          variant="danger"
                           margin="small 0 small 0"
                         >
-                          <Button onClick={() => handleRowClick(item)}>View Issues</Button>
+                          <Button onClick={() => handleRowClick(item)}>
+                            {I18n.t('View Issues')}
+                          </Button>
                         </Badge>
                       ) : (
                         <Text color="secondary">No issues</Text>
                       )}
                     </Table.Cell>
-                    <Table.Cell>{item.contentType}</Table.Cell>
+                    <Table.Cell>{item.type}</Table.Cell>
                     <Table.Cell>
                       <Flex alignItems="center">
                         {item.published ? (
@@ -312,11 +289,13 @@ export const AccessibilityCheckerApp: React.FC = () => {
                       </Flex>
                     </Table.Cell>
                     <Table.Cell>
-                      {new Intl.DateTimeFormat('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: '2-digit',
-                      }).format(new Date(item.updatedAt))}
+                      {item.updatedAt
+                        ? new Intl.DateTimeFormat('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: '2-digit',
+                          }).format(new Date(item.updatedAt))
+                        : '-'}
                     </Table.Cell>
                   </Table.Row>
                 ))

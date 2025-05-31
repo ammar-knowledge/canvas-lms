@@ -88,6 +88,8 @@ export const DiscussionEdit = props => {
               label={I18n.t('Include quoted reply in message')}
               variant="toggle"
               value="medium"
+              data-testid="quotedReplyToggle"
+              data-action-state={includeQuotedReply ? 'excludeQuotedReply' : 'includeQuotedReply'}
               checked={includeQuotedReply}
               onChange={() => {
                 setIncludeQuotedReply(!includeQuotedReply)
@@ -107,6 +109,9 @@ export const DiscussionEdit = props => {
       )}
       <View display="block">
         <span className="discussions-editor">
+          <label htmlFor={textAreaId.current} style={{fontWeight: 'bold'}}>
+            {I18n.t('Write a reply')}
+          </label>
           <CanvasRce
             textareaId={textAreaId.current}
             onFocus={() => {}}

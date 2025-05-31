@@ -262,11 +262,11 @@ class ApplicationController < ActionController::Base
           group_information:,
           DOMAIN_ROOT_ACCOUNT_ID: @domain_root_account&.global_id,
           DOMAIN_ROOT_ACCOUNT_UUID: @domain_root_account&.uuid,
+          HORIZON_DOMAIN: @domain_root_account&.horizon_domain,
           k12: k12?,
           help_link_name:,
           help_link_icon:,
           use_high_contrast: @current_user&.prefers_high_contrast?,
-          use_dyslexic_font: @current_user&.prefers_dyslexic_font?,
           auto_show_cc: @current_user&.auto_show_cc?,
           disable_celebrations: @current_user&.prefers_no_celebrations?,
           disable_keyboard_shortcuts: @current_user&.prefers_no_keyboard_shortcuts?,
@@ -282,6 +282,7 @@ class ApplicationController < ActionController::Base
           },
           RAILS_ENVIRONMENT: Canvas.environment
         }
+        @js_env[:use_dyslexic_font] = @current_user&.prefers_dyslexic_font? if @current_user&.can_see_dyslexic_font_feature_flag?(session)
         @js_env[:IN_PACED_COURSE] = @context.enable_course_paces? if @context.is_a?(Course)
         unless SentryExtensions::Settings.settings.blank?
           @js_env[:SENTRY_FRONTEND] = {
@@ -402,6 +403,7 @@ class ApplicationController < ActionController::Base
     rce_find_replace
     courses_popout_sisid
     dashboard_graphql_integration
+    discussion_ai_survey_link
     discussion_checkpoints
     discussion_default_sort
     discussion_default_expand
@@ -415,6 +417,9 @@ class ApplicationController < ActionController::Base
     create_wiki_page_mastery_path_overrides
     remove_rce_resize_button
     create_external_apps_side_tray_overrides
+    ams_service
+    files_a11y_rewrite_toggle
+    files_a11y_rewrite
   ].freeze
   JS_ENV_ROOT_ACCOUNT_FEATURES = %i[
     product_tours
@@ -452,6 +457,7 @@ class ApplicationController < ActionController::Base
     course_pace_weighted_assignments
     modules_requirements_allow_percentage
     course_pace_allow_bulk_pace_assign
+    lti_apps_page_ai_translation
   ].freeze
   JS_ENV_ROOT_ACCOUNT_SERVICES = %i[account_survey_notifications].freeze
   JS_ENV_BRAND_ACCOUNT_FEATURES = %i[
@@ -3379,5 +3385,16 @@ class ApplicationController < ActionController::Base
 
   def require_feature_enabled(feature)
     not_found unless context&.root_account&.feature_enabled?(feature)
+  end
+
+  # Make it sure the file we send is in a trusted folder
+  def safe_send_file(filepath, options = {})
+    full_path = Pathname.new(File.expand_path(filepath.to_s))
+    allowed_dirs = [Rails.root.join("lib/cc/xsd")]
+    allowed_dirs << Rails.root.join(Attachment.file_store_config["path_prefix"]) if Attachment.file_store_config["path_prefix"].present?
+
+    allowed = allowed_dirs.any? { |base_dir| full_path.ascend.include?(base_dir) }
+    reject! "Invalid file path" unless allowed
+    send_file(full_path.to_s, options)
   end
 end

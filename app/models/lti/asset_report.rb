@@ -17,9 +17,12 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
+# A report created by an Lti::AssetProcessor, under the 1EdTech Asset
+# Processor spec.
 class Lti::AssetReport < ApplicationRecord
   extend RootAccountResolver
   include Canvas::SoftDeletable
+  self.ignored_columns += %i[score_given score_maximum]
 
   resolves_root_account through: :asset_processor
 
@@ -76,12 +79,8 @@ class Lti::AssetReport < ApplicationRecord
             },
             if: -> { !deleted? }
   validates :title, length: { minimum: 1, maximum: 1.kilobyte }, allow_nil: true
+  validates :result, length: { maximum: 255 }, allow_nil: true
   validates :comment, length: { minimum: 1, maximum: 64.kilobytes }, allow_nil: true
-  validates :score_given, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
-  validates :score_maximum, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
-  validates :score_maximum,
-            presence: { message: I18n.t("must be present if score_given is present") },
-            if: -> { score_given.present? }
   # For now, spec implies must be a hex code if present
   validates :indication_color,
             format: { with: /\A#[0-9a-fA-F]{6}\z/, message: I18n.t("Indication color must be a valid hex code") },
@@ -89,10 +88,20 @@ class Lti::AssetReport < ApplicationRecord
   validates :indication_alt, length: { minimum: 1, maximum: 1024 }, allow_nil: true
   validates :error_code, length: { minimum: 1, maximum: 1024 }, allow_nil: true
   validates :priority, inclusion: { in: PRIORITIES }
+  validates :processing_progress, presence: true
 
   validate :validate_extensions
   validate :validate_asset_compatible_with_processor
-  before_save :set_default_processing_progress_if_unrecognized
+
+  scope :for_active_processors, lambda {
+    joins(:asset_processor)
+      .where(lti_asset_processors: { workflow_state: :active })
+  }
+
+  scope :for_submissions, lambda { |submission_ids|
+    joins(:asset)
+      .where(lti_assets: { submission_id: submission_ids })
+  }
 
   def validate_asset_compatible_with_processor
     unless asset&.compatible_with_processor?(asset_processor)
@@ -116,8 +125,88 @@ class Lti::AssetReport < ApplicationRecord
     end
   end
 
-  def set_default_processing_progress_if_unrecognized
-    # Per spec.
-    self.processing_progress = PROGRESS_NOT_READY unless PROGRESSES.include?(processing_progress)
+  # See also fields in graphql/types/lti_asset_report_type.rb (used
+  # in New Speedgrader)
+  def info_for_display
+    {
+      _id: id,
+      title:,
+      comment:,
+      result:,
+      resultTruncated: result_truncated,
+      indicationColor: indication_color,
+      indicationAlt: indication_alt,
+      errorCode: error_code,
+      processingProgress: effective_processing_progress,
+      priority:,
+      launchUrlPath: launch_url_path,
+      resubmitAvailable: resubmit_available?,
+    }.compact
+  end
+
+  def effective_processing_progress
+    if PROGRESSES.include?(processing_progress)
+      processing_progress
+    else
+      # Per spec
+      PROGRESS_NOT_READY
+    end
+  end
+
+  def launch_url_path
+    return nil unless processing_progress == PROGRESS_PROCESSED
+
+    Rails.application.routes.url_helpers.asset_report_launch_path(
+      asset_processor_id: lti_asset_processor_id,
+      report_id: id
+    )
+  end
+
+  def resubmit_available?
+    processing_progress == PROGRESS_PENDING_MANUAL ||
+      (processing_progress == PROGRESS_FAILED && [ERROR_CODE_EULA_NOT_ACCEPTED, ERROR_CODE_DOWNLOAD_FAILED].include?(error_code))
+  end
+
+  def result_truncated
+    return nil unless result.is_a?(String) && result.present?
+    return nil if result.length <= 16
+
+    "#{result.first(15)}…"
+  end
+
+  # Returns all reports for the given asset processor and submission IDs.
+  # Returns reports by submission, hash of form:
+  #   submission_id => {
+  #     by_attachment: {
+  #       attachment_id => {
+  #         lti_asset_processor_id => [
+  #           { id: report1.id, title: report1.title, ... },
+  #           { id: report2.id, title: report2.title, ... },
+  #         ],
+  # ...
+  def self.info_for_display_by_submission(submission_ids:)
+    reports_by_submission = {}
+
+    if submission_ids.present?
+      scope =
+        active
+        .for_active_processors
+        .for_submissions(submission_ids)
+        .select("lti_asset_reports.*, lti_assets.submission_id as asset_sub_id, lti_assets.attachment_id as asset_att_id")
+
+      scope.find_each do |report|
+        sub_reports = (reports_by_submission[report.asset_sub_id] ||= {})
+
+        if report.asset_att_id
+          by_attachment = (sub_reports[:by_attachment] ||= {})
+          by_processor = (by_attachment[report.asset_att_id] ||= {})
+          report_list = (by_processor[report.lti_asset_processor_id] ||= [])
+          report_list << report.info_for_display
+        end
+        # else if submission version (RCE content) -- TODO
+      end
+    end
+
+    reports_by_submission
   end
 end

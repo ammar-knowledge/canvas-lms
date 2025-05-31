@@ -521,36 +521,20 @@ describe('ExternalToolDialog', () => {
         '<a href="http://www.tool.com" title="title" target="_blank">title</a>',
       )
     })
-  })
 
-  describe('alerts', () => {
-    it('has screenreader-only for both by default', async () => {
+    it('closes the modal when tool sends lti.close message', async () => {
       const instance = await getInstance(container)
-      instance.open(toolHelper(1))
-      expect(instance.beforeInfoAlertRef.current?.className).toContain('screenreader-only')
-      expect(instance.afterInfoAlertRef.current?.className).toContain('screenreader-only')
-    })
+      const closeSpy = jest.spyOn(instance, 'handleClose')
 
-    it('removes screenreader-only from before alert on focus', async () => {
-      const instance = await getInstance(container)
       instance.open(toolHelper(1))
-      const ev = {target: instance.beforeInfoAlertRef.current!}
-      instance.handleInfoAlertFocus(ev)
-      expect(instance.beforeInfoAlertRef.current?.className).not.toContain('screenreader-only')
-      expect(instance.afterInfoAlertRef.current?.className).toContain('screenreader-only')
-      instance.handleInfoAlertBlur()
-      expect(instance.beforeInfoAlertRef.current?.className).toContain('screenreader-only')
-    })
+      instance.handlePostedMessage({
+        origin: 'https://tool.com',
+        data: {
+          subject: 'lti.close',
+        },
+      })
 
-    it('removes screenreader-only from after alert on focus', async () => {
-      const instance = await getInstance(container)
-      instance.open(toolHelper(1))
-      const ev = {target: instance.afterInfoAlertRef.current!}
-      instance.handleInfoAlertFocus(ev)
-      expect(instance.beforeInfoAlertRef.current?.className).toContain('screenreader-only')
-      expect(instance.afterInfoAlertRef.current?.className).not.toContain('screenreader-only')
-      instance.handleInfoAlertBlur()
-      expect(instance.afterInfoAlertRef.current?.className).toContain('screenreader-only')
+      expect(closeSpy).toHaveBeenCalled()
     })
   })
 })

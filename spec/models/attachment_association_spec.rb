@@ -97,6 +97,24 @@ describe AttachmentAssociation do
       expect(fetch_list_with_field_name(nil)).to match_array([course_attachment.id, course_attachment2.id])
       expect(fetch_list_with_field_name("syllabus_body")).to match_array([course_attachment3.id])
     end
+
+    context "with sharding" do
+      specs_require_sharding
+
+      it "creates associations on the context's shard, not the attachment's" do
+        @shard1.activate do
+          account_model
+          course_model(account: @account)
+          @course.enroll_teacher(teacher)
+          attachment_model(context: @course, filename: "shard1.txt")
+          AttachmentAssociation.update_associations(course, [@attachment.id], teacher, nil, "syllabus_body")
+        end
+
+        aa = AttachmentAssociation.find_by(context: course, field_name: "syllabus_body")
+        expect(aa.attachment_id).to eql @attachment.global_id
+        expect(aa.context_id).to eql course.local_id
+      end
+    end
   end
 
   describe "#verify_access" do

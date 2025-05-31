@@ -16,28 +16,31 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useState, useEffect, useCallback} from 'react'
+import React, {useState, useEffect, useCallback, memo} from 'react'
 import {View} from '@instructure/ui-view'
 import {Text} from '@instructure/ui-text'
 import {Flex} from '@instructure/ui-flex'
 import ModuleStudent from './ModuleStudent'
 import ModulePageActionHeaderStudent from './ModulePageActionHeaderStudent'
-import {
-  handleCollapseAll,
-  handleExpandAll,
-  handleToggleExpand,
-} from '../handlers/modulePageActionHandlers'
+import {handleCollapseAll, handleExpandAll} from '../handlers/modulePageActionHandlers'
+import {useIsFetching} from '@tanstack/react-query'
 
-import {useModules} from '../hooks/queries/useModules'
+import {validateModuleStudentRenderRequirements} from '../utils/utils'
+import {useModulesStudent} from '../hooks/queriesStudent/useModulesStudent'
+import {useToggleCollapse} from '../hooks/mutations/useToggleCollapse'
 import {Spinner} from '@instructure/ui-spinner'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import {useContextModule} from '../hooks/useModuleContext'
 
 const I18n = createI18nScope('context_modules_v2')
 
+const MemoizedModuleStudent = memo(ModuleStudent, validateModuleStudentRenderRequirements)
+
 const ModulesListStudent: React.FC = () => {
   const {courseId} = useContextModule()
-  const {data, isLoading, error, isFetchingNextPage, hasNextPage} = useModules(courseId)
+  const {data, isLoading, error, isFetchingNextPage, hasNextPage} = useModulesStudent(courseId)
+  const moduleFetchingCount = useIsFetching({queryKey: ['moduleItemsStudent']})
+  const [expandCollapseButtonDisabled, setExpandCollapseButtonDisabled] = useState(false)
 
   // Initialize with an empty Map - all modules will be collapsed by default
   const [expandedModules, setExpandedModules] = useState<Map<string, boolean>>(new Map())
@@ -47,19 +50,30 @@ const ModulesListStudent: React.FC = () => {
     if (data?.pages) {
       const allModules = data.pages.flatMap(page => page.modules)
 
-      // Create a Map with all modules collapsed by default
+      // Create a Map for module expansion state
       const initialExpandedState = new Map<string, boolean>()
-      allModules.forEach((module, index) => {
-        // Expand the first 10 modules by default
-        initialExpandedState.set(module._id, index < 10)
+      allModules.forEach(module => {
+        // Use collapsed state from progression if available
+        if (module.progression && module.progression?.collapsed !== null) {
+          // Note: we invert collapsed to get expanded state
+          initialExpandedState.set(module._id, !module.progression.collapsed)
+        } else {
+          // Default all modules to collapsed
+          initialExpandedState.set(module._id, false)
+        }
       })
 
       setExpandedModules(prev => {
         if (prev.size > 0) {
           const newState = new Map(prev)
-          allModules.forEach((module, index) => {
+          allModules.forEach(module => {
             if (!newState.has(module._id)) {
-              newState.set(module._id, index < 10)
+              // For newly added modules, respect their progression collapsed state
+              if (module.progression && module.progression.collapsed !== null) {
+                newState.set(module._id, !module.progression.collapsed)
+              } else {
+                newState.set(module._id, false) // Default to collapsed
+              }
             }
           })
           return newState
@@ -69,19 +83,46 @@ const ModulesListStudent: React.FC = () => {
     }
   }, [data?.pages])
 
+  useEffect(() => {
+    if (moduleFetchingCount > 0) {
+      setExpandCollapseButtonDisabled(true)
+    } else {
+      setExpandCollapseButtonDisabled(false)
+    }
+  }, [moduleFetchingCount])
+
+  const toggleCollapseMutation = useToggleCollapse(courseId)
+
   const handleToggleExpandRef = useCallback(
     (moduleId: string) => {
-      handleToggleExpand(moduleId, setExpandedModules)
+      const currentExpanded = expandedModules.get(moduleId) || false
+
+      setExpandedModules(prev => {
+        const newState = new Map(prev)
+        newState.set(moduleId, !currentExpanded)
+        return newState
+      })
+
+      // Call the API to persist the collapsed state
+      // Note: the endpoint expects 'collapse' which is the opposite of 'expanded'
+      toggleCollapseMutation.mutate({
+        moduleId,
+        collapse: currentExpanded, // If currently expanded, we're collapsing it
+      })
     },
-    [setExpandedModules],
+    [expandedModules, toggleCollapseMutation],
   )
 
   return (
     <View as="div" margin="medium">
       <ModulePageActionHeaderStudent
         onCollapseAll={() => handleCollapseAll(data, setExpandedModules)}
-        onExpandAll={() => handleExpandAll(data, setExpandedModules)}
+        onExpandAll={() => {
+          handleExpandAll(data, setExpandedModules)
+          setExpandCollapseButtonDisabled(true)
+        }}
         anyModuleExpanded={Array.from(expandedModules.values()).some(expanded => expanded)}
+        disabled={expandCollapseButtonDisabled}
       />
       {isLoading && !data ? (
         <View as="div" textAlign="center" padding="large">
@@ -101,13 +142,17 @@ const ModulesListStudent: React.FC = () => {
             data?.pages
               .flatMap(page => page.modules)
               .map(module => (
-                <ModuleStudent
+                <MemoizedModuleStudent
                   key={module._id}
                   id={module._id}
                   name={module.name}
                   completionRequirements={module.completionRequirements}
+                  requireSequentialProgress={module.requireSequentialProgress}
+                  progression={module.progression}
                   expanded={!!expandedModules.get(module._id)}
                   onToggleExpand={handleToggleExpandRef}
+                  requirementCount={module.requirementCount}
+                  submissionStatistics={module.submissionStatistics}
                 />
               ))
           )}

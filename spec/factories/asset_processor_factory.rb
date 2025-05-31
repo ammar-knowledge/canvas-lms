@@ -30,7 +30,7 @@ module Factories
       report: { released: false, indicator: true, url: "https://example.com/my_special_target_uri", custom: {} },
     }.with_indifferent_access.merge(overrides)
     props[:context_external_tool] ||=
-      props.delete(:tool) || external_tool_1_3_model(context: external_tool_context)
+      props.delete(:tool) || external_tool_1_3_model(context: external_tool_context, placements: ["ActivityAssetProcessor"])
     props[:assignment] ||= assignment_model(assingment_opts)
     props[:url] ||= props[:context_external_tool].url
     Lti::AssetProcessor.create!(**props)
@@ -52,7 +52,7 @@ module Factories
     props[:asset] ||=
       props.delete(:lti_asset_id)&.then { Lti::Asset.find(_1) } ||
       lti_asset_model(
-        submission: submission_model(
+        submission: props.delete(:submission) || submission_model(
           user: props[:user],
           assignment: props[:asset_processor].assignment
         )
@@ -64,8 +64,7 @@ module Factories
   def processed_lti_asset_report_model(overrides = {})
     new_overrides = {
       comment: "Uh-oh",
-      score_given: 83,
-      score_maximum: 100,
+      result: "83/100",
       indication_color: "#EC0000",
       indication_alt: "High percentage of matched text.",
       priority: 5,
@@ -85,8 +84,12 @@ module Factories
 
   def lti_asset_model(overrides = {})
     props = overrides.dup
-    props[:attachment] ||= attachment_model
     props[:submission] ||= submission_model
+    if props[:submission].submission_type == "online_text_entry"
+      props[:submission_attempt] ||= props[:submission].attempt
+    else
+      props[:attachment] ||= attachment_model
+    end
     Lti::Asset.create!(**props)
   end
 

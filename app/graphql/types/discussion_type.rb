@@ -149,7 +149,9 @@ module Types
     end
 
     field :reply_to_entry_required_count, Integer, null: false
-    delegate :reply_to_entry_required_count, to: :object
+    def reply_to_entry_required_count
+      object.root_topic ? object.root_topic.reply_to_entry_required_count : object.reply_to_entry_required_count
+    end
 
     field :assignment, Types::AssignmentType, null: true
     def assignment
@@ -225,8 +227,13 @@ module Types
     def author(course_id: nil, role_types: nil, built_in_only: false)
       # Conditionally set course_id based on whether it's provided or should be inferred from the object
       resolved_course_id = course_id.nil? ? object&.course&.id : course_id
-      # Set the graphql context so it can be used downstream
-      context[:course_id] = resolved_course_id
+
+      if object&.course.is_a?(Account) && !object&.group&.id.nil?
+        context[:group_id] = object&.group&.id
+      else
+        # Set the graphql context so it can be used downstream
+        context[:course_id] = resolved_course_id
+      end
 
       if object.anonymous? && resolved_course_id.nil?
         nil

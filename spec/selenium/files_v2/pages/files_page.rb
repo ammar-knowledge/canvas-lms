@@ -33,6 +33,14 @@ module FilesPage
     fxpath("//button[descendant::text()[contains(., 'All My Files')]]")
   end
 
+  def switch_to_new_files_page_toggle
+    f("[aria-label='Switch to New Files Page']")
+  end
+
+  def switch_to_old_files_page_toggle
+    fxpath("//button[descendant::text()[contains(., 'Switch to Old Files Page')]]")
+  end
+
   def upload_button
     fxpath("//button[descendant::text()[contains(., 'Upload')]]")
   end
@@ -113,6 +121,10 @@ module FilesPage
     ff("[name='IconCheckMark']")
   end
 
+  def folder_icon
+    f("[data-testid='folder-icon']")
+  end
+
   def all_files_table_rows
     driver.find_elements(:css, "tr[data-testid='table-row']")
   end
@@ -173,6 +185,14 @@ module FilesPage
 
   def action_menu_button
     f("[data-testid='action-menu-button-large']")
+  end
+
+  def action_menu_modal
+    f('div[role="menu"]')
+  end
+
+  def bulk_action_menu_modal
+    f('span[class*="view--inlineBlock-contextView"] div[role="menu"]')
   end
 
   def action_menu_item_by_name_selector(name)

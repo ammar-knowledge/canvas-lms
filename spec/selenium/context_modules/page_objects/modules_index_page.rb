@@ -46,6 +46,10 @@ module ModulesIndexPage
     "[data-testid = 'delete-card-button']"
   end
 
+  def delete_module_item_button_selector(module_item)
+    "#context_module_item_#{module_item.id} .delete_item_link"
+  end
+
   def expand_module_link_selector(module_id)
     ".expand_module_link[aria-controls='context_module_content_#{module_id}']"
   end
@@ -60,6 +64,10 @@ module ModulesIndexPage
 
   def module_item_copy_to_tray_selector
     "[role='dialog'][aria-label='Copy To...']"
+  end
+
+  def module_item_drag_handle_selector(module_item_id)
+    "##{module_item_id} .move_item_link"
   end
 
   def manage_module_item_indent_selector(module_item_id)
@@ -98,8 +106,40 @@ module ModulesIndexPage
     "[role='dialog'][aria-label='Move Module Item']"
   end
 
+  def module_item_move_tray_module_selector
+    ".move-select-form"
+  end
+
+  def module_move_contents_tray_module_selector
+    ".move-select-form"
+  end
+
+  def module_item_move_tray_location_selector
+    "[data-testid='select-position']"
+  end
+
+  def module_move_contents_tray_place_selector
+    "[data-testid='select-position']"
+  end
+
+  def module_item_move_tray_sibling_selector
+    "[data-testid='select-sibling']"
+  end
+
+  def module_move_contents_tray_sibling_selector
+    "[data-testid='select-sibling']"
+  end
+
+  def module_item_move_tray_move_button_selector
+    "#move-item-tray-submit-button"
+  end
+
   def module_item_page_button_selector(module_id, button_text)
     "//*[@id = 'context_module_#{module_id}']//button[.//*[contains(text(), '#{button_text}')]]"
+  end
+
+  def module_move_contents_selector(module_id)
+    "#context_module_#{module_id} .move_module_contents_link"
   end
 
   def new_module_link_selector
@@ -170,12 +210,16 @@ module ModulesIndexPage
     ".show-all-or-less-button"
   end
 
-  def show_all_button_selector
-    ".show-all-or-less-button.show-all"
+  def show_all_button_selector(context_module)
+    "#context_module_#{context_module.id} .show-all-or-less-button.show-all"
   end
 
-  def show_less_button_selector
-    ".show-all-or-less-button.show-less"
+  def show_less_button_selector(context_module)
+    "#context_module_#{context_module.id} .show-all-or-less-button.show-less"
+  end
+
+  def module_file_drop_selector
+    "[data-testid='module-file-drop']"
   end
 
   #------------------------------ Elements ------------------------------
@@ -256,6 +300,10 @@ module ModulesIndexPage
     fxpath(module_item_page_button_selector(module_id, button_text))
   end
 
+  def module_item_drag_handle(module_item_id)
+    f(module_item_drag_handle_selector(module_item_id))
+  end
+
   def module_item_duplicate(module_item_id)
     f(module_item_duplicate_selector(module_item_id))
   end
@@ -268,12 +316,44 @@ module ModulesIndexPage
     f(module_item_move_tray_selector)
   end
 
+  def module_item_move_tray_module
+    ff(module_item_move_tray_module_selector)[0]
+  end
+
+  def module_move_contents_tray_module
+    ff(module_move_contents_tray_module_selector)[0]
+  end
+
+  def module_item_move_tray_module_location
+    f(module_item_move_tray_location_selector)
+  end
+
+  def module_move_contents_tray_module_place
+    f(module_move_contents_tray_place_selector)
+  end
+
+  def module_item_move_tray_sibling
+    f(module_item_move_tray_sibling_selector)
+  end
+
+  def module_item_move_tray_move_button
+    f(module_item_move_tray_move_button_selector)
+  end
+
   def module_item_name_selector(course_id, module_number)
     "//a[@title='#{course_id}:#{module_number}']"
   end
 
   def module_item_send_to(module_item_id)
     f(module_item_send_to_selector(module_item_id))
+  end
+
+  def module_move_contents(module_id)
+    f(module_move_contents_selector(module_id))
+  end
+
+  def module_move_contents_tray_sibling
+    f(module_move_contents_tray_sibling_selector)
   end
 
   def module_row(module_id)
@@ -336,6 +416,10 @@ module ModulesIndexPage
     f("#context_module_#{context_module.id} .add_module_item_link")
   end
 
+  def delete_module_item_button(module_item)
+    f(delete_module_item_button_selector(module_item))
+  end
+
   def duplicate_module_button(context_module)
     f(duplicate_module_button_selector(context_module))
   end
@@ -368,12 +452,12 @@ module ModulesIndexPage
     ff(all_modules_selector)
   end
 
-  def show_all_button
-    f(show_all_button_selector)
+  def show_all_button(context_module)
+    f(show_all_button_selector(context_module))
   end
 
-  def show_less_button
-    f(show_less_button_selector)
+  def show_less_button(context_module)
+    f(show_less_button_selector(context_module))
   end
 
   #------------------------------ Actions ------------------------------
@@ -417,6 +501,10 @@ module ModulesIndexPage
     delete_card_button[button_number].click
   end
 
+  def click_manage_module_button(context_module)
+    manage_module_button(context_module).click
+  end
+
   def click_manage_module_item_assign_to(module_item)
     manage_module_item_assign_to(module_item.id).click
   end
@@ -437,6 +525,10 @@ module ModulesIndexPage
     module_item_move(module_item.id).click
   end
 
+  def click_module_item_move_tray_move_button
+    module_item_move_tray_move_button.click
+  end
+
   def click_module_item_send_to(module_item)
     module_item_send_to(module_item.id).click
   end
@@ -447,6 +539,10 @@ module ModulesIndexPage
 
   def click_module_create_button
     module_create_button.click
+  end
+
+  def click_module_move_contents(module_id)
+    module_move_contents(module_id).click
   end
 
   def click_new_module_link
@@ -469,12 +565,40 @@ module ModulesIndexPage
     element_exists?(module_item_name_selector(course_id, module_item_id), true)
   end
 
+  def any_module_items?(module_id)
+    element_exists?(module_items_selector(module_id))
+  end
+
   def move_tray_exists?
     element_exists?(module_item_move_tray_selector)
   end
 
   def send_to_dialog_exists?
     element_exists?(send_to_dialog_selector)
+  end
+
+  def select_module_item_move_tray_module(module_name)
+    click_option(module_item_move_tray_module, module_name)
+  end
+
+  def select_module_move_contents_tray_module(module_name)
+    click_option(module_move_contents_tray_module, module_name)
+  end
+
+  def select_module_item_move_tray_location(location)
+    click_option(module_item_move_tray_module_location, location)
+  end
+
+  def select_module_move_contents_tray_place(location)
+    click_option(module_move_contents_tray_module_place, location)
+  end
+
+  def select_module_item_move_tray_sibling(sibling)
+    click_option(module_item_move_tray_sibling, sibling)
+  end
+
+  def select_module_move_contents_tray_sibling(sibling)
+    click_option(module_move_contents_tray_sibling, sibling)
   end
 
   def retrieve_assignment_content_tag(content_module, assignment)
@@ -533,9 +657,19 @@ module ModulesIndexPage
     fj(".ui-dialog-titlebar-close:visible").click
   end
 
+  def drag_and_drop_module_item(module_item_selector1, module_item_selector2)
+    js_drag_and_drop(module_item_selector1, module_item_selector2)
+  end
+
   def save_edit_item_form
     form = f("#edit_item_form")
     form.submit
     wait_for_ajaximations
+  end
+
+  def duplicate_module(context_module)
+    manage_module_button(context_module).click
+    duplicate_module_button(context_module).click
+    wait_for_ajax_requests
   end
 end

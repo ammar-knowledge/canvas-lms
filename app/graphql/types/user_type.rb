@@ -81,13 +81,21 @@ module Types
     end
     def html_url(course_id: nil)
       resolved_course_id = course_id.nil? ? context[:course_id] : course_id
-      return if resolved_course_id.nil?
 
-      GraphQLHelpers::UrlHelpers.course_user_url(
-        course_id: resolved_course_id,
-        id: object.id,
-        host: context[:request].host_with_port
-      )
+      if context[:group_id]
+        GraphQLHelpers::UrlHelpers.group_user_url(
+          group_id: context[:group_id],
+          id: object.id,
+          host: context[:request].host_with_port
+        )
+      elsif resolved_course_id
+        # it is possible to be a user in an admin group discussion where is no course
+        GraphQLHelpers::UrlHelpers.course_user_url(
+          course_id: resolved_course_id,
+          id: object.id,
+          host: context[:request].host_with_port
+        )
+      end
     end
 
     field :email, String, null: true
@@ -144,6 +152,8 @@ module Types
       end
     end
 
+    ALLOWED_ORDER_BY_VALUES = %w[id user_id course_id created_at start_at end_at completed_at courses.id courses.name courses.course_code courses.start_at courses.conclude_at].to_set
+
     field :enrollments, [EnrollmentType], null: false do
       argument :course_id,
                ID,
@@ -165,7 +175,8 @@ module Types
       argument :order_by,
                [String],
                "The fields to order the results by",
-               required: false
+               required: false,
+               validates: { all: { inclusion: { in: ALLOWED_ORDER_BY_VALUES } } }
       argument :sort,
                EnrollmentsSortInputType,
                "The sort field and direction for the results. Secondary sort is by section name",

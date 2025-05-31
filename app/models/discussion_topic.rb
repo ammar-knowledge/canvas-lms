@@ -384,6 +384,7 @@ class DiscussionTopic < ActiveRecord::Base
         topic = DiscussionTopic.where(context_id: group, context_type: "Group", root_topic_id: self).first
         topic ||= group.discussion_topics.build { |dt| dt.root_topic = self }
         topic.message = message
+        topic.reply_to_entry_required_count = reply_to_entry_required_count if reply_to_entry_required_count
         topic.title = CanvasTextHelper.truncate_text("#{title} - #{group.name}", { max_length: 250 }) # because of course people do this
         topic.assignment_id = assignment_id
         topic.attachment_id = attachment_id
@@ -394,6 +395,10 @@ class DiscussionTopic < ActiveRecord::Base
         topic.allow_rating = allow_rating
         topic.only_graders_can_rate = only_graders_can_rate
         topic.sort_by_rating = sort_by_rating
+        topic.sort_order = sort_order
+        topic.sort_order_locked = sort_order_locked
+        topic.expanded = expanded
+        topic.expanded_locked = expanded_locked
         topic.save if topic.changed?
         topic
       end
@@ -1629,7 +1634,7 @@ class DiscussionTopic < ActiveRecord::Base
     p.to { users_with_permissions(active_participants_with_visibility) }
     p.whenever do |record|
       record.send_notification_for_context? and
-        ((record.just_created && record.active?) || record.changed_state(:active, record.is_announcement ? :post_delayed : :unpublished))
+        ((record.previously_new_record? && record.active?) || record.changed_state(:active, record.is_announcement ? :post_delayed : :unpublished))
     end
     p.data { course_broadcast_data }
   end

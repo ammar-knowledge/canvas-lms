@@ -28,7 +28,7 @@ export const ZAssetProcessorWindowSettings = z.object({
 
 /**
  * Data sent by server to show APs already attached to an existing assignment.
- * See Lti::AssetProcessors.processors_info_for_display
+ * See Lti::AssetProcessors.info_for_display
  */
 export const ZExistingAttachedAssetProcessor = z.object({
   id: z.number(),
@@ -59,7 +59,39 @@ export function buildAPDisplayTitle({
   title,
   toolPlacementLabel,
   toolName,
-}: {title?: string; toolPlacementLabel?: string; toolName: string}) {
+}: {title?: string | null; toolPlacementLabel?: string | null; toolName: string}) {
   const toolTitle = toolPlacementLabel || toolName
   return title && title !== toolTitle ? `${toolTitle} · ${title}` : toolTitle
 }
+
+/**
+ * Data sent by tool in deep linking response content item.
+ */
+export const ZImageUrlWithDimensions = z.object({
+  url: z.string().optional(),
+  width: z.number().int().nonnegative().optional(),
+  height: z.number().int().nonnegative().optional(),
+})
+
+/**
+ * Data sent by tool in deep linking response content item.
+ */
+export const ZAssetProcessorContentItem = z.object({
+  type: z.literal('ltiAssetProcessor'),
+  url: z.string().optional(),
+  title: z.string().optional(),
+  text: z.string().optional(),
+  icon: ZImageUrlWithDimensions.optional(),
+  thumbnail: ZImageUrlWithDimensions.optional(),
+  window: ZAssetProcessorWindowSettings.optional(),
+  iframe: ZIframeDimensions.optional(),
+  custom: z.record(z.string()).optional(),
+  report: z
+    .object({
+      url: z.string().optional(),
+      custom: z.record(z.string()).optional(),
+    })
+    .optional(),
+})
+
+export type AssetProcessorContentItem = z.infer<typeof ZAssetProcessorContentItem>

@@ -49,16 +49,17 @@ class Lti::AssetProcessor < ApplicationRecord
 
     return nil unless tool
 
+    # TODO: add thumbnail to asset_processor model and add it here as well
     new(
       context_external_tool: tool,
       url: content_item["url"],
       title: content_item["title"],
       text: content_item["text"],
-      custom: content_item["custom"],
-      icon: content_item["icon"],
-      window: content_item["window"],
-      iframe: content_item["iframe"],
-      report: content_item["report"]
+      custom: content_item["custom"].present? ? Schemas::Lti::AssetProcessor::CustomVariables.filter_and_validate!(content_item["custom"].to_unsafe_h) : nil,
+      icon: content_item["icon"].present? ? Schemas::Lti::AssetProcessor::UrlWithDimensions.filter_and_validate!(content_item["icon"].to_unsafe_h) : nil,
+      window: content_item["window"].present? ? Schemas::Lti::AssetProcessor::WindowSettings.filter_and_validate!(content_item["window"].to_unsafe_h) : nil,
+      iframe: content_item["iframe"].present? ? Schemas::Lti::AssetProcessor::IframeDimensions.filter_and_validate!(content_item["iframe"].to_unsafe_h) : nil,
+      report: content_item["report"].present? ? Schemas::Lti::AssetProcessor::ReportSettings.filter_and_validate!(content_item["report"].to_unsafe_h) : nil
     )
   end
 
@@ -68,9 +69,25 @@ class Lti::AssetProcessor < ApplicationRecord
     end
   end
 
+  def self.for_assignment_id(assignment_id)
+    Lti::AssetProcessor.active
+                       .where(assignment_id:)
+                       .joins(:context_external_tool)
+                       .merge(ContextExternalTool.active)
+  end
+
+  def icon_or_tool_icon_url
+    icon_url ||
+      context_external_tool.extension_setting(:ActivityAssetProcessor, :icon_url)
+  end
+
   # Result structure should match with ExistingAttachedAssetProcessor in UI
-  def self.processors_info_for_display(assignment_id:)
-    Lti::AssetProcessor.where(assignment_id:).active.preload(:context_external_tool).map do |ap|
+  # See also fields in app/graphql/types/lti_asset_processor_type.rb which are used
+  # in Speedgrader 2
+  def self.info_for_display
+    raise ArgumentError, "Must be used with a scope" unless current_scope
+
+    active.preload(:context_external_tool).map do |ap|
       {
         id: ap.id,
         title: ap.title,
@@ -78,9 +95,7 @@ class Lti::AssetProcessor < ApplicationRecord
         tool_id: ap.context_external_tool_id,
         tool_name: ap.context_external_tool.name,
         tool_placement_label: ap.context_external_tool.label_for(:ActivityAssetProcessor, I18n.locale),
-        icon_or_tool_icon_url:
-          ap.icon_url ||
-            ap.context_external_tool.extension_setting(:ActivityAssetProcessor, :icon_url),
+        icon_or_tool_icon_url: ap.icon_or_tool_icon_url,
         iframe: ap.iframe,
         window: ap.window,
       }.compact

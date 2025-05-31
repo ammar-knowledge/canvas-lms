@@ -1477,6 +1477,7 @@ ko:
   allow_dashboard_cards_to_be_reordered_for_each_use_81f989d7: "사용자가 개별적으로 대시보드 카드 순서 변경을 할 수 있도록 허용함"
   allow_reorder_dashboard_cards_78215947: "대시보드 카드 순서 변경을 허용함"
   allow_self_sign_up_7520f8c5: "직접 등록 허용"
+  allow_threaded_replies_43b2311e: "계층 구조 답변 허용"
   allows_the_duplication_of_calendar_events_7bb0d6c5: "달력 행사 복제 허용하기"
   always_3a59e701: 항상
   an_alert_is_generated_for_each_student_that_meets__c36e3561: "알림은 모든 기준을 만족하는 각 학생에게 생성됩니다. 알림은 매일 체크해서 트리거한 문제가 해결될 때까지 학생, 교사, 계정 관리자에게 보냅니다."
@@ -2955,6 +2956,7 @@ ko:
   cc_attribution_non_commercial_39e0d30d: "CC 유형 비영리"
   cc_attribution_non_commercial_no_derivatives_9fe74c00: "CC 유형 비영리 변경금지"
   cc_attribution_non_commercial_share_alike_c7edb1e5: "CC 유형 비영리 동일조건변경허락 "
+  cc_attribution_share_alike_669e7f16: "CC 유형 동일조건변경허락"
   cell_number_69a7c309: "휴대 전화 번호"
   change_beginning_date_to_39dbd06e: "시작 날짜를 다음으로 변경"
   change_ending_date_to_d2cebd54: "끝 날짜를 다음으로 변경"
@@ -4031,6 +4033,9 @@ ko:
   count_days_de0c6a32: 
     one: "%{count}일"
     other: "%{count}일"
+  count_groups_90e215b1: 
+    one: "그룹 %{count}개"
+    other: "그룹 %{count}개"
   count_hours_ago_322dcc79: 
     one: "%{count}시간 전"
     other: "%{count}시간 전"
@@ -4050,6 +4055,9 @@ ko:
   count_points_4735a2e8: 
     one: "%{count} 점"
     other: "%{count} 점"
+  count_sections_bf1baf0a: 
+    one: "섹션 %{count}개"
+    other: "섹션 %{count}개"
   count_students_c9920376: 
     one: "학생(%{count})"
     other: "학생(%{count})"
@@ -4381,6 +4389,8 @@ ko:
         student: 학생
       loading: "학생 로딩 중..."
       select_student: "학생 선택"
+    links: 
+      student_progress: "진행 상황 보기"
     master_course_restrictions: 
       labels: 
         points: 배점
@@ -4575,6 +4585,7 @@ ko:
       tab_hidden_if_disabled: "페이지가 비활성이므로 탐색에 표시되지 않음"
       tabs: 
         alerts: 알림
+        apps: 앱
         details: "과목 세부 정보"
         feature_options: "기능 옵션"
         grade_publishing: "평점 게시"
@@ -5009,6 +5020,7 @@ ko:
   delete_failed_6285e600: "삭제 실패"
   delete_grading_scheme_6b308832: "평가 구성표 삭제"
   delete_my_account_41060aad: "내 계정 삭제"
+  delete_name_81c1b5b2: "%{name} 삭제"
   delete_quiz_142b8099: "퀴즈 삭제"
   delete_sub_account_c267a6e5: "하위 계정 삭제"
   delete_survey_56fddbbd: "설문 삭제"
@@ -5489,6 +5501,7 @@ ko:
   end_date_e0093ed7: 종료일
   end_time_250391e8: "종료 시각"
   ending_date_e1ea13a4: "끝 날짜"
+  ends_e3a6843f: 끝
   english_c60612e2: 영어
   enhanced_individual_gradebook: 
     avg_score: "평균 점수"
@@ -7605,6 +7618,7 @@ ko:
       debug: 
         logout_response_redirect_from_idp: "IdP에서 받은 LogoutResponse"
         redirect_from_idp: "IdP에서 받은 LoginResponse"
+  login_sis_id_942859: "로그인 / SIS ID"
   loginrequest_encoded_url_44c49c18: "LoginRequest 인코딩된 URL"
   loginrequest_xml_sent_to_idp_9fafd03a: "IdP로 전송된 LoginRequest XML"
   logins_9aee0cbe: 로그인
@@ -9864,6 +9878,7 @@ ko:
   notification_settings_652dc60b: "알림 설정"
   notifications_cbfa7704: 알림
   notifications_sent_to_external_services_c4a86b78: "외부 서비스에 보낸 알림"
+  now_d1785853: 지금
   number: 
     currency: 
       format: 
@@ -10130,6 +10145,7 @@ ko:
     errors: 
       create_failed: "의견 생성 실패함"
   page_name_21defa75: "페이지 이름"
+  page_title_106304bb: "페이지 제목"
   page_title_d1a22bbf: "페이지 제목"
   page_views: 
     browsers: 
@@ -10518,6 +10534,7 @@ ko:
   privacy_level_f0ec09a3: "개인 정보 보호 수준"
   privacy_policy_c68f482a: "개인 정보 보호 정책"
   private_3883d133: 비공개
+  private_copyrighted_3cac9686: "비공개 (저작권 있음)"
   process_as_ui_changes_8e34ed2a: "UI 변경으로 처리"
   process_data_2f5f962f: "자료 처리"
   processing_8c569014: "처리 중..."
@@ -12597,6 +12614,7 @@ ko:
       not_available_yet: "과목이 시작하기 직전에 이메일을 보냅니다."
   self_sign_up_c8d23585: "직접 등록"
   send_e3bd0ed0: 보내기
+  sent_at_23cccc07: "발송:"
   sent_f4ee89ec: 전송했습니다!
   sent_fe0a1eb4: "보낸 메시지"
   sequence_footer: 
@@ -13403,6 +13421,7 @@ ko:
   start_participating_f0c75256: "참여 시작"
   started_5e138638: 시작됨
   starts_at_29843f98: "시작 날짜"
+  starts_fa6bf3f5: 시작
   state_66a67ba2: 상태
   state_standards_c9b1affd: "전국 표준"
   statistics: 
@@ -14143,6 +14162,7 @@ ko:
   upper_limit_of_range_c454a8f2: "범위의 상한"
   url_22a5f3b8: URL
   url_preview_5d1f4a4e: "URL 미리 보기"
+  use_this_rubric_for_assignment_grading_a02fd079: "과제 평가에 이 루브릭 사용"
   use_this_same_grade_for_the_resubmission_eaa6bf55: "다시 제출한 것에 대해 같은 평점 사용"
   user: 
     default_user_name: 사용자
@@ -14552,6 +14572,7 @@ ko:
           탐색에서 볼 수 있습니다. 그 동안 다른 과목에 등록하거나
           프로필을 설정하십시오.
       welcome_to_happiness: "Canvas에 오신 것을 환영합니다!"
+  users_must_post_before_seeing_replies_d1761968: "답변을 보기 전에 게시해야 함"
   users_with_no_enrollments_5dddce33: "등록하지 않은 사용자"
   utc_e44049af: "협정 세계시"
   validate: 
@@ -14718,6 +14739,10 @@ ko:
   wiki_pages: 
     index: 
       titles: 
+        pages: 페이지
+    new: 
+      titles: 
+        new_page: "새 페이지"
         pages: 페이지
     notices: 
       cannot_edit: "\"%{title}\" 페이지를 편집할 수 없습니다."
