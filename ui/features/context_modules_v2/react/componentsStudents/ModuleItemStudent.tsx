@@ -17,77 +17,128 @@
  */
 
 import React, {useMemo} from 'react'
+import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import {Flex} from '@instructure/ui-flex'
-import {Text} from '@instructure/ui-text'
-import {Link} from '@instructure/ui-link'
-import {INDENT_LOOKUP, getItemIcon} from '../utils/utils'
-
-import ModuleItemSupplementalInfo from '../components/ModuleItemSupplementalInfo'
-import {CompletionRequirement, ModuleItemContent} from '../utils/types'
+import {getItemIcon, getItemTypeText, INDENT_LOOKUP} from '../utils/utils'
+import {CompletionRequirement, ModuleItemContent, ModuleProgression} from '../utils/types'
+import ModuleItemSupplementalInfoStudent from './ModuleItemSupplementalInfoStudent'
+import ModuleItemStatusIcon from './ModuleItemStatusIcon'
+import ModuleItemTitleStudent from './ModuleItemTitleStudent'
 
 export interface ModuleItemStudentProps {
   _id: string
   url: string
   indent: number
+  position: number
+  requireSequentialProgress: boolean
   index: number
   content: ModuleItemContent
   onClick?: () => void
   completionRequirements?: CompletionRequirement[]
+  progression?: ModuleProgression
 }
 
 const ModuleItemStudent: React.FC<ModuleItemStudentProps> = ({
   _id,
   url,
   indent,
+  position,
+  requireSequentialProgress,
   content,
   onClick,
   completionRequirements,
+  progression,
 }) => {
-  const itemIcon = useMemo(() => getItemIcon(content), [content])
+  // Hooks must be called unconditionally
+  const itemIcon = useMemo(() => (content ? getItemIcon(content, true) : null), [content])
+  const itemTypeText = useMemo(() => (content ? getItemTypeText(content) : null), [content])
   const itemLeftMargin = useMemo(() => INDENT_LOOKUP[indent ?? 0], [indent])
+
+  // Early return after hooks
+  if (!content) return null
 
   return (
     <View
       as="div"
-      padding="x-small medium x-small x-small"
-      background="transparent"
+      padding="paddingCardMedium"
+      background="primary"
       borderWidth="0"
-      borderRadius="medium"
+      borderRadius="large"
       overflowX="hidden"
       data-item-id={_id}
+      margin="paddingCardMedium"
+      minHeight="5.125rem"
+      display="flex"
     >
-      <Flex>
-        {/* Item Type Icon */}
-        {itemIcon && (
-          <Flex.Item margin="0 small 0 0">
-            <div style={{padding: `0 0 0 ${itemLeftMargin}`}}>{itemIcon}</div>
-          </Flex.Item>
-        )}
-        <Flex.Item margin={itemIcon ? '0' : `0 small 0 0`}>
-          <div style={itemIcon ? {} : {padding: `0 0 0 ${itemLeftMargin}`}}>
-            <Flex alignItems="start" justifyItems="start" wrap="no-wrap" direction="column">
+      <Flex wrap="wrap" width="100%">
+        <Flex.Item margin={itemIcon ? '0' : `0 small 0 0`} shouldGrow>
+          <div style={{padding: `0 0 0 ${itemLeftMargin}`}}>
+            <Flex
+              alignItems="start"
+              justifyItems="start"
+              wrap="no-wrap"
+              gap="space8"
+              direction="column"
+            >
               {/* Item Title */}
-              <Flex.Item>
-                <Flex.Item shouldGrow={true}>
-                  <Link href={url} isWithinText={false} onClick={onClick}>
-                    <Text weight="bold" color="primary">
-                      {content?.title || 'Untitled Item'}
-                    </Text>
-                  </Link>
-                </Flex.Item>
-              </Flex.Item>
-              {/* Due Date and Points Possible */}
-              <Flex.Item>
-                <ModuleItemSupplementalInfo
-                  contentTagId={_id}
+              <Flex.Item shouldGrow={true}>
+                <ModuleItemTitleStudent
                   content={content}
-                  completionRequirement={completionRequirements?.find(req => req.id === _id)}
+                  url={url}
+                  onClick={onClick}
+                  position={position}
+                  requireSequentialProgress={requireSequentialProgress}
+                  progression={progression}
                 />
               </Flex.Item>
+              {/* Due Date and Points Possible */}
+              {content.type !== 'SubHeader' && (
+                <Flex.Item type="span">
+                  <div style={{lineHeight: '0.9375rem'}}>
+                    <Flex wrap="wrap">
+                      {/* Item Type Icon */}
+                      {itemIcon && (
+                        <>
+                          <Flex.Item margin="0 space4 0 0" aria-hidden="true">
+                            <View as="div" height="x-small">
+                              {itemIcon}
+                            </View>
+                          </Flex.Item>
+                          <Flex.Item margin="0 small 0 0" aria-hidden="true">
+                            <Text size="x-small" transform="capitalize">
+                              {itemTypeText}
+                            </Text>
+                          </Flex.Item>
+                        </>
+                      )}
+                      <Flex.Item>
+                        <ModuleItemSupplementalInfoStudent
+                          contentTagId={_id}
+                          content={content}
+                          completionRequirement={completionRequirements?.find(
+                            req => req.id === _id,
+                          )}
+                        />
+                      </Flex.Item>
+                    </Flex>
+                  </div>
+                </Flex.Item>
+              )}
             </Flex>
           </div>
         </Flex.Item>
+        {content.type !== 'SubHeader' && (
+          <Flex.Item>
+            <ModuleItemStatusIcon
+              itemId={_id || ''}
+              moduleCompleted={progression?.completed || false}
+              completionRequirements={completionRequirements}
+              requirementsMet={progression?.requirementsMet || []}
+              content={content}
+            />
+          </Flex.Item>
+        )}
       </Flex>
     </View>
   )

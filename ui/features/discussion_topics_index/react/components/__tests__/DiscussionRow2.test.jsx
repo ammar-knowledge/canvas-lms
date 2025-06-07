@@ -20,6 +20,7 @@ import {render, screen} from '@testing-library/react'
 import {merge} from 'lodash'
 import React from 'react'
 import {DiscussionRow} from '../DiscussionRow'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 jest.mock('@canvas/util/globalUtils', () => ({
   assignLocation: jest.fn(),
@@ -95,10 +96,13 @@ describe('DiscussionRow', () => {
       props,
     )
 
-  const oldEnv = window.ENV
+  beforeEach(() => {
+    fakeENV.setup()
+    ENV.discussion_anonymity_enabled = true
+  })
 
   afterEach(() => {
-    window.ENV = oldEnv
+    fakeENV.teardown()
   })
 
   it('does not render UnreadBadge if discussion has replies == 0', () => {
@@ -119,9 +123,32 @@ describe('DiscussionRow', () => {
     expect(screen.queryByTestId('ic-blue-unread-badge')).not.toBeInTheDocument()
   })
 
-  it('renders the subscription ToggleIcon', () => {
-    render(<DiscussionRow {...makeProps()} />)
-    expect(screen.getByText('Subscribe to Hello World')).toBeInTheDocument()
+  describe('subscription ToggleIcon', () => {
+    it('should render', () => {
+      render(<DiscussionRow {...makeProps()} />)
+      expect(screen.getByText('Subscribe to Hello World')).toBeInTheDocument()
+    })
+
+    it('should add trackable attribute correctly', () => {
+      const {getByTestId} = render(<DiscussionRow {...makeProps()} />)
+      const toggle = getByTestId('discussion-subscribe')
+      expect(toggle).toHaveAttribute('data-action-state', 'subscribeButton')
+    })
+
+    describe('when subscribed', () => {
+      it('should render the unsubscribe icon', () => {
+        const discussion = {subscribed: true}
+        render(<DiscussionRow {...makeProps({discussion})} />)
+        expect(screen.getByText('Unsubscribe from Hello World')).toBeInTheDocument()
+      })
+
+      it('should add trackable attribute correctly', () => {
+        const discussion = {subscribed: true}
+        const {getByTestId} = render(<DiscussionRow {...makeProps({discussion})} />)
+        const toggle = getByTestId('discussion-subscribe')
+        expect(toggle).toHaveAttribute('data-action-state', 'unsubscribeButton')
+      })
+    })
   })
 
   it('disables publish button when can_unpublish is false', () => {
@@ -138,10 +165,36 @@ describe('DiscussionRow', () => {
     expect(button.hasAttribute('disabled')).toBe(false)
   })
 
-  it('renders the publish ToggleIcon', () => {
-    const discussion = {published: false}
-    render(<DiscussionRow {...makeProps({canPublish: true, discussion})} />)
-    expect(screen.getAllByText('Publish Hello World', {exact: false})).toHaveLength(2)
+  describe('publish ToggleIcon', () => {
+    it('should render', () => {
+      const discussion = {published: false}
+      render(<DiscussionRow {...makeProps({canPublish: true, discussion})} />)
+      expect(screen.getAllByText('Publish Hello World', {exact: false})).toHaveLength(2)
+    })
+
+    it('should add trackable attribute correctly', () => {
+      const discussion = {published: false}
+      const {getByTestId} = render(<DiscussionRow {...makeProps({canPublish: true, discussion})} />)
+      const toggle = getByTestId('discussion-publish')
+      expect(toggle).toHaveAttribute('data-action-state', 'publishButton')
+    })
+
+    describe('when published', () => {
+      it('should render the unpublish icon', () => {
+        const discussion = {published: true}
+        render(<DiscussionRow {...makeProps({canPublish: true, discussion})} />)
+        expect(screen.getAllByText('Unpublish Hello World', {exact: false})).toHaveLength(2)
+      })
+
+      it('should add trackable attribute correctly', () => {
+        const discussion = {published: true}
+        const {getByTestId} = render(
+          <DiscussionRow {...makeProps({canPublish: true, discussion})} />,
+        )
+        const toggle = getByTestId('discussion-publish')
+        expect(toggle).toHaveAttribute('data-action-state', 'unpublishButton')
+      })
+    })
   })
 
   it('when feature flag is off, renders anonymous discussion lock explanation for read_as_admin', () => {
@@ -265,29 +318,28 @@ describe('DiscussionRow', () => {
   })
 
   it('renders the further available until date for ungraded overrides', () => {
+    // Use specific dates with very different formatted representations to make the test more robust
     const futureDate = new Date('2027-01-17T00:00:00Z')
-    const furtherFutureDate = new Date('2028-01-17T00:00:00Z')
+    const furtherFutureDate = new Date('2028-12-25T00:00:00Z') // Christmas 2028, very distinct date
+
     const discussion = {
       ungraded_discussion_overrides: [
         {assignment_override: {lock_at: futureDate}},
         {assignment_override: {lock_at: furtherFutureDate}},
       ],
     }
-    render(<DiscussionRow {...makeProps({discussion})} />)
 
-    // Find all elements that contain text starting with "Available until"
-    const availabilityElements = screen.getAllByText(/^Available until/)
-    expect(availabilityElements.length).toBeGreaterThan(0)
+    const {container} = render(<DiscussionRow {...makeProps({discussion})} />)
 
-    // Get all text content that includes "Available until"
-    const availabilityTexts = availabilityElements.map(el => el.textContent)
+    // Format the date we're looking for
+    const formattedLaterDate = dateFormatter(furtherFutureDate)
 
-    // Verify at least one of them has the later date
-    const hasLaterDate = availabilityTexts.some(text => {
-      const formattedDate = dateFormatter(furtherFutureDate)
-      return text.includes(formattedDate)
-    })
-    expect(hasLaterDate).toBe(true)
+    // Look for the exact text with the formatted date
+    const availabilityText = `Available until ${formattedLaterDate}`
+
+    // Use a more reliable query that searches for the text anywhere in the document
+    const textContent = container.textContent
+    expect(textContent.includes(availabilityText)).toBe(true)
   })
 
   it('renders locked at if appropriate', () => {

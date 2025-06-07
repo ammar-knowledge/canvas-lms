@@ -101,6 +101,7 @@ import {
 import {AlertMessage, EditorOptions, RCETrayProps} from './types'
 import {externalToolsForToolbar} from './plugins/instructure_rce_external_tools/util/externalToolsForToolbar'
 import {initScreenreaderOnFormat} from './screenreaderOnFormat'
+import {normalizeContainingContext} from '../util/contextHelper'
 
 const RestoreAutoSaveModal = React.lazy(() => import('./RestoreAutoSaveModal'))
 const RceHtmlEditor = React.lazy(() => import('./RceHtmlEditor'))
@@ -243,6 +244,7 @@ class RCEWrapper extends React.Component<RCEWrapperProps, RCEWrapperState> {
   _showOnFocusButton?: HTMLElement
   _statusBarId: string
   _textareaEl?: HTMLTextAreaElement
+  _effectiveContainingContext: RCETrayProps['containingContext']
   AIToolsTray?: ReactNode
   editor: TinyMCEEditor | null
   initialContent?: string
@@ -390,6 +392,10 @@ class RCEWrapper extends React.Component<RCEWrapperProps, RCEWrapperState> {
     })
 
     this.AIToolsTray = undefined
+
+    this._effectiveContainingContext = normalizeContainingContext(
+      this.props.trayProps?.containingContext,
+    )
   }
 
   // when the RCE is put into fullscreen we need to move the div
@@ -1346,6 +1352,19 @@ class RCEWrapper extends React.Component<RCEWrapperProps, RCEWrapperState> {
         this.announcing = 0
       }
     })
+
+    editor.on('ResizeEditor', ({deltaY}) => {
+      if (!deltaY) return
+      if (deltaY < 0) {
+        this.setState({
+          announcement: formatMessage('The height of Rich Content Area is decreased.'),
+        })
+      } else {
+        this.setState({
+          announcement: formatMessage('The height of Rich Content Area is increased.'),
+        })
+      }
+    })
   }
 
   /* ********** autosave support *************** */
@@ -1447,8 +1466,7 @@ class RCEWrapper extends React.Component<RCEWrapperProps, RCEWrapperState> {
   }
 
   get autoSaveKey() {
-    // @ts-expect-error
-    const userId = this.props.trayProps?.containingContext.userId
+    const userId = this._effectiveContainingContext?.userId || '-'
     return `rceautosave:${userId}${window.location.href}:${this.props.textareaId}`
   }
 
@@ -1532,7 +1550,7 @@ class RCEWrapper extends React.Component<RCEWrapperProps, RCEWrapperState> {
       }
       this.setState({height: newHeight})
       // play nice and send the same event that the silver theme would send
-      editor.fire('ResizeEditor')
+      editor.fire('ResizeEditor', {deltaY: coordinates.deltaY})
     }
   }
 
@@ -2038,7 +2056,7 @@ class RCEWrapper extends React.Component<RCEWrapperProps, RCEWrapperState> {
     const statusBarOptions: StatusBarOptions = {
       aiTextTools: this.props.ai_text_tools,
       isDesktop: tinymce.Env.deviceType.isDesktop(),
-      removeResizeButton: !!this.props.features?.remove_rce_resize_button,
+      a11yResizers: !!this.props.features?.rce_a11y_resize,
     }
     const statusBarFeatures = getStatusBarFeaturesForVariant(this.variant, statusBarOptions)
     return (
@@ -2138,7 +2156,7 @@ class RCEWrapper extends React.Component<RCEWrapperProps, RCEWrapperState> {
                     onAI={this.handleAIClick}
                   />
                 )}
-                {this.props.trayProps?.containingContext && (
+                {this._effectiveContainingContext && (
                   <CanvasContentTray
                     mountNode={instuiPopupMountNodeFn}
                     key={this.id}
@@ -2148,6 +2166,7 @@ class RCEWrapper extends React.Component<RCEWrapperProps, RCEWrapperState> {
                     onTrayClosing={this.handleContentTrayClosing}
                     use_rce_icon_maker={this.props.use_rce_icon_maker}
                     {...trayProps}
+                    containingContext={this._effectiveContainingContext}
                     // @ts-expect-error
                     storeProps={storeProps}
                   />

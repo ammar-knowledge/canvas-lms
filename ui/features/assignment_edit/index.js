@@ -32,6 +32,7 @@ import PeerReviewsSelector from '@canvas/assignments/backbone/views/PeerReviewsS
 import '@canvas/grading-standards'
 import LockManager from '@canvas/blueprint-courses/react/components/LockManager/index'
 import renderEditAssignmentsApp from './react/index'
+import {renderEnhancedRubrics} from './react/AssignmentRubric'
 
 ready(() => {
   window.addEventListener('load', () => {
@@ -40,7 +41,7 @@ ready(() => {
     const target = document.getElementById(targetId)
 
     if (target) {
-      target.scrollIntoView({ behavior: 'smooth' })
+      target.scrollIntoView({behavior: 'smooth'})
     }
   })
 
@@ -82,7 +83,7 @@ ready(() => {
       groupCategories:
         (typeof ENV !== 'undefined' && ENV !== null ? ENV.GROUP_CATEGORIES : undefined) || [],
       inClosedGradingPeriod: assignment.inClosedGradingPeriod(),
-      showNewErrors: true
+      showNewErrors: true,
     })
     const peerReviewsSelector = new PeerReviewsSelector({
       parentModel: assignment,
@@ -108,7 +109,7 @@ ready(() => {
           ...(!ENV.horizon_course && {groupCategorySelector}),
         }),
         'js-assignment-overrides-mastery-path': new MasteryPathToggle({
-          model: dueDateList
+          model: dueDateList,
         }),
       },
       lockedItems: assignment.id ? lockedItems : {}, // if no id, creating a new assignment
@@ -124,5 +125,10 @@ ready(() => {
       },
     })
     editHeaderView.render()
+    renderEnhancedRubrics()
   }
 })
+
+export function Component() {
+  return null
+}

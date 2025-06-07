@@ -23,12 +23,13 @@ import {Heading} from '@instructure/ui-heading'
 import {Text} from '@instructure/ui-text'
 import {Flex} from '@instructure/ui-flex'
 import {Button, IconButton} from '@instructure/ui-buttons'
+import {SurveyLinkBox} from '@canvas/discussions/react/components/SurveyLinkBox/SurveyLinkBox'
 import {useScope as useI18nScope} from '@canvas/i18n'
-import {IconRefreshLine, IconEndLine,IconAiLine} from '@instructure/ui-icons'
+import {IconRefreshLine, IconEndLine, IconAiLine} from '@instructure/ui-icons'
 import {DiscussionManagerUtilityContext} from '../../utils/constants'
 import {TranslationTriggerModal} from '../../components/TranslationTriggerModal/TranslationTriggerModal'
 
-export const DiscussionTranslationModuleContainer = () => {
+export const DiscussionTranslationModuleContainer = ({isAnnouncement}) => {
   const I18n = useI18nScope('discussions_posts')
   const [isModalOpen, setModalOpen] = useState(false)
   const [selectedLanguage, setSelectedLanguage] = useState()
@@ -83,6 +84,8 @@ export const DiscussionTranslationModuleContainer = () => {
     setTranslateTargetLanguage(selectedLanguage)
   }
 
+  const title = isAnnouncement ? I18n.t('Translate Announcement') : I18n.t('Translate Discussion')
+
   return (
     <View
       position="relative"
@@ -95,6 +98,7 @@ export const DiscussionTranslationModuleContainer = () => {
     >
       <TranslationTriggerModal
         isModalOpen={isModalOpen}
+        isAnnouncement={isAnnouncement}
         closeModal={() => {
           setModalOpen(false)
         }}
@@ -102,7 +106,7 @@ export const DiscussionTranslationModuleContainer = () => {
         closeModalAndRemoveTranslations={closeModalAndRemoveTranslations}
       />
       <Heading level="h3">
-        {I18n.t('Translate Discussion')}
+        {title}
         <span style={{float: 'right'}}>
           <IconButton
             size="small"
@@ -157,6 +161,12 @@ export const DiscussionTranslationModuleContainer = () => {
           </Button>
         </Flex.Item>
       </Flex>
+      <SurveyLinkBox
+        text={I18n.t('What do you think of *Discussion Translate*?', {
+          wrappers: [`<strong>$1</strong>`],
+        })}
+        marginTop="medium"
+      />
     </View>
   )
 }

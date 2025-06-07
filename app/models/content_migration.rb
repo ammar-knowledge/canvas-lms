@@ -810,6 +810,12 @@ class ContentMigration < ActiveRecord::Base
           Rails.logger.debug { "skipping deletion sync for #{content.asset_string} due to there are active Alignments to Content" }
           add_skipped_item(child_tag)
         else
+          if content.is_a?(Attachment)
+            Attachment.not_deleted_content_tags_for_attachments([content.id]).find_each do |tag|
+              tag.skip_downstream_changes!
+              tag.destroy
+            end
+          end
           Rails.logger.debug("syncing deletion of #{content.asset_string} from master course")
           content.skip_downstream_changes! if content.respond_to?(:skip_downstream_changes!)
           content.destroy
@@ -1195,7 +1201,7 @@ class ContentMigration < ActiveRecord::Base
   def handle_import_in_progress_notice
     return unless context.is_a?(Course) && is_set?(migration_settings[:import_in_progress_notice])
 
-    if (just_created || (saved_change_to_workflow_state? && %w[created queued].include?(workflow_state_before_last_save))) &&
+    if (previously_new_record? || (saved_change_to_workflow_state? && %w[created queued].include?(workflow_state_before_last_save))) &&
        %w[pre_processing pre_processed exporting importing].include?(workflow_state)
       context.add_content_notice(:import_in_progress, 4.hours)
     elsif saved_change_to_workflow_state? && %w[pre_process_error exported imported failed].include?(workflow_state)

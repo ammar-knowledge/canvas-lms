@@ -25,6 +25,24 @@ describe('ModuleItemLoadingData', () => {
 
   beforeEach(() => {
     modules = new ModuleItemLoadingData()
+    document.body.innerHTML = ''
+  })
+
+  describe('PaginationData', () => {
+    it('set sets the pagination data for a module', () => {
+      modules.setPaginationData(moduleId, {currentPage: 2, totalPages: 3})
+      const paginationData = modules.getPaginationData(moduleId)
+      expect(paginationData).toEqual({currentPage: 2, totalPages: 3})
+    })
+
+    it('treats pagination data as immutable', () => {
+      modules.setPaginationData(moduleId, {currentPage: 1, totalPages: 1})
+      const paginationData = modules.getPaginationData(moduleId)!
+      paginationData.currentPage = 2
+      paginationData.totalPages = 3
+      const paginationData2 = modules.getPaginationData(moduleId)
+      expect(paginationData2).toEqual({currentPage: 1, totalPages: 1})
+    })
   })
 
   describe('getModuleRoot', () => {

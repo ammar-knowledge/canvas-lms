@@ -25,7 +25,7 @@ import {
 } from '@instructure/ui-icons'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import {type File, type Folder} from '../../../../interfaces/File'
-import {isFile} from '../../../../utils/fileFolderUtils'
+import {getUniqueId, isFile} from '../../../../utils/fileFolderUtils'
 
 const I18n = createI18nScope('files_v2')
 
@@ -35,6 +35,13 @@ export type AvailabilityOption = {
   id: AvailabilityOptionId
   label: string
   icon: ReactElement
+}
+
+export type DateRangeTypeId = 'start' | 'end' | 'range'
+
+export type DateRangeTypeOption = {
+  id: DateRangeTypeId
+  label: string
 }
 
 export type VisibilityOption = {
@@ -65,6 +72,21 @@ export const AVAILABILITY_OPTIONS: Record<AvailabilityOptionId, AvailabilityOpti
   },
 }
 
+export const DATE_RANGE_TYPE_OPTIONS: Record<DateRangeTypeId, DateRangeTypeOption> = {
+  start: {
+    id: 'start',
+    label: I18n.t('Start date'),
+  },
+  end: {
+    id: 'end',
+    label: I18n.t('End date'),
+  },
+  range: {
+    id: 'range',
+    label: I18n.t('Date range'),
+  },
+}
+
 export const VISIBILITY_OPTIONS: Record<string, VisibilityOption> = {
   inherit: {
     id: 'inherit',
@@ -92,12 +114,18 @@ export const allAreEqual = (items: (File | Folder)[], attributes: string[]) =>
     ),
   )
 
-export const defaultAvailabilityOption = (items: (File | Folder)[]) => {
-  if (items.length === 0) return AVAILABILITY_OPTIONS.published
+const allAreEqualWithPermissionsAttribute = (items: (File | Folder)[]) => {
+  const attributes = ['hidden', 'locked', 'lock_at', 'unlock_at']
+  return allAreEqual(items, attributes)
+}
 
-  if (!allAreEqual(items, ['hidden', 'locked', 'lock_at', 'unlock_at'])) {
-    return AVAILABILITY_OPTIONS.published
-  }
+const isTofallbackToDefault = (items: (File | Folder)[]) => {
+  return items.length === 0 || !allAreEqualWithPermissionsAttribute(items)
+}
+
+export const defaultAvailabilityOption = (items: (File | Folder)[]) => {
+  if (isTofallbackToDefault(items)) return AVAILABILITY_OPTIONS.published
+
   const item = items[0]
   if (item.locked) {
     return AVAILABILITY_OPTIONS.unpublished
@@ -111,13 +139,24 @@ export const defaultAvailabilityOption = (items: (File | Folder)[]) => {
 }
 
 export const defaultDate = (items: (File | Folder)[], key: 'unlock_at' | 'lock_at') => {
-  if (items.length === 0) return null
-
-  if (!allAreEqual(items, ['hidden', 'locked', 'lock_at', 'unlock_at'])) {
-    return null
-  }
+  if (isTofallbackToDefault(items)) return null
   const item = items[0]
   return item[key]
+}
+
+export const defaultDateRangeType = (items: (File | Folder)[]) => {
+  const startDate = defaultDate(items, 'unlock_at')
+  const endDate = defaultDate(items, 'lock_at')
+  if (startDate && endDate) {
+    return DATE_RANGE_TYPE_OPTIONS.range
+  }
+  if (startDate) {
+    return DATE_RANGE_TYPE_OPTIONS.start
+  }
+  if (endDate) {
+    return DATE_RANGE_TYPE_OPTIONS.end
+  }
+  return null
 }
 
 export const defaultVisibilityOption = (
@@ -133,3 +172,44 @@ export const defaultVisibilityOption = (
   if (isFile(item) && item.visibility_level) return visibilityOptions[item.visibility_level]
   return visibilityOptions.inherit
 }
+
+interface ParseNewRowsParams {
+  items: (File | Folder)[]
+  availabilityOptionId: AvailabilityOptionId
+  dateRangeType: DateRangeTypeOption | null
+  currentRows: (File | Folder)[]
+  unlockAt: string | null
+  lockAt: string | null
+}
+
+export const parseNewRows = ({
+  items,
+  availabilityOptionId,
+  dateRangeType,
+  currentRows,
+  unlockAt,
+  lockAt,
+}: ParseNewRowsParams): (File | Folder)[] => {
+  const newRows = [...currentRows]
+  items.forEach(item => {
+    const index = newRows.findIndex(row => getUniqueId(row) === getUniqueId(item))
+    if (index !== -1) {
+      newRows[index].locked = availabilityOptionId === 'unpublished'
+      newRows[index].hidden = availabilityOptionId === 'link_only'
+
+      if (availabilityOptionId === 'date_range') {
+        newRows[index].unlock_at = isStartDateRequired(dateRangeType) ? unlockAt : null
+        newRows[index].lock_at = isEndDateRequired(dateRangeType) ? lockAt : null
+      } else {
+        newRows[index].unlock_at = null
+        newRows[index].lock_at = null
+      }
+    }
+  })
+  return newRows
+}
+export const isStartDateRequired = (dateRangeType: DateRangeTypeOption | null) =>
+  ['start', 'range'].includes(dateRangeType?.id || '')
+
+export const isEndDateRequired = (dateRangeType: DateRangeTypeOption | null) =>
+  ['end', 'range'].includes(dateRangeType?.id || '')

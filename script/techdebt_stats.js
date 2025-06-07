@@ -43,28 +43,11 @@ function bold(text) {
   return colorize('bold', text)
 }
 
-const sections = {
-  skipped: 'skipped',
-  enzyme: 'enzyme',
-  reactStringRefs: 'string-refs',
-  propTypes: 'proptypes',
-  defaultProps: 'defaultprops',
-  handlebars: 'handlebars',
-  jquery: 'jquery',
-  sinon: 'sinon',
-  reactDom: 'reactdom',
-  classComponents: 'class',
-  javascript: 'javascript',
-  typescript: 'typescript',
-  outdatedPackages: 'outdated',
-  reactCompiler: 'react-compiler',
-}
-
 // Parse command line arguments
 function parseArgs() {
   const args = process.argv.slice(2)
   const options = {
-    section: null,
+    sections: [],
     verbose: false,
     help: false,
   }
@@ -83,7 +66,9 @@ function parseArgs() {
       case '-s':
       case '--section':
         if (i + 1 < args.length) {
-          options.section = args[i + 1]
+          // Split by comma to support multiple sections
+          const sectionArg = args[i + 1]
+          options.sections = sectionArg.split(',').map(s => s.trim())
           i++ // Skip the next argument since we used it
         }
         break
@@ -100,11 +85,10 @@ Usage: node techdebt_stats.js [options]
 Options:
   -h, --help                Show this help message
   -v, --verbose            Show all files instead of just examples
-  -s, --section <name>     Show only a specific section
+  -s, --section <n>     Show only specific section(s), comma-separated (e.g., skipped,string-refs)
 
 Available sections:
   skipped         - Skipped tests
-  enzyme          - Enzyme imports
   string-refs     - React string refs
   proptypes       - PropTypes usage
   defaultprops    - DefaultProps usage
@@ -122,6 +106,15 @@ Available sections:
 }
 
 const normalizePath = filePath => filePath.replace(/\/+/g, '/')
+
+// Helper function to get random examples
+function getRandomExamples(files, count = 3) {
+  if (files.length === 0) return []
+  if (files.length <= count) return files.map(normalizePath)
+
+  const shuffled = [...files].sort(() => 0.5 - Math.random())
+  return shuffled.slice(0, count).map(normalizePath)
+}
 
 async function getMatchingFiles(searchPattern, verbose = false) {
   try {
@@ -157,8 +150,10 @@ async function countAndShowFiles(searchPattern, description, verbose = false) {
           console.log(colorize('gray', `  ${file}`))
         })
       } else {
-        const randomFile = normalizePath(files[Math.floor(Math.random() * fileCount)])
-        console.log(colorize('gray', `  Example: ${randomFile}`))
+        const examples = getRandomExamples(files, 3)
+        examples.forEach(file => {
+          console.log(colorize('gray', `  Example: ${file}`))
+        })
       }
     } else {
       console.log(colorize('yellow', `- ${description}: ${colorize('green', 'None')}`))
@@ -181,20 +176,18 @@ async function countTsSuppressions(type, verbose = false) {
   }
 }
 
-async function getRandomTsSuppressionFile(type, verbose = false) {
+async function getRandomTsSuppressionFiles(type, verbose = false) {
   try {
     const {stdout} = await execAsync(
       `git ls-files "ui/" | grep -E "\\.(ts|tsx)$" | xargs grep -l "@${type}"`,
       {cwd: projectRoot},
     )
     const files = stdout.trim().split('\n').filter(Boolean)
-    if (files.length > 0) {
-      return normalizePath(files[Math.floor(Math.random() * files.length)])
-    }
+    return getRandomExamples(files, 3)
   } catch (error) {
-    console.error(colorize('red', `Error finding @${type} example: ${error.message}`))
+    console.error(colorize('red', `Error finding @${type} examples: ${error.message}`))
   }
-  return null
+  return []
 }
 
 async function showTsSuppressionStats(type, verbose = false) {
@@ -208,10 +201,10 @@ async function showTsSuppressionStats(type, verbose = false) {
         console.log(colorize('gray', `  ${file}`))
       })
     } else {
-      const randomFile = await getRandomTsSuppressionFile(type, verbose)
-      if (randomFile) {
-        console.log(colorize('gray', `  Example: ${randomFile}`))
-      }
+      const examples = await getRandomTsSuppressionFiles(type, verbose)
+      examples.forEach(file => {
+        console.log(colorize('gray', `  Example: ${file}`))
+      })
     }
   }
 }
@@ -229,20 +222,18 @@ async function countJqueryImports(verbose = false) {
   }
 }
 
-async function getRandomJqueryImportFile(verbose = false) {
+async function getRandomJqueryImportFiles(verbose = false) {
   try {
     const cmd =
       'git ls-files "ui/" | grep -E "\\.(js|jsx|ts|tsx)$" | ' +
       'xargs grep -l "from [\'\\"]jquery[\'\\"]"'
     const {stdout} = await execAsync(cmd, {cwd: projectRoot})
     const files = stdout.trim().split('\n').filter(Boolean)
-    if (files.length > 0) {
-      return normalizePath(files[Math.floor(Math.random() * files.length)])
-    }
+    return getRandomExamples(files, 3)
   } catch (error) {
-    console.error(colorize('red', `Error finding jQuery import example: ${error.message}`))
+    console.error(colorize('red', `Error finding jQuery import examples: ${error.message}`))
   }
-  return null
+  return []
 }
 
 async function showJqueryImportStats(verbose = false) {
@@ -260,10 +251,10 @@ async function showJqueryImportStats(verbose = false) {
         console.log(colorize('gray', `  ${file}`))
       })
     } else {
-      const randomFile = await getRandomJqueryImportFile(verbose)
-      if (randomFile) {
-        console.log(colorize('gray', `  Example: ${randomFile}`))
-      }
+      const examples = await getRandomJqueryImportFiles(verbose)
+      examples.forEach(file => {
+        console.log(colorize('gray', `  Example: ${file}`))
+      })
     }
   }
 }
@@ -281,20 +272,18 @@ async function countSinonImports(verbose = false) {
   }
 }
 
-async function getRandomSinonImportFile(verbose = false) {
+async function getRandomSinonImportFiles(verbose = false) {
   try {
     const cmd =
       'git ls-files "ui/" | grep -E "\\.(js|jsx|ts|tsx)$" | ' +
       'xargs grep -l "from [\'\\"]sinon[\'\\"]"'
     const {stdout} = await execAsync(cmd, {cwd: projectRoot})
     const files = stdout.trim().split('\n').filter(Boolean)
-    if (files.length > 0) {
-      return normalizePath(files[Math.floor(Math.random() * files.length)])
-    }
+    return getRandomExamples(files, 3)
   } catch (error) {
-    console.error(colorize('red', `Error finding Sinon import example: ${error.message}`))
+    console.error(colorize('red', `Error finding Sinon import examples: ${error.message}`))
   }
-  return null
+  return []
 }
 
 async function showSinonImportStats(verbose = false) {
@@ -312,62 +301,10 @@ async function showSinonImportStats(verbose = false) {
         console.log(colorize('gray', `  ${file}`))
       })
     } else {
-      const randomFile = await getRandomSinonImportFile(verbose)
-      if (randomFile) {
-        console.log(colorize('gray', `  Example: ${randomFile}`))
-      }
-    }
-  }
-}
-
-async function countEnzymeImports(verbose = false) {
-  try {
-    const cmd =
-      'git ls-files "ui/" "packages/" | grep -E "\\.(js|jsx|ts|tsx)$" | ' +
-      'xargs grep -l "from [\'\\"]enzyme[\'\\"]"'
-    const {stdout} = await execAsync(cmd, {cwd: projectRoot})
-    return Number.parseInt(stdout.trim().split('\n').filter(Boolean).length, 10)
-  } catch (error) {
-    console.error(colorize('red', `Error counting Enzyme imports: ${error.message}`))
-    return 0
-  }
-}
-
-async function getRandomEnzymeImportFile(verbose = false) {
-  try {
-    const cmd =
-      'git ls-files "ui/" "packages/" | grep -E "\\.(js|jsx|ts|tsx)$" | ' +
-      'xargs grep -l "from [\'\\"]enzyme[\'\\"]"'
-    const {stdout} = await execAsync(cmd, {cwd: projectRoot})
-    const files = stdout.trim().split('\n').filter(Boolean)
-    if (files.length > 0) {
-      return normalizePath(files[Math.floor(Math.random() * files.length)])
-    }
-  } catch (error) {
-    console.error(colorize('red', `Error finding Enzyme import example: ${error.message}`))
-  }
-  return null
-}
-
-async function showEnzymeImportStats(verbose = false) {
-  const count = await countEnzymeImports(verbose)
-  console.log(colorize('yellow', `- Files with Enzyme imports: ${bold(count)}`))
-
-  if (count > 0) {
-    if (verbose) {
-      const cmd =
-        'git ls-files "ui/" "packages/" | grep -E "\\.(js|jsx|ts|tsx)$" | ' +
-        'xargs grep -l "from [\'\\"]enzyme[\'\\"]"'
-      const {stdout} = await execAsync(cmd, {cwd: projectRoot})
-      const files = stdout.trim().split('\n').filter(Boolean)
-      files.sort().forEach(file => {
-        console.log(colorize('gray', `  ${file}`))
+      const examples = await getRandomSinonImportFiles(verbose)
+      examples.forEach(file => {
+        console.log(colorize('gray', `  Example: ${file}`))
       })
-    } else {
-      const randomFile = await getRandomEnzymeImportFile(verbose)
-      if (randomFile) {
-        console.log(colorize('gray', `  Example: ${randomFile}`))
-      }
     }
   }
 }
@@ -397,8 +334,10 @@ async function countSkippedTests(verbose = false) {
           console.log(colorize('gray', `  ${file}`))
         })
       } else {
-        const randomFile = normalizePath(allFiles[Math.floor(Math.random() * fileCount)])
-        console.log(colorize('gray', `  Example: ${randomFile}`))
+        const examples = getRandomExamples(allFiles, 3)
+        examples.forEach(file => {
+          console.log(colorize('gray', `  Example: ${file}`))
+        })
       }
     } else {
       console.log(
@@ -482,13 +421,17 @@ function handleOutdatedPackages(output, verbose = false) {
           )
         })
       } else {
-        const randomPackage = majorOutdated[Math.floor(Math.random() * majorOutdated.length)]
-        console.log(
-          colorize(
-            'gray',
-            `  Example: ${randomPackage.packageName} (current: ${randomPackage.current}, wanted: ${randomPackage.wanted}, latest: ${randomPackage.latest})`,
+        // Fix: Pass the formatted string directly, not the object
+        const examples = getRandomExamples(
+          majorOutdated.map(
+            pkg =>
+              `${pkg.packageName} (current: ${pkg.current}, wanted: ${pkg.wanted}, latest: ${pkg.latest})`,
           ),
+          3,
         )
+        examples.forEach(example => {
+          console.log(colorize('gray', `  Example: ${example}`))
+        })
       }
     } else {
       console.log(
@@ -519,8 +462,10 @@ async function countReactDomRenderFiles(verbose = false) {
           console.log(colorize('gray', `  ${file}`))
         })
       } else {
-        const randomFile = normalizePath(files[Math.floor(Math.random() * fileCount)])
-        console.log(colorize('gray', `  Example: ${randomFile}`))
+        const examples = getRandomExamples(files, 3)
+        examples.forEach(file => {
+          console.log(colorize('gray', `  Example: ${file}`))
+        })
       }
     } else {
       console.log(
@@ -565,8 +510,10 @@ async function countReactClassComponentFiles(verbose = false) {
           console.log(colorize('gray', `  ${file}`))
         })
       } else {
-        const randomFile = normalizePath(allFiles[Math.floor(Math.random() * fileCount)])
-        console.log(colorize('gray', `  Example: ${randomFile}`))
+        const examples = getRandomExamples(allFiles, 3)
+        examples.forEach(file => {
+          console.log(colorize('gray', `  Example: ${file}`))
+        })
       }
     } else {
       console.log(
@@ -599,7 +546,7 @@ async function countReactStringRefs(verbose = false) {
   }
 }
 
-async function getRandomReactStringRefFile(verbose = false) {
+async function getRandomReactStringRefFiles(verbose = false) {
   try {
     // Use same specific pattern as countReactStringRefs
     const cmd =
@@ -607,13 +554,11 @@ async function getRandomReactStringRefFile(verbose = false) {
       'xargs grep -l "\\bref=\\"[^\\"]*\\""'
     const {stdout} = await execAsync(cmd, {cwd: projectRoot})
     const files = stdout.trim().split('\n').filter(Boolean)
-    if (files.length > 0) {
-      return normalizePath(files[Math.floor(Math.random() * files.length)])
-    }
+    return getRandomExamples(files, 3)
   } catch (error) {
-    console.error(colorize('red', `Error finding React string ref example: ${error.message}`))
+    console.error(colorize('red', `Error finding React string ref examples: ${error.message}`))
   }
-  return null
+  return []
 }
 
 async function showReactStringRefStats(verbose = false) {
@@ -630,10 +575,10 @@ async function showReactStringRefStats(verbose = false) {
         console.log(colorize('gray', `  ${file}`))
       })
     } else {
-      const randomFile = await getRandomReactStringRefFile(verbose)
-      if (randomFile) {
-        console.log(colorize('gray', `  Example: ${randomFile}`))
-      }
+      const examples = await getRandomReactStringRefFiles(verbose)
+      examples.forEach(file => {
+        console.log(colorize('gray', `  Example: ${file}`))
+      })
     }
   }
 }
@@ -651,20 +596,18 @@ async function countPropTypesFiles(verbose = false) {
   }
 }
 
-async function getRandomPropTypesFile(verbose = false) {
+async function getRandomPropTypesFiles(verbose = false) {
   try {
     const cmd =
       'git ls-files "ui/" "packages/" | grep -E "\\.(js|jsx|ts|tsx)$" | ' +
       'xargs grep -l "\\.propTypes\\s*="'
     const {stdout} = await execAsync(cmd, {cwd: projectRoot})
     const files = stdout.trim().split('\n').filter(Boolean)
-    if (files.length > 0) {
-      return normalizePath(files[Math.floor(Math.random() * files.length)])
-    }
+    return getRandomExamples(files, 3)
   } catch (error) {
-    console.error(colorize('red', `Error finding PropTypes example: ${error.message}`))
+    console.error(colorize('red', `Error finding PropTypes examples: ${error.message}`))
   }
-  return null
+  return []
 }
 
 async function showPropTypesStats(verbose = false) {
@@ -681,10 +624,10 @@ async function showPropTypesStats(verbose = false) {
         console.log(colorize('gray', `  ${file}`))
       })
     } else {
-      const randomFile = await getRandomPropTypesFile(verbose)
-      if (randomFile) {
-        console.log(colorize('gray', `  Example: ${randomFile}`))
-      }
+      const examples = await getRandomPropTypesFiles(verbose)
+      examples.forEach(file => {
+        console.log(colorize('gray', `  Example: ${file}`))
+      })
     }
   }
 }
@@ -702,20 +645,18 @@ async function countDefaultPropsFiles(verbose = false) {
   }
 }
 
-async function getRandomDefaultPropsFile(verbose = false) {
+async function getRandomDefaultPropsFiles(verbose = false) {
   try {
     const cmd =
       'git ls-files "ui/" "packages/" | grep -E "\\.(js|jsx|ts|tsx)$" | ' +
       'xargs grep -l "\\.defaultProps\\s*="'
     const {stdout} = await execAsync(cmd, {cwd: projectRoot})
     const files = stdout.trim().split('\n').filter(Boolean)
-    if (files.length > 0) {
-      return normalizePath(files[Math.floor(Math.random() * files.length)])
-    }
+    return getRandomExamples(files, 3)
   } catch (error) {
-    console.error(colorize('red', `Error finding defaultProps example: ${error.message}`))
+    console.error(colorize('red', `Error finding defaultProps examples: ${error.message}`))
   }
-  return null
+  return []
 }
 
 async function showDefaultPropsStats(verbose = false) {
@@ -732,10 +673,10 @@ async function showDefaultPropsStats(verbose = false) {
         console.log(colorize('gray', `  ${file}`))
       })
     } else {
-      const randomFile = await getRandomDefaultPropsFile(verbose)
-      if (randomFile) {
-        console.log(colorize('gray', `  Example: ${randomFile}`))
-      }
+      const examples = await getRandomDefaultPropsFiles(verbose)
+      examples.forEach(file => {
+        console.log(colorize('gray', `  Example: ${file}`))
+      })
     }
   }
 }
@@ -788,7 +729,7 @@ async function countReactCompilerViolations() {
   }
 }
 
-async function getRandomReactCompilerViolationFile() {
+async function getRandomReactCompilerViolationFiles() {
   try {
     const spinner = startSpinner('Finding files with react-compiler violations...')
     const eslint = createReactCompilerESLint()
@@ -800,20 +741,22 @@ async function getRandomReactCompilerViolationFile() {
       .filter(result => result.messages.some(msg => msg.ruleId === 'react-compiler/react-compiler'))
       .map(result => {
         const message = result.messages.find(msg => msg.ruleId === 'react-compiler/react-compiler')
-        return `${result.filePath}:${message.line}:${message.column}`
+        return (
+          normalizePath(path.relative(projectRoot, result.filePath)) +
+          `:${message.line}:${message.column}`
+        )
       })
 
     if (filesWithViolations.length === 0) {
-      return null
+      return []
     }
 
-    const randomFile = filesWithViolations[Math.floor(Math.random() * filesWithViolations.length)]
-    return normalizePath(path.relative(projectRoot, randomFile))
+    return getRandomExamples(filesWithViolations, 3)
   } catch (error) {
     console.error(
-      colorize('red', `Error finding react-compiler violation example: ${error.message}`),
+      colorize('red', `Error finding react-compiler violation examples: ${error.message}`),
     )
-    return null
+    return []
   }
 }
 
@@ -847,9 +790,11 @@ async function showReactCompilerViolationStats(verbose = false) {
         console.log(colorize('gray', `  ${file}`))
       })
     } else {
-      const randomFile = await getRandomReactCompilerViolationFile()
-      if (randomFile) {
-        console.log(colorize('gray', `  Example: ${randomFile}`))
+      const examples = await getRandomReactCompilerViolationFiles()
+      if (examples.length > 0) {
+        examples.forEach(file => {
+          console.log(colorize('gray', `  Example: ${file}`))
+        })
       } else {
         console.log(colorize('green', `No violations found!`))
       }
@@ -859,20 +804,19 @@ async function showReactCompilerViolationStats(verbose = false) {
 
 function getSectionTitle(section) {
   const titles = {
-    skipped: ['Skipped Tests', '(fix or remove)'],
-    enzyme: ['Enzyme Imports', '(use testing-library)'],
     'string-refs': ['React String Refs', '(use createRef/useRef/forwardRef/callbackRef)'],
-    proptypes: ['PropTypes Usage', '(use TypeScript interfaces/types)'],
+    class: ['React Class Component Files', '(convert to function components)'],
     defaultprops: ['DefaultProps Usage', '(use default parameters/TypeScript defaults)'],
     handlebars: ['Handlebars Files', '(convert to React)'],
-    jquery: ['JQuery Imports', '(use native DOM)'],
-    sinon: ['Sinon Imports', '(use Jest)'],
-    reactdom: ['ReactDOM.render Files', '(convert to createRoot)'],
-    class: ['React Class Component Files', '(convert to function components)'],
     javascript: ['JavaScript Files', '(convert to TypeScript)'],
-    typescript: ['TypeScript Suppressions', ''],
+    jquery: ['JQuery Imports', '(use native DOM)'],
     outdated: ['Outdated Packages', ''],
+    proptypes: ['PropTypes Usage', '(use TypeScript interfaces/types)'],
     reactCompiler: ['React Compiler Rule Violations', ''],
+    reactdom: ['ReactDOM.render Files', '(convert to createRoot)'],
+    sinon: ['Sinon Imports', '(use Jest)'],
+    skipped: ['Skipped Tests', '(fix or remove)'],
+    typescript: ['TypeScript Suppressions', ''],
   }
 
   const [title, note] = titles[section] || [section, '']
@@ -891,76 +835,70 @@ async function printDashboard() {
 
     console.log(bold(colorize('green', '\nTech Debt Summary\n')))
 
-    const selectedSection = options.section
+    const selectedSections = options.sections
     const verbose = options.verbose
 
-    if (!selectedSection || selectedSection === 'skipped') {
-      console.log(getSectionTitle('skipped'))
-      await countSkippedTests(verbose)
-      console.log()
-    }
-
-    if (!selectedSection || selectedSection === 'enzyme') {
-      console.log(getSectionTitle('enzyme'))
-      await showEnzymeImportStats(verbose)
-      console.log()
-    }
-
-    if (!selectedSection || selectedSection === 'string-refs') {
+    if (selectedSections.length === 0 || selectedSections.includes('string-refs')) {
       console.log(getSectionTitle('string-refs'))
       await showReactStringRefStats(verbose)
       console.log()
     }
 
-    if (!selectedSection || selectedSection === 'proptypes') {
-      console.log(getSectionTitle('proptypes'))
-      await showPropTypesStats(verbose)
-      console.log()
-    }
-
-    if (!selectedSection || selectedSection === 'defaultprops') {
-      console.log(getSectionTitle('defaultprops'))
-      await showDefaultPropsStats(verbose)
-      console.log()
-    }
-
-    if (!selectedSection || selectedSection === 'handlebars') {
-      console.log(getSectionTitle('handlebars'))
-      await countAndShowFiles('\\.handlebars$', 'Total Handlebars files', verbose)
-      console.log()
-    }
-
-    if (!selectedSection || selectedSection === 'jquery') {
-      console.log(getSectionTitle('jquery'))
-      await showJqueryImportStats(verbose)
-      console.log()
-    }
-
-    if (!selectedSection || selectedSection === 'sinon') {
+    if (selectedSections.length === 0 || selectedSections.includes('sinon')) {
       console.log(getSectionTitle('sinon'))
       await showSinonImportStats(verbose)
       console.log()
     }
 
-    if (!selectedSection || selectedSection === 'reactdom') {
+    if (selectedSections.length === 0 || selectedSections.includes('skipped')) {
+      console.log(getSectionTitle('skipped'))
+      await countSkippedTests(verbose)
+      console.log()
+    }
+
+    if (selectedSections.length === 0 || selectedSections.includes('reactdom')) {
       console.log(getSectionTitle('reactdom'))
       await countReactDomRenderFiles(verbose)
       console.log()
     }
 
-    if (!selectedSection || selectedSection === 'class') {
+    if (selectedSections.length === 0 || selectedSections.includes('defaultprops')) {
+      console.log(getSectionTitle('defaultprops'))
+      await showDefaultPropsStats(verbose)
+      console.log()
+    }
+
+    if (selectedSections.length === 0 || selectedSections.includes('handlebars')) {
+      console.log(getSectionTitle('handlebars'))
+      await countAndShowFiles('\\.handlebars$', 'Total Handlebars files', verbose)
+      console.log()
+    }
+
+    if (selectedSections.length === 0 || selectedSections.includes('class')) {
       console.log(getSectionTitle('class'))
       await countReactClassComponentFiles(verbose)
       console.log()
     }
 
-    if (!selectedSection || selectedSection === 'javascript') {
+    if (selectedSections.length === 0 || selectedSections.includes('proptypes')) {
+      console.log(getSectionTitle('proptypes'))
+      await showPropTypesStats(verbose)
+      console.log()
+    }
+
+    if (selectedSections.length === 0 || selectedSections.includes('jquery')) {
+      console.log(getSectionTitle('jquery'))
+      await showJqueryImportStats(verbose)
+      console.log()
+    }
+
+    if (selectedSections.length === 0 || selectedSections.includes('javascript')) {
       console.log(getSectionTitle('javascript'))
       await countAndShowFiles('\\.(js|jsx)$', 'Total JavaScript files', verbose)
       console.log()
     }
 
-    if (!selectedSection || selectedSection === 'typescript') {
+    if (selectedSections.length === 0 || selectedSections.includes('typescript')) {
       console.log(getSectionTitle('typescript'))
       await showTsSuppressionStats('ts-nocheck', verbose)
       await showTsSuppressionStats('ts-ignore', verbose)
@@ -968,16 +906,15 @@ async function printDashboard() {
       console.log()
     }
 
-    if (!selectedSection || selectedSection === 'outdated') {
+    if (selectedSections.length === 0 || selectedSections.includes('outdated')) {
       console.log(getSectionTitle('outdated'))
-      console.log()
       await checkOutdatedPackages(verbose)
+      console.log()
     }
 
-    if (!selectedSection || selectedSection === 'react-compiler') {
-      console.log(getSectionTitle('react-compiler'))
+    if (selectedSections.length === 0 || selectedSections.includes('react-compiler')) {
+      console.log(getSectionTitle('reactCompiler'))
       await showReactCompilerViolationStats(verbose)
-      console.log()
     }
   } catch (error) {
     console.error(colorize('red', `Error: ${error.message}`))

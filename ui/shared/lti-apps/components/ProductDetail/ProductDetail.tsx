@@ -37,10 +37,10 @@ import {Tag} from '@instructure/ui-tag'
 import {Text} from '@instructure/ui-text'
 import {TruncateText} from '@instructure/ui-truncate-text'
 import {ContextView, View} from '@instructure/ui-view'
-import React, {useState} from 'react'
+import React, {useState, useEffect} from 'react'
 import {useLocation} from 'react-router-dom'
 import {useAppendBreadcrumb} from '../../../breadcrumbs/useAppendBreadcrumb'
-import type {Lti, Product} from '../../models/Product'
+import type {Product} from '../../models/Product'
 import useProduct from '../../queries/useProduct'
 import useSimilarProducts from '../../queries/useSimilarProducts'
 import ImageCarouselModal from '../common/Carousels/ImageCarouselModal'
@@ -55,7 +55,7 @@ import LtiConfigurationDetail from './LtiConfigurationDetail'
 const I18n = createI18nScope('lti_registrations')
 
 type ProductDetailProps = {
-  renderConfigureButton?: (buttonWidth: 'block' | 'inline-block', lti: Lti[]) => JSX.Element
+  renderConfigureButton?: (buttonWidth: 'block' | 'inline-block', product: Product) => JSX.Element
 }
 
 const ProductDetail = (props: ProductDetailProps) => {
@@ -83,6 +83,18 @@ const ProductDetail = (props: ProductDetailProps) => {
   useAppendBreadcrumb(product?.name, previousPath, !!product?.name)
   // @ts-expect-error
   const productDescription = stripHtmlTags(product?.description)
+
+  useEffect(() => {
+    if (window.pendo && typeof window.pendo.track === 'function' && product) {
+      window.pendo.track('Product', {
+        productId: product.id,
+        productName: product.name,
+        source: 'canvas-apps',
+        placement: 'standard',
+      })
+    }
+    // @ts-expect-error
+  }, [product.id, product.name])
 
   const {otherProductsByCompany} = useSimilarProducts({
     params: {
@@ -133,7 +145,7 @@ const ProductDetail = (props: ProductDetailProps) => {
         <Flex.Item shouldGrow={true} margin={tabletMargin}>
           {props.renderConfigureButton
             ? // @ts-expect-error
-              props.renderConfigureButton(buttonWidth, product?.canvas_lti_configurations)
+              props.renderConfigureButton(buttonWidth, product)
             : null}
         </Flex.Item>
       </Flex>

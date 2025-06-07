@@ -27,7 +27,6 @@ import splitAssetString from '@canvas/util/splitAssetString'
 import FilesystemObject from '@canvas/files/backbone/models/FilesystemObject'
 import BaseUploader from '@canvas/files/react/modules/BaseUploader'
 import UploadQueue from '@canvas/files/react/modules/UploadQueue'
-import htmlEscape from '@instructure/html-escape'
 import iframeAllowances from '@canvas/external-apps/iframeAllowances'
 import SelectContent from '../select_content'
 import setDefaultToolValues from '../setDefaultToolValues'
@@ -48,6 +47,7 @@ import type {EnvContextModules} from '@canvas/global/env/EnvContextModules'
 import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 import replaceTags from '@canvas/util/replaceTags'
 import {EXTERNAL_CONTENT_READY, EXTERNAL_CONTENT_CANCEL} from '@canvas/external-tools/messages'
+import {onLtiClosePostMessage} from '@canvas/lti/jquery/messages'
 
 // @ts-expect-error
 if (!('INST' in window)) window.INST = {}
@@ -347,14 +347,6 @@ export const Events = {
           id: 'resource_selection_dialog',
           style: 'padding: 0; overflow-y: hidden;',
         })
-        $dialog.append(`<div class="before_external_content_info_alert screenreader-only" tabindex="0">
-            <div class="ic-flash-info">
-              <div class="ic-flash__icon" aria-hidden="true">
-                <i class="icon-info"></i>
-              </div>
-              ${htmlEscape(I18n.t('The following content is partner provided'))}
-            </div>
-          </div>`)
         $dialog.append(
           $('<iframe/>', {
             id: 'resource_selection_iframe',
@@ -366,64 +358,18 @@ export const Events = {
             'data-lti-launch': 'true',
           }),
         )
-        $dialog.append(`<div class="after_external_content_info_alert screenreader-only" tabindex="0">
-            <div class="ic-flash-info">
-              <div class="ic-flash__icon" aria-hidden="true">
-                <i class="icon-info"></i>
-              </div>
-              ${htmlEscape(I18n.t('The preceding content is partner provided'))}
-            </div>
-          </div>`)
-
-        const $external_content_info_alerts = $dialog.find(
-          '.before_external_content_info_alert, .after_external_content_info_alert',
-        )
-
-        const $iframe = $dialog.find('#resource_selection_iframe')
-
-        let origIframeWidthStr = $iframe.css('width')
-        let origIframeHeightStr = $iframe.css('height')
-
-        const looksLikePixelMeasurement = (str: string) =>
-          str.match(/[0-9]/) && !str.match(/(%|em)/)
-
-        $external_content_info_alerts.on('focus', function () {
-          origIframeWidthStr = $iframe.css('width')
-          origIframeHeightStr = $iframe.css('height')
-          const iframeWidth = parseInt(origIframeWidthStr, 10)
-          const iframeHeight = parseInt(origIframeHeightStr, 10)
-          $iframe.css('border', '2px solid #2B7ABC')
-          $(this).removeClass('screenreader-only')
-          const alertHeight = numberOrZero($(this).outerHeight(true))
-
-          // I'm not sure if the measurements can ever not be of the form
-          // /[0-9]+px/, but just in case it can, don't grossly misinterpret
-          // them
-          if (looksLikePixelMeasurement(origIframeWidthStr)) {
-            $iframe.css('width', `${iframeWidth - 4}px`)
-          }
-          if (looksLikePixelMeasurement(origIframeHeightStr)) {
-            $iframe.css('height', `${iframeHeight - alertHeight - 4}px`)
-          }
-          $dialog.scrollLeft(0).scrollTop(0)
-        })
-
-        $external_content_info_alerts.on('blur', function () {
-          $dialog.find('#resource_selection_iframe').css('border', 'none')
-          $(this).addClass('screenreader-only')
-          $iframe.css('height', origIframeHeightStr).css('width', origIframeWidthStr)
-          $dialog.scrollLeft(0).scrollTop(0)
-        })
 
         $('body').append($dialog.hide())
         $dialog.on('dialogbeforeclose', dialogCancelHandler)
         const ltiPostMessageHandlerForTool = ltiPostMessageHandler(tool)
+        let removeCloseListener = () => {}
         $dialog
           .dialog({
             autoOpen: false,
             width: 'auto',
             resizable: true,
             close() {
+              removeCloseListener()
               window.removeEventListener('message', ltiPostMessageHandlerForTool)
               $(window).off('beforeunload', beforeUnloadHandler)
               $dialog
@@ -431,6 +377,9 @@ export const Events = {
                 .attr('src', '/images/ajax-loader-medium-444.gif')
             },
             open: () => {
+              removeCloseListener = onLtiClosePostMessage(placement_type, () => {
+                $('#resource_selection_dialog').dialog('close')
+              })
               $dialog.parent().find('.ui-dialog-titlebar-close').focus()
               window.addEventListener('message', ltiPostMessageHandlerForTool)
             },

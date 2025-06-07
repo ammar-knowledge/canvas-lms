@@ -18,35 +18,13 @@
 
 import {fireEvent, render, waitFor, within} from '@testing-library/react'
 import EnhancedSmartSearch from '../EnhancedSmartSearch'
+import {BrowserRouter, Routes, Route} from 'react-router-dom'
 import fetchMock from 'fetch-mock'
 import userEvent from '@testing-library/user-event'
 
 const props = {
   courseId: '1',
 }
-
-const results = [
-  {
-    content_id: '1',
-    content_type: 'Page',
-    readable_type: 'page',
-    title: 'Apple Pie',
-    body: 'Apple pie is delicious.',
-    html_url: '/courses/1/pages/syllabus',
-    distance: 0.9,
-    relevance: 0.99,
-  },
-  {
-    content_id: '2',
-    content_type: 'Assignment',
-    readable_type: 'assignment',
-    title: 'Growing fruit trees',
-    body: 'Trees need water and sunlight to grow.',
-    html_url: '/courses/1/assignments/2',
-    distance: 0.9,
-    relevance: 0.2,
-  },
-]
 
 const modules1 = [
   {
@@ -70,18 +48,53 @@ const modules2 = [
   },
 ]
 
+const results = [
+  {
+    content_id: '1',
+    content_type: 'Page',
+    readable_type: 'page',
+    title: 'Apple Pie',
+    body: 'Apple pie is delicious.',
+    html_url: '/courses/1/pages/syllabus',
+    distance: 0.9,
+    relevance: 0.99,
+    modules: modules1,
+    published: false,
+    due_date: null,
+  },
+  {
+    content_id: '2',
+    content_type: 'Assignment',
+    readable_type: 'assignment',
+    title: 'Growing fruit trees',
+    body: 'Trees need water and sunlight to grow.',
+    html_url: '/courses/1/assignments/2',
+    distance: 0.9,
+    relevance: 0.2,
+    modules: modules2,
+    published: true,
+    due_date: '2025-05-09T05:00:00Z',
+  },
+]
+
 const SEARCH_TERM = 'apple'
 
 const INDEX_URL = `/api/v1/courses/${props.courseId}/smartsearch/index_status`
-const SEARCH_URL = `/api/v1/courses/${props.courseId}/smartsearch?q=${SEARCH_TERM}&per_page=25`
-const MODULE1_URL = encodeURI(
-  `/api/v1/courses/${props.courseId}/module_item_sequence?asset_type=${results[0].content_type}&asset_id=${results[0].content_id}`,
-)
-const MODULE2_URL = encodeURI(
-  `/api/v1/courses/${props.courseId}/module_item_sequence?asset_type=${results[1].content_type}&asset_id=${results[1].content_id}`,
+const SEARCH_URL = encodeURI(
+  `/api/v1/courses/${props.courseId}/smartsearch?q=${SEARCH_TERM}&per_page=25&include[]=modules&include[]=status`,
 )
 
 describe('EnhancedSmartSearch', () => {
+  const renderSearch = (overrides = {}) => {
+    return render(
+      <BrowserRouter basename="">
+        <Routes>
+          <Route path="/" element={<EnhancedSmartSearch {...props} {...overrides} />} />
+        </Routes>
+      </BrowserRouter>,
+    )
+  }
+
   afterEach(() => {
     fetchMock.restore()
   })
@@ -91,7 +104,8 @@ describe('EnhancedSmartSearch', () => {
       status: 'indexing',
       progress: 75,
     })
-    const {getByTestId, queryByText, getByText} = render(<EnhancedSmartSearch {...props} />)
+    fetchMock.get(SEARCH_URL, {results: []})
+    const {getByTestId, queryByText, getByText} = renderSearch()
 
     expect(queryByText('Similar Results')).toBeNull()
     expect(queryByText('Best Matches')).toBeNull()
@@ -106,7 +120,8 @@ describe('EnhancedSmartSearch', () => {
       status: 'complete',
       progress: 100,
     })
-    const {getByTestId, queryByTestId, queryByText} = render(<EnhancedSmartSearch {...props} />)
+    fetchMock.get(SEARCH_URL, {results: []})
+    const {getByTestId, queryByTestId, queryByText} = renderSearch()
 
     expect(getByTestId('search-input')).toBeInTheDocument()
 
@@ -125,12 +140,6 @@ describe('EnhancedSmartSearch', () => {
       fetchMock.get(SEARCH_URL, {
         results: results,
       })
-      fetchMock.get(MODULE1_URL, {
-        modules: modules1,
-      })
-      fetchMock.get(MODULE2_URL, {
-        modules: modules2,
-      })
     })
 
     afterEach(() => {
@@ -139,12 +148,11 @@ describe('EnhancedSmartSearch', () => {
 
     it('should render results', async () => {
       const user = userEvent.setup()
-      const {getByTestId, getByText} = render(<EnhancedSmartSearch {...props} />)
+      const {getByTestId, getByText} = renderSearch()
 
       const searchInput = getByTestId('search-input')
-      fireEvent.change(searchInput, {
-        target: {value: SEARCH_TERM},
-      })
+      await user.click(searchInput)
+      fireEvent.change(searchInput, {target: {value: SEARCH_TERM}})
       user.click(getByTestId('search-button'))
 
       await waitFor(() => {
@@ -157,13 +165,14 @@ describe('EnhancedSmartSearch', () => {
 
     it('should render modules for each result', async () => {
       const user = userEvent.setup()
-      const {getByTestId, getAllByTestId} = render(<EnhancedSmartSearch {...props} />)
+      const {getByTestId, getAllByTestId} = renderSearch()
 
       const searchInput = getByTestId('search-input')
+      await user.click(searchInput)
       fireEvent.change(searchInput, {
         target: {value: SEARCH_TERM},
       })
-      user.click(getByTestId('search-button'))
+      await user.click(getByTestId('search-button'))
 
       await waitFor(() => {
         expect(getAllByTestId('search-result')).toHaveLength(2)
@@ -176,22 +185,54 @@ describe('EnhancedSmartSearch', () => {
       expect(within(secondCard).getByText('Module 2')).toBeInTheDocument()
       expect(within(firstCard).queryByText('Module 2')).not.toBeInTheDocument()
     })
+
+    it('should render pills for each result', async () => {
+      const user = userEvent.setup()
+      const {getByTestId, getAllByTestId} = renderSearch()
+
+      const searchInput = getByTestId('search-input')
+      await user.click(searchInput)
+      fireEvent.change(searchInput, {
+        target: {value: SEARCH_TERM},
+      })
+      await user.click(getByTestId('search-button'))
+
+      await waitFor(() => {
+        expect(getAllByTestId('search-result')).toHaveLength(2)
+      })
+      const resultCards = getAllByTestId('search-result')
+      const firstCard = resultCards[0]
+      const secondCard = resultCards[1]
+      expect(
+        within(firstCard).queryByTestId(`${results[0].content_id}-${results[0].content_type}-due`),
+      ).toBeNull()
+      expect(within(firstCard).getByText('Unpublished')).toBeInTheDocument()
+      expect(
+        within(secondCard).queryByTestId(
+          `${results[0].content_id}-${results[1].content_type}-publish`,
+        ),
+      ).toBeNull()
+      expect(
+        within(secondCard).getByTestId(`${results[1].content_id}-${results[1].content_type}-due`),
+      ).toBeInTheDocument()
+    })
   })
 
   it('should render error message after failing to get results', async () => {
     const user = userEvent.setup()
-    fetchMock.get(`/api/v1/courses/${props.courseId}/smartsearch/index_status`, {
+    fetchMock.get(INDEX_URL, {
       status: 'complete',
       progress: 100,
     })
-    fetchMock.get(`/api/v1/courses/${props.courseId}/smartsearch?q=${SEARCH_TERM}&per_page=25`, 404)
-    const {getByTestId, getByText} = render(<EnhancedSmartSearch {...props} />)
+    fetchMock.get(SEARCH_URL, 404)
+    const {getByTestId, getByText} = renderSearch()
 
     const searchInput = getByTestId('search-input')
+    await user.click(searchInput)
     fireEvent.change(searchInput, {
       target: {value: SEARCH_TERM},
     })
-    user.click(getByTestId('search-button'))
+    await user.click(getByTestId('search-button'))
 
     await waitFor(() => {
       expect(getByText(/Failed to execute search/)).toBeInTheDocument()

@@ -24,13 +24,15 @@ require_relative "concerns/lti_services_shared_examples"
 describe Lti::IMS::AssetProcessorController do
   include_context "advantage services context"
 
+  let(:assignment) { assignment_model(course:) }
+  let(:asset) { lti_asset_model(submission: submission_model(assignment:)) }
+  let(:asset_processor) { lti_asset_processor_model(tool:, assignment:) }
+
   describe "#create_report" do
     let(:action) { :create_report }
     let(:request_method) { :post }
     # Some of the shared specs assume `course` is used for the context (e.g. "course attached to another sub-account" spec)
-    let(:assignment) { assignment_model(course:) }
-    let(:asset) { lti_asset_model(submission: submission_model(assignment:)) }
-    let(:asset_processor) { lti_asset_processor_model(tool:, assignment:) }
+
     let(:content_type) { "application/json" }
     let(:body_overrides) do
       {
@@ -38,8 +40,7 @@ describe Lti::IMS::AssetProcessorController do
         timestamp: 1.hour.ago.utc.iso8601,
         title: "Test asset processor report",
         type: "originality",
-        scoreGiven: 150,
-        scoreMaximum: 300,
+        result: "150/300",
         priority: 0,
         processingProgress: Lti::AssetReport::PROGRESS_PROCESSED,
         "https://example.com/foo/extra": { "extra value" => true },
@@ -80,8 +81,7 @@ describe Lti::IMS::AssetProcessorController do
       expect(report.timestamp).to be_within(1.second).of(Time.zone.parse(expected_values[:timestamp]))
       expect(report.report_type).to eq(expected_values[:type])
       expect(report.asset_processor).to eq(asset_processor)
-      expect(report.score_given).to eq(expected_values[:scoreGiven])
-      expect(report.score_maximum).to eq(expected_values[:scoreMaximum])
+      expect(report.result).to eq(expected_values[:result])
       expect(report.processing_progress).to eq(expected_values[:processingProgress])
       expect(report.workflow_state).to eq("active")
       expect(report.extensions).to eq({
@@ -182,11 +182,11 @@ describe Lti::IMS::AssetProcessorController do
     end
 
     context "when non-scalar values are provided" do
-      let(:body_overrides) { super().merge(scoreMaximum: {}, scoreGiven: [1, 2, 3], title: { "foo" => "bar" }) }
+      let(:body_overrides) { super().merge(result: [1, 2, 3], title: { "foo" => "bar" }) }
 
       # This is actually done by params.permit(...)
       it "strips them out and returns only the values actually stored to the database" do
-        expect_successful_creation(scoreGiven: nil, scoreMaximum: nil, title: nil)
+        expect_successful_creation(result: nil, title: nil)
       end
     end
   end
@@ -194,9 +194,6 @@ describe Lti::IMS::AssetProcessorController do
   describe "#lti_asset_show" do
     let(:action) { :lti_asset_show }
     let(:request_method) { :get }
-    let(:assignment) { assignment_model(course:) }
-    let(:asset) { lti_asset_model(submission: submission_model(assignment:)) }
-    let(:asset_processor) { lti_asset_processor_model(tool:, assignment:) }
     let(:params_overrides) { { asset_processor_id: asset_processor.id, asset_id: asset.uuid } }
     let(:expected_mime_type) { "text/html" }
 
@@ -242,6 +239,24 @@ describe Lti::IMS::AssetProcessorController do
       before { tool.root_account.disable_feature!(:lti_asset_processor) }
 
       it { expect_not_found }
+    end
+
+    context "when the asset is a text entry" do
+      let(:text_content) { "This is a test text entry asset." }
+      let(:submission) { submission_model(assignment:, body: text_content, submission_type: "online_text_entry") }
+      let(:asset) { submission.lti_assets.first }
+
+      it "returns the text entry content as a downloadable file" do
+        send_request
+        expect(response).to have_http_status(:found).or have_http_status(:ok)
+        # Follow redirect if present
+        if response.status == 302 && response.location
+          follow_redirect!
+        end
+        expect(response.headers["Content-Type"]).to eq("text/html")
+        expect(response.headers["Content-Disposition"]).to eq("attachment")
+        expect(response.body).to eq(text_content)
+      end
     end
   end
 end

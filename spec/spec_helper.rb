@@ -331,8 +331,8 @@ module RenderWithHelpers
 
       controller_class._helper_methods.each do |helper|
         class_eval <<~RUBY, __FILE__, __LINE__ + 1
-          def #{helper}(*args, &block)
-            real_controller.send(:#{helper}, *args, &block)
+          def #{helper}(*args, **kwargs, &block)
+            real_controller.send(:#{helper}, *args, **kwargs, &block)
           end
         RUBY
       end
@@ -510,6 +510,7 @@ RSpec.configure do |config|
     MultiCache.reset
     TermsOfService.skip_automatic_terms_creation = true
     LiveEvents.clear_context!
+    PageView.reset_cache! if PageView.respond_to?(:reset_cache!)
     $spec_api_tokens = {}
 
     remove_user_session

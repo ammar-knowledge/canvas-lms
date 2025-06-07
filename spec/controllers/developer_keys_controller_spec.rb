@@ -18,6 +18,8 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+require_relative "../lti_1_3_tool_configuration_spec_helper"
+
 describe DeveloperKeysController do
   let(:test_domain_root_account) { Account.create! }
   let(:site_admin_key) { DeveloperKey.create!(name: "Site Admin Key", visible: false) }
@@ -102,17 +104,6 @@ describe DeveloperKeysController do
 
           expect(assigns[:js_env][:validLtiScopes]).to \
             eq(sample_scopes_for_root_account)
-        end
-
-        context "when the platform_notification_service feature flag is disabled" do
-          before do
-            Account.default.disable_feature!(:platform_notification_service)
-          end
-
-          it "excludes the platform_notification_service scope" do
-            get "index", params: { account_id: Account.site_admin.id }
-            expect(assigns[:js_env][:validLtiScopes]).to eq TokenScopes::LTI_SCOPES.except(TokenScopes::LTI_PNS_SCOPE)
-          end
         end
 
         it "includes all valid LTI placements in js env" do
@@ -359,8 +350,10 @@ describe DeveloperKeysController do
         end
 
         context "when key validation fails" do
+          let(:long_string) { "a" * 5000 }
+
           it "reports error metric with code 400" do
-            put :update, params: { id: dk.id, developer_key: { scopes: ["bad_scope"] }, account_id: Account.site_admin.id }
+            put :update, params: { id: dk.id, developer_key: { redirect_uris: long_string }, account_id: Account.site_admin.id }
             expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(error_metric_name, tags: { action: "update", code: 400 })
           end
         end
@@ -395,14 +388,9 @@ describe DeveloperKeysController do
           expect(developer_key.reload.scopes).to match_array valid_scopes
         end
 
-        it "returns an error if an invalid scope is used" do
-          put "update", params: { id: developer_key.id, developer_key: { scopes: invalid_scopes } }
-          expect(json_parse.dig("errors", "scopes").first["attribute"]).to eq "scopes"
-        end
-
-        it "does not persist scopes if any are invalid" do
-          put "update", params: { id: developer_key.id, developer_key: { scopes: invalid_scopes.concat(valid_scopes) } }
-          expect(developer_key.reload.scopes).to be_blank
+        it "removes invalid scopes and saves valid ones" do
+          put "update", params: { id: developer_key.id, developer_key: { scopes: invalid_scopes | valid_scopes } }
+          expect(developer_key.reload.scopes).to match_array valid_scopes
         end
 
         it "sets the scopes to empty if the scopes parameter is an empty string" do
@@ -423,6 +411,129 @@ describe DeveloperKeysController do
         delete :destroy, params: { id: dk.id, account_id: Account.site_admin.id }
         expect(response).to be_successful
         expect(dk.reload.state).to eq :deleted
+      end
+
+      # These tests might seem odd, but we've run into issues in the past where a destroy call
+      # actually returned false, but we still returned a 200 and were left in a weird state.
+      # These are regression tests for that.
+      context "when the destroy fails" do
+        subject { delete :destroy, params: { id: dk.id, account_id: account.id } }
+
+        let_once(:account) { account_model }
+
+        before do
+          allow_any_instance_of(DeveloperKey).to receive(:destroy).and_return(false)
+        end
+
+        it "rolls everything back" do
+          subject
+          expect(dk.reload).to be_active
+        end
+
+        context "when the dev key is associated with a dynamic registration" do
+          let(:reg) { dk.ims_registration }
+          let(:dk) { dev_key_model_dyn_reg(account: account_model) }
+
+          it "still rolls back properly" do
+            subject
+            expect(dk.reload).to be_active
+            expect(reg.reload).to be_active
+            expect(dk.lti_registration).to be_active
+          end
+        end
+
+        context "when the dev key is associated with a tool configuration" do
+          let(:dk) { lti_developer_key_model(account:) }
+          let(:registration) { dk.lti_registration }
+
+          it "still rolls back properly" do
+            subject
+            expect(dk.reload).to be_active
+            expect(registration.reload).to be_active
+          end
+        end
+      end
+
+      context "when the key is associated with a tool configuration" do
+        include_context "lti_1_3_tool_configuration_spec_helper"
+
+        let(:dk) { lti_registration.developer_key }
+        let(:account) { account_model }
+        let(:lti_registration) do
+          Lti::CreateRegistrationService.call(
+            account:,
+            created_by: @admin,
+            registration_params: {
+              name: "Test Registration",
+            },
+            configuration_params: internal_lti_configuration
+          )
+        end
+        let(:tool_config) { lti_registration.manual_configuration }
+
+        it "hard deletes the tool configuration and soft deletes the registration" do
+          # Ensure config is initialized before it's hard deleted
+          tool_config
+          delete :destroy, params: { id: dk.id, account_id: account.id }
+          expect(lti_registration.reload).to be_deleted
+          expect(Lti::ToolConfiguration.where(id: tool_config.id)).to be_empty
+        end
+
+        context "tools were installed from that config" do
+          let(:tool) { lti_registration.new_external_tool(account) }
+          let(:course_tool) { lti_registration.new_external_tool(course) }
+          let(:course) { course_model(account:) }
+
+          before do
+            tool
+          end
+
+          it "deletes the tools in a job" do
+            # Ensure config is initialized before it's hard deleted
+            tool_config
+            expect { delete :destroy, params: { id: dk.id, account_id: account.id } }
+              .to change { lti_registration.reload.workflow_state }.to "deleted"
+            expect(Lti::ToolConfiguration.where(id: tool_config.id)).to be_empty
+            expect(dk.reload).to be_deleted
+            run_jobs
+            expect(tool.reload).to be_deleted
+          end
+        end
+      end
+
+      context "when the key is associated with a dynamic registration" do
+        let(:account) { account_model }
+        let(:dk) { dev_key_model_dyn_reg(account:) }
+        let(:lti_registration) { dk.lti_registration }
+        let(:ims_registration) { dk.ims_registration }
+
+        it "soft deletes the registration" do
+          delete :destroy, params: { id: dk.id, account_id: account.id }
+          expect(dk.reload).to be_deleted
+          expect(lti_registration.reload).to be_deleted
+          expect(ims_registration.reload).to be_deleted
+        end
+
+        context "tools were installed from the ims registration" do
+          let(:tool) { lti_registration.new_external_tool(account) }
+          let(:course_tool) { lti_registration.new_external_tool(course) }
+          let(:course) { course_model(account:) }
+
+          before do
+            tool
+            course_tool
+          end
+
+          it "deletes the tools in a job" do
+            expect { delete :destroy, params: { id: dk.id, account_id: account.id } }
+              .to change { lti_registration.reload.workflow_state }.to "deleted"
+            expect(ims_registration.reload).to be_deleted
+            expect(dk.reload).to be_deleted
+            run_jobs
+            expect(tool.reload).to be_deleted
+            expect(course_tool.reload).to be_deleted
+          end
+        end
       end
 
       context "when request errors" do

@@ -262,11 +262,11 @@ class ApplicationController < ActionController::Base
           group_information:,
           DOMAIN_ROOT_ACCOUNT_ID: @domain_root_account&.global_id,
           DOMAIN_ROOT_ACCOUNT_UUID: @domain_root_account&.uuid,
+          HORIZON_DOMAIN: @domain_root_account&.horizon_domain,
           k12: k12?,
           help_link_name:,
           help_link_icon:,
           use_high_contrast: @current_user&.prefers_high_contrast?,
-          use_dyslexic_font: @current_user&.prefers_dyslexic_font?,
           auto_show_cc: @current_user&.auto_show_cc?,
           disable_celebrations: @current_user&.prefers_no_celebrations?,
           disable_keyboard_shortcuts: @current_user&.prefers_no_keyboard_shortcuts?,
@@ -278,10 +278,12 @@ class ApplicationController < ActionController::Base
             collapse_global_nav: @current_user&.collapse_global_nav?,
             release_notes_badge_disabled: @current_user&.release_notes_badge_disabled?,
             can_add_pronouns: @domain_root_account&.can_add_pronouns?,
-            show_sections_in_course_tray: @domain_root_account&.show_sections_in_course_tray?
+            show_sections_in_course_tray: @domain_root_account&.show_sections_in_course_tray?,
+            suppress_assignments: @domain_root_account&.suppress_assignments?
           },
           RAILS_ENVIRONMENT: Canvas.environment
         }
+        @js_env[:use_dyslexic_font] = @current_user&.prefers_dyslexic_font? if @current_user&.can_see_dyslexic_font_feature_flag?(session)
         @js_env[:IN_PACED_COURSE] = @context.enable_course_paces? if @context.is_a?(Course)
         unless SentryExtensions::Settings.settings.blank?
           @js_env[:SENTRY_FRONTEND] = {
@@ -402,6 +404,7 @@ class ApplicationController < ActionController::Base
     rce_find_replace
     courses_popout_sisid
     dashboard_graphql_integration
+    discussion_ai_survey_link
     discussion_checkpoints
     discussion_default_sort
     discussion_default_expand
@@ -413,8 +416,10 @@ class ApplicationController < ActionController::Base
     validate_call_to_action
     new_quizzes_navigation_updates
     create_wiki_page_mastery_path_overrides
-    remove_rce_resize_button
     create_external_apps_side_tray_overrides
+    files_a11y_rewrite_toggle
+    files_a11y_rewrite
+    rce_a11y_resize
   ].freeze
   JS_ENV_ROOT_ACCOUNT_FEATURES = %i[
     product_tours
@@ -452,6 +457,8 @@ class ApplicationController < ActionController::Base
     course_pace_weighted_assignments
     modules_requirements_allow_percentage
     course_pace_allow_bulk_pace_assign
+    lti_apps_page_ai_translation
+    ams_service
   ].freeze
   JS_ENV_ROOT_ACCOUNT_SERVICES = %i[account_survey_notifications].freeze
   JS_ENV_BRAND_ACCOUNT_FEATURES = %i[
@@ -2495,7 +2502,7 @@ class ApplicationController < ActionController::Base
       # i don't know if we really need this but in case these expired tokens are a client caching issue,
       # let's throw an extra param in the fallback so we hopefully don't infinite loop
       fallback_url += (query.present? ? "&" : "?") + "fallback_ts=#{Time.now.to_i}"
-
+      authorization ||= { attachment: } if Account.site_admin.feature_enabled?(:safe_files_token)
       opts = generate_access_verifier(return_url:, fallback_url:, authorization:)
       opts[:verifier] = verifier if verifier.present?
 
@@ -2650,16 +2657,19 @@ class ApplicationController < ActionController::Base
   end
   helper_method :verified_file_download_url
 
-  def user_content(str)
+  # safe_html is used to indicate that the HTML is already safe and should not be escaped,
+  # please also note that if the html has any attachments, safe_html should be set to true!!!
+  # since we neet to process the attachments in the html.
+  def user_content(str, context: @context, user: @current_user, is_public: false, location: nil, safe_html: false)
     return nil unless str
-    return str.html_safe unless str.match?(/object|embed|equation_image/)
+    return str if safe_html
 
-    UserContent.escape(str, request.host_with_port, use_new_math_equation_handling?)
-  end
-  helper_method :user_content
-
-  def public_user_content(str, context: @context, user: @current_user, is_public: false, location: nil)
-    return nil unless str
+    is_course_syllabus = location&.include?("course_syllabus_") && context.root_account.feature_enabled?(:disable_file_verifiers_in_public_syllabus)
+    render_location_tag = if is_course_syllabus || (location && context.root_account.feature_enabled?(:file_association_access))
+                            location
+                          else
+                            nil
+                          end
 
     rewriter = UserContent::HtmlRewriter.new(context, user)
     file_handler = proc do |match|
@@ -2670,14 +2680,14 @@ class ApplicationController < ActionController::Base
         preloaded_attachments: {},
         in_app: in_app?,
         is_public:,
-        location:
+        location: render_location_tag
       ).processed_url
     end
     rewriter.set_handler("files", &file_handler)
     rewriter.set_handler("media_attachments_iframe", &file_handler)
     UserContent.escape(rewriter.translate_content(str), request.host_with_port, use_new_math_equation_handling?)
   end
-  helper_method :public_user_content
+  helper_method :user_content
 
   def find_bank(id, check_context_chain = true)
     bank = @context.assessment_question_banks.active.where(id:).first || @current_user.assessment_question_banks.active.where(id:).first
@@ -3379,5 +3389,20 @@ class ApplicationController < ActionController::Base
 
   def require_feature_enabled(feature)
     not_found unless context&.root_account&.feature_enabled?(feature)
+  end
+
+  # Make it sure the file we send is in a trusted folder
+  def safe_send_file(filepath, options = {})
+    full_path = Pathname.new(File.expand_path(filepath.to_s))
+    allowed_dirs = [Rails.root.join("lib/cc/xsd")]
+    allowed_dirs << Rails.root.join(Attachment.file_store_config["path_prefix"]) if Attachment.file_store_config["path_prefix"].present?
+
+    allowed = allowed_dirs.any? { |base_dir| full_path.ascend.include?(base_dir) }
+    reject! "Invalid file path" unless allowed
+    send_file(full_path.to_s, options)
+  end
+
+  def inject_ai_feedback_link
+    js_env(AI_FEEDBACK_LINK: Setting.get("ai_feedback_link", "https://inst.bid/ai/feedback"))
   end
 end

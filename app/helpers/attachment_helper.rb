@@ -43,7 +43,16 @@ module AttachmentHelper
     context_name = url_helper_context_from_object(attachment.context)
     url_helper = "#{context_name}_file_inline_view_url"
     if respond_to?(url_helper)
-      attrs[:attachment_view_inline_ping_url] = send(url_helper, attachment.context, attachment.id, { verifier: params[:verifier], access_token: params[:access_token] })
+      attrs[:attachment_view_inline_ping_url] = send(
+        url_helper,
+        attachment.context,
+        attachment.id,
+        {
+          access_token: params[:access_token],
+          verifier: params[:verifier],
+          location: params[:location]
+        }
+      )
     end
     if attachment.pending_upload? || attachment.processing?
       attrs[:attachment_preview_processing] = true
@@ -142,7 +151,7 @@ module AttachmentHelper
 
   def check_media_permissions(access_type: :download)
     if @attachment.present?
-      access_allowed(@attachment, @current_user, access_type)
+      access_allowed(attachment: @attachment, user: @current_user, access_type:)
     else
       media_object_exists = @media_object.present?
       render_unauthorized_action unless media_object_exists
@@ -150,19 +159,64 @@ module AttachmentHelper
     end
   end
 
-  def access_allowed(attachment, user, access_type)
-    return true if jwt_resource_match(attachment)
+  def access_allowed(
+    attachment:,
+    user:,
+    access_type:,
+    no_error_on_failure: false,
+    check_submissions: true
+  )
+    return true if jwt_resource_match(attachment) || access_via_location?(attachment, user, access_type)
 
     if params[:verifier]
       verifier_checker = Attachments::Verification.new(attachment)
       return true if verifier_checker.valid_verifier_for_permission?(params[:verifier], access_type, @domain_root_account, session)
     end
-    submissions = attachment.attachment_associations.where(context_type: "Submission").preload(:context)
-                            .filter_map(&:context)
-    return true if submissions.any? { |submission| submission.grants_right?(user, session, access_type) }
-    return render_unauthorized_action if (access_type == :update) && attachment.editing_restricted?(:content)
 
-    authorized_action(attachment, user, access_type)
+    if check_submissions
+      submissions = attachment.attachment_associations.where(context_type: "Submission").preload(:context)
+                              .filter_map(&:context)
+      return true if submissions.any? { |submission| submission.grants_right?(user, session, access_type) }
+    end
+
+    if access_type == :update && attachment.editing_restricted?(:content)
+      return no_error_on_failure ? false : render_unauthorized_action
+    end
+
+    if params[:sf_token]
+      return true if check_safe_files_token(attachment, params[:sf_token])
+    end
+
+    no_error_on_failure ? attachment.grants_right?(user, session, access_type) : authorized_action(attachment, user, access_type)
+  end
+
+  def access_via_location?(attachment, user, access_type)
+    if params[:location] && [:read, :download].include?(access_type)
+      return AttachmentAssociation.verify_access(params[:location], attachment, user, session)
+    end
+
+    false
+  end
+
+  def check_safe_files_token(attachment, sf_token)
+    return false unless Account.site_admin.feature_enabled?(:safe_files_token) && sf_token && !safer_domain_available?
+
+    sf_token_key = "sf_token:#{sf_token}"
+    sf_token_data = Rails.cache.read(sf_token_key)
+    return false unless sf_token_data
+
+    if sf_token_data[:full_path] == attachment.full_path
+      # access is checked twice so delete token after second check
+      if sf_token_data[:used]
+        Rails.cache.delete(sf_token_key)
+      else
+        sf_token_data[:used] = true
+        Rails.cache.write(sf_token_key, sf_token_data, expires_in: 5.minutes)
+      end
+      true
+    else
+      false
+    end
   end
 
   def render_or_redirect_to_stored_file(attachment:, verifier: nil, inline: false)

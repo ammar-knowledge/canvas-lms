@@ -53,6 +53,14 @@ buttons_and_icons_root_account:
     production:
       state: hidden
 
+canvas_content_builder:
+  applies_to: Account
+  state: hidden
+  display_name: Canvas Content Builder
+  description: |-
+    Enable the new Canvas Content Builder for the Rich Content Editor.
+  shadow: true
+
 consolidated_media_player:
   applies_to: SiteAdmin
   state: hidden
@@ -134,12 +142,12 @@ files_a11y_rewrite:
   description: |-
     Enables the new Files a11y Rewrite page.
 
-files_a11y_rewrite_toogle:
+files_a11y_rewrite_toggle:
   applies_to: SiteAdmin
   state: hidden
   display_name: Files a11y Rewrite Toggle
   description: |-
-    Controls whether users can see the "Switch to Old UI" toggle in the Files component.
+    Allows users to switch to the old files ui when the Files A11y Rewrite flag is enabled.
   environments:
     development:
       state: allowed_on
@@ -184,6 +192,15 @@ precise_link_replacements:
     elements only, as opposed to all texts
   applies_to: SiteAdmin
 
+rce_a11y_resize:
+  state: hidden
+  applies_to: SiteAdmin
+  shadow: true
+  display_name: RCE Accessible Resize
+  description: |-
+    Enable the Rich Content Editor to resize editor's size in a way that is accessible.
+    This will allow users to resize editor without losing accessibility features.
+
 rce_find_replace:
   state: hidden
   display_name: Find and Replace RCE Plugin
@@ -211,20 +228,25 @@ rce_transform_loaded_content:
     ci:
       state: allowed_on
 
-remove_rce_resize_button:
-  applies_to: SiteAdmin
-  state: hidden
-  shadow: true
-  display_name: Remove RCE Resize Button
-  description: |-
-    Remove the resize button from the status bar of RCE.
-
 reset_uuid_on_course_reset:
   state: allowed_on
   display_name: Reset UUID on Course Reset
   description: |-
     Reset the UUID of a course when it is reset.  This allows course restore to work better for New Quizzes.
   applies_to: RootAccount
+
+safe_files_token:
+  applies_to: SiteAdmin
+  state: hidden
+  display_name: Safe Files Token
+  description: |-
+    Adds a one time use token when redirecting to the safe files domain.
+    This allows access to files within iframes in rich content that would be blocked by cross-site cookie protections.
+  environments:
+    ci:
+      state: allowed_on
+    development:
+      state: allowed_on
 
 visibility_performance_improvements:
   state: hidden

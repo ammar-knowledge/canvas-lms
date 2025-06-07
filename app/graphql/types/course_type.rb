@@ -315,13 +315,26 @@ module Types
       scope
     end
 
+    field :users_connection_count, Integer, null: true do
+      argument :filter, CourseUsersFilterInputType, required: false
+      argument :sort, CourseUsersSortInputType, required: false
+      argument :user_ids,
+               [ID],
+               <<~MD,
+                 Only include users with the given ids.
+
+                 **This field is deprecated, use `filter: {userIds}` instead.**
+               MD
+               prepare: GraphQLHelpers.relay_or_legacy_ids_prepare_func("User"),
+               required: false
+    end
+    def users_connection_count(user_ids: nil, filter: {}, sort: {})
+      users_connection(user_ids:, filter:, sort:).size
+    end
+
     field :course_nickname, String, null: true
     def course_nickname
       current_user.course_nickname(course)
-    end
-
-    field :enrollments_connection, EnrollmentType.connection_type, null: true do
-      argument :filter, EnrollmentFilterInputType, required: false
     end
 
     field :custom_grade_statuses_connection, CustomGradeStatusType.connection_type, null: true
@@ -330,6 +343,10 @@ module Types
       return unless course.grants_any_right?(current_user, session, :manage_grades, :view_all_grades)
 
       course.custom_grade_statuses.active.order(:id)
+    end
+
+    field :enrollments_connection, EnrollmentType.connection_type, null: true do
+      argument :filter, EnrollmentFilterInputType, required: false
     end
 
     def enrollments_connection(filter: {})
@@ -345,6 +362,7 @@ module Types
       scope = course.apply_enrollment_visibility(course.all_enrollments, current_user)
       scope = filter[:states].present? ? scope.where(workflow_state: filter[:states]) : scope.active
       scope = scope.where(associated_user_id: filter[:associated_user_ids]) if filter[:associated_user_ids].present?
+      scope = scope.where(user_id: filter[:user_ids]) if filter[:user_ids].present?
       scope = scope.where(type: filter[:types]) if filter[:types].present?
       scope
     end
@@ -553,6 +571,13 @@ module Types
       return nil unless course.grants_any_right?(current_user, :read_sis, :manage_sis)
 
       course.sis_course_id
+    end
+
+    field :submission_statistics, SubmissionStatisticsType, "Returns submission-related statistics for the current user", null: true
+    def submission_statistics
+      return nil unless course.grants_right?(current_user, :read)
+
+      course
     end
 
     field :allow_final_grade_override, Boolean, null: true

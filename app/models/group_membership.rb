@@ -78,7 +78,7 @@ class GroupMembership < ActiveRecord::Base
     p.dispatch :new_context_group_membership
     p.to { user }
     p.whenever do |record|
-      record.just_created &&
+      record.previously_new_record? &&
         record.accepted? &&
         record.group &&
         record.group.context_available? &&
@@ -90,7 +90,7 @@ class GroupMembership < ActiveRecord::Base
     p.dispatch :new_context_group_membership_invitation
     p.to { user }
     p.whenever do |record|
-      record.just_created &&
+      record.previously_new_record? &&
         record.invited? &&
         record.group &&
         record.group.context_available? &&
@@ -113,7 +113,7 @@ class GroupMembership < ActiveRecord::Base
     p.to { group.context.participating_admins }
     p.whenever do |record|
       record.group.context.is_a?(Course) &&
-        record.just_created &&
+        record.previously_new_record? &&
         record.group.group_memberships.count == 1 &&
         record.group.student_organized?
     end
@@ -191,10 +191,15 @@ class GroupMembership < ActiveRecord::Base
   def update_cached_due_dates
     return unless update_cached_due_dates?
 
-    assignments = Assignment.where(context_type: group.context_type, context_id: group.context_id)
-                            .where(group_category_id: group.group_category_id).pluck(:id)
-    assignments += DiscussionTopic.where(context_type: group.context_type, context_id: group.context_id)
-                                  .where.not(assignment_id: nil).where(group_category_id: group.group_category_id).pluck(:assignment_id)
+    assignments = []
+    if group.non_collaborative
+      assignments += AssignmentOverride.active.where(set_type: "Group", set_id: group.id).pluck(:assignment_id)
+    else
+      assignments += Assignment.where(context_type: group.context_type, context_id: group.context_id)
+                               .where(group_category_id: group.group_category_id).pluck(:id)
+      assignments += DiscussionTopic.where(context_type: group.context_type, context_id: group.context_id)
+                                    .where.not(assignment_id: nil).where(group_category_id: group.group_category_id).pluck(:assignment_id)
+    end
 
     SubmissionLifecycleManager.recompute_users_for_course(user.id, group.context_id, assignments) if assignments.any?
   end

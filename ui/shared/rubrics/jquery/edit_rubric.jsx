@@ -41,6 +41,7 @@ import '@canvas/util/jquery/fixDialogButtons'
 import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
 import replaceTags from '@canvas/util/replaceTags'
 import useStore from '../stores'
+import {FocusRegionManager} from '@instructure/ui-a11y-utils'
 
 const I18n = createI18nScope('edit_rubric')
 
@@ -188,8 +189,9 @@ const rubricEditing = {
     }
 
     // multiple rubrics can be open for editing but only the active one will have Find Outcome link
-    // const $rubric = $('#add_learning_outcome_link').closest('.rubric table.rubric_table:visible')
-    const $rubric = $('#add_learning_outcome_link').closest('.rubric').find('table.rubric_table:visible')
+    const $rubric = $('#add_learning_outcome_link')
+      .closest('.rubric')
+      .find('table.rubric_table:visible')
     $rubric
       .find('.criterion.learning_outcome_' + outcome.id)
       .find('.delete_criterion_link')
@@ -828,10 +830,28 @@ rubricEditing.init = function () {
         title,
         width: 416,
         buttons: [],
-        close: closeFunction,
         beforeClose: beforeCloseFunction,
         modal: true,
         zIndex: 1000,
+        close: () => {
+          const region = $rubric_long_description_dialog.data('focusRegion')
+          if (region) {
+            const $container = $rubric_long_description_dialog.dialog('widget')
+            FocusRegionManager.blurRegion($container[0], region.id)
+            $rubric_long_description_dialog.removeData('focusRegion')
+          }
+          closeFunction()
+        },
+        open: () => {
+          const $container = $rubric_long_description_dialog.dialog('widget')
+          const region = FocusRegionManager.activateRegion($container[0], {
+            shouldContainFocus: true,
+            shouldReturnFocus: false,
+            shouldFocusOnOpen: true,
+          })
+
+          $rubric_long_description_dialog.data('focusRegion', region)
+        },
       })
 
       if (editing && !isLearningOutcome) {
@@ -896,7 +916,25 @@ rubricEditing.init = function () {
           title: I18n.t('titles.edit_rubric_rating', 'Edit Rating'),
           width: 400,
           buttons: [],
-          close: close_function,
+          close: () => {
+            const region = $rubric_rating_dialog.data('focusRegion')
+            if (region) {
+              const $container = $rubric_rating_dialog.dialog('widget')
+              FocusRegionManager.blurRegion($container[0], region.id)
+              $rubric_rating_dialog.removeData('focusRegion')
+            }
+            close_function()
+          },
+          open: () => {
+            const $container = $rubric_rating_dialog.dialog('widget')
+            const region = FocusRegionManager.activateRegion($container[0], {
+              shouldContainFocus: true,
+              shouldReturnFocus: true,
+              shouldFocusOnOpen: true,
+            })
+
+            $rubric_rating_dialog.data('focusRegion', region)
+          },
           modal: true,
           zIndex: 1000,
         })
@@ -910,7 +948,25 @@ rubricEditing.init = function () {
         resizable: true,
         title: I18n.t('titles.find_existing_rubric', 'Find Existing Rubric'),
         modal: true,
-        zIndex: 1000,
+        zIndex: 10000,
+        close: () => {
+          const region = $rubric_dialog.data('focusRegion')
+          if (region) {
+            const $container = $rubric_dialog.dialog('widget')
+            FocusRegionManager.blurRegion($container[0], region.id)
+            $rubric_dialog.removeData('focusRegion')
+          }
+        },
+        open: () => {
+          const $container = $rubric_dialog.dialog('widget')
+          const region = FocusRegionManager.activateRegion($container[0], {
+            shouldContainFocus: true,
+            shouldReturnFocus: true,
+            shouldFocusOnOpen: true,
+          })
+
+          $rubric_dialog.data('focusRegion', region)
+        },
       })
       if (!$rubric_dialog.hasClass('loaded')) {
         $rubric_dialog
@@ -1119,6 +1175,15 @@ rubricEditing.init = function () {
   })
   $rubric_rating_dialog.find('.cancel_button').click(() => {
     $rubric_rating_dialog.dialog('close')
+  })
+
+  $(
+    '.add_rubric_link, .find_rubric_link, .edit_criterion_link, .delete_criterion_link, .add_criterion_button',
+  ).on('keydown', e => {
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault()
+      $(e.currentTarget).click()
+    }
   })
 
   $('.add_rubric_link').click(event => {

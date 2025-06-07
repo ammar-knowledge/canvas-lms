@@ -180,6 +180,18 @@ module Api::V1::ContextModule
       hash["mastery_paths"] = conditional_release_json(content_tag, current_user, opts)
     end
 
+    # this is a bit of a hack.
+    # of the only param is set, we return only the id, title, and any other
+    # field requested in params[:only]
+    # in support of the modules performance update
+    # TODO: remove once the module page reactification is complete and rolled out to everyone
+    if defined?(params) && params && params[:only]
+      hash = hash.slice(:id, :title)
+      if params[:only].include?("type")
+        hash["type"] = content_tag.content_type_class
+      end
+    end
+
     hash
   end
 

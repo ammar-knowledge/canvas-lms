@@ -35,10 +35,7 @@ import {
 } from '../../__tests__/fixtures'
 import {SyncState} from '../../shared/types'
 import {paceContextsActions} from '../pace_contexts'
-import {enableFetchMocks} from 'jest-fetch-mock'
 import type {CoursePace, CoursePacesState, StoreState} from '../../types'
-
-enableFetchMocks()
 
 const CREATE_API = `/api/v1/courses/${COURSE.id}/course_pacing`
 const UPDATE_API = `/api/v1/courses/${COURSE.id}/course_pacing/${PRIMARY_PACE.id}`
@@ -203,6 +200,7 @@ describe('Course paces actions', () => {
     })
 
     it('stops polling and displays an error message if checking the progress API fails', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
       const getState = () => ({
         ...DEFAULT_STORE_STATE,
         coursePace: {...DEFAULT_STORE_STATE.coursePace, publishingProgress: {...PROGRESS_RUNNING}},
@@ -216,6 +214,7 @@ describe('Course paces actions', () => {
         [uiActions.setCategoryError('checkPublishStatus', error?.toString())],
       ])
       expect(setTimeout).not.toHaveBeenCalled()
+      consoleSpy.mockRestore()
     })
   })
 
@@ -305,6 +304,7 @@ describe('Course paces actions', () => {
     })
 
     it('Sets an error message if compression fails', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
       const updatedPace = {...PRIMARY_PACE}
       const error = new Error('Whoops!')
       const getState = mockGetState(updatedPace, PRIMARY_PACE)
@@ -321,6 +321,7 @@ describe('Course paces actions', () => {
         [uiActions.hideLoadingOverlay()],
         [uiActions.setCategoryError('compress', error.toString())],
       ])
+      consoleSpy.mockRestore()
     })
   })
 
@@ -362,6 +363,7 @@ describe('Course paces actions', () => {
       const updatedPace = {...PRIMARY_PACE}
       const getState = mockGetState(updatedPace, PRIMARY_PACE)
 
+      fetchMock.deleteOnce(DESTROY_API, {course_pace: {...PRIMARY_PACE}})
       const thunkedAction = coursePaceActions.removePace()
       await thunkedAction(asyncDispatch, getState)
 
@@ -393,6 +395,8 @@ describe('Course paces actions', () => {
           searchTerm,
         },
       })
+
+      fetchMock.deleteOnce(DESTROY_API, {course_pace: {...PRIMARY_PACE}})
 
       await coursePaceActions.removePace()(asyncDispatch, getState)
       expect(paceContextsActions.fetchPaceContexts).toHaveBeenCalledTimes(1)

@@ -62,10 +62,24 @@ describe('EditView', () => {
 
   beforeEach(() => {
     $container = $('<div>').appendTo(document.body)
-    fakeENV.setup()
-    fetchMock.mock('path:/api/v1/courses/1/lti_apps/launch_definitions', 200, {
-      overwriteRoutes: true,
+    fakeENV.setup({
+      COURSE_ID: '1',
+      context_asset_string: 'course_1',
+      DISCUSSION_TOPIC: {
+        ATTRIBUTES: {
+          is_announcement: false,
+        },
+      },
+      SETTINGS: {},
     })
+
+    fetchMock
+      .mock('path:/api/v1/courses/1/lti_apps/launch_definitions', 200, {
+        overwriteRoutes: true,
+      })
+      .get('path:/api/v1/courses/1/settings', {})
+      .get('path:/api/v1/courses/1/sections', [])
+      .post(/.*\/api\/graphql/, {})
     RCELoader.RCE = null
     return RCELoader.loadRCE()
   })
@@ -95,10 +109,10 @@ describe('EditView', () => {
     expect(view.$el.find('#discussion_point_change_warning')).toBeTruthy()
     view.$el.find('#discussion_topic_assignment_points_possible').val(1)
     view.$el.find('#discussion_topic_assignment_points_possible').trigger('change')
-    expect(view.$el.find('#discussion_point_change_warning').attr('aria-expanded')).toBe('true')
+    expect(view.$el.find('#discussion_point_change_warning').attr('style')).not.toBeDefined()
     view.$el.find('#discussion_topic_assignment_points_possible').val(0)
     view.$el.find('#discussion_topic_assignment_points_possible').trigger('change')
-    expect(view.$el.find('#discussion_point_change_warning').attr('aria-expanded')).toBe('false')
+    expect(view.$el.find('#discussion_point_change_warning').attr('style')).toBe('display: none;')
   })
 
   it('hides the published icon for announcements', () => {
@@ -121,7 +135,7 @@ describe('EditView', () => {
       withAssignment: true,
       permissions: {CAN_MODERATE: true},
     })
-    expect(view.$el.find('#podcast_enabled')).toHaveLength(1)
+    expect(view.$el.find('#checkbox_podcast_enabled')).toHaveLength(1)
     expect(view.$el.find('#podcast_has_student_posts_container')).toHaveLength(0)
   })
 
@@ -171,16 +185,15 @@ describe('EditView', () => {
     ENV.STUDENT_PLANNER_ENABLED = true
     const view = editView()
     expect(view.$el.find('#allow_todo_date')).toHaveLength(1)
-    expect(view.$el.find('#todo_date_input')[0].style.display).toBe('none')
+    expect(view.$el.find('#todo_date_input')).toHaveLength(0)
   })
 
   it('shows todo input when todo checkbox is selected', () => {
     ENV.STUDENT_PLANNER_ENABLED = true
     const view = editView()
-    expect(view.$el.find('#todo_date_input')[0].style.display).toBe('none')
-    view.$el.find('#allow_todo_date').prop('checked', true)
-    view.$el.find('#allow_todo_date').trigger('change')
-    expect(view.$el.find('#todo_date_input')[0].style.display).not.toBe('none')
+    expect(view.$("input[name='todo_date'")).toHaveLength(0)
+    view.$("label[for='allow_todo_date']").click()
+    expect(view.$("input[name='todo_date'")).toHaveLength(1)
   })
 
   it('shows todo input with date when given date', () => {
@@ -206,9 +219,8 @@ describe('EditView', () => {
   it('does not show todo date elements when grading is enabled', () => {
     ENV.STUDENT_PLANNER_ENABLED = true
     const view = editView()
-    view.$el.find('#use_for_grading').prop('checked', true)
-    view.$el.find('#use_for_grading').trigger('change')
-    expect(view.$el.find('#todo_options')[0].style.display).toBe('none')
+    view.$("label[for='use_for_grading']").click()
+    expect(view.$('#todo_options')).toHaveLength(0)
   })
 
   it('does retain the assignment when user with assignment-edit permission edits discussion', () => {

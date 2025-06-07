@@ -1938,7 +1938,7 @@ describe Assignment do
     let_once(:old_importing_assignment) do
       @course.assignments.create!(
         workflow_state: "importing",
-        importing_started_at: 20.minutes.ago,
+        importing_started_at: 35.minutes.ago,
         **assignment_valid_attributes
       )
     end
@@ -12354,6 +12354,16 @@ describe Assignment do
 
     it "converts invalid submission types" do
       @assignment = assignment_model(submission_types: "online_url", course: @course)
+      expect(@assignment.submission_types).to eql("online_text_entry")
+    end
+
+    it "does not convert valid submission types" do
+      @assignment = assignment_model(submission_types: "online_text_entry,online_upload", course: @course)
+      expect(@assignment.submission_types).to eql("online_text_entry,online_upload")
+    end
+
+    it "converts mixed submission types" do
+      @assignment = assignment_model(submission_types: "online_text_entry,online_upload,on_paper", course: @course)
       expect(@assignment.submission_types).to eql("online_text_entry")
     end
 

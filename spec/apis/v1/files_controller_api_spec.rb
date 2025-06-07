@@ -142,6 +142,35 @@ describe "Files API", type: :request do
       end
     end
 
+    context "in a canvas career course" do
+      before :once do
+        account = @course.account
+        account.enable_feature!(:horizon_course_setting)
+        @course.update horizon_course: true
+      end
+
+      it "allows setting estimated duration" do
+        api_call(
+          :post,
+          "/api/v1/courses/#{@course.id}/files",
+          {
+            controller: "courses",
+            action: "create_file",
+            course_id: @course.id,
+            format: "json",
+            name: "test_file.png",
+            size: "12345",
+            content_type: "image/png",
+            no_redirect: "true",
+            estimated_duration_attributes: { minutes: 5 }
+          },
+          {},
+          expected_status: 200
+        )
+        expect(Attachment.last.estimated_duration.duration).to eq 5.minutes
+      end
+    end
+
     context "as student" do
       before do
         course_with_student_logged_in(course: @course)
@@ -512,6 +541,15 @@ describe "Files API", type: :request do
       assert_status(201)
     end
 
+    it "fixes broken content_types" do
+      params = base_params.merge(name: "file.doc", content_type: "application/x-cfb")
+      api_call(:post,
+               "/api/v1/files/capture?#{params.to_query}",
+               params.merge(controller: "files", action: "api_capture", format: "json"))
+      attachment = Attachment.where(instfs_uuid:).first
+      expect(attachment.content_type).to eq "application/msword"
+    end
+
     describe "re-uploading a file" do
       before :once do
         @existing = Attachment.create!(
@@ -536,6 +574,13 @@ describe "Files API", type: :request do
         json = api_call(:post, "/api/v1/files/capture?#{@capture_params.to_query}", @capture_params)
         expect(json["id"]).to eq @existing.id
         expect(@existing.reload.instfs_uuid).to eq "new-instfs-uuid"
+      end
+
+      it "does not delete the old instfs file if it is in use by a Canvadoc" do
+        expect(InstFS).not_to receive(:delete_file)
+        Canvadoc.create!(attachment_id: @existing)
+        json = api_call(:post, "/api/v1/files/capture?#{@capture_params.to_query}", @capture_params)
+        expect(json["id"]).to eq @existing.id
       end
 
       it "does not delete the old instfs file if it is in use by other Attachments" do

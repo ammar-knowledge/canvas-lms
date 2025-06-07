@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-RSpec.describe Lti::AssetReport, type: :model do
+RSpec.describe Lti::AssetReport do
   describe "validations" do
     subject { lti_asset_report_model }
 
@@ -46,15 +46,6 @@ RSpec.describe Lti::AssetReport, type: :model do
         end
       end
 
-      it "is invalid if score_given is provided without score_maximum" do
-        expect do
-          lti_asset_report_model(score_given: 1, score_maximum: nil)
-        end.to raise_error(ActiveRecord::RecordInvalid, /Score maximum must be present if score_given is present/)
-        expect(lti_asset_report_model(score_given: nil, score_maximum: 1)).to be_valid
-        expect(lti_asset_report_model(score_given: nil, score_maximum: nil)).to be_valid
-        expect(lti_asset_report_model(score_given: 1, score_maximum: 1)).to be_valid
-      end
-
       it "requires indication_color to be a hex code" do
         expect(lti_asset_report_model(indication_color: "#123456")).to be_valid
         %w[#1234567 123456 #12345 white].each do |color|
@@ -64,16 +55,41 @@ RSpec.describe Lti::AssetReport, type: :model do
         end
       end
 
-      it "rejects fields in 'extensions' that do not have a url scheme" do
-        expect(lti_asset_report_model(extensions: { "http://valid.url" => "value" })).to be_valid
-        expect(lti_asset_report_model(extensions: { "https://valid.url" => "value" })).to be_valid
-        expect do
-          lti_asset_report_model(extensions: { "invalid.url" => "value" })
-        end.to raise_error(ActiveRecord::RecordInvalid, /invalid.url.*extensions property keys must be namespaced \(URIs\)/)
+      it "filters out non-URL scheme fields in 'extensions' and remains valid" do
+        # Case 1: Only valid http URL
+        report1 = lti_asset_report_model(extensions: { "http://valid.url" => "value" })
+        expect(report1).to be_valid
+        expect(report1.extensions).to eq({ "http://valid.url" => "value" })
 
-        expect do
-          lti_asset_report_model(extensions: { "invalid.url" => "value", "https://valid.url" => "value" })
-        end.to raise_error(ActiveRecord::RecordInvalid, /extensions property keys must be namespaced \(URIs\)/)
+        # Case 2: Only valid https URL
+        report2 = lti_asset_report_model(extensions: { "https://valid.url" => "value" })
+        expect(report2).to be_valid
+        expect(report2.extensions).to eq({ "https://valid.url" => "value" })
+
+        # Case 3: Only invalid URL (should be filtered out)
+        report3 = lti_asset_report_model(extensions: { "invalid.url" => "value" })
+        expect(report3).to be_valid
+        expect(report3.extensions).to be_empty
+
+        # Case 4: Mix of invalid and valid URLs (invalid should be filtered, valid should remain)
+        report4 = lti_asset_report_model(extensions: { "invalid.url" => "value", "https://valid.url" => "another_value" })
+        expect(report4).to be_valid
+        expect(report4.extensions).to eq({ "https://valid.url" => "another_value" })
+
+        # Case 5: Non-string key (should be filtered out)
+        report5 = lti_asset_report_model(extensions: { :symbol_key => "value", "http://another.valid.url" => "yet_another_value" })
+        expect(report5).to be_valid
+        expect(report5.extensions).to eq({ "http://another.valid.url" => "yet_another_value" })
+
+        # Case 6: Extensions is nil (should remain empty and be valid)
+        report6 = lti_asset_report_model(extensions: nil)
+        expect(report6).to be_valid
+        expect(report6.extensions).to be_empty
+
+        # Case 7: Extensions is an empty hash (should remain empty and be valid)
+        report7 = lti_asset_report_model(extensions: {})
+        expect(report7).to be_valid
+        expect(report7.extensions).to be_empty
       end
     end
 
@@ -98,8 +114,11 @@ RSpec.describe Lti::AssetReport, type: :model do
       expect(lti_asset_report_model(attrs)).to be_valid
     end
 
-    it "sets the default processing progress if the given progress is not recognized" do
-      expect(lti_asset_report_model(processing_progress: "Unrecognized")).to have_attributes(processing_progress: "NotReady")
+    it "requres a processing_progress" do
+      model = lti_asset_report_model
+      expect(model).to be_valid
+      model.processing_progress = nil
+      expect(model).not_to be_valid
     end
   end
 
@@ -114,6 +133,217 @@ RSpec.describe Lti::AssetReport, type: :model do
       expect(Lti::AssetReport::PROGRESSES).to match_array(
         %w[Processed Processing Pending PendingManual Failed NotProcessed NotReady]
       )
+    end
+  end
+
+  describe ".info_for_display_by_submission" do
+    subject do
+      # Ensure the factory objects are created
+      [rep1aIi, rep1aIii, rep1bIi, rep2aIi, rep2aIIi]
+      Lti::AssetReport.info_for_display_by_submission(submission_ids: [sub1.id, sub2.id])
+    end
+
+    let(:course) { course_factory }
+    let(:assignment) { assignment_model(course:) }
+    let(:processorI) { lti_asset_processor_model(assignment:) }
+    let(:processorII) { lti_asset_processor_model(assignment:) }
+
+    # Student 1
+    let(:student1) { student_in_course(course:).user }
+    let(:sub1) { assignment.submissions.find_by(user: student1) }
+    let(:att1a) { attachment_model(context: student1) }
+    let(:asset1a) { lti_asset_model(submission: sub1, attachment: att1a) }
+    let(:att1b) { attachment_model(context: student1) }
+    let(:asset1b) { lti_asset_model(submission: sub1, attachment: att1b) }
+
+    # Student 2
+    let(:student2) { student_in_course(course:).user }
+    let(:sub2) { assignment.submissions.find_by(user: student2) }
+    let(:att2a) { attachment_model(context: student2) }
+    let(:asset2a) { lti_asset_model(submission: sub2, attachment: att2a) }
+
+    # Student 1 (submission 1) reports:
+    # Student 1, attachment a (1a), processor I, report type i
+    let(:rep1aIi) { lti_asset_report_model(asset: asset1a, asset_processor: processorI, report_type: "type_i") }
+    let(:rep1aIii) { lti_asset_report_model(asset: asset1a, asset_processor: processorI, report_type: "type_ii") }
+    let(:rep1bIi) { lti_asset_report_model(asset: asset1b, asset_processor: processorI) }
+
+    # Student 2 (submission 2) reports:
+    let(:rep2aIi) { lti_asset_report_model(asset: asset2a, asset_processor: processorI) }
+    let(:rep2aIIi) { lti_asset_report_model(asset: asset2a, asset_processor: processorII) }
+
+    it "organizes reports by submission and attachment" do
+      expect(subject.keys).to match_array([sub1.id, sub2.id])
+      expect(subject[sub1.id]).to \
+        match({
+                by_attachment: {
+                  att1a.id => { processorI.id => an_instance_of(Array) },
+                  att1b.id => { processorI.id => an_instance_of(Array) },
+                }
+              })
+      expect(subject[sub2.id]).to \
+        match({
+                by_attachment: {
+                  att2a.id => {
+                    processorI.id => an_instance_of(Array),
+                    processorII.id => an_instance_of(Array)
+                  }
+                }
+              })
+
+      sub1_reports = subject[sub1.id][:by_attachment]
+      sub2_reports = subject[sub2.id][:by_attachment]
+
+      expect(sub1_reports[att1a.id][processorI.id].map { _1[:_id] }).to \
+        match_array([rep1aIi.id, rep1aIii.id])
+      expect(sub1_reports[att1b.id][processorI.id].map { _1[:_id] }).to \
+        match_array([rep1bIi.id])
+      expect(sub2_reports[att2a.id][processorI.id].map { _1[:_id] }).to \
+        match_array([rep2aIi.id])
+      expect(sub2_reports[att2a.id][processorII.id].map { _1[:_id] }).to \
+        match_array([rep2aIIi.id])
+    end
+
+    it "includes report details in the result" do
+      r = subject[sub1.id][:by_attachment][att1a.id][processorI.id].find do |r|
+        r[:_id] == rep1aIi.id
+      end
+      expect(r).to eq(rep1aIi.info_for_display)
+    end
+
+    context "when some reports are deleted" do
+      before { rep2aIIi.destroy! }
+
+      it "does not include the reports" do
+        expect(subject[sub2.id][:by_attachment][att2a.id].keys).not_to \
+          include(processorII.id)
+      end
+    end
+
+    context "when a processor is deleted" do
+      before { processorII.destroy! }
+
+      it "does not include the reports" do
+        expect(subject[sub2.id][:by_attachment][att2a.id].keys).not_to \
+          include(processorII.id)
+      end
+    end
+
+    it "returns empty results when no matching reports exist" do
+      rep1aIi
+      result = Lti::AssetReport.info_for_display_by_submission(submission_ids: Submission.last.id + 1)
+      expect(result).to be_empty
+    end
+
+    context "when submission_ids is nil" do
+      it "returns empty results" do
+        rep1aIi
+        result = Lti::AssetReport.info_for_display_by_submission(submission_ids: nil)
+        expect(result).to be_empty
+      end
+    end
+
+    context "when submission_ids is empty" do
+      it "returns empty results" do
+        rep1aIi
+        result = Lti::AssetReport.info_for_display_by_submission(submission_ids: [])
+        expect(result).to be_empty
+      end
+    end
+  end
+
+  describe "#info_for_display" do
+    subject { report.info_for_display }
+
+    let(:report) do
+      lti_asset_report_model(
+        title: "My cool report",
+        comment: "What a great report",
+        indication_color: "#008800",
+        indication_alt: "WOW",
+        result: "8/10",
+        error_code: "MYERRORCODE",
+        processing_progress: "Processed"
+      )
+    end
+
+    it "returns a hash with the report's details" do
+      expect(subject[:_id]).to eq(report.id)
+      expect(subject[:title]).to eq("My cool report")
+      expect(subject[:comment]).to eq("What a great report")
+      expect(subject[:result]).to eq("8/10")
+      expect(subject).to_not have_key(:resultTruncated)
+      expect(subject[:indicationColor]).to eq("#008800")
+      expect(subject[:indicationAlt]).to eq("WOW")
+      expect(subject[:errorCode]).to eq("MYERRORCODE")
+      expect(subject[:processingProgress]).to eq("Processed")
+      expect(subject[:resubmitAvailable]).to be(false)
+    end
+
+    it "defaults processingProgress to NotReady if it is unrecognized" do
+      report.update! processing_progress: "something unrecognized"
+      expect(subject[:processingProgress]).to eq("NotReady")
+    end
+
+    it "truncates result_truncated to 16 characters" do
+      report.update!(result: "12345678901234567890")
+      expect(subject[:resultTruncated]).to eq("123456789012345…")
+      expect(subject[:result]).to eq("12345678901234567890")
+    end
+
+    it "includes launchUrlPath for processed reports" do
+      expect(subject[:launchUrlPath]).to \
+        eq "/asset_processors/#{report.lti_asset_processor_id}/reports/#{report.id}/launch"
+    end
+  end
+
+  describe "#result_truncated" do
+    context "when result is < 16 chars" do
+      it "is nil" do
+        report = lti_asset_report_model(result: "123456789012345")
+        expect(report.result_truncated).to be_nil
+      end
+    end
+
+    context "when result is > 16 chars" do
+      it "is truncated to 15 chars with ellipsis" do
+        report = lti_asset_report_model(result: "12345678901234567890")
+        expect(report.result_truncated).to eq("123456789012345…")
+      end
+    end
+  end
+
+  describe "#resubmit_available?" do
+    subject { standard_report.resubmit_available? }
+
+    let(:processing_progress) { "Failed" }
+    let(:error_code) { "MYERRORCODE" }
+    let(:standard_report) { lti_asset_report_model(processing_progress:, error_code:) }
+
+    context "when processing_progress is Failed" do
+      ["EULA_NOT_ACCEPTED", "DOWNLOAD_FAILED"].each do |error_code|
+        context "when error_code is #{error_code}" do
+          let(:error_code) { error_code }
+
+          it { is_expected.to be true }
+        end
+      end
+
+      context "when error_code does not need action" do
+        it { is_expected.to be false }
+      end
+    end
+
+    context "when processing_progress is PendingManual" do
+      let(:processing_progress) { "PendingManual" }
+
+      it { is_expected.to be true }
+    end
+
+    context "when processing_progress is not Failed or PendingManual" do
+      let(:processing_progress) { "Processed" }
+
+      it { is_expected.to be false }
     end
   end
 end

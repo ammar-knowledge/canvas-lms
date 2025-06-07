@@ -17,50 +17,118 @@
  */
 
 import React, {useCallback} from 'react'
+
 import {Flex} from '@instructure/ui-flex'
 import {Heading} from '@instructure/ui-heading'
 import {IconButton} from '@instructure/ui-buttons'
-import {IconMiniArrowEndSolid, IconMiniArrowDownLine} from '@instructure/ui-icons'
-import {TruncateText} from '@instructure/ui-truncate-text'
+import {IconArrowOpenDownLine, IconArrowOpenUpLine} from '@instructure/ui-icons'
 import {View} from '@instructure/ui-view'
+import {Text} from '@instructure/ui-text'
+import ModuleHeaderStatusIcon from './ModuleHeaderStatusIcon'
+import {ModuleProgression, CompletionRequirement, ModuleStatistics} from '../utils/types'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import ModuleProgressionStatusBar from './ModuleProgressionStatusBar'
+import {ModuleHeaderSupplementalInfoStudent} from './ModuleHeaderSupplementalInfoStudent'
+import {ModuleHeaderCompletionRequirement} from './ModuleHeaderCompletionRequirement'
+import {ModuleHeaderMissingCount} from './ModuleHeaderMissingCount'
 
-interface ModuleHeaderProps {
+const I18n = createI18nScope('context_modules_v2')
+
+export interface ModuleHeaderStudentProps {
   id: string
   name: string
   expanded: boolean
   onToggleExpand: (id: string) => void
+  progression?: ModuleProgression
+  completionRequirements?: CompletionRequirement[]
+  requirementCount?: number
+  submissionStatistics?: ModuleStatistics
 }
 
-const ModuleHeader: React.FC<ModuleHeaderProps> = ({id, name, expanded, onToggleExpand}) => {
+const ModuleHeaderStudent: React.FC<ModuleHeaderStudentProps> = ({
+  id,
+  name,
+  expanded,
+  onToggleExpand,
+  progression,
+  completionRequirements,
+  requirementCount,
+  submissionStatistics,
+}) => {
   const onToggleExpandRef = useCallback(() => {
     onToggleExpand(id)
   }, [onToggleExpand, id])
 
+  const missingCount = submissionStatistics?.missingAssignmentCount || 0
+
+  const hasCompletionRequirements = completionRequirements && completionRequirements.length > 0
+
+  const showMissingCount =
+    missingCount > 0 && (!progression?.completed || !hasCompletionRequirements)
+
   return (
-    <View as="div" background="secondary" borderWidth="0 0 small 0" borderRadius="small">
-      <Flex padding="small" justifyItems="space-between">
+    <View as="div" background="transparent">
+      <Flex padding="small" justifyItems="space-between" direction="row">
         <Flex.Item>
-          <Flex gap="small" alignItems="center">
+          {progression && (completionRequirements?.length || progression.locked) ? (
+            <ModuleHeaderStatusIcon progression={progression} />
+          ) : null}
+        </Flex.Item>
+        <Flex.Item shouldGrow shouldShrink margin="0 0 0 small">
+          <Flex justifyItems="space-between" direction="column">
             <Flex.Item>
-              <IconButton
-                size="small"
-                withBorder={false}
-                screenReaderLabel={expanded ? 'Collapse module' : 'Expand module'}
-                renderIcon={expanded ? IconMiniArrowDownLine : IconMiniArrowEndSolid}
-                withBackground={false}
-                onClick={onToggleExpandRef}
-              />
+              <Flex gap="small" alignItems="center" justifyItems="end">
+                <Flex.Item shouldShrink>
+                  <Heading level="h3">
+                    <Text size="large" wrap="break-word">
+                      {name}
+                    </Text>
+                  </Heading>
+                </Flex.Item>
+                <Flex.Item shouldGrow margin="0 medium 0 0">
+                  <Flex justifyItems="end" gap="small">
+                    {showMissingCount && (
+                      <Flex.Item>
+                        <ModuleHeaderMissingCount submissionStatistics={submissionStatistics} />
+                      </Flex.Item>
+                    )}
+                    {hasCompletionRequirements && (
+                      <Flex.Item>
+                        <ModuleHeaderCompletionRequirement requirementCount={requirementCount} />
+                      </Flex.Item>
+                    )}
+                  </Flex>
+                </Flex.Item>
+              </Flex>
             </Flex.Item>
-            <Flex.Item>
-              <Heading level="h3">
-                <TruncateText maxLines={1}>{name}</TruncateText>
-              </Heading>
+            <Flex.Item overflowX="hidden" overflowY="hidden" margin="small 0 0 0">
+              <ModuleHeaderSupplementalInfoStudent submissionStatistics={submissionStatistics} />
             </Flex.Item>
+            {completionRequirements?.length && (
+              <Flex.Item>
+                <ModuleProgressionStatusBar
+                  requirementCount={requirementCount}
+                  completionRequirements={completionRequirements}
+                  progression={progression}
+                />
+              </Flex.Item>
+            )}
           </Flex>
+        </Flex.Item>
+        <Flex.Item>
+          <IconButton
+            data-testid="module-header-expand-toggle"
+            size="small"
+            withBorder={false}
+            screenReaderLabel={expanded ? I18n.t('Collapse module') : I18n.t('Expand module')}
+            renderIcon={expanded ? IconArrowOpenDownLine : IconArrowOpenUpLine}
+            withBackground={false}
+            onClick={onToggleExpandRef}
+          />
         </Flex.Item>
       </Flex>
     </View>
   )
 }
 
-export default ModuleHeader
+export default ModuleHeaderStudent

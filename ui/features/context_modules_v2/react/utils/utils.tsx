@@ -24,8 +24,10 @@ import {
   IconQuizLine,
   IconLinkLine,
 } from '@instructure/ui-icons'
-import {ModuleItemContent} from './types'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {CompletionRequirement, ModuleItemContent, ModuleRequirement} from './types'
 
+const I18n = createI18nScope('context_modules_v2')
 const pixelOffset = 20
 
 export const INDENT_LOOKUP: Record<number, string> = {
@@ -37,27 +39,59 @@ export const INDENT_LOOKUP: Record<number, string> = {
   5: `${pixelOffset * 5}px`,
 }
 
-export const getItemIcon = (content: ModuleItemContent) => {
+export const getIconColor = (published: boolean | undefined, isStudentView = false) => {
+  return published && !isStudentView ? 'success' : 'primary'
+}
+
+export const getItemIcon = (content: ModuleItemContent, isStudentView = false) => {
   if (!content?.type) return <IconDocumentLine />
 
-  const type = content.type.toLowerCase()
+  const type = content.type
+  const color = getIconColor(content?.published, isStudentView)
 
-  if (type.includes('assignment'))
-    return <IconAssignmentLine color={content.published ? 'success' : 'primary'} />
-  if (type.includes('quiz'))
-    return <IconQuizLine color={content.published ? 'success' : 'primary'} />
-  if (type.includes('discussion'))
-    return <IconDiscussionLine color={content.published ? 'success' : 'primary'} />
-  if (type.includes('attachment') || type.includes('file'))
-    return <IconPaperclipLine color={content.published ? 'success' : 'primary'} />
-  if (type.includes('external') || type.includes('url'))
-    return <IconLinkLine color={content.published ? 'success' : 'primary'} />
-  if (type.includes('wiki') || type.includes('page'))
-    return <IconDocumentLine color={content.published ? 'success' : 'primary'} />
-  if (type.includes('link'))
-    return <IconLinkLine color={content.published ? 'success' : 'primary'} />
+  switch (type) {
+    case 'Assignment':
+      return content.isNewQuiz ? (
+        <IconQuizLine color={color} data-testid="new-quiz-icon" />
+      ) : (
+        <IconAssignmentLine color={color} data-testid="assignment-icon" />
+      )
+    case 'Quiz':
+      return <IconQuizLine color={color} data-testid="quiz-icon" />
+    case 'Discussion':
+      return <IconDiscussionLine color={color} data-testid="discussion-icon" />
+    case 'File':
+    case 'Attachment':
+      return <IconPaperclipLine color={color} data-testid="attachment-icon" />
+    case 'ExternalUrl':
+      return <IconLinkLine color={color} data-testid="url-icon" />
+    case 'Page':
+      return <IconDocumentLine color={color} data-testid="page-icon" />
+    default:
+      return <IconDocumentLine color="primary" data-testid="document-icon" />
+  }
+}
 
-  return null
+export const getItemTypeText = (content: ModuleItemContent) => {
+  if (!content?.type) return I18n.t('Unknown')
+
+  switch (content.type) {
+    case 'Assignment':
+      return content.isNewQuiz ? I18n.t('New Quiz') : I18n.t('Assignment')
+    case 'Quiz':
+      return I18n.t('Quiz')
+    case 'Discussion':
+      return I18n.t('Discussion')
+    case 'File':
+    case 'Attachment':
+      return I18n.t('File')
+    case 'ExternalUrl':
+      return I18n.t('External Url')
+    case 'Page':
+      return I18n.t('Page')
+    default:
+      return I18n.t('Unknown')
+  }
 }
 
 export const mapContentSelection = (id: string, contentType: string) => {
@@ -82,4 +116,42 @@ export const mapContentSelection = (id: string, contentType: string) => {
   if (type === 'link') return {links: [id]}
 
   return {modules: [id]}
+}
+
+export const validateModuleStudentRenderRequirements = (prevProps: any, nextProps: any) => {
+  return (
+    prevProps.id === nextProps.id &&
+    prevProps.expanded === nextProps.expanded &&
+    prevProps.name === nextProps.name &&
+    prevProps.completionRequirements === nextProps.completionRequirements
+  )
+}
+
+export const validateModuleItemStudentRenderRequirements = (prevProps: any, nextProps: any) => {
+  return (
+    prevProps.id === nextProps.id &&
+    prevProps.url === nextProps.url &&
+    prevProps.indent === nextProps.indent &&
+    prevProps.index === nextProps.index &&
+    prevProps.content === nextProps.content
+  )
+}
+
+export const filterRequirementsMet = (
+  requirementsMet: ModuleRequirement[],
+  completionRequirements: CompletionRequirement[],
+) => {
+  return requirementsMet.filter(req =>
+    completionRequirements.some(cr => {
+      const idMatch = String(req.id) === String(cr.id)
+
+      const typeMatch = req?.type === cr?.type
+
+      const scoreMatch = req?.minScore === cr?.minScore
+
+      const percentageMatch = req?.minPercentage === cr?.minPercentage
+
+      return idMatch && typeMatch && scoreMatch && percentageMatch
+    }),
+  )
 }

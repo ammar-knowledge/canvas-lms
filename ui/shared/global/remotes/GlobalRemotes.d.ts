@@ -17,6 +17,10 @@
  */
 
 export type GlobalRemotes = Partial<{
-  speedgrader: string,
+  canvascareer: string
+  speedgrader: string
   ltiUsage: string
+  ams: {
+    launch_url: string
+  }
 }>

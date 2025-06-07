@@ -109,7 +109,21 @@ class Lti::Registration < ActiveRecord::Base
     Lti::Overlay.find_in_site_admin(self)
   end
 
-  def new_external_tool(context, existing_tool: nil)
+  # Deploys a new ContextExternalTool for this Registration into the given context.
+  # If an existing tool is provided, propagates configuration changes from this Registration to the tool.
+  # If errors occur during the update, a ContextExternalToolErrors exception will be raised,
+  # containing the errors from the update.
+  # Also creates a "root" ContextControl for this new tool, which can be used to control the
+  # availability of this tool without the need for deletion.
+  #
+  # @param context [Account | Course] The context for which to create the tool.
+  # @param existing_tool [ContextExternalTool | nil] An existing tool to update.
+  # @param verify_uniqueness [Boolean] Whether or not to check for uniqueness.
+  # @param current_user [User] The user who is creating the tool.
+  # @param available [Boolean] Sets availability on the ContextControl created alongside this tool. Defaults to true,
+  #   which means the tool will be available for use directly after creation.
+  # @return [ContextExternalTool] A new ContextExternalTool for this Registration and the given context.
+  def new_external_tool(context, existing_tool: nil, verify_uniqueness: false, current_user: nil, available: true)
     # disabled tools should stay disabled while getting updated
     # deleted tools are never updated during a dev key update so can be safely ignored
     tool_is_disabled = existing_tool&.workflow_state == ContextExternalTool::DISABLED_STATE
@@ -125,6 +139,31 @@ class Lti::Registration < ActiveRecord::Base
     tool.lti_registration = self
     tool.developer_key = developer_key
     tool.workflow_state = (tool_is_disabled && ContextExternalTool::DISABLED_STATE) || privacy_level
+
+    if verify_uniqueness
+      tool.check_for_duplication
+    end
+
+    if tool.errors.any? || !tool.save
+      raise Lti::ContextExternalToolErrors, tool.errors
+    end
+
+    if existing_tool
+      # Do not update availability when propagating tool changes
+      available = nil
+    end
+    Lti::ContextControlService.create_or_update(
+      {
+        available:,
+        course_id: context.is_a?(Course) ? context.id : nil,
+        account_id: context.is_a?(Account) ? context.id : nil,
+        registration_id: id,
+        deployment_id: tool.id,
+        created_by_id: current_user&.id,
+        updated_by_id: current_user&.id
+      }.compact
+    )
+
     tool
   end
 
@@ -242,6 +281,7 @@ class Lti::Registration < ActiveRecord::Base
   # causes the destroy callbacks to fail, leaving the registration undeleted. Foreign key maybe?
   # The ims_registration and developer_key delete just fine, so we'll just handle it manually.
   # Additionally, dependent: :destroy removes the bindings from the association which we do not want.
+  # Finally, dependent: :destroy on the tool_configuration will also hard delete it, which we also don't want.
   def destroy_associations
     ims_registration&.destroy
     developer_key&.destroy
