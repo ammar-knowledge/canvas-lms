@@ -23,8 +23,6 @@ require "canvas/draft_state_validations"
 class AbstractAssignment < ActiveRecord::Base
   self.table_name = "assignments"
 
-  self.ignored_columns += ["group_category"]
-
   include Workflow
   include TextHelper
   include HasContentTags
@@ -68,6 +66,7 @@ class AbstractAssignment < ActiveRecord::Base
   DUPLICATED_IN_CONTEXT = "duplicated_in_context"
   QUIZ_SUBMISSION_VERSIONS_LIMIT = 65
   QUIZZES_NEXT_TIMEOUT = 15.minutes
+  QUIZZES_NEXT_IMPORTING_TIMEOUT = 30.minutes
 
   attr_accessor(
     :resource_map,
@@ -152,7 +151,7 @@ class AbstractAssignment < ActiveRecord::Base
            inverse_of: :context,
            class_name: "Lti::ResourceLink",
            dependent: :destroy
-  has_many :lti_asset_processors, class_name: "Lti::AssetProcessor", dependent: :destroy, inverse_of: :assignment
+  has_many :lti_asset_processors, -> { active }, class_name: "Lti::AssetProcessor", dependent: :destroy, inverse_of: :assignment
 
   has_many :conditional_release_rules, class_name: "ConditionalRelease::Rule", dependent: :destroy, foreign_key: "trigger_assignment_id", inverse_of: :trigger_assignment
   has_many :conditional_release_associations, class_name: "ConditionalRelease::AssignmentSetAssociation", dependent: :destroy, inverse_of: :assignment, foreign_key: :assignment_id
@@ -226,6 +225,7 @@ class AbstractAssignment < ActiveRecord::Base
     validate :final_grader_ok?
   end
 
+  accepts_nested_attributes_for :estimated_duration, allow_destroy: true
   accepts_nested_attributes_for :external_tool_tag, update_only: true, reject_if: proc { |attrs|
     # only accept the url, link_settings, content_type, content_id and new_tab params
     # the other accessible params don't apply to an content tag being used as an external_tool_tag
@@ -264,7 +264,7 @@ class AbstractAssignment < ActiveRecord::Base
     self.automatic_peer_reviews = false
     self.group_category_id = nil
     self.rubric_association = nil
-    self.submission_types = "online_text_entry" unless HORIZON_SUBMISSION_TYPES.include?(submission_types)
+    self.submission_types = "online_text_entry" unless (submission_types_array - HORIZON_SUBMISSION_TYPES).empty?
     self.workflow_state = "unpublished" if context_module_tags.none? { |t| t.tag_type == "context_module" && t.context_module&.published? }
   end
 
@@ -712,6 +712,10 @@ class AbstractAssignment < ActiveRecord::Base
     title
   end
 
+  def suppress!
+    update(suppress_assignment: true)
+  end
+
   def name=(val)
     self.title = val
   end
@@ -938,7 +942,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def needs_to_update_submissions?
-    !id_before_last_save.nil? &&
+    !previously_new_record? &&
       (saved_change_to_points_possible? || saved_change_to_grading_type? || saved_change_to_grading_standard_id?) &&
       submissions.graded.exists?
   end
@@ -965,7 +969,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def needs_to_recompute_grade?
-    !id_before_last_save.nil? && (
+    !previously_new_record? && (
       saved_change_to_points_possible? ||
       saved_change_to_workflow_state? ||
       saved_change_to_assignment_group_id? ||
@@ -984,7 +988,7 @@ class AbstractAssignment < ActiveRecord::Base
   private :update_grades_if_details_changed
 
   def update_grading_period_grades
-    return true unless saved_change_to_due_at? && !saved_change_to_id? && context.grading_periods? && saved_by != :migration
+    return true unless saved_change_to_due_at? && !previously_new_record? && context.grading_periods? && saved_by != :migration
 
     grading_period_was = GradingPeriod.for_date_in_course(date: due_at_before_last_save, course: context)
     grading_period = GradingPeriod.for_date_in_course(date: due_at, course: context)
@@ -1185,11 +1189,18 @@ class AbstractAssignment < ActiveRecord::Base
   def ensure_assignment_group(do_save = true)
     return if assignment_group_id
 
+    return if skip_assignment_group_for_wiki_page?
+
     context.require_assignment_group
     self.assignment_group = context.assignment_groups.active.first
     if do_save
       GuardRail.activate(:primary) { save! }
     end
+  end
+
+  def skip_assignment_group_for_wiki_page?
+    Account.site_admin.feature_enabled?(:wiki_page_mastery_path_no_assignment_group) &&
+      submission_types == "wiki_page" && context.conditional_release?
   end
 
   def attendance?
@@ -1632,7 +1643,9 @@ class AbstractAssignment < ActiveRecord::Base
     scope ||= context.all_students.where("enrollments.workflow_state NOT IN ('inactive', 'rejected')")
     return scope unless differentiated_assignments_applies?
 
-    scope.able_to_see_assignment_in_course_with_da(id, context.id, user_ids)
+    context.shard.activate do
+      scope.able_to_see_assignment_in_course_with_da(id, context.id, user_ids)
+    end
   end
 
   def process_if_quiz
@@ -1909,7 +1922,9 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def touch_assignment_and_submittable
+    self.skip_schedule_peer_reviews = true
     touch
+    self.skip_schedule_peer_reviews = nil
     submittable_object&.touch
     if submittable_object.is_a?(DiscussionTopic) && submittable_object.root_topic?
       submittable_object.child_topics.touch_all
@@ -3180,6 +3195,8 @@ class AbstractAssignment < ActiveRecord::Base
     where(assignment_group_id: group_id.to_s)
   }
 
+  scope :without_suppressed_assignments, -> { where(suppress_assignment: false) }
+
   # assignments only ever belong to courses, so we can reduce this to just IDs to simplify the db query
   scope :for_context_codes, lambda { |codes|
     ids = codes.filter_map do |code|
@@ -3195,8 +3212,8 @@ class AbstractAssignment < ActiveRecord::Base
   scope :for_course, ->(course_id) { where(context_type: "Course", context_id: course_id) }
   scope :for_group_category, ->(group_category_id) { where(group_category_id:) }
 
-  scope :visible_to_students_in_course_with_da, lambda { |user_ids, course_ids, assignment_ids = nil|
-    visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids:, course_ids:, assignment_ids:).map(&:assignment_id)
+  scope :visible_to_students_in_course_with_da, lambda { |user_ids, course_ids, assignment_ids = nil, include_concluded = true|
+    visible_assignment_ids = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids:, course_ids:, assignment_ids:, include_concluded:).map(&:assignment_id)
 
     if visible_assignment_ids.any?
       where(id: visible_assignment_ids)
@@ -3344,7 +3361,7 @@ class AbstractAssignment < ActiveRecord::Base
   scope :importing_for_too_long, lambda {
     where(
       "workflow_state = 'importing' AND importing_started_at < ?",
-      QUIZZES_NEXT_TIMEOUT.ago
+      QUIZZES_NEXT_IMPORTING_TIMEOUT.ago
     )
   }
 
@@ -3375,7 +3392,6 @@ class AbstractAssignment < ActiveRecord::Base
     return true if unsupported_grading_types.include?(grading_type)
 
     known_features = {
-      moderated: -> { moderated_grading? },
       peer: -> { peer_reviews? },
       group: -> { has_group_category? },
       group_graded_group: -> { grade_as_group? },
@@ -3385,6 +3401,11 @@ class AbstractAssignment < ActiveRecord::Base
       new_quiz: -> { quiz_lti? },
       rubric: -> { active_rubric_association? },
     }
+
+    unless Account.site_admin.feature_enabled?(:moderated_grading_modernized_speedgrader)
+      known_features[:moderated] = -> { moderated_grading? }
+    end
+
     unsupported_features = Setting.get("assignment_features_unsupported_in_sg2", "moderated").strip.split(",").map(&:to_sym).intersection(known_features.keys)
     unsupported_features.any? { |feature| known_features.fetch(feature).call }
   end
@@ -3625,7 +3646,7 @@ class AbstractAssignment < ActiveRecord::Base
   end
 
   def update_cached_due_dates?
-    new_record? || just_created ||
+    new_record? || previously_new_record? ||
       will_save_change_to_due_at? || saved_change_to_due_at? ||
       will_save_change_to_workflow_state? || saved_change_to_workflow_state? ||
       will_save_change_to_only_visible_to_overrides? ||

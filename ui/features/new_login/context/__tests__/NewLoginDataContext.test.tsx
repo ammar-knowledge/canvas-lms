@@ -60,8 +60,15 @@ const TestComponent = () => {
 }
 
 describe('NewLoginDataContext', () => {
+  let originalConsoleError: typeof console.error
+
   beforeEach(() => {
     jest.clearAllMocks()
+    originalConsoleError = console.error
+  })
+
+  afterEach(() => {
+    console.error = originalConsoleError
   })
 
   it('ensures NewLoginDataContext stays in sync with useFetchNewLoginData', () => {
@@ -201,11 +208,9 @@ describe('NewLoginDataContext', () => {
   })
 
   it('throws an error if useNewLoginData is used outside NewLoginDataProvider', () => {
-    const OriginalConsoleError = console.error
-    console.error = jest.fn()
-    expect(() => {
-      render(<TestComponent />)
-    }).toThrow('useNewLoginData must be used within a NewLoginDataProvider')
-    console.error = OriginalConsoleError
+    const {result} = renderHook(() => useNewLoginData())
+    expect(result.error).toEqual(
+      new Error('useNewLoginData must be used within a NewLoginDataProvider'),
+    )
   })
 })

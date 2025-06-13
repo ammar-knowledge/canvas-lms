@@ -132,14 +132,14 @@ class DiscussionEntry < ActiveRecord::Base
     p.dispatch :new_discussion_entry
     p.to { discussion_topic.subscribers - [user] - mentioned_users }
     p.whenever do |record|
-      record.just_created && record.active?
+      record.previously_new_record? && record.active?
     end
     p.data { course_broadcast_data }
 
     p.dispatch :announcement_reply
     p.to { discussion_topic.user }
     p.whenever do |record|
-      record.discussion_topic.is_announcement && record.just_created && record.active?
+      record.discussion_topic.is_announcement && record.previously_new_record? && record.active?
     end
     p.data { course_broadcast_data }
   end
@@ -276,7 +276,7 @@ class DiscussionEntry < ActiveRecord::Base
   end
 
   def update_topic_submission
-    if discussion_topic&.assignment&.checkpoints_parent?
+    if discussion_topic&.assignment&.checkpoints_parent? && discussion_topic&.assignment&.sub_assignments&.length == 2
       entry_checkpoint_type = parent_id ? CheckpointLabels::REPLY_TO_ENTRY : CheckpointLabels::REPLY_TO_TOPIC
       submission = if entry_checkpoint_type == CheckpointLabels::REPLY_TO_TOPIC
                      discussion_topic.reply_to_topic_checkpoint.submissions.find_by(user_id:)
@@ -419,8 +419,11 @@ class DiscussionEntry < ActiveRecord::Base
     given { |user, session| discussion_topic.root_topic&.context&.grants_right?(user, session, :moderate_forum) && !discussion_topic.locked_for?(user, check_policies: true) }
     can :update and can :delete and can :read and can :attach
 
+    given { |user, session| discussion_topic.root_topic&.context&.grants_right?(user, session, :moderate_forum) && !discussion_topic.locked_for?(user, check_policies: true) && !discussion_topic.comments_disabled? && discussion_topic.threaded? }
+    can :reply
+
     given { |user, session| discussion_topic.root_topic&.context&.grants_right?(user, session, :moderate_forum) && !discussion_topic.locked_for?(user, check_policies: true) && !discussion_topic.comments_disabled? }
-    can :reply and can :create
+    can :create
 
     given { |user, session| discussion_topic.root_topic&.context&.grants_right?(user, session, :moderate_forum) }
     can :update and can :delete and can :read
@@ -642,7 +645,9 @@ class DiscussionEntry < ActiveRecord::Base
   def broadcast_report_notification(report_type)
     return unless root_account.feature_enabled?(:discussions_reporting)
 
-    to_list = context.instructors_in_charge_of(user_id)
+    course = context.is_a?(Group) ? context.course : context
+
+    to_list = course.instructors_in_charge_of(user_id)
 
     notification_type = "Reported Reply"
     notification = BroadcastPolicy.notification_finder.by_name(notification_type)

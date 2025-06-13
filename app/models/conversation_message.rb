@@ -96,15 +96,15 @@ class ConversationMessage < ActiveRecord::Base
   set_broadcast_policy do |p|
     p.dispatch :conversation_message
     p.to { recipients }
-    p.whenever { |record| (record.just_created || @re_send_message) && !record.generated && !record.submission }
+    p.whenever { |record| (record.previously_new_record? || @re_send_message) && !record.generated && !record.submission }
 
     p.dispatch :added_to_conversation
     p.to { new_recipients }
-    p.whenever { |record| (record.just_created || @re_send_message) && record.generated && record.event_data[:event_type] == :users_added }
+    p.whenever { |record| (record.previously_new_record? || @re_send_message) && record.generated && record.event_data[:event_type] == :users_added }
 
     p.dispatch :conversation_created
     p.to { [author] }
-    p.whenever { |record| record.cc_author && (record.just_created || @re_send_message) && !record.generated && !record.submission }
+    p.whenever { |record| record.cc_author && (record.previously_new_record? || @re_send_message) && !record.generated && !record.submission }
   end
 
   on_create_send_to_streams do
@@ -144,12 +144,23 @@ class ConversationMessage < ActiveRecord::Base
     super(ids.join(","))
   end
 
+  set_policy do
+    given { |user, _| conversation_message_participants.where(user:).exists? }
+    can :read
+  end
+
   def relativize_attachment_ids(from_shard:, to_shard:)
     self.attachment_ids = attachment_ids.map { |id| Shard.relative_id_for(id, from_shard, to_shard) }.sort
   end
 
   def attachments
     attachment_associations.map(&:attachment)
+  end
+
+  def root_account_feature_enabled?(feature)
+    Account.where(id: root_account_ids&.split(",")).any? do |root_account|
+      root_account.feature_enabled?(feature)
+    end
   end
 
   def update_attachment_associations

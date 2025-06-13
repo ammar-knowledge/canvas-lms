@@ -105,7 +105,7 @@ describe('DifferentiationTagModalForm', () => {
       expect(screen.getByTitle('Add as a single tag')).toBeInTheDocument()
       expect(screen.queryByLabelText('Tag Set Name')).not.toBeInTheDocument()
 
-      const addAnotherTagButton = screen.getByLabelText('+ Add another tag')
+      const addAnotherTagButton = screen.getByLabelText('Add another tag')
       await user.click(addAnotherTagButton)
 
       expect(screen.getByTitle('Create a new Tag Set')).toBeInTheDocument()
@@ -122,6 +122,19 @@ describe('DifferentiationTagModalForm', () => {
       })
       expect(document.activeElement).toBe(tagInput)
     })
+
+    it('puts focus on the newly added tag input field', async () => {
+      renderComponent({mode: CREATE_MODE})
+
+      const initialInputs = screen.getAllByLabelText(/Tag Name/i)
+      await user.click(screen.getByLabelText('Add another tag'))
+      await user.click(screen.getByLabelText('Add another tag'))
+      const newInputs = screen.getAllByLabelText(/Tag Name/i)
+
+      expect(newInputs).toHaveLength(initialInputs.length + 2)
+      expect(newInputs[newInputs.length - 1]).toHaveFocus()
+    })
+
     it('updates category to "Add as a single tag" when removing a tag leaves one input (create mode)', async () => {
       renderComponent({mode: CREATE_MODE})
 
@@ -129,7 +142,7 @@ describe('DifferentiationTagModalForm', () => {
       expect(screen.getByTitle('Add as a single tag')).toBeInTheDocument()
 
       // Add another tag so that the category becomes "Create a new Tag Set".
-      const addAnotherTagButton = screen.getByLabelText('+ Add another tag')
+      const addAnotherTagButton = screen.getByLabelText('Add another tag')
       await user.click(addAnotherTagButton)
       expect(screen.getByTitle('Create a new Tag Set')).toBeInTheDocument()
 
@@ -139,6 +152,36 @@ describe('DifferentiationTagModalForm', () => {
 
       // With one tag left, the option should revert to "Add as a single tag".
       expect(screen.getByTitle('Add as a single tag')).toBeInTheDocument()
+    })
+
+    it('moves focus to previous row remove button when a tag input row is deleted', async () => {
+      renderComponent({mode: CREATE_MODE})
+
+      await user.click(screen.getByLabelText('Add another tag'))
+      await user.click(screen.getByLabelText('Add another tag'))
+
+      // Get all remove buttons in reverse order as we want to delete the last one
+      const removeButtons = screen
+        .getAllByRole('button', {name: /remove tag/i, hidden: true})
+        .reverse()
+      await user.click(removeButtons[0])
+
+      // Verify that focus has moved to the previous row's remove button
+      expect(removeButtons[1]).toHaveFocus()
+    })
+
+    it('moves focus to the first tag input row if the second tag input row is deleted', async () => {
+      renderComponent({mode: CREATE_MODE})
+
+      await user.click(screen.getByLabelText('Add another tag'))
+      await user.click(screen.getByLabelText('Add another tag'))
+
+      const removeButtons = screen.getAllByRole('button', {name: /remove tag/i, hidden: true})
+      // Remove the second tag input row (first one is the default one)
+      await user.click(removeButtons[0])
+
+      // Verify that focus has moved to the first tag input row
+      expect(screen.getAllByLabelText(/Tag Name/i)[0]).toHaveFocus()
     })
   })
 
@@ -164,10 +207,10 @@ describe('DifferentiationTagModalForm', () => {
 
     it('does not render the "+ Add another tag" button when in edit single mode', () => {
       renderComponent({mode: EDIT_MODE, differentiationTagSet: singleTagCategory})
-      expect(screen.queryByText('+ Add another tag')).not.toBeInTheDocument()
+      expect(screen.queryByText('Add another tag')).not.toBeInTheDocument()
     })
 
-    it('renders the "+ Add another tag" button when in edit multi mode', () => {
+    it('renders the "Add another tag" button when in edit multi mode', () => {
       renderComponent({mode: EDIT_MODE, differentiationTagSet: mockTagSet})
       expect(screen.getByText('+ Add another tag')).toBeInTheDocument()
     })
@@ -187,7 +230,7 @@ describe('DifferentiationTagModalForm', () => {
       const multipleTagRadio = screen.getByLabelText('Multiple Tags')
       expect(multipleTagRadio).toBeChecked()
       // Remove one tag.
-      const removeButtons = screen.getAllByRole('button', {name: /remove tag/i, hidden: true})
+      const removeButtons = screen.getAllByRole('button', {name: /remove Variant A/i, hidden: true})
       await user.click(removeButtons[0])
       // The radio button for "Multiple Tags" should remain checked.
       expect(multipleTagRadio).toBeChecked()
@@ -195,7 +238,7 @@ describe('DifferentiationTagModalForm', () => {
       expect(screen.getByTestId('tag-set-name')).toBeInTheDocument()
     })
 
-    it("focuses on the first element on error on edit mode", async () => {
+    it('focuses on the first element on error on edit mode', async () => {
       renderComponent({mode: EDIT_MODE, differentiationTagSet: multipleTagsCategory})
       const tagSetNameInput = screen.getByTestId('tag-set-name')
       await user.clear(tagSetNameInput)
@@ -266,7 +309,7 @@ describe('DifferentiationTagModalForm', () => {
     renderComponent({mode: CREATE_MODE})
 
     // Switch to multi tag mode.
-    const addAnotherTagButton = screen.getByLabelText('+ Add another tag')
+    const addAnotherTagButton = screen.getByLabelText('Add another tag')
     await user.click(addAnotherTagButton)
 
     // Fill the tag input with a valid value to avoid a tag name error.

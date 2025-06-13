@@ -549,7 +549,7 @@ module Api
     end
   end
 
-  def media_comment_json(media_object_or_hash)
+  def media_comment_json(media_object_or_hash, location: nil)
     media_object_or_hash = OpenStruct.new(media_object_or_hash) if media_object_or_hash.is_a?(Hash)
     convert_media_type = Attachment.mime_class(media_object_or_hash.media_type)
     {
@@ -560,12 +560,13 @@ module Api
       "url" => user_media_download_url(user_id: @current_user.id,
                                        entryId: media_object_or_hash.media_id,
                                        type: "mp4",
-                                       redirect: "1")
+                                       redirect: "1",
+                                       location:)
     }
   end
 
   def self.api_bulk_load_user_content_attachments(htmls, context = nil)
-    regex = context ? %r{/#{context.class.name.tableize}/#{context.id}/files/(\d+)} : %r{/files/(\d+)}
+    regex = context ? %r{/#{context.class.name.tableize}/#{context.id}/files/(\d+)} : %r{/(?:files|media_attachments_iframe)/(\d+)}
 
     attachment_ids = []
     htmls.compact.each do |html|
@@ -680,13 +681,6 @@ module Api
   def process_incoming_html_content(html)
     host, port = [request.host, request.port] if respond_to?(:request)
     Html::Content.process_incoming(html, host:, port:)
-  end
-
-  def process_attachment_links(html, context, context_field_name = nil, user = @current_user, session = nil)
-    attachment_ids = Html::Content.collect_attachment_ids(html)
-    return if attachment_ids.blank?
-
-    AttachmentAssociation.update_associations(context, attachment_ids, user, session, context_field_name)
   end
 
   delegate :value_to_boolean, to: :"Canvas::Plugin"

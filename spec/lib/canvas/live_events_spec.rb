@@ -118,6 +118,15 @@ describe Canvas::LiveEvents do
     end
   end
 
+  describe ".account_created" do
+    it "does not trigger for dummy accounts" do
+      a = Account.new
+      allow(a).to receive(:dummy?).and_return(true)
+      expect(Canvas::LiveEvents).not_to receive(:post_event_stringified)
+      Canvas::LiveEventsCallbacks.after_create(a)
+    end
+  end
+
   describe ".conversation_created" do
     it "triggers a conversation live event with conversation details" do
       user1 = user_model
@@ -3326,6 +3335,27 @@ describe Canvas::LiveEvents do
       expect_event("outcomes.retry_outcome_alignment_clone", event_payload).once
 
       Canvas::LiveEvents.outcomes_retry_outcome_alignment_clone(event_payload)
+    end
+  end
+
+  describe ".get_account_data" do
+    before do
+      @root_account = Account.create!
+      @nonroot_account = Account.create!(root_account: @root_account)
+    end
+
+    context "for root accounts" do
+      it "root_account_id is the account's global id" do
+        account_data = Canvas::LiveEvents.get_account_data(@root_account)
+        expect(account_data[:root_account_id]).to eq @root_account.global_id
+      end
+    end
+
+    context "for non-root accounts" do
+      it "root_account_id is root account's global id" do
+        account_data = Canvas::LiveEvents.get_account_data(@nonroot_account)
+        expect(account_data[:root_account_id]).to eq @root_account.global_id
+      end
     end
   end
 

@@ -663,4 +663,91 @@ RSpec.describe Lti::Registration do
       end
     end
   end
+
+  describe "#new_external_tool" do
+    subject { registration.new_external_tool(account) }
+
+    let(:registration) { lti_registration_model(account:) }
+
+    context "with a manual registration" do
+      let_once(:developer_key) { lti_developer_key_model(account:) }
+      let_once(:tool_configuration) { lti_tool_configuration_model(developer_key:, lti_registration: registration) }
+      let_once(:registration) { lti_registration_model(account:, developer_key:) }
+
+      it "returns a new deployment" do
+        expect(subject).to be_a(ContextExternalTool)
+        expect(subject.lti_registration).to eq(registration)
+        expect(subject.account).to eq(account)
+      end
+
+      it "creates a context control" do
+        expect { subject }.to change { Lti::ContextControl.count }.by(1)
+        expect(subject.context_controls).to include(Lti::ContextControl.last)
+        expect(subject.context_controls.first.deployment).to eq(subject)
+      end
+
+      it "sets context control to available" do
+        expect(subject.context_controls.first.available).to be true
+      end
+
+      context "with available: false" do
+        subject { registration.new_external_tool(account, available: false) }
+
+        it "sets context control to unavailable" do
+          expect(subject.context_controls.first.available).to be false
+        end
+
+        context "with an existing tool" do
+          subject { registration.new_external_tool(account, existing_tool:, available: true) }
+
+          let(:existing_tool) { registration.new_external_tool(account, available: false) }
+
+          before do
+            existing_tool # instantiate before test runs
+          end
+
+          it "does not create a new deployment" do
+            expect { subject }.not_to change { ContextExternalTool.count }
+            expect(subject).to eq(existing_tool)
+          end
+
+          it "does not change availability" do
+            subject
+            expect(existing_tool.context_controls.first.available).to be false
+          end
+        end
+      end
+    end
+
+    context "with an ims_registration" do
+      let(:ims_registration) { lti_ims_registration_model(lti_registration: registration) }
+
+      before do
+        ims_registration # instantiate before test runs
+      end
+
+      it "returns a new deployment" do
+        expect(subject).to be_a(ContextExternalTool)
+        expect(subject.lti_registration).to eq(registration)
+      end
+
+      it "creates a context control" do
+        expect { subject }.to change { Lti::ContextControl.count }.by(1)
+        expect(subject.context_controls).to include(Lti::ContextControl.last)
+        expect(subject.context_controls.first.deployment).to eq(subject)
+      end
+
+      it "sets context control to available" do
+        expect(subject.context_controls.first.available).to be true
+      end
+
+      context "with available: false" do
+        subject { registration.new_external_tool(account, available: false) }
+
+        it "sets context control to unavailable" do
+          expect(subject.context_controls.first.available).to be false
+        end
+      end
+    end
+  end
 end

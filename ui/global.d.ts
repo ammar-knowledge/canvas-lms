@@ -57,6 +57,11 @@ declare global {
      */
     INST: GlobalInst
 
+    /**
+     * Remote locations for various pure front-end functionality.
+     */
+    REMOTES: GlobalRemotes
+
     webkitSpeechRecognition: any
     messageStudents: (
       options: ReturnType<typeof MessageStudentsWhoHelper.sendMessageStudentsWho>,
@@ -66,6 +71,7 @@ declare global {
     bundles: string[]
     deferredBundles: string[]
     canvasReadyState?: 'loading' | 'complete'
+    CANVAS_ACTIVE_BRAND_VARIABLES?: Record<string, unknown>
   }
 
   /**

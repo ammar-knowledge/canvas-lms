@@ -242,6 +242,33 @@ describe Submission do
     end
   end
 
+  describe "#body_for_attempt" do
+    before(:once) do
+      @assignment.update!(submission_types: "online_text_entry,online_url")
+      now = Time.zone.now
+      Timecop.freeze(10.minutes.from_now(now)) do
+        @assignment.submit_homework(@student, body: "body1", submission_type: "online_text_entry")
+      end
+
+      Timecop.freeze(20.minutes.from_now(now)) do
+        @assignment.submit_homework(@student, body: "body2", submission_type: "online_text_entry")
+      end
+    end
+
+    let(:submission) { @assignment.submissions.find_by(user: @student) }
+
+    it "returns the correct body given the attempt number" do
+      aggregate_failures do
+        expect(submission.body_for_attempt(1)).to eq "body1"
+        expect(submission.body_for_attempt(2)).to eq "body2"
+      end
+    end
+
+    it "returns nil if given a non-existent attempt number" do
+      expect(submission.body_for_attempt(3)).to be_nil
+    end
+  end
+
   describe ".anonymous_ids_for" do
     subject { Submission.anonymous_ids_for(@first_assignment) }
 
@@ -2065,6 +2092,33 @@ describe Submission do
       submission.update! score: 1, workflow_state: :graded, posted_at: Time.zone.now
       submission.grade_change_audit(force_audit: true)
     end
+
+    context "with flag mastery_path_submission_trigger_reloaded_evaluation" do
+      before(:once) do
+        Account.site_admin.enable_feature!(:mastery_path_submission_trigger_reloaded_evaluation)
+      end
+
+      it "uses persisted values for mastery path evaluation even when attributes change within transaction" do
+        allow(submission.assignment).to receive(:queue_conditional_release_grade_change_handler?).and_return(true)
+        expect(submission).to receive(:queue_conditional_release_grade_change_handler).once
+
+        ActiveRecord::Base.transaction do
+          submission.update!(score: 11, workflow_state: :graded, posted_at: Time.zone.now)
+          submission.posted_at = nil
+        end
+      end
+
+      it "uses persisted values for mastery path evaluation even when attributes are updated with a different instance of the record" do
+        allow(submission.assignment).to receive(:queue_conditional_release_grade_change_handler?).and_return(true)
+        expect(submission).to receive(:queue_conditional_release_grade_change_handler).once
+
+        ActiveRecord::Base.transaction do
+          submission.update!(score: 11, workflow_state: :graded, posted_at: nil)
+          submission2 = Submission.find(submission.id)
+          submission2.update(posted_at: Time.zone.now)
+        end
+      end
+    end
   end
 
   describe "#graded_anonymously" do
@@ -2460,6 +2514,33 @@ describe Submission do
       stream_item_instances.each { |sii| expect(sii).not_to be_hidden }
     end
 
+    context "stream item comments" do
+      before :once do
+        course_with_student(active_all: true)
+        @a1 = assignment_model(course: @course, group_category: "Study Groups", due_at: Time.zone.now - 1000, submission_types: ["online_text_entry"], suppress_assignment: true)
+      end
+
+      it "does not show stream item comments when suppress_assignment is true" do
+        @a1.suppress_assignment = true
+        @a1.save!
+        @submission = @a1.submit_homework(@student, body: "some message")
+        @submission.add_comment(author: @teacher, comment: "a")
+        stream_item_ids       = StreamItem.where(asset_type: "Submission", asset_id: @a1.submissions.all).pluck(:id)
+        stream_item_instances = StreamItemInstance.where(stream_item_id: stream_item_ids)
+        expect(stream_item_instances).to all be_hidden
+      end
+
+      it "shows stream item comments when suppress_assignment is false" do
+        @a1.suppress_assignment = false
+        @a1.save!
+        @submission = @a1.submit_homework(@student, body: "some message")
+        @submission.add_comment(author: @teacher, comment: "a")
+        stream_item_ids       = StreamItem.where(asset_type: "Submission", asset_id: @a1.submissions.all).pluck(:id)
+        stream_item_instances = StreamItemInstance.where(stream_item_id: stream_item_ids)
+        stream_item_instances.each { |sii| expect(sii).not_to be_hidden }
+      end
+    end
+
     context "Submission Grade Changed" do
       before :once do
         Auditors::ActiveRecord::Partitioner.process
@@ -2845,19 +2926,110 @@ describe Submission do
     before(:once) do
       @course = Course.create!
       @student = @course.enroll_user(User.create!, "StudentEnrollment", enrollment_state: "active").user
-      assignment = @course.assignments.create!(anonymous_grading: true)
-      @submission = assignment.submissions.find_by(user: @student)
+      @teacher = @course.enroll_teacher(User.create!, enrollment_state: "active").user
+      @assignment = @course.assignments.create!
+      @submission = @assignment.submissions.find_by(user: @student)
     end
 
-    context "anonymous assignments" do
+    context "with anonymous grading" do
+      before(:once) do
+        @assignment.update!(anonymous_grading: true)
+      end
+
       it "returns true when the user is the submission's owner" do
         expect(@submission.can_read_submission_user_name?(@student, nil)).to be true
       end
 
       it "returns false when the user is not the submission's owner" do
-        teacher = User.create!
-        @course.enroll_teacher(teacher, enrollment_state: :active)
         expect(@submission.can_read_submission_user_name?(@teacher, nil)).to be false
+      end
+    end
+
+    context "anonymous peer reviews" do
+      before(:once) do
+        @assignment.update!(anonymous_peer_reviews: true)
+        @reviewer = @course.enroll_user(User.create!, "StudentEnrollment", enrollment_state: "active").user
+      end
+
+      it "returns true when the user is the submission's owner" do
+        expect(@submission.can_read_submission_user_name?(@student, nil)).to be true
+      end
+
+      it "returns false for peer reviewers" do
+        expect(@submission.can_read_submission_user_name?(@reviewer, nil)).to be false
+      end
+
+      it "returns true for users with view_all_grades permission" do
+        admin = account_admin_user(account: @course.root_account)
+        expect(@submission.can_read_submission_user_name?(admin, nil)).to be true
+      end
+    end
+
+    context "with both anonymous grading and anonymous peer reviews enabled" do
+      before(:once) do
+        @assignment.update!(anonymous_grading: true, anonymous_peer_reviews: true)
+        @reviewer = @course.enroll_user(User.create!, "StudentEnrollment", enrollment_state: "active").user
+      end
+
+      it "returns true when the user is the submission's owner" do
+        expect(@submission.can_read_submission_user_name?(@student, nil)).to be true
+      end
+
+      it "returns false for teachers" do
+        expect(@submission.can_read_submission_user_name?(@teacher, nil)).to be false
+      end
+
+      it "returns false for peer reviewers" do
+        expect(@submission.can_read_submission_user_name?(@reviewer, nil)).to be false
+      end
+    end
+
+    context "with session context" do
+      before(:once) do
+        @assignment.update!(anonymous_peer_reviews: true)
+        @ta = @course.enroll_ta(User.create!, enrollment_state: "active").user
+        @admin = account_admin_user(account: @course.root_account)
+      end
+
+      it "uses session context for permissions" do
+        mock_session = { become_user_id: @admin.id }
+        # Even as a TA, when in "become_user" mode as admin, you get admin permissions
+        expect(@submission.can_read_submission_user_name?(@ta, mock_session)).to be true
+      end
+    end
+
+    context "with different permission levels" do
+      before(:once) do
+        @assignment.update!(anonymous_peer_reviews: true)
+        @ta_with_permissions = @course.enroll_ta(User.create!, enrollment_state: "active").user
+        role = custom_account_role("Limited TA", account: @course.account)
+        @ta_without_permissions = @course.enroll_user(
+          User.create!,
+          "TaEnrollment",
+          enrollment_state: "active",
+          role:
+        ).user
+        # Remove view_all_grades permission from the limited TA role
+        @course.account.role_overrides.create!(
+          permission: "view_all_grades",
+          enabled: false,
+          role:
+        )
+      end
+
+      it "allows TAs with view_all_grades permission to see names" do
+        expect(@submission.can_read_submission_user_name?(@ta_with_permissions, nil)).to be true
+      end
+
+      it "prevents TAs without view_all_grades permission from seeing names" do
+        expect(@submission.can_read_submission_user_name?(@ta_without_permissions, nil)).to be false
+      end
+    end
+
+    context "non-anonymous assignments" do
+      it "returns true for any user" do
+        student2 = @course.enroll_user(User.create!, "StudentEnrollment", enrollment_state: "active").user
+        expect(@submission.can_read_submission_user_name?(student2, nil)).to be true
       end
     end
   end

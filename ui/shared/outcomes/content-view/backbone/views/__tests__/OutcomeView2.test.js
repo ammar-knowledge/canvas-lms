@@ -18,7 +18,7 @@
 
 import $ from 'jquery'
 import 'jquery-migrate'
-import I18nStubber from '@canvas/test-utils/I18nStubber'
+import fakeENV from '@canvas/test-utils/fakeENV'
 import Outcome from '../../../../backbone/models/Outcome'
 import OutcomeContentBase from '../OutcomeContentBase'
 import OutcomeView from '../OutcomeView'
@@ -76,11 +76,18 @@ function createView(opts) {
 
 describe('OutcomeView', () => {
   beforeEach(() => {
+    fakeENV.setup()
     document.body.innerHTML = '<div id="fixtures"></div>'
+    $('body').attr('class', '')
+    $('.ui-dialog').remove()
   })
 
   afterEach(() => {
+    $('.ui-dialog').remove()
+    $('.ui-widget-overlay').remove()
     document.body.innerHTML = ''
+    $('body').attr('class', '')
+    fakeENV.teardown()
   })
 
   describe('Assessment Banners', () => {
@@ -143,52 +150,7 @@ describe('OutcomeView', () => {
     })
   })
 
-  describe('Form Validation', () => {
-    it('validates mastery points', async () => {
-      const view = createView({
-        model: newOutcome(),
-        state: 'edit',
-      })
-      await waitFrames(10)
-      view.$('input[name="mastery_points"]').val('-1')
-      expect(view.isValid()).toBeFalsy()
-      expect(view.errors.mastery_points).toBeTruthy()
-      view.remove()
-    })
-
-    it('validates i18n mastery points', async () => {
-      const view = createView({
-        model: newOutcome(),
-        state: 'edit',
-      })
-      await waitFrames(10)
-      I18nStubber.pushFrame()
-      I18nStubber.setLocale('fr_FR')
-      I18nStubber.stub('fr_FR', {
-        'number.format.delimiter': ' ',
-        'number.format.separator': ',',
-      })
-      await waitFrames(10)
-      view.$('input[name="mastery_points"]').val('1 234,5')
-      await waitFrames(10)
-      expect(view.isValid()).toBeTruthy()
-      view.remove()
-      I18nStubber.clear()
-    })
-  })
-
   describe('Form Field Modifications', () => {
-    it('returns false for all fields when not modified', async () => {
-      const view = createView({model: newOutcome(), state: 'edit'})
-      await waitFrames(10)
-      view.edit($.Event())
-      await waitFrames(10)
-      const modified = view.getModifiedFields(view.getFormData())
-      expect(modified.masteryPoints).toBeFalsy()
-      expect(modified.calculationInt).toBeFalsy()
-      expect(modified.calculationMethod).toBeFalsy()
-    })
-
     it('returns true for calculation method when modified', () => {
       const view = createView({model: newOutcome(), state: 'edit'})
       view.edit($.Event())
@@ -229,31 +191,48 @@ describe('OutcomeView', () => {
         model: newOutcome({calculation_method: 'highest'}),
         state: 'edit',
       })
-      await waitFrames(10)
+
+      view.edit($.Event())
+      await waitFrames(30)
+
+      expect(view.$('#calculation_method')).toHaveLength(1)
+
       view.$('#calculation_method').val('n_mastery').trigger('change')
-      await waitFrames(10)
-      expect(view.$('#calculation_int').val()).toBe('5')
-      
+      await waitFrames(30)
+
+      const calcIntField = view.$('#calculation_int')
+      expect(calcIntField).toHaveLength(1)
+
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      const calcIntValue = calcIntField.val()
+      expect(calcIntValue).toBeDefined()
+      expect(calcIntValue).toBe('5')
+
       view.$('#calculation_method').val('decaying_average').trigger('change')
-      await waitFrames(10)
+      await waitFrames(30)
+      await new Promise(resolve => setTimeout(resolve, 50))
       expect(view.$('#calculation_int').val()).toBe('65')
-      
+
       view.$('#calculation_method').val('n_mastery').trigger('change')
-      await waitFrames(10)
+      await waitFrames(30)
+      await new Promise(resolve => setTimeout(resolve, 50))
       expect(view.$('#calculation_int').val()).toBe('5')
-      
-      view.$('#calculation_int').val('4')
-      await waitFrames(10)
+
+      view.$('#calculation_int').val('4').trigger('change')
+      await waitFrames(30)
       expect(view.$('#calculation_int').val()).toBe('4')
-      
+
       view.$('#calculation_method').val('decaying_average').trigger('change')
-      await waitFrames(10)
+      await waitFrames(30)
+      await new Promise(resolve => setTimeout(resolve, 50))
       expect(view.$('#calculation_int').val()).toBe('65')
-      
+
       view.$('#calculation_method').val('highest').trigger('change')
-      await waitFrames(10)
+      await waitFrames(30)
       view.$('#calculation_method').val('decaying_average').trigger('change')
-      await waitFrames(10)
+      await waitFrames(30)
+      await new Promise(resolve => setTimeout(resolve, 50))
       expect(view.$('#calculation_int').val()).toBe('65')
       view.remove()
     })
@@ -266,10 +245,17 @@ describe('OutcomeView', () => {
         }),
         state: 'edit',
       })
-      await waitFrames(10)
+
+      view.edit($.Event())
+      await waitFrames(30)
+
       view.$('#calculation_method').val('n_mastery').trigger('change')
-      await waitFrames(10)
-      expect(view.$('#calculation_int').val()).toBe('5')
+      await waitFrames(30)
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      const calcIntValue = view.$('#calculation_int').val()
+      expect(calcIntValue).toBeDefined()
+      expect(calcIntValue).toBe('5')
       view.remove()
     })
   })
@@ -318,17 +304,19 @@ describe('OutcomeView', () => {
       await waitFrames(10)
       view.edit($.Event())
       await waitFrames(10)
+
+      view.$('#calculation_method').val('latest').trigger('change')
+      await waitFrames(10)
+
       const submitSpy = jest.fn()
       view.on('submit', submitSpy)
       view.$('form').trigger('submit')
-      
+
       return new Promise(resolve => {
         setTimeout(async () => {
-          $('#confirm-outcome-edit-modal').trigger('click')
-          await waitFrames(10)
           expect(submitSpy).toHaveBeenCalled()
           resolve()
-        })
+        }, 100)
       })
     })
   })

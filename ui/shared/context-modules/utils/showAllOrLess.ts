@@ -16,54 +16,49 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {DEFAULT_PAGE_SIZE} from './ModuleItemsLazyLoader'
-import {type ModuleId} from './ModuleItemLoadingData'
+import {DEFAULT_PAGE_SIZE, type ModuleId} from './types'
 import {useScope as createI18nScope} from '@canvas/i18n'
 
 const I18n = createI18nScope('context_modulespublic')
 
 type AllOrLess = 'all' | 'less' | 'none' | 'loading'
 
-declare const ENV: {
-  IS_STUDENT?: boolean
-  MODULE_FEATURES?: {
-    TEACHER_MODULE_SELECTION: boolean
-    STUDENT_MODULE_SELECTION?: boolean
-  }
+const MODULE_EXPAND_AND_LOAD_ALL = 'module-expand-and-load-all'
+const MODULE_LOAD_ALL = 'module-load-all'
+const MODULE_LOAD_FIRST_PAGE = 'module-load-first-page'
+
+function moduleFromId(moduleId: string | number): HTMLElement {
+  return document.querySelector(`#context_module_${moduleId}`) as HTMLElement
+}
+
+function hasAllItemsInTheDOM(module: HTMLElement) {
+  return !(ENV.FEATURE_MODULES_PERF && (isModuleCollapsed(module) || isModulePaginated(module)))
 }
 
 function isModuleLoading(module: HTMLElement) {
-  return !!module.querySelector('.module-spinner-container')
+  return module.dataset.loadstate === 'loading'
 }
 
+function isModuleCurrentPageEmpty(module: HTMLElement) {
+  return module.querySelectorAll('.context_module_item').length === 0
+}
 function isModulePaginated(module: HTMLElement) {
-  return !!module.querySelector(`[data-testid="module-${module.dataset.moduleId}-pagination"]`)
+  return module.dataset.loadstate === 'paginated'
 }
 
 function isModuleCollapsed(module: HTMLElement) {
   return module.classList.contains('collapsed_module')
 }
 
-function isModuleSelectedByTEACHER_MODULE_SELECTION(module: HTMLElement) {
-  if (ENV.IS_STUDENT) return false
-  if (!ENV.MODULE_FEATURES?.TEACHER_MODULE_SELECTION) return false
-
-  const moduleId = (document.getElementById('show_teacher_only_module_id') as HTMLSelectElement)
-    ?.value
-  if (moduleId && moduleId === module.dataset.moduleId) {
-    return true
-  }
-  return false
-}
-
 function itemCount(module: HTMLElement): number {
   return module.querySelectorAll('.context_module_item').length
 }
 
+function getModuleContentElement(module: HTMLElement): HTMLElement {
+  return module.querySelector('.content ul') as HTMLElement
+}
+
 function shouldShowAllOrLess(module: HTMLElement): AllOrLess {
-  if (isModuleSelectedByTEACHER_MODULE_SELECTION(module)) {
-    return 'none'
-  }
   if (isModuleCollapsed(module)) {
     return 'none'
   } else {
@@ -83,10 +78,11 @@ function shouldShowAllOrLess(module: HTMLElement): AllOrLess {
 function addOrRemoveButton(module: HTMLElement) {
   const shouldShow = shouldShowAllOrLess(module)
 
-  let button = module.querySelector('.show-all-or-less-button.ui-button') as HTMLElement
-  const totalItems = (module.querySelector('.content ul') as HTMLElement)?.dataset?.totalItems || ''
+  let button = module.querySelector('.show-all-or-less-button.ui-button') as HTMLButtonElement
+  const moduleContentElement = getModuleContentElement(module)
+  const totalItems = moduleContentElement?.dataset?.totalItems || ''
 
-  if (shouldShow === 'none') {
+  if (shouldShow === 'none' || shouldShow === 'loading') {
     if (button) {
       button.removeEventListener('click', handleShowAllOrLessClick)
       button.removeEventListener('keydown', buttonKeyDown)
@@ -98,6 +94,7 @@ function addOrRemoveButton(module: HTMLElement) {
   if (!button) {
     button = document.createElement('button')
     button.className = 'show-all-or-less-button ui-button'
+    button.setAttribute('aria-live', 'polite')
     button.dataset.moduleId = module.dataset.moduleId
     button.addEventListener('click', handleShowAllOrLessClick)
     button.addEventListener('keydown', buttonKeyDown)
@@ -105,51 +102,50 @@ function addOrRemoveButton(module: HTMLElement) {
     reqMsg?.after(button)
   }
 
+  button.dataset.isLoading = 'false'
+  button.removeAttribute('disabled')
+
   if (shouldShow === 'all') {
     button.classList.add('show-all')
     button.classList.remove('show-less')
-    if (totalItems) {
-      button.textContent = I18n.t('Show All (%{totalItems})', {totalItems: totalItems})
-    } else {
-      button.textContent = I18n.t('Show All')
-    }
+    const showAllText = totalItems
+      ? I18n.t('Show All (%{totalItems})', {totalItems: totalItems})
+      : I18n.t('Show All')
+    button.textContent = showAllText
+    button.setAttribute('aria-label', showAllText)
   } else {
     button.classList.add('show-less')
     button.classList.remove('show-all')
     button.textContent = I18n.t('Show Less')
+    button.setAttribute('aria-label', I18n.t('Show Less'))
   }
-}
-
-function maybeShowAllOrLess(moduleId: ModuleId) {
-  const module = document.querySelector(`#context_module_${moduleId}`) as HTMLElement
-  const shouldShow = shouldShowAllOrLess(module)
-  if (shouldShow === 'loading') {
+  if (button.dataset.refocus === 'true') {
     requestAnimationFrame(() => {
-      maybeShowAllOrLess(moduleId)
+      button.focus()
+      delete button.dataset.refocus
     })
-    return
   }
-  addOrRemoveButton(module)
 }
 
 function addShowAllOrLess(moduleId: ModuleId) {
-  const module = document.querySelector(`#context_module_${moduleId}`) as HTMLElement
-
+  const module = moduleFromId(moduleId)
   if (!module) return
-
-  maybeShowAllOrLess(moduleId)
+  addOrRemoveButton(module)
 }
 
 function handleShowAllOrLessClick(event: Event) {
-  const moduleId: string | null = (event.target as HTMLElement).getAttribute('data-module-id')
+  const button = event.target as HTMLButtonElement
+  const moduleId = button.getAttribute('data-module-id')
   if (!moduleId) return
 
-  const module = document.querySelector(`#context_module_${moduleId}`) as HTMLElement
+  const module = moduleFromId(moduleId)
   if (!module) return
 
-  const button = module.querySelector('.show-all-or-less-button') as HTMLElement
-  if (!button) return
+  if (button.dataset.isLoading === 'true') return
+  button.dataset.isLoading = 'true'
+  button.setAttribute('disabled', 'true')
 
+  button.dataset.refocus = 'true'
   if (button.classList.contains('show-all')) {
     if (isModuleCollapsed(module)) {
       expandModuleAndLoadAll(moduleId)
@@ -161,18 +157,31 @@ function handleShowAllOrLessClick(event: Event) {
   }
 }
 
+function maybeExpandAndLoadAll(moduleId: ModuleId, forceLoadAll = false) {
+  const module = moduleFromId(moduleId)
+  if (!module) return
+
+  if (isModuleCollapsed(module)) {
+    expandModuleAndLoadAll(moduleId)
+  } else if (isModulePaginated(module) || itemCount(module) === 0 || forceLoadAll) {
+    loadAll(moduleId)
+  }
+}
+
 function expandModuleAndLoadAll(moduleId: ModuleId) {
-  const event = new CustomEvent('module-expand-and-load-all', {detail: {moduleId, allPages: true}})
+  const event = new CustomEvent(MODULE_EXPAND_AND_LOAD_ALL, {
+    detail: {moduleId, allPages: true},
+  })
   document.dispatchEvent(event)
 }
 
 function loadAll(moduleId: ModuleId) {
-  const event = new CustomEvent('module-load-all', {detail: {moduleId}})
+  const event = new CustomEvent(MODULE_LOAD_ALL, {detail: {moduleId}})
   document.dispatchEvent(event)
 }
 
 function loadFirstPage(moduleId: ModuleId) {
-  const event = new CustomEvent('module-load-first-page', {detail: {moduleId}})
+  const event = new CustomEvent(MODULE_LOAD_FIRST_PAGE, {detail: {moduleId}})
   document.dispatchEvent(event)
 }
 
@@ -182,13 +191,47 @@ function buttonKeyDown(event: KeyboardEvent) {
   }
 }
 
+function decrementModuleItemsCount(moduleId: ModuleId) {
+  const module = moduleFromId(moduleId)
+  if (!module) {
+    return
+  }
+
+  const moduleContentElement = getModuleContentElement(module)
+  if (!moduleContentElement) {
+    return
+  }
+
+  const totalItems = moduleContentElement.dataset.totalItems
+  if (!totalItems) {
+    return
+  }
+  const totalItemsCount = parseInt(totalItems, 10)
+  if (Number.isNaN(totalItemsCount) || totalItemsCount <= 0) {
+    return
+  }
+
+  moduleContentElement.dataset.totalItems = (totalItemsCount - 1).toString()
+  addOrRemoveButton(module)
+}
+
 export {
+  moduleFromId,
   addShowAllOrLess,
   shouldShowAllOrLess,
   itemCount,
+  hasAllItemsInTheDOM,
+  isModuleCurrentPageEmpty,
   isModuleCollapsed,
   isModulePaginated,
   isModuleLoading,
-  isModuleSelectedByTEACHER_MODULE_SELECTION,
+  expandModuleAndLoadAll,
+  loadAll,
+  loadFirstPage,
+  maybeExpandAndLoadAll,
+  decrementModuleItemsCount,
+  MODULE_EXPAND_AND_LOAD_ALL,
+  MODULE_LOAD_ALL,
+  MODULE_LOAD_FIRST_PAGE,
   type AllOrLess,
 }

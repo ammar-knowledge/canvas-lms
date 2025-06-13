@@ -114,7 +114,7 @@ class CommunicationChannel < ActiveRecord::Base
   end
 
   def pseudonym
-    user.pseudonyms.where(unique_id: path).first if user
+    user.pseudonyms.by_unique_id(path).first if user
   end
 
   def broadcast_data
@@ -305,7 +305,7 @@ class CommunicationChannel < ActiveRecord::Base
     m.notification = Notification.new(name: "dsr_request", category: "Registration")
     m.data = { download_url:, request_time: }
     m.parse!("email")
-    m.subject = I18n.t("Canvas DSR Code")
+    m.subject = I18n.t("Canvas DSR Report")
     Mailer.deliver(Mailer.create_message(m))
   end
 

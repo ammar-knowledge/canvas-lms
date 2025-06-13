@@ -28,10 +28,6 @@ import './ContentShareUserSearchSelector.css'
 
 const I18n = createI18nScope('user_search_selector')
 
-ContentShareUserSearchSelector.defaultProps = {
-  selectedUsers: [],
-}
-
 const MINIMUM_SEARCH_LENGTH = 3
 
 const isSearchableTerm = (term: string) => term.length >= MINIMUM_SEARCH_LENGTH
@@ -54,7 +50,7 @@ type Props = {
 export default function ContentShareUserSearchSelector({
   courseId,
   onUserSelected,
-  selectedUsers,
+  selectedUsers = [],
   selectedUsersError = false,
   userSelectInputRef,
   ...restOfSelectProps
@@ -115,7 +111,7 @@ export default function ContentShareUserSearchSelector({
     messages: requredErrorMessages,
     id: 'content-share-user-search',
     isRequired: shouldValidateCallToAction,
-    inputRef: userSelectInputRef
+    inputRef: userSelectInputRef,
   }
 
   let userOptions: any = []
@@ -131,10 +127,7 @@ export default function ContentShareUserSearchSelector({
   }
 
   return (
-    <CanvasAsyncSelect
-      {...restOfSelectProps}
-      {...selectProps}
-    >
+    <CanvasAsyncSelect {...restOfSelectProps} {...selectProps} data-testid="user-search-selector">
       {userOptions}
     </CanvasAsyncSelect>
   )

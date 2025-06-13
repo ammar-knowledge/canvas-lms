@@ -22,7 +22,6 @@ import {Button} from '@instructure/ui-buttons'
 import {View} from '@instructure/ui-view'
 import {TextInput} from '@instructure/ui-text-input'
 import Modal from './InstuiModal'
-import {Heading} from '@instructure/ui-heading'
 import {Text} from '@instructure/ui-text'
 import {FormMessage} from '@instructure/ui-form-field'
 
@@ -118,7 +117,7 @@ const PromptConfirmationModal = ({
           value={inputValue}
           required={true}
           placeholder={placeholder}
-          onChange={e => setInputValue(e.target.value)}
+          onChange={(_, value) => setInputValue(value)}
           data-testid="confirm-prompt-input"
           messages={messages}
           inputRef={ref => {
@@ -131,7 +130,7 @@ const PromptConfirmationModal = ({
 
       <Modal.Footer>
         <View as="div" margin="small 0 0 0">
-          <Button margin="x-small" onClick={onCancel}>
+          <Button margin="x-small" onClick={onCancel} data-testid="confirm-prompt-cancel-button">
             {cancelButtonLabel || I18n.t('Cancel')}
           </Button>
           <Button
@@ -148,7 +147,7 @@ const PromptConfirmationModal = ({
   )
 }
 
-const messageHolderId = 'canvas_confirm_modal_holder'
+const messageHolderId = 'canvas_confirm_with_prompt_modal_holder'
 
 function getConfirmContainer() {
   let confirmContainer = document.getElementById(messageHolderId)

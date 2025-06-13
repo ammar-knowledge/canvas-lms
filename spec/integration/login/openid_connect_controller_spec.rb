@@ -78,6 +78,68 @@ describe Login::OpenidConnectController do
       login_hint = Rack::Utils.parse_nested_query(uri.query)["login_hint"]
       expect(login_hint).to eql "cody"
     end
+
+    it "can be POSTed to" do
+      post login_openid_connect_url, params: { login_hint: "cody" }
+      expect(response).to be_redirect
+      uri = URI.parse(response.location)
+      login_hint = Rack::Utils.parse_nested_query(uri.query)["login_hint"]
+      expect(login_hint).to eql "cody"
+    end
+
+    it "accepts target_link_uri" do
+      get login_openid_connect_url, params: { target_link_uri: "/courses" }
+      expect(response).to be_redirect
+      expect(session[:return_to]).to eql "/courses"
+    end
+
+    it "ignores untrusted target_link_uris" do
+      get login_openid_connect_url, params: { target_link_uri: "http://google.com" }
+      expect(response).to be_redirect
+      expect(session[:return_to]).to be_nil
+    end
+
+    it "can lookup the auth provider by iss" do
+      ap = AuthenticationProvider::OpenIDConnect.new(jit_provisioning: true,
+                                                     account: Account.default,
+                                                     authorize_url: "http://secondprovider/oidc",
+                                                     issuer: "https://secondprovider",
+                                                     client_id: "audience",
+                                                     client_secret: "secret",
+                                                     jwks_uri: "http://somewhere/jwks",
+                                                     jwks: [jwk].to_json)
+      allow(ap).to receive(:download_jwks)
+      ap.save!
+      get login_openid_connect_url, params: { iss: "https://secondprovider" }
+      expect(response).to be_redirect
+      uri = URI.parse(response.location)
+      expect(uri.host).to eql "secondprovider"
+    end
+
+    it "forwards force_login param" do
+      get login_openid_connect_url, params: { force_login: "1" }
+      expect(response).to be_redirect
+      uri = URI.parse(response.location)
+      prompt = Rack::Utils.parse_nested_query(uri.query)["prompt"]
+      expect(prompt).to eql "login"
+    end
+
+    it "sets prompt if just_logged_out is set" do
+      allow_any_instance_of(Login::OpenidConnectController).to receive(:session).and_return({ just_logged_out: Time.now.utc })
+      get login_openid_connect_url
+      expect(response).to be_redirect
+      uri = URI.parse(response.location)
+      prompt = Rack::Utils.parse_nested_query(uri.query)["prompt"]
+      expect(prompt).to eql "login"
+    end
+
+    it "does not set prompt otherwise" do
+      get login_openid_connect_url
+      expect(response).to be_redirect
+      uri = URI.parse(response.location)
+      query = Rack::Utils.parse_nested_query(uri.query)
+      expect(query).not_to have_key("prompt")
+    end
   end
 
   describe "#create" do

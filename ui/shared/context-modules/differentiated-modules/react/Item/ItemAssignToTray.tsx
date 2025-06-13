@@ -43,7 +43,7 @@ import getLiveRegion from '@canvas/instui-bindings/react/liveRegion'
 import {lockLabels} from '@canvas/blueprint-courses/react/labels'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import doFetchApi from '@canvas/do-fetch-api-effect'
-import type {DateDetails, DateLockTypes, ItemAssignToCardSpec} from './types'
+import type {DateDetails, DateLockTypes, exportedOverride, ItemAssignToCardSpec} from './types'
 import {
   type ItemAssignToCardCustomValidationArgs,
   type ItemAssignToCardRef,
@@ -59,6 +59,10 @@ import useFetchAssignees from '../../utils/hooks/useFetchAssignees'
 import {calculateMasqueradeHeight} from '../../utils/miscHelpers'
 import MasteryPathToggle from '@canvas/mastery-path-toggle/react/MasteryPathToggle'
 import {FormField} from '@instructure/ui-form-field'
+import {
+  CONVERT_DIFF_TAGS_MESSAGE,
+  CONVERT_DIFF_TAGS_BUTTON,
+} from '@canvas/differentiation-tags/react/DifferentiationTagConverterMessage/DifferentiationTagConverterMessage'
 
 const I18n = createI18nScope('differentiated_modules')
 
@@ -174,6 +178,7 @@ export interface ItemAssignToTrayProps {
   onInitialStateSet?: (cards: ItemAssignToCardSpec[]) => void
   postToSIS?: boolean
   isTray?: boolean
+  setStagedOverrides?: (overrides: exportedOverride[] | null) => void
 }
 
 export default function ItemAssignToTray({
@@ -206,6 +211,7 @@ export default function ItemAssignToTray({
   onInitialStateSet,
   postToSIS = false,
   isTray = true,
+  setStagedOverrides,
 }: ItemAssignToTrayProps) {
   const isPacedCourse = ENV.IN_PACED_COURSE
   const isMasteryPathCourse =
@@ -224,6 +230,7 @@ export default function ItemAssignToTray({
   }
 
   const [hasModuleOverrides, setHasModuleOverrides] = useState(false)
+  const [hasDifferentiationTagOverrides, setHasDifferentiationTagOverrides] = useState(false)
   const [moduleAssignees, setModuleAssignees] = useState<string[]>([])
   const [groupCategoryId, setGroupCategoryId] = useState<string | null>(defaultGroupCategoryId)
   const [overridesFetched, setOverridesFetched] = useState(
@@ -248,6 +255,10 @@ export default function ItemAssignToTray({
     onInitialStateSet?.(state)
     setInitialCardsState(state)
   }
+
+  const mustConvertTags = useCallback(() => {
+    return !ENV.ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS && hasDifferentiationTagOverrides
+  }, [hasDifferentiationTagOverrides])
 
   useEffect(() => {
     // When tray closes and the initial load already happened,
@@ -322,6 +333,13 @@ export default function ItemAssignToTray({
   })
 
   const focusErrors = useCallback(() => {
+    if (mustConvertTags()) {
+      const button = document.getElementById(CONVERT_DIFF_TAGS_BUTTON)
+      button?.setAttribute('aria-describedby', CONVERT_DIFF_TAGS_MESSAGE)
+      button?.focus()
+      return true
+    }
+
     const hasErrors = assignToCards.some(card => !card.isValid)
     // If a card has errors it should not save and the respective card should be focused
     if (hasErrors) {
@@ -392,8 +410,12 @@ export default function ItemAssignToTray({
   ])
 
   const allCardsValid = useCallback(() => {
-    return assignToCardsRef.current.every(card => card.isValid)
-  }, [assignToCardsRef])
+    if (mustConvertTags()) {
+      return false
+    } else {
+      return assignToCardsRef.current.every(card => card.isValid)
+    }
+  }, [assignToCardsRef, hasDifferentiationTagOverrides])
 
   const handleEntered = useCallback(() => {
     // When tray entered and the initial load already happened,
@@ -409,6 +431,7 @@ export default function ItemAssignToTray({
       sectionViewRef.current.ref.reactComponentInstance = {
         focusErrors,
         allCardsValid,
+        mustConvertTags,
         // Runs custom card validations with current data and returns true if all cards are valid
         allCardsValidCustom: (params: ItemAssignToCardCustomValidationArgs) =>
           !Object.values(cardsRefs.current).some(
@@ -556,6 +579,8 @@ export default function ItemAssignToTray({
               handleDismiss={handleDismiss}
               hasModuleOverrides={hasModuleOverrides}
               setHasModuleOverrides={setHasModuleOverrides}
+              hasDifferentiationTagOverrides={hasDifferentiationTagOverrides}
+              setHasDifferentiationTagOverrides={setHasDifferentiationTagOverrides}
               cardsRefs={cardsRefs}
               setModuleAssignees={setModuleAssignees}
               defaultGroupCategoryId={defaultGroupCategoryId}
@@ -622,6 +647,8 @@ export default function ItemAssignToTray({
           handleDismiss={handleDismiss}
           hasModuleOverrides={hasModuleOverrides}
           setHasModuleOverrides={setHasModuleOverrides}
+          hasDifferentiationTagOverrides={hasDifferentiationTagOverrides}
+          setHasDifferentiationTagOverrides={setHasDifferentiationTagOverrides}
           cardsRefs={cardsRefs}
           setModuleAssignees={setModuleAssignees}
           defaultGroupCategoryId={defaultGroupCategoryId}
@@ -637,6 +664,7 @@ export default function ItemAssignToTray({
           assignToCardsRef={assignToCardsRef}
           disabledOptionIdsRef={disabledOptionIdsRef}
           isTray={isTray}
+          setStagedOverrides={setStagedOverrides}
         />
       )}
     </View>

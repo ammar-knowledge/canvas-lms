@@ -50,6 +50,13 @@ module Types
       Assignment::ALLOWED_GRADING_TYPES.each { |type| value(type) }
     end
 
+    class GradingRole < Types::BaseEnum
+      description "The grading role of the current user for this assignment"
+      value "moderator", "User is a moderator for the assignment"
+      value "provisional_grader", "User is a provisional grader for the assignment"
+      value "grader", "User is a standard grader for the assignment"
+    end
+
     class AssignmentPeerReviews < ApplicationObjectType
       graphql_name "PeerReviews"
       description "Settings for Peer Reviews on an Assignment"
@@ -196,6 +203,27 @@ module Types
       assignment.restrict_quantitative_data?(current_user, check_extra_permissions)
     end
 
+    field :provisional_grading_locked, Boolean, "Indicates if the user is locked out of provisional grading for this assignment.", null: false
+    def provisional_grading_locked
+      return false unless assignment.moderated_grader_limit_reached?
+      return false unless assignment.context.grants_any_right?(current_user, :manage_grades, :view_all_grades)
+      return false if assignment.grades_published?
+      return false if assignment.permits_moderation?(current_user)
+      return false if assignment.provisional_moderation_graders.where(user: current_user).exists?
+
+      true
+    end
+
+    field :grading_role, GradingRole, "The grading role of the current user for this assignment. Returns null if the user does not have sufficient grading permissions.", null: true
+    def grading_role
+      unless assignment.context.grants_any_right?(current_user, :manage_grades, :view_all_grades)
+        return nil
+      end
+
+      role = assignment.grading_role(current_user)
+      role&.to_s
+    end
+
     def self.overridden_field(field_name, description)
       field field_name, DateTimeType, description, null: true do
         argument :apply_overrides, Boolean, <<~MD, required: false, default_value: true
@@ -222,6 +250,12 @@ module Types
     overridden_field :unlock_at, "the unlock date (assignment is unlocked after this date)"
 
     field :lock_info, LockInfoType, null: true
+
+    # needed for instructure.atlassian.net/browse/PFS-23713
+    field :suppress_assignment,
+          Boolean,
+          "internal use",
+          null: false
 
     field :post_to_sis,
           Boolean,
@@ -288,6 +322,19 @@ module Types
 
     field :can_unpublish, Boolean, method: :can_unpublish?, null: true
     field :due_date_required, Boolean, method: :due_date_required?, null: true
+
+    field :has_rubric, Boolean, null: false
+    def has_rubric
+      Loaders::AssignmentLoaders::HasRubricLoader.load(object.id)
+    end
+    field :muted, Boolean, null: true
+
+    field :assignment_visibility, [ID], null: true
+    def assignment_visibility
+      return unless object.course.grants_any_right?(current_user, :read_as_admin, :manage_grades, *RoleOverride::GRANULAR_MANAGE_ASSIGNMENT_PERMISSIONS)
+
+      Loaders::AssignmentVisibilityLoader.load(object.id)
+    end
 
     field :originality_report_visibility, String, null: true
     def originality_report_visibility
@@ -464,7 +511,7 @@ module Types
 
     field :post_manually, Boolean, null: true
     def post_manually
-      assignment.post_manually?
+      Loaders::AssignmentLoaders::PostManuallyLoader.load(object.id)
     end
 
     field :published, Boolean, null: true
@@ -544,7 +591,9 @@ module Types
       SubmissionSearch.new(assignment, current_user, session, filter).search
     end
 
-    field :my_sub_assignment_submissions_connection, SubmissionType.connection_type, null: true
+    field :my_sub_assignment_submissions_connection, SubmissionType.connection_type, null: true do
+      description "submissions for sub-assignments belonging to the current user"
+    end
     def my_sub_assignment_submissions_connection
       return nil if current_user.nil?
 
@@ -552,6 +601,8 @@ module Types
         submissions.active.where(user_id: current_user)
       end
     end
+
+    field :grading_standard_id, ID, null: true
 
     field :grading_standard, GradingStandardType, null: true
     def grading_standard
@@ -573,6 +624,17 @@ module Types
                   ]).then do
         students = assignment.representatives(user: current_user)
         scope.where(user_id: students)
+      end
+    end
+
+    field :lti_asset_processors_connection, LtiAssetProcessorType.connection_type, null: true
+    def lti_asset_processors_connection
+      load_association(:context).then do |course|
+        # In the future we may need this for students, but for now
+        # this is safest
+        if course.root_account.feature_enabled?(:lti_asset_processor) && course.grants_right?(current_user, :manage_grades)
+          load_association(:lti_asset_processors)
+        end
       end
     end
 
@@ -603,9 +665,9 @@ module Types
       end
     end
 
-    field :has_sub_assignments, Boolean, null: false
+    field :has_sub_assignments, Boolean, "Boolean: returns true if the assignment is checkpointed. A checkpointed assignment has checkpoints ( also known as sub_assignments)", null: false
 
-    field :checkpoints, [CheckpointType], null: true
+    field :checkpoints, [CheckpointType], "A list of checkpoints (also known as sub_assignments) that are associated with this assignment", null: true
     def checkpoints
       load_association(:context).then do |course|
         if course.discussion_checkpoints_enabled?
@@ -668,6 +730,28 @@ module Types
     field :auto_grade_assignment_errors, [String], null: false, description: "Issues related to the assignment"
     def auto_grade_assignment_errors
       GraphQLHelpers::AutoGradeEligibilityHelper.validate_assignment(assignment:)
+    end
+
+    field :is_new_quiz, Boolean, null: false, description: "Assignment is connected to a New Quiz"
+    def is_new_quiz
+      assignment.quiz_lti?
+    end
+
+    field :module_items, [Types::ModuleItemType], null: true
+    def module_items
+      case object.submission_types
+      when "online_quiz"
+        load_association(:quiz).then do |quiz|
+          Loaders::AssociationLoader.for(QuizType, :context_module_tags).load(quiz)
+        end
+
+      when "discussion_topic"
+        load_association(:discussion_topic).then do |discussion|
+          Loaders::AssociationLoader.for(DiscussionType, :context_module_tags).load(discussion)
+        end
+      else
+        load_association(:context_module_tags)
+      end
     end
   end
 end

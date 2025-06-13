@@ -22,13 +22,14 @@ import GenericErrorPage from '@canvas/generic-error-page'
 import {useScope as createI18nScope} from '@canvas/i18n'
 import errorShipUrl from '@canvas/images/ErrorShip.svg'
 import WithBreakpoints, {breakpointsShape} from '@canvas/with-breakpoints'
+import {usePathTransform, whenPendoReady} from '@canvas/pendo'
 import {DrawerLayout} from '@instructure/ui-drawer-layout'
 import {Mask} from '@instructure/ui-overlays'
 import {Responsive} from '@instructure/ui-responsive'
 import {View} from '@instructure/ui-view'
 import {captureException} from '@sentry/react'
 import PropTypes from 'prop-types'
-import React, {useCallback, useContext, useEffect, useRef, useState} from 'react'
+import React, {useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react'
 import {flushSync} from 'react-dom'
 import {DISCUSSION_QUERY} from '../graphql/Queries'
 import {
@@ -261,6 +262,12 @@ const DiscussionTopicManager = props => {
     skip: waitForUnreadFilter,
   })
 
+  const isAnnouncement = useMemo(
+    () => discussionTopicQuery.data?.legacyNode?.isAnnouncement,
+    [discussionTopicQuery.data],
+  )
+
+  usePathTransform(whenPendoReady, 'discussion_topics', 'announcements', isAnnouncement)
   useEventHandler(KeyboardShortcuts.ON_PREV_REPLY, () =>
     highlightPrev(userSplitScreenPreference, isSplitScreenViewOpen),
   )
@@ -521,7 +528,9 @@ const DiscussionTopicManager = props => {
                       />
                     )}
                     {showTranslationControl && ENV.ai_translation_improvements && (
-                      <DiscussionTranslationModuleContainer />
+                      <DiscussionTranslationModuleContainer
+                        isAnnouncement={discussionTopicQuery.data.legacyNode?.isAnnouncement}
+                      />
                     )}
                     {showTranslationControl && !ENV.ai_translation_improvements && (
                       <TranslationControls />

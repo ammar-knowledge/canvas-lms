@@ -24,6 +24,7 @@ import {initializeReaderButton} from '@canvas/immersive-reader/ImmersiveReader'
 import injectGlobalAlertContainers from '@canvas/util/react/testing/injectGlobalAlertContainers'
 import StudentContent from '../StudentContent'
 import ContextModuleApi from '../../apis/ContextModuleApi'
+import {withSubmissionContext} from '../../test-utils/submission-context'
 
 injectGlobalAlertContainers()
 
@@ -44,17 +45,10 @@ describe('Assignment Student Content View', () => {
     oldEnv = window.ENV
     window.ENV = {...window.ENV}
     ContextModuleApi.getContextModuleData.mockResolvedValue({})
-    global.fetch = jest.fn(() =>
-      Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve([]),
-      }),
-    )
   })
 
   afterEach(() => {
     window.ENV = oldEnv
-    jest.restoreAllMocks()
   })
 
   describe('concluded enrollment notice', () => {
@@ -76,7 +70,10 @@ describe('Assignment Student Content View', () => {
       const props = await mockAssignmentAndSubmission()
       const {getByText} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
 
@@ -88,7 +85,10 @@ describe('Assignment Student Content View', () => {
       const props = await mockAssignmentAndSubmission()
       const {getByText} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
 
@@ -99,7 +99,10 @@ describe('Assignment Student Content View', () => {
       const props = await mockAssignmentAndSubmission()
       const {queryByText} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
 
@@ -113,7 +116,10 @@ describe('Assignment Student Content View', () => {
       props.assignment.env.belongsToUnpublishedModule = true
       const {getByText} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       expect(
@@ -139,7 +145,10 @@ describe('Assignment Student Content View', () => {
       }
       const {getByText} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       expect(
@@ -154,7 +163,10 @@ describe('Assignment Student Content View', () => {
       props.assignment.env.peerReviewAvailable = true
       const {queryByText} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       expect(
@@ -168,7 +180,10 @@ describe('Assignment Student Content View', () => {
       props.assignment.env.peerReviewModeEnabled = false
       const {queryByText} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       expect(
@@ -203,7 +218,10 @@ describe('Assignment Student Content View', () => {
 
       render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
 
@@ -224,7 +242,10 @@ describe('Assignment Student Content View', () => {
 
       render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
 
@@ -241,7 +262,10 @@ describe('Assignment Student Content View', () => {
     it('does not set up Immersive Reader if neither mount point is present', async () => {
       render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
 

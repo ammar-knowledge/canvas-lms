@@ -625,6 +625,30 @@ describe FilesController do
             get "show", params: params_with_location, format: "json"
             valid_download_response(response)
           end
+
+          context "with sharding" do
+            specs_require_sharding
+
+            before do
+              @shard1.activate do
+                user_factory(active_all: true)
+                @course.enroll_teacher(@user)
+                attachment_model(context: @user, filename: "shard1.txt")
+                AttachmentAssociation.update_associations(@course, [@attachment.id], @user, nil, "syllabus_body")
+              end
+            end
+
+            it "allows access to the file" do
+              user_session(@student)
+              get "show", params: { user_id: @user.global_id, id: @attachment.global_id, download: 1, location: "course_syllabus_#{@course.id}" }, format: "json"
+              expect(response.headers["location"]).to include("download_frd")
+
+              @shard1.activate do
+                get "show", params: { user_id: @user.id, id: @attachment.id, download: 1, location: "course_syllabus_#{@course.global_id}" }, format: "json"
+                expect(response.headers["location"]).to include("download_frd")
+              end
+            end
+          end
         end
 
         context "with disable_file_verifiers_in_public_syllabus disabled" do
@@ -745,7 +769,7 @@ describe FilesController do
       get "show", params: verifier.merge(id: file.id)
       expect(response).to be_redirect
 
-      expect(response.headers["Location"]).to eq "http://test.host/files/#{file.id}"
+      expect(response.headers["Location"]).not_to include "sf_verifier=#{verifier}"
     end
 
     it "ignores invalid sf_verifiers" do
@@ -2321,6 +2345,32 @@ describe FilesController do
         end
         expect(locations[0]).not_to eq(locations[1])
       end
+    end
+  end
+
+  describe "process_content_type_from_instfs" do
+    it "fixes doc files" do
+      expect(controller.send(:process_content_type_from_instfs, "application/x-cfb", "file.doc")).to eq "application/msword"
+    end
+
+    it "fixes xls files" do
+      expect(controller.send(:process_content_type_from_instfs, "application/x-cfb", "file.xls")).to eq "application/vnd.ms-excel"
+    end
+
+    it "fixes ppt files" do
+      expect(controller.send(:process_content_type_from_instfs, "application/x-cfb", "file.ppt")).to eq "application/vnd.ms-powerpoint"
+    end
+
+    it "ignores case" do
+      expect(controller.send(:process_content_type_from_instfs, "application/x-cfb", "file.DOC")).to eq "application/msword"
+    end
+
+    it "leaves other CFB types alone" do
+      expect(controller.send(:process_content_type_from_instfs, "application/x-cfb", "file.msi")).to eq "application/x-cfb"
+    end
+
+    it "leaves non-CFB types alone" do
+      expect(controller.send(:process_content_type_from_instfs, "application/pdf", "file.pdf")).to eq "application/pdf"
     end
   end
 end

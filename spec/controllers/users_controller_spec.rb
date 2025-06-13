@@ -26,6 +26,36 @@ describe UsersController do
 
   let(:group_helper) { Factories::GradingPeriodGroupHelper.new }
 
+  describe "activity_stream" do
+    before do
+      course_with_teacher(active_all: true)
+      course_with_student(active_all: true, course: @course)
+      user_session(@student)
+    end
+
+    context "with a suppressed assignment" do
+      it "skips submission stream items for that assignment" do
+        assignment = @course.assignments.create!(title: "some assignment", submission_types: ["online_text_entry"], suppress_assignment: true)
+        sub = assignment.submit_homework @student, body: "submission"
+        sub.add_comment author: @teacher, comment: "lol"
+        get :activity_stream, params: { user_id: @student.id, only_active_courses: true }
+        json = response.parsed_body
+        expect(json.length).to eq 0
+      end
+    end
+
+    context "with a non-suppressed assignment" do
+      it "includes submission stream items for that assignment" do
+        assignment = @course.assignments.create!(title: "some assignment", submission_types: ["online_text_entry"], suppress_assignment: false)
+        sub = assignment.submit_homework @student, body: "submission"
+        sub.add_comment author: @teacher, comment: "lol"
+        get :activity_stream, params: { user_id: @student.id, only_active_courses: true }
+        json = response.parsed_body
+        expect(json.length).to eq 1
+      end
+    end
+  end
+
   describe "external_tool" do
     let(:account) { Account.default }
 
@@ -71,6 +101,32 @@ describe UsersController do
         expect(controller).to receive(:js_env).with(hash_including(LTI_TOOL_FORM_ID: "1"))
 
         get :external_tool, params: { id: tool.id, user_id: user.id }
+      end
+    end
+
+    context "when 'open_tools_in_new_tab' feature flag is enabled" do
+      before do
+        Account.default.enable_feature! :open_tools_in_new_tab
+      end
+
+      it "uses borderless display type when windowTarget is _blank" do
+        tool.settings[:user_navigation][:windowTarget] = "_blank"
+        tool.save!
+
+        get :external_tool, params: { id: tool.id, user_id: user.id }
+
+        expect(assigns[:lti_launch]).not_to be_nil
+        expect(assigns[:display_override]).to eq "borderless"
+      end
+
+      it "renders with default display type when windowTarget is not _blank" do
+        tool.settings[:user_navigation][:windowTarget] = "_self"
+        tool.save!
+
+        get :external_tool, params: { id: tool.id, user_id: user.id }
+
+        expect(assigns[:lti_launch]).not_to be_nil
+        expect(assigns[:display_override]).to be_nil
       end
     end
 

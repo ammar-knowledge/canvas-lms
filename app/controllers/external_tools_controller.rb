@@ -936,8 +936,8 @@ class ExternalToolsController < ApplicationController
   #   multiple times
   #
   # @argument is_rce_favorite [Boolean]
-  #   (Deprecated in favor of {api:ExternalToolsController#add_rce_favorite Add tool to RCE Favorites} and
-  #   {api:ExternalToolsController#remove_rce_favorite Remove tool from RCE Favorites})
+  #   (Deprecated in favor of {api:ExternalToolsController#mark_rce_favorite Mark tool to RCE Favorites} and
+  #   {api:ExternalToolsController#unmark_rce_favorite Unmark tool from RCE Favorites})
   #   Whether this tool should appear in a preferred location in the RCE.
   #   This only applies to tools in root account contexts that have an editor
   #   button placement.
@@ -1173,7 +1173,7 @@ class ExternalToolsController < ApplicationController
     if params.key?(:client_id)
       raise ActiveRecord::RecordInvalid unless developer_key.usable_in_context?(@context)
 
-      @tool = developer_key.lti_registration.new_external_tool(@context)
+      @tool = developer_key.lti_registration.new_external_tool(@context, verify_uniqueness: params.dig(:external_tool, :verify_uniqueness).present?, current_user: @current_user)
     else
       external_tool_params = (params[:external_tool] || params).to_unsafe_h
       @tool = @context.context_external_tools.new
@@ -1182,20 +1182,20 @@ class ExternalToolsController < ApplicationController
         external_tool_params[:custom_fields] = custom_fields if custom_fields.present?
       end
       set_tool_attributes(@tool, external_tool_params)
-    end
-    @tool.check_for_duplication(params.dig(:external_tool, :verify_uniqueness).present?)
-    if @tool.errors.blank? && @tool.save
-      @tool.migrate_content_to_1_3_if_needed!
-      ContextExternalTool.invalidate_nav_tabs_cache(@tool, @domain_root_account)
-      if api_request?
-        render json: external_tool_json(@tool, @context, @current_user, session)
-      else
-        render json: @tool.as_json(methods: %i[readable_state custom_fields_string], include_root: false)
+      @tool.check_for_duplication if params.dig(:external_tool, :verify_uniqueness).present?
+      unless @tool.errors.blank? && @tool.save
+        raise Lti::ContextExternalToolErrors, @tool.errors
       end
-    else
-      render json: @tool.errors, status: :bad_request
-      @tool.destroy if @tool.persisted?
     end
+    @tool.migrate_content_to_1_3_if_needed!
+    ContextExternalTool.invalidate_nav_tabs_cache(@tool, @domain_root_account)
+    if api_request?
+      render json: external_tool_json(@tool, @context, @current_user, session)
+    else
+      render json: @tool.as_json(methods: %i[readable_state custom_fields_string], include_root: false)
+    end
+  rescue Lti::ContextExternalToolErrors => e
+    render json: e.errors, status: :bad_request
   end
 
   # Add an external tool and verify the provided
@@ -1306,17 +1306,18 @@ class ExternalToolsController < ApplicationController
     render json: { jwt_token: Canvas::Security.create_jwt(params, nil, tool.shared_secret) }
   end
 
-  # @API Add tool to RCE Favorites
-  # Add the specified editor_button external tool to a preferred location in the RCE
+  # @API Mark tool as RCE Favorite
+  # Mark the specified editor_button external tool as a favorite in the RCE editor
   # for courses in the given account and its subaccounts (if the subaccounts
-  # haven't set their own RCE Favorites). Cannot set more than 2 RCE Favorites.
+  # haven't set their own RCE Favorites). This places the tool in a preferred location
+  # in the RCE. Cannot mark more than 2 tools as RCE Favorites.
   #
   # @example_request
   #
   #   curl -X POST 'https://<canvas>/api/v1/accounts/<account_id>/external_tools/rce_favorites/<id>' \
   #        -H "Authorization: Bearer <token>"
-  def add_rce_favorite
-    if authorized_action(@context, @current_user, :manage_lti_add)
+  def mark_rce_favorite
+    if authorized_action(@context, @current_user, :manage_lti_edit)
       @tool = Lti::ToolFinder.from_id(params[:id], @context)
       raise ActiveRecord::RecordNotFound unless @tool
       unless @tool.can_be_rce_favorite?
@@ -1344,16 +1345,17 @@ class ExternalToolsController < ApplicationController
     end
   end
 
-  # @API Remove tool from RCE Favorites
-  # Remove the specified external tool from a preferred location in the RCE
-  # for the given account
+  # @API Unmark tool as RCE Favorite
+  # Unmark the specified external tool as a favorite in the RCE editor
+  # for the given account. The tool will remain available but will no longer
+  # appear in the preferred favorites location.
   #
   # @example_request
   #
   #   curl -X DELETE 'https://<canvas>/api/v1/accounts/<account_id>/external_tools/rce_favorites/<id>' \
   #        -H "Authorization: Bearer <token>"
-  def remove_rce_favorite
-    if authorized_action(@context, @current_user, :manage_lti_delete)
+  def unmark_rce_favorite
+    if authorized_action(@context, @current_user, :manage_lti_edit)
       favorite_ids = @context.get_rce_favorite_tool_ids
       if favorite_ids.delete(Shard.global_id_for(params[:id]))
         @context.settings[:rce_favorite_tool_ids] = { value: favorite_ids }
@@ -1712,6 +1714,7 @@ class ExternalToolsController < ApplicationController
                 is_top_nav_favorite
                 unified_tool_id]
     attrs += [:allow_membership_service_access] if @context.root_account.feature_enabled?(:membership_service_for_lti_tools)
+    attrs += [:estimated_duration_attributes] if @context.try(:horizon_course?)
 
     attrs.each do |prop|
       tool.send(:"#{prop}=", params[prop]) if params.key?(prop)

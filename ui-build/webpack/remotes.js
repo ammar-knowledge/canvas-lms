@@ -128,3 +128,71 @@ function fetchLtiUsage(resolve, reject) {
 }
 
 exports.fetchLtiUsage = fetchLtiUsage
+
+function fetchCanvasCareerApp(resolve, reject) {
+  const script = document.createElement('script')
+
+  if (!window.REMOTES?.canvascareer) {
+    console.debug(`CanvasCareerApp remote not configured; using ${DEV_HOST}`)
+  }
+  script.src = window.REMOTES?.canvascareer || DEV_HOST
+  script.onload = () => {
+    const module = {
+      get: request => window.CanvasCareerLearningProvider.get(request),
+      init: arg => {
+        try {
+          return window.CanvasCareerLearningProvider.init(arg)
+        } catch (e) {
+          console.warn('Remote CanvasCareerApp has already been loaded')
+        }
+      },
+    }
+    resolve(module)
+  }
+
+  script.onerror = errorEvent => {
+    const errorMessage = `Failed to load the script: ${script.src}`
+    console.error(errorMessage, errorEvent)
+    if (typeof reject === 'function') {
+      reject(new Error(errorMessage, errorEvent))
+    }
+  }
+
+  document.head.appendChild(script)
+}
+
+exports.fetchCanvasCareerApp = fetchCanvasCareerApp
+
+function fetchCanvasCareerLearnerApp(resolve, reject) {
+  const script = document.createElement('script')
+
+  if (!window.REMOTES?.canvascareer) {
+    console.debug(`CanvasCareerLearnerApp remote not configured; using ${DEV_HOST}`)
+  }
+  script.src = window.REMOTES?.canvascareer || DEV_HOST
+  script.onload = () => {
+    const module = {
+      get: request => window.CanvasCareerLearner.get(request),
+      init: arg => {
+        try {
+          return window.CanvasCareerLearner.init(arg)
+        } catch (e) {
+          console.warn('Remote CanvasCareerLearnerApp has already been loaded')
+        }
+      },
+    }
+    resolve(module)
+  }
+
+  script.onerror = errorEvent => {
+    const errorMessage = `Failed to load the script: ${script.src}`
+    console.error(errorMessage, errorEvent)
+    if (typeof reject === 'function') {
+      reject(new Error(errorMessage, errorEvent))
+    }
+  }
+
+  document.head.appendChild(script)
+}
+
+exports.fetchCanvasCareerLearnerApp = fetchCanvasCareerLearnerApp

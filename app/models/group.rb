@@ -19,8 +19,6 @@
 #
 
 class Group < ActiveRecord::Base
-  self.ignored_columns += ["category"]
-
   include Context
   include Workflow
   include CustomValidations
@@ -342,6 +340,11 @@ class Group < ActiveRecord::Base
   Bookmarker = BookmarkedCollection::SimpleBookmarker.new(Group, :name, :id)
 
   scope :active, -> { where("groups.workflow_state<>'deleted'") }
+  scope :context_active, lambda {
+    left_joins(:course).where(
+      "courses.workflow_state IS NULL OR courses.workflow_state NOT IN ('deleted', 'completed')"
+    )
+  }
   scope :collaborative, -> { where(non_collaborative: false) }
   scope :non_collaborative, -> { where(non_collaborative: true) }
   scope :by_name, -> { order(Bookmarker.order_by) }

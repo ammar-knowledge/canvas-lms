@@ -319,11 +319,6 @@ class ConversationsController < ApplicationController
                })
         @page_title = t("Inbox")
         InstStatsd::Statsd.distributed_increment("inbox.visit.react")
-        InstStatsd::Statsd.count("inbox.visit.scope.inbox.count.react", @current_user.conversations.default.size)
-        InstStatsd::Statsd.count("inbox.visit.scope.sent.count.react", @current_user.all_conversations.sent.size)
-        InstStatsd::Statsd.count("inbox.visit.scope.unread.count.react", @current_user.conversations.unread.size)
-        InstStatsd::Statsd.count("inbox.visit.scope.starred.count.react", @current_user.starred_conversations.size)
-        InstStatsd::Statsd.count("inbox.visit.scope.archived.count.react", @current_user.conversations.archived.size)
         css_bundle :canvas_inbox
         js_bundle :inbox
         render html: "", layout: true
@@ -392,6 +387,9 @@ class ConversationsController < ApplicationController
   #   as courses or groups in the recipients argument.
   def create
     return render_error("recipients", "blank") if params[:recipients].blank?
+
+    Rails.logger.info("Checking @recipients")
+    Rails.logger.info(@recipients.inspect)
     return render_error("recipients", "invalid") if @recipients.blank?
     return render_error("body", "blank") if params[:body].blank?
 
@@ -419,8 +417,9 @@ class ConversationsController < ApplicationController
     end
 
     params[:recipients].each do |recipient|
-      return render_error("recipients", "invalid") unless recipient.is_a?(String)
-
+      Rails.logger.info("Checking recipient")
+      Rails.logger.info(recipient.class)
+      recipient = recipient.to_s
       if recipient =~ /\A(course_\d+)(?:_([a-z]+))?$/ && [nil, "students", "observers"].include?($2) &&
          !Context.find_by_asset_string($1).try(:grants_right?, @current_user, session, :send_messages_all)
         return render_error("recipients", "restricted by role")

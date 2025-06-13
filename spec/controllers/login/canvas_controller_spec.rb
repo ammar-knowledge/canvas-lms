@@ -228,20 +228,6 @@ describe Login::CanvasController do
     expect(assigns[:pseudonym_session].record).to eq @pseudonym
   end
 
-  it "does not get tripped up by explicit and implicit pseudonyms" do
-    pseudonym2 = @user.pseudonyms.create!(
-      unique_id: "jtfrd@instructure.com",
-      password: "qwertyuiop",
-      password_confirmation: "qwertyuiop",
-      authentication_provider: Account.default.canvas_authentication_provider
-    )
-
-    post "create", params: { pseudonym_session: { unique_id: "jtfrd@instructure.com", password: "qwertyuiop" } }
-    expect(response).to be_redirect
-    expect(response).to redirect_to(dashboard_url(login_success: 1))
-    expect(assigns[:pseudonym_session].record).to eq pseudonym2
-  end
-
   it "password auth should work with extra whitespace around unique id" do
     post "create", params: { pseudonym_session: { unique_id: " jtfrd@instructure.com ", password: "qwertyuiop" } }
     expect(response).to be_redirect
@@ -853,6 +839,35 @@ describe Login::CanvasController do
         expect(response).to have_http_status(:ok)
         json_response = response.parsed_body
         expect(json_response["location"]).to eq(dashboard_url(login_success: 1))
+      end
+    end
+
+    context "when user logs in at the wrong account" do
+      before do
+        @other_account = Account.create!
+        allow(Account.default).to receive(:trusted_account_ids).and_return([@other_account.id])
+        @user = user_with_pseudonym(
+          username: "cross@inst.edu",
+          active_all: 1,
+          password: "qwertyuiop",
+          account: @other_account
+        )
+        allow(HostUrl).to receive(:context_host).with(@other_account, "test.host").and_return("correct.host")
+      end
+
+      it "redirects to user's home account and sets session pseudonym" do
+        post :create,
+             params: {
+               pseudonym_session: { unique_id: "cross@inst.edu", password: "qwertyuiop" }
+             },
+             as: :json
+        expect(response).to have_http_status(:ok)
+        json = response.parsed_body
+        expect(json["location"]).to eq(
+          dashboard_url(host: "correct.host", cross_domain_login: "test.host")
+        )
+        # the session is partially set, even though redirect was triggered
+        expect(session[:pseudonym_credentials_id]).to eq(@user.pseudonyms.first.global_id)
       end
     end
   end

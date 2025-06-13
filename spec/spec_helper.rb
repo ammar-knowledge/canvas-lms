@@ -331,8 +331,8 @@ module RenderWithHelpers
 
       controller_class._helper_methods.each do |helper|
         class_eval <<~RUBY, __FILE__, __LINE__ + 1
-          def #{helper}(*args, &block)
-            real_controller.send(:#{helper}, *args, &block)
+          def #{helper}(*args, **kwargs, &block)
+            real_controller.send(:#{helper}, *args, **kwargs, &block)
           end
         RUBY
       end
@@ -510,6 +510,7 @@ RSpec.configure do |config|
     MultiCache.reset
     TermsOfService.skip_automatic_terms_creation = true
     LiveEvents.clear_context!
+    PageView.reset_cache! if PageView.respond_to?(:reset_cache!)
     $spec_api_tokens = {}
 
     remove_user_session
@@ -1008,13 +1009,7 @@ RSpec.configure do |config|
   end
 
   def skip_if_prepended_class_method_stubs_broken
-    versions = [
-      "2.4.6",
-      "2.4.9",
-      "2.5.1",
-      "2.5.3"
-    ]
-    skip("stubbing prepended class methods is broken in this version of ruby") if versions.include?(RUBY_VERSION) || RUBY_VERSION >= "2.6"
+    skip("stubbing prepended class methods is broken in new versions of ruby")
   end
 end
 

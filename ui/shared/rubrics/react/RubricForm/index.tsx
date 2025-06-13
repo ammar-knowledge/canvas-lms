@@ -28,16 +28,16 @@ import {colors} from '@instructure/canvas-theme'
 import {Alert} from '@instructure/ui-alerts'
 import {View} from '@instructure/ui-view'
 import {TextInput} from '@instructure/ui-text-input'
+import {TextArea} from '@instructure/ui-text-area'
 import {Heading} from '@instructure/ui-heading'
 import {Text} from '@instructure/ui-text'
 import {SimpleSelect} from '@instructure/ui-simple-select'
 import {Flex} from '@instructure/ui-flex'
-import {IconEyeLine, IconAiSolid} from '@instructure/ui-icons'
-import {IgniteAiIcon} from '@canvas/ignite-ai-icon/react/IgniteAiIcon'
+import {IconEyeLine, IconAiSolid, IconAiColoredSolid} from '@instructure/ui-icons'
 import {Button} from '@instructure/ui-buttons'
 import {Link} from '@instructure/ui-link'
-import {RubricCriteriaRow} from './RubricCriteriaRow'
-import {NewCriteriaRow} from './NewCriteriaRow'
+import {RubricCriteriaRow} from './components/RubricCriteriaRow'
+import {NewCriteriaRow} from './components/NewCriteriaRow'
 import {
   fetchRubric,
   saveRubric,
@@ -46,11 +46,11 @@ import {
 } from './queries/RubricFormQueries'
 import {mapRubricUnderscoredKeysToCamelCase} from '@canvas/rubrics/react/utils'
 import type {RubricFormProps, GenerateCriteriaFormProps} from './types/RubricForm'
-import {CriterionModal} from './CriterionModal'
-import {WarningModal} from './WarningModal'
+import {CriterionModal} from './components/CriterionModal/CriterionModal'
+import {WarningModal} from './components/WarningModal'
 import {DragDropContext as DragAndDrop, Droppable} from 'react-beautiful-dnd'
 import type {DropResult} from 'react-beautiful-dnd'
-import {OutcomeCriterionModal} from './OutcomeCriterionModal'
+import {OutcomeCriterionModal} from './components/OutcomeCriterionModal'
 import {RubricAssessmentTray} from '@canvas/rubrics/react/RubricAssessment'
 import FindDialog from '@canvas/outcomes/backbone/views/FindDialog'
 import OutcomeGroup from '@canvas/outcomes/backbone/models/OutcomeGroup'
@@ -85,6 +85,7 @@ export const defaultGenerateCriteriaForm: GenerateCriteriaFormProps = {
   ratingCount: 4,
   pointsPerCriterion: '20',
   useRange: false,
+  additionalPromptInfo: '',
 }
 
 type RubricFormValidationProps = {
@@ -147,10 +148,11 @@ export const RubricForm = ({
   const [showGenerateCriteriaForm, setShowGenerateCriteriaForm] = useState(
     aiRubricsEnabled && !!assignmentId && !rubric?.id,
   )
+  const [showGenerateCriteriaHeader, setShowGenerateCriteriaHeader] = useState(false)
   const [currentProgress, setCurrentProgress] = useState<CanvasProgress>()
   const criteriaRef = useRef(rubricForm.criteria)
 
-  const header = rubricId ? I18n.t('Edit Rubric') : I18n.t('Create New Rubric')
+  const header = rubricId || rubric?.id ? I18n.t('Edit Rubric') : I18n.t('Create New Rubric')
   const queryKey = ['fetch-rubric', rubricId ?? '']
 
   const {data, isLoading} = useQuery({
@@ -355,6 +357,7 @@ export const RubricForm = ({
         })),
       ]
       setShowGenerateCriteriaForm(false)
+      setShowGenerateCriteriaHeader(true)
       setRubricFormField('criteria', newCriteria)
       setRubricFormField('pointsPossible', calcPointsPossible(newCriteria))
     } else if (progress.workflow_state === 'failed') {
@@ -512,12 +515,14 @@ export const RubricForm = ({
                     />
                   </Flex.Item>
                 )}
-                <Flex.Item margin="0 0 0 small">
-                  <RubricRatingOrderSelect
-                    ratingOrder={rubricForm.ratingOrder}
-                    onChangeOrder={ratingOrder => setRubricFormField('ratingOrder', ratingOrder)}
-                  />
-                </Flex.Item>
+                {!rubricForm.freeFormCriterionComments && (
+                  <Flex.Item margin="0 0 0 small">
+                    <RubricRatingOrderSelect
+                      ratingOrder={rubricForm.ratingOrder}
+                      onChangeOrder={ratingOrder => setRubricFormField('ratingOrder', ratingOrder)}
+                    />
+                  </Flex.Item>
+                )}
                 {showAdditionalOptions && (
                   <Flex.Item margin="0 0 0 small">
                     <ScoringTypeSelect
@@ -538,7 +543,7 @@ export const RubricForm = ({
             <Flex margin="medium 0 0" gap="medium">
               <Flex.Item>
                 <Checkbox
-                  label={"Don't post to Learning Mastery Gradebook"}
+                  label={I18n.t("Don't post to Learning Mastery Gradebook")}
                   checked={rubricForm.hideOutcomeResults}
                   onChange={e => setRubricFormField('hideOutcomeResults', e.target.checked)}
                   data-testid="hide-outcome-results-checkbox"
@@ -548,7 +553,7 @@ export const RubricForm = ({
                 <>
                   <Flex.Item>
                     <Checkbox
-                      label="Use this rubric for assignment grading"
+                      label={I18n.t('Use this rubric for assignment grading')}
                       checked={rubricForm.useForGrading}
                       onChange={e => {
                         setRubricFormField('useForGrading', e.target.checked)
@@ -561,7 +566,7 @@ export const RubricForm = ({
                   {!rubricForm.useForGrading && (
                     <Flex.Item>
                       <Checkbox
-                        label="Hide rubric score total from students"
+                        label={I18n.t('Hide rubric score total from students')}
                         checked={rubricForm.hideScoreTotal}
                         onChange={e => setRubricFormField('hideScoreTotal', e.target.checked)}
                         data-testid="hide-score-total-checkbox"
@@ -573,7 +578,7 @@ export const RubricForm = ({
             </Flex>
           )}
 
-          <View as="div" margin="large 0 large 0">
+          <View as="div" margin="large 0 small 0">
             <Flex>
               <Flex.Item shouldGrow={true}>
                 <Heading
@@ -603,7 +608,7 @@ export const RubricForm = ({
           {showGenerateCriteriaForm && (
             <View
               as="div"
-              margin="large 0 large 0"
+              margin="medium 0 small 0"
               padding="small"
               borderRadius="medium"
               background="secondary"
@@ -611,7 +616,7 @@ export const RubricForm = ({
             >
               <Heading level="h4">
                 <Flex alignItems="center" gap="small">
-                  <IgniteAiIcon />
+                  <IconAiColoredSolid />
                   <Text>{I18n.t('Auto-Generate Criteria')}</Text>
                 </Flex>
               </Heading>
@@ -694,18 +699,83 @@ export const RubricForm = ({
                   </Flex.Item>
                 )}
                 <Flex.Item shouldGrow={true}></Flex.Item>
-                <Flex.Item>
-                  <span className="instui-button-ignite-ai-gradient">
-                    <Button
-                      onClick={handleGenerateButton}
-                      data-testid="generate-criteria-button"
-                      color="primary"
-                      renderIcon={<IconAiSolid />}
-                    >
-                      {I18n.t('Generate Criteria')}
-                    </Button>
-                  </span>
+              </Flex>
+              <Flex alignItems="end" gap="medium" margin="medium 0 0">
+                <Flex.Item shouldGrow={true}>
+                  <TextArea
+                    data-testid="additional-prompt-info-input"
+                    label={I18n.t('Additional Prompt Information')}
+                    placeholder={I18n.t(
+                      'Optional. For example, "Target a college-level seminar." or "Focus on argument substance." or "Be lenient."',
+                    )}
+                    value={generateCriteriaForm.additionalPromptInfo}
+                    onChange={event =>
+                      setGenerateCriteriaForm({
+                        ...generateCriteriaForm,
+                        additionalPromptInfo: event.target.value,
+                      })
+                    }
+                    messages={
+                      generateCriteriaForm.additionalPromptInfo.length > 1000
+                        ? [
+                            {
+                              text: I18n.t(
+                                'Additional prompt information must be less than 1000 characters',
+                              ),
+                              type: 'error',
+                            },
+                          ]
+                        : undefined
+                    }
+                    height="4rem"
+                  />
                 </Flex.Item>
+                <Flex.Item>
+                  <Button
+                    onClick={handleGenerateButton}
+                    data-testid="generate-criteria-button"
+                    color="ai-primary"
+                    renderIcon={<IconAiSolid />}
+                    disabled={generateCriteriaForm.additionalPromptInfo.length > 1000}
+                  >
+                    {I18n.t('Generate Criteria')}
+                  </Button>
+                </Flex.Item>
+              </Flex>
+            </View>
+          )}
+
+          {showGenerateCriteriaHeader && (
+            <View
+              as="div"
+              margin="medium 0 small 0"
+              padding="small"
+              borderRadius="medium"
+              background="secondary"
+              data-testid="generate-criteria-header"
+            >
+              <Flex gap="medium">
+                <Flex.Item>
+                  <Heading level="h4">
+                    <Flex alignItems="center" gap="small">
+                      <IconAiColoredSolid />
+                      <Text>{I18n.t('Auto-Generate Criteria')}</Text>
+                    </Flex>
+                  </Heading>
+                </Flex.Item>
+                <Flex.Item shouldGrow={true}></Flex.Item>
+                {window.ENV.AI_FEEDBACK_LINK && (
+                  <Flex.Item>
+                    <a
+                      data-testid="give-feedback-link"
+                      href={window.ENV.AI_FEEDBACK_LINK}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {I18n.t('Give Feedback')}
+                    </a>
+                  </Flex.Item>
+                )}
               </Flex>
             </View>
           )}
@@ -740,6 +810,7 @@ export const RubricForm = ({
                             rowIndex={index + 1}
                             unassessed={rubricForm.unassessed}
                             isGenerated={criterion.isGenerated}
+                            nextIsGenerated={rubricForm.criteria[index + 1]?.isGenerated}
                             onDeleteCriterion={() => deleteCriterion(criterion)}
                             onDuplicateCriterion={() => duplicateCriterion(criterion)}
                             onEditCriterion={() => openCriterionModal(criterion)}
@@ -796,7 +867,7 @@ export const RubricForm = ({
                 disabled={savePending || !formValid()}
                 data-testid="save-rubric-button"
               >
-                {rubric?.id ? I18n.t('Save Rubric') : I18n.t('Create Rubric')}
+                {rubricId || rubric?.id ? I18n.t('Save Rubric') : I18n.t('Create Rubric')}
               </Button>
             </Flex.Item>
             <Flex.Item>
@@ -829,7 +900,8 @@ export const RubricForm = ({
       <CriterionModal
         criterion={selectedCriterion}
         criterionUseRangeEnabled={criterionUseRangeEnabled}
-        hidePoints={rubricForm.hidePoints || rubricForm.freeFormCriterionComments}
+        hidePoints={rubricForm.hidePoints}
+        freeFormCriterionComments={rubricForm.freeFormCriterionComments}
         isOpen={isCriterionModalOpen}
         unassessed={rubricForm.unassessed}
         onDismiss={() => setIsCriterionModalOpen(false)}
@@ -867,7 +939,7 @@ const RubricRatingOrderSelect = ({ratingOrder, onChangeOrder}: RubricRatingOrder
       renderLabel={I18n.t('Rating Order')}
       width="10.563rem"
       value={ratingOrder}
-      onChange={(e, {value}) => onChange(value !== undefined ? value.toString() : '')}
+      onChange={(_e, {value}) => onChange(value !== undefined ? value.toString() : '')}
       data-testid="rubric-rating-order-select"
     >
       <SimpleSelectOption
@@ -903,9 +975,9 @@ const GradingTypeSelect = ({freeFormCriterionComments, onChange}: GradingTypeSel
   return (
     <SimpleSelect
       renderLabel={I18n.t('Type')}
-      width="10.563rem"
+      width={freeFormCriterionComments ? '12.563rem' : '10.563rem'}
       value={gradingType}
-      onChange={(e, {value}) => handleChange(value !== undefined ? value.toString() : '')}
+      onChange={(_e, {value}) => handleChange(value !== undefined ? value.toString() : '')}
       data-testid="rubric-rating-type-select"
     >
       <SimpleSelectOption id="scaleOption" value="scale" data-testid="rating_type_scale">
@@ -935,7 +1007,7 @@ const ScoringTypeSelect = ({hidePoints, onChange}: ScoreTypeSelectProps) => {
       renderLabel={I18n.t('Scoring')}
       width="10.563rem"
       value={scoreType}
-      onChange={(e, {value}) => handleChange(value !== undefined ? value.toString() : '')}
+      onChange={(_e, {value}) => handleChange(value !== undefined ? value.toString() : '')}
       data-testid="rubric-rating-scoring-type-select"
     >
       <SimpleSelectOption id="scoredOption" value="scored" data-testid="scoring_type_scored">

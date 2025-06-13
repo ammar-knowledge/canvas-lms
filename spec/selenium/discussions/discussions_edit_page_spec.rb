@@ -526,8 +526,8 @@ describe "discussions" do
 
             build_assignment_with_type("Discussion", name: "anon disc from assignment", more_options: true)
 
-            f("input[type=radio][value=partial_anonymity]").click
-            f("input#use_for_grading").click
+            f("label[for='anonymous-selector-partial-anonymity']").click
+            f("label[for='use_for_grading']").click
             expect_new_page_load { f("button.save_and_publish").click }
           end
 
@@ -716,8 +716,8 @@ describe "discussions" do
             Discussion.click_group_category_select
             Discussion.click_group_category_option(group_cat.name)
             Discussion.save_button.click
-            wait_for_ajaximations
 
+            wait_for_new_page_load
             expect(driver.current_url).not_to end_with("/courses/#{course.id}/discussion_topics/#{teacher_topic.id}/edit")
           end
 
@@ -730,8 +730,8 @@ describe "discussions" do
             Discussion.click_group_category_select
             Discussion.click_group_category_option(group_cat.name)
             Discussion.save_button.click
-            wait_for_ajaximations
 
+            wait_for_new_page_load
             expect(driver.current_url).not_to end_with("/courses/#{course.id}/discussion_topics/#{teacher_topic.id}/edit")
           end
 
@@ -1449,7 +1449,8 @@ describe "discussions" do
             force_click_native('input[data-testid="assignee_selector"]')
             fj("li:contains('#{group_category.groups.first.name}')").click
             Discussion.save_button.click
-            wait_for_ajaximations
+
+            wait_for_new_page_load
             expect(driver.current_url).not_to include("edit")
           end
 
@@ -2019,6 +2020,31 @@ describe "discussions" do
             expect(DiscussionTopic.last.assignment).to be_nil
           end
 
+          it "clears out group category selection if discussion is turned into a checkpointed discussion" do
+            course.account.disable_feature!(:checkpoints_group_discussions)
+            topic = group_discussion_assignment
+            get "/courses/#{course.id}/discussion_topics/#{topic.id}/edit"
+            expect(f("input[data-testid='group-discussion-checkbox']").attribute("checked")).to be_truthy
+            expect(f("#discussion_group_category_id").attribute("value")).to eq topic.group_category.name
+
+            force_click_native("input[data-testid='checkpoints-checkbox']")
+            expect(f("input[data-testid='group-discussion-checkbox']").attribute("checked")).to be_falsey
+          end
+
+          it "preserves group category selection if discussion is turned into a checkpointed discussion when checkpoints_group_discussions is enabled" do
+            topic = group_discussion_assignment
+            preserved_id = topic.group_category.id
+            get "/courses/#{course.id}/discussion_topics/#{topic.id}/edit"
+            expect(f("input[data-testid='group-discussion-checkbox']").attribute("checked")).to be_truthy
+            expect(f("#discussion_group_category_id").attribute("value")).to eq topic.group_category.name
+
+            force_click_native("input[data-testid='checkpoints-checkbox']")
+            expect(f("input[data-testid='group-discussion-checkbox']").attribute("checked")).to be_truthy
+            expect(f("#discussion_group_category_id").attribute("value")).to eq topic.group_category.name
+            fj("button:contains('Save')").click
+            expect(topic.reload.group_category.id).to eq preserved_id
+          end
+
           it "checkpointed discussion assigned to Everyone with no dates appears correctly with embedded assign to cards" do
             get "/courses/#{course.id}/discussion_topics/new"
             title = "checkpointed discussion assigned to Everyone with no dates"
@@ -2105,6 +2131,7 @@ describe "discussions" do
             expect(student_ids).to match_array [student_1.global_id]
 
             # Verify that the discussion topic redirected the page to the new discussion topic
+            wait_for_new_page_load
             expect(driver.current_url).to end_with("/courses/#{course.id}/discussion_topics/#{dt.id}")
           end
         end

@@ -11,7 +11,6 @@
           id="has_group_category"
           prefix=prefix
           checked=isGroupAssignment
-          aria-role="option"
           aria-controls="group_category_options"
           readonly="readonly"
           aria-readonly="true"
@@ -22,7 +21,6 @@
           id="has_group_category"
           prefix=prefix
           checked=isGroupAssignment
-          aria-role="option"
           aria-controls="group_category_options"
           disabled=hasGroupCategoryDisabled
         }}
@@ -74,7 +72,7 @@
             aria-labelledby="assignment_group_category_id_label" {{disabledIf groupCategoryIdDisabled}}>
             <option value="blank" {{selectedIf groupCategoryUnselected}}>{{#t}}Select a group category{{/t}}</option>
             {{#each groupCategories}}
-            <option value="{{id}}" {{selectedIf ../groupCategoryId this.id}}>
+            <option value="{{id}}" {{selectedIfNumber ../groupCategoryId this.id}}>
               {{name}}
             </option>
             {{/each}}

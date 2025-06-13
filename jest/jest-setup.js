@@ -16,16 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import 'cross-fetch/polyfill'
-// eslint-disable-next-line import/no-nodejs-modules, no-redeclare
 import {loadDevMessages, loadErrorMessages} from '@apollo/client/dev'
 import {up as configureDateTime} from '@canvas/datetime/configureDateTime'
 import {up as configureDateTimeMomentParser} from '@canvas/datetime/configureDateTimeMomentParser'
 import {registerTranslations} from '@canvas/i18n'
 import rceFormatMessage from '@instructure/canvas-rce/es/format-message'
 import filterUselessConsoleMessages from '@instructure/filter-console-messages'
-import Enzyme from 'enzyme'
-import Adapter from 'enzyme-adapter-react-16'
 import CoreTranslations from '../public/javascripts/translations/en.json'
 import {up as installNodeDecorations} from '../ui/boot/initializers/installNodeDecorations'
 
@@ -120,8 +116,6 @@ window.ENV = {
     extended_submission_state: true,
   },
 }
-
-Enzyme.configure({adapter: new Adapter()})
 
 // because InstUI themeable components need an explicit "dir" attribute on the <html> element
 document.documentElement.setAttribute('dir', 'ltr')
@@ -267,6 +261,49 @@ if (!('structuredClone' in window)) {
 
 if (typeof window.URL.createObjectURL === 'undefined') {
   Object.defineProperty(window.URL, 'createObjectURL', {value: () => 'http://example.com/whatever'})
+}
+
+// Mock localStorage if it's not available in the test environment
+if (!('localStorage' in window)) {
+  class LocalStorageMock {
+    constructor() {
+      this.store = {}
+      this.length = 0
+    }
+
+    updateLength() {
+      this.length = Object.keys(this.store).length
+    }
+
+    clear() {
+      this.store = {}
+      this.updateLength()
+    }
+
+    getItem(key) {
+      return this.store[key] || null
+    }
+
+    setItem(key, value) {
+      this.store[key] = String(value)
+      this.updateLength()
+    }
+
+    removeItem(key) {
+      delete this.store[key]
+      this.updateLength()
+    }
+
+    key(index) {
+      const keys = Object.keys(this.store)
+      return index >= 0 && index < keys.length ? keys[index] : null
+    }
+  }
+
+  Object.defineProperty(window, 'localStorage', {
+    value: new LocalStorageMock(),
+    writable: true,
+  })
 }
 
 if (typeof window.URL.revokeObjectURL === 'undefined') {

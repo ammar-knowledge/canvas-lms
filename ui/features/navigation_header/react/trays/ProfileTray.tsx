@@ -28,6 +28,7 @@ import {Link} from '@instructure/ui-link'
 import {View} from '@instructure/ui-view'
 import LogoutButton from '../LogoutButton'
 import HighContrastModeToggle from './HighContrastModeToggle'
+import DyslexicFontToggle from './UseDyslexicFontToggle'
 import {AccessibleContent} from '@instructure/ui-a11y-content'
 import profileQuery from '../queries/profileQuery'
 import {getUnreadCount} from '../queries/unreadCountQuery'
@@ -61,9 +62,13 @@ function CountBadge({counts, id}: {counts: TabCountsObj; id: string}) {
 }
 
 function ProfileTabLink({id, html_url, label, counts}: ProfileTab) {
+  const target =
+    window.ENV.FEATURES?.open_tools_in_new_tab && html_url.includes('display=borderless')
+      ? '_blank'
+      : undefined
   return (
     <View className={`profile-tab-${id}`} as="div" margin="small 0">
-      <Link isWithinText={false} href={html_url}>
+      <Link isWithinText={false} href={html_url} target={target}>
         {label}
         <CountBadge counts={counts} id={id} />
       </Link>
@@ -146,6 +151,7 @@ export default function ProfileTray() {
       </List>
       <hr role="presentation" />
       <HighContrastModeToggle />
+      {'use_dyslexic_font' in window.ENV && <DyslexicFontToggle />}
     </View>
   )
 }

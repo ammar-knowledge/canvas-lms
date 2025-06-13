@@ -1938,7 +1938,7 @@ describe Assignment do
     let_once(:old_importing_assignment) do
       @course.assignments.create!(
         workflow_state: "importing",
-        importing_started_at: 20.minutes.ago,
+        importing_started_at: 35.minutes.ago,
         **assignment_valid_attributes
       )
     end
@@ -5440,6 +5440,14 @@ describe Assignment do
               job.invoke_job
             end
             expect(@assignment.reload.peer_reviews_assigned).to be(false)
+          end
+        end
+      end
+
+      context "touch_assignment_and_submittables" do
+        it "does not schedule 'do_auto_peer_review' job" do
+          expects_job_with_tag("Assignment#do_auto_peer_review", 0) do
+            @assignment.touch_assignment_and_submittable
           end
         end
       end
@@ -10873,17 +10881,16 @@ describe Assignment do
 
     describe "#update_line_items" do
       let(:use_1_3) { true }
-      let(:dev_key) { DeveloperKey.create! }
+      let(:registration) do
+        lti_registration_with_tool(account: course.root_account,
+                                   created_by: user_model,
+                                   configuration_params: {
+                                     target_link_uri: "http://www.tool.com/launch",
+                                     oidc_initiation_url: "https://www.tool.com/launch",
+                                   })
+      end
       let(:tool) do
-        course.context_external_tools.create!(
-          consumer_key: "key",
-          shared_secret: "secret",
-          name: "test tool",
-          url: "http://www.tool.com/launch",
-          lti_version: use_1_3 ? "1.3" : "1.1",
-          workflow_state: "public",
-          developer_key: dev_key
-        )
+        registration.new_external_tool(course)
       end
       let(:custom_params) do
         {
@@ -11136,7 +11143,16 @@ describe Assignment do
       end
 
       context "given an assignment bound to a non-LTI 1.3 tool" do
-        let(:use_1_3) { false }
+        let(:tool) do
+          course.context_external_tools.create!(
+            consumer_key: "key",
+            shared_secret: "secret",
+            name: "test tool",
+            url: "http://www.tool.com/launch",
+            lti_version: "1.1",
+            workflow_state: "public"
+          )
+        end
 
         it "does not create line items and resource links" do
           expect(assignment.line_items).to be_empty
@@ -12354,6 +12370,16 @@ describe Assignment do
 
     it "converts invalid submission types" do
       @assignment = assignment_model(submission_types: "online_url", course: @course)
+      expect(@assignment.submission_types).to eql("online_text_entry")
+    end
+
+    it "does not convert valid submission types" do
+      @assignment = assignment_model(submission_types: "online_text_entry,online_upload", course: @course)
+      expect(@assignment.submission_types).to eql("online_text_entry,online_upload")
+    end
+
+    it "converts mixed submission types" do
+      @assignment = assignment_model(submission_types: "online_text_entry,online_upload,on_paper", course: @course)
       expect(@assignment.submission_types).to eql("online_text_entry")
     end
 

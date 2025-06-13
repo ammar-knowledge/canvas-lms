@@ -94,6 +94,7 @@ describe('EditView', () => {
   beforeEach(() => {
     $container = $('<div>').appendTo(document.body)
     fakeENV.setup()
+    ENV.SETTINGS = {suppress_assignments: false}
     $(document).on('submit', e => e.preventDefault())
     fetchMock.mock('path:/api/v1/courses/1/lti_apps/launch_definitions', 200, {
       overwriteRoutes: true,
@@ -156,6 +157,7 @@ describe('EditView', () => {
       ENV.CONDITIONAL_RELEASE_ENV = {
         assignment: {id: 1},
       }
+      ENV.SETTINGS = {suppress_assignments: false}
       $(document).on('submit', e => e.preventDefault())
       // Use overwriteRoutes to prevent duplicate route errors
       fetchMock.mock('path:/api/v1/courses/1/lti_apps/launch_definitions', 200, {
@@ -199,8 +201,7 @@ describe('EditView', () => {
       view.loadConditionalRelease()
       view.renderTabs()
       expect(view.$discussionEditView.tabs('option', 'disabled')[0]).toBe(1)
-      view.$useForGrading.prop('checked', true)
-      view.$useForGrading.trigger('change')
+      view.$("label[for='use_for_grading']").click()
       expect(view.$discussionEditView.tabs('option', 'disabled')).toBe(false)
     })
 
@@ -209,8 +210,7 @@ describe('EditView', () => {
       view.loadConditionalRelease()
       view.renderTabs()
       expect(view.$discussionEditView.tabs('option', 'disabled')).toBe(false)
-      view.$useForGrading.prop('checked', false)
-      view.$useForGrading.trigger('change')
+      view.$("label[for='use_for_grading']").click()
       expect(view.$discussionEditView.tabs('option', 'disabled')[0]).toBe(1)
     })
 
@@ -308,6 +308,51 @@ describe('EditView', () => {
           superSpy.mockRestore()
         })
       })
+    })
+  })
+
+  describe('EditView#handleSuppressFromGradebookChange', () => {
+    beforeEach(() => {
+      fakeENV.setup()
+      ENV.SETTINGS = {suppress_assignments: false}
+    })
+
+    afterEach(() => {
+      fakeENV.teardown()
+    })
+
+    it('shoes the suppress checkbox when the feature is enabled', () => {
+      ENV.SETTINGS.suppress_assignments = true
+      const view = editView()
+      expect(view.$el.find('#assignment_suppress_from_gradebook')).toHaveLength(1)
+    })
+
+    it('does not show the suppress checkbox when the feature is disabled', () => {
+      ENV.SETTINGS.suppress_assignments = false
+      const view = editView()
+      expect(view.$el.find('#assignment_suppress_from_gradebook')).toHaveLength(0)
+    })
+
+    it('calls suppressAssignment on the assignment when checkbox is checked', () => {
+      ENV.SETTINGS.suppress_assignments = true
+      const view = editView()
+      const spy = jest.spyOn(view.assignment, 'suppressAssignment')
+      view.$suppressAssignment.prop('checked', true)
+
+      view.handleSuppressFromGradebookChange()
+
+      expect(spy).toHaveBeenCalledWith(true)
+    })
+
+    it('calls suppressAssignment on the assignment when checkbox is unchecked', () => {
+      ENV.SETTINGS.suppress_assignments = true
+      const view = editView()
+      const spy = jest.spyOn(view.assignment, 'suppressAssignment')
+      view.$suppressAssignment.prop('checked', false)
+
+      view.handleSuppressFromGradebookChange()
+
+      expect(spy).toHaveBeenCalledWith(false)
     })
   })
 })

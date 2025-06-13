@@ -30,6 +30,7 @@ type Setting =
   | 'hide_dashcard_color_overlays'
   | 'comment_library_suggestions_enabled'
   | 'elementary_dashboard_disabled'
+  | 'suppress_assignments'
 
 type Role = {
   addable_by_user: boolean
@@ -143,12 +144,14 @@ export interface EnvCommon {
   help_link_name: string
   help_link_icon: string
   use_high_contrast: boolean
+  use_dyslexic_font?: boolean
   auto_show_cc: boolean
   disable_celebrations: boolean
   disable_keyboard_shortcuts: boolean
   LTI_LAUNCH_FRAME_ALLOWANCES: string[]
   LTI_TOOL_SCOPES?: {[key: string]: string[]}
   DEEP_LINKING_POST_MESSAGE_ORIGIN: string
+  HORIZON_DOMAIN: string
   comment_library_suggestions_enabled: boolean
   INCOMPLETE_REGISTRATION: boolean
   SETTINGS: Record<Setting, boolean>
@@ -275,6 +278,7 @@ export interface EnvCommon {
   top_navigation_tools: Tool[]
 
   BLUEPRINT_COURSES_DATA: BlueprintCoursesData | undefined
+  AI_FEEDBACK_LINK?: string
 }
 
 /**
@@ -300,6 +304,8 @@ export type SiteAdminFeatureId =
   | 'new_quizzes_navigation_updates'
   | 'create_wiki_page_mastery_path_overrides'
   | 'create_external_apps_side_tray_overrides'
+  | 'files_a11y_rewrite_toggle'
+  | 'files_a11y_rewrite'
 /**
  * From ApplicationController#JS_ENV_ROOT_ACCOUNT_FEATURES
  */
@@ -333,6 +339,9 @@ export type RootAccountFeatureId =
   | 'course_pace_weighted_assignments'
   | 'course_pace_allow_bulk_pace_assign'
   | 'disable_iframe_sandbox_file_show'
+  | 'ams_service'
+  | 'lti_apps_page_ai_translation'
+  | 'open_tools_in_new_tab'
 
 /**
  * From ApplicationController#JS_ENV_ROOT_ACCOUNT_SERVICES

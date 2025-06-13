@@ -788,6 +788,59 @@ describe Account do
     expect(Account.limit(10).sub_accounts_recursive(sub.id).sort).to eq(subs.sort_by(&:id))
   end
 
+  context "partitioned_sub_account_ids_recursive" do
+    subject { Account.partitioned_sub_account_ids_recursive(account_ids) }
+
+    let(:account_ids) { [root.id, sub_1.id, sub_2.id] }
+    let(:sub_5) { account_model(parent_account: sub_3) }
+    let(:sub_4) { account_model(parent_account: sub_1) }
+    let(:sub_3) { account_model(parent_account: sub_1) }
+    let(:sub_2) { account_model(parent_account: root) }
+    let(:sub_1) { account_model(parent_account: root) }
+    let(:root) { account_model }
+
+    before do
+      root
+      sub_1
+      sub_2
+      sub_3
+      sub_4
+      sub_5
+    end
+
+    context "when given no account ids" do
+      let(:account_ids) { [] }
+
+      it "returns an empty hash" do
+        expect(subject).to eq({})
+      end
+    end
+
+    context "with ids across multiple shards" do
+      specs_require_sharding
+
+      let(:account) { account_model }
+      let(:xaccount) { @shard2.activate { account_model } }
+      let(:account_ids) { [account.id, xaccount.id] }
+
+      it "errors" do
+        expect { subject }.to raise_error(ArgumentError, "all parent_account_ids must be in the same shard")
+      end
+    end
+
+    it "returns empty array for an account with no sub-accounts" do
+      expect(subject[sub_2.id]).to eq([])
+    end
+
+    it "returns sub-account ids recursively for a given account" do
+      expect(subject[root.id]).to match_array([sub_1.id, sub_2.id, sub_3.id, sub_4.id, sub_5.id])
+    end
+
+    it "returns sub-account ids recursively for a given sub-account" do
+      expect(subject[sub_1.id]).to match_array([sub_3.id, sub_4.id, sub_5.id])
+    end
+  end
+
   it "returns the correct user count" do
     a = Account.default
     expect(a.all_users.count).to eq a.user_count
@@ -2205,6 +2258,56 @@ describe Account do
         end
       end
     end
+
+    describe "account_chain_ids_for_multiple_accounts" do
+      let(:account1) { Account.default.sub_accounts.create! }
+      let(:account2) { Account.default.sub_accounts.create! }
+      let(:account3) { account1.sub_accounts.create! }
+
+      before do
+        account1
+        account2
+      end
+
+      it "is correct" do
+        expect(Account.account_chain_ids_for_multiple_accounts([account1.id, account2.id, account3.id])).to eq(
+          {
+            account1.id => [account1.id, Account.default.id],
+            account2.id => [account2.id, Account.default.id],
+            account3.id => [account3.id, account1.id, Account.default.id],
+          }
+        )
+      end
+
+      it "can handle account chain changes" do
+        account3.update_attribute(:parent_account, account2)
+        expect(Account.account_chain_ids_for_multiple_accounts([account1.id, account2.id, account3.id])).to eq(
+          {
+            account1.id => [account1.id, Account.default.id],
+            account2.id => [account2.id, Account.default.id],
+            account3.id => [account3.id, account2.id, Account.default.id],
+          }
+        )
+      end
+
+      it "can handle root accounts" do
+        expect(Account.account_chain_ids_for_multiple_accounts([Account.default.id, account1.id])).to eq(
+          {
+            Account.default.id => [Account.default.id],
+            account1.id => [account1.id, Account.default.id],
+          }
+        )
+      end
+
+      it "can handle lots of accounts" do
+        accounts = Array.new(100) { Account.default.sub_accounts.create! }
+        expect(Account.account_chain_ids_for_multiple_accounts(accounts.map(&:id))).to eq(
+          accounts.each_with_object({}) do |account, hash|
+            hash[account.id] = [account.id, Account.default.id]
+          end
+        )
+      end
+    end
   end
 
   describe "#destroy on sub accounts" do
@@ -3011,6 +3114,30 @@ describe Account do
         expect(subaccount.horizon_account[:value]).to be false
         expect(subaccount.horizon_account[:inherited]).to be true
       end
+    end
+  end
+
+  describe "horizon_url" do
+    before :once do
+      @account = Account.default
+      @account.settings[:horizon_domain] = "test.canvasforcareer.com"
+      @account.save!
+    end
+
+    it "returns the url with the specified path" do
+      expect(@account.horizon_url("api/v1/test").to_s).to eq("https://test.canvasforcareer.com/api/v1/test")
+    end
+
+    it "returns nil if horizon_domain is not set" do
+      @account.settings[:horizon_domain] = nil
+      @account.save!
+      expect(@account.horizon_url("api/v1/test")).to be_nil
+    end
+
+    it "uses http protocol for localhost domains" do
+      @account.settings[:horizon_domain] = "localhost:3002"
+      @account.save!
+      expect(@account.horizon_url("api/v1/test").to_s).to eq("http://localhost:3002/api/v1/test")
     end
   end
 

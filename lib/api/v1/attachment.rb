@@ -19,6 +19,7 @@
 #
 
 module Api::V1::Attachment
+  include Api::V1::EstimatedDuration
   include Api::V1::Json
   include Api::V1::Locked
   include Api::V1::Progress
@@ -100,12 +101,22 @@ module Api::V1::Attachment
         url = thumbnail_url
       else
         h = { download: "1", download_frd: "1" }
+
         unless attachment.root_account.feature_enabled?(:disable_adding_uuid_verifier_in_api)
-          h[:verifier] = options[:verifier] if options[:verifier].present?
+          h[:verifier] = url_options[:verifier] if url_options[:verifier].present?
           h[:verifier] ||= attachment.uuid unless options[:omit_verifier_in_app] && ((respond_to?(:in_app?, true) && in_app?) || @authenticated_with_jwt)
         end
+
+        if url_options[:location].present?
+          h[:location] = url_options[:location]
+        end
+
         h.merge!(options.slice(:access_token, :instfs_id)) if options[:access_token].present? && options[:instfs_id].present?
-        url = file_download_url(attachment, h.merge(url_options))
+
+        final_options = url_options.is_a?(Hash) ? url_options.dup : url_options.to_h
+        final_options.merge!(h)
+
+        url = file_download_url(attachment, final_options)
       end
       # and svg can stand in as its own thumbnail, but let's be reasonable about their size
       if !thumbnail_url && attachment.content_type == "image/svg+xml" && attachment.size < 16_384 # 16k
@@ -144,6 +155,10 @@ module Api::V1::Attachment
       hash["visibility_level"] = attachment.visibility_level
     end
 
+    if attachment.context.try(:horizon_course?) && attachment.estimated_duration&.marked_for_destruction? == false
+      hash["estimated_duration"] = estimated_duration_json(attachment.estimated_duration, user, nil)
+    end
+
     if includes.include? "user"
       context = attachment.context
       context = :profile if context == user
@@ -170,8 +185,9 @@ module Api::V1::Attachment
       url_opts = {
         annotate: 0
       }
-      url_opts[:verifier] = options[:verifier] if options[:verifier].present?
+      url_opts[:verifier] = url_options[:verifier] if url_options[:verifier].present?
       url_opts[:verifier] ||= attachment.uuid if downloadable && !options[:omit_verifier_in_app] && !((respond_to?(:in_app?, true) && in_app?) || @authenticated_with_jwt)
+
       if options[:access_token].present? && options[:instfs_id].present?
         url_opts.merge!(options.slice(:access_token, :instfs_id))
       end
@@ -343,7 +359,7 @@ module Api::V1::Attachment
                          current_user
                        end
 
-    if params[:on_duplicate] == "error" && folder.active_file_attachments.where(display_name: infer_upload_filename(params)).exists?
+    if params[:on_duplicate] == "error" && folder && folder.active_file_attachments.where(display_name: infer_upload_filename(params)).exists?
       return render json: { message: "file already exists; use on_duplicate='overwrite' or 'rename'" }, status: :conflict
     end
 
@@ -457,6 +473,9 @@ module Api::V1::Attachment
     attachment.workflow_state = opts[:temporary] ? "unattached_temporary" : "unattached"
     attachment.modified_at = Time.now.utc
     attachment.category = params[:category] if params[:category].present?
+    if context.try(:horizon_course?) && params[:estimated_duration_attributes].present?
+      attachment.estimated_duration_attributes = params[:estimated_duration_attributes].slice(:minutes)
+    end
     attachment.save!
     attachment
   end

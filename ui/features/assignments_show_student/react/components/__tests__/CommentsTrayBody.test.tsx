@@ -27,8 +27,8 @@ import {
   MARK_SUBMISSION_COMMENT_READ,
 } from '@canvas/assignments/graphql/student/Mutations'
 import {mockAssignmentAndSubmission, mockQuery} from '@canvas/assignments/graphql/studentMocks'
-import { ApolloClient, gql } from '@apollo/client';
-import { createCache} from "@canvas/apollo-v3";
+import {ApolloClient, gql} from '@apollo/client'
+import {createCache} from '@canvas/apollo-v3'
 import {MockedProvider} from '@apollo/client/testing'
 import {act, fireEvent, render, waitFor} from '@testing-library/react'
 import React from 'react'
@@ -1038,106 +1038,108 @@ describe('CommentsTrayBody', () => {
 })
 
 describe('Submission Draft and Comment Behavior', () => {
-    let client;
+  let client
 
-    beforeEach(() => {
-        const cache = createCache();
-        client = new ApolloClient({
-            cache,
-            uri: '/api/graphql',
-        });
-    });
+  beforeEach(() => {
+    const cache = createCache()
+    client = new ApolloClient({
+      cache,
+      uri: '/api/graphql',
+    })
+  })
 
-    function writeToCache(client, query, data) {
-        client.writeQuery({
-            query,
-            data,
-        });
-    }
+  function writeToCache(client, query, data) {
+    client.writeQuery({
+      query,
+      data,
+    })
+  }
 
-    function readFromCache(client, query) {
-        return client.cache.readQuery({
-            query,
-        });
-    }
+  function readFromCache(client, query) {
+    return client.cache.readQuery({
+      query,
+    })
+  }
 
-// Test case
-    it('allows sending a comment after discarding a submission draft', async () => {
-        const submissionId = "test-submission-id";
+  // Test case
+  it('allows sending a comment after discarding a submission draft', async () => {
+    const submissionId = 'test-submission-id'
 
-        const submissionQuery = gql`
-    query GetSubmission {
-      node(id: "${submissionId}") {
-        __typename
-        submissionHistoriesConnection(filter: { includeCurrentSubmission: false }) {
-          nodes {
-            id
-          }
-        }
-      }
-    }
-  `;
-
-        const commentQuery = gql`
-        query GetComments {
+    const submissionQuery = gql`
+        query GetHistory {
           node(id: "${submissionId}") {
             __typename
-            commentsConnection(filter: { forAttempt: 1, peerReview: false }, last: 20) {
-              nodes {
-                id
-                content
+            ... on Submission {
+              submissionHistoriesConnection(filter: { includeCurrentSubmission: false }) {
+                nodes {
+                  attempt
+                }
               }
             }
           }
         }
-        `;
+      `
 
-        // Mock creating a submission draft
-        writeToCache(client, submissionQuery, {
-            node: {
-                __typename: 'Submission',
-                submissionHistoriesConnection: {
-                    __typename: 'SubmissionHistoryConnection',
-                    nodes: [{ id: 'draft-1' }],
-                },
-            },
-        });
+    const commentQuery = gql`
+        query GetComments {
+          node(id: "${submissionId}") {
+            __typename
+            ... on Submission {
+              commentsConnection(filter: { forAttempt: 1, peerReview: false }, last: 20) {
+                nodes {
+                  _id
+                  comment
+                }
+              }
+            }
+          }
+        }
+        `
 
-        // Verify draft exists in cache
-        let cacheData = readFromCache(client, submissionQuery);
-        console.log('cacheData', cacheData)
-        expect(cacheData.node.submissionHistoriesConnection.nodes).toHaveLength(1);
+    // Mock creating a submission draft
+    writeToCache(client, submissionQuery, {
+      node: {
+        __typename: 'Submission',
+        submissionHistoriesConnection: {
+          __typename: 'SubmissionHistoryConnection',
+          nodes: [{attempt: 1}],
+        },
+      },
+    })
 
-        // Mock discarding the draft
-        writeToCache(client, submissionQuery, {
-            node: {
-                __typename: 'Submission',
-                submissionHistoriesConnection: {
-                    __typename: 'SubmissionHistoryConnection',
-                    nodes: [],
-                },
-            },
-        });
+    // Verify draft exists in cache
+    let cacheData = readFromCache(client, submissionQuery)
+    expect(cacheData.node.submissionHistoriesConnection.nodes).toHaveLength(1)
 
-        // Verify draft is removed from cache
-        cacheData = readFromCache(client, submissionQuery);
-        expect(cacheData.node.submissionHistoriesConnection.nodes).toHaveLength(0);
+    // Mock discarding the draft
+    writeToCache(client, submissionQuery, {
+      node: {
+        __typename: 'Submission',
+        submissionHistoriesConnection: {
+          __typename: 'SubmissionHistoryConnection',
+          nodes: [],
+        },
+      },
+    })
 
-        // Mock sending a comment
-        writeToCache(client, commentQuery, {
-            node: {
-                __typename: 'Submission',
-                commentsConnection: {
-                    __typename: 'CommentConnection',
-                    nodes: [{ id: 'comment-1', content: 'This is a comment' }],
-                },
-            },
-        });
+    // Verify draft is removed from cache
+    cacheData = readFromCache(client, submissionQuery)
+    expect(cacheData.node.submissionHistoriesConnection.nodes).toHaveLength(0)
 
-        // Verify comment is added to cache
-        cacheData = readFromCache(client, commentQuery);
-        expect(cacheData.node.commentsConnection.nodes).toHaveLength(1);
-        expect(cacheData.node.commentsConnection.nodes[0].content).toBe('This is a comment');
-    });
-});
+    // Mock sending a comment
+    writeToCache(client, commentQuery, {
+      node: {
+        __typename: 'Submission',
+        commentsConnection: {
+          __typename: 'CommentConnection',
+          nodes: [{_id: 'comment-1', comment: 'This is a comment'}],
+        },
+      },
+    })
 
+    // Verify comment is added to cache
+    cacheData = readFromCache(client, commentQuery)
+    expect(cacheData.node.commentsConnection.nodes).toHaveLength(1)
+    expect(cacheData.node.commentsConnection.nodes[0].comment).toBe('This is a comment')
+  })
+})

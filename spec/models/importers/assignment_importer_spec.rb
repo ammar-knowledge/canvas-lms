@@ -558,17 +558,10 @@ describe "Importing assignments" do
     context "and the tool uses LTI 1.3" do
       let(:tool_id) { tool.id }
       let(:tool_url) { tool.url }
+      let(:registration) { lti_registration_with_tool(account: course.root_account, created_by: user_model) }
       let(:dev_key) { DeveloperKey.create! }
       let(:tool) do
-        course.context_external_tools.create!(
-          consumer_key: "key",
-          shared_secret: "secret",
-          name: "test tool",
-          url: "http://www.tool.com/launch",
-          lti_version: "1.3",
-          workflow_state: "public",
-          developer_key: dev_key
-        )
+        registration.deployments.first
       end
       let(:assignment) do
         course.assignments.create!(
@@ -1671,6 +1664,27 @@ describe "Importing assignments" do
           expect(subject.parent_assignment_id).to eq(parent_item.id)
         end
       end
+    end
+  end
+
+  describe "default assignment group" do
+    let(:course) { Course.create! }
+    let(:migration) { course.content_migrations.create! }
+    let(:assignment_hash) do
+      {
+        migration_id:,
+        title: "wiki page assignment",
+        submission_types: "wiki_page",
+        assignment_group_migration_id: nil,
+        wiki_page_migration_id: "mig"
+      }
+    end
+
+    it "hidden assignment for wiki page has default assignment group" do
+      Importers::AssignmentImporter.import_from_migration(assignment_hash, course, migration)
+
+      assignment = course.assignments.where(migration_id:).first
+      expect(assignment.assignment_group.name).to eq("Imported Assignments")
     end
   end
 end

@@ -44,6 +44,11 @@ class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
     discussion_topic = DiscussionTopic.find(input[:discussion_topic_id])
     raise GraphQL::ExecutionError, "insufficient permission" unless discussion_topic.grants_right?(current_user, :update)
 
+    if input[:message] != discussion_topic.message && discussion_topic.editing_restricted?(:content)
+      # editing is impossible frontwise, so we're just gonna ignore auto formatting
+      input[:message] = discussion_topic.message
+    end
+
     if input[:anonymous_state].present? && discussion_topic.discussion_subentry_count > 0
       return validation_error(I18n.t("Anonymity settings are locked due to a posted reply"))
     end
@@ -151,6 +156,7 @@ class Mutations::UpdateDiscussionTopic < Mutations::DiscussionBase
           # Instantiate and execute UpdateAssignment mutation
           assignment_mutation = Mutations::UpdateAssignment.new(object: nil, context:, field: nil)
           assignment_result = assignment_mutation.resolve(input: updated_assignment_args)
+          discussion_topic.assignment = assignment_result[:assignment] if input[:assignment][:set_assignment] != false
           discussion_topic.lock_at = input[:assignment][:lock_at] if input[:assignment][:set_assignment] != false
           discussion_topic.unlock_at = input[:assignment][:unlock_at] if input[:assignment][:set_assignment] != false
 

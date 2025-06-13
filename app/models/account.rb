@@ -24,8 +24,6 @@ class Account < ActiveRecord::Base
   include Pronouns
   include SearchTermHelper
 
-  self.ignored_columns += ["enable_user_notes"]
-
   INSTANCE_GUID_SUFFIX = "canvas-lms"
   CALENDAR_SUBSCRIPTION_TYPES = %w[manual auto].freeze
 
@@ -339,6 +337,7 @@ class Account < ActiveRecord::Base
   add_setting :show_scheduler, boolean: true, root_only: true, default: false
   add_setting :enable_profiles, boolean: true, root_only: true, default: false
   add_setting :enable_turnitin, boolean: true, default: false
+  add_setting :suppress_assignments, boolean: true, default: false, root_only: true
   add_setting :mfa_settings, root_only: true
   add_setting :mobile_qr_login_is_enabled, boolean: true, root_only: true, default: true
   add_setting :admins_can_change_passwords, boolean: true, root_only: true, default: false
@@ -437,6 +436,9 @@ class Account < ActiveRecord::Base
   add_setting :allow_assign_to_differentiation_tags, boolean: true, root_only: false, default: false, inheritable: true
 
   add_setting :horizon_account, boolean: true, default: false, inheritable: true
+
+  add_setting :decimal_separator, inheritable: true
+  add_setting :thousand_separator, inheritable: true
 
   def settings=(hash)
     if hash.is_a?(Hash) || hash.is_a?(ActionController::Parameters)
@@ -547,7 +549,7 @@ class Account < ActiveRecord::Base
 
   def allow_assign_to_differentiation_tags_unlocked?
     # First, the feature flag must be enabled. If not, always false.
-    return false unless feature_enabled?(:assign_to_differentiation_tags)
+    return false unless feature_allowed?(:assign_to_differentiation_tags)
 
     dt = allow_assign_to_differentiation_tags
 
@@ -700,7 +702,7 @@ class Account < ActiveRecord::Base
   def update_account_associations_if_changed
     # if the account structure changed, but this is _not_ a new object
     if (saved_change_to_parent_account_id? || saved_change_to_root_account_id?) &&
-       !saved_change_to_id?
+       !previously_new_record?
       shard.activate do
         delay_if_production.update_account_associations
       end
@@ -1132,6 +1134,53 @@ class Account < ActiveRecord::Base
     key ? Rails.cache.fetch(["account_chain_ids", key], &block) : block.call
   end
 
+  # Returns a hash of account ids to an array of their account chain ids. Basically,
+  # it's like Account.account_chain_ids, but for multiple accounts at once.
+  # The array is sorted from bottom of the chain to the top, so the first element
+  # is the account itself. The last element is a root account.
+  # There are a few limitations with this method:
+  # 1. It only works for accounts that are in the same shard. This method assumes that
+  #    all of the provided account_ids are on the *current* shard, so you are responsible
+  #    for activating the correct shard when running this.
+  # 2. It does not include site admin or consortia parent ids in the chain. If you need
+  #   those, you should use Account.account_chain_ids instead, or figure out how to make
+  #   this method include them.
+  # Finally, note that this method uses a recursive CTE, so, if the account chain ends
+  # up being very long, it may suffer from poor performance. It will also suffer from
+  # poor performance if you pass in a large number of account ids, so be careful!
+  #
+  # @param account_ids [Array] The ids of the accounts to get the chain ids for.
+  # @return [Hash] A hash of account ids to an array of their account chain ids.
+  # @example
+  #   Account.account_chain_ids_for_accounts([1, 2, 3])
+  #   # => {1 => [1, 2], 2 => [2], 3 => [3]}
+  def self.account_chain_ids_for_multiple_accounts(account_ids)
+    results = GuardRail.activate(:secondary) do
+      Account.connection.select_rows(<<~SQL.squish)
+            with recursive account_chain_ids as (
+              select id,
+                parent_account_id,
+                id as original_account_id,
+                0 as level
+              from #{Account.quoted_table_name} a
+              where id in (#{Account.sanitize_sql(account_ids.join(", "))})
+              union
+              SELECT a.id,
+                a.parent_account_id,
+                aci.original_account_id,
+                aci.level + 1
+              FROM #{Account.quoted_table_name} a
+                INNER JOIN account_chain_ids aci ON a.id = aci.parent_account_id
+        )
+        select * from account_chain_ids order by original_account_id, level;
+      SQL
+    end
+
+    results.group_by { |row| row[2] }.transform_values do |rows|
+      rows.map { |row| row[0] }
+    end
+  end
+
   def self.multi_account_chain_ids(starting_account_ids)
     original_shard = Shard.current
     Shard.partition_by_shard(starting_account_ids) do |sliced_acc_ids|
@@ -1300,6 +1349,51 @@ class Account < ActiveRecord::Base
        #{relation_with_ids.joins("INNER JOIN t ON accounts.parent_account_id=t.id").to_sql}
      )
      #{relation_with_select.only(:select, :group, :having, :limit, :offset).from("t").to_sql}"
+  end
+
+  # Recursively finds all sub-accounts in the chain for each parent account id,
+  # instead of for all of them like multi_parent_sub_accounts_recursive.
+  #
+  # @param parent_account_ids [Array] The "top" of the account chain.
+  # @return [Hash] A hash of parent account ids to an array of their sub-account ids.
+  # @example
+  #   Account.partitioned_sub_account_ids_recursive([1, 2, 3])
+  #   # => {1 => [4, 5], 2 => [6], 3 => []}
+  def self.partitioned_sub_account_ids_recursive(parent_account_ids)
+    return {} if parent_account_ids.blank?
+
+    # Validate all parent_account_ids are on the same shard
+    account_shards = parent_account_ids.map do |parent_account_id|
+      Shard.shard_for(parent_account_id)
+    end.uniq
+    raise ArgumentError, "all parent_account_ids must be in the same shard" if account_shards.length > 1
+
+    anchor = Account.active.where(parent_account_id: parent_account_ids).select(:id, :parent_account_id, Account.arel_table["parent_account_id"].as("original_parent_account_id"))
+    recurse = Account.active.joins("INNER JOIN t ON accounts.parent_account_id=t.id").select(:id, :parent_account_id, "t.original_parent_account_id AS original_parent_account_id")
+
+    sql = <<~SQL.squish
+      WITH RECURSIVE t AS (
+        #{anchor.to_sql}
+        UNION
+        #{recurse.to_sql}
+      )
+      SELECT id, original_parent_account_id FROM t
+    SQL
+
+    subaccount_ids = account_shards.first.activate do
+      with_secondary_role_if_possible do
+        rows = Account.connection.select_all(sql) # [{ id: 1, original_parent_account_id: 2}]
+        grouped_rows = rows.group_by { |r| r["original_parent_account_id"] } # { 2 => [{ id: 1, original_parent_account_id: 2 }] }
+        grouped_rows.transform_values { |gr| gr.map { |r| r["id"] } } # { 2 => [1] }
+      end
+    end
+
+    # accounts without subaccounts are not included by the query
+    parent_account_ids.each do |parent_account_id|
+      subaccount_ids[parent_account_id] ||= []
+    end
+
+    subaccount_ids
   end
 
   def associated_accounts
@@ -2666,11 +2760,17 @@ class Account < ActiveRecord::Base
     settings[:horizon_domain]
   end
 
-  def horizon_redirect_url(canvas_url, reauthenticate: false, preview: false)
+  def horizon_url(path)
     return nil unless horizon_domain
 
     protocol = horizon_domain.include?("localhost") ? "http" : "https"
-    uri = Addressable::URI.parse("#{protocol}://#{horizon_domain}/redirect")
+    Addressable::URI.parse("#{protocol}://#{horizon_domain}/#{path}")
+  end
+
+  def horizon_redirect_url(canvas_url, reauthenticate: false, preview: false)
+    return nil unless horizon_domain
+
+    uri = horizon_url("redirect")
     uri.query_values = { canvas_url:, reauthenticate:, preview: }
     uri.to_s
   end
@@ -2680,7 +2780,7 @@ class Account < ActiveRecord::Base
   end
 
   def horizon_account?
-    feature_enabled?(:horizon_course_setting) && horizon_account[:value]
+    horizon_account[:value] && feature_enabled?(:horizon_course_setting)
   end
 
   def horizon_account=(value)

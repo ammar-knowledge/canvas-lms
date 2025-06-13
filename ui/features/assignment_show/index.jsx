@@ -22,7 +22,6 @@ import '@canvas/jquery/jquery.ajaxJSON'
 import React from 'react'
 import {createRoot} from 'react-dom/client'
 import axios from '@canvas/axios'
-import qs from 'qs'
 import Assignment from '@canvas/assignments/backbone/models/Assignment'
 import PublishButtonView from '@canvas/publish-button-view'
 import SpeedgraderLinkView from './backbone/views/SpeedgraderLinkView'
@@ -32,6 +31,7 @@ import CyoeStats from '@canvas/conditional-release-stats/react/index'
 import '@canvas/jquery/jquery.instructure_forms'
 import LockManager from '@canvas/blueprint-courses/react/components/LockManager/index'
 import AssignmentExternalTools from '@canvas/assignments/react/AssignmentExternalTools'
+import AssignmentAssetProcessorEula from '@canvas/assignments/react/AssignmentAssetProcessorEula'
 import StudentGroupFilter from '@canvas/student-group-filter'
 import SpeedGraderLink from '@canvas/speed-grader-link'
 import DirectShareUserModal from '@canvas/direct-sharing/react/components/DirectShareUserModal'
@@ -40,14 +40,16 @@ import {setupSubmitHandler} from '@canvas/assignments/jquery/reuploadSubmissions
 import ready from '@instructure/ready'
 import ItemAssignToManager from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToManager'
 import {captureException} from '@sentry/browser'
-import {RubricAssignmentContainer} from '@canvas/rubrics/react/RubricAssignment'
+import {
+  RubricAssignmentContainer,
+  RubricSelfAssessmentSettingsWrapper,
+} from '@canvas/rubrics/react/RubricAssignment'
 import {
   mapRubricUnderscoredKeysToCamelCase,
   mapRubricAssociationUnderscoredKeysToCamelCase,
 } from '@canvas/rubrics/react/utils'
 import sanitizeHtml from 'sanitize-html-with-tinymce'
 import {containsHtmlTags, formatMessage} from '@canvas/util/TextHelper'
-import {RubricSelfAssessmentSettingsWrapper} from './react/RubricSelfAssessmentSettingsWrapper'
 
 if (!('INST' in window)) window.INST = {}
 
@@ -103,17 +105,14 @@ function onStudentGroupSelected(selectedStudentGroupId) {
     renderSpeedGraderLink()
 
     axios
-      .put(
-        `/api/v1/courses/${ENV.COURSE_ID}/gradebook_settings`,
-        {
-          gradebook_settings: {
-            filter_rows_by: {
-              student_group_id: selectedStudentGroupId,
-              student_group_ids: [selectedStudentGroupId],
-            },
+      .put(`/api/v1/courses/${ENV.COURSE_ID}/gradebook_settings`, {
+        gradebook_settings: {
+          filter_rows_by: {
+            student_group_id: selectedStudentGroupId,
+            student_group_ids: [selectedStudentGroupId],
           },
-        }
-      )
+        },
+      })
       .finally(() => {
         studentGroupSelectionRequestTrackers = studentGroupSelectionRequestTrackers.filter(
           item => item !== tracker,
@@ -387,7 +386,7 @@ $(() => {
 
   setupSubmitHandler(ENV.USER_ASSET_STRING)
 
-  $('#edit_assignment_form').bind('assignment_updated', (event, data) => {
+  $('#edit_assignment_form').bind('assignment_updated', (_, data) => {
     if (data.assignment && data.assignment.peer_reviews) {
       $('.assignment_peer_reviews_link').slideDown()
     } else {
@@ -419,3 +418,12 @@ ready(() => {
     $('#accessibility_warning').addClass('screenreader-only')
   })
 })
+
+if (ENV.FEATURES.lti_asset_processor) {
+  ready(() => {
+    createOrUpdateRoot(
+      'assignment_asset_processor_eula',
+      <AssignmentAssetProcessorEula launches={ENV.ASSET_PROCESSOR_EULA_LAUNCH_URLS} />,
+    )
+  })
+}

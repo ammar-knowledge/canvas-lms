@@ -1040,10 +1040,10 @@ describe('util', () => {
 
     describe('listDroppedAssignments', () => {
       it('should return an empty array when assignments are not provided', () => {
-        const assignments = undefined
+        const assignmentsData = undefined
 
-        expect(listDroppedAssignments(assignments, true)).toEqual([])
-        expect(listDroppedAssignments(assignments, false)).toEqual([])
+        expect(listDroppedAssignments(undefined, assignmentsData, true)).toEqual([])
+        expect(listDroppedAssignments(undefined, assignmentsData, false)).toEqual([])
       })
 
       describe('when dropLowest is 1', () => {
@@ -1082,9 +1082,6 @@ describe('util', () => {
             id: 'Q291cnNlLTE=',
             name: 'Dragon Riding',
             applyGroupWeights: true,
-            assignmentsConnection: {
-              nodes: assignments,
-            },
             assignmentGroupsConnection: {
               nodes: assignmentGroups,
             },
@@ -1094,7 +1091,13 @@ describe('util', () => {
             },
           }
 
-          expect(listDroppedAssignments(queryData, false)).toEqual([assignments[1]])
+          const assignmentsData = {
+            assignments,
+          }
+
+          expect(listDroppedAssignments(queryData, assignmentsData, false)).toEqual([
+            assignments[1],
+          ])
         })
       })
 
@@ -1134,9 +1137,6 @@ describe('util', () => {
             id: 'Q291cnNlLTE=',
             name: 'Dragon Riding',
             applyGroupWeights: true,
-            assignmentsConnection: {
-              nodes: assignments,
-            },
             assignmentGroupsConnection: {
               nodes: assignmentGroups,
             },
@@ -1146,7 +1146,13 @@ describe('util', () => {
             },
           }
 
-          expect(listDroppedAssignments(queryData, false)).toEqual([assignments[0]])
+          const assignmentsData = {
+            assignments,
+          }
+
+          expect(listDroppedAssignments(queryData, assignmentsData, false)).toEqual([
+            assignments[0],
+          ])
         })
       })
 
@@ -1186,9 +1192,6 @@ describe('util', () => {
             id: 'Q291cnNlLTE=',
             name: 'Dragon Riding',
             applyGroupWeights: true,
-            assignmentsConnection: {
-              nodes: assignments,
-            },
             assignmentGroupsConnection: {
               nodes: assignmentGroups,
             },
@@ -1198,7 +1201,13 @@ describe('util', () => {
             },
           }
 
-          expect(listDroppedAssignments(queryData, false)).toEqual([assignments[0]])
+          const assignmentsData = {
+            assignments,
+          }
+
+          expect(listDroppedAssignments(queryData, assignmentsData, false)).toEqual([
+            assignments[0],
+          ])
         })
       })
     })
@@ -1806,32 +1815,32 @@ describe('util', () => {
 
       let filtered = filteredAssignments(
         {
-          assignmentsConnection: {nodes: assignments},
+          assignments,
         },
         true,
       )
 
-      expect(filtered.length).toBe(4)
+      expect(filtered).toHaveLength(4)
 
       assignments[0].gradingType = 'not_graded'
       filtered = filteredAssignments(
         {
-          assignmentsConnection: {nodes: assignments},
+          assignments,
         },
         true,
       )
 
-      expect(filtered.length).toBe(3)
+      expect(filtered).toHaveLength(3)
 
       assignments[1].submissionsConnection.nodes = []
       filtered = filteredAssignments(
         {
-          assignmentsConnection: {nodes: assignments},
+          assignments,
         },
         true,
       )
 
-      expect(filtered.length).toBe(2)
+      expect(filtered).toHaveLength(2)
     })
   })
 })

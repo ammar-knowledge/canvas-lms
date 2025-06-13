@@ -120,6 +120,7 @@ const ANONYMOUS_GRADING_BOX = '#assignment_anonymous_grading'
 const HIDE_ZERO_POINT_QUIZZES_BOX = '#assignment_hide_in_gradebook'
 const HIDE_ZERO_POINT_QUIZZES_OPTION = '#assignment_hide_in_gradebook_option'
 const OMIT_FROM_FINAL_GRADE_BOX = '#assignment_omit_from_final_grade'
+const SUPPRESS_FROM_GRADEBOOK = '#assignment_suppress_from_gradebook'
 const ASSIGNMENT_EXTERNAL_TOOLS = '#assignment_external_tools'
 const USAGE_RIGHTS_CONTAINER = '#annotated_document_usage_rights_container'
 const USAGE_RIGHTS_SELECTOR = '#usageRightSelector'
@@ -279,6 +280,7 @@ EditView.prototype.els = {
     els['' + HIDE_ZERO_POINT_QUIZZES_BOX] = '$hideZeroPointQuizzesBox'
     els['' + HIDE_ZERO_POINT_QUIZZES_OPTION] = '$hideZeroPointQuizzesOption'
     els['' + OMIT_FROM_FINAL_GRADE_BOX] = '$omitFromFinalGradeBox'
+    els['' + SUPPRESS_FROM_GRADEBOOK] = '$suppressAssignment'
     return els
   })(),
 }
@@ -305,6 +307,7 @@ EditView.prototype.events = {
     events['change ' + GROUP_CATEGORY_BOX] = 'handleGroupCategoryChange'
     events['change ' + ANONYMOUS_GRADING_BOX] = 'handleAnonymousGradingChange'
     events['change ' + HIDE_ZERO_POINT_QUIZZES_BOX] = 'handleHideZeroPointQuizChange'
+    events['change ' + SUPPRESS_FROM_GRADEBOOK] = 'handlesuppressFromGradebookChange'
     events['input ' + `[name="${EXTERNAL_TOOL_URL_INPUT_NAME}"]`] = 'clearErrorsOnInput'
     events['input ' + `[name="${ASSIGNMENT_NAME_INPUT_NAME}"]`] = 'validateInput'
     events['input ' + `[name="${ALLOWED_EXTENSIONS_INPUT_NAME}"]`] = 'validateInput'
@@ -441,7 +444,8 @@ EditView.prototype.checkboxAccessibleAdvisory = function (box) {
     box === this.$peerReviewsBox ||
     box === this.$groupCategoryBox ||
     box === this.$anonymousGradingBox ||
-    box === this.$omitFromFinalGradeBox
+    box === this.$omitFromFinalGradeBox ||
+    box === this.$suppressAssignment
       ? ''
       : 'screenreader-only'
   advisory = label.find('div.accessible_label')
@@ -488,6 +492,10 @@ EditView.prototype.enableCheckbox = function (box) {
     this.setImplicitCheckboxValue(box, '0')
     return this.checkboxAccessibleAdvisory(box).text('')
   }
+}
+
+EditView.prototype.handlesuppressFromGradebookChange = function () {
+  return this.model.suppressAssignment(this.$suppressAssignment.prop('checked'))
 }
 
 EditView.prototype.handleGroupCategoryChange = function () {
@@ -1022,6 +1030,7 @@ EditView.prototype.hasMasteryConnectData = function () {
 }
 
 EditView.prototype.handleSubmissionTypeChange = function (_ev) {
+  if (this.$submissionType.length === 0) return
   const subVal = this.$submissionType.val()
   this.$onlineSubmissionTypes.toggleAccessibly(subVal === 'online')
   this.$externalToolSettings.toggleAccessibly(subVal === 'external_tool')
@@ -1221,7 +1230,8 @@ EditView.prototype.handleOnlineSubmissionTypeChange = function (_env) {
   const showAssetProcessors =
     window.ENV?.FEATURES?.lti_asset_processor &&
     this.$submissionType.val() === 'online' &&
-    this.$onlineSubmissionTypes.find(ALLOW_FILE_UPLOADS).prop('checked')
+    (this.$onlineSubmissionTypes.find(ALLOW_FILE_UPLOADS).prop('checked') ||
+      this.$onlineSubmissionTypes.find(ALLOW_TEXT_ENTRY).prop('checked'))
   this.$assetProcessorsContainer.toggleAccessibly(showAssetProcessors)
 
   const showConfigTools =
@@ -1241,28 +1251,36 @@ EditView.prototype.afterRender = function () {
   this.$anonymousGradingBox = $('' + ANONYMOUS_GRADING_BOX)
   this.renderModeratedGradingFormFieldGroup()
   this.renderAllowedAttempts()
+  // this.renderEnhancedRubrics()
   this.$graderCommentsVisibleToGradersBox = $('#assignment_grader_comment_visibility')
   this.$gradersAnonymousToGradersLabel = $('label[for="assignment_graders_anonymous_to_graders"]')
-  this.similarityDetectionTools = SimilarityDetectionTools.attach(
-    this.$similarityDetectionTools.get(0),
-    parseInt(ENV.COURSE_ID, 10),
-    this.$secureParams.val(),
-    parseInt(ENV.SELECTED_CONFIG_TOOL_ID, 10),
-    ENV.SELECTED_CONFIG_TOOL_TYPE,
-    ENV.REPORT_VISIBILITY_SETTING,
-  )
-  this.AssignmentExternalTools = AssignmentExternalTools.attach(
-    this.$assignmentExternalTools.get(0),
-    'assignment_edit',
-    parseInt(ENV.COURSE_ID, 10),
-    parseInt(this.assignment.id, 10),
-  )
-  if (window.ENV?.FEATURES?.lti_asset_processor) {
+  if (this.$similarityDetectionTools.length > 0) {
+    this.similarityDetectionTools = SimilarityDetectionTools.attach(
+      this.$similarityDetectionTools.get(0),
+      parseInt(ENV.COURSE_ID, 10),
+      this.$secureParams.val(),
+      parseInt(ENV.SELECTED_CONFIG_TOOL_ID, 10),
+      ENV.SELECTED_CONFIG_TOOL_TYPE,
+      ENV.REPORT_VISIBILITY_SETTING,
+    )
+  }
+  if (this.$assignmentExternalTools.length > 0) {
+    this.AssignmentExternalTools = AssignmentExternalTools.attach(
+      this.$assignmentExternalTools.get(0),
+      'assignment_edit',
+      parseInt(ENV.COURSE_ID, 10),
+      parseInt(this.assignment.id, 10),
+    )
+  }
+  if (window.ENV?.FEATURES?.lti_asset_processor && this.$assetProcessorsContainer.length > 0) {
     assetProcessorsAttach({
       container: this.$assetProcessorsContainer.get(0),
       courseId: ENV.COURSE_ID,
       secureParams: this.$secureParams.val(),
       initialAttachedProcessors: ENV.ASSET_PROCESSORS || [],
+      hideErrors: () => {
+        this.hideErrors('asset_processors_errors')
+      },
     })
   }
 
@@ -1488,7 +1506,11 @@ EditView.prototype.submit = function (event) {
   event.preventDefault()
   event.stopPropagation()
   this.cacheAssignmentSettings()
-  if (this.dueDateOverrideView.containsSectionsWithoutOverrides()) {
+  if (
+    (ENV.ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS ||
+      !this.dueDateOverrideView.containsDiffTagOverrides()) &&
+    this.dueDateOverrideView.containsSectionsWithoutOverrides()
+  ) {
     missingDateDialog = new MissingDateDialog({
       success: (function (_this) {
         return function (dateDialog) {
@@ -1587,6 +1609,9 @@ EditView.prototype.fieldSelectors = Object.assign(
   },
   {
     usage_rights_legal_copyright: COPYRIGHT_HOLDER,
+  },
+  {
+    asset_processors: '#asset_processors_container',
   },
 )
 
@@ -1772,6 +1797,15 @@ EditView.prototype.validateBeforeSave = function (data, errors) {
     if (crErrors) {
       errors.conditional_release = crErrors
     }
+  }
+  const sectionViewRef = document.getElementById(
+    'manage-assign-to-container',
+  )?.reactComponentInstance
+  const invalidInput = sectionViewRef?.focusErrors()
+  if (invalidInput) {
+    errors.invalid_card = {$input: null, showError: this.showError}
+  } else {
+    delete errors.invalid_card
   }
   return errors
 }

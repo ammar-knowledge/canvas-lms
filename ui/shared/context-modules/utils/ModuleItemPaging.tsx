@@ -15,57 +15,75 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
+
 import React from 'react'
-import {Alert} from '@instructure/ui-alerts'
+import {Flex} from '@instructure/ui-flex'
 import {Pagination} from '@instructure/ui-pagination'
-import {Spinner} from '@instructure/ui-spinner'
 import {View} from '@instructure/ui-view'
+import {type PaginationData, type ModuleId} from './types'
 import {useScope as createI18nScope} from '@canvas/i18n'
+import {ModuleItemsLoadingSpinner} from './ModuleItemsLoadingSpinner'
+
 const I18n = createI18nScope('context_modulespublic')
 
-type ModuleId = number | string
-type PaginationOpts = {
-  moduleId: ModuleId
-  currentPage: number
-  totalPages: number
-  onPageChange: (page: number, moduleId: ModuleId) => void
-}
 type ModuleItemPagingProps = {
+  moduleId: ModuleId
   isLoading: boolean
-  paginationOpts?: PaginationOpts
+  paginationData?: PaginationData
+  onPageChange?: (page: number, moduleId: ModuleId) => void
 }
-export const ModuleItemPaging = ({isLoading, paginationOpts}: ModuleItemPagingProps) => {
-  if (isLoading) {
-    return (
-      <View as="div" textAlign="center" minHeight="3em" className="module-spinner-container">
-        <Alert
-          variant="info"
-          screenReaderOnly={true}
-          liveRegion={() => document.querySelector('#flash_screenreader_holder') as HTMLElement}
-        >
-          {I18n.t('Loading items')}
-        </Alert>
-        <Spinner size="small" renderTitle={I18n.t('Loading items')} />
-      </View>
-    )
+export const ModuleItemPaging = ({
+  moduleId,
+  isLoading,
+  paginationData,
+  onPageChange,
+}: ModuleItemPagingProps) => {
+  const renderPagination = () => {
+    if (paginationData && paginationData.totalPages > 1 && onPageChange) {
+      const {currentPage, totalPages} = {...paginationData}
+      return (
+        <View as="div">
+          <Pagination
+            data-testid={`module-${moduleId}-pagination`}
+            as="nav"
+            margin="none"
+            variant="compact"
+            labelNext={I18n.t('Next Page')}
+            labelPrev={I18n.t('Previous Page')}
+            currentPage={currentPage}
+            totalPageNumber={totalPages}
+            onPageChange={(page: number) => onPageChange(page, moduleId)}
+          />
+        </View>
+      )
+    } else {
+      return null
+    }
   }
-  if (paginationOpts) {
-    const {moduleId, currentPage, totalPages, onPageChange} = {...paginationOpts}
-    return (
-      <View as="div" textAlign="center" minHeight="3em">
-        <Pagination
-          data-testid={`module-${moduleId}-pagination`}
-          as="nav"
-          margin="none"
-          variant="compact"
-          labelNext={I18n.t('Next Page')}
-          labelPrev={I18n.t('Previous Page')}
-          currentPage={currentPage}
-          totalPageNumber={totalPages}
-          onPageChange={(page: number) => onPageChange(page, moduleId)}
-        />
-      </View>
-    )
+
+  if (!isLoading && (!paginationData || paginationData.totalPages < 2)) return null
+
+  const spinnerPosition: React.CSSProperties = {
+    position: 'absolute',
+    insetInlineStart: '-3.5em',
+    top: '-.25rem',
   }
-  return null
+
+  return (
+    <Flex as="div" justifyItems="center" alignItems="center">
+      <Flex.Item>
+        <View as="div" position="relative">
+          <div
+            style={paginationData ? spinnerPosition : {}}
+            data-testid={`spinner_container_${moduleId}`}
+          >
+            <ModuleItemsLoadingSpinner isLoading={isLoading} />
+          </div>
+          {renderPagination()}
+        </View>
+      </Flex.Item>
+    </Flex>
+  )
 }
+
+export {type PaginationData}

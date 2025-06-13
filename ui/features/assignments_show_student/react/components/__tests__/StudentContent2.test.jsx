@@ -28,8 +28,10 @@ import {SubmissionMocks} from '@canvas/assignments/graphql/student/Submission'
 import {AssignmentMocks} from '@canvas/assignments/graphql/student/Assignment'
 import {RUBRIC_QUERY, SUBMISSION_COMMENT_QUERY} from '@canvas/assignments/graphql/student/Queries'
 import injectGlobalAlertContainers from '@canvas/util/react/testing/injectGlobalAlertContainers'
+import fakeENV from '@canvas/test-utils/fakeENV'
 import StudentContent from '../StudentContent'
 import ContextModuleApi from '../../apis/ContextModuleApi'
+import {withSubmissionContext} from '../../test-utils/submission-context'
 
 injectGlobalAlertContainers()
 
@@ -44,23 +46,13 @@ jest.mock('../../../../../shared/immersive-reader/ImmersiveReader', () => {
 })
 
 describe('Assignment Student Content View', () => {
-  let oldEnv
-
   beforeEach(() => {
-    oldEnv = window.ENV
-    window.ENV = {...window.ENV}
+    fakeENV.setup({current_user: {id: '1'}})
     ContextModuleApi.getContextModuleData.mockResolvedValue({})
-    global.fetch = jest.fn(() =>
-      Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve([]),
-      }),
-    )
   })
 
   afterEach(() => {
-    window.ENV = oldEnv
-    jest.restoreAllMocks()
+    fakeENV.teardown()
   })
 
   it('does not render the attempt select if allSubmissions is not provided', async () => {
@@ -69,7 +61,10 @@ describe('Assignment Student Content View', () => {
     })
     const {queryByTestId} = render(
       <MockedProvider>
-        <StudentContent {...props} />
+        {withSubmissionContext(<StudentContent {...props} />, {
+          assignmentId: '1',
+          submissionId: '1',
+        })}
       </MockedProvider>,
     )
     expect(queryByTestId('attemptSelect')).not.toBeInTheDocument()
@@ -82,7 +77,10 @@ describe('Assignment Student Content View', () => {
     })
     const {queryByTestId} = render(
       <MockedProvider>
-        <StudentContent {...props} />
+        {withSubmissionContext(<StudentContent {...props} />, {
+          assignmentId: '1',
+          submissionId: '1',
+        })}
       </MockedProvider>,
     )
     expect(queryByTestId('attemptSelect')).not.toBeInTheDocument()
@@ -109,7 +107,10 @@ describe('Assignment Student Content View', () => {
     }
     const {queryByTestId} = render(
       <MockedProvider>
-        <StudentContent {...props} />
+        {withSubmissionContext(<StudentContent {...props} />, {
+          assignmentId: '1',
+          submissionId: '1',
+        })}
       </MockedProvider>,
     )
     expect(queryByTestId('attemptSelect')).not.toBeInTheDocument()
@@ -121,21 +122,21 @@ describe('Assignment Student Content View', () => {
     })
     props.assignment.env.peerReviewModeEnabled = false
     props.allSubmissions = [props.submission]
-    const {queryByTestId} = render(
+    const {findByTestId} = render(
       <MockedProvider>
-        <StudentContent {...props} />
+        {withSubmissionContext(<StudentContent {...props} />, {
+          assignmentId: '1',
+          submissionId: '1',
+        })}
       </MockedProvider>,
     )
-    expect(queryByTestId('attemptSelect')).toBeInTheDocument()
+    expect(await findByTestId('attemptSelect')).toBeInTheDocument()
   })
 
   describe('when the assignment does not expect digital submissions', () => {
     let props
 
     beforeEach(async () => {
-      oldEnv = window.ENV
-      window.ENV = {...window.ENV}
-
       props = await mockAssignmentAndSubmission({
         Assignment: {
           ...AssignmentMocks.onPaper,
@@ -145,14 +146,13 @@ describe('Assignment Student Content View', () => {
       })
     })
 
-    afterEach(() => {
-      window.ENV = oldEnv
-    })
-
     it('renders the assignment details', async () => {
       const {getAllByText} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       expect(getAllByText(/this is my assignment/)).not.toHaveLength(0)
@@ -161,7 +161,10 @@ describe('Assignment Student Content View', () => {
     it('does not render the interface for submitting to the assignment', async () => {
       const {queryByTestId} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       expect(queryByTestId('assignment-2-student-content-tabs')).not.toBeInTheDocument()
@@ -174,7 +177,10 @@ describe('Assignment Student Content View', () => {
 
       const {getByTestId, queryByTestId} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       const submissionDetailsLink = getByTestId('view-submission-link')
@@ -188,7 +194,10 @@ describe('Assignment Student Content View', () => {
 
       const {queryByTestId, getByTestId} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
 
@@ -202,7 +211,10 @@ describe('Assignment Student Content View', () => {
 
       const {queryByTestId} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
 
@@ -216,7 +228,10 @@ describe('Assignment Student Content View', () => {
       window.ENV.LTI_TOOL = 'true'
       const {getByTestId} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       const lti_external_tool = getByTestId('lti-external-tool')
@@ -234,7 +249,10 @@ describe('Assignment Student Content View', () => {
 
       const {getByRole} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       expect(getByRole('button', {name: 'Mark as done'})).toBeInTheDocument()
@@ -243,7 +261,10 @@ describe('Assignment Student Content View', () => {
     it('does not render a "Mark as Done" button if the assignment lacks mark-as-done requirements', async () => {
       const {queryByRole} = render(
         <MockedProvider>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       expect(queryByRole('button', {name: 'Mark as done'})).not.toBeInTheDocument()
@@ -307,7 +328,10 @@ describe('Assignment Student Content View', () => {
 
         const {getByTestId} = render(
           <MockedProvider>
-            <StudentContent {...props} />
+            {withSubmissionContext(<StudentContent {...props} />, {
+              assignmentId: '1',
+              submissionId: '1',
+            })}
           </MockedProvider>,
         )
         await waitFor(() => expect(ContextModuleApi.getContextModuleData).toHaveBeenCalled())
@@ -322,7 +346,10 @@ describe('Assignment Student Content View', () => {
 
         const {queryByRole} = render(
           <MockedProvider>
-            <StudentContent {...props} />
+            {withSubmissionContext(<StudentContent {...props} />, {
+              assignmentId: '1',
+              submissionId: '1',
+            })}
           </MockedProvider>,
         )
         await waitFor(() => expect(ContextModuleApi.getContextModuleData).toHaveBeenCalled())
@@ -357,7 +384,10 @@ describe('Assignment Student Content View', () => {
       const props = await mockAssignmentAndSubmission()
       const {findByText} = render(
         <MockedProvider mocks={mocks}>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       fireEvent.click(await findByText(/add comment/i))
@@ -369,7 +399,10 @@ describe('Assignment Student Content View', () => {
       const props = await mockAssignmentAndSubmission()
       const {getAllByTitle, getByText} = render(
         <MockedProvider mocks={mocks}>
-          <StudentContent {...props} />
+          {withSubmissionContext(<StudentContent {...props} />, {
+            assignmentId: '1',
+            submissionId: '1',
+          })}
         </MockedProvider>,
       )
       fireEvent.click(getByText('Add Comment'))

@@ -132,6 +132,10 @@
 #
 class RoleOverridesController < ApplicationController
   before_action :require_context
+
+  include HorizonMode
+  before_action :load_canvas_career, only: [:index]
+
   before_action :require_role, only: %i[activate_role remove_role update show]
 
   # @API List roles
@@ -186,7 +190,6 @@ class RoleOverridesController < ApplicationController
                COURSE_ROLES: course_role_data,
                ACCOUNT_PERMISSIONS: account_permissions(@context),
                COURSE_PERMISSIONS: course_permissions(@context),
-               IS_SITE_ADMIN: @context.site_admin?,
                ACCOUNT_ENABLE_ALERTS: @context.settings[:enable_alerts]
              })
 
@@ -272,6 +275,7 @@ class RoleOverridesController < ApplicationController
   #         temporary_enrollments_delete  -- Temporary Enrollments - delete
   #     manage_user_logins               -- Users - manage login details
   #     manage_user_observers            -- Users - manage observers
+  #     manage_users_in_bulk             -- Bulk actions - People page
   #     moderate_user_content            -- Users - moderate content
   #     read_course_content              -- Course Content - view
   #     read_course_list                 -- Courses - view list

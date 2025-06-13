@@ -310,6 +310,9 @@ class AccountsController < ApplicationController
   before_action :get_context
   before_action :rce_js_env, only: [:settings]
 
+  include HorizonMode
+  before_action :load_canvas_career, only: %i[show users sis_import admin_tools settings]
+
   include Api::V1::Account
   include CustomSidebarLinksHelper
   include DefaultDueTimeHelper
@@ -892,6 +895,10 @@ class AccountsController < ApplicationController
       end
     end
 
+    if params[:copied_asset] && @account.horizon_account?
+      @courses = @courses.copied_asset(params[:copied_asset])
+    end
+
     includes = Set.new(Array(params[:include]))
     # We only want to return the permissions for single courses and not lists of courses.
     # sections, needs_grading_count, and total_score not valid as enrollments are needed
@@ -1315,6 +1322,7 @@ class AccountsController < ApplicationController
              enable_eportfolios
              enable_profiles
              enable_turnitin
+             suppress_assignments
              include_integration_ids_in_gradebook_exports
              show_scheduler
              global_includes
@@ -2096,6 +2104,7 @@ class AccountsController < ApplicationController
                                    :students_can_create_courses,
                                    :allow_name_pronunciation_edit_for_students,
                                    :sub_account_includes,
+                                   :suppress_assignments,
                                    :teachers_can_create_courses,
                                    :allow_name_pronunciation_edit_for_teachers,
                                    :trusted_referers,
@@ -2125,7 +2134,9 @@ class AccountsController < ApplicationController
                                    :enable_as_k5_account,
                                    :use_classic_font_in_k5,
                                    :show_sections_in_course_tray,
-                                   :horizon_account].freeze
+                                   :horizon_account,
+                                   { decimal_separator: [:value] }.freeze,
+                                   { thousand_separator: [:value] }.freeze].freeze
   private_constant :PERMITTED_SETTINGS_FOR_UPDATE
 
   def permitted_account_attributes

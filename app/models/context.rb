@@ -18,7 +18,8 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-# These methods are mixed into the classes that can be considered a "context".
+# These methods are mixed into the classes that can be considered a "context"
+# EXCEPT for CourseSection.
 # See Context::CONTEXT_TYPES below.
 module Context
   CONTEXT_TYPES = %i[Account Course CourseSection User Group].freeze
@@ -101,7 +102,7 @@ module Context
           context_codes << context.asset_string if context
         end
       end
-      associations += RubricAssociation.active.bookmarked.for_context_codes(context_codes).include_rubric.preload(:context).to_a
+      associations += RubricAssociation.active.bookmarked.for_context_codes(context_codes).joins(:rubric).where(rubrics: { workflow_state: "active" }).preload(rubric: :context).to_a
     end
 
     associations = associations.select(&:rubric).uniq { |a| [a.rubric_id, a.context.asset_string] }

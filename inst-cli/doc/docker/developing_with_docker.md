@@ -13,7 +13,7 @@ Follow the prerequisites listed [here](https://instructure.atlassian.net/wiki/sp
 Then in your terminal:
 
 ```bash
-gem install inst inst-private
+gem install inst
 inst config-file
 ```
 
@@ -205,6 +205,19 @@ Mail Catcher is used to both send and view email in a development environment.
 To enable Mail Catcher: Add `docker-compose/mailcatcher.override.yml` to your `COMPOSE_FILE` var in `.env`. Then you can `docker compose up mailcatcher`.
 
 Email is often sent through background jobs in the jobs container. If you would like to test or preview any notifications, simply trigger the email through its normal actions, and it should immediately show up in the emulated webmail inbox available here: <http://mailcatcher.inseng.test>
+
+### MinIO (S3)
+
+MinIO is a storage solution that is perfect for mocking S3 during local development. The override file contains two services:
+- `s3` is based on `minio/minio` image. It is for hosting the storage solution and provides an admin ui and an API to manage files, buckets and much more.
+- `createbuckets` is based on `minio/mc` image. It is for creating a public bucket (`development-bucket`) that will be used by Canvas.
+
+For more details on [MinIO](https://min.io/docs/minio/linux/index.html) and its [client](https://min.io/docs/minio/linux/reference/minio-mc.html) visit the official documentation.
+
+Setup: Add `inst-cli/docker-compose/s3.override.yml` to you `COMPOSE_FILE` var in `.env`. Follow the setup steps that can be found as comments inside `s3.override.yml`.
+Once done with the configuration don't forget to spin up the new containers using `docker compose up -d`.
+
+Purpose: It comes handy when you are dealing with attachments in Canvas and want to verify if your change works with all supported storage solution.
 
 ### Canvas RCE API
 

@@ -55,6 +55,7 @@ const AssignToContent = ({
   isCheckpointed,
   postToSIS = false,
   defaultGroupCategoryId = null,
+  discussionId = null,
 }) => {
   // stagedCards are the itemAssignToCards that will be saved when the assignment is saved
   const [stagedCards, setStagedCardsInner] = useState([])
@@ -98,6 +99,13 @@ const AssignToContent = ({
     () => type === 'assignment' || type === 'discussion' || type === 'quiz',
     [type],
   )
+
+  useEffect(() => {
+    const newGroupCategoryId = getGroupCategoryId?.()
+    if (newGroupCategoryId !== undefined && newGroupCategoryId !== groupCategoryId) {
+      setGroupCategoryId(newGroupCategoryId)
+    }
+  }, [getGroupCategoryId, groupCategoryId])
 
   useEffect(() => {
     if (getGroupCategoryId === undefined) return
@@ -161,7 +169,7 @@ const AssignToContent = ({
           if (moduleOverride.student_ids) {
             return moduleOverride.student_ids.map(id => `student-${id}`)
           }
-          if(moduleOverride.group_id && moduleOverride.non_collaborative === true) {
+          if (moduleOverride.group_id && moduleOverride.non_collaborative === true) {
             return `tag-${moduleOverride.group_id}`
           }
           return []
@@ -508,7 +516,7 @@ const AssignToContent = ({
       <ItemAssignToManager
         courseId={ENV.COURSE_ID}
         itemType={type}
-        itemContentId={assignmentId}
+        itemContentId={type === 'discussion' ? discussionId : assignmentId}
         initHasModuleOverrides={hasModuleOverrides}
         defaultGroupCategoryId={groupCategoryId}
         useApplyButton={true}
@@ -525,6 +533,7 @@ const AssignToContent = ({
         isCheckpointed={isCheckpointed}
         postToSIS={postToSIS}
         isTray={false}
+        setStagedOverrides={setStagedOverrides}
       />
     </View>
   )

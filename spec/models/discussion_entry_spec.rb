@@ -265,6 +265,19 @@ describe DiscussionEntry do
       expect(BroadcastPolicy.notifier).to receive(:send_notification).once
       entry.broadcast_report_notification("hello I have been reported")
     end
+
+    it "sends notification to teacher when a reply is reported in a group discussion" do
+      @course.root_account.enable_feature!(:discussions_reporting)
+      group(group_context: @course)
+      @group.participating_users << @student
+      @group.save!
+
+      topic = @group.discussion_topics.create!(user: @teacher, message: "This is an important announcement")
+      topic.subscribe(@student)
+      entry = topic.discussion_entries.create!(user: @teacher, message: "Oh, and another thing...")
+      expect(BroadcastPolicy.notifier).to receive(:send_notification).once
+      entry.broadcast_report_notification("hello I have been reported")
+    end
   end
 
   context "sub-topics" do
@@ -399,6 +412,52 @@ describe DiscussionEntry do
       # delete final 'read' entry
       @entry_2.destroy
       expect(@topic.unread_count(@reader)).to eq 0
+    end
+  end
+
+  context "discussion checkpoints" do
+    before do
+      Account.site_admin.enable_feature!(:react_discussions_post)
+      course_with_student(active_all: true)
+      @course.root_account.enable_feature!(:discussion_checkpoints)
+
+      @checkpointed_discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+      @replies_required = 3
+
+      @reply_to_topic_checkpoint = Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: @checkpointed_discussion,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: 2.days.from_now }],
+        points_possible: 3
+      )
+      @reply_to_entry_checkpint = Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: @checkpointed_discussion,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "everyone", due_at: 3.days.from_now }],
+        points_possible: 9,
+        replies_required: @replies_required
+      )
+    end
+
+    describe "#update_topic_submission" do
+      it "doesnt break if dt.assignment.has_sub_assignments && dt.assignment.sub_assignments.empty?" do
+        entry = @checkpointed_discussion.discussion_entries.create!(message: "hello", user: @user)
+        # create the error state where dt.assignment.has_sub_assignments == true, but dt.assignment.sub_assignments == []
+        # in this case it's through discussion_topic&.assignment&.checkpoints_parent?
+        dt_assignment = @checkpointed_discussion.assignment
+        dt_sub_assignments = @checkpointed_discussion.assignment.sub_assignments
+        sub1 = dt_sub_assignments.first
+        sub2 = dt_sub_assignments.last
+        sub1.workflow_state = "deleted"
+        sub1.save(validate: false)
+        sub2.workflow_state = "deleted"
+        sub2.save(validate: false)
+        dt_assignment.reload
+        dt_assignment.has_sub_assignments = true
+        dt_assignment.save(validate: false)
+
+        expect { entry.destroy }.to_not raise_error
+      end
     end
   end
 
@@ -862,15 +921,25 @@ describe DiscussionEntry do
           entry = @topic.discussion_entries.create!(message: "entry", user: @teacher)
           expect(entry.grants_right?(@teacher, :reply)).to be false
         end
-      end
 
-      context "when a user is no longer enrolled in the course" do
-        before do
-          create_enrollment(topic.course, user, { enrollment_state: "completed" })
-        end
+        context "group discussion" do
+          it "reply permission is true if the discussion is threaded" do
+            group(group_context: @course)
+            @group.save!
 
-        it "returns false for their own posts" do
-          expect(entry.grants_right?(user, :reply)).to be false
+            topic = @group.discussion_topics.create!(user: @teacher, message: "Hi there", discussion_type: "threaded")
+            entry = topic.discussion_entries.create!(message: "entry", user: @teacher)
+            expect(entry.grants_right?(@teacher, :reply)).to be true
+          end
+
+          it "reply permission is false if the discussion is not threaded" do
+            group(group_context: @course)
+            @group.save!
+
+            topic = @group.discussion_topics.create!(user: @teacher, message: "Hi there", discussion_type: "not_threaded")
+            entry = topic.discussion_entries.create!(message: "entry", user: @teacher)
+            expect(entry.grants_right?(@teacher, :reply)).to be false
+          end
         end
       end
 

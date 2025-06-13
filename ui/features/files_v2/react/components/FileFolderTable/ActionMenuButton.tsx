@@ -52,7 +52,7 @@ import PermissionsModal from './PermissionsModal'
 
 const I18n = createI18nScope('files_v2')
 
-interface ActionMenuButtonProps {
+export interface ActionMenuButtonProps {
   size: 'small' | 'medium' | 'large'
   userCanEditFilesForContext: boolean
   userCanDeleteFilesForContext: boolean
@@ -246,7 +246,7 @@ const ActionMenuButton = ({
             {
               icon: IconDownloadLine,
               text: I18n.t('Download'),
-              onClick: () => downloadZip(new Set([row.id.toString()])),
+              onClick: () => downloadZip(new Set([`folder-${row.id.toString()}`])),
             },
             {
               icon: IconPermissionsLine,

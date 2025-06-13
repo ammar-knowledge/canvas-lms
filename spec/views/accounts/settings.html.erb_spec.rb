@@ -514,6 +514,44 @@ describe "accounts/settings" do
     end
   end
 
+  describe "New Quizzes settings" do
+    let_once(:account) { Account.default }
+    let_once(:admin) { account_admin_user(account:) }
+
+    before do
+      account.settings[:provision] = { Account::SERVICE_IDS[:new_quizzes] => "new_quizzes" }
+      account.save!
+      view_context(account, admin)
+      assign(:account, account)
+      assign(:context, account)
+      assign(:root_account, account)
+      assign(:current_user, admin)
+      assign(:announcements, AccountNotification.none.paginate)
+      Account.site_admin.enable_feature!(:new_quizzes_separators)
+    end
+
+    it "shows up when the new_quizzes_separators feature is enabled and new quizzes is provosioned" do
+      render
+
+      expect(response).to have_tag("select#account_settings_decimal_separator_value")
+    end
+
+    it "does not show up if the new_quizzes_separators feature is disabled" do
+      Account.site_admin.disable_feature!(:new_quizzes_separators)
+      render
+
+      expect(response).to_not have_tag("select#account_settings_decimal_separator_value")
+    end
+
+    it "does not show up if new quizzes is not provisioned" do
+      account.settings[:provision] = nil
+      account.save!
+      render
+
+      expect(response).to_not have_tag("select#account_settings_decimal_separator_value")
+    end
+  end
+
   describe "quotas" do
     before do
       @account = Account.default
@@ -535,8 +573,7 @@ describe "accounts/settings" do
         render
         expect(@controller.js_env).to include :ACCOUNT
         expect(@controller.js_env[:ACCOUNT]).to include "default_storage_quota_mb"
-        expect(response).to have_tag "#tab-quotas-link"
-        expect(response).to have_tag "#tab-quotas"
+        expect(response).to have_tag "#tab-quotas-mount"
       end
     end
 
@@ -551,8 +588,8 @@ describe "accounts/settings" do
         render
         expect(@controller.js_env).to include :ACCOUNT
         expect(@controller.js_env[:ACCOUNT]).not_to include "default_storage_quota_mb"
-        expect(response).not_to have_tag "#tab-quotas-link"
-        expect(response).not_to have_tag "#tab-quotas"
+        expect(response).not_to have_tag "#tab-quotas-selected"
+        expect(response).not_to have_tag "#tab-quotas-mount"
       end
     end
   end
@@ -568,22 +605,22 @@ describe "accounts/settings" do
     end
 
     context "with :read_reports" do
-      it "shows reports tab link" do
+      it "shows reports tab content" do
         admin = account_admin_user
         view_context(@account, admin)
         assign(:current_user, admin)
         render
-        expect(response).to have_tag "#tab-reports-link"
+        expect(response).to have_tag "#tab-reports-mount"
       end
     end
 
     context "without :read_reports" do
-      it "does not show reports tab link" do
+      it "does not show reports tab content" do
         admin = account_admin_user_with_role_changes(account: @account, role_changes: { "read_reports" => false })
         view_context(@account, admin)
         assign(:current_user, admin)
         render
-        expect(response).not_to have_tag "#tab-reports-link"
+        expect(response).not_to have_tag "#tab-reports-mount"
       end
     end
   end
@@ -813,7 +850,7 @@ describe "accounts/settings" do
 
       it "does not render" do
         render
-        expect(response).not_to have_tag "#tab-internal-settings"
+        expect(response).not_to have_tag "#tab-internal-settings-mount"
       end
     end
 
@@ -827,7 +864,7 @@ describe "accounts/settings" do
 
       it "renders" do
         render
-        expect(response).to have_tag "#tab-internal-settings"
+        expect(response).to have_tag "#tab-internal-settings-mount"
       end
     end
   end

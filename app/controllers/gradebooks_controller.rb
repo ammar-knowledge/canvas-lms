@@ -36,7 +36,7 @@ class GradebooksController < ApplicationController
   before_action :require_user, only: %i[speed_grader speed_grader_settings grade_summary grading_rubrics update_final_grade_overrides]
 
   include HorizonMode
-  before_action :redirect_student_to_horizon, only: [:show, :grade_summary]
+  before_action :load_canvas_career, only: [:show, :grade_summary]
 
   include K5Mode
 
@@ -583,6 +583,7 @@ class GradebooksController < ApplicationController
       stickers_enabled: @context.feature_enabled?(:submission_stickers),
       teacher_notes: teacher_notes && custom_gradebook_column_json(teacher_notes, @current_user, session),
       user_asset_string: @current_user&.asset_string,
+      performance_improvements_for_gradebook: @context.feature_enabled?(:performance_improvements_for_gradebook),
       version: params.fetch(:version, nil),
       assignment_missing_shortcut: Account.site_admin.feature_enabled?(:assignment_missing_shortcut),
       grading_periods_filter_dates_enabled: Account.site_admin.feature_enabled?(:grading_periods_filter_dates),
@@ -875,7 +876,7 @@ class GradebooksController < ApplicationController
                                        :media_comment_type,
                                        :group_comment,
                                        :late_policy_status).to_unsafe_h
-        is_default_grade_for_missing = value_to_boolean(submission.delete(:set_by_default_grade)) && submission_record.missing? && submission_record.late_policy_status.nil?
+        is_default_grade_for_missing = value_to_boolean(submission.delete(:set_by_default_grade)) && submission_record && submission_record.missing? && submission_record.late_policy_status.nil?
 
         submission[:grader] = @current_user unless is_default_grade_for_missing
         submission.delete(:provisional) unless @assignment.moderated_grading?
@@ -1058,6 +1059,10 @@ class GradebooksController < ApplicationController
     track_speedgrader_metrics(platform_speedgrader_param_enabled, platform_speedgrader_feature_enabled)
     platform_service_speedgrader_enabled = platform_speedgrader_param_enabled && platform_speedgrader_feature_enabled
 
+    if @assignment.moderated_grading? && !@assignment.user_is_moderation_grader?(@current_user)
+      @assignment.create_moderation_grader(@current_user, occupy_slot: false)
+    end
+
     if platform_service_speedgrader_enabled
       InstStatsd::Statsd.distributed_increment("speedgrader.platform_service.load")
       @page_title = t("SpeedGrader")
@@ -1098,10 +1103,6 @@ class GradebooksController < ApplicationController
                          "SpeedGrader is enabled only for published content.")
       redirect_to polymorphic_url([@context, @assignment])
       return
-    end
-
-    if @assignment.moderated_grading? && !@assignment.user_is_moderation_grader?(@current_user)
-      @assignment.create_moderation_grader(@current_user, occupy_slot: false)
     end
 
     @can_comment_on_submission = !@context.completed? && !@context_enrollment.try(:completed?)

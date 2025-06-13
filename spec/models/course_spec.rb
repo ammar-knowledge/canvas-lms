@@ -3300,6 +3300,18 @@ describe Course do
           available_tabs = @course.tabs_available(@user, include_external: true).pluck(:label)
           expect(available_tabs).not_to include("Item Banks")
         end
+
+        context "and the ams_service is enabled" do
+          before do
+            @course.root_account.enable_feature!(:ams_service)
+          end
+
+          it "replaces the content external tool tab with the ams_service Item Banks tab" do
+            available_tabs = @course.tabs_available(@user, include_external: true).pluck(:id)
+            expect(available_tabs).to include(Course::TAB_ITEM_BANKS)
+            expect(available_tabs).not_to include("context_external_tool_#{quiz_lti_tool.id}")
+          end
+        end
       end
 
       it "sets the target value on the tab if the external tool has a windowTarget" do
@@ -8473,6 +8485,17 @@ describe Course do
       parent_account.save!
       expect(parent_account.horizon_account[:value]).to be false
       expect(course.reload.horizon_course).to be_falsey
+    end
+  end
+
+  describe "copied assets" do
+    it "returns courses that copied a page" do
+      source_course = Course.create!
+      source_page = source_course.wiki_pages.create!(title: "My Page")
+      copied_course = Course.create!
+      migration_id = CC::CCHelper.create_key(source_page, global: true)
+      copied_course.wiki_pages.create!(title: "My Page", migration_id:)
+      expect(Course.copied_asset("page_#{source_page.id}")).to include(copied_course)
     end
   end
 end

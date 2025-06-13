@@ -21,9 +21,9 @@ import {OBSERVER_COOKIE_PREFIX} from '@canvas/observer-picker/ObserverGetObserve
 import {MOCK_OBSERVED_USERS_LIST} from '@canvas/observer-picker/react/__tests__/fixtures'
 import {act, render, waitFor} from '@testing-library/react'
 import fetchMock from 'fetch-mock'
-import moxios from 'moxios'
 import React from 'react'
-import sinon from 'sinon'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 import {K5Course} from '../K5Course'
 import {
   MOCK_ASSIGNMENT_GROUPS,
@@ -197,11 +197,17 @@ const createStudentView = () => {
   return studentViewBarContainer
 }
 
-let fakeXhrServer
+const server = setupServer()
+
+beforeAll(() => {
+  server.listen()
+})
+
+afterAll(() => {
+  server.close()
+})
 
 beforeEach(() => {
-  fakeXhrServer = sinon.fakeServer.create({autoRespond: true})
-  moxios.install()
   fetchMock.get(FETCH_IMPORTANT_INFO_URL, MOCK_COURSE_SYLLABUS)
   fetchMock.get(FETCH_APPS_URL, MOCK_COURSE_APPS)
   fetchMock.get(FETCH_TABS_URL, MOCK_COURSE_TABS)
@@ -209,11 +215,15 @@ beforeEach(() => {
   fetchMock.get(ASSIGNMENT_GROUPS_URL, MOCK_ASSIGNMENT_GROUPS)
   fetchMock.get(ENROLLMENTS_URL, MOCK_ENROLLMENTS)
   fetchMock.get(ANNOUNEMENTS_URL_REGEX, [])
-  fakeXhrServer.respondWith('GET', GROUPS_URL, [
-    200,
-    {'Content-Type': 'application/json'},
-    JSON.stringify(MOCK_GROUPS),
-  ])
+  fetchMock.get(GROUPS_URL, MOCK_GROUPS)
+
+  // Mock the Groups URL with MSW (used by Backbone)
+  server.use(
+    http.get('/api/v1/courses/30/groups', () => {
+      return HttpResponse.json(MOCK_GROUPS)
+    }),
+  )
+
   global.ENV = defaultEnv
   document.body.appendChild(createModulesPartial())
 })
@@ -227,9 +237,8 @@ afterEach(() => {
   modulesContainer?.remove()
 
   localStorage.clear()
-  moxios.uninstall()
   fetchMock.restore()
-  fakeXhrServer.restore()
+  server.resetHandlers()
   window.location.hash = ''
 })
 

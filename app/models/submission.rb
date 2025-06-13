@@ -1025,6 +1025,14 @@ class Submission < ActiveRecord::Base
     turnitin_data.any? { |_, v| v.is_a?(Hash) && v.key?(:outcome_response) }
   end
 
+  def text_entry_submission?
+    submission_type == "online_text_entry" && body.present?
+  end
+
+  def asset_processor_compatible?
+    (submission_type == "online_upload" || text_entry_submission?) && root_account.feature_enabled?(:lti_asset_processor)
+  end
+
   # VeriCite
 
   # this function will check if the score needs to be updated and update/save the new score if so,
@@ -1638,6 +1646,13 @@ class Submission < ActiveRecord::Base
     submission&.submission_type
   end
 
+  def body_for_attempt(attempt)
+    return body if attempt == self.attempt
+
+    submission = submission_history.find { |sub| sub.attempt == attempt }
+    submission&.body
+  end
+
   def submission_history(include_version: false)
     @submission_histories ||= {}
     key = include_version ? :with_version : :without_version
@@ -1876,6 +1891,20 @@ class Submission < ActiveRecord::Base
     end
   end
 
+  # Determines if an originality report is associated with this submission version
+  # based on matching submission times or attachment relationships.
+  #
+  # @param originality_report [OriginalityReport] The report to check
+  # @return [Boolean] true if the report is associated with this submission version
+  def originality_report_matches_current_version?(originality_report)
+    originality_report.submission_time&.iso8601(6) == submitted_at&.iso8601(6) ||
+      # ...and sometimes originality reports don't have submission times, so we're doing our
+      # best to guess based on attachment_id (or the lack) and creation times
+      (originality_report.attachment_id.present? && attachment_ids&.split(",")&.include?(originality_report.attachment_id.to_s)) ||
+      (originality_report.submission_time.nil? && originality_report.created_at > submitted_at &&
+        (attachment_ids&.split(",").presence || [""]).include?(originality_report.attachment_id.to_s))
+  end
+
   def versioned_originality_reports
     # Turns out the database stores timestamps with 9 decimal places, but Ruby/Rails only serves
     # up 6 (plus three zeros). However, submission versions (when deserialized into a Submission
@@ -1885,14 +1914,7 @@ class Submission < ActiveRecord::Base
       if submitted_at.nil?
         []
       else
-        originality_reports.select do |o|
-          o.submission_time&.iso8601(6) == submitted_at&.iso8601(6) ||
-            # ...and sometimes originality reports don't have submission times, so we're doing our
-            # best to guess based on attachment_id (or the lack) and creation times
-            (o.attachment_id.present? && attachment_ids&.split(",")&.include?(o.attachment_id.to_s)) ||
-            (o.submission_time.nil? && o.created_at > submitted_at &&
-              (attachment_ids&.split(",").presence || [""]).include?(o.attachment_id.to_s))
-        end
+        originality_reports.select { |o| originality_report_matches_current_version?(o) }
       end
   end
 
@@ -2185,10 +2207,17 @@ class Submission < ActiveRecord::Base
 
   def maybe_queue_conditional_release_grade_change_handler
     shard.activate do
-      return unless graded? && posted?
+      if Account.site_admin.feature_enabled? :mastery_path_submission_trigger_reloaded_evaluation
+        reloaded = Submission.find(id)
+        return unless reloaded.graded? && reloaded.posted?
+      else
+        return unless graded? && posted?
+      end
 
       if assignment.present? && assignment.queue_conditional_release_grade_change_handler?
         queue_conditional_release_grade_change_handler
+      elsif assignment.blank?
+        logger.warn("No assignment present for submission #{id}; skipping conditional release handler")
       end
     end
   end
@@ -2530,9 +2559,8 @@ class Submission < ActiveRecord::Base
                              .first_or_initialize
     res.user_id = user_id
     res.workflow_state = "assigned" if res.new_record?
-    just_created = res.new_record?
     res.send_reminder! # this method also saves the assessment_request
-    obj.assign_assessment(res) if obj.is_a?(Submission) && just_created
+    obj.assign_assessment(res) if obj.is_a?(Submission) && res.previously_new_record?
     res
   end
 

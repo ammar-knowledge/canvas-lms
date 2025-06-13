@@ -59,16 +59,11 @@ class ActiveRecord::Base
       ].map do |method|
         next unless method
 
-        search_name = if RUBY_VERSION >= "3.4.0"
-                        owner_str = method.owner.to_s
-
-                        if owner_str =~ /\A#<Class:(.+)>\z/
-                          "'#{Regexp.last_match(1)}.#{method.name}'"
-                        else
-                          "'#{owner_str}##{method.name}'"
-                        end
+        owner_str = method.owner.to_s
+        search_name = if owner_str =~ /\A#<Class:(.+)>\z/
+                        "'#{Regexp.last_match(1)}.#{method.name}'"
                       else
-                        "`#{method.name}'"
+                        "'#{owner_str}##{method.name}'"
                       end
 
         regex = /\A#{Regexp.escape(method.source_location.first)}:\d+:in #{Regexp.escape(search_name)}\z/
@@ -1540,6 +1535,58 @@ module UpdateAndDeleteWithJoins
 
     connection.delete(sql, "SQL", [])
   end
+
+  # Update many rows at once with unique values per row
+  #
+  # @param updates [Hash] A hash where the key is the id of the row to update and the value
+  #    is the raw value, or an array of values if updating multiple columns.
+  # @param columns [Array] The column names to update.
+  def update_many(updates, *columns)
+    raise "update_many is not supported on this relation" unless joins_values.empty?
+    raise ArgumentError, "updates must be a hash" unless updates.is_a?(Hash)
+    raise ArgumentError, "you must update at least one column" if columns.empty?
+    return if updates.empty?
+
+    Shard.current.database_server.unguard do
+      stmt = Arel::UpdateManager.new
+
+      values_clause = updates.map do |id, values|
+        values = if columns.length == 1
+                   connection.quote(values)
+                 else
+                   if !values.is_a?(Array) || values.length != columns.length
+                     raise ArgumentError, "values for #{id} must be an array the same length as the number of columns you're updating"
+                   end
+
+                   values.map { |v| connection.quote(v) }.join(", ")
+                 end
+        "(#{connection.quote(id)}, #{values})"
+      end.join(", ")
+
+      stmt.set Arel.sql(columns.map { |col| "#{col} = v.#{col}" }.join(", "))
+
+      from = from_clause.value
+      stmt.table(from ? Arel::Nodes::SqlLiteral.new(from) : table)
+      stmt.key = table[primary_key]
+
+      quoted_primary_key = connection.quote_column_name(primary_key)
+      quoted_columns = columns.map { |col| connection.quote_column_name(col) }.join(", ")
+      sql = stmt.to_sql
+      sql.concat(" FROM (VALUES #{values_clause}) AS v(#{quoted_primary_key}, #{quoted_columns}) " \
+                 "WHERE #{connection.quote_local_table_name(table_name)}.#{quoted_primary_key}=v.#{quoted_primary_key}")
+
+      constraints = arel.constraints
+      unless constraints.empty?
+        collector = connection.send(:collector)
+        constraints.each do |node|
+          connection.visitor.accept(node, collector)
+        end
+        where_sql = collector.value
+        sql.concat(" AND #{where_sql}")
+      end
+      Shard.current.database_server.unguard { connection.update(sql, "#{name} Update") }
+    end
+  end
 end
 Switchman::ActiveRecord::Relation.include(UpdateAndDeleteWithJoins)
 
@@ -2254,5 +2301,21 @@ module RollbackIgnoreNonDatedMigrations
   end
 end
 ActiveRecord::MigrationContext.prepend(RollbackIgnoreNonDatedMigrations)
+
+class NullSchemaMigration
+  def create_table; end
+  def integer_versions = []
+end
+
+module WithMigrationAdvisoryLock
+  def with_advisory_lock(&)
+    return yield if ActiveRecord::Base.in_migration
+
+    ActiveRecord::MigrationContext.new([], NullSchemaMigration.new)
+                                  .open
+                                  .send(:with_advisory_lock, &)
+  end
+end
+ActiveRecord::Migrator.singleton_class.include(WithMigrationAdvisoryLock)
 
 ActiveRecord::Enum.prepend(Extensions::ActiveRecord::Enum)

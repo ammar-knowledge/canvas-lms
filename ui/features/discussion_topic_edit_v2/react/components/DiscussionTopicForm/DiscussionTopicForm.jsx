@@ -149,6 +149,7 @@ function DiscussionTopicForm({
     ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED &&
     ENV.IN_PACED_COURSE &&
     ENV.FEATURES.course_pace_pacing_with_mastery_paths
+  const userIsRestricted = ENV.USER_HAS_RESTRICTED_VISIBILITY
 
   const announcementAlertProps = () => {
     if (isUnpublishedAnnouncement) {
@@ -211,10 +212,15 @@ function DiscussionTopicForm({
     !currentDiscussionTopic?.isSectionSpecific ||
     currentDiscussionTopic?.courseSections?.length > 0
   ) {
-    sectionsDefault =
-      currentDiscussionTopic?.courseSections?.length > 0
-        ? currentDiscussionTopic.courseSections.map(section => section._id)
-        : ['all']
+    if (currentDiscussionTopic?.courseSections?.length > 0) {
+      sectionsDefault = currentDiscussionTopic.courseSections.map(section => section._id)
+    } else {
+      if (userIsRestricted) {
+        sectionsDefault = sections.map(section => section.id)
+      } else {
+        sectionsDefault = ['all']
+      }
+    }
   }
 
   const [sectionIdsToPostTo, setSectionIdsToPostTo] = useState(sectionsDefault)
@@ -406,6 +412,14 @@ function DiscussionTopicForm({
     postToSis: postToSisForCards.current,
   }
 
+  const getSectionList = () => {
+    const sectionsForUser = [...sections]
+    if (!userIsRestricted) {
+      sectionsForUser.push(allSectionsOption)
+    }
+    return sectionsForUser
+  }
+
   useEffect(() => {
     // Expects to force the focus the errors on re-render once
     if (shouldForceFocusAfterRenderRef.current) {
@@ -475,7 +489,7 @@ function DiscussionTopicForm({
   }, [gradingSchemeId, displayGradeAs, pointsPossible, isGraded])
 
   useEffect(() => {
-    if (isCheckpoints) {
+    if (isCheckpoints && !ENV.CHECKPOINTS_GROUP_DISCUSSIONS_ENABLED) {
       setIsGroupDiscussion(false)
       setGroupCategoryId(null)
     }
@@ -730,6 +744,12 @@ function DiscussionTopicForm({
           assignedTo === defaultEveryoneElseOption.assetCode ||
           assignedTo == `course_${ENV.context_id}`,
       )
+
+      const sectionViewRef = document.getElementById(
+        'manage-assign-to-container',
+      )?.reactComponentInstance
+      sectionViewRef?.focusErrors()
+      if (sectionViewRef?.mustConvertTags()) return false
 
       if (!isEveryoneOrEveryoneElseSelected && !masteryPathsWithCoursePaces) {
         const selectedSectionIds = selectedAssignedTo
@@ -1039,7 +1059,7 @@ function DiscussionTopicForm({
                   sectionInputRef.current = ref
                 }}
               >
-                {[allSectionsOption, ...sections].map(({id, name: label}) => (
+                {getSectionList().map(({id, name: label}) => (
                   <CanvasMultiSelect.Option
                     id={id}
                     value={`opt-${id}`}
@@ -1091,6 +1111,7 @@ function DiscussionTopicForm({
               <View display="inline-block" padding={isAnnouncement ? '0 0 0 medium' : '0'}>
                 <Checkbox
                   data-testid="disallow_threaded_replies"
+                  data-action-state={isThreaded ? 'disallowThreads' : 'allowThreads'}
                   label={I18n.t('Disallow threaded replies')}
                   value="disallow-threaded-replies"
                   inline={true}
@@ -1112,6 +1133,11 @@ function DiscussionTopicForm({
               <View display="inline-block" padding={isAnnouncement ? '0 0 0 medium' : '0'}>
                 <Checkbox
                   data-testid="require-initial-post-checkbox"
+                  data-action-state={
+                    requireInitialPost
+                      ? 'disableInitiatorRequirement'
+                      : 'enableInitiatorRequirement'
+                  }
                   label={I18n.t(
                     'Participants must respond to the topic before viewing other replies',
                   )}
@@ -1125,6 +1151,8 @@ function DiscussionTopicForm({
 
             {shouldShowPodcastFeedOption && (
               <Checkbox
+                data-testid="enable-podcast-checkbox"
+                data-action-state={enablePodcastFeed ? 'disablePodcast' : 'enablePodcast'}
                 label={I18n.t('Enable podcast feed')}
                 value="enable-podcast-feed"
                 inline={true}
@@ -1138,6 +1166,10 @@ function DiscussionTopicForm({
             {enablePodcastFeed && !isGroupContext && (
               <View display="block" padding="none none none medium">
                 <Checkbox
+                  data-testid="include-replies-in-podcast-checkbox"
+                  data-action-state={
+                    includeRepliesInFeed ? 'disableRepliesInFeed' : 'includeRepliesInFeed'
+                  }
                   label={I18n.t('Include student replies in podcast feed')}
                   value="include-student-replies-in-podcast-feed"
                   inline={true}
@@ -1149,6 +1181,8 @@ function DiscussionTopicForm({
             {shouldShowGradedDiscussionOptions && (
               <Checkbox
                 data-testid="graded-checkbox"
+                data-pendo="graded-checkbox"
+                data-action-state={isGraded ? 'disableGrades' : 'enableGrades'}
                 label={I18n.t('Graded')}
                 value="graded"
                 inline={true}
@@ -1163,6 +1197,8 @@ function DiscussionTopicForm({
                 <View display="inline-block" padding="0 0 0 medium">
                   <Checkbox
                     data-testid="checkpoints-checkbox"
+                    data-pendo="checkpoints-checkbox"
+                    data-action-state={isCheckpoints ? 'disableCheckpoints' : 'enableCheckpoints'}
                     label={I18n.t('Assign graded checkpoints')}
                     value="checkpoints"
                     inline={true}
@@ -1189,6 +1225,8 @@ function DiscussionTopicForm({
             {shouldShowLikingOption && (
               <>
                 <Checkbox
+                  data-testid="like-checkbox"
+                  data-action-state={allowLiking ? 'disallowLiking' : 'allowLiking'}
                   label={I18n.t('Allow liking')}
                   value="allow-liking"
                   inline={true}
@@ -1202,6 +1240,10 @@ function DiscussionTopicForm({
                   <View display="block" padding="small none none medium">
                     <FormFieldGroup description="" rowSpacing="small">
                       <Checkbox
+                        data-testid="exclude-non-graders-checkbox"
+                        data-action-state={
+                          onlyGradersCanLike ? 'allowNonGradersLiking' : 'excludeNonGradersLiking'
+                        }
                         label={I18n.t('Only graders can like')}
                         value="only-graders-can-like"
                         inline={true}
@@ -1216,6 +1258,8 @@ function DiscussionTopicForm({
             {shouldShowTodoSettings && (
               <>
                 <Checkbox
+                  data-testid="add-todo-checkbox"
+                  data-action-state={addToTodo ? 'dontAddToTodo' : 'addToTodo'}
                   label={I18n.t('Add to student to-do')}
                   value="add-to-student-to-do"
                   inline={true}
@@ -1259,6 +1303,9 @@ function DiscussionTopicForm({
               <Checkbox
                 id="has_group_category"
                 data-testid="group-discussion-checkbox"
+                data-action-state={
+                  isGroupDiscussion ? 'removeGroupDiscussion' : 'addGroupDiscussion'
+                }
                 label={I18n.t('This is a Group Discussion')}
                 value="group-discussion"
                 inline={true}

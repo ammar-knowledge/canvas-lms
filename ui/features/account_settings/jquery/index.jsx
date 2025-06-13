@@ -34,18 +34,15 @@ import '@instructure/date-js' // Date.parse
 import 'jquery-scroll-to-visible/jquery.scrollTo'
 import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
 import doFetchApi from '@canvas/do-fetch-api-effect'
-import React from 'react'
 import ReactDOM from 'react-dom/client'
 import ReportDescription from '../react/account_reports/ReportDescription'
 import RunReportForm from '../react/account_reports/RunReportForm'
 import RQDModal from '../react/components/RQDModal'
 import OpenRegistrationWarning from '../react/components/OpenRegistrationWarning'
 import ServiceDescriptionModal from '../react/components/ServiceDescriptionModal'
+import {LoadTab} from '../../../shared/tabs/react/LoadTab'
 
 const I18n = createI18nScope('account_settings')
-
-let reportsTabHasLoaded = false
-
 const _settings_smallTablet = window.matchMedia('(min-width: 550px)').matches
 const _settings_desktop = window.matchMedia('(min-width: 992px)').matches
 
@@ -99,20 +96,6 @@ $(document).ready(function () {
     serviceRoot = ReactDOM.createRoot(serviceMount)
   }
 
-  const settingsTabs = document
-    .getElementById('account_settings_tabs')
-    ?.querySelectorAll('ul>li>a[id^="tab"]')
-  // find the index of tab whose id matches the URL's hash
-  const initialTab = Array.from(settingsTabs || []).findIndex(
-    t => `#${t.id}` === `${window.location.hash}-link`,
-  )
-
-  if (settingsTabs && !window.location.hash) {
-    // Sync the location hash with window.history, this fixes some issues with the browser back
-    // button when going back to or from the settings tab
-    const defaultTab = settingsTabs[0]?.href
-    window.history.replaceState(null, null, defaultTab)
-  }
   function checkFutureListingSetting() {
     if ($('#account_settings_restrict_student_future_view_value').is(':checked')) {
       $('.future_listing').show()
@@ -183,227 +166,134 @@ $(document).ready(function () {
 
   globalAnnouncements.bindDomEvents()
 
-  $('#account_settings_tabs').on('tabsactivate', (_e, ui) => {
-    try {
-      const $tabLink = ui.newTab.children('a:first-child')
-      const hash = new URL($tabLink.prop('href')).hash
-      if (window.location.hash !== hash) {
-        window.history.pushState(null, null, hash)
-      }
-      $tabLink.focus()
-    } catch (_ignore) {
-      // get here if `new URL` throws, but it shouldn't, and
-      // there's really nothing we need to do about it
-    }
-  })
+  function loadReportsTab(targetId) {
+    if (targetId !== 'tab-reports-selected') return
 
-  $('#account_settings_tabs')
-    .on('tabsbeforeactivate tabscreate', (event, ui) => {
-      const tabId =
-        event.type === 'tabscreate'
-          ? window.location.hash.replace('#', '') + '-link'
-          : $(ui.newTab.get(0)).children('a').get(0).id
+    const splitContext = window.ENV.context_asset_string.split('_')
+    const path = `/${splitContext[0]}s/${splitContext[1]}/reports_tab`
 
-      if (tabId === 'tab-reports-link' && !reportsTabHasLoaded) {
-        reportsTabHasLoaded = true
-        const splitContext = window.ENV.context_asset_string.split('_')
-
-        fetch(`/${splitContext[0]}s/${splitContext[1]}/reports_tab`, {
-          headers: {accept: 'text/html'},
-        })
-          .then(req => req.text())
-          .then(html => {
-            $('#tab-reports').html(html)
-            descMount = document.getElementById('report_desc_mount')
-            descRoot = ReactDOM.createRoot(descMount)
-
-            reportMount = document.getElementById('run_report_mount')
-            reportRoot = ReactDOM.createRoot(reportMount)
-
-            $('.open_report_description_link').click(openReportDescriptionLink)
-
-            $('.run_report_link').click(function (clickEvent) {
-              clickEvent.preventDefault()
-              $(this).parent('form').submit()
-            })
-
-            $('.run_report_form').formSubmit({
-              resetForm: true,
-              beforeSubmit(_data) {
-                $(this).loadingImage()
-                return true
-              },
-              success(_data) {
-                $(this).loadingImage('remove')
-                const report = $(this).attr('id').replace('_form', '')
-                $('#' + report)
-                  .find('.run_report_link')
-                  .hide()
-                  .end()
-                  .find('.configure_report_link')
-                  .hide()
-                  .end()
-                  .find('.running_report_message')
-                  .show()
-              },
-              error(_data) {
-                $(this).loadingImage('remove')
-              },
-            })
-
-            $('.configure_report_link').click(function (_event) {
-              const closeModal = () => {
-                reportRoot.render(null)
-              }
-
-              const onSuccess = reportName => {
-                reportRoot.render(null)
-                $('#' + reportName)
-                  .find('.run_report_link')
-                  .hide()
-                  .end()
-                  .find('.configure_report_link')
-                  .hide()
-                  .end()
-                  .find('.running_report_message')
-                  .show()
-                // set focus to next input element
-                const nextRow = $(`#${reportName}`).next('tr')
-                const descButton = nextRow.find('button.open_report_description_link')
-                descButton.focus()
-              }
-
-              const setupJQuery = () => {
-                const modalBody = document.getElementById('configure_modal_body')
-                const provisioning_container = modalBody.querySelector('form#provisioning_csv_form')
-                const sis_export_container = modalBody.querySelector('form#sis_export_csv_form')
-                if (provisioning_container) {
-                  const provisioning_checkboxes = provisioning_container.querySelectorAll(
-                    'input[type="checkbox"]:not(#parameters_created_by_sis):not(#parameters_include_deleted)',
-                  )
-
-                  provisioning_container.onclick = function () {
-                    let reportIsChecked = false
-
-                    provisioning_checkboxes.forEach(checkbox => {
-                      if (checkbox.checked) {
-                        reportIsChecked = true
-                      }
-                    })
-
-                    const createdBySisChecbox = provisioning_container.querySelector(
-                      '#parameters_created_by_sis',
-                    )
-                    const includeDeletedCheckbox = provisioning_container.querySelector(
-                      '#parameters_include_deleted',
-                    )
-
-                    if (reportIsChecked) {
-                      createdBySisChecbox.disabled = false
-                      includeDeletedCheckbox.disabled = false
-                    } else {
-                      createdBySisChecbox.checked = false
-                      createdBySisChecbox.disabled = true
-                      includeDeletedCheckbox.checked = false
-                      includeDeletedCheckbox.disabled = true
-                    }
-                  }
-                } else if (sis_export_container) {
-                  const sis_export_checkboxes = sis_export_container.querySelectorAll(
-                    'input[type="checkbox"]:not(#parameters_created_by_sis):not(#parameters_include_deleted)',
-                  )
-
-                  sis_export_container.onclick = function () {
-                    let reportIsChecked = false
-
-                    sis_export_checkboxes.forEach(checkbox => {
-                      if (checkbox.checked) {
-                        reportIsChecked = true
-                      }
-                    })
-
-                    const createdBySisChecbox = sis_export_container.querySelector(
-                      '#parameters_created_by_sis',
-                    )
-                    const includeDeletedCheckbox = sis_export_container.querySelector(
-                      '#parameters_include_deleted',
-                    )
-
-                    if (reportIsChecked) {
-                      createdBySisChecbox.disabled = false
-                      includeDeletedCheckbox.disabled = false
-                    } else {
-                      createdBySisChecbox.checked = false
-                      createdBySisChecbox.disabled = true
-                      includeDeletedCheckbox.checked = false
-                      includeDeletedCheckbox.disabled = true
-                    }
-                  }
-                }
-              }
-
-              event.preventDefault()
-              const reportCell = $(this).closest('td')
-              const reportRow = reportCell.closest('tr')
-              const reportName = reportRow[0].id
-              const path = reportCell.find('.report_dialog form').attr('action')
-              const html = reportCell.find('.report_dialog').html()
-              reportRoot.render(
-                <RunReportForm
-                  formHTML={html}
-                  onRender={setupJQuery}
-                  closeModal={closeModal}
-                  onSuccess={onSuccess}
-                  path={path}
-                  reportName={reportName}
-                />,
-              )
-            })
-          })
-          .catch(() => {
-            $('#tab-reports').text(I18n.t('There are no reports for you to view.'))
-          })
-      } else if (tabId === 'tab-security-link') {
-        const api = axios.create({})
-
-        const splitContext = window.ENV.context_asset_string.split('_')
-
-        api
-          .get(`/api/v1/${splitContext[0]}s/${splitContext[1]}/csp_settings`)
-          .then(() => {
-            // Bring in the actual bundle of files to use
-            import(
-              /* webpackChunkName: "[request]" */
-              '../react/index'
-            )
-              /* eslint-disable promise/no-nesting */
-              .then(({start}) => {
-                start(document.getElementById('tab-security'), {
-                  context: splitContext[0],
-                  contextId: splitContext[1],
-                  isSubAccount: !ENV.ACCOUNT.root_account,
-                  initialCspSettings: ENV.CSP,
-                  liveRegion: [
-                    document.getElementById('flash_message_holder'),
-                    document.getElementById('flash_screenreader_holder'),
-                  ],
-                  api,
-                })
-              })
-              .catch(() => {
-                // We really should never get here... but if we do... do something.
-                $('#tab-security').text(I18n.t('Security Tab failed to load'))
-              })
-            /* eslint-enable promise/no-nesting */
-          })
-          .catch(() => {
-            // We really should never get here... but if we do... do something.
-            $('#tab-security').text(I18n.t('Security Tab failed to load'))
-          })
-      }
+    fetch(path, {
+      headers: {accept: 'text/html'},
     })
-    .tabs({active: initialTab >= 0 ? initialTab : null})
-    .show()
+      .then(req => req.text())
+      .then(html => {
+        try {
+          $('#tab-reports-mount').html(html)
+          descMount = document.getElementById('report_desc_mount')
+          descRoot = ReactDOM.createRoot(descMount)
+          reportMount = document.getElementById('run_report_mount')
+          reportRoot = ReactDOM.createRoot(reportMount)
+
+          $('.open_report_description_link').click(openReportDescriptionLink)
+          $('.run_report_link').click(function (clickEvent) {
+            clickEvent.preventDefault()
+            $(this).parent('form').submit()
+          })
+          $('.run_report_form').formSubmit({
+            resetForm: true,
+            beforeSubmit(_data) {
+              $(this).loadingImage()
+              return true
+            },
+            success(_data) {
+              $(this).loadingImage('remove')
+              const report = $(this).attr('id').replace('_form', '')
+              $('#' + report)
+                .find('.run_report_link')
+                .hide()
+                .end()
+                .find('.configure_report_link')
+                .hide()
+                .end()
+                .find('.running_report_message')
+                .show()
+            },
+            error(_data) {
+              $(this).loadingImage('remove')
+            },
+          })
+          $('.configure_report_link').click(function (event) {
+            event.preventDefault()
+
+            const reportCell = $(this).closest('td')
+            const reportRow = reportCell.closest('tr')
+            const reportName = reportRow[0].id
+            const path = reportCell.find('.report_dialog form').attr('action')
+            const html = reportCell.find('.report_dialog').html()
+
+            const closeModal = () => reportRoot.render(null)
+            const onSuccess = reportName => {
+              reportRoot.render(null)
+              $(`#${reportName}`)
+                .find('.run_report_link')
+                .hide()
+                .end()
+                .find('.configure_report_link')
+                .hide()
+                .end()
+                .find('.running_report_message')
+                .show()
+
+              const nextRow = $(`#${reportName}`).next('tr')
+              nextRow.find('button.open_report_description_link').focus()
+            }
+
+            reportRoot.render(
+              <RunReportForm
+                formHTML={html}
+                closeModal={closeModal}
+                onSuccess={onSuccess}
+                path={path}
+                reportName={reportName}
+              />,
+            )
+          })
+        } catch {
+          $('#tab-reports-mount').text(I18n.t('There are no reports for you to view.'))
+        }
+      })
+      .catch(() => {
+        $('#tab-reports-mount').text(I18n.t('There are no reports for you to view.'))
+      })
+  }
+
+  function loadSecurityTab(targetId) {
+    if (targetId !== 'tab-security-selected') return
+
+    const splitContext = window.ENV.context_asset_string.split('_')
+    const api = axios.create({})
+
+    api
+      .get(`/api/v1/${splitContext[0]}s/${splitContext[1]}/csp_settings`)
+      .then(() => {
+        import(
+          /* webpackChunkName: "[request]" */
+          '../react/index'
+        )
+          .then(({start}) => {
+            start(document.getElementById('tab-security-mount'), {
+              context: splitContext[0],
+              contextId: splitContext[1],
+              isSubAccount: !ENV.ACCOUNT.root_account,
+              initialCspSettings: ENV.CSP,
+              liveRegion: [
+                document.getElementById('flash_message_holder'),
+                document.getElementById('flash_screenreader_holder'),
+              ],
+              api,
+            })
+          })
+          .catch(() => {
+            $('#tab-security-mount').text(I18n.t('Security Tab failed to load.'))
+          })
+      })
+      .catch(() => {
+        $('#tab-security-mount').text(I18n.t('Security Tab failed to load.'))
+      })
+  }
+
+  LoadTab(loadReportsTab)
+  LoadTab(loadSecurityTab)
 
   $('#account_settings_restrict_quantitative_data_value').click(event => {
     const lockbox = $('#account_settings_restrict_quantitative_data_locked')
@@ -617,6 +507,10 @@ $(document).ready(function () {
         $rce_container.show()
 
         try {
+          if (RichContentEditor.callOnRCE($textarea, 'exists?')) {
+            return
+          }
+
           const {json, response} = await doFetchApi({
             path: '/api/v1/acceptable_use_policy',
           })
@@ -663,10 +557,16 @@ $(document).ready(function () {
     }
   })
 
-  window.addEventListener('popstate', () => {
-    const openTab = window.location.hash
-    if (openTab) {
-      document.querySelector(`[href="${openTab}"]`)?.click()
+  $('#account_settings_allow_assign_to_differentiation_tags_value').click(event => {
+    const warningMsg = $('#differentiation_tags_account_settings_warning_message')
+    const descriptionMsg = $('#differentiation_tags_account_settings_description_message')
+    const diffTagsOriginallyEnabled = warningMsg.data('diffTagsOriginallyEnabled') === true
+    if (!event.target.checked && diffTagsOriginallyEnabled) {
+      warningMsg.show()
+      descriptionMsg.hide()
+    } else {
+      warningMsg.hide()
+      descriptionMsg.show()
     }
   })
 })

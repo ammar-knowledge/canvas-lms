@@ -244,7 +244,7 @@ describe Login::CasController do
     expect(Time.now.utc - start).to be < 1
     expect(session[:sentinel]).to be true
     expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
-      "auth.create.failure.v2", tags: { auth_type: ap.auth_type.to_s, auth_provider_id: ap.global_id, domain: request.host, reason: :timeout }
+      "auth.create.failure.v2", tags: { auth_type: ap.auth_type.to_s, auth_provider_id: ap.global_id, target_auth_type: "cas", domain: request.host, reason: :timeout }
     )
   end
 
@@ -265,7 +265,7 @@ describe Login::CasController do
     stubby("yes\n#{@pseudonym.unique_id}\n")
     account_with_cas(account: Account.site_admin)
     controller.instance_variable_set(:@domain_root_account, Account.site_admin)
-    expect(controller.client).to receive(:add_service_to_login_url).and_return("someurl")
+    expect(controller.client).to receive(:login_url).and_return("someurl")
 
     cookies["canvas_sa_delegated"] = "1"
     # *don't* double domain_root_account

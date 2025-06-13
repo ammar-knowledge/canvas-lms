@@ -579,6 +579,22 @@ describe "Api::V1::Assignment" do
         end
       end
     end
+
+    context "in a horizon course" do
+      let(:account) { Account.create!(name: "Horizon Account", horizon_account: true) }
+      let(:course) { Course.create!(horizon_course: true, account:) }
+      let(:assignment) { assignment_model(course:) }
+
+      before do
+        account.enable_feature!(:horizon_course_setting)
+        EstimatedDuration.create!(duration: 5.minutes, assignment:)
+      end
+
+      it "returns estimated duration" do
+        json = api.assignment_json(assignment, user, session, {})
+        expect(json).to have_key("estimated_duration")
+      end
+    end
   end
 
   describe "*_settings_hash methods" do
@@ -1025,7 +1041,10 @@ describe "Api::V1::Assignment" do
       Assignment.last
     end
 
-    let_once(:tool) { external_tool_1_3_model(context: account, developer_key:) }
+    let_once(:registration) do
+      lti_registration_with_tool(account:)
+    end
+    let_once(:tool) { registration.deployments.first }
     let_once(:assignment_create_params) do
       ActionController::Parameters.new(
         name: "New Assignment",
@@ -1038,7 +1057,6 @@ describe "Api::V1::Assignment" do
     let_once(:assignment) { Assignment.new(context: course) }
     let_once(:course) { course_model }
     let_once(:account) { assignment.root_account }
-    let_once(:developer_key) { lti_developer_key_model(account:) }
     let_once(:user) { user_model }
 
     context "external tool url" do
@@ -1107,7 +1125,6 @@ describe "Api::V1::Assignment" do
     end
 
     context "when asset processor content items are passed in" do
-      let_once(:tool) { external_tool_1_3_model(context: account, developer_key:) }
       let_once(:assignment_create_params) do
         ActionController::Parameters.new(
           name: "New Assignment",
@@ -1130,11 +1147,9 @@ describe "Api::V1::Assignment" do
           "url" => "",
           "title" => title,
           "text" => "Lti 1.3 Tool Text",
-          "custom" => "",
-          "icon" => "{\"url\":\"https://img.icons8.com/metro/1600/unicorn.png\",\"width\":64,\"height\":64}",
-          "window" => "",
-          "iframe" => "",
-          "report" => "{\"released\":true,\"indicator\":false,\"custom\":{\"some_setting\":\"az-123\"}}",
+          "custom" => { k: "v" },
+          "icon" => {},
+          "report" => { released: true, indicator: false, custom: { some_setting: "az-123" } },
           "context_external_tool_id" => tool.id,
         }
       end
@@ -1295,7 +1310,7 @@ describe "Api::V1::Assignment" do
             "new_content_item" => {
               "title" => "AP Title",
               "text" => "AP Text",
-              "report" => "{}",
+              "report" => {},
               "context_external_tool_id" => tool.id,
             }
           }
@@ -1323,7 +1338,7 @@ describe "Api::V1::Assignment" do
       context "when the content_items are valid" do
         it "creates, deletes, and retains asset processors as appropriate" do
           expect { subject }.to \
-            change { assignment.lti_asset_processors.active.pluck(:title).sort }
+            change { assignment.lti_asset_processors.pluck(:title).sort }
             .from(["Existing1", "Existing2"])
             .to(["AP Title", "Existing1"])
         end
@@ -1332,7 +1347,68 @@ describe "Api::V1::Assignment" do
       context "when the assignment is no longer asset processor capable" do
         it "deletes any previous asset processors" do
           assignment_update_params[:submission_types] = ["online_url"]
-          expect { subject }.to change { assignment.lti_asset_processors.active.count }.from(2).to(0)
+          expect { subject }.to change { assignment.lti_asset_processors.count }.from(2).to(0)
+        end
+      end
+    end
+
+    context "when not in a horizon course" do
+      context "when estimated duration attrs are passed in" do
+        let(:assignment_update_params) do
+          ActionController::Parameters.new(
+            estimated_duration_attributes: {
+              minutes: 5
+            }
+          )
+        end
+
+        it "does not update the estimated duration" do
+          expect { subject }.not_to change { assignment.estimated_duration&.duration }.from(nil)
+        end
+      end
+    end
+
+    context "when in a horizon course" do
+      let(:account) { Account.create!(name: "Horizon Account", horizon_account: true) }
+      let(:course) { Course.create!(horizon_course: true, account:) }
+      let(:assignment) { assignment_model(course:) }
+
+      before do
+        account.enable_feature!(:horizon_course_setting)
+      end
+
+      context "when estimated duration attrs are passed in" do
+        let(:assignment_update_params) do
+          ActionController::Parameters.new(
+            estimated_duration_attributes: {
+              minutes: 5
+            }
+          )
+        end
+
+        it "updates the estimated duration" do
+          expect { subject }.to change {
+            assignment.estimated_duration&.duration
+          }.from(nil).to(5.minutes)
+        end
+      end
+
+      context "when estimated duration is set" do
+        let(:estimated_duration) { EstimatedDuration.create!(assignment:) }
+
+        context "when options to remove estimated duration are set" do
+          let(:assignment_update_params) do
+            ActionController::Parameters.new(
+              estimated_duration_attributes: {
+                id: estimated_duration.id,
+                _destroy: true
+              }
+            )
+          end
+
+          it "removes the estimated duration" do
+            expect { subject }.to change { estimated_duration.destroyed? }.to(true)
+          end
         end
       end
     end

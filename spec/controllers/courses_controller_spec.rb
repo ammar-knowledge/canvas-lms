@@ -3104,6 +3104,33 @@ describe CoursesController do
       expect(@course.syllabus_body).to eq body
     end
 
+    context "sharding" do
+      specs_require_sharding
+
+      it "doesn't re-create attachment associations on syllabus body on save" do
+        user_session(@teacher)
+        @course.root_account.enable_feature!(:disable_file_verifiers_in_public_syllabus)
+
+        att1 = attachment_model(context: @course)
+        aa1 = AttachmentAssociation.create!(attachment: @attachment, context: @course, user: @teacher, context_concern: "syllabus_body")
+        att2 = nil
+        @shard1.activate do
+          user_model
+          att2 = attachment_model(context: @user)
+        end
+        aa2 = AttachmentAssociation.create!(attachment: @attachment, context: @course, user: @user, context_concern: "syllabus_body")
+
+        body = <<~HTML
+          <p><img src="/courses/#{@course.id}/files/#{att1.id}/preview" /></p>
+          <p><img src="/users/#{@user.id}/files/#{att2.id}/preview" /></p>
+        HTML
+
+        put "update", params: { id: @course.id, course: { syllabus_body: body } }
+
+        expect(AttachmentAssociation.where(context: @course).pluck(:id)).to match_array [aa1.id, aa2.id]
+      end
+    end
+
     it "renders the show page with a flash on error" do
       user_session(@teacher)
       # cause the course to be invalid
@@ -4278,6 +4305,32 @@ describe CoursesController do
       test_student.reload
       expect(test_student.learning_outcome_results.active.size).to be_zero
       expect(@outcome.assessed?).to be_falsey
+    end
+
+    it "removes auto grade results for the test student" do
+      user_session(@teacher)
+      post "student_view", params: { course_id: @course.id }
+      test_student = @course.student_view_student
+
+      assignment = @course.assignments.create!(workflow_state: "published")
+
+      submission = assignment.submissions.find_by(user: test_student) ||
+                   assignment.submissions.build(user: test_student)
+      submission.save! unless submission.persisted?
+
+      AutoGradeResult.create!(
+        submission:,
+        attempt: 1,
+        grade_data: { score: 4.0 },
+        grading_attempts: 1,
+        root_account_id: @course.account.root_account.id
+      )
+
+      expect(AutoGradeResult.where(submission_id: submission.id).count).to eq(1)
+
+      delete "reset_test_student", params: { course_id: @course.id }
+
+      expect(AutoGradeResult.where(submission_id: submission.id)).to be_empty
     end
   end
 
