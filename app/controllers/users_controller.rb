@@ -917,7 +917,7 @@ class UsersController < ApplicationController
               else
                 @context.manageable_courses(include_concluded).limit(limit)
               end
-      @courses += scope.select("courses.*,#{Course.best_unicode_collation_key("name")} AS sort_key").order("sort_key").preload(:enrollment_term).to_a
+      @courses += scope.select("courses.*,#{Course.best_unicode_collation_key("name")} AS sort_key").order(:sort_key).preload(:enrollment_term).to_a
     end
 
     @courses = @courses.sort_by do |c|
@@ -960,6 +960,7 @@ class UsersController < ApplicationController
   end
 
   include Api::V1::TodoItem
+
   # @API List the TODO items
   # A paginated list of the current user's list of todo items.
   #
@@ -3024,7 +3025,7 @@ class UsersController < ApplicationController
 
     # find last interactions
     last_comment_dates = SubmissionCommentInteraction.in_course_between(course, teacher.id, ids)
-    last_comment_dates.each do |(user_id, _author_id), date| # rubocop:disable Style/HashEachMethods
+    last_comment_dates.each do |(user_id, _author_id), date|
       next unless (student = data[user_id])
 
       student[:last_interaction] = [student[:last_interaction], date].compact.max

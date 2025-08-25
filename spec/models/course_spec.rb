@@ -1378,7 +1378,7 @@ describe Course do
 
           @course.reload
           expect(@course.uuid).to eq orig_uuid
-          expect(new_course.uuid).to match(/[0-9a-zA-z]{40}/)
+          expect(new_course.uuid).to match(/[0-9a-zA-Z]{40}/)
         end
 
         it "moves the uuid to the new course during reset if feature flag is disabled" do
@@ -2801,7 +2801,7 @@ describe Course do
       end
 
       it "returns Accessibility tab if feature flag is enabled for teachers" do
-        @course.enable_feature!(:accessibility_tab_enable)
+        @course.root_account.settings[:enable_content_a11y_checker] = true
         tabs = @course.tabs_available(@user)
 
         # Checks that Accessibility tab is at the end of the tabs (except for Settings tab)
@@ -2809,7 +2809,7 @@ describe Course do
         accessibility_tab_index = tabs.pluck(:id).index(Course::TAB_ACCESSIBILITY)
         expect(accessibility_tab_index).to eq(settings_tab_index - 1)
       ensure
-        @course.disable_feature!(:accessibility_tab_enable)
+        @course.root_account.settings[:enable_content_a11y_checker] = false
       end
 
       describe "TAB_YOUTUBE_MIGRATION" do

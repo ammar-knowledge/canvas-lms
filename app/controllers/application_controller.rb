@@ -39,6 +39,7 @@ class ApplicationController < ActionController::Base
   include AuthenticationMethods
 
   include Canvas::RequestForgeryProtection
+
   protect_from_forgery with: :exception
 
   # Before/around actions run in order defined (even if interleaved)
@@ -301,6 +302,7 @@ class ApplicationController < ActionController::Base
             release_notes_badge_disabled: @current_user&.release_notes_badge_disabled?,
             can_add_pronouns: @domain_root_account&.can_add_pronouns?,
             show_sections_in_course_tray: @domain_root_account&.show_sections_in_course_tray?,
+            enable_content_a11y_checker: @domain_root_account&.enable_content_a11y_checker?,
             suppress_assignments: @domain_root_account&.suppress_assignments?
           },
           RAILS_ENVIRONMENT: Canvas.environment
@@ -465,7 +467,6 @@ class ApplicationController < ActionController::Base
     hide_legacy_course_analytics
     scheduled_feedback_releases
     youtube_overlay
-    accessibility_tab_enable
   ].freeze
   JS_ENV_ROOT_ACCOUNT_FEATURES = %i[
     product_tours
@@ -983,7 +984,7 @@ class ApplicationController < ActionController::Base
   ensure
     # this resets any locale set in set_locale_with_localizer (implicitly called
     # on any translation call)
-    I18n.locale = I18n.default_locale # rubocop:disable Rails/I18nLocaleAssignment
+    I18n.locale = I18n.default_locale
     I18n.localizer = nil
   end
 
@@ -1931,10 +1932,6 @@ class ApplicationController < ActionController::Base
     return unless (request.xhr? || request.put?) && params[:page_view_token] && !updated_fields.empty?
     return unless page_views_enabled?
 
-    RequestContext::Generator.store_interaction_seconds_update(
-      params[:page_view_token],
-      updated_fields[:interaction_seconds]
-    )
     page_view_info = CanvasSecurity::PageViewJwt.decode(params[:page_view_token])
     @page_view = PageView.find_for_update(page_view_info[:request_id])
     if @page_view
@@ -1945,6 +1942,11 @@ class ApplicationController < ActionController::Base
       end
       @page_view.do_update(updated_fields)
       @page_view_update = true
+
+      RequestContext::Generator.store_interaction_seconds_update(
+        @page_view,
+        updated_fields[:interaction_seconds]
+      )
     end
   end
 
@@ -3091,6 +3093,7 @@ class ApplicationController < ActionController::Base
     extend Api::V1::UserProfile
     extend Api::V1::Course
     extend Api::V1::Group
+
     includes ||= []
     data = user_profile_json(profile, viewer, session, includes, profile)
     data[:can_edit] = viewer == profile.user && profile.user.user_can_edit_profile?

@@ -167,6 +167,7 @@ class DiscussionTopic < ActiveRecord::Base
   after_create :create_materialized_view
 
   include SmartSearchable
+
   use_smart_search title_column: :title,
                    body_column: :message,
                    index_scope: ->(course) { course.discussion_topics.active },
@@ -1924,7 +1925,7 @@ class DiscussionTopic < ActiveRecord::Base
         locked = { object: self, module: item.context_module }
       elsif locked? # nothing more specific, it's just locked
         locked = { object: self, can_view: true }
-      elsif (l = root_topic&.low_level_locked_for?(user, opts)) # rubocop:disable Lint/DuplicateBranch
+      elsif (l = root_topic&.low_level_locked_for?(user, opts))
         locked = l
       end
       locked

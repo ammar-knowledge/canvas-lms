@@ -831,7 +831,7 @@ describe Assignment do
 
       identities = @assignment.grader_identities
       expect(identities.length).to eq 3
-      expect(identities.map { |i| i[:user_id] }).to eq [@teacher.id, second_teacher.id, third_teacher.id]
+      expect(identities.pluck(:user_id)).to eq [@teacher.id, second_teacher.id, third_teacher.id]
     end
   end
 
@@ -2377,6 +2377,7 @@ describe Assignment do
 
     context "group assignments with all students assigned to a group" do
       include GroupsCommon
+
       it "sorts by group name" do
         student_one = student_in_course(
           active_all: true, name: "Frodo Bravo", sortable_name: "Bravo, Frodo"
@@ -2449,6 +2450,7 @@ describe Assignment do
 
     context "group assignments with some students assigned to a group and some not" do
       include GroupsCommon
+
       it "sorts by student name and group name" do
         student_one = student_in_course(
           active_all: true, name: "Frodo Bravo", sortable_name: "Bravo, Frodo"
@@ -2572,6 +2574,7 @@ describe Assignment do
 
   context "group assignments with all students assigned to a group and grade_group_students_individually set to true" do
     include GroupsCommon
+
     it "sorts by sortable_name" do
       student_one = student_in_course(
         active_all: true, name: "Frodo Bravo", sortable_name: "Bravo, Frodo"
@@ -12745,7 +12748,8 @@ describe Assignment do
   end
 
   it_behaves_like "an accessibility scannable resource" do
-    let(:valid_attributes) { { title: "Test Assignment", course: course_model } }
+    let(:course) { course_model }
+    let(:valid_attributes) { { title: "Test Assignment", course: } }
     let(:relevant_attributes_for_scan) { { description: "<p>Lorem ipsum</p>" } }
   end
 

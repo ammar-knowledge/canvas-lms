@@ -311,6 +311,7 @@ class AccountsController < ApplicationController
   before_action :rce_js_env, only: [:settings]
 
   include HorizonMode
+
   before_action :load_canvas_career, only: %i[show users sis_import admin_tools settings]
 
   include Api::V1::Account
@@ -1363,6 +1364,7 @@ class AccountsController < ApplicationController
              enable_eportfolios
              enable_profiles
              enable_turnitin
+             enable_content_a11y_checker
              suppress_assignments
              include_integration_ids_in_gradebook_exports
              show_scheduler
@@ -1859,7 +1861,7 @@ class AccountsController < ApplicationController
       return redirect_to account_settings_url(@account) if !@account.allow_sis_import || !@account.root_account?
 
       @current_batch = @account.current_sis_batch
-      @last_batch = @account.sis_batches.order("created_at DESC").first
+      @last_batch = @account.sis_batches.order(created_at: :desc).first
       respond_to do |format|
         format.html
         format.json { render json: @current_batch }
@@ -2180,6 +2182,7 @@ class AccountsController < ApplicationController
                                    :enable_profiles,
                                    :enable_gravatar,
                                    :enable_turnitin,
+                                   :enable_content_a11y_checker,
                                    :equella_endpoint,
                                    :equella_teaser,
                                    :external_notification_warning,
