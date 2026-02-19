@@ -16,13 +16,20 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 %>
 
-<% unless AuthenticationProvider::GitHub.globally_configured? %>
+<% if AuthenticationProvider::GitHub.globally_configured? %>
+  <p><%= mt(<<~TEXT, github_url: "https://github.com/settings/developers", callback_url: oauth2_login_callback_url)
+You should configure %{callback_url} as the Authorization callback URL.
+After you create your app, make a note of the Client ID and Client Secret, and enter them here.
+TEXT
+          %></p>
+<% else %>
   <p><%= mt(<<~TEXT, github_url: "https://github.com/settings/developers", callback_url: oauth2_login_callback_url)
 You will need to [register an application on GitHub](%{github_url}).
 You should configure %{callback_url} as the Authorization callback URL.
 After you create your app, make a note of the Client ID and Client Secret, and enter them here.
 TEXT
           %></p>
+<% end %>
   <div class="ic-Form-control">
     <%= f.label :domain, t('Domain'), class: 'ic-Label', for: "domain_#{presenter.id_suffix(aac)}" %>
     <%= f.text_field :domain, placeholder: 'github.com', class: 'ic-Input', id: "domain_#{presenter.id_suffix(aac)}" %>
