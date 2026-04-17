@@ -3895,6 +3895,7 @@ describe DiscussionTopic do
     end
 
     it "allows instructors and read admins to summarize if the feature is enabled" do
+      allow(FeatureFlags::Hooks).to receive(:tier_1_visible_on_hook).and_return(true)
       @course.enable_feature!(:discussion_summary)
 
       expect(@topic.user_can_summarize?(@teacher)).to be true
@@ -3949,6 +3950,7 @@ describe DiscussionTopic do
     end
 
     it "allows instructors and read admins to access insights if the feature is enabled" do
+      allow(FeatureFlags::Hooks).to receive(:tier_2_visible_on_hook).and_return(true)
       @course.enable_feature!(:discussion_insights)
 
       expect(@topic.user_can_access_insights?(@teacher)).to be true
