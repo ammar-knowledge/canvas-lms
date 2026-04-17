@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
  *
@@ -18,13 +17,14 @@
  */
 
 import {InPlaceEdit} from '@instructure/ui-editable'
-import React, {ChangeEvent, LegacyRef, ReactNode, useEffect, useState} from 'react'
+import React, {useEffect, useState} from 'react'
+import type {ChangeEvent, LegacyRef, ReactNode} from 'react'
 import {Text} from '@instructure/ui-text'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {ButtonProps, IconButton} from '@instructure/ui-buttons'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {type ButtonProps, IconButton} from '@instructure/ui-buttons'
 import {IconEditLine} from '@instructure/ui-icons'
 
-const I18n = useI18nScope('internal-settings')
+const I18n = createI18nScope('internal-settings')
 
 export type EditableCodeValueProps = {
   value: string
@@ -59,6 +59,7 @@ export const EditableCodeValue = (props: EditableCodeValueProps) => {
     if (readOnly) return null
 
     return (
+      // @ts-expect-error InstUI component prop type mismatch
       <IconButton
         size="small"
         screenReaderLabel={
@@ -90,14 +91,20 @@ export const EditableCodeValue = (props: EditableCodeValueProps) => {
     onBlur: () => void
     editorRef: LegacyRef<HTMLInputElement>
   }) => (
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore InstUI Text component used as input with incompatible event handler types
     <Text
       as="input"
       name={(props.name ? `${props.name} ` : '') + 'value'}
       type={props.secret ? 'password' : 'text'}
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - InstUI Text component event handler type mismatch
       onChange={handleChange}
       onBlur={onBlur}
       autocomplete="off"
       value={editorValue}
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - InstUI Text elementRef prop type mismatch
       elementRef={editorRef}
     />
   )
@@ -107,9 +114,11 @@ export const EditableCodeValue = (props: EditableCodeValueProps) => {
       <InPlaceEdit
         renderViewer={renderView}
         renderEditor={renderEdit}
+        // @ts-expect-error InstUI component prop type mismatch
         renderEditButton={renderEditButton}
         readOnly={props.readonly}
         mode={mode}
+        // @ts-expect-error InstUI component prop type mismatch
         onChangeMode={setMode}
         value={editorValue}
         inline={false}

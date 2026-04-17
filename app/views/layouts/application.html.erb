@@ -21,15 +21,34 @@
   js_bundle(:navigation_header) unless @headers == false
 
   if @domain_root_account&.feature_enabled?(:top_navigation_placement)
-    js_env INIT_DRAWER_LAYOUT_MUTEX: "init-drawer-layout"
+    js_env({ INIT_DRAWER_LAYOUT_MUTEX: "init-drawer-layout" })
     js_bundle(:top_navigation_tools)
-end
+  end
+
+  @add_oak_bundle = add_oak_bundle?
+  if @add_oak_bundle
+    js_bundle(:ignite_agent)
+    js_env({ add_oak_mount_point: true })
+    remote_env(ignite_agent: {
+      launch_url: Services::IgniteAgent.launch_url,
+      backend_url: Services::IgniteAgent.backend_url
+    })
+  end
+
+  @show_learning_agent = show_learning_agent_button?
+  if @show_learning_agent
+    load_learning_agent_env
+    js_bundle(:learning_agent)
+  end
 
   load_blueprint_courses_ui
   @has_content_notices = load_content_notices
   provide :head, include_common_stylesheets
   set_badge_counts_for(@context, @current_user) if @set_badge_counts
-  js_env notices: flash_notices()
+  js_env({ notices: flash_notices() })
+  student_view_text = @context.is_a?(Course) && @context.horizon_course? ? t('View as Learner') : t('View as Student')
+  enable_content_view_if_requested
+  enable_hide_global_nav_if_requested
 -%>
 <%= render :partial => "layouts/head" %>
 <%-
@@ -40,7 +59,8 @@ end
   # Collapse the course menu according to user preference, unless a certain action
   # requests that it default to collapsed for that page
   @collapse_course_menu ||= @current_user&.reload&.collapse_course_nav?
-  @enhanced_rubrics_enabled = Rubric.enhanced_rubrics_enabled_for_context?(@context)
+  context_is_course_or_account = @context&.is_a?(Course) || @context&.is_a?(Account)
+  @enhanced_rubrics_enabled = context_is_course_or_account ? @context.feature_enabled?(:enhanced_rubrics) : false
 
   if @collapse_course_menu
     subnav_menu_text = t('Show Navigation Menu')
@@ -83,12 +103,15 @@ end
   body_classes << 'primary-nav-transitions' if @collapse_global_nav
   # We probably want to consider doing this everywhere, all the time, but when I did
   # for LS-1745, people complained a lot, so maybe not.
-  body_classes << 'full-width' if @domain_root_account.try(:feature_enabled?, :new_user_tutorial)
+  # Putting this behind a feature flag because of the above comment.
+  body_classes << 'full-width' if @domain_root_account.try(:feature_enabled?, :full_width_everywhere) || @domain_root_account.try(:feature_enabled?, :new_user_tutorial)
   body_classes << "context-#{@context.asset_string}" if @context
   body_classes << "responsive_student_grades_page" if !!@domain_root_account&.feature_enabled?(:responsive_student_grades_page)
+  body_classes << 'content-only' if @content_only
+  body_classes << 'hide-global-nav' if @hide_global_nav
 -%>
-<body class="<%= (body_classes).uniq.join(" ") %>">
-<%if @current_user && @real_current_user && @real_current_user != @current_user %>
+<body class="<%= body_classes.uniq.join(" ") %>">
+<%if !@content_only && @current_user && @real_current_user && @real_current_user != @current_user %>
   <div role="alert" class="screenreader-only">
     <% if @current_user.fake_student? %>
         <%= t("You are currently logged into Student View") %>
@@ -98,13 +121,13 @@ end
   </div>
 <% end %>
 <%# Flash messages must be outside of #application or they won't work in screenreaders with modals open. %>
-<%= render :partial => 'shared/static_notices' %>
+<%= render :partial => 'shared/static_notices' unless @content_only %>
 <%= render :partial => 'shared/flash_notices' %>
-<%if @domain_root_account&.feature_enabled?(:top_navigation_placement) %>
+<%if !@content_only && @domain_root_account&.feature_enabled?(:top_navigation_placement) %>
   <div id="drawer-layout-mount-point"></div>
 <% end %>
-<div id="application" class="ic-app">
-  <%= render(:partial => 'shared/new_nav_header') unless @headers == false %>
+<div id="application" class="ic-app <%= 'content-only' if @content_only %>">
+  <%= render(:partial => 'shared/new_nav_header') unless @headers == false || @content_only %>
 
   <div id="instructure_ajax_error_box">
     <div style="text-align: <%= direction('right') %>; background-color: #fff;"><a href="#" class="close_instructure_ajax_error_box_link"><%= t('links.close', 'Close') %></a></div>
@@ -112,12 +135,12 @@ end
   </div>
 
   <div id="wrapper" class="ic-Layout-wrapper">
-    <% if crumbs.length > 1 %>
-      <% if @instui_topnav %>
-        <div class="instui-topnav-container">
-          <div id="react-instui-topnav"></div>
-        </div>
-      <% else %>
+    <% if @instui_topnav && !@content_only %>
+      <div class="instui-topnav-container">
+        <div id="react-instui-topnav"></div>
+      </div>
+    <% else %>
+      <% if crumbs.length > 1 && !@content_only %>
         <div class="ic-app-nav-toggle-and-crumbs no-print">
           <% if @show_left_side %>
             <button type="button" id="courseMenuToggle" class="Button Button--link ic-app-course-nav-toggle" aria-live="polite" aria-label="<%= subnav_menu_text %>">
@@ -130,6 +153,10 @@ end
               <%= link_to course_path(id: @context.id), :class => "btn k5-back-to-subject", :id => "back_to_subject" do %>
                 <i class="icon-arrow-open-left"></i> <%= t('Back to Subject') %>
               <% end %>
+            <% elsif @context&.is_a?(Course) && @context.horizon_back_to_units_enabled? %>
+              <%= link_to course_path(id: @context.id), :class => "btn horizon-back-to-units", :id => "back_to_units" do %>
+                <i class="icon-arrow-open-left"></i> <%= t('Back to Units') %>
+              <% end %>
             <% else %>
               <%= render_crumbs %>
             <% end %>
@@ -137,26 +164,42 @@ end
 
           <% if @context&.is_a?(Course) && @context.elementary_subject_course? %>
             <span class="k5-heading-course-name"><%= @context.nickname_for(@current_user) %></span>
+          <% elsif @context&.is_a?(Course) && @context.horizon_back_to_units_enabled? %>
+            <span class="horizon-heading-course-name"><%= @context.nickname_for(@current_user) %></span>
           <% end %>
 
-          <div class="right-of-crumbs">
-            <% if tutorials_enabled? %>
-              <div class="TutorialToggleHolder"></div>
+          <div id="nutrition_facts_container"></div>
+          <div class="right-of-crumbs right-of-crumbs-no-reverse">
+            <% if (@context&.is_a?(Course) || @context&.is_a?(Assignment)) && @context_enrollment&.observer? %>
+              <div id='observer-picker-mountpoint' style="margin: 3px;"></div>
             <% end %>
-            <%if @domain_root_account&.feature_enabled?(:top_navigation_placement) %>
-              <div id="top-nav-tools-mount-point"></div>
+            <% if @show_learning_agent %>
+              <div id="learning_agent_mount_point"></div>
+            <% end %>
+            <% if show_student_view_button? %>
+              <%= link_to course_student_view_path(course_id: @context, redirect_to_referer: 1), :class => "btn btn-top-nav", :id => "easy_student_view", :method => :post, :"aria-label" => student_view_text do %>
+                <i class="icon-student-view"></i> <%= student_view_text %>
+              <% end %>
+            <% end %>
+            <% if @show_notebook %>
+              <div id="notebook_mount_point"></div>
+            <% end %>
+            <% if @show_study_assist %>
+              <div id="study_assist_mount_point"></div>
             <% end %>
             <% if show_immersive_reader? %>
               <div id="immersive_reader_mount_point"></div>
             <% end %>
-            <% if show_student_view_button? %>
-              <%= link_to course_student_view_path(course_id: @context, redirect_to_referer: 1), :class => "btn btn-top-nav", :id => "easy_student_view", :method => :post do %>
-                <i class="icon-student-view"></i> <%= t('View as Student') %>
-              <% end %>
+            <%if @domain_root_account&.feature_enabled?(:top_navigation_placement) %>
+              <div id="top-nav-tools-mount-point"></div>
             <% end %>
-            <% if (@context&.is_a?(Course) || @context&.is_a?(Assignment)) && @context_enrollment&.observer? %>
-              <div id='observer-picker-mountpoint' style="margin: 3px;"></div>
+            <% if @add_oak_bundle %>
+              <div id="oak-mount-point"></div>
             <% end %>
+            <% if tutorials_enabled? %>
+              <div class="TutorialToggleHolder"></div>
+            <% end %>
+            <div id="ai-information-mount"></div>
           </div>
 
         </div>
@@ -164,9 +207,9 @@ end
     <% end %>
     <div id="main" class="ic-Layout-columns">
       <% if !@body_class_no_headers %>
-        <div class="ic-Layout-watermark"></div>
+        <div class="ic-Layout-watermark" aria-hidden="true"></div>
       <% end %>
-      <% if @show_left_side %>
+      <% if @show_left_side && !@content_only %>
         <% if @no_left_side_list_view
             list_view_class = ''
           else
@@ -206,11 +249,6 @@ end
               <div class="ic-notification__content">
                 <div class="ic-notification__message notification_message" style="margin-bottom:1rem;">
                   <%= t 'Your Classic Quizzes have been migrated to New Quizzes! ' %><br />
-                  <%= t 'Please note:' %>
-                  <ul>
-                    <li><%= t 'Text No Question has moved to a Stimulus; please add a question so it can display within the quiz.' %></li>
-                  </ul>
-                  <%= t 'We apologize for the inconvenience and thank you for your patience as we continue to improve the migration experience!' %>
                 </div>
                 <div class="ic-notification__actions">
                   <a href="#"
@@ -236,7 +274,7 @@ end
         </div>
       </div>
     </div>
-    <% if @show_footer %>
+    <% if @show_footer && !@content_only %>
       <%= render :partial => 'shared/canvas_footer' %>
     <% end %>
   </div>
@@ -274,15 +312,6 @@ end
       <% if @page_view %>
         <div id="page_view_id"><%= @page_view.id %></div>
       <% end %>
-      <% if equella_enabled? %>
-        <a id="equella_endpoint_url" href="<%= @equella_settings[:endpoint] %>">&nbsp;</a>
-        <a id="equella_callback_url" href="<%= external_content_success_url('equella') %>">&nbsp;</a>
-        <a id="equella_cancel_url" href="<%= external_content_cancel_url('equella') %>">&nbsp;</a>
-        <a id="equella_action" href="<%= @equella_settings[:default_action] %>">&nbsp;</a>
-        <% if @equella_settings[:teaser] %>
-          <div id="equella_teaser"><%= @equella_settings[:teaser] %></div>
-        <% end %>
-      <% end %>
     </div>
   <div id='aria_alerts' class='hide-text affix' role="alert" aria-live="assertive"></div>
   <div id='StudentTray__Container'></div>
@@ -290,6 +319,11 @@ end
     <div class="NewUserTutorialTray__Container"></div>
   <% end %>
   <div id="react-router-portals"></div>
+
+  <% if microfrontend_overrides %>
+    <%= render :partial => 'shared/microfrontend_override_indicator' %>
+  <% end %>
+
   <%= render :partial => 'layouts/foot', :locals => { :include_common_bundle => true } %>
 </div> <!-- #application -->
 </body>

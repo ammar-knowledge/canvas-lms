@@ -16,14 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useCallback, useEffect, useState} from 'react'
+import React, {useCallback, useEffect, useState, type PropsWithChildren} from 'react'
 import CanvasModal from '@canvas/instui-bindings/react/Modal'
-import {useScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Button} from '@instructure/ui-buttons'
 import CustomRecurrence from '../CustomRecurrence/CustomRecurrence'
 import RRuleHelper, {type RRuleHelperSpec} from '../RRuleHelper'
 
-const I18n = useScope('calendar_custom_recurring_event_custom_recurrence_modal')
+const I18n = createI18nScope('calendar_custom_recurring_event_custom_recurrence_modal')
 
 const isValid = (spec: RRuleHelperSpec): boolean => {
   const rrule = new RRuleHelper(spec)
@@ -39,10 +39,13 @@ type CustomRecurrenceErrorState = {
   errorMessage: string
 }
 
-class CustomRecurrenceErrorBoundary extends React.Component {
+class CustomRecurrenceErrorBoundary extends React.Component<
+  PropsWithChildren,
+  CustomRecurrenceErrorState
+> {
   state: CustomRecurrenceErrorState
 
-  constructor(props: any) {
+  constructor(props: PropsWithChildren) {
     super(props)
     this.state = {
       hasError: false,
@@ -79,8 +82,11 @@ type FooterProps = {
 const Footer = ({canSave, onDismiss, onSave}: FooterProps) => {
   return (
     <>
-      <Button onClick={onDismiss}>{I18n.t('Cancel')}</Button>
+      <Button data-testid="custom-recurrence-modal-cancel" onClick={onDismiss}>
+        {I18n.t('Cancel')}
+      </Button>
       <Button
+        data-testid="custom-recurrence-modal-done"
         interaction={canSave ? 'enabled' : 'disabled'}
         type="submit"
         color="primary"

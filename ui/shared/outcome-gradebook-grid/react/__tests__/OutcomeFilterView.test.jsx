@@ -29,9 +29,9 @@ const defaultProps = () => ({
 })
 
 it('calls toggleInactiveEnrollments to enable displaying inactive enrollments', () => {
-  const toggleInactiveEnrollments = jest.fn()
+  const toggleInactiveEnrollments = vi.fn()
   const {getByText, getByRole} = render(
-    <OutcomeFilterView {...defaultProps()} toggleInactiveEnrollments={toggleInactiveEnrollments} />
+    <OutcomeFilterView {...defaultProps()} toggleInactiveEnrollments={toggleInactiveEnrollments} />,
   )
   fireEvent.click(getByRole('button'))
   fireEvent.click(getByText('Inactive enrollments'))
@@ -39,13 +39,13 @@ it('calls toggleInactiveEnrollments to enable displaying inactive enrollments', 
 })
 
 it('calls toggleInactiveEnrollments to disable displaying inactive enrollments', () => {
-  const toggleInactiveEnrollments = jest.fn()
+  const toggleInactiveEnrollments = vi.fn()
   const {getByText, getByRole} = render(
     <OutcomeFilterView
       {...defaultProps()}
       toggleInactiveEnrollments={toggleInactiveEnrollments}
       showInactiveEnrollments={true}
-    />
+    />,
   )
   fireEvent.click(getByRole('button'))
   fireEvent.click(getByText('Inactive enrollments'))
@@ -53,12 +53,12 @@ it('calls toggleInactiveEnrollments to disable displaying inactive enrollments',
 })
 
 it('calls toggleConcludedEnrollments to enable displaying Concluded enrollments', () => {
-  const toggleConcludedEnrollments = jest.fn()
+  const toggleConcludedEnrollments = vi.fn()
   const {getByText, getByRole} = render(
     <OutcomeFilterView
       {...defaultProps()}
       toggleConcludedEnrollments={toggleConcludedEnrollments}
-    />
+    />,
   )
   fireEvent.click(getByRole('button'))
   fireEvent.click(getByText('Concluded enrollments'))
@@ -66,13 +66,13 @@ it('calls toggleConcludedEnrollments to enable displaying Concluded enrollments'
 })
 
 it('calls toggleConcludedEnrollments to disable displaying Concluded enrollments', () => {
-  const toggleConcludedEnrollments = jest.fn()
+  const toggleConcludedEnrollments = vi.fn()
   const {getByText, getByRole} = render(
     <OutcomeFilterView
       {...defaultProps()}
       toggleConcludedEnrollments={toggleConcludedEnrollments}
       showConcludedEnrollments={true}
-    />
+    />,
   )
   fireEvent.click(getByRole('button'))
   fireEvent.click(getByText('Concluded enrollments'))
@@ -80,9 +80,9 @@ it('calls toggleConcludedEnrollments to disable displaying Concluded enrollments
 })
 
 it('calls toggleUnassessedStudents to enable displaying Unassessed students', () => {
-  const toggleUnassessedStudents = jest.fn()
+  const toggleUnassessedStudents = vi.fn()
   const {getByText, getByRole} = render(
-    <OutcomeFilterView {...defaultProps()} toggleUnassessedStudents={toggleUnassessedStudents} />
+    <OutcomeFilterView {...defaultProps()} toggleUnassessedStudents={toggleUnassessedStudents} />,
   )
   fireEvent.click(getByRole('button'))
   fireEvent.click(getByText('Unassessed students'))
@@ -90,13 +90,13 @@ it('calls toggleUnassessedStudents to enable displaying Unassessed students', ()
 })
 
 it('calls toggleUnassessedStudents to disable displaying Unassessed students', () => {
-  const toggleUnassessedStudents = jest.fn()
+  const toggleUnassessedStudents = vi.fn()
   const {getByText, getByRole} = render(
     <OutcomeFilterView
       {...defaultProps()}
       toggleUnassessedStudents={toggleUnassessedStudents}
       showUnassessedStudents={true}
-    />
+    />,
   )
   fireEvent.click(getByRole('button'))
   fireEvent.click(getByText('Unassessed students'))

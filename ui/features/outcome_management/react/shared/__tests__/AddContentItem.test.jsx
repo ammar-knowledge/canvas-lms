@@ -20,7 +20,7 @@ import React from 'react'
 import {render, fireEvent, act} from '@testing-library/react'
 import AddContentItem from '../AddContentItem'
 
-jest.useFakeTimers()
+vi.useFakeTimers()
 
 describe('AddContentItem', () => {
   let onSaveHandler, onHideHandler
@@ -33,12 +33,12 @@ describe('AddContentItem', () => {
   })
 
   beforeEach(() => {
-    onSaveHandler = jest.fn()
-    onHideHandler = jest.fn()
+    onSaveHandler = vi.fn()
+    onHideHandler = vi.fn()
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   it('renders component with labelInstructions', () => {
@@ -50,7 +50,7 @@ describe('AddContentItem', () => {
   it('focuses the input automatically', async () => {
     const props = defaultProps()
     const {getByLabelText} = render(<AddContentItem {...props} />)
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(getByLabelText(props.textInputInstructions)).toHaveFocus()
   })
 
@@ -60,12 +60,12 @@ describe('AddContentItem', () => {
     expect(getByText(props.textInputInstructions)).toBeInTheDocument()
   })
 
-  it('renders a cancel button and disabled submit button', () => {
+  it('renders a cancel button and submit button', () => {
     const props = defaultProps()
     const {getByText} = render(<AddContentItem {...props} />)
     expect(getByText('Cancel')).toBeInTheDocument()
     expect(getByText(props.textInputInstructions)).toBeInTheDocument()
-    expect(getByText(props.labelInstructions).closest('button')).toHaveAttribute('disabled')
+    expect(getByText(props.labelInstructions).closest('button')).not.toHaveAttribute('disabled')
   })
 
   it('the submit button calls the onSaveHandler', () => {
@@ -76,6 +76,43 @@ describe('AddContentItem', () => {
     })
     fireEvent.click(getByText(props.labelInstructions))
     expect(onSaveHandler).toHaveBeenCalledWith('new group name')
+  })
+
+  it('the submit button doesnt call the onSaveHandler if title is empty', async () => {
+    const props = defaultProps()
+    const {getByText, getByLabelText} = render(<AddContentItem {...props} />)
+    fireEvent.change(getByLabelText(props.textInputInstructions), {
+      target: {value: '  '},
+    })
+    fireEvent.click(getByText(props.labelInstructions))
+    expect(onSaveHandler).not.toHaveBeenCalled()
+    expect(getByText('Cannot be blank')).toBeInTheDocument()
+  })
+
+  it('the submit button focuses the input element if input has error', async () => {
+    const props = defaultProps()
+    const {getByText, getByLabelText} = render(<AddContentItem {...props} />)
+    fireEvent.change(getByLabelText(props.textInputInstructions), {
+      target: {value: '  '},
+    })
+    fireEvent.click(getByText(props.labelInstructions))
+    expect(onSaveHandler).not.toHaveBeenCalled()
+    await act(async () => vi.runAllTimers())
+    expect(document.activeElement.value).toEqual('  ')
+  })
+
+  it('the submit button doesnt call the onSaveHandler if title is too long', () => {
+    const props = defaultProps()
+    const {getByText, getByLabelText} = render(<AddContentItem {...props} />)
+    fireEvent.change(getByLabelText(props.textInputInstructions), {
+      target: {
+        value:
+          'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur eu egestas elit. In hac habitasse platea dictumst. Nam gravida sollicitudin erat ac convallis. Maecenas malesuada ullamcorper massa ac eleifend. Sed viverra lorem ante, id dignissim est at.',
+      },
+    })
+    fireEvent.click(getByText(props.labelInstructions))
+    expect(onSaveHandler).not.toHaveBeenCalled()
+    expect(getByText('Must be 255 characters or less')).toBeInTheDocument()
   })
 
   it('the cancel button calls the onHideHandler', () => {

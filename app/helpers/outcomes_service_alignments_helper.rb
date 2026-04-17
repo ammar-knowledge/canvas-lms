@@ -22,6 +22,7 @@ require "parallel"
 
 module OutcomesServiceAlignmentsHelper
   include CanvasOutcomesHelper
+
   OSA_CACHE_EXPIRATION = 60.seconds
   THREAD_POOL_SIZE = 4
   PER_PAGE = 25
@@ -92,7 +93,7 @@ module OutcomesServiceAlignmentsHelper
     return if domain.nil? || jwt.nil?
 
     # get first page
-    first_page_results, total_pages = get_paginated_results(context:, domain:, endpoint:, jwt:, params:).values_at(:results, :total_pages)
+    get_paginated_results(context:, domain:, endpoint:, jwt:, params:) => results: first_page_results, total_pages:
 
     # get the rest of the pages concurrently
     if total_pages > 1

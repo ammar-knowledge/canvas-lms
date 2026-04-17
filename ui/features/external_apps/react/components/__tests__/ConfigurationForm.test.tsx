@@ -16,19 +16,19 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import {showFlashAlert} from '@instructure/platform-alerts'
 // Ideally, in the future, each form is written in such a way that they can
 // be tested separately. However, because they all rely on the submit/cancel button
 // rendered in ConfigurationForm.js and React Testing Library (rightly) only let's
 // you test what user's see, we have to pull the testing up a level.
-import {jest} from '@jest/globals'
-import React from 'react'
-import '@testing-library/jest-dom'
-import {render, screen} from '@testing-library/react'
+import {cleanup, render, screen} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import fakeENV from '@canvas/test-utils/fakeENV'
 import ConfigurationForm from '../configuration_forms/ConfigurationForm'
-import * as FlashAlert from '@canvas/alerts/react/FlashAlert'
 
-const renderForm = (props: Object) => {
+vi.mock('@instructure/platform-alerts')
+
+const renderForm = (props: object) => {
   return render(<ConfigurationForm {...props} />)
 }
 
@@ -38,22 +38,34 @@ const getSubmitButton = () => {
 
 const getMembershipServiceCheckbox = () => {
   return screen.getByLabelText(
-    'Allow this tool to access the IMS Names and Role Provisioning Service'
+    'Allow this tool to access the IMS Names and Role Provisioning Service',
   )
 }
 
-jest.mock('@canvas/alerts/react/FlashAlert')
+const handleSubmitMock = vi.fn()
 
-const handleSubmitMock = jest.fn()
-
-const mockedFlash = FlashAlert.showFlashAlert as jest.Mock<typeof FlashAlert.showFlashAlert>
-
-afterEach(() => {
-  jest.resetAllMocks()
+beforeEach(() => {
+  fakeENV.setup({LTI_LAUNCH_URL: '/lti/launch'})
 })
 
-// INTEROP-8410 - remove or rewrite to remove spies on imports
-describe.skip('when configuration type is manual', () => {
+afterEach(() => {
+  cleanup()
+  fakeENV.teardown()
+  handleSubmitMock.mockReset()
+})
+
+// Pasting is much faster than typing, and we don't need
+// to test specific event handling.
+const userPaste = async (
+  user: ReturnType<typeof userEvent.setup>,
+  input: HTMLElement,
+  text: string,
+) => {
+  await user.click(input)
+  await user.paste(text)
+}
+
+describe('when configuration type is manual', () => {
   const getNameInput = () => {
     return screen.getByRole('textbox', {name: /name/i})
   }
@@ -63,7 +75,7 @@ describe.skip('when configuration type is manual', () => {
   }
 
   const getUrlInput = () => {
-    return screen.getByRole('textbox', {name: /^launch url$/i})
+    return screen.getByRole('textbox', {name: /^launch url/i})
   }
 
   const baseProps = {
@@ -83,6 +95,7 @@ describe.skip('when configuration type is manual', () => {
   })
 
   it('tries to submit the form with the appropriate values when the submit button is clicked', async () => {
+    const user = userEvent.setup()
     const expected = {
       name: 'a really cool name',
       url: 'https://example.com',
@@ -96,23 +109,30 @@ describe.skip('when configuration type is manual', () => {
     }
 
     renderForm(baseProps)
-    await userEvent.type(getNameInput(), expected.name)
-    await userEvent.type(getUrlInput(), expected.url)
-    await userEvent.type(getDomainInput(), expected.domain)
-    await userEvent.type(screen.getByRole('textbox', {name: /consumer key/i}), expected.consumerKey)
-    await userEvent.type(
-      screen.getByRole('textbox', {name: /shared secret/i}),
-      expected.sharedSecret
-    )
-    await userEvent.click(screen.getByRole('combobox', {name: /privacy level/i}))
-    await userEvent.click(screen.getByText(/anonymous/i))
+    await userPaste(user, getNameInput(), expected.name)
+    await userPaste(user, getUrlInput(), expected.url)
+    await userPaste(user, getDomainInput(), expected.domain)
 
-    await userEvent.type(screen.getByRole('textbox', {name: /description/i}), expected.description)
-    await userEvent.type(
-      screen.getByRole('textbox', {name: /custom fields/i}),
-      expected.customFields
+    await userPaste(
+      user,
+      screen.getByRole('textbox', {name: /consumer key/i}),
+      expected.consumerKey,
     )
-    await userEvent.click(getSubmitButton())
+    await userPaste(
+      user,
+      screen.getByRole('textbox', {name: /shared secret/i}),
+      expected.sharedSecret,
+    )
+    await user.click(screen.getByRole('combobox', {name: /privacy level/i}))
+    await user.click(screen.getByText(/anonymous/i))
+
+    await userPaste(user, screen.getByRole('textbox', {name: /description/i}), expected.description)
+    await userPaste(
+      user,
+      screen.getByRole('textbox', {name: /custom fields/i}),
+      expected.customFields,
+    )
+    await user.click(getSubmitButton())
     expect(handleSubmitMock).toHaveBeenCalledWith('manual', expected, expect.anything())
   })
 
@@ -135,6 +155,7 @@ describe.skip('when configuration type is manual', () => {
   })
 
   it('renders the allow membership service access checkbox when the appropriate flag is enabled', async () => {
+    const user = userEvent.setup()
     renderForm({
       ...baseProps,
       membershipServiceFeatureFlagEnabled: true,
@@ -144,75 +165,38 @@ describe.skip('when configuration type is manual', () => {
 
     expect(checkbox).toBeInTheDocument()
 
-    await userEvent.click(checkbox)
+    await user.click(checkbox)
 
     expect(checkbox).toBeChecked()
   })
 
   describe('error checking', () => {
-    it('flashes an error when name is empty', async () => {
-      renderForm(baseProps)
-      await userEvent.click(getSubmitButton())
-
-      // This can't use .not.toHaveBeenCalled because the submit function receives a React synthetic event,
-      // and if it has been called, jest will try to print out the result of that event, which results in
-      // a misleading error message about what actually happened, so toHaveBeenCalledTimes it is.
-      expect(handleSubmitMock).toHaveBeenCalledTimes(0)
-      expect(mockedFlash).toHaveBeenCalled()
-    })
-
     it('renders an error next to the name input when name is empty', async () => {
+      const user = userEvent.setup()
       renderForm(baseProps)
-      await userEvent.click(getSubmitButton())
+      await user.click(getSubmitButton())
 
       expect(handleSubmitMock).toHaveBeenCalledTimes(0)
       expect(screen.getByText('This field is required')).toBeInTheDocument()
     })
 
     describe('name has a value', () => {
-      it('flashes an error when url and domain are both empty', async () => {
-        renderForm(baseProps)
-        await userEvent.type(getNameInput(), 'a really cool name')
-        await userEvent.click(getSubmitButton())
-
-        expect(handleSubmitMock).toHaveBeenCalledTimes(0)
-        expect(mockedFlash).toHaveBeenCalled()
-      })
-
       it('renders an error when url and domain are both empty', async () => {
+        const user = userEvent.setup()
         renderForm(baseProps)
-        await userEvent.type(getNameInput(), 'a really cool name')
-        await userEvent.click(getSubmitButton())
+        await userPaste(user, getNameInput(), 'a really cool name')
+        await user.click(getSubmitButton())
 
         expect(handleSubmitMock).toHaveBeenCalledTimes(0)
-        expect(screen.getAllByText(/Either the url or domain should be set./i)).not.toHaveLength(0)
-      })
-
-      it("doesn't flash an error if just url is set and tries to submit the form", async () => {
-        renderForm(baseProps)
-        await userEvent.type(getNameInput(), 'a really cool name')
-        await userEvent.type(getUrlInput(), 'https://example.com')
-        await userEvent.click(getSubmitButton())
-
-        expect(mockedFlash).not.toHaveBeenCalled()
-        expect(handleSubmitMock).toHaveBeenCalled()
-      })
-
-      it("doesn't flash an error if just domain is set and tries to submit the form", async () => {
-        renderForm(baseProps)
-        await userEvent.type(getNameInput(), 'a really cool name')
-        await userEvent.type(getDomainInput(), 'example.com')
-        await userEvent.click(getSubmitButton())
-
-        expect(mockedFlash).not.toHaveBeenCalled()
-        expect(handleSubmitMock).toHaveBeenCalled()
+        expect(
+          screen.getAllByText(/One or both of Launch URL and Domain should be entered./i),
+        ).not.toHaveLength(0)
       })
     })
   })
 })
 
-// INTEROP-8410 - remove or rewrite to remove spies on imports
-describe.skip('when configuration type is url', () => {
+describe('when configuration type is url', () => {
   const baseProps = {
     configurationType: 'url',
     tool: {},
@@ -230,14 +214,15 @@ describe.skip('when configuration type is url', () => {
   })
 
   it('tries to submit the form with the appropriate values when the submit button is clicked', async () => {
+    const user = userEvent.setup()
     renderForm(baseProps)
 
-    await userEvent.type(screen.getByLabelText(/config url/i), 'https://example.com')
-    await userEvent.type(screen.getByLabelText(/consumer key/i), 'key')
-    await userEvent.type(screen.getByLabelText(/shared secret/i), 'secret')
-    await userEvent.type(screen.getByLabelText(/name/i), 'a really cool name')
+    await userPaste(user, screen.getByLabelText(/shared secret/i), 'secret')
+    await userPaste(user, screen.getByLabelText(/consumer key/i), 'key')
+    await userPaste(user, screen.getByLabelText(/config url/i), 'https://example.com')
+    await userPaste(user, screen.getByLabelText(/name/i), 'a really cool name')
 
-    await userEvent.click(screen.getByText(/submit/i))
+    await user.click(screen.getByText(/submit/i))
 
     expect(handleSubmitMock).toHaveBeenCalledWith(
       'url',
@@ -248,11 +233,12 @@ describe.skip('when configuration type is url', () => {
         sharedSecret: 'secret',
         verifyUniqueness: 'true',
       },
-      expect.anything()
+      expect.anything(),
     )
   })
 
   it('renders the allow membership service access checkbox when the appropriate flag is enabled', async () => {
+    const user = userEvent.setup()
     renderForm({
       ...baseProps,
       membershipServiceFeatureFlagEnabled: true,
@@ -262,7 +248,7 @@ describe.skip('when configuration type is url', () => {
 
     expect(checkbox).toBeInTheDocument()
 
-    await userEvent.click(checkbox)
+    await user.click(checkbox)
 
     expect(checkbox).toBeChecked()
   })
@@ -286,39 +272,40 @@ describe.skip('when configuration type is url', () => {
 
   describe('error checking', () => {
     it('flashes and renders an error when config url is empty', async () => {
+      const user = userEvent.setup()
       renderForm(baseProps)
-      await userEvent.type(screen.getByLabelText(/name/i), 'a great name')
-      await userEvent.click(screen.getByText(/submit/i))
+      await userPaste(user, screen.getByLabelText(/name/i), 'a great name')
+      await user.click(screen.getByText(/submit/i))
 
       expect(handleSubmitMock).not.toHaveBeenCalled()
-      expect(mockedFlash).toHaveBeenCalled()
+      expect(
+        screen.getByText(/please enter a valid url \(e\.g\. https:\/\/example\.com\)/i),
+      ).toBeInTheDocument()
+    })
+
+    it('renders error when the name is empty', async () => {
+      const user = userEvent.setup()
+      renderForm(baseProps)
+      await userPaste(user, screen.getByLabelText(/config url/i), 'https://example.com')
+      await user.click(screen.getByText(/submit/i))
+
+      expect(handleSubmitMock).not.toHaveBeenCalled()
       expect(screen.getByText(/This field is required/i)).toBeInTheDocument()
     })
 
-    it('flashes and renders error when the name is empty', async () => {
-      renderForm(baseProps)
-      await userEvent.type(screen.getByLabelText(/config url/i), 'https://example.com')
-      await userEvent.click(screen.getByText(/submit/i))
-
-      expect(handleSubmitMock).not.toHaveBeenCalled()
-      expect(mockedFlash).toHaveBeenCalled()
-      expect(screen.getByText(/This field is required/i)).toBeInTheDocument()
-    })
-
-    it('flashes and renders multiple errors when both fields are empty', async () => {
+    it('renders multiple errors when both fields are empty', async () => {
+      const user = userEvent.setup()
       renderForm(baseProps)
 
-      await userEvent.click(screen.getByText(/submit/i))
+      await user.click(screen.getByText(/submit/i))
 
       expect(handleSubmitMock).not.toHaveBeenCalled()
-      expect(mockedFlash).toHaveBeenCalled()
-      expect(screen.getAllByText(/This field is required/i)).toHaveLength(2)
+      expect(screen.getAllByText(/This field is required/i)).toHaveLength(1)
     })
   })
 })
 
-// INTEROP-8410 - remove or rewrite to remove spies on imports
-describe.skip('when configuration type is xml', () => {
+describe('when configuration type is xml', () => {
   const baseProps = {
     configurationType: 'xml',
     tool: {},
@@ -334,14 +321,15 @@ describe.skip('when configuration type is xml', () => {
   })
 
   it('tries to submit the form with the appropriate values when the submit button is clicked', async () => {
+    const user = userEvent.setup()
     renderForm(baseProps)
 
-    await userEvent.type(screen.getByLabelText(/xml configuration/i), 'some for sure real xml')
-    await userEvent.type(screen.getByLabelText(/name/i), 'a really cool name')
-    await userEvent.type(screen.getByLabelText(/shared secret/i), 'secret')
-    await userEvent.type(screen.getByLabelText(/consumer key/i), 'key')
+    await userPaste(user, screen.getByLabelText(/xml configuration/i), 'some for sure real xml')
+    await userPaste(user, screen.getByLabelText(/shared secret/i), 'secret')
+    await userPaste(user, screen.getByLabelText(/consumer key/i), 'key')
+    await userPaste(user, screen.getByLabelText(/name/i), 'a really cool name')
 
-    await userEvent.click(screen.getByText(/submit/i))
+    await user.click(screen.getByText(/submit/i))
 
     expect(handleSubmitMock).toHaveBeenCalledWith(
       'xml',
@@ -352,7 +340,7 @@ describe.skip('when configuration type is xml', () => {
         sharedSecret: 'secret',
         verifyUniqueness: 'true',
       },
-      expect.anything()
+      expect.anything(),
     )
   })
 
@@ -374,6 +362,7 @@ describe.skip('when configuration type is xml', () => {
   })
 
   it('renders the allow membership service access checkbox when the appropriate flag is enabled', async () => {
+    const user = userEvent.setup()
     renderForm({
       ...baseProps,
       membershipServiceFeatureFlagEnabled: true,
@@ -383,39 +372,39 @@ describe.skip('when configuration type is xml', () => {
 
     expect(checkbox).toBeInTheDocument()
 
-    await userEvent.click(checkbox)
+    await user.click(checkbox)
 
     expect(checkbox).toBeChecked()
   })
 
   describe('error checking', () => {
-    it('flashes and renders an error when xml configuration is empty', async () => {
+    it('renders an error when xml configuration is empty', async () => {
+      const user = userEvent.setup()
       renderForm(baseProps)
-      await userEvent.type(screen.getByLabelText(/name/i), 'a great name')
-      await userEvent.click(screen.getByText(/submit/i))
+      await userPaste(user, screen.getByLabelText(/name/i), 'a great name')
+      await user.click(screen.getByText(/submit/i))
 
       expect(handleSubmitMock).not.toHaveBeenCalled()
-      expect(mockedFlash).toHaveBeenCalled()
       expect(screen.getByText(/This field is required/i)).toBeInTheDocument()
     })
 
-    it('flashes and renders error when the name is empty', async () => {
+    it('renders error when the name is empty', async () => {
+      const user = userEvent.setup()
       renderForm(baseProps)
-      await userEvent.type(screen.getByLabelText(/xml configuration/i), 'some for sure real xml')
-      await userEvent.click(screen.getByText(/submit/i))
+      await userPaste(user, screen.getByLabelText(/xml configuration/i), 'some for sure real xml')
+      await user.click(screen.getByText(/submit/i))
 
       expect(handleSubmitMock).not.toHaveBeenCalled()
-      expect(mockedFlash).toHaveBeenCalled()
       expect(screen.getByText(/This field is required/i)).toBeInTheDocument()
     })
 
-    it('flashes and renders multiple errors when both fields are empty', async () => {
+    it('renders multiple errors when both fields are empty', async () => {
+      const user = userEvent.setup()
       renderForm(baseProps)
 
-      await userEvent.click(screen.getByText(/submit/i))
+      await user.click(screen.getByText(/submit/i))
 
       expect(handleSubmitMock).not.toHaveBeenCalled()
-      expect(mockedFlash).toHaveBeenCalled()
       expect(screen.getAllByText(/This field is required/i)).toHaveLength(2)
     })
   })
@@ -443,28 +432,32 @@ describe('when configuration type is lti2', () => {
   })
 
   it('tries to submit the form with the appropriate values when the submit button is clicked', async () => {
+    const user = userEvent.setup()
     renderForm(baseProps)
-    await userEvent.type(getRegUrlInput(), 'https://example.com')
+    await userPaste(user, getRegUrlInput(), 'https://example.com')
 
-    await userEvent.click(screen.getByText(/launch registration tool/i))
+    await user.click(screen.getByText(/launch registration tool/i))
 
     expect(handleSubmitMock).toHaveBeenCalledWith(
       'lti2',
       {
         registrationUrl: 'https://example.com',
       },
-      expect.anything()
+      expect.anything(),
     )
   })
 
   describe('error checking', () => {
     it("renders an error if the registration url hasn't been filled out", async () => {
+      const user = userEvent.setup()
       renderForm(baseProps)
 
-      await userEvent.click(screen.getByText(/launch registration tool/i))
+      await user.click(screen.getByText(/launch registration tool/i))
 
       expect(handleSubmitMock).not.toHaveBeenCalled()
-      expect(screen.getByLabelText(/this field is required/i)).toBeInTheDocument()
+      expect(
+        screen.getByText(/please enter a valid url \(e\.g\. https:\/\/example\.com\)/i),
+      ).toBeInTheDocument()
     })
   })
 })

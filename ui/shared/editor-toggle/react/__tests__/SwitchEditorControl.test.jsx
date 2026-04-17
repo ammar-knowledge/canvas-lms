@@ -18,18 +18,16 @@
 
 import React from 'react'
 import {render, fireEvent} from '@testing-library/react'
-import '@testing-library/jest-dom/extend-expect' // for the additional matchers
 import SwitchEditorControl from '../SwitchEditorControl'
 import RichContentEditor from '@canvas/rce/RichContentEditor'
-import sinon from 'sinon'
 
 describe('SwitchEditorControl', () => {
   beforeEach(() => {
-    sinon.stub(RichContentEditor, 'callOnRCE')
+    vi.spyOn(RichContentEditor, 'callOnRCE').mockImplementation(() => {})
   })
 
   afterEach(() => {
-    RichContentEditor.callOnRCE.restore()
+    vi.restoreAllMocks()
   })
 
   test('changes text on each click', () => {
@@ -48,6 +46,6 @@ describe('SwitchEditorControl', () => {
     const link = getByRole('link')
 
     fireEvent.click(link)
-    expect(RichContentEditor.callOnRCE.calledWith(textarea)).toBeTruthy()
+    expect(RichContentEditor.callOnRCE).toHaveBeenCalledWith(textarea, 'toggle')
   })
 })

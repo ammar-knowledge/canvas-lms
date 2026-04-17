@@ -21,14 +21,14 @@
 // Normally in tests, you can check that an action was dispatched by comparing
 // the action object:
 //
-// mockDispatch = jest.fn() mockDispatch(someAction(42))
+// mockDispatch = vi.fn() mockDispatch(someAction(42))
 // expect(mockDispatch).toHaveBeenCalledWith({type: 'SOME_ACTION', payload: 42})
 //
 // This utility lets you assert that the action's thunk was passed to a mock
 // dispatch function without having to invoke the thunk and check for side
 // effects. For example:
 //
-// mockDispatch = jest.fn()
+// mockDispatch = vi.fn()
 // const someComplexAction =
 //   identifiableThunk((num) => (dispatch, getState) => { dispatch(someAction(num)) })
 // mockDispatch(someComplexAction(42));
@@ -49,7 +49,7 @@ export function identifiableThunk(fn) {
       // called as a thunk
       if (thunk === undefined)
         throw new Error(
-          "identifiableThunk was called as a thunk before it was called as a normal function. The action's first parameter must not be a function."
+          "identifiableThunk was called as a thunk before it was called as a normal function. The action's first parameter must not be a function.",
         )
       // reset first so the thunk can dispatch the action recursively
       const rememberThunk = thunk
@@ -59,7 +59,7 @@ export function identifiableThunk(fn) {
       // called as a normal function
       if (thunk !== undefined)
         throw new Error(
-          'identifiableThunk was called as a normal function twice in a row. If testing, You may need to add `action.resetArgs()` to your beforeEach or afterEach.'
+          'identifiableThunk was called as a normal function twice in a row. If testing, You may need to add `action.resetArgs()` to your beforeEach or afterEach.',
         )
       thunk = fn(...args) // remember the thunk for the next call
       fnArgs = args // remember args for checking in tests

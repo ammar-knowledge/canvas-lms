@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Link} from '@instructure/ui-link'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
@@ -25,7 +25,7 @@ import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import handleOpenTray from '../handleOpenTray'
 import assetFactory from '@canvas/confetti/javascript/assetFactory'
 
-const I18n = useI18nScope('TourPoints')
+const I18n = createI18nScope('TourPoints')
 
 export default [
   {
@@ -47,7 +47,7 @@ export default [
         </Heading>
         <Text as="p">
           {I18n.t(
-            'We know getting your courses online quickly during this time is priority. This quick tour will show you how to:'
+            'We know getting your courses online quickly during this time is priority. This quick tour will show you how to:',
           )}
         </Text>
         <ol>
@@ -141,7 +141,7 @@ export default [
         </Text>
         <iframe
           title={I18n.t('Canvas Notifications Tutorial Video')}
-          src="https://community.instructuremedia.com/embed/b515f6d4-40f9-4f14-8051-7ef8b144c9d6"
+          src="https://embed.app.guidde.com/playbooks/gXwHu7sZCQN5kgKQkRTXWR"
           width="100%"
           height="277px"
           style={{marginTop: '1rem'}}
@@ -175,7 +175,7 @@ export default [
         </Text>
         <iframe
           title={I18n.t('Canvas Course Tutorial Video')}
-          src="https://community.instructuremedia.com/embed/bb5eeffe-2c18-4d91-a3be-0845f1ca1890"
+          src="https://embed.app.guidde.com/playbooks/p7Lm8jQBu8Qty9zuuwLWH2"
           width="100%"
           height="277px"
           style={{marginTop: '1rem'}}

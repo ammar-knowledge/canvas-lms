@@ -63,9 +63,9 @@ RSpec.describe Lti::RegistrationAccountBinding do
     end
 
     context "with a non-root account" do
-      let(:account) { account_model(parent_account: account_model) }
-
       it "is invalid" do
+        registration.account = account_model(parent_account: account_model)
+        registration.save(validate: false)
         account_binding.save
         expect(account_binding).not_to be_valid
       end
@@ -88,58 +88,6 @@ RSpec.describe Lti::RegistrationAccountBinding do
           account_binding.save
           expect(account_binding).not_to be_valid
         end
-      end
-    end
-  end
-
-  describe "after_save hooks" do
-    let(:lrab) do
-      account = account_model
-      user = user_model
-      registration = Lti::Registration.create!(
-        name: "an lti registration",
-        account:,
-        created_by: user,
-        updated_by: user,
-        developer_key: developer_key_model
-      )
-      Lti::RegistrationAccountBinding.create!(
-        workflow_state: :off,
-        account:,
-        registration:
-      )
-    end
-
-    it "creates a corresponding developer key account binding" do
-      dkab = lrab.developer_key_account_binding
-      expect(dkab).to be_persisted
-      expect(dkab.workflow_state).to eq("off")
-    end
-
-    it "updates the corresponding developer key account binding" do
-      lrab.update!(workflow_state: :on)
-      expect(lrab.developer_key_account_binding.workflow_state).to eq("on")
-    end
-
-    context "when dev key binding already exists and isn't linked" do
-      let(:dkab) { DeveloperKeyAccountBinding.create!(account: lrab.account, developer_key: lrab.registration.developer_key, skip_lime_sync: true) }
-
-      before do
-        old_dkab = lrab.developer_key_account_binding
-        lrab.developer_key_account_binding = nil
-        lrab.skip_lime_sync = true
-        lrab.save!
-        old_dkab.delete
-        dkab # instantiate before test runs
-      end
-
-      it "doesn't error" do
-        expect { lrab.save! }.not_to raise_error
-      end
-
-      it "links bindings" do
-        lrab.save!
-        expect(lrab.developer_key_account_binding).to eq(dkab)
       end
     end
   end
@@ -263,6 +211,24 @@ RSpec.describe Lti::RegistrationAccountBinding do
       it "returns all bindings for all registrations" do
         expect(subject).to include(binding1, binding2)
       end
+
+      context "with caching" do
+        specs_require_cache(:redis_cache_store)
+
+        let(:list_cache_key) { Lti::RegistrationAccountBinding.site_admin_list_cache_key(registrations) }
+
+        it "caches the result" do
+          subject
+          expect(MultiCache.fetch(list_cache_key, nil)).to eq([binding1, binding2])
+        end
+
+        it "caches the pointer" do
+          subject
+          registrations.each do |registration|
+            expect(MultiCache.fetch(Lti::RegistrationAccountBinding.pointer_to_list_key(registration), nil)).to eq(list_cache_key)
+          end
+        end
+      end
     end
 
     context "with allow bindings" do
@@ -282,29 +248,55 @@ RSpec.describe Lti::RegistrationAccountBinding do
 
     let(:account_binding) { lti_registration_account_binding_model(account:) }
     let(:cache_key) { Lti::RegistrationAccountBinding.site_admin_cache_key(account_binding.registration) }
-    let(:all_cache_key) { Lti::RegistrationAccountBinding.site_admin_all_cache_key(account_binding.registration) }
+    let(:list_cache_key) { Lti::RegistrationAccountBinding.site_admin_list_cache_key([account_binding.registration]) }
 
-    before do
-      allow(MultiCache).to receive(:delete).and_return(true)
-    end
+    context "with mocks" do
+      before do
+        allow(MultiCache).to receive(:delete).and_return(true)
+        allow(MultiCache).to receive(:fetch).and_call_original
+        allow(MultiCache).to receive(:fetch).with(Lti::RegistrationAccountBinding.pointer_to_list_key(account_binding.registration), nil).and_return(list_cache_key)
+      end
 
-    context "when account is site admin" do
-      let(:account) { Account.site_admin }
+      context "when account is site admin" do
+        let(:account) { Account.site_admin }
 
-      it "clears the cache" do
-        subject
-        expect(MultiCache).to have_received(:delete).with(cache_key)
-        expect(MultiCache).to have_received(:delete).with(all_cache_key)
+        it "clears the cache" do
+          subject
+          expect(MultiCache).to have_received(:delete).with(cache_key)
+          expect(MultiCache).to have_received(:delete).with(list_cache_key)
+        end
+      end
+
+      context "when account is not site admin" do
+        let(:account) { account_model }
+
+        it "does not clear the cache" do
+          subject
+          expect(MultiCache).not_to have_received(:delete).with(cache_key)
+          expect(MultiCache).not_to have_received(:delete).with(list_cache_key)
+        end
       end
     end
 
-    context "when account is not site admin" do
-      let(:account) { account_model }
+    context "with caching" do
+      specs_require_cache(:redis_cache_store)
 
-      it "does not clear the cache" do
+      let(:account) { Account.site_admin }
+      let(:account_binding) { lti_registration_account_binding_model(account:) }
+
+      before do
+        Lti::RegistrationAccountBinding.find_in_site_admin(account_binding.registration)
+        Lti::RegistrationAccountBinding.find_all_in_site_admin([account_binding.registration])
+      end
+
+      it "clears the cache" do
+        expect(MultiCache.fetch(cache_key, nil)).to eq(account_binding)
+        expect(MultiCache.fetch(list_cache_key, nil)).to eq([account_binding])
+
         subject
-        expect(MultiCache).not_to have_received(:delete).with(cache_key)
-        expect(MultiCache).not_to have_received(:delete).with(all_cache_key)
+
+        expect(MultiCache.fetch(cache_key, nil)).to be_nil
+        expect(MultiCache.fetch(list_cache_key, nil)).to be_nil
       end
     end
   end

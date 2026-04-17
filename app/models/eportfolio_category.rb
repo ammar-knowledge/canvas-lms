@@ -18,13 +18,13 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class EportfolioCategory < ActiveRecord::Base
+class EportfolioCategory < ApplicationRecord
   attr_readonly :eportfolio_id
 
   has_many :eportfolio_entries, -> { ordered }, dependent: :destroy
   belongs_to :eportfolio
 
-  before_save :infer_unique_slug
+  before_save :infer_unique_slug, if: ->(category) { category.slug.blank? || category.will_save_change_to_name? }
   after_save :check_for_spam, if: -> { eportfolio.needs_spam_review? }
 
   validates :eportfolio_id, presence: true
@@ -35,7 +35,7 @@ class EportfolioCategory < ActiveRecord::Base
   def infer_unique_slug
     categories = eportfolio.eportfolio_categories
     self.name ||= t(:default_section, "Section Name")
-    self.slug = self.name.gsub(/\s+/, "_").gsub(/[^\w\d]/, "")
+    self.slug = self.name.to_url.presence || CanvasSlug.generate
     categories = categories.where("id<>?", self) unless new_record?
     match_cnt = categories.where(slug:).count
     if match_cnt > 0

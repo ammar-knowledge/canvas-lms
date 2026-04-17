@@ -50,22 +50,27 @@ describe('ProficiencyRating', () => {
     render(<ProficiencyRating {...defaultProps(props)} />)
 
   beforeEach(() => {
-    onDeleteMock = jest.fn()
-    onFocusChangeMock = jest.fn()
-    onMasteryChangeMock = jest.fn()
-    onDescriptionChangeMock = jest.fn()
-    onPointsChangeMock = jest.fn()
+    onDeleteMock = vi.fn()
+    onFocusChangeMock = vi.fn()
+    onMasteryChangeMock = vi.fn()
+    onDescriptionChangeMock = vi.fn()
+    onPointsChangeMock = vi.fn()
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   describe('can not manage', () => {
     it('renders the ProficiencyRating component', () => {
       const wrapper = renderProficiencyRating()
 
-      expect(wrapper.container).toMatchSnapshot()
+      expect(wrapper.getByText('Description for mastery level 1: Stellar')).toBeInTheDocument()
+      expect(wrapper.getByText('Stellar')).toBeInTheDocument()
+      expect(wrapper.getByText('Points for mastery level 1: 10.0')).toBeInTheDocument()
+      expect(wrapper.getByText('10')).toBeInTheDocument()
+      expect(wrapper.getByText('points')).toBeInTheDocument()
+      expect(wrapper.getByText('Color #00ff00 for mastery level 1')).toBeInTheDocument()
     })
 
     it('mastery checkbox is checked if mastery', () => {
@@ -218,7 +223,7 @@ describe('ProficiencyRating', () => {
         })
 
         expect(queryByText('Change color for mastery level 1')).not.toBeInTheDocument()
-        expect(container.getElementsByClassName('color').length).toBe(0)
+        expect(container.getElementsByClassName('color')).toHaveLength(0)
       })
     })
   })

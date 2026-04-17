@@ -210,7 +210,7 @@ describe ConferencesController do
       post "create", params: { course_id: @course.id, web_conference: { title: long_str, conference_type: "Wimba" } }, format: "json"
       expect(response).to have_http_status :bad_request
       res_body = response.parsed_body
-      expect(res_body["errors"]["title"][0]["message"]).to eq "too_long"
+      expect(res_body["errors"]["title"][0]["type"]).to eq "too_long"
     end
 
     it "creates a conference with observers removed" do
@@ -298,7 +298,7 @@ describe ConferencesController do
 
       it "does not create a calendar_event when checkbox unchecked" do
         allow(WebConference).to receive(:plugins).and_return(
-          [instance_double("Canvas::Plugin",
+          [instance_double(Canvas::Plugin,
                            id: "big_blue_button",
                            name: "BigBlueButton",
                            settings: { domain: "bbb.instructure.com", secret_dec: "secret" },
@@ -332,6 +332,8 @@ describe ConferencesController do
     it "returns user ids" do
       user_session(@teacher)
       @conference = @course.web_conferences.create!(conference_type: "Wimba", user: @teacher)
+      @conference.add_initiator(@teacher)
+      @conference.invite_users_from_context(@course.user_ids)
       params = {
         course_id: @course.id,
         id: @conference,
@@ -345,31 +347,29 @@ describe ConferencesController do
       expect(body["user_ids"]).to include(@student.id)
     end
 
-    it "syncs attendees" do
+    it "persists manually added attendees when editing" do
+      user_session(@teacher)
       @conference = @course.web_conferences.create!(conference_type: "Wimba", user: @teacher)
-      @student2 = User.create
-      @course.enroll_student(@student2, enrollment_state: "active")
+      @conference.add_initiator(@teacher)
+      new_student = user_with_pseudonym(active_all: true)
+      @course.enroll_student(new_student, enrollment_state: "active")
 
       params = {
         course_id: @course.id,
         id: @conference,
-        web_conference: {
-          title: "Something else",
-          sync_attendees: true
-        },
+        web_conference: { title: "Something else" },
+        "user[#{new_student.id}]": "1",
+        "user[#{@teacher.id}]": "1",
       }
-      user_session(@teacher)
       post :update, params:, format: :json
       body = response.parsed_body
-      expect(body["user_ids"]).to include(@teacher.id)
-      expect(body["user_ids"]).to include(@student.id)
-      expect(body["user_ids"]).to include(@student2.id)
+      expect(body["user_ids"]).to include(new_student.id)
     end
 
     it "deletes calendar event when calendar_event is not set" do
       user_session(@teacher)
       allow(WebConference).to receive(:plugins).and_return(
-        [instance_double("Canvas::Plugin",
+        [instance_double(Canvas::Plugin,
                          id: "big_blue_button",
                          name: "BigBlueButton",
                          settings: { domain: "bbb.instructure.com", secret_dec: "secret" },
@@ -387,7 +387,6 @@ describe ConferencesController do
         id: @conference,
         web_conference: {
           title: "Something else",
-          sync_attendees: "0",
           calendar_event: "0"
         },
       }
@@ -401,45 +400,10 @@ describe ConferencesController do
       expect(response).to be_successful
     end
 
-    it "does NOT delete calendar event when sync_attendees is passed" do
-      user_session(@teacher)
-      allow(WebConference).to receive(:plugins).and_return(
-        [instance_double("Canvas::Plugin",
-                         id: "big_blue_button",
-                         name: "BigBlueButton",
-                         settings: { domain: "bbb.instructure.com", secret_dec: "secret" },
-                         base: nil,
-                         enabled?: true)]
-      )
-
-      @conference = @course.web_conferences.create!(conference_type: "BigBlueButton", duration: 60, user: @teacher)
-      @conference.users << @student
-      @conference.calendar_event = calendar_event_model
-      @conference.save!
-
-      params = {
-        course_id: @course.id,
-        id: @conference,
-        web_conference: {
-          title: "Something else",
-          sync_attendees: "1",
-          calendar_event: "0"
-        },
-      }
-
-      post :update, params:, format: "json"
-
-      created_conference = WebConference.find(@conference.id)
-      created_calendar_event = created_conference.calendar_event
-
-      expect(created_calendar_event).to be_truthy
-      expect(response).to be_successful
-    end
-
     it "creates a calendar event when calendar_event is set, with start_at and end_at params" do
       user_session(@teacher)
       allow(WebConference).to receive(:plugins).and_return(
-        [instance_double("Canvas::Plugin",
+        [instance_double(Canvas::Plugin,
                          id: "big_blue_button",
                          name: "BigBlueButton",
                          settings: { domain: "bbb.instructure.com", secret_dec: "secret" },
@@ -456,7 +420,6 @@ describe ConferencesController do
         id: @conference,
         web_conference: {
           title: "Something else",
-          sync_attendees: true,
           calendar_event: "1",
           start_at: start_time,
           end_at: end_time
@@ -621,7 +584,7 @@ describe ConferencesController do
       end
     end
 
-    context "#index" do
+    describe "#index" do
       it "lists include LTI conference types" do
         user_session(@teacher)
         get "index", params: { course_id: @course.id }
@@ -631,7 +594,7 @@ describe ConferencesController do
       end
     end
 
-    context "#create" do
+    describe "#create" do
       it "can create LTI conferences" do
         user_session(@teacher)
         post "create",

@@ -51,7 +51,7 @@ describe "Modules API", type: :request do
     }
     @module1.save!
 
-    @christmas = Time.zone.local(Time.now.year + 1, 12, 25, 7, 0)
+    @christmas = Time.zone.local(Time.zone.now.year + 1, 12, 25, 7, 0)
     @module2 = @course.context_modules.create!(name: "do not open until christmas",
                                                unlock_at: @christmas,
                                                require_sequential_progress: true)
@@ -109,6 +109,30 @@ describe "Modules API", type: :request do
         expect(content_tags[1]["content_tag"]["content_type"]).to eq("ContextModuleSubHeader")
       end
 
+      it "properly handles duplication of a module that has HTML content with attachments in it" do
+        aa_test_data = AttachmentAssociationsSpecHelper.new(@course.account, @course)
+        course_module = @course.context_modules.create!(name: "empty module", workflow_state: "published")
+        page = @course.wiki_pages.create!(title: "Page with HTML", body: aa_test_data.base_html, saving_user: @teacher)
+        course_module.add_item(id: page.id, type: "wiki_page")
+        course_module.save!
+        json = api_call(:post,
+                        "/api/v1/courses/#{@course.id}/modules/#{course_module.id}/duplicate",
+                        { controller: "context_modules_api",
+                          action: "duplicate",
+                          format: "json",
+                          course_id: @course.id.to_s,
+                          module_id: course_module.id.to_s },
+                        {},
+                        {},
+                        { expected_status: 200 })
+        content_tags = json["context_module"]["content_tags"]
+        expect(content_tags[0]["content_tag"]["title"]).to eq("Page with HTML Copy")
+        expect(content_tags[0]["content_tag"]["content_type"]).to eq("WikiPage")
+        associations = WikiPage.find(content_tags[0]["content_tag"]["content_id"]).attachment_associations
+        expect(associations.length).to eq 1
+        expect(associations.first.attachment_id).to eq aa_test_data.attachment1.id
+      end
+
       it "cannot duplicate module with quiz" do
         course_module = @course.context_modules.create!(name: "empty module", workflow_state: "published")
         # To be rigorous, make a quiz and add it as an *assignment*
@@ -157,6 +181,7 @@ describe "Modules API", type: :request do
             "unlock_at" => nil,
             "position" => 1,
             "require_sequential_progress" => false,
+            "requirement_type" => "all",
             "prerequisite_module_ids" => [],
             "id" => @module1.id,
             "published" => true,
@@ -169,6 +194,7 @@ describe "Modules API", type: :request do
             "unlock_at" => @christmas.as_json,
             "position" => 2,
             "require_sequential_progress" => true,
+            "requirement_type" => "all",
             "prerequisite_module_ids" => [@module1.id],
             "id" => @module2.id,
             "published" => true,
@@ -181,6 +207,7 @@ describe "Modules API", type: :request do
             "unlock_at" => nil,
             "position" => 3,
             "require_sequential_progress" => false,
+            "requirement_type" => "all",
             "prerequisite_module_ids" => [],
             "id" => @module3.id,
             "published" => false,
@@ -192,7 +219,6 @@ describe "Modules API", type: :request do
       end
 
       it "shows published attribute to teachers with limited permissions" do
-        @course.root_account.enable_feature!(:granular_permissions_manage_course_content)
         @course.root_account.role_overrides.create!(permission: "manage_course_content_edit", role: teacher_role, enabled: false)
         @course.root_account.role_overrides.create!(permission: "manage_course_content_add", role: teacher_role, enabled: false)
         @user = @teacher
@@ -229,8 +255,7 @@ describe "Modules API", type: :request do
         expect(json.map { |mod| mod["items"].size }).to eq [5, 2, 0]
       end
 
-      it "only fetches visibility information once with selective_release_backend on" do
-        Account.site_admin.enable_feature!(:selective_release_backend)
+      it "only fetches visibility information once" do
         student_in_course(course: @course)
         @user = @student
 
@@ -238,26 +263,6 @@ describe "Modules API", type: :request do
         @module2.add_item(id: assmt2.id, type: "assignment")
 
         expect(AssignmentVisibility::AssignmentVisibilityService).to receive(:visible_assignment_ids_in_course_by_user).once.and_call_original
-
-        json = api_call(:get,
-                        "/api/v1/courses/#{@course.id}/modules?include[]=items",
-                        controller: "context_modules_api",
-                        action: "index",
-                        format: "json",
-                        course_id: @course.id.to_s,
-                        include: %w[items])
-        expect(json.map { |mod| mod["items"].size }).to eq [4, 3]
-      end
-
-      it "only fetches visibility information once" do
-        Account.site_admin.disable_feature!(:selective_release_backend)
-        student_in_course(course: @course)
-        @user = @student
-
-        assmt2 = @course.assignments.create!(name: "another assmt", workflow_state: "published")
-        @module2.add_item(id: assmt2.id, type: "assignment")
-
-        expect(AssignmentStudentVisibility).to receive(:visible_assignment_ids_in_course_by_user).once.and_call_original
 
         json = api_call(:get,
                         "/api/v1/courses/#{@course.id}/modules?include[]=items",
@@ -309,6 +314,93 @@ describe "Modules API", type: :request do
           expect(wiki_page_details).to include(
             "locked_for_user" => false
           )
+        end
+      end
+
+      context "index including estimated duration" do
+        before do
+          Account.default.enable_feature!(:horizon_course_setting)
+          @course.update!(horizon_course: true)
+          @course.save!
+
+          @module4 = @course.context_modules.create(name: "module4")
+          @wiki_page_est = @course.wiki_pages.create!(title: "Wiki Page 1", body: "")
+          @wiki_page_est.workflow_state = "active"
+          @wiki_page_est.save!
+          EstimatedDuration.create!(wiki_page_id: @wiki_page_est.id, duration: 30.minutes)
+          @wiki_page_tag_est = @module4.add_item(id: @wiki_page_est.id, type: "wiki_page")
+
+          @wiki_page_est2 = @course.wiki_pages.create!(title: "Wiki Page 2", body: "")
+          @wiki_page_est2.workflow_state = "active"
+          @wiki_page_est2.save!
+          EstimatedDuration.create!(wiki_page_id: @wiki_page_est2.id, duration: 12.minutes)
+          @wiki_page_tag_est2 = @module4.add_item(id: @wiki_page_est2.id, type: "wiki_page")
+          @module4.save!
+
+          @module5 = @course.context_modules.create(name: "module5")
+          @assignment_est = @course.assignments.create!(name: "Assignment Est")
+          @assignment_est.publish! if @assignment_est.unpublished?
+          EstimatedDuration.create!(assignment_id: @assignment_est.id, duration: 45.minutes)
+          @assignment_tag_est = @module5.add_item(id: @assignment_est.id, type: "assignment")
+          @module5.save!
+        end
+
+        def do_api_call_with_items
+          api_call(:get,
+                   "/api/v1/courses/#{@course.id}/modules?include[]=items&include[]=estimated_durations",
+                   controller: "context_modules_api",
+                   action: "index",
+                   format: "json",
+                   course_id: @course.id.to_s,
+                   include: %w[items estimated_durations])
+        end
+
+        def do_api_calls_without_items
+          api_call(:get,
+                   "/api/v1/courses/#{@course.id}/modules?include[]=estimated_durations",
+                   controller: "context_modules_api",
+                   action: "index",
+                   format: "json",
+                   course_id: @course.id.to_s,
+                   include: %w[estimated_durations])
+        end
+
+        it "includes estimated duration on the module" do
+          json = do_api_calls_without_items
+          estimated_duration_module = json.find { |mod| mod["id"] == @module4.id }["estimated_duration"]
+          estimated_duration_module2 = json.find { |mod| mod["id"] == @module5.id }["estimated_duration"]
+          expect(estimated_duration_module).to eq("PT42M")
+          expect(estimated_duration_module2).to eq("PT45M")
+        end
+
+        it "includes estimated duration for the module and the items" do
+          json = do_api_call_with_items
+          estimated_duration_module = json.find { |mod| mod["id"] == @module4.id }["estimated_duration"]
+          estimated_duration_module2 = json.find { |mod| mod["id"] == @module5.id }["estimated_duration"]
+          estimated_duration1 = json.find { |mod| mod["id"] == @module4.id }["items"].find { |item| item["id"] == @wiki_page_tag_est.id }["estimated_duration"]
+          estimated_duration2 = json.find { |mod| mod["id"] == @module4.id }["items"].find { |item| item["id"] == @wiki_page_tag_est2.id }["estimated_duration"]
+          estimated_duration3 = json.find { |mod| mod["id"] == @module5.id }["items"].find { |item| item["id"] == @assignment_tag_est.id }["estimated_duration"]
+          expect(estimated_duration_module).to eq("PT42M")
+          expect(estimated_duration_module2).to eq("PT45M")
+          expect(estimated_duration1).to eq("PT30M")
+          expect(estimated_duration2).to eq("PT12M")
+          expect(estimated_duration3).to eq("PT45M")
+        end
+
+        it "does not includes estimated duration details if the course is not horizon course" do
+          @course.update!(horizon_course: false)
+          @course.save!
+          json = do_api_call_with_items
+          estimated_duration_module = json.find { |mod| mod["id"] == @module4.id }["estimated_duration"]
+          estimated_duration_module2 = json.find { |mod| mod["id"] == @module5.id }["estimated_duration"]
+          estimated_duration1 = json.find { |mod| mod["id"] == @module4.id }["items"].find { |item| item["id"] == @wiki_page_tag_est.id }["estimated_duration"]
+          estimated_duration2 = json.find { |mod| mod["id"] == @module4.id }["items"].find { |item| item["id"] == @wiki_page_tag_est2.id }["estimated_duration"]
+          estimated_duration3 = json.find { |mod| mod["id"] == @module5.id }["items"].find { |item| item["id"] == @assignment_tag_est.id }["estimated_duration"]
+          expect(estimated_duration_module).to be_nil
+          expect(estimated_duration_module2).to be_nil
+          expect(estimated_duration1).to be_nil
+          expect(estimated_duration2).to be_nil
+          expect(estimated_duration3).to be_nil
         end
       end
 
@@ -417,6 +509,7 @@ describe "Modules API", type: :request do
                              "unlock_at" => @christmas.as_json,
                              "position" => 2,
                              "require_sequential_progress" => true,
+                             "requirement_type" => "all",
                              "prerequisite_module_ids" => [@module1.id],
                              "id" => @module2.id,
                              "published" => true,
@@ -467,6 +560,76 @@ describe "Modules API", type: :request do
         end
       end
 
+      context "show including estimated duration" do
+        before do
+          Account.default.enable_feature!(:horizon_course_setting)
+          @course.update!(horizon_course: true)
+          @course.save!
+
+          @module4 = @course.context_modules.create(name: "module4")
+          @wiki_page_est = @course.wiki_pages.create!(title: "Wiki Page 1", body: "")
+          @wiki_page_est.workflow_state = "active"
+          @wiki_page_est.save!
+          EstimatedDuration.create!(wiki_page_id: @wiki_page_est.id, duration: 30.minutes)
+          @wiki_page_tag_est = @module4.add_item(id: @wiki_page_est.id, type: "wiki_page")
+          @wiki_page_est2 = @course.wiki_pages.create!(title: "Wiki Page 2", body: "")
+          @wiki_page_est2.workflow_state = "active"
+          @wiki_page_est2.save!
+          EstimatedDuration.create!(wiki_page_id: @wiki_page_est2.id, duration: 12.minutes)
+          @wiki_page_tag_est2 = @module4.add_item(id: @wiki_page_est2.id, type: "wiki_page")
+          @module4.save!
+        end
+
+        it "includes estimated duration on the module" do
+          json = api_call(:get,
+                          "/api/v1/courses/#{@course.id}/modules/#{@module4.id}?include[]=items&include[]=estimated_durations",
+                          controller: "context_modules_api",
+                          action: "show",
+                          format: "json",
+                          course_id: @course.id.to_s,
+                          include: %w[items estimated_durations],
+                          id: @module4.id.to_s)
+          estimated_duration_module = json["estimated_duration"]
+          expect(estimated_duration_module).to eq("PT42M")
+        end
+
+        it "includes estimated duration for the module and the items" do
+          json = api_call(:get,
+                          "/api/v1/courses/#{@course.id}/modules/#{@module4.id}?include[]=items&include[]=estimated_durations",
+                          controller: "context_modules_api",
+                          action: "show",
+                          format: "json",
+                          course_id: @course.id.to_s,
+                          include: %w[items estimated_durations],
+                          id: @module4.id.to_s)
+          estimated_duration_module = json["estimated_duration"]
+          estimated_duration1 = json["items"].find { |item| item["id"] == @wiki_page_tag_est.id }["estimated_duration"]
+          estimated_duration2 = json["items"].find { |item| item["id"] == @wiki_page_tag_est2.id }["estimated_duration"]
+          expect(estimated_duration_module).to eq("PT42M")
+          expect(estimated_duration1).to eq("PT30M")
+          expect(estimated_duration2).to eq("PT12M")
+        end
+
+        it "does not includes estimated duration details if the course is not horizon course" do
+          @course.update!(horizon_course: false)
+          @course.save!
+          json = api_call(:get,
+                          "/api/v1/courses/#{@course.id}/modules/#{@module4.id}?include[]=items&include[]=estimated_durations",
+                          controller: "context_modules_api",
+                          action: "show",
+                          format: "json",
+                          course_id: @course.id.to_s,
+                          include: %w[items estimated_durations],
+                          id: @module4.id.to_s)
+          estimated_duration_module = json["estimated_duration"]
+          estimated_duration1 = json["items"].find { |item| item["id"] == @wiki_page_tag_est.id }["estimated_duration"]
+          estimated_duration2 = json["items"].find { |item| item["id"] == @wiki_page_tag_est2.id }["estimated_duration"]
+          expect(estimated_duration_module).to be_nil
+          expect(estimated_duration1).to be_nil
+          expect(estimated_duration2).to be_nil
+        end
+      end
+
       it "shows a single unpublished module" do
         json = api_call(:get,
                         "/api/v1/courses/#{@course.id}/modules/#{@module3.id}",
@@ -480,6 +643,7 @@ describe "Modules API", type: :request do
                              "unlock_at" => nil,
                              "position" => 3,
                              "require_sequential_progress" => false,
+                             "requirement_type" => "all",
                              "prerequisite_module_ids" => [],
                              "id" => @module3.id,
                              "published" => false,
@@ -512,6 +676,18 @@ describe "Modules API", type: :request do
                         id: @module1.id.to_param,
                         include: %w[items])
         expect(json["items"]).to be_nil
+      end
+
+      it "indicates if the module requirement_type is 'one'" do
+        @module1.update!(requirement_count: 1)
+        json = api_call(:get,
+                        "/api/v1/courses/#{@course.id}/modules/#{@module1.id}",
+                        controller: "context_modules_api",
+                        action: "show",
+                        format: "json",
+                        course_id: @course.id.to_s,
+                        id: @module1.id.to_param)
+        expect(json["requirement_type"]).to eq "one"
       end
     end
 
@@ -778,6 +954,65 @@ describe "Modules API", type: :request do
         expect(@wiki_page.active?).to be true
       end
 
+      context "when some items cannot be published" do
+        before do
+          hidden_folder = @course.folders.create!(
+            name: "hidden folder",
+            parent_folder: Folder.root_folders(@course).first,
+            workflow_state: "hidden"
+          )
+          @hidden_attachment = attachment_model(
+            context: @course,
+            folder: hidden_folder,
+            uploaded_data: fixture_file_upload("a_file.txt", "text/plain")
+          )
+          @module1.add_item(id: @hidden_attachment.id, type: "attachment")
+        end
+
+        it "returns publish_warning: true" do
+          json = api_call(:put,
+                          "/api/v1/courses/#{@course.id}/modules/#{@module1.id}",
+                          { controller: "context_modules_api",
+                            action: "update",
+                            format: "json",
+                            course_id: @course.id.to_s,
+                            id: @module1.id.to_s },
+                          { module: { published: "1" } })
+          expect(json["publish_warning"]).to be true
+        end
+
+        it "returns publish_warning_items with title and reason" do
+          json = api_call(:put,
+                          "/api/v1/courses/#{@course.id}/modules/#{@module1.id}",
+                          { controller: "context_modules_api",
+                            action: "update",
+                            format: "json",
+                            course_id: @course.id.to_s,
+                            id: @module1.id.to_s },
+                          { module: { published: "1" } })
+          items = json["publish_warning_items"]
+          expect(items).to be_an(Array)
+          tag = @module1.content_tags.find_by(content_id: @hidden_attachment.id)
+          item = items.find { |i| i["id"] == tag.id }
+          expect(item).to be_present
+          expect(item["title"]).to be_present
+          expect(item["reason"]).to eq("file_in_hidden_folder")
+        end
+
+        it "omits publish_warning_items when all items publish successfully" do
+          json = api_call(:put,
+                          "/api/v1/courses/#{@course.id}/modules/#{@module2.id}",
+                          { controller: "context_modules_api",
+                            action: "update",
+                            format: "json",
+                            course_id: @course.id.to_s,
+                            id: @module2.id.to_s },
+                          { module: { published: "1" } })
+          expect(json["publish_warning"]).to be_falsey
+          expect(json.key?("publish_warning_items")).to be false
+        end
+      end
+
       it "publishes module tag items even if the tag itself is already published" do
         # surreptitiously set up a terrible pre-DS => post-DS transition state
         ContentTag.where(id: @wiki_page_tag.id).update_all(workflow_state: "active")
@@ -960,6 +1195,125 @@ describe "Modules API", type: :request do
         expect(new_module.require_sequential_progress).to be true
       end
 
+      context "with requirement_count" do
+        context "in a horizon course" do
+          before :once do
+            @course.account.enable_feature!(:horizon_course_setting)
+            @course.update!(horizon_course: true)
+          end
+
+          it "creates a module with requirement_count" do
+            json = api_call(:post,
+                            "/api/v1/courses/#{@course.id}/modules",
+                            { controller: "context_modules_api",
+                              action: "create",
+                              format: "json",
+                              course_id: @course.id.to_s },
+                            { module: { name: "test module", requirement_count: 2 } })
+
+            new_module = @course.context_modules.find(json["id"])
+            expect(new_module.requirement_count).to eq 2
+          end
+
+          it "updates a module with requirement_count" do
+            mod = @course.context_modules.create!(name: "test")
+            api_call(:put,
+                     "/api/v1/courses/#{@course.id}/modules/#{mod.id}",
+                     { controller: "context_modules_api",
+                       action: "update",
+                       format: "json",
+                       course_id: @course.id.to_s,
+                       id: mod.id.to_s },
+                     { module: { requirement_count: 3 } })
+
+            mod.reload
+            expect(mod.requirement_count).to eq 3
+          end
+
+          it "includes requirement_count in list" do
+            @course.context_modules.create!(name: "test", requirement_count: 2)
+            json = api_call(:get,
+                            "/api/v1/courses/#{@course.id}/modules",
+                            controller: "context_modules_api",
+                            action: "index",
+                            format: "json",
+                            course_id: @course.id.to_s)
+
+            expect(json[0]["requirement_count"]).to eq 2
+          end
+
+          it "includes requirement_count in show" do
+            mod = @course.context_modules.create!(name: "test", requirement_count: 2)
+            json = api_call(:get,
+                            "/api/v1/courses/#{@course.id}/modules/#{mod.id}",
+                            controller: "context_modules_api",
+                            action: "show",
+                            format: "json",
+                            course_id: @course.id.to_s,
+                            id: mod.id.to_s)
+
+            expect(json["requirement_count"]).to eq 2
+          end
+        end
+
+        context "in a non-horizon course" do
+          it "ignores requirement_count on create" do
+            json = api_call(:post,
+                            "/api/v1/courses/#{@course.id}/modules",
+                            { controller: "context_modules_api",
+                              action: "create",
+                              format: "json",
+                              course_id: @course.id.to_s },
+                            { module: { name: "test module", requirement_count: 2 } })
+
+            expect(json).not_to have_key("requirement_count")
+            new_module = @course.context_modules.find(json["id"])
+            expect(new_module.requirement_count).not_to eq 2
+          end
+
+          it "ignores requirement_count on update" do
+            mod = @course.context_modules.create!(name: "test", requirement_count: 1)
+            json = api_call(:put,
+                            "/api/v1/courses/#{@course.id}/modules/#{mod.id}",
+                            { controller: "context_modules_api",
+                              action: "update",
+                              format: "json",
+                              course_id: @course.id.to_s,
+                              id: mod.id.to_s },
+                            { module: { requirement_count: 5 } })
+
+            expect(json).not_to have_key("requirement_count")
+            mod.reload
+            expect(mod.requirement_count).to eq 1
+          end
+
+          it "does not include requirement_count in list" do
+            @course.context_modules.create!(name: "test", requirement_count: 2)
+            json = api_call(:get,
+                            "/api/v1/courses/#{@course.id}/modules",
+                            controller: "context_modules_api",
+                            action: "index",
+                            format: "json",
+                            course_id: @course.id.to_s)
+
+            expect(json[0]).not_to have_key("requirement_count")
+          end
+
+          it "does not include requirement_count in show" do
+            mod = @course.context_modules.create!(name: "test", requirement_count: 2)
+            json = api_call(:get,
+                            "/api/v1/courses/#{@course.id}/modules/#{mod.id}",
+                            controller: "context_modules_api",
+                            action: "show",
+                            format: "json",
+                            course_id: @course.id.to_s,
+                            id: mod.id.to_s)
+
+            expect(json).not_to have_key("requirement_count")
+          end
+        end
+      end
+
       it "requires a name" do
         api_call(:post,
                  "/api/v1/courses/#{@course.id}/modules",
@@ -1072,6 +1426,72 @@ describe "Modules API", type: :request do
       expect(json["completed_at"]).not_to be_nil
       expect(json["items"].find { |i| i["id"] == @assignment_tag.id }["completion_requirement"]["completed"]).to be true
     end
+
+    it "shows module items a student has access to when requesting as a teacher using student_id" do
+      student_1 = User.create!(name: "Student 1")
+      @course.enroll_student(student_1).accept!
+      student_2 = User.create!(name: "Student 2")
+      @course.enroll_student(student_2).accept!
+
+      course_module = @course.context_modules.create!(name: "empty module", workflow_state: "published")
+      assignment = @course.assignments.create!(
+        name: "Suzaku Castle",
+        workflow_state: "published",
+        only_visible_to_overrides: true
+      )
+      course_module.add_item(id: assignment.id, type: "assignment")
+
+      ao = assignment_override_model(assignment:)
+      ao.assignment_override_students.create!(user: student_1)
+
+      json = api_call_as_user(student_1,
+                              :get,
+                              "/api/v1/courses/#{@course.id}/modules?include[]=items",
+                              controller: "context_modules_api",
+                              action: "index",
+                              format: "json",
+                              course_id: @course.id.to_s,
+                              student_id: student_1.id.to_s,
+                              include: ["items"])
+
+      expect(json.last["items"][0]["title"]).to eq "Suzaku Castle"
+
+      json = api_call_as_user(student_2,
+                              :get,
+                              "/api/v1/courses/#{@course.id}/modules?include[]=items",
+                              controller: "context_modules_api",
+                              action: "index",
+                              format: "json",
+                              course_id: @course.id.to_s,
+                              student_id: student_2.id.to_s,
+                              include: ["items"])
+
+      expect(json.last["items"].length).to be 0
+
+      json = api_call_as_user(@teacher,
+                              :get,
+                              "/api/v1/courses/#{@course.id}/modules?include[]=items&student_id=#{student_1.id}",
+                              controller: "context_modules_api",
+                              action: "index",
+                              format: "json",
+                              course_id: @course.id.to_s,
+                              student_id: student_1.id.to_s,
+                              include: ["items"])
+
+      expect(json.last["items"][0]["title"]).to eq "Suzaku Castle"
+
+      json = api_call_as_user(@teacher,
+                              :get,
+                              "/api/v1/courses/#{@course.id}/modules?include[]=items&student_id=#{student_2.id}",
+                              controller: "context_modules_api",
+                              action: "index",
+                              format: "json",
+                              course_id: @course.id.to_s,
+                              student_id: student_2.id.to_s,
+                              include: ["items"])
+
+      expect(json.last["items"].length).to be 0
+    end
   end
 
   context "as a student" do
@@ -1101,7 +1521,7 @@ describe "Modules API", type: :request do
                  module_id: course_module.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "shows module progress" do
@@ -1168,6 +1588,64 @@ describe "Modules API", type: :request do
                       id: @module1.id.to_s)
       expect(json["state"]).to eq "completed"
       expect(json["completed_at"]).not_to be_nil
+    end
+
+    it "considers score as percentage completion" do
+      teacher = @course.enroll_teacher(User.create!, enrollment_state: "active").user
+      @module1.completion_requirements = {
+        @assignment_tag.id => { type: "min_percentage", min_percentage: 60 },
+      }
+      @module1.save!
+
+      json = api_call(:get,
+                      "/api/v1/courses/#{@course.id}/modules/#{@module1.id}",
+                      controller: "context_modules_api",
+                      action: "show",
+                      format: "json",
+                      course_id: @course.id.to_s,
+                      id: @module1.id.to_s)
+      expect(json["state"]).to eq "unlocked"
+
+      @assignment.grade_student(@user, score: 30, grader: teacher)
+
+      json = api_call(:get,
+                      "/api/v1/courses/#{@course.id}/modules/#{@module1.id}",
+                      controller: "context_modules_api",
+                      action: "show",
+                      format: "json",
+                      course_id: @course.id.to_s,
+                      id: @module1.id.to_s)
+      expect(json["state"]).to eq "completed"
+      expect(json["completed_at"]).not_to be_nil
+    end
+
+    it "considers score as percentage not completion" do
+      teacher = @course.enroll_teacher(User.create!, enrollment_state: "active").user
+      @module1.completion_requirements = {
+        @assignment_tag.id => { type: "min_percentage", min_percentage: 60 },
+      }
+      @module1.save!
+
+      json = api_call(:get,
+                      "/api/v1/courses/#{@course.id}/modules/#{@module1.id}",
+                      controller: "context_modules_api",
+                      action: "show",
+                      format: "json",
+                      course_id: @course.id.to_s,
+                      id: @module1.id.to_s)
+      expect(json["state"]).to eq "unlocked"
+
+      @assignment.grade_student(@user, score: 10, grader: teacher)
+
+      json = api_call(:get,
+                      "/api/v1/courses/#{@course.id}/modules/#{@module1.id}",
+                      controller: "context_modules_api",
+                      action: "show",
+                      format: "json",
+                      course_id: @course.id.to_s,
+                      id: @module1.id.to_s)
+      expect(json["state"]).to eq "started"
+      expect(json["completed_at"]).to be_nil
     end
 
     context "show including content details" do
@@ -1255,7 +1733,7 @@ describe "Modules API", type: :request do
                    course_id: @course.id.to_s },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
 
       it "disallows publishing" do
@@ -1269,7 +1747,7 @@ describe "Modules API", type: :request do
                    course_id: @course.id.to_s },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
 
       it "disallows unpublishing" do
@@ -1283,7 +1761,7 @@ describe "Modules API", type: :request do
                    course_id: @course.id.to_s },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
     end
 
@@ -1298,7 +1776,7 @@ describe "Modules API", type: :request do
                  id: @module1.id.to_s },
                { module: { name: "new name" } },
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "disallows create" do
@@ -1310,7 +1788,7 @@ describe "Modules API", type: :request do
                  course_id: @course.id.to_s },
                { module: { name: "new name" } },
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "disallows destroy" do
@@ -1323,7 +1801,7 @@ describe "Modules API", type: :request do
                  id: @module1.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
     it "does not show progress for other students" do
@@ -1339,7 +1817,7 @@ describe "Modules API", type: :request do
                  student_id: student.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
 
       api_call(:get,
                "/api/v1/courses/#{@course.id}/modules/#{@module1.id}?student_id=#{student.id}",
@@ -1351,12 +1829,11 @@ describe "Modules API", type: :request do
                  student_id: student.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
 
-    context "with the selective_release_backend flag enabled" do
+    context "differentiated modules" do
       before :once do
-        Account.site_admin.enable_feature!(:selective_release_backend)
         @module2.assignment_overrides.create!
       end
 
@@ -1448,7 +1925,7 @@ describe "Modules API", type: :request do
                  course_id: @course.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       api_call(:get,
                "/api/v1/courses/#{@course.id}/modules/#{@module2.id}",
                { controller: "context_modules_api",
@@ -1458,7 +1935,7 @@ describe "Modules API", type: :request do
                  id: @module2.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       api_call(:put,
                "/api/v1/courses/#{@course.id}/modules?event=publish&module_ids[]=1",
                { controller: "context_modules_api",
@@ -1469,7 +1946,7 @@ describe "Modules API", type: :request do
                  course_id: @course.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       api_call(:put,
                "/api/v1/courses/#{@course.id}/modules/#{@module1.id}",
                { controller: "context_modules_api",
@@ -1479,7 +1956,7 @@ describe "Modules API", type: :request do
                  id: @module1.id.to_s },
                { module: { name: "new name" } },
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       api_call(:delete,
                "/api/v1/courses/#{@course.id}/modules/#{@module1.id}",
                { controller: "context_modules_api",
@@ -1489,7 +1966,7 @@ describe "Modules API", type: :request do
                  id: @module1.id.to_s },
                {},
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
       api_call(:post,
                "/api/v1/courses/#{@course.id}/modules",
                { controller: "context_modules_api",
@@ -1498,7 +1975,7 @@ describe "Modules API", type: :request do
                  course_id: @course.id.to_s },
                { module: { name: "new name" } },
                {},
-               { expected_status: 401 })
+               { expected_status: 403 })
     end
   end
 end

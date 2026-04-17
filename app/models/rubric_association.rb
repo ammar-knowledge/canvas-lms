@@ -22,10 +22,10 @@
 # RubricAssessments, then, are concrete assessments of the artifacts associated
 # with this idea, such as assignment submissions.
 # The other purpose of this class is just to make rubrics reusable.
-class RubricAssociation < ActiveRecord::Base
+class RubricAssociation < ApplicationRecord
   include Canvas::SoftDeletable
 
-  attr_accessor :skip_updating_points_possible
+  attr_accessor :skip_updating_points_possible, :skip_updating_rubric_association_count
   attr_writer :updating_user
 
   belongs_to :rubric
@@ -99,9 +99,10 @@ class RubricAssociation < ActiveRecord::Base
 
   set_broadcast_policy do |p|
     p.dispatch :rubric_association_created
-    p.to { context.students rescue [] }
+    p.to { context.respond_to?(:students) ? context.students : [] }
+
     p.whenever do |record|
-      record.just_created && !record.context.is_a?(Course)
+      record.previously_new_record? && !record.context.is_a?(Course)
     end
     p.data { course_broadcast_data }
   end
@@ -132,7 +133,7 @@ class RubricAssociation < ActiveRecord::Base
   # submissions were already sent when peer-review links and a *then* a rubric is created.
   def link_to_assessments
     # this is implemented as an after_save (and not an after_create) in order to have it run after assert_uniqueness
-    return unless saved_change_to_id?
+    return unless previously_new_record?
 
     # Go up to the assignment and loop through all submissions.
     # Update each submission's assessment_requests with a link to this rubric association
@@ -179,23 +180,32 @@ class RubricAssociation < ActiveRecord::Base
   def context_name
     @cached_context_name ||= shard.activate do
       Rails.cache.fetch(["short_name_lookup", context_code].cache_key) do
-        context.short_name rescue ""
+        context.short_name
       end
     end
   end
 
   def update_values
     self.bookmarked = true if purpose == "bookmark" || bookmarked.nil?
-    self.context_code ||= "#{context_type.underscore}_#{context_id}" rescue nil
-    self.title ||= (association_object.title rescue association_object.name) rescue nil
+    self.context_code ||= context_type && "#{context_type.underscore}_#{context_id}"
+    self.title ||= association_object.try(:title) || association_object.try(:name)
     self.workflow_state ||= "active"
   end
   protected :update_values
 
-  def user_can_assess_for?(assessor: nil, assessee: nil)
+  def user_can_assess_for?(assessor: nil, assessee: nil, assessment_type: nil)
     raise "assessor and assessee required" unless assessor && assessee
 
-    context.grants_right?(assessor, :manage_grades) || assessment_requests.incomplete.for_assessee(assessee).pluck(:assessor_id).include?(assessor.id)
+    context.grants_right?(assessor, :manage_grades) ||
+      assessment_requests.incomplete.for_assessee(assessee).pluck(:assessor_id).include?(assessor.id) ||
+      user_can_self_assess_for?(assessor:, assessee:, assessment_type:)
+  end
+
+  def user_can_self_assess_for?(assessor: nil, assessee: nil, assessment_type: nil)
+    assessment_type == "self_assessment" &&
+      assignment&.rubric_self_assessment_enabled? &&
+      assessor == assessee &&
+      rubric_assessments.where(assessment_type: "self_assessment", user_id: assessor).empty?
   end
 
   def user_did_assess_for?(assessor: nil, assessee: nil)
@@ -216,7 +226,7 @@ class RubricAssociation < ActiveRecord::Base
   end
 
   def update_assignment_points
-    if use_for_grading && !skip_updating_points_possible && association_object && association_object.respond_to?(:points_possible=) && rubric && rubric.points_possible && association_object.points_possible != rubric.points_possible
+    if use_for_grading && !skip_updating_points_possible && association_object.respond_to?(:points_possible=) && rubric&.points_possible && association_object.points_possible != rubric.points_possible
       association_object.points_possible = rubric.points_possible
       association_object.save
     end
@@ -231,14 +241,9 @@ class RubricAssociation < ActiveRecord::Base
   end
 
   def update_rubric
-    cnt = rubric.rubric_associations.for_grading.count
-    rubric&.with_versioning(false) do
-      rubric.read_only = cnt > 1
-      rubric.association_count = cnt
-      rubric.save
+    return if skip_updating_rubric_association_count
 
-      rubric.destroy if cnt == 0 && rubric.rubric_associations.count == 0 && !rubric.public
-    end
+    rubric.update_association_count
   end
   protected :update_rubric
 
@@ -333,9 +338,14 @@ class RubricAssociation < ActiveRecord::Base
       next unless data
 
       replace_ratings = true
-      has_score = (data[:points]).present?
+      has_score = data[:points].present?
       rating[:id] = data[:rating_id]
       rating[:points] = assessment_points(criterion, data) if has_score
+
+      if !has_score && opts[:get_score_from_rating] && !association.hide_points
+        rating[:points] = criterion.ratings.find { |r| r.description == data[:description] }&.points
+      end
+
       rating[:criterion_id] = criterion.id
       rating[:learning_outcome_id] = criterion.learning_outcome_id
       if criterion.ignore_for_scoring
@@ -400,16 +410,16 @@ class RubricAssociation < ActiveRecord::Base
     assignment&.auditable?
   end
 
-  def restrict_quantitative_data?(user = nil)
+  def restrict_quantitative_data?(user = nil, check_extra_permissions: false)
     return false if user.nil? || assignment.nil?
 
-    assignment.restrict_quantitative_data?(user)
+    assignment.restrict_quantitative_data?(user, check_extra_permissions:)
   end
 
-  def hide_points(user = nil)
-    return true if restrict_quantitative_data?(user)
+  def hide_points(user = nil, check_extra_permissions: false)
+    return true if restrict_quantitative_data?(user, check_extra_permissions:)
 
-    read_attribute(:hide_points)
+    super()
   end
 
   private

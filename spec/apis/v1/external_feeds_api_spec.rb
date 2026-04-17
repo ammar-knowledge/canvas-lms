@@ -27,10 +27,10 @@ describe "ExternalFeedsController", type: :request do
     end
 
     it "does not allow access to unauthorized users" do
-      api_call_as_user(@denied_user, :get, @url_base, @url_params, {}, {}, expected_status: 401)
-      api_call_as_user(@denied_user, :post, @url_base, @url_params.merge(action: "create"), { url: "http://www.example.com/feed" }, {}, expected_status: 401)
+      api_call_as_user(@denied_user, :get, @url_base, @url_params, {}, {}, expected_status: 403)
+      api_call_as_user(@denied_user, :post, @url_base, @url_params.merge(action: "create"), { url: "http://www.example.com/feed" }, {}, expected_status: 403)
       @feed = external_feed_model(context: @context)
-      api_call_as_user(@denied_user, :delete, @url_base + "/#{@feed.id}", @url_params.merge(action: "destroy", external_feed_id: @feed.to_param), {}, {}, expected_status: 401)
+      api_call_as_user(@denied_user, :delete, @url_base + "/#{@feed.id}", @url_params.merge(action: "destroy", external_feed_id: @feed.to_param), {}, {}, expected_status: 403)
     end
 
     def feed_json(f)
@@ -137,26 +137,28 @@ describe "ExternalFeedsController", type: :request do
   end
 
   describe "in a Course" do
-    include_examples "Announcement External Feeds"
-    before :once do
-      @allowed_user = teacher_in_course(active_all: true).user
-      @context = @course
-      @denied_user = student_in_course(course: @course, active_all: true).user
-      @url_base = "/api/v1/courses/#{@course.id}/external_feeds"
-      @url_params.merge!({ course_id: @course.to_param })
+    it_behaves_like "Announcement External Feeds" do
+      before :once do
+        @allowed_user = teacher_in_course(active_all: true).user
+        @context = @course
+        @denied_user = student_in_course(course: @course, active_all: true).user
+        @url_base = "/api/v1/courses/#{@course.id}/external_feeds"
+        @url_params.merge!({ course_id: @course.to_param })
+      end
     end
   end
 
   describe "in a Group" do
-    include_examples "Announcement External Feeds"
-    before :once do
-      group_with_user(moderator: true, active_all: true)
-      @allowed_user = @user
-      @allowed_user.pseudonyms.create!(unique_id: "user1", account: Account.default)
-      @context = @group
-      @denied_user = user_with_pseudonym(active_all: true, unique_id: "user2")
-      @url_base = "/api/v1/groups/#{@group.id}/external_feeds"
-      @url_params.merge!({ group_id: @group.to_param })
+    it_behaves_like "Announcement External Feeds" do
+      before :once do
+        group_with_user(moderator: true, active_all: true)
+        @allowed_user = @user
+        @allowed_user.pseudonyms.create!(unique_id: "user1", account: Account.default)
+        @context = @group
+        @denied_user = user_with_pseudonym(active_all: true, unique_id: "user2")
+        @url_base = "/api/v1/groups/#{@group.id}/external_feeds"
+        @url_params.merge!({ group_id: @group.to_param })
+      end
     end
   end
 end

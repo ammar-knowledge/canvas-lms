@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
  *
@@ -31,21 +30,25 @@ import {
 import PaceContent from '../content'
 import fetchMock from 'fetch-mock'
 import {actions as uiActions} from '../../actions/ui'
-import {APIPaceContextTypes, Pace, PaceContextsState} from '../../types'
+import type {APIPaceContextTypes, Pace, PaceContextsState} from '../../types'
 import * as tz from '@instructure/moment-utils'
+import {showFlashAlert} from '@instructure/platform-alerts'
 
-jest.mock('../../actions/ui', () => ({
-  ...jest.requireActual('../../actions/ui'),
-  actions: {
-    setSelectedPaceContext: jest
-      .fn()
-      .mockReturnValue({type: 'UI/SET_SELECTED_PACE_CONTEXT', payload: {newSelectedPace: {}}}),
-    hideLoadingOverlay: jest.fn().mockReturnValue({type: 'UI/HIDE_LOADING_OVERLAY', payload: {}}),
-    setCategoryError: jest
-      .fn()
-      .mockReturnValue({type: 'UI/SET_CATEGORY_ERROR', payload: {category: '', error: ''}}),
-  },
-}))
+vi.mock('@instructure/platform-alerts')
+vi.mock('../../actions/ui', async () => {
+  const actualModule = await vi.importActual<typeof import('../../actions/ui')>('../../actions/ui')
+  return {
+    ...actualModule,
+    actions: {
+      ...actualModule.actions,
+      setSelectedPaceContext: vi.fn().mockReturnValue(() => {}),
+      hideLoadingOverlay: vi.fn().mockReturnValue({type: 'UI/HIDE_LOADING_OVERLAY', payload: {}}),
+      setCategoryError: vi
+        .fn()
+        .mockReturnValue({type: 'UI/SET_CATEGORY_ERROR', payload: {category: '', error: ''}}),
+    },
+  }
+})
 
 const firstSection = PACE_CONTEXTS_SECTIONS_RESPONSE.pace_contexts[0]
 const secondSection = PACE_CONTEXTS_SECTIONS_RESPONSE.pace_contexts[1]
@@ -58,13 +61,14 @@ const SEARCH_SECTION_CONTEXTS_API = `/api/v1/courses/${COURSE.id}/pace_contexts?
 const STUDENT_CONTEXTS_API_WITH_DESC_SORTING = `/api/v1/courses/${COURSE.id}/pace_contexts?type=student_enrollment&page=1&per_page=10&sort=name&order=desc`
 const INIT_PACE_PROGRESS_STATUS_POLL = `/api/v1/courses/${COURSE.id}/course_pacing/new?enrollment_id=${firstStudent.item_id}`
 const INIT_SECTION_PACE_PROGRESS_STATUS_POLL = `/api/v1/courses/${COURSE.id}/course_pacing/new?course_section_id=${secondSection.item_id}`
+const COURSE_REPORT_LAST_API = `/api/v1/courses/${COURSE.id}/reports/course_pace_docx`
 
 const MINUTE = 1000 * 60
 const HOUR = MINUTE * 60
 const DAY = HOUR * 24
 const WEEK = DAY * 7
 
-const generateModifiedPace = timeAgo => {
+const generateModifiedPace = (timeAgo: number) => {
   const lastModified = new Date(Date.now() - timeAgo)
   const appliedPace: Pace = {
     ...firstSection.applied_pace!,
@@ -77,18 +81,16 @@ const generateModifiedPace = timeAgo => {
 
 describe('PaceContextsContent', () => {
   beforeAll(() => {
-    jest.useFakeTimers()
+    vi.useFakeTimers()
   })
 
   beforeEach(() => {
-    fetchMock.get(SECTION_CONTEXTS_API, JSON.stringify(PACE_CONTEXTS_SECTIONS_RESPONSE))
-    fetchMock.get(STUDENT_CONTEXTS_API, JSON.stringify(PACE_CONTEXTS_STUDENTS_RESPONSE))
-    fetchMock.get(
-      SEARCH_SECTION_CONTEXTS_API,
-      JSON.stringify(PACE_CONTEXTS_SECTIONS_SEARCH_RESPONSE)
-    )
-    fetchMock.get(SECTION_PACE_CREATION_API, JSON.stringify({course_pace: {}, progress: null}))
-    jest.clearAllMocks()
+    fetchMock.get(SECTION_CONTEXTS_API, PACE_CONTEXTS_SECTIONS_RESPONSE)
+    fetchMock.get(STUDENT_CONTEXTS_API, PACE_CONTEXTS_STUDENTS_RESPONSE)
+    fetchMock.get(SEARCH_SECTION_CONTEXTS_API, PACE_CONTEXTS_SECTIONS_SEARCH_RESPONSE)
+    fetchMock.get(SECTION_PACE_CREATION_API, {course_pace: {}, progress: null})
+    fetchMock.get(COURSE_REPORT_LAST_API, {})
+    vi.clearAllMocks()
   })
 
   afterEach(() => {
@@ -98,10 +100,10 @@ describe('PaceContextsContent', () => {
   it('shows section contexts by default', async () => {
     const {findByText} = renderConnected(<PaceContent />)
     expect(
-      await findByText(PACE_CONTEXTS_SECTIONS_RESPONSE.pace_contexts[0].name)
+      await findByText(PACE_CONTEXTS_SECTIONS_RESPONSE.pace_contexts[0].name),
     ).toBeInTheDocument()
     expect(
-      await findByText(PACE_CONTEXTS_SECTIONS_RESPONSE.pace_contexts[1].name)
+      await findByText(PACE_CONTEXTS_SECTIONS_RESPONSE.pace_contexts[1].name),
     ).toBeInTheDocument()
   })
 
@@ -122,7 +124,7 @@ describe('PaceContextsContent', () => {
     await user.click(studentsTab)
     expect(await findByText(firstStudent.name)).toBeInTheDocument()
     expect(
-      await findByText(PACE_CONTEXTS_STUDENTS_RESPONSE.pace_contexts[1].name)
+      await findByText(PACE_CONTEXTS_STUDENTS_RESPONSE.pace_contexts[1].name),
     ).toBeInTheDocument()
   })
 
@@ -136,7 +138,7 @@ describe('PaceContextsContent', () => {
         expect(getAllByText(header)[0]).toBeInTheDocument()
       })
       expect(
-        getByText(`${sectionPaceContext.associated_student_count} Students`)
+        getByText(`${sectionPaceContext.associated_student_count} Students`),
       ).toBeInTheDocument()
       expect(getAllByText('Section')[0]).toBeInTheDocument()
     })
@@ -158,27 +160,27 @@ describe('PaceContextsContent', () => {
 
     it('filters results by search term', async () => {
       const {findByText, queryByText, getByRole, getByPlaceholderText, getByText} = renderConnected(
-        <PaceContent />
+        <PaceContent />,
       )
+      const user = userEvent.setup({delay: null})
       const searchInput = getByPlaceholderText('Search for sections')
+      await user.type(searchInput, 'A')
       const searchButton = getByRole('button', {name: 'Search'})
-      fireEvent.change(searchInput, {target: {value: 'A'}})
-      act(() => {
-        searchButton.click()
-      })
+      await user.click(searchButton)
+      await findByText('A-C')
 
-      expect(await findByText('A-C')).toBeInTheDocument()
       expect(queryByText('D-F')).not.toBeInTheDocument()
       expect(queryByText('G-K')).not.toBeInTheDocument()
-      expect(queryByText('No results found')).not.toBeInTheDocument()
-      expect(getByText('Showing 1 result below')).toBeInTheDocument()
+      expect(vi.mocked(showFlashAlert)).toHaveBeenCalledWith(
+        expect.objectContaining({message: 'Showing 1 result below'}),
+      )
     })
 
     it("shows no results if there's no contexts for the search", async () => {
       fetchMock.get(
         SEARCH_SECTION_CONTEXTS_API,
-        JSON.stringify({pace_contexts: [], total_entries: 0}),
-        {overwriteRoutes: true}
+        {pace_contexts: [], total_entries: 0},
+        {overwriteRoutes: true},
       )
       const {findAllByText, getByText, getByPlaceholderText} = renderConnected(<PaceContent />)
       const searchInput = getByPlaceholderText('Search for sections')
@@ -186,23 +188,29 @@ describe('PaceContextsContent', () => {
       fireEvent.change(searchInput, {target: {value: 'A'}})
       act(() => searchButton.click())
       const noResults = await findAllByText('No results found')
-      expect(noResults.length).toBe(2) // no results label, SR-only alert
+      expect(noResults).toHaveLength(1) // visible no results label only; SR alert verified via mock
+      expect(vi.mocked(showFlashAlert)).toHaveBeenCalledWith(
+        expect.objectContaining({message: 'No results found'}),
+      )
       expect(getByText('Please try another search term')).toBeInTheDocument()
     })
 
     it('provides contextType and contextId to Pace modal', async () => {
+      const user = userEvent.setup({delay: null})
       const {findByRole} = renderConnected(<PaceContent />)
       const sectionLink = await findByRole('button', {name: firstSection.name})
-      act(() => sectionLink.click())
+      await user.click(sectionLink)
       expect(uiActions.setSelectedPaceContext).toHaveBeenCalledWith('Section', firstSection.item_id)
     })
 
     describe('Last Modified column', () => {
       it('displays just now if the last modification was 5 minutes ago or less', async () => {
         const justModifiedPace = generateModifiedPace(MINUTE)
-        fetchMock.get(SECTION_CONTEXTS_API, JSON.stringify({pace_contexts: [justModifiedPace]}), {
-          overwriteRoutes: true,
-        })
+        fetchMock.get(
+          SECTION_CONTEXTS_API,
+          {pace_contexts: [justModifiedPace]},
+          {overwriteRoutes: true},
+        )
 
         const {findByText} = renderConnected(<PaceContent />)
         expect(await findByText('Just Now')).toBeInTheDocument()
@@ -210,9 +218,11 @@ describe('PaceContextsContent', () => {
 
       it('displays the number of minutes if the last modification was between 5 and 59 mins ago', async () => {
         const modifiedPace = generateModifiedPace(7 * MINUTE)
-        fetchMock.get(SECTION_CONTEXTS_API, JSON.stringify({pace_contexts: [modifiedPace]}), {
-          overwriteRoutes: true,
-        })
+        fetchMock.get(
+          SECTION_CONTEXTS_API,
+          {pace_contexts: [modifiedPace]},
+          {overwriteRoutes: true},
+        )
 
         const {findByText} = renderConnected(<PaceContent />)
         expect(await findByText('7 minutes ago')).toBeInTheDocument()
@@ -220,9 +230,11 @@ describe('PaceContextsContent', () => {
 
       it('displays the number of hours if the last modification was between 1 and 24 hours ago', async () => {
         const modifiedPace = generateModifiedPace(3 * HOUR)
-        fetchMock.get(SECTION_CONTEXTS_API, JSON.stringify({pace_contexts: [modifiedPace]}), {
-          overwriteRoutes: true,
-        })
+        fetchMock.get(
+          SECTION_CONTEXTS_API,
+          {pace_contexts: [modifiedPace]},
+          {overwriteRoutes: true},
+        )
 
         const {findByText} = renderConnected(<PaceContent />)
         expect(await findByText('3 hours ago')).toBeInTheDocument()
@@ -230,9 +242,11 @@ describe('PaceContextsContent', () => {
 
       it('displays the number of days if the last modification was between 1 and 7 days ago', async () => {
         const modifiedPace = generateModifiedPace(4 * DAY)
-        fetchMock.get(SECTION_CONTEXTS_API, JSON.stringify({pace_contexts: [modifiedPace]}), {
-          overwriteRoutes: true,
-        })
+        fetchMock.get(
+          SECTION_CONTEXTS_API,
+          {pace_contexts: [modifiedPace]},
+          {overwriteRoutes: true},
+        )
 
         const {findByText} = renderConnected(<PaceContent />)
         expect(await findByText('4 days ago')).toBeInTheDocument()
@@ -240,9 +254,11 @@ describe('PaceContextsContent', () => {
 
       it('displays the number of weeks if the last modification was between 1 and 4 weeks ago', async () => {
         const modifiedPace = generateModifiedPace(WEEK)
-        fetchMock.get(SECTION_CONTEXTS_API, JSON.stringify({pace_contexts: [modifiedPace]}), {
-          overwriteRoutes: true,
-        })
+        fetchMock.get(
+          SECTION_CONTEXTS_API,
+          {pace_contexts: [modifiedPace]},
+          {overwriteRoutes: true},
+        )
 
         const {findByText} = renderConnected(<PaceContent />)
         expect(await findByText('1 week ago')).toBeInTheDocument()
@@ -252,22 +268,23 @@ describe('PaceContextsContent', () => {
         const timeAgo = 5 * WEEK
         const modifiedPace = generateModifiedPace(timeAgo)
         const lastModified = new Date(Date.now() - timeAgo)
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore - tz.format's third argument (zone) is optional at runtime but required by tsgo
         const formattedDate = tz.format(lastModified, 'date.formats.long')
-        fetchMock.get(SECTION_CONTEXTS_API, JSON.stringify({pace_contexts: [modifiedPace]}), {
-          overwriteRoutes: true,
-        })
+        fetchMock.get(
+          SECTION_CONTEXTS_API,
+          {pace_contexts: [modifiedPace]},
+          {overwriteRoutes: true},
+        )
 
         const {findByText} = renderConnected(<PaceContent />)
-        expect(await findByText(formattedDate)).toBeInTheDocument()
+        expect(await findByText(formattedDate!)).toBeInTheDocument()
       })
     })
 
     describe('Sortable Column', () => {
       beforeEach(() => {
-        fetchMock.get(
-          STUDENT_CONTEXTS_API_WITH_DESC_SORTING,
-          JSON.stringify(PACE_CONTEXTS_STUDENTS_RESPONSE)
-        )
+        fetchMock.get(STUDENT_CONTEXTS_API_WITH_DESC_SORTING, PACE_CONTEXTS_STUDENTS_RESPONSE)
       })
 
       it('sorts the table in ascending order by default', async () => {
@@ -301,19 +318,13 @@ describe('PaceContextsContent', () => {
 
     describe('Paces publishing', () => {
       beforeEach(() => {
-        fetchMock.get(
-          INIT_PACE_PROGRESS_STATUS_POLL,
-          JSON.stringify({course_pace: {}, progress: {id: 1}})
-        )
-        fetchMock.get(
-          INIT_SECTION_PACE_PROGRESS_STATUS_POLL,
-          JSON.stringify({course_pace: {}, progress: {id: 2}})
-        )
+        fetchMock.get(INIT_PACE_PROGRESS_STATUS_POLL, {course_pace: {}, progress: {id: 1}})
+        fetchMock.get(INIT_SECTION_PACE_PROGRESS_STATUS_POLL, {course_pace: {}, progress: {id: 2}})
       })
 
-      // passes, but with warning: "Unmatched GET to /api/v1/progress/2"
-      // FOO-3818
-      it.skip('shows a loading indicator for each pace publishing', async () => {
+      it('shows a loading indicator for each pace publishing', async () => {
+        fetchMock.get('/api/v1/progress/2', {progress: {id: 2}})
+
         const paceContextsState: PaceContextsState = {
           ...DEFAULT_STORE_STATE.paceContexts,
           contextsPublishing: [
@@ -332,14 +343,16 @@ describe('PaceContextsContent', () => {
         const state = {...DEFAULT_STORE_STATE, paceContexts: paceContextsState}
         const {findByTestId} = renderConnected(<PaceContent />, state)
         expect(
-          await findByTestId(`publishing-pace-${firstSection.item_id}-indicator`)
+          await findByTestId(`publishing-pace-${firstSection.item_id}-indicator`),
         ).toBeInTheDocument()
         expect(
-          await findByTestId(`publishing-pace-${secondSection.item_id}-indicator`)
+          await findByTestId(`publishing-pace-${secondSection.item_id}-indicator`),
         ).toBeInTheDocument()
       })
 
       it('starts polling for published status updates on mount', async () => {
+        fetchMock.get('/api/v1/progress/1', {progress: {id: 1}})
+
         const user = userEvent.setup({delay: null})
         const paceContextsState: PaceContextsState = {
           ...DEFAULT_STORE_STATE.paceContexts,
@@ -357,9 +370,112 @@ describe('PaceContextsContent', () => {
         const studentsTab = getByRole('tab', {name: 'Students'})
         await user.click(studentsTab)
         expect(
-          await findByTestId(`publishing-pace-${firstStudent.item_id}-indicator`)
+          await findByTestId(`publishing-pace-${firstStudent.item_id}-indicator`),
         ).toBeInTheDocument()
         expect(fetchMock.called(INIT_PACE_PROGRESS_STATUS_POLL, 'GET')).toBe(true)
+      })
+    })
+
+    describe('when course_pace_download_document feature is enabled', () => {
+      beforeAll(() => {
+        window.ENV.FEATURES ||= {}
+        window.ENV.FEATURES.course_pace_download_document = true
+      })
+
+      it('renders download button disabled', async () => {
+        const paceContextsState: PaceContextsState = {
+          ...DEFAULT_STORE_STATE.paceContexts,
+        }
+        const state = {...DEFAULT_STORE_STATE, paceContexts: paceContextsState}
+        const {findByTestId} = renderConnected(<PaceContent />, state)
+        const downloadButton = await findByTestId('download-selected-button')
+        expect(downloadButton).toBeInTheDocument()
+        expect(downloadButton).toBeDisabled()
+      })
+
+      it('renders download button enabled when selecting paces', async () => {
+        const paceContextsState: PaceContextsState = {
+          ...DEFAULT_STORE_STATE.paceContexts,
+        }
+        const state = {...DEFAULT_STORE_STATE, paceContexts: paceContextsState}
+        const {findByTestId} = renderConnected(<PaceContent />, state)
+
+        const selectAllPacesCheckbox = await findByTestId(`select-all-paces-checkbox`)
+        act(() => selectAllPacesCheckbox.click())
+
+        const downloadButton = await findByTestId('download-selected-button')
+        expect(downloadButton).toBeInTheDocument()
+        expect(downloadButton).not.toBeDisabled()
+      })
+    })
+
+    describe('when course_pace_download_document feature is disabled', () => {
+      beforeAll(() => {
+        window.ENV.FEATURES ||= {}
+        window.ENV.FEATURES.course_pace_download_document = false
+      })
+
+      it('does not render download button', async () => {
+        const paceContextsState: PaceContextsState = {
+          ...DEFAULT_STORE_STATE.paceContexts,
+        }
+        const state = {...DEFAULT_STORE_STATE, paceContexts: paceContextsState}
+        const {queryByTestId} = renderConnected(<PaceContent />, state)
+
+        expect(await queryByTestId(`download-selected-button`)).not.toBeInTheDocument()
+      })
+
+      it('does not render select all checkbox', async () => {
+        const paceContextsState: PaceContextsState = {
+          ...DEFAULT_STORE_STATE.paceContexts,
+        }
+        const state = {...DEFAULT_STORE_STATE, paceContexts: paceContextsState}
+        const {queryByTestId} = renderConnected(<PaceContent />, state)
+
+        expect(await queryByTestId(`select-all-paces-checkbox`)).not.toBeInTheDocument()
+      })
+    })
+
+    describe('when course_pace_download_document feature is disabled', () => {
+      beforeAll(() => {
+        window.ENV.FEATURES ||= {}
+        window.ENV.FEATURES.course_pace_download_document = false
+      })
+
+      it('does not render download button', async () => {
+        const paceContextsState: PaceContextsState = {
+          ...DEFAULT_STORE_STATE.paceContexts,
+        }
+        const state = {...DEFAULT_STORE_STATE, paceContexts: paceContextsState}
+        const {queryByTestId} = renderConnected(<PaceContent />, state)
+
+        expect(await queryByTestId(`download-selected-button`)).not.toBeInTheDocument()
+      })
+
+      it('does not render select all checkbox', async () => {
+        const paceContextsState: PaceContextsState = {
+          ...DEFAULT_STORE_STATE.paceContexts,
+        }
+        const state = {...DEFAULT_STORE_STATE, paceContexts: paceContextsState}
+        const {queryByTestId} = renderConnected(<PaceContent />, state)
+
+        expect(await queryByTestId(`select-all-paces-checkbox`)).not.toBeInTheDocument()
+      })
+    })
+    describe('when course_pace_allow_bulk_pace_assign feature is disabled', () => {
+      beforeAll(() => {
+        window.ENV.FEATURES ||= {}
+        window.ENV.FEATURES.course_pace_allow_bulk_pace_assign = false
+      })
+
+      it('does not render the bulk edit button button', async () => {
+        const paceContextsState: PaceContextsState = {
+          ...DEFAULT_STORE_STATE.paceContexts,
+        }
+        const state = {...DEFAULT_STORE_STATE, paceContexts: paceContextsState}
+        const {queryByTestId} = renderConnected(<PaceContent />, state)
+
+        expect(await queryByTestId(`bulk-edit-student-paces-button`)).not.toBeInTheDocument()
       })
     })
   })

@@ -108,6 +108,130 @@ describe ContextModule do
         expect(@page2.reload).to be_published
       end
     end
+
+    context "with wiki page user tracking" do
+      before :once do
+        @user1 = user_model
+        @user2 = user_model
+        @page = @course.wiki_pages.create!(title: "tracked page", user: @user1, workflow_state: "unpublished")
+        @page_tag = @module.add_item(id: @page.id, type: "page")
+      end
+
+      it "sets the wiki page user from the explicit user argument" do
+        @module.publish_items!(user: @user2)
+        expect(@page.reload.user).to eq @user2
+      end
+
+      it "sets the wiki page user from the progress object" do
+        progress = Progress.create!(context: @course, tag: "test", user: @user2)
+        @module.publish_items!(progress:)
+        expect(@page.reload.user).to eq @user2
+      end
+
+      it "prefers the explicit user over the progress user" do
+        user3 = user_model
+        progress = Progress.create!(context: @course, tag: "test", user: @user2)
+        @module.publish_items!(progress:, user: user3)
+        expect(@page.reload.user).to eq user3
+      end
+    end
+  end
+
+  describe "unpublish_items!" do
+    before :once do
+      course_module
+    end
+
+    context "with simple published files" do
+      before :once do
+        @simple_file = @course.attachments.create!(
+          display_name: "simple file",
+          uploaded_data: default_uploaded_data,
+          locked: false,
+          file_state: "available"
+        )
+        @simple_tag = @module.add_item(id: @simple_file.id, type: "attachment")
+        @simple_tag.publish
+      end
+
+      it "unpublishes simple files" do
+        @module.unpublish_items!
+        expect(@simple_tag.reload.published?).to be false
+        expect(@simple_file.reload.published?).to be false
+      end
+    end
+
+    context "with files that have complex permissions" do
+      before :once do
+        @hidden_file = @course.attachments.create!(
+          display_name: "hidden file",
+          uploaded_data: default_uploaded_data,
+          locked: false,
+          file_state: "hidden"
+        )
+        @hidden_tag = @module.add_item(id: @hidden_file.id, type: "attachment")
+        @hidden_tag.publish
+
+        @scheduled_file = @course.attachments.create!(
+          display_name: "scheduled file",
+          uploaded_data: default_uploaded_data,
+          locked: false,
+          file_state: "available",
+          lock_at: 1.day.from_now
+        )
+        @scheduled_tag = @module.add_item(id: @scheduled_file.id, type: "attachment")
+        @scheduled_tag.publish
+
+        @context_visibility_file = @course.attachments.create!(
+          display_name: "context visibility file",
+          uploaded_data: default_uploaded_data,
+          locked: false,
+          file_state: "available",
+          visibility_level: "context"
+        )
+        @context_visibility_tag = @module.add_item(id: @context_visibility_file.id, type: "attachment")
+        @context_visibility_tag.publish
+      end
+
+      it "does not unpublish files with hidden state" do
+        @module.unpublish_items!
+        expect(@hidden_tag.reload.published?).to be true
+        expect(@hidden_file.reload.locked?).to be false
+      end
+
+      it "does not unpublish files with scheduled dates" do
+        @module.unpublish_items!
+        expect(@scheduled_tag.reload.published?).to be true
+        expect(@scheduled_file.reload.locked?).to be false
+      end
+
+      it "does not unpublish files with custom visibility" do
+        @module.unpublish_items!
+        expect(@context_visibility_tag.reload.published?).to be true
+        expect(@context_visibility_file.reload.locked?).to be false
+      end
+    end
+
+    context "with wiki page user tracking" do
+      before :once do
+        @user1 = user_model
+        @user2 = user_model
+        @page = @course.wiki_pages.create!(title: "tracked page", user: @user1)
+        @page_tag = @module.add_item(id: @page.id, type: "page")
+        @page_tag.publish
+      end
+
+      it "sets the wiki page user from the explicit user argument" do
+        @module.unpublish_items!(user: @user2)
+        expect(@page.reload.user).to eq @user2
+      end
+
+      it "sets the wiki page user from the progress object" do
+        progress = Progress.create!(context: @course, tag: "test", user: @user2)
+        @module.unpublish_items!(progress:)
+        expect(@page.reload.user).to eq @user2
+      end
+    end
   end
 
   describe "can_be_duplicated?" do
@@ -236,7 +360,6 @@ describe ContextModule do
 
   describe "update_assignment_submissions" do
     before :once do
-      Account.site_admin.enable_feature!(:selective_release_backend)
       course_module
       @student1 = student_in_course(active_all: true, name: "Student 1").user
       @assignment = @course.assignments.create!(title: "some assignment")
@@ -527,7 +650,7 @@ describe ContextModule do
                 custom_params: custom, lti_resource_link_lookup_uuid: lookup_uuid
               )
             )
-            expect(tag.associated_asset.id).to_not eq(existing_resource_link.id)
+            expect(tag.associated_asset.id).not_to eq(existing_resource_link.id)
             expect(tag.associated_asset.lookup_uuid).to eq(lookup_uuid)
             expect(tag.associated_asset.custom).to eq("foo" => "bar")
           end
@@ -607,34 +730,159 @@ describe ContextModule do
       @module.insert_items([@attach, @assign], 3)
       expect(@module.content_tags.not_deleted.pluck(:title)).to eq(%w[one three attach assign])
     end
+  end
 
-    it "respects the added items' published state" do
-      @page.unpublish!
-      m = @course.context_modules.create!
-      m.insert_items([@assign, @page, @tool])
-      expect(m.content_tags.pluck(:title, :workflow_state)).to eq(
-        [["assign", "active"], ["page", "unpublished"], ["tool", "active"]]
-      )
+  describe "add_item with resolve_conflicts option" do
+    before :once do
+      course_module
+      # Create items at existing positions to test conflict resolution
+      @module.add_item(type: "context_module_sub_header", title: "item_1", position: 1)
+      @module.add_item(type: "context_module_sub_header", title: "item_2", position: 2)
+      @module.add_item(type: "context_module_sub_header", title: "item_3", position: 3)
     end
 
-    it "adds the submittable object when given a graded discussion topic or quiz's assignment" do
-      m = @course.context_modules.create!
-      m.insert_items([@quiz.assignment.reload, @topic.assignment.reload])
-      expect(m.content_tags.map(&:content_type)).to eq(%w[Quizzes::Quiz DiscussionTopic])
-      expect(m.content_tags.map(&:content_id)).to eq([@quiz.id, @topic.id])
+    it "shifts existing items when resolve_conflicts: true" do
+      # Add new item at position 2, should shift items 2 and 3 to positions 3 and 4
+      new_tag = @module.add_item(
+        { type: "context_module_sub_header", title: "new_item", position: 2 },
+        nil,
+        { resolve_conflicts: true }
+      )
+
+      expect(new_tag.position).to eq(2)
+      expect(new_tag.title).to eq("new_item")
+
+      # Check that existing items were shifted
+      tags_by_position = @module.content_tags.reload.index_by(&:position)
+      expect(tags_by_position[1].title).to eq("item_1")
+      expect(tags_by_position[2].title).to eq("new_item")
+      expect(tags_by_position[3].title).to eq("item_2")
+      expect(tags_by_position[4].title).to eq("item_3")
     end
 
-    it "doesn't add duplicate items" do
-      @module.add_item(type: "assignment", id: @assign.id)
-      @module.insert_items([@page, @assign, @quiz])
-      expect(@module.content_tags.pluck(:content_type)).to eq(
-        ["ContextModuleSubHeader",
-         "ContextModuleSubHeader",
-         "ContextModuleSubHeader",
-         "Assignment",
-         "WikiPage",
-         "Quizzes::Quiz"]
+    it "does not shift items when resolve_conflicts is false or not specified" do
+      # Add new item at position 2 without resolve_conflicts
+      new_tag = @module.add_item(
+        { type: "context_module_sub_header", title: "new_item", position: 2 }
       )
+
+      expect(new_tag.position).to eq(2)
+
+      # Check that we now have duplicate positions
+      items_at_position_2 = @module.content_tags.reload.where(position: 2)
+      expect(items_at_position_2.count).to eq(2)
+      expect(items_at_position_2.pluck(:title)).to match_array(["item_2", "new_item"])
+    end
+
+    it "handles adding at position 1 with resolve_conflicts" do
+      new_tag = @module.add_item(
+        { type: "context_module_sub_header", title: "new_first", position: 1 },
+        nil,
+        { resolve_conflicts: true }
+      )
+
+      expect(new_tag.position).to eq(1)
+
+      # All existing items should be shifted up by 1
+      tags_by_position = @module.content_tags.reload.index_by(&:position)
+      expect(tags_by_position[1].title).to eq("new_first")
+      expect(tags_by_position[2].title).to eq("item_1")
+      expect(tags_by_position[3].title).to eq("item_2")
+      expect(tags_by_position[4].title).to eq("item_3")
+    end
+
+    it "handles adding at non-conflicting position" do
+      # Position 5 doesn't exist, so no conflicts to resolve
+      new_tag = @module.add_item(
+        { type: "context_module_sub_header", title: "new_item", position: 5 },
+        nil,
+        { resolve_conflicts: true }
+      )
+
+      expect(new_tag.position).to eq(5)
+
+      # Existing items should be unchanged
+      existing_positions = @module.content_tags.reload.where.not(id: new_tag.id).pluck(:position)
+      expect(existing_positions).to match_array([1, 2, 3])
+    end
+  end
+
+  describe "add_item with defer_position option" do
+    before :once do
+      course_module
+      # Create items at positions [1, 3, 4, 5, 6] to match API test scenario
+      @module.add_item(type: "context_module_sub_header", title: "item_1", position: 1)
+      @module.add_item(type: "context_module_sub_header", title: "item_3", position: 3)
+      @module.add_item(type: "context_module_sub_header", title: "item_4", position: 4)
+      @module.add_item(type: "context_module_sub_header", title: "item_5", position: 5)
+      @module.add_item(type: "context_module_sub_header", title: "item_6", position: 6)
+    end
+
+    it "creates item without position when defer_position: true" do
+      initial_max_position = @module.content_tags.maximum(:position) || 0
+
+      tag = @module.add_item(
+        { type: "context_module_sub_header", title: "new_item", position: 3 },
+        nil,
+        { defer_position: true }
+      )
+
+      expect(tag.position).to be > initial_max_position
+      expect(tag.title).to eq("new_item")
+    end
+
+    it "creates item with position when defer_position is false" do
+      tag = @module.add_item(
+        { type: "context_module_sub_header", title: "new_item", position: 3 },
+        nil,
+        { defer_position: false }
+      )
+
+      expect(tag.position).to eq(3)
+      expect(tag.title).to eq("new_item")
+    end
+
+    it "creates item with position when defer_position is not specified" do
+      tag = @module.add_item(
+        { type: "context_module_sub_header", title: "new_item", position: 3 }
+      )
+
+      expect(tag.position).to eq(3)
+      expect(tag.title).to eq("new_item")
+    end
+
+    it "ignores position parameter when defer_position: true" do
+      # Test with different position values - should append regardless of position
+      initial_max_position = @module.content_tags.maximum(:position) || 0
+
+      tag1 = @module.add_item(
+        { type: "context_module_sub_header", title: "item_a", position: 1 },
+        nil,
+        { defer_position: true }
+      )
+      tag2 = @module.add_item(
+        { type: "context_module_sub_header", title: "item_b", position: 999 },
+        nil,
+        { defer_position: true }
+      )
+
+      # Both should be appended, ignoring the position parameters
+      expect(tag1.position).to be > initial_max_position
+      expect(tag2.position).to be > tag1.position
+    end
+
+    it "respects defer_position even with opts[:position] set" do
+      # Test that defer_position takes precedence over opts[:position]
+      initial_max_position = @module.content_tags.maximum(:position) || 0
+
+      tag = @module.add_item(
+        { type: "context_module_sub_header", title: "new_item" },
+        nil,
+        { position: 3, defer_position: true }
+      )
+
+      # Should ignore opts[:position] and append instead
+      expect(tag.position).to be > initial_max_position
     end
   end
 
@@ -750,6 +998,55 @@ describe ContextModule do
       progression = mod.update_for(@student, :read, tag)
       reqs_met = progression.requirements_met.map { |r| { id: r[:id], type: r[:type] } }
       expect(reqs_met).to eq [{ id: tag.id, type: "must_contribute" }]
+    end
+
+    it "does not allow progression updates for date-concluded enrollments" do
+      student_in_course(active_all: true)
+      mod = @course.context_modules.create!(name: "Module")
+      page = @course.wiki_pages.create!(title: "View This Page")
+      tag = mod.add_item(id: page.id, type: "wiki_page")
+      mod.completion_requirements = [{ id: tag.id, type: "must_view" }]
+      mod.workflow_state = "active"
+      mod.save!
+
+      # Student completes the requirement
+      progression = mod.update_for(@student, :read, tag)
+      expect(progression).not_to be_nil
+      expect(progression.requirements_met.pluck(:id)).to include(tag.id)
+      progression.reload
+      original_completed_at = progression.completed_at
+      expect(original_completed_at).not_to be_nil
+
+      # Simulate enrollment being soft-concluded by date (past the end date)
+      # This sets enrollment_state.state to "completed" while workflow_state stays "active"
+      @enrollment.start_at = 2.months.ago
+      @enrollment.end_at = 1.month.ago
+      @enrollment.save!
+      @enrollment.enrollment_state.recalculate_state
+      @enrollment.enrollment_state.save!
+      expect(@enrollment.reload.workflow_state).to eq("active")
+      expect(@enrollment.enrollment_state.state).to eq("completed")
+
+      # Make the progression outdated by updating the module
+      # This simulates a real scenario where module content changes after enrollment conclusion
+      mod.touch
+
+      # Simulate what happens when a concluded user accesses a module page
+      # Controllers call evaluate_for directly, which should return existing progression
+      # without re-evaluating (preventing evaluated_at from being updated)
+      Timecop.freeze(2.days.from_now) do
+        progression.reload
+        original_evaluated_at = progression.evaluated_at
+
+        result = mod.evaluate_for(@student)
+        expect(result).to be_a(ContextModuleProgression)
+        expect(result.persisted?).to be(true)
+
+        # Verify neither timestamp has changed (progression was not re-evaluated)
+        result.reload
+        expect(result.completed_at).to eq(original_completed_at)
+        expect(result.evaluated_at).to eq(original_evaluated_at)
+      end
     end
   end
 
@@ -1013,6 +1310,40 @@ describe ContextModule do
       expect(@module.evaluate_for(@user)).to be_completed
     end
 
+    it "updates progression status to started if submitted for a min_percentage" do
+      course_module
+      @assignment = @course.assignments.create!(title: "some assignment", submission_types: "online_text_entry", points_possible: 180)
+      @tag = @module.add_item({ id: @assignment.id, type: "assignment" })
+      @module.completion_requirements = { @tag.id => { type: "min_percentage", min_percentage: 50 } }
+      @module.save!
+      @teacher = User.create!(name: "some teacher")
+      @course.enroll_teacher(@teacher)
+      @user = User.create!(name: "some name")
+      @course.enroll_student(@user).accept!
+
+      expect(@module.evaluate_for(@user)).to be_unlocked
+      expect(@assignment.locked_for?(@user)).to be(false)
+
+      @assignment.submit_homework @user, submission_type: "online_text_entry", body: "stuff"
+
+      prog = @module.evaluate_for(@user)
+      expect(prog).to be_started
+      incomplete_req = prog.incomplete_requirements.detect { |r| r[:id] == @tag.id }
+      expect(incomplete_req).to be_present
+      expect(incomplete_req[:score]).to be_nil
+
+      @assignment.grade_student(@user, grade: 40.0, grader: @teacher)
+
+      prog = @module.evaluate_for(@user)
+      expect(prog).to be_started
+      incomplete_req = prog.incomplete_requirements.detect { |r| r[:id] == @tag.id }
+      expect(incomplete_req).to be_present
+      expect(incomplete_req[:score]).to eq 40.0
+
+      @assignment.grade_student(@user, grade: 90.0, grader: @teacher)
+      expect(@module.evaluate_for(@user)).to be_completed
+    end
+
     it "updates progression status on grading and view events" do
       course_module
       @assignment = @course.assignments.create!(title: "some assignment")
@@ -1211,6 +1542,32 @@ describe ContextModule do
       expect(p).to be_completed
     end
 
+    it "marks progression completed for min_percentage on discussion topic assignment" do
+      asmnt = assignment_model(submission_types: "discussion_topic", points_possible: 100)
+      asmnt.ensure_post_policy(post_manually: false)
+      topic = asmnt.discussion_topic
+      @course.offer
+      course_with_student(active_all: true, course: @course)
+      mod = @course.context_modules.create!(name: "some module")
+
+      tag = mod.add_item({ id: topic.id, type: "discussion_topic" })
+      mod.completion_requirements = { tag.id => { type: "min_percentage", min_percentage: 50 } }
+      mod.save!
+
+      p = mod.evaluate_for(@student)
+      expect(p.requirements_met).to be_empty
+      expect(p).to be_unlocked
+
+      topic.discussion_entries.create!(message: "hi", user: @student)
+
+      asmnt.reload.submissions.first
+      asmnt.grade_student(@student, grader: @teacher, score: 50)
+
+      p = mod.evaluate_for(@student)
+      expect(p.requirements_met).to eq [{ type: "min_percentage", min_percentage: 50, id: tag.id }]
+      expect(p).to be_completed
+    end
+
     it "does not fulfill 'must_submit' requirement with 'untaken' quiz submission" do
       course_module
       student_in_course course: @course, active_all: true
@@ -1379,6 +1736,31 @@ describe ContextModule do
       expect(@progression).to be_completed
     end
 
+    it "updates quiz progression status on assignment manual grading - min_percentage" do
+      course_module
+      @module.require_sequential_progress = true
+      @module.save!
+
+      @quiz = @course.quizzes.build(title: "some quiz", quiz_type: "assignment", scoring_policy: "keep_highest")
+
+      @quiz.workflow_state = "available"
+      @quiz.save!
+      @quiz.update points_possible: 100.0
+
+      @tag = @module.add_item({ id: @quiz.id, type: "quiz" })
+      @module.completion_requirements = { @tag.id => { type: "min_percentage", min_percentage: 90 } }
+      @module.save!
+
+      @teacher = User.create!(name: "some teacher")
+      @course.enroll_teacher(@teacher)
+      @user = User.create!(name: "some name")
+      @course.enroll_student(@user).accept!
+      @quiz.assignment.grade_student(@user, grade: 92, grader: @teacher)
+
+      @progression = @module.evaluate_for(@user)
+      expect(@progression).to be_completed
+    end
+
     it "updates progression status on grading and view events for quizzes too" do
       course_module
       @module.require_sequential_progress = true
@@ -1486,6 +1868,7 @@ describe ContextModule do
         expect(@page.reload).to be_locked_for @student
 
         @trigger_assmt.grade_student(@student, grade: 9, grader: @teacher)
+        run_jobs
 
         # the released assignment is now available and the page is now locked behind the set assignment
         expect(@set1_assmt1.reload).not_to be_locked_for @student
@@ -1581,13 +1964,6 @@ describe ContextModule do
       end
 
       it "properly returns differentiated assignments for teacher even without update rights" do
-        @course.root_account.disable_feature!(:granular_permissions_manage_course_content)
-        @course.account.role_overrides.create!(role: teacher_role, enabled: false, permission: :manage_content)
-        expect(@module.content_tags_visible_to(@teacher).map(&:content).include?(@assignment)).to be_truthy
-      end
-
-      it "properly returns differentiated assignments for teacher even without update rights (granular permissions)" do
-        @course.root_account.enable_feature!(:granular_permissions_manage_course_content)
         @course.account.role_overrides.create!(role: teacher_role, enabled: false, permission: :manage_course_content_add)
         @course.account.role_overrides.create!(role: teacher_role, enabled: false, permission: :manage_course_content_edit)
         @course.account.role_overrides.create!(role: teacher_role, enabled: false, permission: :manage_course_content_delete)
@@ -1661,12 +2037,265 @@ describe ContextModule do
     end
   end
 
+  describe "#content_tags_for" do
+    before :once do
+      setup_course_with_native_conditional_release
+      @course.root_account.enable_feature! :mastery_path_unreleased_items_block_progression
+
+      @module1 = @course.context_modules.create!(name: "M1")
+      @module2 = @course.context_modules.create!(name: "M2")
+      @module2.update(prerequisites: "module_#{@module1.id}")
+      @module3 = @course.context_modules.create!(name: "M3")
+      @module3.update(prerequisites: "module_#{@module2.id}")
+    end
+
+    describe "when a module contains only conditionally released items" do
+      before :once do
+        @tag_m1_1 = @module1.add_item(type: "assignment", id: @trigger_assmt.id)
+        @module1.completion_requirements = { id: @tag_m1_1.id, type: "must_submit" }
+        @module1.save
+        @tag_m2_1 = @module2.add_item(type: "assignment", id: @set1_assmt1.id)
+        @tag_m2_2 = @module2.add_item(type: "assignment", id: @set2_assmt1.id)
+        @tag_m2_3 = @module2.add_item(type: "assignment", id: @set2_assmt2.id)
+        @tag_m2_4 = @module2.add_item(type: "assignment", id: @set3a_assmt.id)
+        @tag_m2_5 = @module2.add_item(type: "assignment", id: @set3b_assmt.id)
+        @module2.completion_requirements = [
+          { id: @tag_m2_1.id, type: "must_view" },
+          { id: @tag_m2_2.id, type: "must_view" },
+          { id: @tag_m2_3.id, type: "must_view" },
+          { id: @tag_m2_4.id, type: "must_view" },
+          { id: @tag_m2_5.id, type: "must_view" },
+        ]
+        @module2.save
+        @m3_assmt = @course.assignments.create!
+        @module3.add_item(type: "assignment", id: @m3_assmt.id)
+
+        course_with_student(course: @course)
+        @trigger_assmt.submit_homework(@student, body: "hi")
+      end
+
+      it "includes unreleased items if at least one of them will be released" do
+        expect(@module2.content_tags_for(@student)).to include(@tag_m2_1)
+      end
+    end
+
+    describe "when a module contains a trigger assignment with conditionally released items" do
+      before :once do
+        @tag_m1_1 = @module1.add_item(type: "assignment", id: @trigger_assmt.id)
+        @tag_m1_2 = @module1.add_item(type: "assignment", id: @set1_assmt1.id)
+        @tag_m1_3 = @module1.add_item(type: "assignment", id: @set2_assmt1.id)
+        @tag_m1_4 = @module1.add_item(type: "assignment", id: @set2_assmt2.id)
+        @tag_m1_5 = @module1.add_item(type: "assignment", id: @set3a_assmt.id)
+        @tag_m1_6 = @module1.add_item(type: "assignment", id: @set3b_assmt.id)
+        @module1.completion_requirements = [
+          { id: @tag_m1_1.id, type: "must_submit" },
+          { id: @tag_m1_2.id, type: "must_view" },
+          { id: @tag_m1_3.id, type: "must_view" },
+          { id: @tag_m1_4.id, type: "must_view" },
+          { id: @tag_m1_5.id, type: "must_view" },
+          { id: @tag_m1_6.id, type: "must_view" },
+        ]
+        @module1.save
+        @m2_assmt = @course.assignments.create!
+        @module2.add_item(type: "assignment", id: @m2_assmt.id)
+
+        course_with_student(course: @course)
+        @trigger_assmt.submit_homework(@student, body: "hi")
+      end
+
+      it "includes unreleased items if at least one of them will be released" do
+        expect(@module1.content_tags_for(@student)).to include(@tag_m1_2)
+      end
+    end
+
+    describe "when the trigger assignment is graded and conditional release handler is pending" do
+      before :once do
+        @tag_m1_1 = @module1.add_item(type: "assignment", id: @trigger_assmt.id)
+        @module1.completion_requirements = { id: @tag_m1_1.id, type: "must_submit" }
+        @module1.save
+        @tag_m2_1 = @module2.add_item(type: "assignment", id: @set1_assmt1.id)
+        @tag_m2_2 = @module2.add_item(type: "assignment", id: @set2_assmt1.id)
+        @tag_m2_3 = @module2.add_item(type: "assignment", id: @set2_assmt2.id)
+        @tag_m2_4 = @module2.add_item(type: "assignment", id: @set3a_assmt.id)
+        @tag_m2_5 = @module2.add_item(type: "assignment", id: @set3b_assmt.id)
+        @module2.completion_requirements = [
+          { id: @tag_m2_1.id, type: "must_view" },
+          { id: @tag_m2_2.id, type: "must_view" },
+          { id: @tag_m2_3.id, type: "must_view" },
+          { id: @tag_m2_4.id, type: "must_view" },
+          { id: @tag_m2_5.id, type: "must_view" },
+        ]
+        @module2.save
+        @m3_assmt = @course.assignments.create!
+        @module3.add_item(type: "assignment", id: @m3_assmt.id)
+
+        course_with_student(course: @course)
+
+        @trigger_assmt.submit_homework(@student, body: "hi")
+        @trigger_assmt.grade_student(@student, grade: 0, grader: @teacher)
+      end
+
+      it "includes unreleased items if at least one of them will be released" do
+        expect(@module2.content_tags_for(@student)).to include(@tag_m2_1)
+      end
+    end
+
+    describe "when mastery path has fewer than 3 assignment associations" do
+      before :once do
+        @simple_trigger = @course.assignments.create!(points_possible: 10, submission_types: "online_text_entry")
+        @simple_pass = @course.assignments.create!(only_visible_to_overrides: true)
+        @simple_fail = @course.assignments.create!(only_visible_to_overrides: true)
+
+        ranges = [
+          ConditionalRelease::ScoringRange.new(lower_bound: 0.5, upper_bound: 1.0, assignment_sets: [
+                                                 ConditionalRelease::AssignmentSet.new(assignment_set_associations: [
+                                                                                         ConditionalRelease::AssignmentSetAssociation.new(assignment_id: @simple_pass.id)
+                                                                                       ])
+                                               ]),
+          ConditionalRelease::ScoringRange.new(lower_bound: 0, upper_bound: 0.5, assignment_sets: [
+                                                 ConditionalRelease::AssignmentSet.new(assignment_set_associations: [
+                                                                                         ConditionalRelease::AssignmentSetAssociation.new(assignment_id: @simple_fail.id)
+                                                                                       ])
+                                               ])
+        ]
+        @simple_rule = @course.conditional_release_rules.create!(trigger_assignment: @simple_trigger, scoring_ranges: ranges)
+
+        @tag_m1_trigger = @module1.add_item(type: "assignment", id: @simple_trigger.id)
+        @module1.completion_requirements = { id: @tag_m1_trigger.id, type: "must_submit" }
+        @module1.save
+
+        @tag_m2_pass = @module2.add_item(type: "assignment", id: @simple_pass.id)
+        @tag_m2_fail = @module2.add_item(type: "assignment", id: @simple_fail.id)
+        @module2.completion_requirements = [
+          { id: @tag_m2_pass.id, type: "must_view" },
+          { id: @tag_m2_fail.id, type: "must_view" }
+        ]
+        @module2.requirement_count = 1
+        @module2.save
+
+        @m3_assmt = @course.assignments.create!
+        @tag_m3 = @module3.add_item(type: "assignment", id: @m3_assmt.id)
+
+        course_with_student(course: @course)
+        @simple_trigger.submit_homework(@student, body: "hi")
+      end
+
+      it "includes unreleased items even with only 2 associations" do
+        expect(@module2.content_tags_for(@student)).to include(@tag_m2_pass)
+      end
+
+      it "does not unlock module 3 until module 2 is completed" do
+        @module1_prog = @module1.evaluate_for(@student)
+        expect(@module1_prog).to be_completed
+
+        @module2_prog = @module2.evaluate_for(@student)
+        expect(@module2_prog).not_to be_completed
+        expect(@module2_prog.workflow_state).to eq("unlocked")
+
+        @module3_prog = @module3.evaluate_for(@student)
+        expect(@module3_prog).to be_locked
+      end
+    end
+
+    describe "when a module includes attachments" do
+      def create_attachment(context, opts = {})
+        opts[:uploaded_data] ||= StringIO.new("attachment content")
+        opts[:filename] ||= "content.txt"
+        opts[:display_name] ||= opts[:filename]
+        opts[:folder] ||= Folder.unfiled_folder(context)
+        attachment = context.attachments.build(opts)
+        attachment.save!
+        attachment
+      end
+
+      before :once do
+        attachment = create_attachment(@course)
+        @module1.add_item(type: "attachment", id: attachment.id)
+      end
+
+      it "does not throw" do
+        expect { @module1.content_tags_for(@student) }.not_to raise_error
+      end
+    end
+  end
+
   describe "#find_or_create_progression" do
     it "does not create progressions for non-enrolled users" do
       course = Course.create!
       cm = course.context_modules.create!
       user = User.create!
       expect(cm.find_or_create_progression(user)).to be_nil
+    end
+
+    it "creates progressions for admin users" do
+      course = Course.create!
+      cm = course.context_modules.create!
+      admin = account_admin_user(account: course.account)
+      progression = cm.find_or_create_progression(admin)
+      expect(progression).not_to be_nil
+      expect(progression.user_id).to eq(admin.id)
+      expect(progression.context_module_id).to eq(cm.id)
+    end
+
+    it "creates progressions for enrolled teachers" do
+      course_with_teacher(active_all: true)
+      cm = @course.context_modules.create!
+      progression = cm.find_or_create_progression(@teacher)
+      expect(progression).not_to be_nil
+      expect(progression.user_id).to eq(@teacher.id)
+      expect(progression.context_module_id).to eq(cm.id)
+    end
+
+    context "with sharding" do
+      specs_require_sharding
+
+      it "does not create progressions for cross-shard site admins" do
+        site_admin_user = nil
+        @shard1.activate do
+          site_admin_user = user_factory(active_all: true)
+          Account.site_admin.account_users.create!(user: site_admin_user)
+        end
+
+        @shard2.activate do
+          account = Account.create!
+          course = account.courses.create!
+          cm = course.context_modules.create!
+          progression = cm.find_or_create_progression(site_admin_user)
+          expect(progression).to be_nil
+          expect(ContextModuleProgression.where(context_module: cm, user: site_admin_user).exists?).to be false
+        end
+      end
+
+      it "creates progressions for same-shard site admins" do
+        @shard1.activate do
+          site_admin_user = user_factory(active_all: true)
+          Account.site_admin.account_users.create!(user: site_admin_user)
+          account = Account.create!
+          course = account.courses.create!
+          cm = course.context_modules.create!
+          progression = cm.find_or_create_progression(site_admin_user)
+          expect(progression).not_to be_nil
+          expect(progression.user_id).to eq(site_admin_user.id)
+          expect(progression.context_module_id).to eq(cm.id)
+        end
+      end
+
+      it "creates progressions for cross-shard enrolled students" do
+        student = nil
+        @shard1.activate do
+          student = user_factory(active_all: true)
+        end
+
+        @shard2.activate do
+          account = Account.create!
+          course = account.courses.create!
+          course.enroll_student(student, enrollment_state: "active")
+          cm = course.context_modules.create!
+          progression = cm.find_or_create_progression(student)
+          expect(progression).not_to be_nil
+          expect(progression.user_id).to eq(student.id)
+        end
+      end
     end
   end
 
@@ -1854,18 +2483,6 @@ describe ContextModule do
 
   it "allows teachers with concluded enrollments to :read unpublished modules" do
     course_with_teacher.complete!
-    @course.root_account.disable_feature!(:granular_permissions_manage_course_content)
-    m = @course.context_modules.create!
-    m.workflow_state = "unpublished"
-    m.save!
-    expect(m.grants_right?(@teacher, :read)).to be true
-    expect(m.grants_right?(@teacher, :read_as_admin)).to be true
-    expect(m.grants_right?(@teacher, :manage_content)).to be false
-  end
-
-  it "allows teachers with concluded enrollments to :read unpublished modules (granular permissions)" do
-    course_with_teacher.complete!
-    @course.root_account.enable_feature!(:granular_permissions_manage_course_content)
     m = @course.context_modules.create!
     m.workflow_state = "unpublished"
     m.save!
@@ -1876,10 +2493,9 @@ describe ContextModule do
     expect(m.grants_right?(@teacher, :manage_course_content_delete)).to be false
   end
 
-  it "only loads visibility and progression information once when calculating prerequisites with selective_release_backend on" do
-    Account.site_admin.enable_feature!(:selective_release_backend)
+  it "only loads visibility and progression information once when calculating prerequisites" do
     course_factory(active_all: true)
-    student_in_course(course: @course)
+    student_in_course(course: @course, active_all: true)
     m1 = @course.context_modules.create!(name: "m1")
     m2 = @course.context_modules.create!(name: "m2", prerequisites: [{ id: m1.id, type: "context_module", name: m1.name }])
 
@@ -1896,24 +2512,22 @@ describe ContextModule do
     m2.evaluate_for(@student)
   end
 
-  it "only loads visibility and progression information once when calculating prerequisites" do
-    Account.site_admin.disable_feature!(:selective_release_backend)
-    course_factory(active_all: true)
-    student_in_course(course: @course)
-    m1 = @course.context_modules.create!(name: "m1")
-    m2 = @course.context_modules.create!(name: "m2", prerequisites: [{ id: m1.id, type: "context_module", name: m1.name }])
-
-    [m1, m2].each do |m|
-      assmt = @course.assignments.create!(title: "assmt", submission_types: "online_text_entry")
-      assmt.submit_homework(@student, body: "bloop")
-      tag = m.add_item({ id: assmt.id, type: "assignment" })
-      m.update_attribute(:completion_requirements, { tag.id => { type: "must_submit" } })
+  describe "ContextModuleProgressions::Finder" do
+    before :once do
+      course_with_student(active_all: true)
+      @module = @course.context_modules.create!(name: "Test Module", workflow_state: "active")
+      @user = user_factory
     end
 
-    expect(AssignmentStudentVisibility).to receive(:visible_assignment_ids_in_course_by_user).once.and_call_original
-    expect(ContextModuleProgressions::Finder).to receive(:find_or_create_for_context_and_user).once.and_call_original
+    it "handles nil progressions without raising NoMethodError for non-enrolled users" do
+      allow_any_instance_of(ContextModule).to receive(:find_or_create_progression).and_return(nil)
 
-    m2.evaluate_for(@student)
+      expect { ContextModuleProgressions::Finder.find_or_create_for_context_and_user(@course, @user) }
+        .not_to raise_error
+
+      result = ContextModuleProgressions::Finder.find_or_create_for_context_and_user(@course, @user)
+      expect(result).to eq([])
+    end
   end
 
   describe "only_visible_to_overrides" do
@@ -1934,6 +2548,46 @@ describe ContextModule do
     it "returns false if the module has only deleted overrides" do
       @module.assignment_overrides.create!(workflow_state: "deleted")
       expect(@module.only_visible_to_overrides).to be false
+    end
+  end
+
+  describe ".preload_progressions_for_user" do
+    before :once do
+      course_with_student(active_all: true)
+      @module1 = @course.context_modules.create!(name: "Module 1")
+      @module2 = @course.context_modules.create!(name: "Module 2")
+      @module3 = @course.context_modules.create!(name: "Module 3")
+      @progression1 = @module1.find_or_create_progression(@student)
+      @progression2 = @module2.find_or_create_progression(@student)
+    end
+
+    it "returns a hash of module_id to progression" do
+      result = ContextModule.preload_progressions_for_user([@module1, @module2, @module3], @student)
+      expect(result).to be_a(Hash)
+      expect(result[@module1.id]).to eq @progression1
+      expect(result[@module2.id]).to eq @progression2
+      expect(result[@module3.id]).to be_nil
+    end
+
+    it "returns empty hash when no modules provided" do
+      result = ContextModule.preload_progressions_for_user([], @student)
+      expect(result).to eq({})
+    end
+
+    it "returns empty hash when no user provided" do
+      result = ContextModule.preload_progressions_for_user([@module1, @module2], nil)
+      expect(result).to eq({})
+    end
+
+    it "loads progressions in a single query" do
+      query_count = 0
+      allow(ContextModuleProgression).to receive(:where).and_wrap_original do |method, *args|
+        query_count += 1
+        method.call(*args)
+      end
+
+      ContextModule.preload_progressions_for_user([@module1, @module2, @module3], @student)
+      expect(query_count).to eq 1
     end
   end
 end

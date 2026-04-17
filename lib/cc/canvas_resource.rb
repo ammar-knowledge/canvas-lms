@@ -30,6 +30,8 @@ module CC
     include CoursePaces
     include BlueprintSettings
     include WebResources
+    include LtiContextControls
+    include NavMenuLinks
 
     def add_canvas_non_cc_data
       migration_id = create_key(@course)
@@ -49,12 +51,17 @@ module CC
       resources << run_and_set_progress(:create_learning_outcomes, nil, I18n.t("course_exports.errors.learning_outcomes", "Failed to export learning outcomes"))
       resources << run_and_set_progress(:files_meta_path, nil, I18n.t("course_exports.errors.file_meta", "Failed to export file meta data"))
       resources << run_and_set_progress(:create_events, 25, I18n.t("course_exports.errors.events", "Failed to export calendar events"))
+      resources << run_and_set_progress(:add_lti_context_controls, nil, I18n.t("course_exports.errors.lti_context_controls", "Failed to export LTI context controls"))
       resources << run_and_set_progress(:add_late_policy, nil, I18n.t("course_exports.errors.late_policy", "Failed to export late policy")) if export_symbol?(:all_course_settings)
       resources << run_and_set_progress(:create_context_info, nil, I18n.t("Failed to export context info")) unless @content_export&.for_course_copy?
 
       if export_media_objects?
         File.write(File.join(@canvas_resource_dir, CCHelper::MEDIA_TRACKS), "") # just in case an error happens later
         resources << File.join(CCHelper::COURSE_SETTINGS_DIR, CCHelper::MEDIA_TRACKS)
+      end
+
+      if @course.root_account.feature_enabled?(:nav_menu_links) && export_symbol?(:all_course_settings)
+        resources << run_and_set_progress(:create_nav_menu_links, nil, I18n.t("course_exports.errors.nav_menu_links", "Failed to export navigation menu links"))
       end
 
       # Create the syllabus resource
@@ -144,6 +151,39 @@ module CC
       syl_rel_path
     end
 
+    def preloaded_nav_menu_links
+      @preloaded_nav_menu_links ||=
+        NavMenuLink.active
+                   .where(course_nav: true, context: [@course, *@course.account_chain])
+                   .index_by(&:id)
+    end
+
+    def tab_with_id_converted_to_migration_id(tab)
+      raw_tab_id = tab["id"]
+      migration_id =
+        case raw_tab_id
+        when /\Anav_menu_link_(\d+)\z/
+          return nil unless @course.root_account.feature_enabled?(:nav_menu_links)
+
+          nav_menu_link = preloaded_nav_menu_links[$1.to_i]
+          return nil unless nav_menu_link
+
+          "nav_menu_link_#{create_key(nav_menu_link)}"
+        when String
+          # For historical reasons (to avoid any possible breaking changes)
+          # assume any other string is a ContextExternalTool.
+          tool_id = raw_tab_id.sub("context_external_tool_", "")
+          tool = Lti::ToolFinder.from_id(tool_id, @course, placement: :course_navigation)
+          tool && "context_external_tool_#{create_key(tool)}"
+        end
+
+      if migration_id
+        tab.merge("id" => migration_id)
+      else
+        tab
+      end
+    end
+
     def create_course_settings(migration_id, document = nil)
       if document
         course_file = nil
@@ -164,17 +204,8 @@ module CC
         c.start_at ims_datetime(@course.start_at, nil)
         c.conclude_at ims_datetime(@course.conclude_at, nil)
         if @course.tab_configuration.present?
-          tab_config = []
-          @course.tab_configuration.each do |t|
-            tab = t.dup
-            if tab["id"].is_a?(String)
-              # it's an external tool, so translate the id to a migration_id
-              tool_id = tab["id"].sub("context_external_tool_", "")
-              if (tool = ContextExternalTool.find_for(tool_id, @course, :course_navigation, false))
-                tab["id"] = "context_external_tool_#{create_key(tool)}"
-              end
-            end
-            tab_config << tab
+          tab_config = @course.tab_configuration.filter_map do |tab|
+            tab_with_id_converted_to_migration_id(tab)
           end
           c.tab_configuration tab_config.to_json
         end
@@ -228,8 +259,10 @@ module CC
           c.allow_final_grade_override(@course.allow_final_grade_override?)
         end
 
-        if @course.account.feature_enabled?(:course_paces)
-          c.enable_course_paces(@course.enable_course_paces)
+        c.enable_course_paces(@course.enable_course_paces)
+
+        if @course.course_sections.active.count > 1
+          c.hide_sections_on_course_users_page(@course.hide_sections_on_course_users_page)
         end
       end
       course_file&.close

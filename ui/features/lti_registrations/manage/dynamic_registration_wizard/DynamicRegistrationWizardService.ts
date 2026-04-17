@@ -17,21 +17,22 @@
  */
 
 import type {
-  deleteDeveloperKey,
-  updateAdminNickname,
-  updateDeveloperKeyWorkflowState,
-} from '../api/developerKey'
-import type {
+  applyLtiRegistrationUpdateRequest,
   fetchRegistrationToken,
-  getRegistrationByUUID,
-  updateRegistrationOverlay,
+  getLtiRegistrationByUUID,
+  getLtiRegistrationUpdateRequestByUUID,
 } from '../api/ltiImsRegistration'
-
+import type {
+  deleteRegistration,
+  fetchLtiRegistration,
+  updateRegistration,
+} from '../api/registrations'
 export interface DynamicRegistrationWizardService {
   fetchRegistrationToken: typeof fetchRegistrationToken
-  getRegistrationByUUID: typeof getRegistrationByUUID
-  updateRegistrationOverlay: typeof updateRegistrationOverlay
-  updateDeveloperKeyWorkflowState: typeof updateDeveloperKeyWorkflowState
-  updateAdminNickname: typeof updateAdminNickname
-  deleteDeveloperKey: typeof deleteDeveloperKey
+  getLtiRegistrationUpdateRequestByUUID: typeof getLtiRegistrationUpdateRequestByUUID
+  getRegistrationByUUID: typeof getLtiRegistrationByUUID
+  fetchLtiRegistration: typeof fetchLtiRegistration
+  updateRegistration: typeof updateRegistration
+  applyLtiRegistrationUpdateRequest: typeof applyLtiRegistrationUpdateRequest
+  deleteRegistration: typeof deleteRegistration
 }

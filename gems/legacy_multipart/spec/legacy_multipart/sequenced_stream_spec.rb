@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
-
 describe LegacyMultipart::SequencedStream do
   def test_copy(content, content_string)
     source = LegacyMultipart::SequencedStream.new([StringIO.new("prefix|"), content, StringIO.new("|suffix")])
@@ -36,12 +34,12 @@ describe LegacyMultipart::SequencedStream do
         @reader = reader
       end
 
-      def size
+      def size # rubocop:disable Rails/Delegate
         @source.size
       end
 
-      def read(*args)
-        @reader.call(@source, *args)
+      def read(*)
+        @reader.call(@source, *)
       end
     end
   end

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2011 - present Instructure, Inc.
  *
@@ -18,13 +17,14 @@
  */
 
 import round from '@canvas/round'
+import type {GradingStandard} from '@instructure/grading-utils'
 import type {DeprecatedGradingScheme} from './grading.d'
 
 export function indexOfGrade(
   grade: null | string | number,
-  gradingSchemes: DeprecatedGradingScheme[]
+  gradingSchemes: GradingStandard[],
 ) {
-  const matches = (entry, key) => entry[0].toLowerCase() === key
+  const matches = (entry: GradingStandard, key: string) => entry[0].toLowerCase() === key
   const cleanGrade = `${grade}`.trim().toLowerCase()
   let idx = gradingSchemes.findIndex(entry => matches(entry, cleanGrade))
 
@@ -36,7 +36,7 @@ export function indexOfGrade(
   return idx
 }
 
-export function gradeToScoreUpperBound(grade: number, gradingSchemes: DeprecatedGradingScheme[]) {
+export function gradeToScoreUpperBound(grade: number, gradingSchemes: GradingStandard[]) {
   const index = indexOfGrade(grade, gradingSchemes)
 
   if (index === -1) {
@@ -71,7 +71,7 @@ export function gradeToScoreUpperBound(grade: number, gradingSchemes: Deprecated
 
 export function gradeToScoreLowerBound(
   grade: null | number,
-  gradingSchemes: DeprecatedGradingScheme[]
+  gradingSchemes: GradingStandard[],
 ) {
   const index = indexOfGrade(grade, gradingSchemes)
 
@@ -87,7 +87,7 @@ export function gradeToScoreLowerBound(
 
 export function gradePointsToPercentage(
   grade: null | number,
-  gradingScheme: DeprecatedGradingScheme
+  gradingScheme: DeprecatedGradingScheme,
 ) {
   if (gradingScheme.pointsBased && grade != null) {
     return (grade / gradingScheme.scalingFactor) * 100

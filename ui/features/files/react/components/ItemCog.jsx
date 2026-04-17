@@ -18,7 +18,7 @@
 
 /* eslint-disable jsx-a11y/anchor-is-valid */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import PropTypes from 'prop-types'
 import ReactDOM from 'react-dom'
@@ -33,7 +33,7 @@ import downloadStuffAsAZip from '../legacy/util/downloadStuffAsAZip'
 import deleteStuff from '../legacy/util/deleteStuff'
 import $ from 'jquery'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 class ItemCog extends React.Component {
   static displayName = 'ItemCog'
@@ -157,66 +157,69 @@ class ItemCog extends React.Component {
       })
 
     const menuItems = []
+    const isAccessRestricted = filesEnv.userFileAccessRestricted
 
-    // Download Link
-    if (this.props.model instanceof Folder) {
-      menuItems.push(
-        <li key="folderDownload" role="presentation">
-          <a
-            href="#"
-            onClick={wrap(this.downloadZip)}
-            data-testid="download"
-            role="menuitem"
-            tabIndex="-1"
-          >
-            {I18n.t('Download')}
-          </a>
-        </li>
-      )
-    } else {
-      menuItems.push(
-        <li key="download" role="presentation">
-          <a
-            onClick={wrap(this.downloadFile)}
-            href={this.props.model.get('url')}
-            data-testid="download"
-            role="menuitem"
-            tabIndex="-1"
-          >
-            {I18n.t('Download')}
-          </a>
-        </li>
-      )
+    if (!isAccessRestricted) {
+      // Download Link
+      if (this.props.model instanceof Folder) {
+        menuItems.push(
+          <li key="folderDownload" role="presentation">
+            <a
+              href="#"
+              onClick={wrap(this.downloadZip)}
+              data-testid="download"
+              role="menuitem"
+              tabIndex="-1"
+            >
+              {I18n.t('Download')}
+            </a>
+          </li>,
+        )
+      } else {
+        menuItems.push(
+          <li key="download" role="presentation">
+            <a
+              onClick={wrap(this.downloadFile)}
+              href={this.props.model.get('url')}
+              data-testid="download"
+              role="menuitem"
+              tabIndex="-1"
+            >
+              {I18n.t('Download')}
+            </a>
+          </li>,
+        )
 
-      if (this.props.userCanEditFilesForContext) {
-        if (ENV.context_asset_string?.startsWith('course_')) {
-          menuItems.push(
-            <li key="send-to" role="presentation">
-              <a
-                href="#"
-                onClick={() => {
-                  this.props.onSendToClick(this.props.model)
-                }}
-                role="menuitem"
-                tabIndex="-1"
-              >
-                {I18n.t('Send To...')}
-              </a>
-            </li>,
+        if (this.props.userCanEditFilesForContext) {
+          if (ENV.context_asset_string?.startsWith('course_')) {
+            menuItems.push(
+              <li key="send-to" role="presentation">
+                <a
+                  href="#"
+                  onClick={() => {
+                    this.props.onSendToClick(this.props.model)
+                  }}
+                  role="menuitem"
+                  tabIndex="-1"
+                >
+                  {I18n.t('Send To...')}
+                </a>
+              </li>,
 
-            <li key="copy-to" role="presentation">
-              <a
-                href="#"
-                onClick={() => {
-                  this.props.onCopyToClick(this.props.model)
-                }}
-                role="menuitem"
-                tabIndex="-1"
-              >
-                {I18n.t('Copy To...')}
-              </a>
-            </li>
-          )
+              <li key="copy-to" role="presentation">
+                <a
+                  href="#"
+                  onClick={() => {
+                    this.props.onCopyToClick(this.props.model)
+                  }}
+                  role="menuitem"
+                  tabIndex="-1"
+                >
+                  {I18n.t('Copy To...')}
+                </a>
+              </li>,
+            )
+          }
         }
       }
     }
@@ -235,25 +238,27 @@ class ItemCog extends React.Component {
             >
               {I18n.t('Rename')}
             </a>
-          </li>
+          </li>,
         )
-        // Move Link
-        menuItems.push(
-          <li key="move-to" role="presentation">
-            <a
-              href="#"
-              onClick={wrap(openMoveDialog, {
-                clearSelectedItems: this.props.clearSelectedItems,
-                onMove: this.props.onMove,
-              })}
-              data-testid="move"
-              role="menuitem"
-              tabIndex="-1"
-            >
-              {I18n.t('Move To...')}
-            </a>
-          </li>
-        )
+        if (!isAccessRestricted) {
+          // Move Link
+          menuItems.push(
+            <li key="move-to" role="presentation">
+              <a
+                href="#"
+                onClick={wrap(openMoveDialog, {
+                  clearSelectedItems: this.props.clearSelectedItems,
+                  onMove: this.props.onMove,
+                })}
+                data-testid="move"
+                role="menuitem"
+                tabIndex="-1"
+              >
+                {I18n.t('Move To...')}
+              </a>
+            </li>,
+          )
+        }
         // Manage Usage Rights Link
         if (this.props.usageRightsRequiredForContext) {
           menuItems.push(
@@ -267,7 +272,7 @@ class ItemCog extends React.Component {
               >
                 {I18n.t('Manage Usage Rights')}
               </a>
-            </li>
+            </li>,
           )
         }
       }
@@ -285,9 +290,13 @@ class ItemCog extends React.Component {
             >
               {I18n.t('Delete')}
             </a>
-          </li>
+          </li>,
         )
       }
+    }
+
+    if (menuItems.concat(externalToolMenuItems).length === 0) {
+      return null
     }
 
     return (

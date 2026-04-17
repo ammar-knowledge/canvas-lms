@@ -58,6 +58,8 @@ export interface Course {
   readonly is_instructor?: boolean
   readonly front_page_title?: string
   readonly pages_url?: string
+  readonly course_student_count?: string
+  readonly max_variants_per_tag_category?: number
 }
 
 /* Redux action types */

@@ -30,7 +30,6 @@
     anonymous_instructor_annotations: @anonymous_instructor_annotations,
     enable_annotations: true,
     enrollment_type: @enrollment_type,
-    moderated_grading_allow_list: @moderated_grading_allow_list,
     submission_id: @submission.id
   }
 
@@ -38,33 +37,92 @@
     annotation_context = @submission.annotation_context(attempt: @submission.attempt)
     preview_url_opts[:annotation_context] = annotation_context.launch_id
   end
-
-  show_full_discussion_immediately = @context.root_account.feature_enabled?(:discussion_checkpoints)
-  discussion_preview_div_style = show_full_discussion_immediately ? 'width: 100%' : 'width: 600px; margin: 10px auto;'
+  show_full_discussion_immediately = params[:show_full_discussion_immediately]
+  use_discussion_toggle_link = params[:use_discussion_toggle_link]
 %>
 
 <% css_bundle :submission %>
+<% js_bundle 'submissions_show_preview_asset_report_status' %>
+
+<script>
+  window.addEventListener('message', function(event) {
+    const data = event.data;
+    if (!data || !data.type || !data.entryId) return;
+
+    if (data.type === 'IFRAME_STATUS') {
+      const entryDiv = document.getElementById('entry_' + data.entryId);
+      if(entryDiv) {
+        window.parent.postMessage({ type: 'CANVAS_IFRAME_READY' }, window.location.origin);
+      }
+    }
+    else if (data.type === 'HIGHLIGHT' && data.entryId != null) {
+      const entries = document.querySelectorAll('[id^="entry_"]');
+      entries.forEach(div => {
+        div.style.backgroundColor = '';
+      });
+
+      const entryDiv = document.getElementById('entry_' + data.entryId);
+      if (entryDiv) {
+        entryDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        entryDiv.style.backgroundColor = '#DFEBFB';
+      }
+    }
+  });
+</script>
 
 <% user_name = params[:hide_student_name] ? t(:anonymous_username, "This Student") : submission_author_name_for(@assessment_request) %>
 <% show_updated_plagiarism_icons = @context.root_account.feature_enabled?(:new_gradebook_plagiarism_indicator) %>
 
 <% provide :page_title do %><%= join_title @assignment.title, t("Submission Preview") %><% end %>
 <% if @assignment.submission_types == 'discussion_topic' && @assignment.discussion_topic %>
-  <div style="<%= discussion_preview_div_style %>">
-    <% unless show_full_discussion_immediately %>
+    <% js_bundle 'submissions_show_preview_media' %>
+    <%
+      @entries = @assignment.discussion_topic.for_group_discussion? ? @assignment.discussion_topic.all_child_entries_from_user(@user) : @assignment.discussion_topic.discussion_entries.active.for_user(@user)
+      hidden_user_id = params[:hide_student_name] ? @user.id : nil
+      url_opts = {
+        embed: true,
+        hidden_user_id:,
+        persist: 1,
+        student_id: @user.id,
+      }
+
+      if params[:entry_id] || @entries&.first
+        url_opts[:entry_id] = params[:entry_id] || @entries.first.id
+      end
+
+      topic_to_show = @assignment.discussion_topic.for_group_discussion? ? @assignment.discussion_topic.child_topic_for(@user) : @assignment.discussion_topic
+      topic_to_show ||= @assignment.discussion_topic
+      discussion_checkpoints_enabled = @assignment.context.discussion_checkpoints_enabled?
+      discussion_iframe_src = context_url(topic_to_show.context, :context_discussion_topic_url, topic_to_show.id, url_opts)
+    %>
+  <% unless show_full_discussion_immediately %>
+    <div class="submission_description" style="width: 600px; margin: 10px auto;">
       <p>
         <% if assignment_visible_to_user = @assignment.visible_to_user?(@current_user)%>
           <% if @assignment.discussion_topic.for_group_discussion? && (group = @assignment.discussion_topic.group_category.group_for(@user)) %>
-            <%= t('group_discussion_submission_description',
-                    "The submissions for this assignment are posts in the assignment's discussion for this group. Below are the discussion posts for %{user}, or you can *view the full group discussion*.",
+            <% if discussion_checkpoints_enabled && use_discussion_toggle_link %>
+              <%= t('group_discussion_submission_description_toggle',
+                    "The submissions for the assignment are posts in the assignment's discussion for this group. You can view the discussion posts for %{user} below, or you can *switch to viewing the full group discussion context.*",
                     :user => user_name,
-                    :wrapper => "<a id='discussion_view_link' href=\"#{context_url(group, :context_discussion_topics_url, :root_discussion_topic_id => @assignment.discussion_topic.id, :hide_student_names => params[:hide_student_name], :student_id => @submission.user.id, :headless => 1, :embed => true)}\"><b>\\1</b></a>") %>
+                    :wrapper => "<button id='discussion_temporary_toggle' <b>\\1</b></button>") %>
+            <% else %>
+              <%= t('group_discussion_submission_description',
+                      "The submissions for this assignment are posts in the assignment's discussion for this group. Below are the discussion posts for %{user}, or you can *view the full group discussion*.",
+                      :user => user_name,
+                      :wrapper => "<a role='button' id='discussion_view_link'  href=\"#{context_url(group, :context_discussion_topics_url, :root_discussion_topic_id => @assignment.discussion_topic.id, :hide_student_names => params[:hide_student_name], :headless => 1, :embed => true, :hidden_user_id => hidden_user_id)}\"><b>\\1</b></a>") %>
+            <% end %>
           <% else %>
-            <%= t('discussion_submission_description',
-                    "The submissions for this assignment are posts in the assignment's discussion. Below are the discussion posts for %{user}, or you can *view the full discussion*.",
-                    :user => user_name,
-                    # legacy discussions uses headless, hide student name, and student id, while discussions redesign uses embed
-                    :wrapper => "<a id='discussion_view_link' href=\"#{context_url(@assignment.context, :context_discussion_topic_url, @assignment.discussion_topic.id, :hide_student_names => params[:hide_student_name], :student_id => @submission.user.id, :headless => 1, :embed => true)}\"><b>\\1</b></a>") %>
+            <% if discussion_checkpoints_enabled && use_discussion_toggle_link %>
+              <%= t('discussion_submission_description_toggle',
+                      "The submissions for the assignment are posts in the assignment's discussion. You can view the discussion posts for %{user} below, or you can *switch to viewing the full discussion context.*",
+                      :user => user_name,
+                      :wrapper => "<button id='discussion_temporary_toggle'><b>\\1</b></button>") %>
+              <% else %>
+                <%= t('discussion_submission_description',
+                      "The submissions for this assignment are posts in the assignment's discussion. Below are the discussion posts for %{user}, or you can *view the full discussion*.",
+                      :user => user_name,
+                      :wrapper => "<a role='button' id='discussion_view_link'  href=\"#{context_url(@assignment.context, :context_discussion_topic_url, @assignment.discussion_topic.id, :hide_student_names => params[:hide_student_name], :headless => 1, :embed => true, :hidden_user_id => hidden_user_id)}\"><b>\\1</b></a>") %>
+            <% end %>
           <% end %>
         <% else %>
           <% if @assignment.discussion_topic.for_group_discussion? && (group = @assignment.discussion_topic.group_category.group_for(@user)) %>
@@ -78,30 +136,23 @@
           <% end %>
         <% end %>
       </p>
-    <% end %>
-    <%
-      @entries = @assignment.discussion_topic.for_group_discussion? ? @assignment.discussion_topic.all_child_entries_from_user(@user) : @assignment.discussion_topic.discussion_entries.active.for_user(@user)
-      hidden_user_id = params[:hide_student_name] ? @user.id : nil
-      discussion_iframe_src = context_url(@entries.first.discussion_topic.context, :context_discussion_topic_url, @entries.first.discussion_topic.id, :embed => true, :entry_id => @entries.first.id, :hidden_user_id => hidden_user_id)
-    %>
-    <% if show_full_discussion_immediately %>
-      <div class="ef-file-preview-stretch">
-        <iframe
-          id="discussion_preview_iframe"
-          title="<%= t "Graded discussion submission" %>"
-          src="<%= discussion_iframe_src %>"
-          class="ef-file-preview-frame">
-        </iframe>
-      </div>
-    <% else %>
-      <% @entries.each do |entry| %>
-        <%= render :partial => 'discussion_topics/entry', :object => entry, :locals => {:out_of_context => true, :skip_sub_entries => true, :link_to_headless => true, :hide_student_names => params[:hide_student_name], :assignment_visible_to_user => assignment_visible_to_user} %>
-      <% end %>
-      <div style="text-align: center; font-size: 1.2em; margin-top: 10px; display: none;">
-        <a href="<%= context_url(@assignment.context, :context_discussion_topic_url, @assignment.discussion_topic.id, :headless => 1, :combined => 1, :embed => true) %>" class="forward"><%= t('show_entire_discussion', 'Show the Entire Discussion') %></a>
-      </div>
-    <% end %>
-  </div>
+        <% @entries.each do |entry| %>
+          <%= render :partial => 'discussion_topics/entry', :object => entry, :locals => {:out_of_context => true, :skip_sub_entries => true, :link_to_headless => true, :hide_student_names => params[:hide_student_name], :assignment_visible_to_user => assignment_visible_to_user, :use_discussion_toggle_link => use_discussion_toggle_link} %>
+        <% end %>
+        <div style="text-align: center; font-size: 1.2em; margin-top: 10px; display: none;">
+          <a href="<%= context_url(@assignment.context, :context_discussion_topic_url, @assignment.discussion_topic.id, :headless => 1, :combined => 1, :embed => true) %>" class="forward"><%= t('show_entire_discussion', 'Show the Entire Discussion') %></a>
+        </div>
+    </div>
+  <% else %>
+    <div class="ef-file-preview-stretch">
+      <iframe
+        id="discussion_preview_iframe"
+        title="<%= t 'Graded discussion submission' %>"
+        src="<%= discussion_iframe_src %>"
+        class="ef-file-preview-frame">
+      </iframe>
+    </div>
+  <% end %>
 <% elsif @submission.submission_type == "online_url" %>
   <div style="text-align: center; width: 500px; margin: 10px auto; font-size: 0.8em;">
     <% image = @submission.attachment if @submission.processed? %>
@@ -153,9 +204,9 @@
 <% elsif @submission.submission_type == "online_text_entry" %>
   <% js_bundle 'submissions_show_preview_text' %>
   <div style="text-align: <%= direction('right') %>; margin-top: 15px;">
-    <select class="data_view">
-      <option aria-label="<%= t("Assignment %{assignment} submission Paper View", :assignment=> @assignment.title) %>" value="paper"><%= t('Paper View') %></option>
-      <option aria-label="<%= t("Assignment %{assignment} submission Plain Text View", :assignment=> @assignment.title) %>" value="plain_text"><%= t('Plain Text View') %></option>
+    <select class="data_view" aria-label="<%= t('Select submission view format') %>">
+      <option value="paper"><%= t('Paper View') %></option>
+      <option value="plain_text"><%= t('Plain Text View') %></option>
     </select>
     <%=
       render partial: 'submissions/originality_score', locals: {
@@ -164,11 +215,10 @@
       }
     %>
   </div>
-  <div id="submission_preview" class="paper user_content" data-resource-type="assignment.submission" data-resource-id="<%= @submission.id %>">
-    <%= user_content(@submission.body) %>
+  <div id="submission_preview" class="paper user_content" data-resource-type="assignment.submission" data-resource-id="<%= @submission.id %>" tabindex="0" role="document">
+    <%= user_content(@submission.body, location: @submission.asset_string) %>
   </div>
 <% elsif @submission.submission_type == "online_upload" %>
-
   <% if @submission.versioned_attachments.empty? %>
     <div class="file-upload-submission">
       <span>
@@ -176,80 +226,91 @@
       </span>
     </div>
   <% else %>
-
-    <% @submission.versioned_attachments.each do |attachment| %>
-      <div class="file-upload-submission">
-
-        <div class="file-upload-submission-info">
-          <%
-            preview_url = if anonymize_students
-              context_url(
-                @context,
-                :context_assignment_anonymous_submission_url,
-                @assignment.id,
-                @submission.anonymous_id,
-                download: attachment.id
-              )
-            else
-              context_url(
-                @context,
-                :context_assignment_submission_url,
-                @assignment.id,
-                @submission.user_id,
-                download: attachment.id
-              )
-            end
-          %>
-          <a href="<%= preview_url %>" class="<%= attachment.mime_class %> file-upload-submission-info__link">
-            <%= attachment.display_name %>
-          </a>
-          <span class="file-upload-submission-info__filesize"><%= number_to_human_size(attachment.size) %></span>
-        </div>
-
-        <div class="file-upload-submission-turnitin">
-          <%=
-            render partial: 'submissions/originality_score', locals: {
-              attachment: attachment,
-              show_updated_icons: show_updated_plagiarism_icons
-            }
-          %>
-        </div>
-
-        <div class="file-upload-submission-attachment">
-          <% unread_annotations = @current_user&.unread_submission_annotations?(@submission) %>
-          <% if attachment.crocodoc_available? || attachment.canvadoc.try(:has_annotations?) %>
-              <% preview_document = unread_annotations ?
-                   t('Preview your submission and view teacher feedback. There are unread comments.') :
-                   t('preview_crocodoc_document', 'Preview your submission and view teacher feedback, if available')
-                 button_text = t('view_feedback_button', 'View Feedback')
+    <table class="file-upload-submission-table">
+      <thead>
+        <tr>
+          <th class="file-info-header"><%= t('Files') %></th>
+          <th class="originality-header"></th>
+          <th class="asset-report-status-header" data-submission-id="<%= @submission.id %>" data-submission-type="<%= @submission.submission_type %>"></th>
+          <th class="preview-header"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @submission.versioned_attachments.each do |attachment| %>
+          <tr class="file-upload-submission">
+            <td class="file-upload-submission-info">
+              <%
+                preview_url = if anonymize_students
+                  context_url(
+                    @context,
+                    :context_assignment_anonymous_submission_url,
+                    @assignment.id,
+                    @submission.anonymous_id,
+                    download: attachment.id
+                  )
+                else
+                  context_url(
+                    @context,
+                    :context_assignment_submission_url,
+                    @assignment.id,
+                    @submission.user_id,
+                    download: attachment.id
+                  )
+                end
               %>
-          <% elsif attachment.canvadocable? %>
-            <% preview_document = t('preview_submission', 'Preview your submission')
-               button_text = t('view_preview_button', 'Preview')
-            %>
-          <% end %>
-          <% if attachment.crocodoc_available? || attachment.canvadocable? %>
-            <a
-              href=<%= preview_url %>
-              data-tooltip title="<%= preview_document %>"
-              class="modal_preview_link Button--link"
-              role="button"
-              data-attachment_id="<%= attachment.id %>"
-              data-submission_id="<%= @submission.id %>"
-              data-dialog-title="<%= attachment.display_name %>"
-              <%= doc_preview_attributes(attachment, preview_url_opts.dup) %>
-            >
-              <%= button_text %>
-            </a>
-            <% if unread_annotations %>
-              <span class="submission_annotation unread_indicator" aria-hidden="true"></span>
-            <% end %>
-          <% end %>
-        </div>
-
-      </div>
-    <% end %>
-
+              <a href="<%= preview_url %>" class="<%= attachment.mime_class %> file-upload-submission-info__link">
+                <%= attachment.display_name %>
+              </a>
+              <span class="file-upload-submission-info__filesize"><%= number_to_human_size(attachment.size) %></span>
+            </td>
+            <td class="file-upload-submission-turnitin">
+              <%=
+                render partial: 'submissions/originality_score', locals: {
+                  attachment: attachment,
+                  show_updated_icons: show_updated_plagiarism_icons
+                }
+              %>
+            </td>
+            <td class="asset-report-status-container"
+              data-attachment-id="<%= attachment.id %>"
+              data-submission-id="<%= @submission.id %>"
+              data-submission-type="<%= @submission.submission_type %>"
+            ></td>
+            <td class="file-upload-submission-attachment">
+              <% unread_annotations = @current_user&.unread_submission_annotations?(@submission) %>
+              <% if attachment.canvadoc.try(:has_annotations?) %>
+                  <% preview_document = unread_annotations ?
+                       t('Preview your submission and view teacher feedback. There are unread comments.') :
+                       t('preview_crocodoc_document', 'Preview your submission and view teacher feedback, if available')
+                     button_text = t('view_feedback_button', 'View Feedback')
+                  %>
+              <% elsif attachment.canvadocable? %>
+                <% preview_document = t('preview_submission', 'Preview your submission')
+                   button_text = t('view_preview_button', 'Preview')
+                %>
+              <% end %>
+              <% if attachment.canvadocable? %>
+                <a
+                  href=<%= preview_url %>
+                  data-tooltip title="<%= preview_document %>"
+                  class="modal_preview_link Button--link"
+                  role="button"
+                  data-attachment_id="<%= attachment.id %>"
+                  data-submission_id="<%= @submission.id %>"
+                  data-dialog-title="<%= attachment.display_name %>"
+                  <%= doc_preview_attributes(attachment, preview_url_opts.dup) %>
+                >
+                  <%= button_text %>
+                </a>
+                <% if unread_annotations %>
+                  <span class="submission_annotation unread_indicator" aria-hidden="true"></span>
+                <% end %>
+              <% end %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
   <% end %>
 
   <% js_bundle 'submissions_show_preview_upload' %>
@@ -259,9 +320,15 @@
     <%= t('quiz_submission', 'This submission was a quiz submission.  Redirecting to quiz page.') %>
   </div>
 <% elsif @submission.submission_type == 'media_recording' && @submission.media_comment_id %>
-  <%= t('media_comment_link', "This submission is a media recording. *click here to view.*", :wrapper => '<div><a href="#" class="play_media_recording_link" '+ dataify(@submission, :media_comment_id, :media_comment_type) + '>\1</a></div>') %>
+  <% wrapper = tag.div do
+       tag.a "\\1", href: "#", class: "play_media_recording_link",
+         "data-media_comment_id": @submission.media_comment_id,
+         "data-media_comment_type": @submission.media_comment_type
+     end
+  %>
+  <%= t('media_comment_link', "This submission is a media recording. *click here to view.*", wrapper:) %>
   <div style="width: 400px; margin: 10px auto;" id="media_recording_box">
-    <div class="box_content">
+    <div id="box_content" class="box_content">
     </div>
   </div>
   <div class="media_comment_id" style="display: none;"><%= @submission.media_comment_id %></div>

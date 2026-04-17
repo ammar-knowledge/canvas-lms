@@ -18,7 +18,7 @@
 
 import React, {useCallback, useEffect, useMemo, useState, useRef} from 'react'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import moment from 'moment-timezone'
 
 import {View} from '@instructure/ui-view'
@@ -29,16 +29,16 @@ import {IconSettingsLine} from '@instructure/ui-icons'
 import {PresentationContent} from '@instructure/ui-a11y-content'
 
 import useFetchApi from '@canvas/use-fetch-api-hook'
-import {showFlashError} from '@canvas/alerts/react/FlashAlert'
+import {showFlashError} from '@instructure/platform-alerts'
 import LoadingSkeleton from '@canvas/k5/react/LoadingSkeleton'
 import LoadingWrapper from '@canvas/k5/react/LoadingWrapper'
 import FilterCalendarsModal, {ImportantDatesContextsShape} from './FilterCalendarsModal'
 import ImportantDatesEmpty from './ImportantDatesEmpty'
 import ImportantDateSection from './ImportantDateSection'
 import {groupImportantDates} from '@canvas/k5/react/utils'
-import _ from 'lodash'
+import {isEqual} from 'es-toolkit/compat'
 
-const I18n = useI18nScope('important_dates')
+const I18n = createI18nScope('important_dates')
 
 const ImportantDates = ({
   contexts,
@@ -65,7 +65,7 @@ const ImportantDates = ({
     if (
       contexts &&
       (!previousContextsRef.current ||
-        (observerMode && !_.isEqual(previousContextsRef.current, contexts)))
+        (observerMode && !isEqual(previousContextsRef.current, contexts)))
     ) {
       previousContextsRef.current = contexts
       // If the user has no selected contexts saved already, default them to the first X contexts
@@ -74,7 +74,7 @@ const ImportantDates = ({
       // Make sure that we only include K-5 subject courses from `contexts` in the
       // `selectedContextCodes` we pass to the FilterCalendarsModal
       const savedSelected = initialSelectedContextCodes?.filter(code =>
-        contexts.some(c => c.assetString === code)
+        contexts.some(c => c.assetString === code),
       )
       const contextCodes = savedSelected?.length ? savedSelected : defaultSelected
       setSelectedContextCodes(contextCodes)
@@ -118,7 +118,7 @@ const ImportantDates = ({
     success: setAssignments,
     error: useCallback(
       showFlashError(I18n.t('Failed to load assignments in important dates.')),
-      []
+      [],
     ),
     loading: setLoadingAssignments,
     params: {
@@ -142,8 +142,8 @@ const ImportantDates = ({
 
   const closeCalendarsModal = () => setCalendarsModalOpen(false)
 
-  const datesSkeleton = props => (
-    <div {...props}>
+  const datesSkeleton = ({key, ...otherProps}) => (
+    <div key={key} {...otherProps}>
       <LoadingSkeleton
         id="skeleton-date"
         screenReaderLabel={I18n.t('Loading Important Date')}
@@ -162,8 +162,13 @@ const ImportantDates = ({
   )
 
   const dates = useMemo(
-    () => groupImportantDates(assignments, events, timeZone),
-    [assignments, events, timeZone]
+    () =>
+      groupImportantDates(
+        assignments,
+        events?.filter(e => e.child_events_count === 0),
+        timeZone,
+      ),
+    [assignments, events, timeZone],
   )
 
   return (

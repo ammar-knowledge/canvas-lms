@@ -18,7 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../spec_helper"
 require_relative "../graphql_spec_helper"
 
 describe Types::OutcomeProficiencyType do
@@ -41,6 +40,12 @@ describe Types::OutcomeProficiencyType do
       expect(
         account_type.resolve("outcomeProficiency { proficiencyRatingsConnection { nodes { _id } } }").sort
       ).to eq(@outcome_proficiency.outcome_proficiency_ratings.map { |r| r.id.to_s })
+    end
+
+    it "masteryPoints" do
+      expect(
+        account_type.resolve("outcomeProficiency { masteryPoints }")
+      ).to eq(@outcome_proficiency.mastery_points)
     end
   end
 end

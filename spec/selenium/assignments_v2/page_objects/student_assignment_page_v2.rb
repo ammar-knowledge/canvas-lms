@@ -32,7 +32,7 @@ class StudentAssignmentPageV2
     end
 
     def assignment_future_locked_image
-      f("img[alt='Assignment locked until future date']")
+      f("img[data-testid='assignment-future-locked-image']")
     end
 
     def assignment_prerequisite_locked_image
@@ -121,6 +121,10 @@ class StudentAssignmentPageV2
 
     def url_submission_link
       f("span[data-testid='url-submission-text")
+    end
+
+    def url_entry
+      f('[data-testid="url-entry"]')
     end
 
     def start_text_entry_button
@@ -220,7 +224,7 @@ class StudentAssignmentPageV2
     end
 
     def similarity_pledge
-      f("div[data-testid='similarity-pledge']")
+      f("div[data-testid='similarity-pledge'] div div")
     end
 
     def submit_button
@@ -326,6 +330,14 @@ class StudentAssignmentPageV2
 
     def peer_review_unavailible_reminder
       f("h4[data-testid='assignments-2-unavailable-pr-label-1']")
+    end
+
+    def textarea_div_container
+      f("#textarea-emoji-container")
+    end
+
+    def view
+      f('[data-testid="assignments-2-student-view"]')
     end
   end
 end

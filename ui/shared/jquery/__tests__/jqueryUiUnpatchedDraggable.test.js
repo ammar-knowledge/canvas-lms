@@ -17,11 +17,11 @@
  */
 
 import $ from 'jquery'
-import 'jquery-ui-touch-punch'
-import 'jqueryui/droppable'
-import 'jqueryui/draggable'
-import 'jqueryui/mouse'
-import '../jquery.simulate'
+// intentional:
+// import 'jqueryui/droppable'
+// import 'jqueryui/draggable'
+// import 'jqueryui/mouse'
+// import '../jquery.simulate'
 
 describe('Draggable Widget', () => {
   beforeEach(() => {

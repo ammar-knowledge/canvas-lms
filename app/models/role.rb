@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class Role < ActiveRecord::Base
+class Role < ApplicationRecord
   NULL_ROLE_TYPE = "NoPermissions"
 
   ENROLLMENT_TYPES = %w[StudentEnrollment TeacherEnrollment TaEnrollment DesignerEnrollment ObserverEnrollment].freeze
@@ -43,7 +43,7 @@ class Role < ActiveRecord::Base
 
       self.role = shard.activate do
         # Use `default_canvas_role` even though `default_role` sounds better since default_role is a rails method in rails >= 6.1
-        Role.get_role_by_id(read_attribute(:role_id)) || (respond_to?(:default_canvas_role) ? default_canvas_role : nil)
+        Role.get_role_by_id(role_id) || (respond_to?(:default_canvas_role) ? default_canvas_role : nil)
       end
     end
 
@@ -68,8 +68,8 @@ class Role < ActiveRecord::Base
   validates :name, :workflow_state, presence: true
   validates :account_id, presence: { if: :belongs_to_account? }
 
-  validates :base_role_type, inclusion: { in: BASE_TYPES, message: -> { t("is invalid") } }
-  validates :name, exclusion: { in: KNOWN_TYPES, unless: :built_in?, message: -> { t("is reserved") } }
+  validates :base_role_type, inclusion: { in: BASE_TYPES, message: ->(_object, _data) { t("is invalid") } }
+  validates :name, exclusion: { in: KNOWN_TYPES, unless: :built_in?, message: ->(_object, _data) { t("is reserved") } }
   validate :ensure_non_built_in_name
 
   def role_for_root_account_id(target_root_account_id)
@@ -108,6 +108,7 @@ class Role < ActiveRecord::Base
   end
 
   include Workflow
+
   workflow do
     state :active do
       event :deactivate, transitions_to: :inactive
@@ -174,10 +175,11 @@ class Role < ActiveRecord::Base
     ENROLLMENT_TYPES.include?(base_role_type)
   end
 
-  def label
+  def label(current_account = nil)
     if built_in?
       if course_role?
-        RoleOverride.enrollment_type_labels.detect { |label| label[:name] == name }[:label].call
+        context_account = current_account || account || root_account
+        RoleOverride.enrollment_type_labels(context_account).detect { |label| label[:name] == name }[:label].call
       elsif name == "AccountAdmin"
         RoleOverride::ACCOUNT_ADMIN_LABEL.call
       else
@@ -238,9 +240,9 @@ class Role < ActiveRecord::Base
   #             :asset_string => "role_4"
   #             :label => "weirdstudent"}]},
   # ]
-  def self.all_enrollment_roles_for_account(account, include_inactive = false)
-    custom_roles = account.available_custom_course_roles(include_inactive)
-    RoleOverride.enrollment_type_labels.map do |br|
+  def self.all_enrollment_roles_for_account(account, include_inactive: false)
+    custom_roles = account.available_custom_course_roles(include_inactive:)
+    RoleOverride.enrollment_type_labels(account).map do |br|
       new = br.clone
       new[:id] = Role.get_built_in_role(br[:name], root_account_id: account.resolved_root_account_id).id
       new[:label] = br[:label].call
@@ -254,7 +256,7 @@ class Role < ActiveRecord::Base
 
   # returns same hash as all_enrollment_roles_for_account but adds enrollment
   # counts for the given course to each item
-  def self.custom_roles_and_counts_for_course(course, user, include_inactive = false)
+  def self.custom_roles_and_counts_for_course(course, user, include_inactive: false)
     users_scope = course.users_visible_to(user)
     built_in_role_ids = Role.built_in_course_roles(root_account_id: course.root_account_id).map(&:id)
     base_counts = users_scope.where(enrollments: { role_id: built_in_role_ids })
@@ -262,7 +264,7 @@ class Role < ActiveRecord::Base
     role_counts = users_scope.where.not(enrollments: { role_id: built_in_role_ids })
                              .group("enrollments.role_id").select("users.id").distinct.count
 
-    @enrollment_types = Role.all_enrollment_roles_for_account(course.account, include_inactive)
+    @enrollment_types = Role.all_enrollment_roles_for_account(course.account, include_inactive:)
     @enrollment_types.each do |base_type|
       base_type[:count] = base_counts[base_type[:name]] || 0
       base_type[:custom_roles].each do |custom_role|
@@ -272,19 +274,6 @@ class Role < ActiveRecord::Base
     end
 
     @enrollment_types
-  end
-
-  def self.manageable_roles_by_user(user, context)
-    is_blueprint = context.is_a?(Course) && MasterCourses::MasterTemplate.is_master_course?(context)
-    manageable = []
-    if context.grants_right?(user, :manage_students) && !is_blueprint
-      manageable += %w[StudentEnrollment ObserverEnrollment]
-    end
-    if context.grants_right?(user, :manage_admin_users)
-      manageable += %w[TeacherEnrollment TaEnrollment DesignerEnrollment]
-      manageable << "ObserverEnrollment" unless is_blueprint
-    end
-    manageable.uniq.sort
   end
 
   def self.add_delete_roles_by_user(user, context)
@@ -307,34 +296,27 @@ class Role < ActiveRecord::Base
 
   def self.compile_manageable_roles(role_data, user, context)
     # for use with the old sad enrollment dialog
-    granular_admin = context.root_account.feature_enabled?(:granular_permissions_manage_users)
-    manageable = manageable_roles_by_user(user, context) unless granular_admin
-    addable, deleteable = add_delete_roles_by_user(user, context) if granular_admin
+    addable, deleteable = add_delete_roles_by_user(user, context)
     role_data.each_with_object([]) do |role, roles|
-      is_manageable = manageable.include?(role[:base_role_name]) unless granular_admin
-      is_addable = addable.include?(role[:base_role_name]) if granular_admin
-      is_deleteable = deleteable.include?(role[:base_role_name]) if granular_admin
-      role[:manageable_by_user] = is_manageable unless granular_admin
-      if granular_admin
-        role[:addable_by_user] = is_addable
-        role[:deleteable_by_user] = is_deleteable
-      end
+      is_addable = addable.include?(role[:base_role_name])
+      is_deleteable = deleteable.include?(role[:base_role_name])
+
+      role[:addable_by_user] = is_addable
+      role[:deleteable_by_user] = is_deleteable
+
       custom_roles = role.delete(:custom_roles)
       roles << role
 
       custom_roles.each do |custom_role|
-        custom_role[:manageable_by_user] = is_manageable unless granular_admin
-        if granular_admin
-          custom_role[:addable_by_user] = is_addable
-          custom_role[:deleteable_by_user] = is_deleteable
-        end
+        custom_role[:addable_by_user] = is_addable
+        custom_role[:deleteable_by_user] = is_deleteable
         roles << custom_role
       end
     end
   end
 
-  def self.role_data(course, user, include_inactive = false)
-    role_data = custom_roles_and_counts_for_course(course, user, include_inactive)
+  def self.role_data(course, user, include_inactive: false)
+    role_data = custom_roles_and_counts_for_course(course, user, include_inactive:)
     compile_manageable_roles(role_data, user, course)
   end
 

@@ -35,6 +35,11 @@ class SubmissionsBaseController < ApplicationController
 
     if @submission&.user_id == @current_user.id
       @submission&.mark_read(@current_user)
+      if @submission.assignment.checkpoints_parent?
+        @submission.assignment.sub_assignment_submissions.where(user: @current_user).find_each do |s|
+          s&.mark_read(@current_user)
+        end
+      end
     end
 
     respond_to do |format|
@@ -56,7 +61,6 @@ class SubmissionsBaseController < ApplicationController
                  EMOJIS_ENABLED: @context.feature_enabled?(:submission_comment_emojis),
                  EMOJI_DENY_LIST: @context.root_account.settings[:emoji_deny_list]
                })
-
         js_bundle :submissions
         css_bundle :submission
 
@@ -66,7 +70,9 @@ class SubmissionsBaseController < ApplicationController
 
         set_active_tab "assignments"
 
-        render "submissions/show", stream: can_stream_template?
+        render "submissions/show",
+               stream: can_stream_template?,
+               layout: (params[:embed] == "true") ? "mobile_embed" : true
       end
 
       format.json do
@@ -220,7 +226,7 @@ class SubmissionsBaseController < ApplicationController
                  error_code: "ASSIGNMENT_LOCKED"
                }
              },
-             status: :unprocessable_entity
+             status: :unprocessable_content
     else
       @submission.update!(redo_request: true)
       head :no_content
@@ -301,6 +307,18 @@ class SubmissionsBaseController < ApplicationController
             end
 
       if url
+        # Filter out internal URLs here, which are redirects to the LTI/message controller
+        unless url.start_with?("/")
+          Lti::LogService.new(
+            context: @context,
+            launch_type: "direct_link",
+            launch_url: url,
+            session_id: session[:session_id],
+            tool: nil,
+            user: @current_user,
+            lti2: true
+          ).call
+        end
         redirect_to url
       else
         flash[:error] = t("errors.no_report", "Couldn't find a report for that submission item")

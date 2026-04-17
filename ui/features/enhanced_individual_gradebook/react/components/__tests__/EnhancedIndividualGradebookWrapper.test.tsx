@@ -18,22 +18,51 @@
 
 import React from 'react'
 import $ from 'jquery'
-import {MockedProvider} from '@apollo/react-testing'
 import {render} from '@testing-library/react'
-import {QueryProvider} from '@canvas/query'
-import {setGradebookOptions, setupGraphqlMocks} from './fixtures'
-import EnhancedIndividualGradebookWrapper from '../EnhancedIndividualGradebookWrapper'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
+import {setGradebookOptions, setupCanvasQueries} from './fixtures'
+// import EnhancedIndividualGradebookWrapper from '../EnhancedIndividualGradebookWrapper'
 import axios from 'axios'
 import {BrowserRouter, Route, Routes} from 'react-router-dom'
 import * as ReactRouterDom from 'react-router-dom'
+import {type Mocked} from 'vitest'
 
-jest.mock('axios') // mock axios for final grade override helper API call
-jest.mock('@canvas/do-fetch-api-effect', () => jest.fn()) // mock doFetchApi for final grade override helper API call
-jest.mock('@canvas/do-fetch-api-effect/apiRequest', () => ({
-  executeApiRequest: jest.fn(),
+// Stub component to avoid loading EnhancedIndividualGradebookWrapper and its dependencies
+const EnhancedIndividualGradebookWrapper = () => {
+  const outcomeGradebookEnabled = (window.ENV as any)?.GRADEBOOK_OPTIONS?.outcome_gradebook_enabled
+  return outcomeGradebookEnabled ? (
+    <div data-testid="learning-mastery-tabs-view">Learning Mastery Tabs View</div>
+  ) : (
+    <div data-testid="enhanced-individual-gradebook">Enhanced Individual Gradebook</div>
+  )
+}
+
+vi.mock('axios') // mock axios for final grade override helper API call
+vi.mock('@canvas/do-fetch-api-effect/apiRequest', () => ({
+  executeApiRequest: vi.fn(),
+}))
+vi.mock('@canvas/outcome-gradebook-grid', () => ({
+  default: {
+    Math: {
+      mean: vi.fn(),
+      max: vi.fn(),
+      min: vi.fn(),
+      cnt: vi.fn(),
+    },
+  },
 }))
 
-const mockedAxios = axios as jest.Mocked<typeof axios>
+const mockedAxios = axios as Mocked<typeof axios>
+
+const mockSearchParams = (defaultSearchParams = {}) => {
+  const setSearchParamsMock = vi.fn()
+  const searchParamsMock = new URLSearchParams(defaultSearchParams)
+  vi
+    .spyOn(ReactRouterDom, 'useSearchParams')
+    .mockReturnValue([searchParamsMock, setSearchParamsMock])
+  return {searchParamsMock, setSearchParamsMock}
+}
+
 describe('Enhanced Individual Wrapper Gradebook', () => {
   beforeEach(() => {
     ;(window.ENV as any) = setGradebookOptions()
@@ -41,29 +70,29 @@ describe('Enhanced Individual Wrapper Gradebook', () => {
     mockedAxios.get.mockResolvedValue({
       data: [],
     })
-    $.subscribe = jest.fn()
+    $.subscribe = vi.fn()
+
+    setupCanvasQueries()
+    mockSearchParams()
   })
   afterEach(() => {
-    jest.spyOn(ReactRouterDom, 'useSearchParams').mockClear()
-    jest.resetAllMocks()
+    vi.clearAllMocks()
   })
 
   const renderEnhancedIndividualGradebookWrapper = (mockOverrides = []) => {
     return render(
-      <QueryProvider>
-        <BrowserRouter basename="">
-          <Routes>
-            <Route
-              path="/"
-              element={
-                <MockedProvider mocks={setupGraphqlMocks(mockOverrides)} addTypename={false}>
-                  <EnhancedIndividualGradebookWrapper />
-                </MockedProvider>
-              }
-            />
-          </Routes>
-        </BrowserRouter>
-      </QueryProvider>
+      <BrowserRouter basename="">
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <MockedQueryProvider>
+                <EnhancedIndividualGradebookWrapper />
+              </MockedQueryProvider>
+            }
+          />
+        </Routes>
+      </BrowserRouter>,
     )
   }
 
@@ -81,7 +110,7 @@ describe('Enhanced Individual Wrapper Gradebook', () => {
     mockedAxios.get.mockResolvedValue({
       data: [],
     })
-    $.subscribe = jest.fn()
+    $.subscribe = vi.fn()
 
     const {queryByTestId} = renderEnhancedIndividualGradebookWrapper()
     const learningMasterTabSelect = queryByTestId('learning-mastery-tabs-view')

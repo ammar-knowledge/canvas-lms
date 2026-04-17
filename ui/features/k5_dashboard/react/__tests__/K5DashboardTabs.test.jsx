@@ -18,15 +18,21 @@
  */
 
 import React from 'react'
-import moxios from 'moxios'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 import {act, render as testingLibraryRender, waitFor} from '@testing-library/react'
 import K5Dashboard from '../K5Dashboard'
 import {defaultK5DashboardProps as defaultProps} from './mocks'
-import {QueryProvider} from '@canvas/query'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
 
-jest.useFakeTimers()
+const render = children =>
+  testingLibraryRender(<MockedQueryProvider>{children}</MockedQueryProvider>)
 
-const render = children => testingLibraryRender(<QueryProvider>{children}</QueryProvider>)
+const server = setupServer(
+  http.get('/api/v1/dashboard/dashboard_cards', () => HttpResponse.json([])),
+  http.get('/api/v1/calendar_events', () => HttpResponse.json([])),
+  http.get('/api/v1/users/self/courses', () => HttpResponse.json([])),
+)
 
 // getByRole() causes these tests to be very slow, so provide a much faster helper
 // function that does the same thing
@@ -42,7 +48,7 @@ function findTabByName(tabName, opts) {
 
   if (actualSelectedValue !== expectedSelectedValue) {
     throw new Error(
-      `tab ${tabName} found in DOM, but had incorrect selected state of ${expectedSelectedValue} (was: ${actualSelectedValue})`
+      `tab ${tabName} found in DOM, but had incorrect selected state of ${expectedSelectedValue} (was: ${actualSelectedValue})`,
     )
   }
 
@@ -50,24 +56,24 @@ function findTabByName(tabName, opts) {
 }
 
 describe('K5Dashboard Tabs', () => {
-  beforeEach(() => {
-    moxios.install()
-    moxios.stubRequest('/api/v1/dashboard/dashboard_cards', {
-      status: 200,
-      response: [],
-    })
+  beforeAll(() => {
+    server.listen()
   })
 
   afterEach(() => {
-    moxios.uninstall()
+    server.resetHandlers()
     window.location.hash = ''
+  })
+
+  afterAll(() => {
+    server.close()
   })
 
   it('show Homeroom, Schedule, Grades, and Resources options', async () => {
     const {getByText} = render(<K5Dashboard {...defaultProps} />)
     await waitFor(() => {
       ;['Homeroom', 'Schedule', 'Grades', 'Resources'].forEach(label =>
-        expect(getByText(label)).toBeInTheDocument()
+        expect(getByText(label)).toBeInTheDocument(),
       )
     })
   })
@@ -97,14 +103,15 @@ describe('K5Dashboard Tabs', () => {
       render(<K5Dashboard {...defaultProps} />)
 
       act(() => findTabByName('Grades', {selected: false}).click())
-      await act(async () => jest.runAllTimers())
-      expect(findTabByName('Grades', {selected: true})).toBeInTheDocument()
+      await waitFor(() => {
+        expect(findTabByName('Grades', {selected: true})).toBeInTheDocument()
+      }, {timeout: 10000})
 
       act(() => findTabByName('Resources', {selected: false}).click())
-      await act(async () => jest.runAllTimers())
-
-      expect(findTabByName('Grades', {selected: false})).toBeInTheDocument()
-      expect(findTabByName('Resources', {selected: true})).toBeInTheDocument()
+      await waitFor(() => {
+        expect(findTabByName('Grades', {selected: false})).toBeInTheDocument()
+        expect(findTabByName('Resources', {selected: true})).toBeInTheDocument()
+      }, {timeout: 10000})
     })
   })
 })

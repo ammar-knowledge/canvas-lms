@@ -23,7 +23,7 @@ module CC::Exporter::Epub::Converters
     include CC::CCHelper
     include Canvas::Migration::XMLHelper
 
-    def settings_doc(html = false)
+    def settings_doc(html: false)
       path = @package_root.item_path("course_settings", "module_meta.xml")
       return nil unless File.exist? path
 
@@ -99,6 +99,7 @@ module CC::Exporter::Epub::Converters
           cr[:type] = cr_node["type"]
           cr[:item_migration_id] = get_node_val(cr_node, "identifierref")
           cr[:min_score] = get_float_val(cr_node, "min_score")
+          cr[:min_percentage] = get_node_val(cr_node, "min_percentage")
           cr[:max_score] = get_float_val(cr_node, "max_score")
 
           mod[:completion_requirements] << cr

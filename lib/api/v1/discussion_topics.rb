@@ -88,7 +88,7 @@ module Api::V1::DiscussionTopics
       root_topics = get_root_topic_data(topics, opts[:root_topic_fields])
     end
     # ignore :include_sections_user_count for non-course contexts like groups
-    if opts[:include_sections_user_count] && context && context.is_a?(Course)
+    if opts[:include_sections_user_count] && context.is_a?(Course)
       opts[:context_user_count] = GuardRail.activate(:secondary) { context.enrollments.not_fake.active_or_pending_by_date_ignoring_access.distinct.count(:user_id) }
     end
 
@@ -97,12 +97,68 @@ module Api::V1::DiscussionTopics
       [
         { assignment: %i[external_tool_tag post_policy rubric_association] },
         :attachment,
-        :discussion_topic_participants,
         :context,
         :root_topic,
-        :user
+        :user,
+        { discussion_topic_section_visibilities: :course_section }
       ]
     )
+
+    # preload enrollment counts for sections to avoid N+1 queries when include_sections_user_count is true
+    if opts[:include_sections_user_count] && context.is_a?(Course)
+      section_ids = topics.flat_map do |topic|
+        topic.is_section_specific ? topic.course_sections.map(&:id) : []
+      end.uniq
+
+      if section_ids.any?
+        section_user_counts = GuardRail.activate(:secondary) do
+          Enrollment
+            .where(course_section_id: section_ids)
+            .not_fake
+            .active_or_pending_by_date_ignoring_access
+            .group(:course_section_id)
+            .count
+        end
+        opts[:section_user_counts] = section_user_counts
+      end
+    end
+
+    # we're gonna preload only the current user's discussion_topic_participant
+    if user
+      participants_by_topic = DiscussionTopicParticipant
+                              .where(discussion_topic_id: topics.map(&:id), user_id: user)
+                              .index_by(&:discussion_topic_id)
+
+      topics.each do |topic|
+        participant = participants_by_topic[topic.id]
+        # we're manually injecting user's participant
+        topic.association(:discussion_topic_participants).target = participant ? [participant] : []
+        topic.association(:discussion_topic_participants).loaded!
+      end
+    end
+
+    # preload child_topic data for root topics to avoid N+1 queries in subscribed? and serialize methods
+    root_topic_ids = topics.filter_map { |t| t.id if !t.root_topic_id && t.group_category_id }
+    if root_topic_ids.any?
+      child_topics_by_root = DiscussionTopic
+                             .where(root_topic_id: root_topic_ids)
+                             .where("discussion_topics.workflow_state<>'deleted'")
+                             .pluck(:root_topic_id, :id, :context_id)
+                             .group_by(&:first)
+
+      topics.each do |topic|
+        next unless root_topic_ids.include?(topic.id)
+
+        child_data = child_topics_by_root[topic.id] || []
+        child_topics = child_data.map do |_, id, context_id|
+          ct = DiscussionTopic.new(id:, context_id:)
+          ct.workflow_state = "active"
+          ct
+        end
+        topic.association(:child_topics).target = child_topics
+        topic.association(:child_topics).loaded!
+      end
+    end
 
     DiscussionTopic.preload_subentry_counts(topics)
     DatesOverridable.preload_override_data_for_objects([*topics, *topics.filter_map(&:assignment)])
@@ -152,6 +208,7 @@ module Api::V1::DiscussionTopics
     end
     if topic.checkpoints?
       json[:reply_to_entry_required_count] = topic.reply_to_entry_required_count
+      json[:is_checkpointed] = topic.checkpoints?
     end
     if opts[:include_assignment] && topic.assignment
       excludes = opts[:exclude_assignment_description] ? ["description"] : []
@@ -162,7 +219,8 @@ module Api::V1::DiscussionTopics
                                             override_dates: opts[:override_dates],
                                             include_all_dates: opts[:include_all_dates],
                                             exclude_response_fields: excludes,
-                                            include_overrides: opts[:include_overrides] }.merge(opts[:assignment_opts]))
+                                            include_overrides: opts[:include_overrides],
+                                            include_checkpoints: true }.merge(opts[:assignment_opts]))
     end
 
     # ignore :include_sections_user_count for non-course contexts like groups
@@ -173,7 +231,8 @@ module Api::V1::DiscussionTopics
     if opts[:include_sections] && topic.is_section_specific
       section_includes = []
       section_includes.push("user_count") if opts[:include_sections_user_count]
-      json[:sections] = sections_json(topic.course_sections, user, session, section_includes)
+      section_options = opts[:section_user_counts] ? { section_user_counts: opts[:section_user_counts] } : {}
+      json[:sections] = sections_json(topic.course_sections, user, session, section_includes, section_options)
     end
 
     json[:todo_date] = topic.todo_date
@@ -194,6 +253,11 @@ module Api::V1::DiscussionTopics
 
     # topic can be announcement
     json[:is_announcement] = topic.is_announcement
+
+    json[:sort_order] = topic.sort_order
+    json[:sort_order_locked] = topic.sort_order_locked
+    json[:expanded] = topic.expanded
+    json[:expanded_locked] = topic.expanded_locked
 
     json
   end
@@ -244,6 +308,7 @@ module Api::V1::DiscussionTopics
     fields[:group_topic_children] = child_topic_data.map { |id, group_id| { id:, group_id: } }
 
     fields[:context_code] = Context.context_code_for(topic) if opts[:include_context_code]
+    fields[:ungraded_discussion_overrides] = topic.ungraded_discussion_overrides(user) unless topic.assignment_id
 
     topic_course = nil
     if context.is_a?(Course)
@@ -252,7 +317,7 @@ module Api::V1::DiscussionTopics
       topic_course = Course.find_by(id: context.context_id)
     end
 
-    paced_course = topic_course ? topic_course.account.feature_enabled?(:course_paces) && topic_course.enable_course_paces? : nil
+    paced_course = topic_course&.enable_course_paces?
     fields[:in_paced_course] = paced_course if paced_course
 
     locked_json(fields, topic, user, "topic", check_policies: true, deep_check_if_needed: true)
@@ -266,7 +331,7 @@ module Api::V1::DiscussionTopics
         elsif opts[:text_only]
           html_to_text(topic.message, preserve_links: true)
         else
-          api_user_content(topic.message, context)
+          api_user_content(topic.message, context, location: topic.asset_string)
         end
     end
 
@@ -317,7 +382,7 @@ module Api::V1::DiscussionTopics
     if entry.deleted?
       json[:deleted] = true
     else
-      json[:message] = api_user_content(entry.message, context, user)
+      json[:message] = api_user_content(entry.message, context, user, location: entry.asset_string)
     end
 
     json[:user] = user_display_json(entry.user, context) if includes.include?(:display_user)

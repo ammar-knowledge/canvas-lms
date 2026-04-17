@@ -17,27 +17,26 @@
  */
 
 import moment from 'moment-timezone'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import Animation from '../animation'
 import {loadPastUntilToday} from '../../actions/loading-actions'
 import {alert} from '../../utilities/alertUtils'
 import {isToday} from '../../utilities/dateUtils'
 import {handleNothingToday} from '../util'
 
-const I18n = useI18nScope('planner')
+const I18n = createI18nScope('planner')
 
 export class ScrollToToday extends Animation {
   uiDidUpdate() {
     const action = this.acceptedAction('SCROLL_TO_TODAY')
     const focusTarget = action.payload?.focusTarget
     const isWeekly = !!action.payload?.isWeekly
+    const autoFocus = action.payload?.autoFocus !== false
     const todayElem = this.document().querySelector('.planner-today h2')
     if (isWeekly && focusTarget === 'missing-items') {
-      // Skip the items completely and focus the fallback instead, which will
-      // be the missing items element for the weekly planner
       handleNothingToday(this.manager(), todayElem, focusTarget)
     } else {
-      scrollAndFocusTodayItem(this.manager(), todayElem, isWeekly, focusTarget)
+      scrollAndFocusTodayItem(this.manager(), todayElem, isWeekly, focusTarget, autoFocus)
     }
   }
 }
@@ -46,15 +45,21 @@ export class JumpScrollToToday extends Animation {
   uiDidUpdate() {
     const isWeekly = true // jump_to_this_week on only fired in the weekly planner
     const todayElem = this.document().querySelector('.planner-today h2')
-    scrollAndFocusTodayItem(this.manager(), todayElem, isWeekly)
+    scrollAndFocusTodayItem(this.manager(), todayElem, isWeekly, undefined, true)
   }
 }
 
-export function scrollAndFocusTodayItem(manager, todayElem, isWeekly, focusTarget) {
+export function scrollAndFocusTodayItem(
+  manager,
+  todayElem,
+  isWeekly,
+  focusTarget,
+  autoFocus = true,
+) {
   if (todayElem) {
     const {component, when} = findTodayOrNearest(
       manager.getRegistry(),
-      manager.getStore().getState().timeZone
+      manager.getStore().getState().timeZone,
     )
     if (component) {
       if (isToday(component.props.date) || !isWeekly) {
@@ -64,13 +69,11 @@ export function scrollAndFocusTodayItem(manager, todayElem, isWeekly, focusTarge
             // then, if necessary, scroll today's or next todo item into view but not all the way to the top
             manager.getAnimator().scrollTo(component.getScrollable(), manager.totalOffset(), () => {
               if (when === 'after') {
-                // tell the user where we wound up
                 alert(I18n.t('Nothing planned today. Selecting next item.'))
               } else if (when === 'before') {
                 alert(I18n.t('Nothing planned today. Selecting most recent item.'))
               }
-              // finally, focus the item
-              if (component.getFocusable() && (!isWeekly || focusTarget === 'today')) {
+              if (component.getFocusable() && autoFocus && (!isWeekly || focusTarget === 'today')) {
                 manager.getAnimator().focusElement(component.getFocusable())
               }
             })
@@ -80,7 +83,6 @@ export function scrollAndFocusTodayItem(manager, todayElem, isWeekly, focusTarge
         handleNothingToday(manager, todayElem)
       }
     } else {
-      // there's nothing to focus. leave focus where it is
       handleNothingToday(manager, todayElem)
     }
   } else {

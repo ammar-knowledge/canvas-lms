@@ -19,9 +19,16 @@
 import React from 'react'
 import {render, screen, waitFor} from '@testing-library/react'
 import MigrationRow from '../migration_row'
-import doFetchApi from '@canvas/do-fetch-api-effect'
+import {Table} from '@instructure/ui-table'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 
-jest.mock('../utils', () => ({
+const I18n = createI18nScope('content_migrations_redesign')
+
+const server = setupServer()
+
+vi.mock('../utils', () => ({
   timeout: (_delay: number) => {
     return new Promise(resolve => {
       return resolve(true)
@@ -72,97 +79,110 @@ const waitingForSelectMigration = {
 
 const progressHit = {method: 'GET', path: 'https://mock.progress.url'}
 
-jest.mock('@canvas/do-fetch-api-effect')
+const updateMigrationItem = vi.fn()
 
-const updateMigrationItem = jest.fn()
-
-const renderComponent = (overrideProps?: any) =>
+const renderComponent = (overrideProps?: any) => {
+  const layout = overrideProps?.layout || 'auto'
   render(
-    <table>
-      <tbody>
+    <Table caption={I18n.t('Content migrations')} layout={layout}>
+      <Table.Body>
         <MigrationRow
           migration={migration}
           updateMigrationItem={updateMigrationItem}
           {...overrideProps}
         />
-      </tbody>
-    </table>
+      </Table.Body>
+    </Table>,
   )
-
-const renderCondensedComponent = (overrideProps?: any) =>
-  render(
-    <MigrationRow
-      migration={migration}
-      updateMigrationItem={updateMigrationItem}
-      {...overrideProps}
-    />
-  )
+}
 
 describe('MigrationRow', () => {
+  beforeAll(() => server.listen())
+  afterAll(() => server.close())
+
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
+    server.resetHandlers()
   })
 
   it('renders the proper view if extended', async () => {
-    renderComponent({view: 'extended'})
+    renderComponent()
     await waitFor(() => expect(screen.getByText('Copy a Canvas Course').tagName).toEqual('TD'))
   })
 
   it('renders the proper view if condensed', async () => {
-    renderCondensedComponent({view: 'condensed'})
-    await waitFor(() => expect(screen.getByText('Copy a Canvas Course').tagName).toEqual('SPAN'))
+    renderComponent({layout: 'stacked'})
+    await waitFor(() => expect(screen.getByText('Copy a Canvas Course').tagName).toEqual('DIV'))
   })
 
   it('polls for progress when appropriate', async () => {
-    doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 100, workflow_state: 'completed'}})
+    let requestMade = false
+    server.use(
+      http.get('https://mock.progress.url', () => {
+        requestMade = true
+        return HttpResponse.json({completion: 100, workflow_state: 'completed'})
+      }),
     )
     renderComponent({migration: runningMigration})
-    await waitFor(() => expect(doFetchApi.mock.calls).toEqual([[progressHit]]))
+    await waitFor(() => expect(requestMade).toBe(true))
   })
 
   it('stops polling on fail', async () => {
-    doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 60, workflow_state: 'running'}})
-    )
-    doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 60, workflow_state: 'failed'}})
+    let callCount = 0
+    server.use(
+      http.get('https://mock.progress.url', () => {
+        callCount++
+        if (callCount === 1) {
+          return HttpResponse.json({completion: 60, workflow_state: 'running'})
+        }
+        return HttpResponse.json({completion: 60, workflow_state: 'failed'})
+      }),
     )
     renderComponent({migration: runningMigration})
-    await waitFor(() => expect(doFetchApi.mock.calls).toEqual([[progressHit], [progressHit]]))
+    await waitFor(() => expect(callCount).toBe(2))
   })
 
   it('stops polling on complete', async () => {
-    doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 100, workflow_state: 'completed'}})
+    let requestMade = false
+    server.use(
+      http.get('https://mock.progress.url', () => {
+        requestMade = true
+        return HttpResponse.json({completion: 100, workflow_state: 'completed'})
+      }),
     )
     renderComponent({migration: runningMigration})
-    await waitFor(() => expect(doFetchApi.mock.calls).toEqual([[progressHit]]))
+    await waitFor(() => expect(requestMade).toBe(true))
   })
 
   it('updates migration correctly for each progress poll', async () => {
-    const mockCallback = jest.fn()
-    doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 50, workflow_state: 'running'}})
-    )
-    doFetchApi.mockReturnValueOnce(
-      Promise.resolve({json: {completion: 100, workflow_state: 'completed'}})
+    const mockCallback = vi.fn()
+    let callCount = 0
+    server.use(
+      http.get('https://mock.progress.url', () => {
+        callCount++
+        if (callCount === 1) {
+          return HttpResponse.json({completion: 50, workflow_state: 'running'})
+        }
+        return HttpResponse.json({completion: 100, workflow_state: 'completed'})
+      }),
     )
     renderComponent({migration: queuedMigration, updateMigrationItem: mockCallback})
-    await waitFor(() => expect(doFetchApi.mock.calls).toEqual([[progressHit], [progressHit]]))
+    await waitFor(() => expect(callCount).toBe(2))
     await waitFor(() =>
       expect(mockCallback.mock.calls).toEqual([
         [expect.anything(), {completion: 50}, true],
         [expect.anything(), {completion: 100}],
-      ])
+      ]),
     )
   })
 
   describe('Status scenarios', () => {
     // this is needed because the initial state triggers the fetchProgress function
     const mockFetchProgressPolling = () => {
-      doFetchApi.mockReturnValueOnce(
-        Promise.resolve({json: {completion: 100, workflow_state: 'completed'}})
+      server.use(
+        http.get('https://mock.progress.url', () =>
+          HttpResponse.json({completion: 100, workflow_state: 'completed'}),
+        ),
       )
     }
 
@@ -173,12 +193,12 @@ describe('MigrationRow', () => {
         })
 
         it('should render queued state', () => {
-          renderComponent({migration: queuedMigration, updateMigrationItem: jest.fn()})
+          renderComponent({migration: queuedMigration, updateMigrationItem: vi.fn()})
           expect(screen.getByText('Queued')).toBeInTheDocument()
         })
 
         it('should start polling', async () => {
-          const mockCallback = jest.fn()
+          const mockCallback = vi.fn()
           renderComponent({migration: queuedMigration, updateMigrationItem: mockCallback})
           await waitFor(() => expect(mockCallback).toHaveBeenCalled())
         })
@@ -190,12 +210,12 @@ describe('MigrationRow', () => {
         })
 
         it('should render running state', () => {
-          renderComponent({migration: runningMigration, updateMigrationItem: jest.fn()})
+          renderComponent({migration: runningMigration, updateMigrationItem: vi.fn()})
           expect(screen.getByText('Running')).toBeInTheDocument()
         })
 
         it('should start polling', async () => {
-          const mockCallback = jest.fn()
+          const mockCallback = vi.fn()
           renderComponent({migration: runningMigration, updateMigrationItem: mockCallback})
           await waitFor(() => expect(mockCallback).toHaveBeenCalled())
         })
@@ -203,12 +223,12 @@ describe('MigrationRow', () => {
 
       describe('completed', () => {
         it('should render completed state', () => {
-          renderComponent({migration: completedMigration, updateMigrationItem: jest.fn()})
+          renderComponent({migration: completedMigration, updateMigrationItem: vi.fn()})
           expect(screen.getByText('Completed')).toBeInTheDocument()
         })
 
         it('should not start polling', async () => {
-          const mockCallback = jest.fn()
+          const mockCallback = vi.fn()
           renderComponent({migration: completedMigration, updateMigrationItem: mockCallback})
           await waitFor(() => expect(mockCallback).not.toHaveBeenCalled())
         })
@@ -216,12 +236,12 @@ describe('MigrationRow', () => {
 
       describe('failed', () => {
         it('should render completed state', () => {
-          renderComponent({migration: failedMigration, updateMigrationItem: jest.fn()})
+          renderComponent({migration: failedMigration, updateMigrationItem: vi.fn()})
           expect(screen.getByText('Failed')).toBeInTheDocument()
         })
 
         it('should not start polling', async () => {
-          const mockCallback = jest.fn()
+          const mockCallback = vi.fn()
           renderComponent({migration: failedMigration, updateMigrationItem: mockCallback})
           await waitFor(() => expect(mockCallback).not.toHaveBeenCalled())
         })
@@ -229,12 +249,12 @@ describe('MigrationRow', () => {
 
       describe('wait_for_selection', () => {
         it('should render completed state', () => {
-          renderComponent({migration: waitingForSelectMigration, updateMigrationItem: jest.fn()})
+          renderComponent({migration: waitingForSelectMigration, updateMigrationItem: vi.fn()})
           expect(screen.getByText('Waiting for selection')).toBeInTheDocument()
         })
 
         it('should not start polling', async () => {
-          const mockCallback = jest.fn()
+          const mockCallback = vi.fn()
           renderComponent({migration: waitingForSelectMigration, updateMigrationItem: mockCallback})
           await waitFor(() => expect(mockCallback).not.toHaveBeenCalled())
         })
@@ -245,12 +265,14 @@ describe('MigrationRow', () => {
       describe('when content_migration update result is not waiting_for_select', () => {
         it('should render progress state', async () => {
           // Content migration returns completed
-          const mockCallback = jest
+          const mockCallback = vi
             .fn()
             .mockReturnValue(Promise.resolve({workflow_state: 'completed'}))
           // Progress returns fails
-          doFetchApi.mockReturnValueOnce(
-            Promise.resolve({json: {completion: 100, workflow_state: 'failed'}})
+          server.use(
+            http.get('https://mock.progress.url', () =>
+              HttpResponse.json({completion: 100, workflow_state: 'failed'}),
+            ),
           )
           renderComponent({migration: queuedMigration, updateMigrationItem: mockCallback})
           await waitFor(() => {
@@ -264,16 +286,17 @@ describe('MigrationRow', () => {
       describe('when content_migration update result is waiting_for_select', () => {
         it('should not render progress state', async () => {
           // Content migration returns waiting_for_select
-          const mockCallback = jest
+          const mockCallback = vi
             .fn()
             .mockReturnValue(Promise.resolve({workflow_state: 'waiting_for_select'}))
           // Progress returns completed
-          doFetchApi.mockReturnValueOnce(
-            Promise.resolve({json: {completion: 100, workflow_state: 'completed'}})
+          server.use(
+            http.get('https://mock.progress.url', () =>
+              HttpResponse.json({completion: 100, workflow_state: 'completed'}),
+            ),
           )
           // The initial status
           renderComponent({migration: queuedMigration, updateMigrationItem: mockCallback})
-          // await waitFor(() => expect(doFetchApi.mock.calls).toEqual([[progressHit], [progressHit]]))
           await waitFor(() => {
             expect(mockCallback).toHaveBeenCalled()
             // The initial status should stay

@@ -16,8 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
-import axios from '@canvas/axios'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import doFetchApi from '@canvas/do-fetch-api-effect'
 import React from 'react'
 import {string, func, arrayOf} from 'prop-types'
 import {Tray} from '@instructure/ui-tray'
@@ -25,11 +25,11 @@ import {Heading} from '@instructure/ui-heading'
 import {View} from '@instructure/ui-view'
 import {CloseButton} from '@instructure/ui-buttons'
 
-import {showFlashError} from '@canvas/alerts/react/FlashAlert'
+import {showFlashError} from '@instructure/platform-alerts'
 import {itemShape, moveOptionsType} from './propTypes'
 import MoveSelect from './MoveSelect'
 
-const I18n = useI18nScope('move_item_tray')
+const I18n = createI18nScope('move_item_tray')
 
 export default class MoveItemTray extends React.Component {
   static propTypes = {
@@ -69,11 +69,11 @@ export default class MoveItemTray extends React.Component {
   onMoveSelect = ({order, itemId, groupId, itemIds}) => {
     const saveUrl = this.props.formatSaveUrl({itemId, groupId})
     const promise = saveUrl
-      ? axios.post(saveUrl, this.props.formatSaveData(order))
-      : Promise.resolve({data: order})
+      ? doFetchApi({path: saveUrl, method: 'POST', body: this.props.formatSaveData(order)})
+      : Promise.resolve({json: order})
     promise
       .then(res => {
-        this.props.onMoveSuccess({data: res.data, groupId, itemId, itemIds})
+        this.props.onMoveSuccess({data: res.json, groupId, itemId, itemIds})
         this.close()
       })
       .catch(showFlashError(I18n.t('Move Item Failed')))

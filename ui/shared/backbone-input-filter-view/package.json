@@ -4,7 +4,5 @@
   "version": "1.0.0",
   "author": "neme",
   "main": "./src/index",
-  "dependencies": {
-    "@canvas/backbone-input-view": "*"
-  }
+  "owner": "CFA"
 }

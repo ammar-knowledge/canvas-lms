@@ -21,6 +21,8 @@ module InstFS
   LONG_JWT_EXPIRATION = 10.minutes
   SHORT_JWT_EXPIRATION = 5.minutes
   class << self
+    include ActionView::Helpers::TagHelper
+
     def enabled?
       # true if plugin is enabled AND all settings values are set
       Canvas::Plugin.find("inst_fs").enabled? && !!app_host && !!jwt_secret
@@ -45,7 +47,7 @@ module InstFS
       if !session[:shown_instfs_pixel] && user && enabled?
         session[:shown_instfs_pixel] = true
         pixel_url = login_pixel_url(token: session_jwt(user, oauth_host))
-        %(<img src="#{pixel_url}" alt="" role="presentation" />).html_safe
+        tag.img src: pixel_url, alt: "", role: "presentation"
       end
     end
 
@@ -176,20 +178,29 @@ module InstFS
       # >   file_object: File.open("public/images/a.png")
       # > )
 
-      token = direct_upload_jwt
+      token = direct_upload_jwt(file_object)
       url = "#{app_host}/files?token=#{token}"
 
       data = {}
       data[file_name] = file_object
 
+      intervals = []
+      if file_object.respond_to?(:rewind)
+        intervals << (Rails.env.test? ? 0 : 0.5)
+        intervals << (Rails.env.test? ? 0 : 4.5) if Delayed::Worker.current_job
+      end
+      on_retry = ->(*) { file_object.rewind }
+      response = nil
+
       begin
-        retries ||= 0
-        response = CanvasHttp.post(url, form_data: data, multipart: true, streaming: true)
-      rescue Timeout::Error
-        if file_object.respond_to?(:rewind) && (retries += 1) < 2
-          file_object.rewind
-          retry
+        Canvas.retriable(on: [Timeout::Error, InstFS::RetriableError], intervals:, on_retry:) do |try|
+          response = CanvasHttp.post(url, form_data: data, multipart: true, streaming: true)
+          # retry 5xx errors such as gateway timeouts
+          if try <= intervals.size && response.code.to_i >= 500
+            raise InstFS::RetriableError, "retrying response with code \"#{response.code}\", message \"#{response.body}\""
+          end
         end
+      rescue Timeout::Error
         raise InstFS::ServiceError, "timed out communicating with instfs"
       rescue CanvasHttp::CircuitBreakerError
         raise InstFS::ServiceError, "unable to communicate with instfs"
@@ -265,8 +276,8 @@ module InstFS
       json_response["success"][0]["id"]
     end
 
-    def duplicate_file(instfs_uuid)
-      token = duplicate_file_jwt(instfs_uuid)
+    def duplicate_file(instfs_uuid, new_tenant_auth: nil, tenant_auth: nil)
+      token = duplicate_file_jwt(instfs_uuid, new_tenant_auth:, tenant_auth:)
       url = "#{app_host}/files/#{instfs_uuid}/duplicate?token=#{token}"
 
       response = CanvasHttp.post(url)
@@ -289,6 +300,16 @@ module InstFS
       end
 
       true
+    end
+
+    def get_file_metadata(attachment)
+      token = metadata_file_jwt(attachment)
+      url = metadata_url(attachment, {})
+
+      response = CanvasHttp.get(url, { "Authorization" => "Bearer #{token}" })
+      return JSON.parse(response.body) if response.code.to_i == 200
+
+      raise InstFS::MetadataError, "received code \"#{response.code}\" from service, with message \"#{response.body}\""
     end
 
     private
@@ -395,11 +416,11 @@ module InstFS
         iat:,
         user_id: options[:user]&.global_id&.to_s,
         resource:,
-        jti: SecureRandom.uuid,
         host: options[:oauth_host]
       }
-      original_url = parse_original_url(options[:original_url])
-      claims[:original_url] = original_url if original_url.present?
+      claims[:jti] = SecureRandom.uuid unless options[:no_jti]
+      claims[:tenant_auth] = @token.tenant_auth if @token&.tenant_auth.present?
+      claims[:fallback_url] = options[:fallback_url] if options[:fallback_url].present?
       if options[:acting_as] && options[:acting_as] != options[:user]
         claims[:acting_as_user_id] = options[:acting_as].global_id.to_s
       end
@@ -425,14 +446,17 @@ module InstFS
       service_jwt(claims, LONG_JWT_EXPIRATION)
     end
 
-    def direct_upload_jwt
-      service_jwt({
-                    iat: Time.now.utc.to_i,
-                    user_id: nil,
-                    host: "canvas",
-                    resource: "/files",
-                  },
-                  LONG_JWT_EXPIRATION)
+    def direct_upload_jwt(file_object)
+      claims = {
+        iat: Time.now.utc.to_i,
+        user_id: nil,
+        host: "canvas",
+        resource: "/files",
+      }
+
+      claims[:filesize] = file_object.size if file_object.respond_to?(:size)
+
+      service_jwt(claims, LONG_JWT_EXPIRATION)
     end
 
     def session_jwt(user, host)
@@ -462,12 +486,14 @@ module InstFS
                   SHORT_JWT_EXPIRATION)
     end
 
-    def duplicate_file_jwt(instfs_uuid)
-      service_jwt({
-                    iat: Time.now.utc.to_i,
-                    resource: "/files/#{instfs_uuid}/duplicate"
-                  },
-                  SHORT_JWT_EXPIRATION)
+    def duplicate_file_jwt(instfs_uuid, new_tenant_auth: nil, tenant_auth: nil)
+      jwt_contents = {
+        iat: Time.now.utc.to_i,
+        resource: "/files/#{instfs_uuid}/duplicate"
+      }
+      jwt_contents[:new_tenant_auth] = new_tenant_auth if new_tenant_auth.present?
+      jwt_contents[:tenant_auth] = tenant_auth if tenant_auth.present?
+      service_jwt(jwt_contents, SHORT_JWT_EXPIRATION)
     end
 
     def delete_file_jwt(instfs_uuid)
@@ -478,21 +504,13 @@ module InstFS
                   SHORT_JWT_EXPIRATION)
     end
 
-    def parse_original_url(url)
-      if url
-        uri = Addressable::URI.parse(url)
-        query = (uri.query_values || {}).with_indifferent_access
-        # We only want to redirect once, if the redirect param is present then we already redirected.
-        # In which case we don't send the original_url param again
-        if Canvas::Plugin.value_to_boolean(query[:redirect])
-          nil
-        else
-          query[:redirect] = true
-          query[:no_cache] = true
-          uri.query_values = query
-          uri.to_s
-        end
-      end
+    def metadata_file_jwt(attachment)
+      jwt_contents = {
+        iat: Time.now.utc.to_i,
+        resource: metadata_path(attachment)
+      }
+      jwt_contents[:tenant_auth] = attachment.instfs_tenant_auth if attachment.instfs_tenant_auth.present?
+      service_jwt(jwt_contents, SHORT_JWT_EXPIRATION)
     end
 
     def amend_claims_for_access_token(claims, access_token, root_account)
@@ -534,9 +552,13 @@ module InstFS
     end
   end
 
+  class RetriableError < StandardError; end
+
   class ExportReferenceError < StandardError; end
 
   class DuplicationError < StandardError; end
 
   class DeletionError < StandardError; end
+
+  class MetadataError < StandardError; end
 end

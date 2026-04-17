@@ -28,11 +28,20 @@ const renderBlock = (children: React.ReactNode | null = null) => {
       <Frame>
         <PageBlock>{children}</PageBlock>
       </Frame>
-    </Editor>
+    </Editor>,
   )
 }
 
 describe('PageBlock', () => {
+  beforeEach(() => {
+    // Mock scrollTo for jsdom
+    Element.prototype.scrollTo = vi.fn()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('renders', () => {
     const {container} = renderBlock()
 

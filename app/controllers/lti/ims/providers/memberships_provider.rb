@@ -97,28 +97,37 @@ module Lti::IMS::Providers
 
     def resource_link
       return nil unless rlid?
+      return @resource_link if defined?(@resource_link)
 
-      @resource_link ||= begin
-        rl = Lti::ResourceLink.find_by(resource_link_uuid: rlid)
+      rl = Lti::ResourceLink.find_by(resource_link_uuid: rlid)
+      if rl.present?
         # context here is a decorated context, we want the original
-        if rl.present? && rl.current_external_tool(Lti::IMS::Providers::MembershipsProvider.unwrap(context))&.id != tool.id
+        current_tool = rl.current_external_tool(Lti::IMS::Providers::MembershipsProvider.unwrap(context))
+        # Allow access if IDs match exactly, or if both are from the same LTI 1.3
+        # registration (same developer key) within the same root account. The latter
+        # handles cases where the same registration is installed at multiple context
+        # levels (e.g., course and account), and a resource link created by one
+        # installation is accessed by another. The root_account_id guard prevents
+        # a global/inherited developer key from granting cross-root-account access.
+        unless current_tool &&
+               (current_tool.id == tool.id ||
+                (tool.use_1_3? && tool.developer_key_id.present? &&
+                 current_tool.developer_key_id == tool.developer_key_id &&
+                 current_tool.root_account_id == tool.root_account_id))
           raise Lti::IMS::AdvantageErrors::InvalidResourceLinkIdFilter.new(
             "Tool does not have access to rlid #{rlid}",
             api_message: "Tool does not have access to rlid or rlid does not exist"
           )
         end
-        rl
       end
-    end
 
-    def resource_link?
-      resource_link&.present?
+      @resource_link = rl
     end
 
     def content_tag
-      return nil unless resource_link?
+      return nil unless resource_link
 
-      ContentTag.find_by(associated_asset_id: resource_link&.id)
+      ContentTag.find_by(associated_asset: resource_link)
     end
 
     def role
@@ -132,7 +141,7 @@ module Lti::IMS::Providers
     def queryable_roles(lti_role)
       # Roles represented as Strings are for system and institution roles, which we do not care about for
       # purposes of NRPS filtering by role
-      Lti::SubstitutionsHelper::INVERTED_LIS_V2_LTI_ADVANTAGE_ROLE_MAP[lti_role]&.reject { |r| r.is_a?(String) }
+      Lti::SubstitutionsHelper::INVERTED_LIS_V2_LTI_ADVANTAGE_ROLE_MAP[lti_role]&.grep_v(String)
     end
 
     def nonsense_role_filter?
@@ -141,12 +150,13 @@ module Lti::IMS::Providers
 
     def assignment
       return nil unless rlid?
+      return @assignment if defined?(@assignment)
 
-      @assignment ||= Assignment.active.for_course(course.id)
-                                .joins(line_items: :resource_link)
-                                .where(lti_resource_links: { id: resource_link&.id })
-                                .distinct
-                                .take
+      @assignment = Assignment.active.for_course(course.id)
+                              .joins(line_items: :resource_link)
+                              .where(lti_resource_links: { id: resource_link&.id })
+                              .distinct
+                              .take
     end
 
     def assignment?
@@ -154,7 +164,7 @@ module Lti::IMS::Providers
     end
 
     def validate_tool!
-      raise Lti::IMS::AdvantageErrors::InvalidResourceLinkIdFilter unless resource_link?
+      raise Lti::IMS::AdvantageErrors::InvalidResourceLinkIdFilter unless resource_link
 
       if assignment? && !assignment.external_tool?
         raise Lti::IMS::AdvantageErrors::InvalidResourceLinkIdFilter.new(
@@ -176,7 +186,8 @@ module Lti::IMS::Providers
           api_message: "Requested ResourceLink has an unexpected content type"
         )
       end
-      if tool_tag.content_id != tool.id
+
+      unless tool.can_access_content_tag?(tool_tag)
         raise Lti::IMS::AdvantageErrors::InvalidResourceLinkIdFilter.new(
           "ResourceLink (rlid: #{rlid}) needs binding to external tool #{tool.id} but found #{tool_tag.content_id}",
           api_message: "Requested ResourceLink bound to unexpected external tool"
@@ -189,7 +200,7 @@ module Lti::IMS::Providers
     end
 
     def course_rlid
-      Lti::Asset.opaque_identifier_for(course)
+      Lti::V1p1::Asset.opaque_identifier_for(course)
     end
 
     def find_memberships
@@ -202,8 +213,9 @@ module Lti::IMS::Providers
 
     def preload_enrollments(enrollments)
       user_json_preloads(enrollments.map(&:user),
-                         true,
-                         { accounts: tool.include_name?, pseudonyms: tool.include_name? })
+                         preload_email: true,
+                         accounts: tool.include_name?,
+                         pseudonyms: tool.include_name?)
       enrollments
     end
 

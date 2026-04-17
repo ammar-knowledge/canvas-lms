@@ -22,6 +22,15 @@ module Csp::CourseHelper
     course_class.add_setting :csp_disabled, boolean: true, default: false
   end
 
+  def can_update_csp_settings?(user, session)
+    account.grants_right?(user, session, :manage_courses_admin) && !csp_locked?
+  end
+
+  def can_view_csp_settings?
+    # must be enabled at account level to see course settings
+    root_account.feature_enabled?(:javascript_csp) && account.csp_enabled?
+  end
+
   def csp_enabled?
     account.csp_enabled? && csp_inherited?
   end
@@ -55,7 +64,7 @@ module Csp::CourseHelper
   def cached_tool_domains
     # invalidate when the course is touched
     Rails.cache.fetch(tool_domain_cache_key) do
-      context_external_tools.active.map do |tool|
+      Lti::ContextToolFinder.only_for(self).active.map do |tool|
         Csp::Domain.domains_for_tool(tool)
       end.flatten.compact.uniq
     end

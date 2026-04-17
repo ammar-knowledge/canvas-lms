@@ -34,7 +34,7 @@ describe('LoginAttributeSuffixInput', () => {
   })
 
   it('calls the provided input handler on input', async () => {
-    const handlerMock = jest.fn()
+    const handlerMock = vi.fn()
     const container = setup({
       suffixInputHandler: handlerMock,
     })
@@ -42,7 +42,7 @@ describe('LoginAttributeSuffixInput', () => {
       container.getByRole('textbox', {
         name: /login attribute suffix input area/i,
       }),
-      testSuffix
+      testSuffix,
     )
 
     expect(handlerMock).toHaveBeenCalledTimes(testSuffix.length)
@@ -69,7 +69,7 @@ describe('LoginAttributeSuffixInput', () => {
     expect(
       container.getByRole('textbox', {
         name: /login attribute suffix input area/i,
-      }).value
+      }).value,
     ).toBe(testSuffix)
   })
 })

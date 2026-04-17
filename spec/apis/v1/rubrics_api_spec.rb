@@ -223,7 +223,7 @@ describe "Rubrics API", type: :request do
         create_rubric(@course)
         @user = teacher_in_other_course
         raw_rubric_call(@course)
-        assert_status(401)
+        assert_forbidden
       end
 
       it "returns not found status if rubric belongs to a course other than the one requested for" do
@@ -488,6 +488,13 @@ describe "Rubrics API", type: :request do
         expected_assignments = [{ "id" => assignment.id, "title" => assignment.title }]
         expect(locations.first["assignments"]).to eq expected_assignments
       end
+
+      it "returns not found when provided a nonexistent rubric id" do
+        @user = account_admin_user
+        user_session(@user)
+        get "/api/v1/courses/#{@course.id}/rubrics/999/used_locations", as: :json
+        expect(response).to have_http_status(:not_found)
+      end
     end
 
     describe "upload status in a course" do
@@ -541,6 +548,112 @@ describe "Rubrics API", type: :request do
         account_import = RubricImport.create!(context: @course.root_account, user: @user, workflow_state: "succeeded", root_account: @course.root_account)
         get "/api/v1/courses/#{@course.id}/rubrics/upload/#{account_import.id}"
         expect(response).to have_http_status(:not_found)
+      end
+    end
+
+    describe "download_rubrics" do
+      before :once do
+        course_with_teacher active_all: true
+        create_rubric(@course)
+        @rubric.data = [
+          {
+            points: 3,
+            description: "Criteria row 1",
+            id: 1,
+            ratings: [
+              {
+                points: 3,
+                description: "Rockin'",
+                criterion_id: 1,
+                id: 2
+              },
+              {
+                points: 0,
+                description: "Lame",
+                criterion_id: 1,
+                id: 3
+              }
+            ],
+          },
+          {
+            points: 5,
+            description: "Criteria row",
+            id: 2,
+            ratings: [
+              {
+                points: 5,
+                description: "Rockin'",
+                criterion_id: 2,
+                id: 44
+              },
+              {
+                points: 3,
+                description: "Meh'",
+                criterion_id: 2,
+                id: 55
+              },
+              {
+                points: 0,
+                description: "Lame",
+                criterion_id: 2,
+                id: 66
+              }
+            ]
+          }
+        ]
+        @rubric.save!
+      end
+
+      it "returns the csv file for the selected rubrics" do
+        teacher = teacher_in_course(course: @course, active_all: true).user
+        user_session(teacher)
+        post "/api/v1/courses/#{@course.id}/rubrics/download_rubrics", params: { rubric_ids: [@rubric.id] }
+        expect(response).to be_successful
+        data = response.body.split("\n")
+        expect(data.size).to eq 3
+        expect(data[1]).to eq "Unnamed Course Rubric,Criteria row 1,,,Rockin',,3,Lame,,0"
+        expect(data[2]).to eq "Unnamed Course Rubric,Criteria row,,,Rockin',,5,Meh',,3,Lame,,0"
+      end
+
+      it "returns the csv file if the user has read_rubrics permissions for rubrics" do
+        ta_user = ta_in_course(course: @course, active_all: true).user
+        user_session(ta_user)
+        post "/api/v1/courses/#{@course.id}/rubrics/download_rubrics", params: { rubric_ids: [@rubric.id] }
+        expect(response).to be_successful
+        data = response.body.split("\n")
+        expect(data.size).to eq 3
+        expect(data[1]).to eq "Unnamed Course Rubric,Criteria row 1,,,Rockin',,3,Lame,,0"
+        expect(data[2]).to eq "Unnamed Course Rubric,Criteria row,,,Rockin',,5,Meh',,3,Lame,,0"
+      end
+
+      it "allows teacher to download rubrics after course has concluded" do
+        teacher = teacher_in_course(course: @course, active_all: true).user
+        user_session(teacher)
+        @course.complete!
+        post "/api/v1/courses/#{@course.id}/rubrics/download_rubrics", params: { rubric_ids: [@rubric.id] }
+        expect(response).to be_successful
+        data = response.body.split("\n")
+        expect(data.size).to eq 3
+        expect(data[1]).to eq "Unnamed Course Rubric,Criteria row 1,,,Rockin',,3,Lame,,0"
+        expect(data[2]).to eq "Unnamed Course Rubric,Criteria row,,,Rockin',,5,Meh',,3,Lame,,0"
+      end
+
+      it "returns a 401 error if the user does not have read_rubrics permissions for rubrics" do
+        student = student_in_course(course: @course, active_all: true).user
+        user_session(student)
+        post "/api/v1/courses/#{@course.id}/rubrics/download_rubrics", params: { rubric_ids: [@rubric.id] }
+        expect(response).to have_http_status(:forbidden)
+      end
+
+      it "allows account admin to download rubrics" do
+        account_admin = account_admin_user(account: @course.account)
+        user_session(account_admin)
+        post "/api/v1/courses/#{@course.id}/rubrics/download_rubrics", params: { rubric_ids: [@rubric.id] }
+        expect(response).to be_successful
+        data = response.body.split("\n")
+        expect(data.size).to eq 3
+        expect(data[1]).to eq "Unnamed Course Rubric,Criteria row 1,,,Rockin',,3,Lame,,0"
+        expect(data[2]).to eq "Unnamed Course Rubric,Criteria row,,,Rockin',,5,Meh',,3,Lame,,0"
       end
     end
   end
@@ -716,6 +829,35 @@ describe "Rubrics API", type: :request do
         expected_assignments = [{ "id" => assignment.id, "title" => assignment.title }]
         expect(locations.first["assignments"]).to eq expected_assignments
       end
+
+      it "does not include assignments from deleted courses in used locations" do
+        @user = account_admin_user
+        user_session(@user)
+
+        # Create a second course
+        course2 = Course.create!(account: @account, name: "Course 2")
+        course2.offer!
+
+        # Create assignments in both courses
+        active_assignment = @course.assignments.create(title: "Active Assignment")
+        deleted_course_assignment = course2.assignments.create(title: "Deleted Course Assignment")
+
+        # Associate rubric with both assignments
+        create_rubric(@account, {}, active_assignment)
+        @rubric.associate_with(deleted_course_assignment, course2, purpose: "grading")
+
+        # Delete the second course
+        course2.destroy
+
+        get "/api/v1/accounts/#{@account.id}/rubrics/#{@rubric.id}/used_locations", as: :json
+        locations = response.parsed_body
+
+        expect(locations.size).to eq(1)
+        expect(locations.first["id"]).to eq(@course.id)
+        expect(locations.first["assignments"].size).to eq(1)
+        expect(locations.first["assignments"].first["id"]).to eq(active_assignment.id)
+        expect(locations.first["assignments"].first["title"]).to eq("Active Assignment")
+      end
     end
 
     describe "upload status in an account" do
@@ -760,6 +902,35 @@ describe "Rubrics API", type: :request do
         expect(rubric_import["workflow_state"]).to eq "succeeded"
         expect(rubric_import["account_id"]).to eq @course.root_account_id
         expect(rubric_import["id"]).to eq new_import.id
+      end
+    end
+
+    describe "download_rubrics" do
+      before :once do
+        @account = Account.default
+        @user = account_admin_user(account: @account)
+        @rubric = Rubric.create!(context: @account, title: "Account Rubric")
+        @rubric.data = [
+          {
+            points: 3,
+            description: "Criteria row 1",
+            id: 1,
+            ratings: [
+              { description: "Rockin'", points: 3, id: 45 },
+              { description: "Lame", points: 0, id: 46 }
+            ]
+          }
+        ]
+        @rubric.save!
+      end
+
+      it "allows account admin to download rubrics at account level" do
+        user_session(@user)
+        post "/api/v1/accounts/#{@account.id}/rubrics/download_rubrics", params: { rubric_ids: [@rubric.id] }
+        expect(response).to be_successful
+        data = response.body.split("\n")
+        expect(data.size).to eq 2
+        expect(data[1]).to eq "Account Rubric,Criteria row 1,,,Rockin',,3,Lame,,0"
       end
     end
   end

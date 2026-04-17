@@ -41,6 +41,175 @@ describe DiscussionEntry do
     it "sets the root_account_id using topic" do
       expect(entry.root_account_id).to eq topic.root_account_id
     end
+
+    it "generates an lti_id if not provided" do
+      expect(entry.lti_id).to be_present
+    end
+
+    it "does not overwrite a provided lti_id" do
+      custom_id = SecureRandom.uuid
+      e = topic.discussion_entries.create!(user: @teacher, lti_id: custom_id)
+      expect(e.lti_id).to eq custom_id
+    end
+
+    it "cannot update lti_id once set" do
+      entry # trigger creation
+      original = entry.lti_id
+      expect(original).to be_present
+      # attempt update
+      expect do
+        entry.update(lti_id: SecureRandom.uuid)
+      end.not_to change { entry.reload.lti_id }
+      expect(entry.errors[:lti_id]).to include("Cannot change lti_id!")
+    end
+
+    context "LTI asset processor notifications" do
+      before do
+        course_with_teacher(active_all: true)
+        course_with_student(active_all: true, course: @course)
+      end
+
+      let(:graded_topic) { DiscussionTopic.create_graded_topic!(course: @course, title: "Graded Discussion") }
+      let(:regular_topic) { discussion_topic_model(course: @course) }
+
+      def expect_notification(expected_user:, expected_status: Lti::Pns::LtiAssetProcessorContributionNoticeBuilder::SUBMITTED)
+        expect(Lti::AssetProcessorDiscussionNotifier).to receive(:notify_asset_processors_of_discussion) do |current_user:, discussion_entry_versions:, assignment:, contribution_status:, **|
+          expect(current_user).to eq expected_user
+          expect(discussion_entry_versions).to be_an(Array)
+          expect(discussion_entry_versions.first).to be_a(DiscussionEntryVersion)
+          expect(assignment).to eq graded_topic.assignment
+          expect(contribution_status).to eq expected_status
+        end
+      end
+
+      def expect_no_notification
+        expect(Lti::AssetProcessorDiscussionNotifier).not_to receive(:notify_asset_processors_of_discussion)
+      end
+
+      shared_examples "does not send notifications" do
+        it "does not send notification for non-graded discussions" do
+          expect_no_notification
+          perform_action_on_regular_topic
+        end
+
+        it "does not send notification when user context is missing" do
+          expect_no_notification
+          perform_action_without_user_context
+        end
+      end
+
+      describe "on create" do
+        def perform_action_on_regular_topic
+          entry = regular_topic.discussion_entries.build(user: @student, message: "test message")
+          entry.saving_user = @student
+          entry.save!
+        end
+
+        def perform_action_without_user_context
+          graded_topic.discussion_entries.create!(user: @student, message: "test message")
+        end
+
+        it "sends notification for graded discussion entries when saving_user is set" do
+          expect_notification(expected_user: @student)
+          entry = graded_topic.discussion_entries.build(user: @student, message: "test message")
+          entry.saving_user = @student
+          entry.save!
+        end
+
+        it_behaves_like "does not send notifications"
+      end
+
+      describe "on update" do
+        def perform_action_on_regular_topic
+          entry = regular_topic.discussion_entries.create!(user: @student, message: "original message")
+          entry.saving_user = @student
+          entry.update!(message: "updated message")
+        end
+
+        def perform_action_without_user_context
+          entry = graded_topic.discussion_entries.create!(user: @student, message: "original message")
+          entry.update!(message: "updated message")
+        end
+
+        it "sends notification for graded discussion entries when saving_user is set" do
+          entry = graded_topic.discussion_entries.create!(user: @student, message: "original message")
+          expect_notification(expected_user: @student)
+          entry.saving_user = @student
+          entry.update!(message: "updated message")
+        end
+
+        it "sends notification for teacher updates" do
+          entry = graded_topic.discussion_entries.create!(user: @teacher, message: "original message")
+          expect_notification(expected_user: @teacher)
+          entry.saving_user = @teacher
+          entry.update!(message: "updated message")
+        end
+
+        it "does not send notification when no relevant fields change" do
+          entry = graded_topic.discussion_entries.create!(user: @student, message: "test message")
+          expect_no_notification
+          entry.saving_user = @student
+          entry.update!(edited_at: Time.current)
+        end
+
+        it "sends notification when attachment changes" do
+          attachment = Attachment.create!(context: @course, user: @student, filename: "test.txt", uploaded_data: StringIO.new("test"))
+          entry = graded_topic.discussion_entries.create!(user: @student, message: "test message")
+          expect_notification(expected_user: @student)
+          entry.saving_user = @student
+          entry.update!(attachment:)
+        end
+
+        it_behaves_like "does not send notifications"
+      end
+
+      describe "on destroy" do
+        def perform_action_on_regular_topic
+          entry = regular_topic.discussion_entries.create!(user: @student, message: "test message")
+          entry.editor_id = @teacher.id
+          entry.destroy
+        end
+
+        def perform_action_without_user_context
+          entry = graded_topic.discussion_entries.create!(user: @student, message: "test message")
+          entry.destroy
+        end
+
+        it "sends notification for graded discussion entries when editor_id is set" do
+          entry = graded_topic.discussion_entries.create!(user: @student, message: "test message")
+          expect_notification(expected_user: @teacher, expected_status: Lti::Pns::LtiAssetProcessorContributionNoticeBuilder::DELETED)
+          entry.editor_id = @teacher.id
+          entry.destroy
+        end
+
+        it_behaves_like "does not send notifications"
+      end
+
+      describe "on restore" do
+        def perform_action_on_regular_topic
+          entry = regular_topic.discussion_entries.create!(user: @student, message: "test message")
+          entry.destroy
+          entry.saving_user = @teacher
+          entry.restore
+        end
+
+        def perform_action_without_user_context
+          entry = graded_topic.discussion_entries.create!(user: @student, message: "test message")
+          entry.destroy
+          entry.restore
+        end
+
+        it "sends notification for graded discussion entries when saving_user is set" do
+          entry = graded_topic.discussion_entries.create!(user: @student, message: "test message")
+          entry.destroy
+          expect_notification(expected_user: @teacher)
+          entry.saving_user = @teacher
+          entry.restore
+        end
+
+        it_behaves_like "does not send notifications"
+      end
+    end
   end
 
   it "is not marked as deleted when parent is deleted" do
@@ -95,7 +264,7 @@ describe DiscussionEntry do
     end
 
     before do
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
     end
 
     let(:student) { student_in_course(active_all: true).user }
@@ -107,7 +276,7 @@ describe DiscussionEntry do
       expect { entry.save! }.to change { entry.mentions.count }.from(0).to(1)
       expect(entry.mentions.take.user_id).to eq mentioned_student.id
       expect(entry.mentioned_users.count).to eq 1
-      expect(InstStatsd::Statsd).to have_received(:increment).with("discussion_entry.created").at_least(:once)
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("discussion_entry.created").at_least(:once)
     end
 
     describe "edits to an entry" do
@@ -265,6 +434,19 @@ describe DiscussionEntry do
       expect(BroadcastPolicy.notifier).to receive(:send_notification).once
       entry.broadcast_report_notification("hello I have been reported")
     end
+
+    it "sends notification to teacher when a reply is reported in a group discussion" do
+      @course.root_account.enable_feature!(:discussions_reporting)
+      group(group_context: @course)
+      @group.participating_users << @student
+      @group.save!
+
+      topic = @group.discussion_topics.create!(user: @teacher, message: "This is an important announcement")
+      topic.subscribe(@student)
+      entry = topic.discussion_entries.create!(user: @teacher, message: "Oh, and another thing...")
+      expect(BroadcastPolicy.notifier).to receive(:send_notification).once
+      entry.broadcast_report_notification("hello I have been reported")
+    end
   end
 
   context "sub-topics" do
@@ -321,6 +503,10 @@ describe DiscussionEntry do
 
     it "does not update last_reply_at on the associated discussion_topic if less than a minute" do
       fresh_topic = @course.discussion_topics.create!(title: "title", message: "fresh")
+
+      first_entry = fresh_topic.discussion_entries.create!(message: "first", user: @user)
+      first_entry.update_topic
+      fresh_topic.reload
       initial_last_reply_at = fresh_topic.last_reply_at
 
       entry = fresh_topic.discussion_entries.create!(message: "entry", user: @user)
@@ -332,6 +518,10 @@ describe DiscussionEntry do
 
     it "leaves last_reply_at on the associated discussion_topic alone given an older entry" do
       fresh_topic = @course.discussion_topics.create!(title: "title", message: "fresh")
+
+      first_entry = fresh_topic.discussion_entries.create!(message: "first", user: @user)
+      first_entry.update_topic
+      fresh_topic.reload
       initial_last_reply_at = fresh_topic.last_reply_at
 
       entry = fresh_topic.discussion_entries.create!(message: "entry", user: @user)
@@ -383,7 +573,7 @@ describe DiscussionEntry do
       assignment = @course.assignments.create!(title: @topic.title, submission_types: "discussion_topic")
       topic = @course.discussion_topics.create!(title: "title", message: "message", user: @teacher, assignment:)
       entry = topic.discussion_entries.create!(message: "entry", user: @teacher)
-      expect { entry.destroy }.to_not raise_error
+      expect { entry.destroy }.not_to raise_error
     end
 
     it "decrements unread topic counts" do
@@ -399,6 +589,52 @@ describe DiscussionEntry do
       # delete final 'read' entry
       @entry_2.destroy
       expect(@topic.unread_count(@reader)).to eq 0
+    end
+  end
+
+  context "discussion checkpoints" do
+    before do
+      Account.site_admin.enable_feature!(:react_discussions_post)
+      course_with_student(active_all: true)
+      @course.root_account.enable_feature!(:discussion_checkpoints)
+
+      @checkpointed_discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+      @replies_required = 3
+
+      @reply_to_topic_checkpoint = Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: @checkpointed_discussion,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: 2.days.from_now }],
+        points_possible: 3
+      )
+      @reply_to_entry_checkpint = Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: @checkpointed_discussion,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "everyone", due_at: 3.days.from_now }],
+        points_possible: 9,
+        replies_required: @replies_required
+      )
+    end
+
+    describe "#update_topic_submission" do
+      it "doesnt break if dt.assignment.has_sub_assignments && dt.assignment.sub_assignments.empty?" do
+        entry = @checkpointed_discussion.discussion_entries.create!(message: "hello", user: @user)
+        # create the error state where dt.assignment.has_sub_assignments == true, but dt.assignment.sub_assignments == []
+        # in this case it's through discussion_topic&.assignment&.checkpoints_parent?
+        dt_assignment = @checkpointed_discussion.assignment
+        dt_sub_assignments = @checkpointed_discussion.assignment.sub_assignments
+        sub1 = dt_sub_assignments.first
+        sub2 = dt_sub_assignments.last
+        sub1.workflow_state = "deleted"
+        sub1.save(validate: false)
+        sub2.workflow_state = "deleted"
+        sub2.save(validate: false)
+        dt_assignment.reload
+        dt_assignment.has_sub_assignments = true
+        dt_assignment.save(validate: false)
+
+        expect { entry.destroy }.not_to raise_error
+      end
     end
   end
 
@@ -445,7 +681,7 @@ describe DiscussionEntry do
         @entry2.change_read_state("read", @student)
 
         # Notice we read the entries 1 min after the the query issues
-        expect(DiscussionEntry.unread_for_user_before(@student, Time.utc(2013, 3, 13, 10, 11)).order("id").map(&:message)).to eq(["entry 2", "entry 3"])
+        expect(DiscussionEntry.unread_for_user_before(@student, Time.utc(2013, 3, 13, 10, 11)).order(:id).map(&:message)).to eq(["entry 2", "entry 3"])
       end
     end
   end
@@ -596,18 +832,7 @@ describe DiscussionEntry do
       course_with_teacher
     end
 
-    it "forces a root entry as parent if the discussion isn't threaded" do
-      discussion_topic_model
-      root = @topic.reply_from(user: @teacher, text: "root entry")
-      sub1 = root.reply_from(user: @teacher, html: "sub entry")
-      expect(sub1.parent_entry).to eq root
-      expect(sub1.root_entry).to eq root
-      sub2 = sub1.reply_from(user: @teacher, html: "sub-sub entry")
-      expect(sub2.parent_entry).to eq root
-      expect(sub2.root_entry).to eq root
-    end
-
-    it "allows a sub-entry as parent if the discussion is threaded" do
+    it "allows a sub-entry as parent" do
       discussion_topic_model(threaded: true)
       root = @topic.reply_from(user: @teacher, text: "root entry")
       sub1 = root.reply_from(user: @teacher, html: "sub entry")
@@ -636,7 +861,7 @@ describe DiscussionEntry do
       topic_with_nested_replies
     end
 
-    context ".read_entry_ids" do
+    describe ".read_entry_ids" do
       it "returns the ids of the read entries" do
         @root2.change_read_state("read", @teacher)
         @reply_reply1.change_read_state("read", @teacher)
@@ -649,7 +874,7 @@ describe DiscussionEntry do
       end
     end
 
-    context ".forced_read_state_entry_ids" do
+    describe ".forced_read_state_entry_ids" do
       it "returns the ids of entries that have been marked as force_read_state" do
         marked_entries = [@root2, @reply_reply1, @reply_reply2, @reply3]
         marked_entries.each do |e|
@@ -666,7 +891,7 @@ describe DiscussionEntry do
       end
     end
 
-    context ".find_existing_participant" do
+    describe ".find_existing_participant" do
       it "returns existing data" do
         @root2.change_read_state("read", @teacher, forced: true)
         participant = @root2.find_existing_participant(@teacher)
@@ -873,15 +1098,25 @@ describe DiscussionEntry do
           entry = @topic.discussion_entries.create!(message: "entry", user: @teacher)
           expect(entry.grants_right?(@teacher, :reply)).to be false
         end
-      end
 
-      context "when a user is no longer enrolled in the course" do
-        before do
-          create_enrollment(topic.course, user, { enrollment_state: "completed" })
-        end
+        context "group discussion" do
+          it "reply permission is true if the discussion is threaded" do
+            group(group_context: @course)
+            @group.save!
 
-        it "returns false for their own posts" do
-          expect(entry.grants_right?(user, :reply)).to be false
+            topic = @group.discussion_topics.create!(user: @teacher, message: "Hi there", discussion_type: "threaded")
+            entry = topic.discussion_entries.create!(message: "entry", user: @teacher)
+            expect(entry.grants_right?(@teacher, :reply)).to be true
+          end
+
+          it "reply permission is false if the discussion is not threaded" do
+            group(group_context: @course)
+            @group.save!
+
+            topic = @group.discussion_topics.create!(user: @teacher, message: "Hi there", discussion_type: "not_threaded")
+            entry = topic.discussion_entries.create!(message: "entry", user: @teacher)
+            expect(entry.grants_right?(@teacher, :reply)).to be false
+          end
         end
       end
 
@@ -1075,10 +1310,101 @@ describe DiscussionEntry do
     reply3 = reply1.reply_from(user: @teacher, html: "sub-sub sibling entry")
     reply4 = reply2.reply_from(user: @teacher, html: "sub-sub-sub entry")
 
-    expect(root.depth).to eq 1
-    expect(reply1.depth).to eq 2
-    expect(reply2.depth).to eq 3
-    expect(reply3.depth).to eq 3
-    expect(reply4.depth).to eq 4
+    expect(root.depth).to be 1
+    expect(reply1.depth).to be 2
+    expect(reply2.depth).to be 3
+    expect(reply3.depth).to be 3
+    expect(reply4.depth).to be 4
+  end
+
+  describe "edited_at" do
+    it "returns null if no change to the title or message occurred" do
+      topic = discussion_topic_model
+      root = topic.reply_from(user: @teacher, text: "root entry")
+      expect(root.edited_at).to be_nil
+      root.depth = 3
+      root.save!
+      expect(root.edited_at).to be_nil
+    end
+
+    it "returns not null if a change to the message occured" do
+      topic = discussion_topic_model
+      root = topic.reply_from(user: @teacher, text: "root entry")
+      expect(root.edited_at).to be_nil
+      root.message = "Brand new shinny message"
+      root.save!
+      expect(root.edited_at).not_to be_nil
+    end
+  end
+
+  describe "validate_pin_type" do
+    let(:entry) do
+      topic.discussion_entries.build(
+        user: @teacher,
+        message: "Reply entry"
+      )
+    end
+    let(:topic) { @course.discussion_topics.create!(user: @teacher, message: "Test topic") }
+
+    before(:once) do
+      course_with_teacher(active_all: true)
+    end
+
+    it "allows 'reply' pin_type" do
+      entry.pin_type = DiscussionEntry::PinningTypes::REPLY
+      expect(entry).to be_valid
+    end
+
+    it "allows nil pin_type" do
+      entry.pin_type = nil
+      expect(entry).to be_valid
+    end
+
+    it "adds an error for invalid pin type" do
+      entry.pin_type = "invalid_type"
+      expect(entry).not_to be_valid
+      expect(entry.errors[:pin_type]).to include("Invalid pin type")
+    end
+
+    context "when pin_type is 'thread' on a non-top-level entry" do
+      it "adds an error when trying to pin a reply as thread" do
+        parent_entry = topic.discussion_entries.create!(user: @teacher, message: "Parent entry")
+        child_entry = topic.discussion_entries.build(
+          user: @teacher,
+          message: "Child entry",
+          parent_entry:,
+          pin_type: DiscussionEntry::PinningTypes::THREAD
+        )
+        expect(child_entry).not_to be_valid
+        expect(child_entry.errors[:pin_type]).to include("Pin type 'thread' can only be used for top-level entries")
+      end
+
+      it "allows 'thread' pin_type for top-level entries" do
+        entry.pin_type = DiscussionEntry::PinningTypes::THREAD
+        expect(entry).to be_valid
+      end
+    end
+
+    context "when maximum number of pinned entries is reached" do
+      before do
+        DiscussionTopic::MAX_ENTRIES_PINNED.times do |i|
+          topic.discussion_entries.create!(
+            user: @teacher,
+            message: "Pinned entry #{i}",
+            pin_type: DiscussionEntry::PinningTypes::REPLY
+          )
+        end
+      end
+
+      it "adds an error when trying to pin more than MAX_ENTRIES_PINNED entries" do
+        limit_entry = topic.discussion_entries.build(
+          user: @teacher,
+          message: "One too many",
+          pin_type: DiscussionEntry::PinningTypes::REPLY
+        )
+        expect(limit_entry).not_to be_valid
+        expect(limit_entry.errors[:base]).to include("Discussion topic has too many pinned entries")
+      end
+    end
   end
 end

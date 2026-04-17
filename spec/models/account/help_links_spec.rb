@@ -22,10 +22,6 @@ describe Account::HelpLinks do
   let(:account) { Account.create! }
   let(:subject) { Account::HelpLinks.new(account) }
 
-  before do
-    Account.site_admin.enable_feature! :featured_help_links
-  end
-
   describe ".instantiate_links" do
     it "calls procs" do
       links = [{ text: -> { "abc" } }]
@@ -59,7 +55,7 @@ describe Account::HelpLinks do
       links = [{ type: "default", id: "instructor_question", available_to: ["user"] }]
       translated = subject.map_default_links(links)
       expect(translated.first[:text].call).to eq "Ask Your Instructor a Question"
-      expect(translated.first[:subtext].call).to eq "Questions are submitted to your instructor"
+      expect(translated.first[:subtext].call).to eq "Questions are submitted to your instructor."
       expect(translated.first[:url]).to eq "#teacher_feedback"
     end
 
@@ -76,6 +72,18 @@ describe Account::HelpLinks do
       translated = subject.map_default_links(links)
       expect(translated.first).to eq({ type: "default", text: "bob", available_to: ["user"] })
     end
+
+    it "drops default-type links with no text whose definition no longer exists" do
+      links = [{ type: "default", id: :obsolete_link, available_to: ["user"] }]
+      translated = subject.map_default_links(links)
+      expect(translated).to be_empty
+    end
+
+    it "keeps default-type links with custom text even if their definition no longer exists" do
+      links = [{ type: "default", id: :obsolete_link, text: "Our Bot", available_to: ["user"] }]
+      translated = subject.map_default_links(links)
+      expect(translated.first[:text]).to eq "Our Bot"
+    end
   end
 
   describe ".process_links_before_save" do
@@ -86,15 +94,16 @@ describe Account::HelpLinks do
     end
 
     it "removes default values from default links" do
-      links = account.help_links.first(3).deep_dup
+      links = account.help_links.sort_by { |a| a[:id] }.deep_dup
       updates = [
         { text: "this is new text", subtext: "this is new subtext" },
         { url: "this is a new url" },
-        { feature_headline: "this is a new headline", is_new: true }
+        { feature_headline: "this is a new headline", is_new: true },
+        { url: "yet another new url" }
       ]
       links.zip(updates).each { |link, update| link.merge!(update) }
 
-      processed = subject.process_links_before_save(links)
+      processed = subject.process_links_before_save(links).sort_by { |a| a[:id] }
       non_trivial_text = processed.map { |link| link.slice(:text, :subtext, :url, :feature_headline, :is_new).compact }
       expect(non_trivial_text).to eq updates
     end
@@ -117,22 +126,13 @@ describe Account::HelpLinks do
     end
   end
 
-  describe "with featured_help_links disabled" do
-    it "does not return featured_help_links fields" do
-      Account.site_admin.disable_feature! :featured_help_links
-      links = account.help_links
-      links.each do |link|
-        expect(link).not_to have_key(:is_featured)
-        expect(link).not_to have_key(:is_new)
-        expect(link).not_to have_key(:feature_headline)
-      end
-    end
-
-    it "does not return a link for covid resources" do
-      Account.site_admin.disable_feature! :featured_help_links
-      links = account.help_links
-      link_ids = links.pluck(:id)
-      expect(link_ids).not_to include(:covid)
+  describe "#default_links" do
+    it "includes ada chatbot link when feature flag is enabled" do
+      account.root_account.enable_feature!(:ada_chatbot)
+      default_links = subject.default_links(filter: false)
+      ada_link = default_links.find { |link| link[:id] == :ada_chatbot }
+      expect(ada_link).to be_present
+      expect(ada_link[:url]).to eq("#ada_chatbot")
     end
   end
 end

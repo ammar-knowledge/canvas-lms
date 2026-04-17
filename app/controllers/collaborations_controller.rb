@@ -154,19 +154,20 @@ class CollaborationsController < ApplicationController
     @etherpad_only = Collaboration.collaboration_types.length == 1 &&
                      Collaboration.collaboration_types[0]["type"] == "etherpad"
     @hide_create_ui = @sunsetting_etherpad && @etherpad_only
-    js_env TITLE_MAX_LEN: Collaboration::TITLE_MAX_LENGTH,
-           CAN_MANAGE_GROUPS:
+    js_env({
+             TITLE_MAX_LEN: Collaboration::TITLE_MAX_LENGTH,
+             CAN_MANAGE_GROUPS:
              @context.grants_any_right?(
                @current_user,
                session,
-               :manage_groups,
                *RoleOverride::GRANULAR_MANAGE_GROUPS_PERMISSIONS
              ),
-           collaboration_types: Collaboration.collaboration_types,
-           POTENTIAL_COLLABORATORS_URL:
+             collaboration_types: Collaboration.collaboration_types,
+             POTENTIAL_COLLABORATORS_URL:
              polymorphic_url([:api_v1, @context, :potential_collaborators])
-
+           })
     set_tutorial_js_env
+    page_has_instui_topnav
   end
 
   # @API List collaborations
@@ -191,7 +192,7 @@ class CollaborationsController < ApplicationController
                                    .eager_load(:user)
                                    .where(type: "ExternalToolCollaboration")
 
-    unless @context.grants_any_right?(@current_user, session, :manage_content, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
+    unless @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
       where_collaborators = Collaboration.arel_table[:user_id].eq(@current_user&.id)
                                          .or(Collaborator.arel_table[:user_id].eq(@current_user&.id))
       if @context.instance_of?(Course)
@@ -225,7 +226,7 @@ class CollaborationsController < ApplicationController
           @collaboration.authorize_user(@current_user)
           log_asset_access(@collaboration, "collaborations", "other", "participate")
           url = if @collaboration.is_a? ExternalToolCollaboration
-                  tool = ContextExternalTool.find_external_tool(@collaboration.url, @context)
+                  tool = Lti::ToolFinder.from_url(@collaboration.url, @context)
                   @collaboration.migrate_to_1_3_if_needed!(tool)
                   resource_link_lookup_uuid = @collaboration.resource_link_lookup_uuid if tool.use_1_3?
 
@@ -269,12 +270,14 @@ class CollaborationsController < ApplicationController
 
     if @context.instance_of? Group
       parent_context = @context.context
-      js_env PARENT_CONTEXT: {
-        context_asset_string: parent_context.try(:asset_string)
-      }
+      js_env({
+               PARENT_CONTEXT: {
+                 context_asset_string: parent_context.try(:asset_string)
+               }
+             })
     end
 
-    js_env CREATE_PERMISSION: @context.grants_right?(@current_user, :create_collaborations)
+    js_env({ CREATE_PERMISSION: @context.grants_right?(@current_user, :create_collaborations) })
 
     set_tutorial_js_env
 
@@ -460,7 +463,7 @@ class CollaborationsController < ApplicationController
 
     if (tool_id = params[:tool_id]).present?
       # Make sure we are using a tool compatible with this URL and that the user can access
-      tool = ContextExternalTool.find_external_tool(collaboration.url, @context, tool_id, only_1_3: true)
+      tool = Lti::ToolFinder.from_url(collaboration.url, @context, preferred_tool_id: tool_id, only_1_3: true)
       raise NoCompatibleTool unless tool
 
       if collaboration.resource_link_lookup_uuid

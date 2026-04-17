@@ -17,8 +17,8 @@
  */
 
 import React from 'react'
-import {MockedProvider} from '@apollo/react-testing'
-import {render as realRender, act, fireEvent} from '@testing-library/react'
+import {MockedProvider} from '@apollo/client/testing'
+import {cleanup, render as realRender, act, fireEvent} from '@testing-library/react'
 import {
   accountMocks,
   smallOutcomeTree,
@@ -26,18 +26,23 @@ import {
   groupMocks,
 } from '@canvas/outcomes/mocks/Management'
 import OutcomesContext from '@canvas/outcomes/react/contexts/OutcomesContext'
-import {createCache} from '@canvas/apollo'
+import {createCache} from '@canvas/apollo-v3'
 import OutcomeMoveModal from '../OutcomeMoveModal'
-import * as FlashAlert from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert} from '@instructure/platform-alerts'
 
-jest.mock('@canvas/alerts/react/FlashAlert')
-jest.useFakeTimers()
+vi.mock('@instructure/platform-alerts', async () => {
+  const actual = await vi.importActual('@instructure/platform-alerts')
+  return {
+    ...actual,
+    showFlashAlert: vi.fn(),
+  }
+})
+vi.useFakeTimers()
 
 describe('OutcomeMoveModal', () => {
   let cache
   let onCloseHandlerMock
   let onCleanupHandlerMock
-  let showFlashAlertSpy
   let defaultMocks
   const generateOutcomes = (num, parentGroupId = '100') =>
     new Array(num).fill(0).reduce(
@@ -51,7 +56,7 @@ describe('OutcomeMoveModal', () => {
           parentGroupId,
         },
       }),
-      {}
+      {},
     )
 
   const defaultProps = (props = {}) => ({
@@ -68,9 +73,8 @@ describe('OutcomeMoveModal', () => {
 
   beforeEach(() => {
     cache = createCache()
-    onCloseHandlerMock = jest.fn()
-    onCleanupHandlerMock = jest.fn()
-    showFlashAlertSpy = jest.spyOn(FlashAlert, 'showFlashAlert')
+    onCloseHandlerMock = vi.fn()
+    onCleanupHandlerMock = vi.fn()
     defaultMocks = [
       ...accountMocks({childGroupsCount: 0}),
       ...groupMocks({
@@ -84,7 +88,9 @@ describe('OutcomeMoveModal', () => {
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
+    cleanup()
+    cache.reset()
   })
 
   const render = (
@@ -95,81 +101,86 @@ describe('OutcomeMoveModal', () => {
       rootOutcomeGroup = {id: '100'},
       mocks = defaultMocks,
       treeBrowserRootGroupId = '1',
-    } = {}
+    } = {},
   ) => {
     return realRender(
       <OutcomesContext.Provider
         value={{env: {contextType, contextId, rootOutcomeGroup, treeBrowserRootGroupId}}}
       >
-        <MockedProvider cache={cache} mocks={mocks}>
-          {children}
-        </MockedProvider>
-      </OutcomesContext.Provider>
+        <MockedProvider mocks={mocks}>{children}</MockedProvider>
+      </OutcomesContext.Provider>,
     )
   }
 
   it('renders component with customized outcome title if single outcome provided', async () => {
     const {getByText} = render(<OutcomeMoveModal {...defaultProps()} />)
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(getByText('Move "Outcome 101"?')).toBeInTheDocument()
   })
 
   it('renders component with generic outcome title if multiple outcomes provided', async () => {
     const {getByText} = render(
-      <OutcomeMoveModal {...defaultProps({outcomes: generateOutcomes(2)})} />
+      <OutcomeMoveModal {...defaultProps({outcomes: generateOutcomes(2)})} />,
     )
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(getByText('Move 2 Outcomes?')).toBeInTheDocument()
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('shows modal if open prop true', async () => {
     const {getByText} = render(<OutcomeMoveModal {...defaultProps()} />)
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(getByText('Cancel')).toBeInTheDocument()
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('does not show modal if open prop false', async () => {
     const {queryByText} = render(<OutcomeMoveModal {...defaultProps({isOpen: false})} />)
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(queryByText('Cancel')).not.toBeInTheDocument()
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('calls onCloseHandlerMock on Close button click', async () => {
     const {getByText} = render(<OutcomeMoveModal {...defaultProps()} />)
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     const closeBtn = getByText('Close')
     fireEvent.click(closeBtn)
     expect(onCloseHandlerMock).toHaveBeenCalledTimes(1)
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('calls onCloseHandlerMock on Cancel button click', async () => {
     const {getByText} = render(<OutcomeMoveModal {...defaultProps()} />)
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     const closeBtn = getByText('Cancel')
     fireEvent.click(closeBtn)
     expect(onCloseHandlerMock).toHaveBeenCalledTimes(1)
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('enables the move button by default', async () => {
     const {getByText} = render(<OutcomeMoveModal {...defaultProps()} />, {
       mocks: [...smallOutcomeTree()],
     })
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(getByText('Move').closest('button')).toBeEnabled()
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('enables the move button when a child group is selected', async () => {
     const {getByText} = render(<OutcomeMoveModal {...defaultProps()} />, {
       mocks: [...defaultMocks, ...smallOutcomeTree()],
     })
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     fireEvent.click(getByText('Account folder 1'))
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(getByText('Move').closest('button')).toBeEnabled()
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('single move: displays flash confirmation and calls onSuccess if move outcomes request succeeds for', async () => {
-    const onSuccess = jest.fn()
+    const onSuccess = vi.fn()
     const {getByText} = render(<OutcomeMoveModal {...defaultProps({onSuccess})} />, {
       mocks: [
         ...defaultMocks,
@@ -177,12 +188,12 @@ describe('OutcomeMoveModal', () => {
         moveOutcomeMock({outcomeLinkIds: ['1']}),
       ],
     })
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Account folder 1'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Move'))
-    await act(async () => jest.runOnlyPendingTimers())
-    expect(showFlashAlertSpy).toHaveBeenCalledWith({
+    await act(async () => vi.runOnlyPendingTimers())
+    expect(showFlashAlert).toHaveBeenCalledWith({
       message: '"Outcome 101" has been moved to "Account folder 1".',
       type: 'success',
     })
@@ -193,6 +204,7 @@ describe('OutcomeMoveModal', () => {
     })
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('single move: displays flash error if move outcomes request fails', async () => {
     const {getByText} = render(<OutcomeMoveModal {...defaultProps()} />, {
       mocks: [
@@ -204,17 +216,18 @@ describe('OutcomeMoveModal', () => {
         }),
       ],
     })
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Account folder 1'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Move'))
-    await act(async () => jest.runOnlyPendingTimers())
-    expect(showFlashAlertSpy).toHaveBeenCalledWith({
+    await act(async () => vi.runOnlyPendingTimers())
+    expect(showFlashAlert).toHaveBeenCalledWith({
       message: 'An error occurred while moving this outcome. Please try again.',
       type: 'error',
     })
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it("single move: disables Move button if the outcome's parent is selected", async () => {
     const {getByText} = render(
       <OutcomeMoveModal {...defaultProps({outcomes: generateOutcomes(1, '101')})} />,
@@ -224,13 +237,14 @@ describe('OutcomeMoveModal', () => {
           ...smallOutcomeTree('Account'),
           moveOutcomeMock({outcomeLinkIds: ['1']}),
         ],
-      }
+      },
     )
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Account folder 1'))
     expect(getByText('Move').closest('button')).toBeDisabled()
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it("bulk move: enables Move button even if an outcome's parent is selected", async () => {
     const {getByText} = render(
       <OutcomeMoveModal {...defaultProps({outcomes: generateOutcomes(2, '101')})} />,
@@ -240,27 +254,28 @@ describe('OutcomeMoveModal', () => {
           ...smallOutcomeTree('Account'),
           moveOutcomeMock({outcomeLinkIds: ['1']}),
         ],
-      }
+      },
     )
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Account folder 1'))
     expect(getByText('Move').closest('button')).toBeEnabled()
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('bulk move: displays flash confirmation and calls onSuccess if move outcomes request succeeds', async () => {
-    const onSuccess = jest.fn()
+    const onSuccess = vi.fn()
     const {getByText} = render(
       <OutcomeMoveModal {...defaultProps({onSuccess, outcomes: generateOutcomes(2)})} />,
       {
         mocks: [...defaultMocks, ...smallOutcomeTree(), moveOutcomeMock()],
-      }
+      },
     )
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Account folder 1'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Move'))
-    await act(async () => jest.runOnlyPendingTimers())
-    expect(showFlashAlertSpy).toHaveBeenCalledWith({
+    await act(async () => vi.runOnlyPendingTimers())
+    expect(showFlashAlert).toHaveBeenCalledWith({
       message: '2 outcomes have been moved to "Account folder 1".',
       type: 'success',
     })
@@ -271,6 +286,7 @@ describe('OutcomeMoveModal', () => {
     })
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('bulk move: displays flash error if move outcomes request fails', async () => {
     const {getByText} = render(
       <OutcomeMoveModal {...defaultProps({outcomes: generateOutcomes(2)})} />,
@@ -282,19 +298,20 @@ describe('OutcomeMoveModal', () => {
             failResponse: true,
           }),
         ],
-      }
+      },
     )
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Account folder 1'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Move'))
-    await act(async () => jest.runOnlyPendingTimers())
-    expect(showFlashAlertSpy).toHaveBeenCalledWith({
+    await act(async () => vi.runOnlyPendingTimers())
+    expect(showFlashAlert).toHaveBeenCalledWith({
       message: 'An error occurred while moving these outcomes. Please try again.',
       type: 'error',
     })
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('bulk move: displays flash error if move outcomes mutation fails', async () => {
     const {getByText} = render(
       <OutcomeMoveModal {...defaultProps({outcomes: generateOutcomes(2)})} />,
@@ -306,19 +323,20 @@ describe('OutcomeMoveModal', () => {
             failMutation: true,
           }),
         ],
-      }
+      },
     )
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Account folder 1'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Move'))
-    await act(async () => jest.runOnlyPendingTimers())
-    expect(showFlashAlertSpy).toHaveBeenCalledWith({
+    await act(async () => vi.runOnlyPendingTimers())
+    expect(showFlashAlert).toHaveBeenCalledWith({
       message: 'An error occurred while moving these outcomes. Please try again.',
       type: 'error',
     })
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('bulk move: displays flash default error if move outcomes mutation fails and error message is empty', async () => {
     const {getByText} = render(
       <OutcomeMoveModal {...defaultProps({outcomes: generateOutcomes(2)})} />,
@@ -330,19 +348,20 @@ describe('OutcomeMoveModal', () => {
             failMutationNoErrMsg: true,
           }),
         ],
-      }
+      },
     )
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Account folder 1'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Move'))
-    await act(async () => jest.runOnlyPendingTimers())
-    expect(showFlashAlertSpy).toHaveBeenCalledWith({
+    await act(async () => vi.runOnlyPendingTimers())
+    expect(showFlashAlert).toHaveBeenCalledWith({
       message: 'An error occurred while moving these outcomes. Please try again.',
       type: 'error',
     })
   })
 
+  // Skipped: React is not defined error - ARC-9213
   it('bulk move: displays flash generic error if move outcomes mutation partially succeeds', async () => {
     const {getByText} = render(
       <OutcomeMoveModal {...defaultProps({outcomes: generateOutcomes(2)})} />,
@@ -354,14 +373,14 @@ describe('OutcomeMoveModal', () => {
             partialSuccess: true,
           }),
         ],
-      }
+      },
     )
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Account folder 1'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     fireEvent.click(getByText('Move'))
-    await act(async () => jest.runOnlyPendingTimers())
-    expect(showFlashAlertSpy).toHaveBeenCalledWith({
+    await act(async () => vi.runOnlyPendingTimers())
+    expect(showFlashAlert).toHaveBeenCalledWith({
       message: 'An error occurred while moving these outcomes. Please try again.',
       type: 'error',
     })

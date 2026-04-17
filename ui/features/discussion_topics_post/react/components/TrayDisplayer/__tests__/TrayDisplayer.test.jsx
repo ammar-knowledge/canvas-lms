@@ -24,16 +24,16 @@ import {responsiveQuerySizes} from '../../../utils/index'
 import React from 'react'
 import {render} from '@testing-library/react'
 
-jest.mock('../../../utils')
+vi.mock('../../../utils')
 
 beforeAll(() => {
-  window.matchMedia = jest.fn().mockImplementation(() => {
+  window.matchMedia = vi.fn().mockImplementation(() => {
     return {
       matches: true,
       media: '',
       onchange: null,
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
     }
   })
 })
@@ -91,12 +91,12 @@ const mockAvailabities = [
 const setup = (props = {}) => {
   return render(
     <TrayDisplayer
-      setTrayOpen={jest.fn()}
+      setTrayOpen={vi.fn()}
       trayTitle="Due Dates"
       trayComponent={<DueDateTray assignmentOverrides={mockOverrides} isAdmin={true} />}
       isTrayOpen={true}
       {...props}
-    />
+    />,
   )
 }
 
@@ -110,7 +110,7 @@ describe('TrayDisplayer', () => {
 
     it('renders correct data in the dueDateTray', () => {
       const container = setup()
-      expect(container.getAllByTestId('assignment-override-row').length).toBe(mockOverrides.length)
+      expect(container.getAllByTestId('assignment-override-row')).toHaveLength(mockOverrides.length)
       expect(container.getByText('assignment override 1')).toBeInTheDocument()
       expect(container.getByText('assignment override 2')).toBeInTheDocument()
       expect(container.getByText('assignment override 2')).toBeInTheDocument()
@@ -145,7 +145,7 @@ describe('TrayDisplayer', () => {
           />
         ),
       })
-      expect(container.getAllByTestId('availabilities-row').length).toBe(mockAvailabities.length)
+      expect(container.getAllByTestId('availabilities-row')).toHaveLength(mockAvailabities.length)
       expect(container.getByText('section 1')).toBeInTheDocument()
       expect(container.getByText('section 2')).toBeInTheDocument()
       expect(container.getByText('99')).toBeInTheDocument()

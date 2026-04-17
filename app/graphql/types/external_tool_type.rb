@@ -19,32 +19,6 @@
 #
 
 module Types
-  class ExternalToolStateType < Types::BaseEnum
-    graphql_name "ExternalToolState"
-    description "States that an External Tool can be in"
-    value "anonymous"
-    value "name_only"
-    value "email_only"
-    value "public"
-  end
-
-  # We can add additional placements to this filter as they are needed. Currently we
-  # only need to filter to `homework_submission` as that is the only place that this
-  # graphql type is being queried and used in.
-  class ExternalToolPlacementType < Types::BaseEnum
-    graphql_name "ExternalToolPlacement"
-    description "Placements that an External Tool can have"
-    value "homework_submission"
-  end
-
-  class ExternalToolFilterInputType < Types::BaseInputObject
-    graphql_name "ExternalToolFilterInput"
-
-    argument :state, ExternalToolStateType, required: false, default_value: nil
-
-    argument :placement, ExternalToolPlacementType, required: false, default_value: nil
-  end
-
   # This is a little funky. External tools can either be backed by a `ContextExternalTool`
   # in the database, or directly by data in a `ContentTag`. Because there could
   # be conflicting legacy id for these, we are seperating them into two concrete
@@ -56,19 +30,35 @@ module Types
     implements Interfaces::TimestampInterface
     implements Interfaces::ModuleItemInterface
     implements Interfaces::LegacyIDInterface
+    implements Interfaces::PlacementsInterface
 
     field :url, Types::UrlType, null: true
+
     def url
       object.login_or_launch_url
     end
 
-    field :name, String, null: true
+    field :name, String, null: false
 
     field :description, String, null: true
+
+    field :published, Boolean, null: true
+    def published
+      object.active?
+    end
+
+    field :domain, String, null: true
 
     field :settings, ExternalToolSettingsType, null: true
 
     field :state, ExternalToolStateType, method: :workflow_state, null: true
+
+    field :label_for, String, null: true do
+      argument :placement, ExternalToolPlacementType, required: true
+    end
+    def label_for(placement:)
+      object.label_for(placement.to_sym, I18n.locale)
+    end
 
     # TODO: This is currently just a placeholder so that it can be used in
     #       ModuleItemType. Once we start exporting actual fields for this,

@@ -101,7 +101,7 @@
           } %></div>
         <% else %>
           <div><%= t 'labels.rqd_grade', "Grade: %{grade}", {
-            :grade => replace_dash_with_minus(@assignment.score_to_grade(@current_user_submission.score, @current_user_submission.grade, true)),
+            :grade => replace_dash_with_minus(@assignment.score_to_grade(@current_user_submission.score, @current_user_submission.grade, force_letter_grade: true)),
             :wrapper => '<span style="font-size: 0.8em;">\1</span>'
           } %></div>
         <% end %>
@@ -140,7 +140,7 @@
         <%= t('messages.no_comments', "No Comments") if visible_comments.empty? %>
         <% visible_comments.each do |comment| %>
           <div id="comment-<%= comment.id %>" class="comment">
-            <%= comment.comment %>
+            <div class="comment_content" data-content="<%= comment.comment %>"></div>
             <div class="comment_attachments">
               <% comment.attachments.each do |attachment| %>
                 <div class="comment_attachment">

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
  *
@@ -17,13 +16,35 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {chunk} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {chunk} from 'es-toolkit/compat'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {showFlashAlert} from '@instructure/platform-alerts'
 import type {RequestDispatch} from '@canvas/network'
 import type {Student, UserSubmissionGroup} from '../../../../../api.d'
+import GRADEBOOK_GRAPHQL_CONFIG from './graphql/config'
 
-const I18n = useI18nScope('gradebook')
+/**
+ * Calculates the optimal number of students per submission request to maximize
+ * parallel request efficiency. This function ensures we use the maximum allowed
+ * parallel threads by distributing students across requests rather than making
+ * fewer requests with more students each. For example, with many students, it's
+ * faster to make more parallel requests with fewer students per request than
+ * fewer requests with many students each.
+ *
+ * Returns `GRADEBOOK_GRAPHQL_CONFIG.minNumberOfStudentsPerSubmissionRequest`
+ * students per request to ensure efficient batching.
+ */
+export const smartStudentsPerSubmissionRequest = (totalCount: number) => {
+  return Math.min(
+    Math.max(
+      GRADEBOOK_GRAPHQL_CONFIG.minNumberOfStudentsPerSubmissionRequest,
+      Math.ceil(totalCount / GRADEBOOK_GRAPHQL_CONFIG.maxSubmissionRequestCount),
+    ),
+    GRADEBOOK_GRAPHQL_CONFIG.initialNumberOfStudentsPerSubmissionRequest,
+  )
+}
+
+const I18n = createI18nScope('gradebook')
 
 export function flashStudentLoadError(): void {
   showFlashAlert({
@@ -41,8 +62,8 @@ export function flashSubmissionLoadError(): void {
   })
 }
 
+// @ts-expect-error
 export function reportCatch(error) {
-  // eslint-disable-next-line no-console
   console.warn(error)
 }
 
@@ -73,6 +94,7 @@ export const submissionsParams = {
     'redo_request',
     'score',
     'seconds_late',
+    'sticker',
     'submission_type',
     'submitted_at',
     'user_id',
@@ -83,7 +105,8 @@ export const submissionsParams = {
 export function getStudentsChunk(
   courseId: string,
   studentIds: string[],
-  dispatch: RequestDispatch
+  dispatch: RequestDispatch,
+  correlationId: string,
 ) {
   const params = {
     enrollment_state: ['active', 'completed', 'inactive', 'invited'],
@@ -92,22 +115,32 @@ export function getStudentsChunk(
     per_page: studentIds.length,
     user_ids: studentIds,
   }
-  return dispatch.getJSON<Student[]>(`/api/v1/courses/${courseId}/users`, params)
+  return dispatch.getJSON<Student[]>(`/api/v1/courses/${courseId}/users`, params, {
+    'Correlation-Id': correlationId, // Enables request correlation for performance monitoring and analysis
+  })
 }
 
 export function getSubmissionsForStudents(
   submissionsPerPage: number,
   courseId: string,
   studentIds: string[],
+  // @ts-expect-error
   allEnqueued,
-  dispatch: RequestDispatch
+  dispatch: RequestDispatch,
+  correlationId: string,
 ) {
-  return new Promise((resolve, reject) => {
+  return new Promise<UserSubmissionGroup[]>((resolve, reject) => {
     const url = `/api/v1/courses/${courseId}/students/submissions`
-    const params = {...submissionsParams, student_ids: studentIds, per_page: submissionsPerPage}
+    const params = {
+      ...submissionsParams,
+      student_ids: studentIds,
+      per_page: submissionsPerPage,
+    }
 
     dispatch
-      .getDepaginated<Student[]>(url, params, undefined, allEnqueued)
+      .getDepaginated<UserSubmissionGroup[]>(url, params, undefined, allEnqueued, {
+        'Correlation-Id': correlationId, // Enables request correlation for performance monitoring and analysis
+      })
       .then(resolve)
       .catch(() => {
         flashSubmissionLoadError()
@@ -123,27 +156,33 @@ export function getContentForStudentIdChunk(
   submissionsChunkSize: number,
   submissionsPerPage: number,
   gotChunkOfStudents: (students: Student[]) => void,
-  gotSubmissionsChunk: (student_submission_groups: UserSubmissionGroup[]) => void
+  gotSubmissionsChunk: (student_submission_groups: UserSubmissionGroup[]) => void,
+  correlationId: string,
 ) {
+  // @ts-expect-error
   let resolveEnqueued
   const allEnqueued = new Promise(resolve => {
     resolveEnqueued = resolve
   })
 
-  const studentRequest = getStudentsChunk(courseId, studentIds, dispatch).then(gotChunkOfStudents)
+  const studentRequest = getStudentsChunk(courseId, studentIds, dispatch, correlationId).then(
+    gotChunkOfStudents,
+  )
 
   const submissionRequestChunks = chunk(studentIds, submissionsChunkSize)
   const submissionRequests: Promise<void>[] = []
 
   submissionRequestChunks.forEach(submissionRequestChunkIds => {
-    let submissions
+    let submissions: UserSubmissionGroup[] = []
 
     const submissionRequest = getSubmissionsForStudents(
       submissionsPerPage,
       courseId,
       submissionRequestChunkIds,
+      // @ts-expect-error
       resolveEnqueued,
-      dispatch
+      dispatch,
+      correlationId,
     )
       .then(subs => (submissions = subs))
       // within the main Gradebook object, students must be received before

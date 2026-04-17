@@ -144,7 +144,7 @@ module QuizzesHelper
 
     show_at = quiz.show_correct_answers_at
     hide_at = quiz.hide_correct_answers_at
-    now = Time.now
+    now = Time.zone.now
 
     # Some labels will be used in more than one case, so we'll pre-define them.
     labels = {}
@@ -415,7 +415,7 @@ module QuizzesHelper
     if text.empty?
       ""
     else
-      content_tag(:div, text.join.html_safe, { class: "quiz_comment" })
+      tag.div text.inject(&:<<), class: "quiz_comment"
     end
   end
 
@@ -423,7 +423,7 @@ module QuizzesHelper
     html = hash_get(hash, :"#{field}_html")
 
     if html
-      UserContent.escape(Sanitize.clean(html, CanvasSanitize::SANITIZE), nil, controller.try(:use_new_math_equation_handling?))
+      UserContent.escape(Sanitize.clean(html, CanvasSanitize::SANITIZE), nil, use_updated_math_rendering: controller.try(:use_new_math_equation_handling?))
     else
       hash_get(hash, field)
     end
@@ -468,7 +468,7 @@ module QuizzesHelper
     end
 
     # all of our manipulation lost this flag - reset it
-    res.html_safe
+    res.html_safe # rubocop:disable Rails/OutputSafety
   end
 
   def multiple_dropdowns_question(options)
@@ -503,7 +503,7 @@ module QuizzesHelper
 
       s["aria-label"] = I18n.t("Multiple dropdowns, read surrounding text")
     end
-    doc.to_s.html_safe
+    doc.to_s.html_safe # rubocop:disable Rails/OutputSafety
   end
 
   def duration_in_minutes(duration_seconds)
@@ -542,6 +542,7 @@ module QuizzesHelper
     opts["class"] = class_array.compact.join(" ")
     opts["aria-controls"] = "js-sequential-warning-dialogue" if @quiz.cant_go_back?
     opts["data-method"] = "post" unless @quiz.cant_go_back?
+    opts["role"] = "button" if class_array.include?("btn")
     link_to(link_body, (opts["preview"] == 1) ? preview_quiz_url : take_quiz_url, opts)
   end
 
@@ -655,7 +656,7 @@ module QuizzesHelper
     titles = []
 
     if selected_answer || correct_answer || show_correct_answers
-      titles << ("#{answer}.")
+      titles << "#{answer}."
     end
 
     if selected_answer

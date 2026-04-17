@@ -23,7 +23,7 @@ require "feedjira"
 describe ConversationsController do
   before do
     allow(InstStatsd::Statsd).to receive(:count)
-    allow(InstStatsd::Statsd).to receive(:increment)
+    allow(InstStatsd::Statsd).to receive(:distributed_increment)
   end
 
   def conversation(opts = {})
@@ -98,7 +98,7 @@ describe ConversationsController do
       get "index", params: { scope: "sent" }, format: "json"
       expect(response).to be_successful
       expect(assigns[:conversations_json].size).to be 3
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.sent.pages_loaded.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.sent.pages_loaded.legacy")
     end
 
     it "returns all starred conversations" do
@@ -111,7 +111,7 @@ describe ConversationsController do
       get "index", params: { scope: "starred" }, format: "json"
       expect(response).to be_successful
       expect(assigns[:conversations_json].size).to be 3
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.starred.pages_loaded.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.starred.pages_loaded.legacy")
     end
 
     it "returns all unread conversations" do
@@ -124,7 +124,7 @@ describe ConversationsController do
       get "index", params: { scope: "unread" }, format: "json"
       expect(response).to be_successful
       expect(assigns[:conversations_json].size).to be 1
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.unread.pages_loaded.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.unread.pages_loaded.legacy")
     end
 
     it "returns all archived conversations" do
@@ -137,7 +137,7 @@ describe ConversationsController do
       get "index", params: { scope: "archived" }, format: "json"
       expect(response).to be_successful
       expect(assigns[:conversations_json].size).to be 1
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.archived.pages_loaded.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.archived.pages_loaded.legacy")
     end
 
     it "returns all inbox (default scope) conversations" do
@@ -149,7 +149,7 @@ describe ConversationsController do
       get "index", params: { scope: "inbox" }, format: "json"
       expect(response).to be_successful
       expect(assigns[:conversations_json].size).to be 3
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.scope.inbox.pages_loaded.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.scope.inbox.pages_loaded.legacy")
     end
 
     it "returns conversations matching the specified filter" do
@@ -281,7 +281,7 @@ describe ConversationsController do
         it "does not increment visit count if not authorized to open inbox" do
           get "index"
           assert_require_login
-          expect(InstStatsd::Statsd).not_to have_received(:increment).with("inbox.visit.react")
+          expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("inbox.visit.react")
         end
 
         it "tallies react inbox stats" do
@@ -304,12 +304,7 @@ describe ConversationsController do
           get "index"
           expect(response).to be_successful
 
-          expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.visit.react")
-          expect(InstStatsd::Statsd).to have_received(:count).with("inbox.visit.scope.inbox.count.react", 2).once
-          expect(InstStatsd::Statsd).to have_received(:count).with("inbox.visit.scope.sent.count.react", 3).once
-          expect(InstStatsd::Statsd).to have_received(:count).with("inbox.visit.scope.unread.count.react", 1).once
-          expect(InstStatsd::Statsd).to have_received(:count).with("inbox.visit.scope.starred.count.react", 1).once
-          expect(InstStatsd::Statsd).to have_received(:count).with("inbox.visit.scope.archived.count.react", 1).once
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.visit.react")
         end
       end
     end
@@ -335,6 +330,28 @@ describe ConversationsController do
       expect(response).to be_successful
       expect(assigns[:conversation]).to eq @conversation
     end
+
+    context "when user does not have access to the conversation" do
+      let_once(:observer) { user_factory(active_all: true) }
+
+      before { user_session(observer) }
+
+      it "redirects to conversations index with a flash error for HTML requests" do
+        get "show", params: { id: @conversation.conversation_id }
+        expect(response).to redirect_to(conversations_url)
+        expect(flash[:error]).to be_present
+      end
+
+      it "returns 404 for XHR requests" do
+        get "show", params: { id: @conversation.conversation_id }, xhr: true
+        expect(response).to have_http_status(:not_found)
+      end
+
+      it "returns 404 for JSON requests" do
+        get "show", params: { id: @conversation.conversation_id }, format: "json"
+        expect(response).to have_http_status(:not_found)
+      end
+    end
   end
 
   describe "POST 'create'" do
@@ -343,6 +360,40 @@ describe ConversationsController do
       student_in_course(active_all: true)
       @student2 = @student
       student_in_course(active_all: true)
+    end
+
+    context "when recipients include a non-collaborative group/differentiation tag" do
+      before do
+        @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
+        @course.account.save!
+        @course.account.reload
+        @non_collab_group_category = @course.group_categories.create!(name: "Test non collaborative", non_collaborative: true)
+        @non_collab_group = @course.groups.create!(name: "Non Collaborative group", group_category: @non_collab_group_category)
+        @non_collab_group.add_user(@student2, "accepted")
+        user_session(@teacher)
+      end
+
+      it "raises error if group_conversation is true and bulk_message is not provided" do
+        post "create", params: {
+          recipients: [@non_collab_group.asset_string],
+          body: "Test message",
+          group_conversation: true,
+          context_code: @course.asset_string
+        }
+        expect(response).not_to be_successful
+      end
+
+      it "allows creation if bulk_message is true even when group_conversation is true" do
+        post "create", params: {
+          recipients: [@non_collab_group.asset_string],
+          body: "Test message",
+          group_conversation: true,
+          bulk_message: "1",
+          context_code: @course.asset_string
+        }
+
+        expect(response).to be_successful
+      end
     end
 
     it "creates the conversation" do
@@ -354,10 +405,10 @@ describe ConversationsController do
       enrollment.save
       attachment = @user.conversation_attachments_folder.attachments.create!(filename: "somefile.doc", context: @user, uploaded_data: StringIO.new("test"))
       post "create", params: { recipients: [new_user.id.to_s], body: "yo", attachment_ids: [attachment.id] }
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.created.legacy")
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.message.sent.legacy")
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.sent.legacy")
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.message.sent.attachment.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.created.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.message.sent.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.sent.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.message.sent.attachment.legacy")
       expect(InstStatsd::Statsd).to have_received(:count).with("inbox.message.sent.recipients.legacy", 1)
       expect(response).to be_successful
       expect(assigns[:conversation]).not_to be_nil
@@ -369,7 +420,8 @@ describe ConversationsController do
 
       post "create", params: { recipients: [@teacher.id.to_s], body: "yo", context_code: @course.asset_string }
       expect(response).not_to be_successful
-      expect(response.body).to include("Unable to send messages")
+      expect(response.parsed_body[0]["attribute"]).to eq("recipients")
+      expect(response.parsed_body[0]["message"]).to eq("invalid")
     end
 
     it "allows creating conversations in concluded courses for teachers" do
@@ -392,7 +444,7 @@ describe ConversationsController do
       @course.account.role_overrides.create!(permission: :send_messages, role: student_role, enabled: false)
 
       post "create", params: { recipients: [new_user.id.to_s], body: "yo", context_code: @course.asset_string }
-      expect(response).to_not be_successful
+      expect(response).not_to be_successful
     end
 
     it "allows sending to instructors even if permissions are disabled" do
@@ -467,12 +519,53 @@ describe ConversationsController do
       expect(assigns[:conversation].messages.first.forwarded_message_ids).to eql(@conversation.messages.first.id.to_s)
     end
 
-    it "allows Observers to message linked students" do
-      observer = user_with_pseudonym
-      add_linked_observer(@student, observer, root_account: @course.root_account)
-      user_session(observer)
-      post "create", params: { recipients: [@student.id.to_s], body: "Hello there", context_code: @course.asset_string }
-      expect(response).to be_successful
+    context "when the user is an observer and has an observed student" do
+      subject do
+        post "create", params: { recipients:, body: "Hello there", context_code: @course.asset_string }
+      end
+
+      let(:observer) { user_with_pseudonym }
+      let(:recipients) { [@student.id.to_s] }
+
+      before do
+        add_linked_observer(@student, observer, root_account: @course.root_account)
+        user_session(observer)
+      end
+
+      it "allows Observers to message linked students" do
+        subject
+        expect(response).to be_successful
+      end
+
+      context "when the observer has multiple recipients" do
+        context "when the other recipient is a not observed student" do
+          let(:other_student) do
+            new_user1 = User.create
+            enrollment1 = @course.enroll_student(new_user1)
+            enrollment1.workflow_state = "active"
+            enrollment1.save
+            new_user1
+          end
+
+          let(:recipients) { [@student.id.to_s, other_student.id.to_s] }
+
+          it "does not allow Observers to message non-linked students" do
+            subject
+            # "normalize_recipients" method does the magic filtering out of non-linked students
+            expect(response).to be_successful
+          end
+        end
+
+        context "when the other recipient is an instructor" do
+          let(:instructor) { @teacher }
+          let(:recipients) { [@student.id.to_s, instructor.id.to_s] }
+
+          it "allows Observers to message both recipients" do
+            subject
+            expect(response).to be_successful
+          end
+        end
+      end
     end
 
     context "group conversations" do
@@ -505,7 +598,7 @@ describe ConversationsController do
         post "create", params: { recipients: [@new_user1.id.to_s, @new_user2.id.to_s], body: "yo", group_conversation: true, bulk_message: "1" }
         expect(response).to be_successful
 
-        expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.sent.individual_message_option.legacy")
+        expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.sent.individual_message_option.legacy")
         expect(Conversation.count).to eql(@old_count + 2)
       end
 
@@ -515,9 +608,9 @@ describe ConversationsController do
           post "create", params: { recipients: [@new_user1.id.to_s, @new_user2.id.to_s], body: "yo", group_conversation: falsish, media_comment_id: "m-whatever", media_comment_type: "video" }
 
           expect(InstStatsd::Statsd).to have_received(:count).with("inbox.conversation.created.legacy", 2)
-          expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.message.sent.legacy")
-          expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.sent.legacy")
-          expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.message.sent.media.legacy")
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.message.sent.legacy")
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.sent.legacy")
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.message.sent.media.legacy")
           expect(InstStatsd::Statsd).to have_received(:count).with("inbox.message.sent.recipients.legacy", 2)
           expect(response).to be_successful
 
@@ -672,45 +765,6 @@ describe ConversationsController do
       expect(ConversationMessage.count).to eq(3)
     end
 
-    context "user_notes" do
-      before do
-        Account.default.update_attribute :enable_user_notes, true
-        user_session(@teacher)
-
-        @students = create_users_in_course(@course, 2, account_associations: true, return_type: :record)
-      end
-
-      context "when the deprecate_faculty_journal feature flag is disabled" do
-        before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-        it "creates user notes" do
-          post "create", params: { recipients: @students.map(&:id), body: "yo", subject: "greetings", user_note: "1" }
-          @students.each { |x| expect(x.user_notes.size).to be(1) }
-          expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.sent.faculty_journal.legacy")
-        end
-
-        it "_not_s create user notes if asked not to" do
-          post "create", params: { recipients: @students.map(&:id), body: "yolo", subject: "salutations", user_note: "0" }
-          @students.each { |x| expect(x.user_notes.size).to be(0) }
-          expect(InstStatsd::Statsd).not_to have_received(:increment).with("inbox.conversation.sent.faculty_journal.legacy")
-        end
-
-        it "includes the domain root account in the user note" do
-          post "create", params: { recipients: @students.map(&:id), body: "hi there", subject: "hi there", user_note: true }
-          note = UserNote.last
-          expect(note.root_account_id).to eql Account.default.id
-        end
-      end
-
-      context "when the deprecate_faculty_journal feature flag is enabled" do
-        it "does not create user notes" do
-          post "create", params: { recipients: @students.map(&:id), body: "yo", subject: "greetings", user_note: "1" }
-          @students.each { |x| expect(x.user_notes.size).to be(0) }
-          expect(InstStatsd::Statsd).to_not have_received(:increment).with("inbox.conversation.sent.faculty_journal.legacy")
-        end
-      end
-    end
-
     describe "for recipients the sender has no relationship with" do
       it "fails" do
         user_session(@student)
@@ -720,10 +774,10 @@ describe ConversationsController do
 
       context "as a siteadmin user with send_messages grants" do
         it "succeeds" do
-          allow(InstStatsd::Statsd).to receive(:increment)
+          allow(InstStatsd::Statsd).to receive(:distributed_increment)
           user_session(site_admin_user)
           post "create", params: { recipients: [User.create.id.to_s], body: "foo" }
-          expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.sent.account_context.legacy")
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.sent.account_context.legacy")
           expect(response).to have_http_status :created
         end
       end
@@ -754,6 +808,202 @@ describe ConversationsController do
         expect(response.body).to include("invalid")
       end
     end
+
+    describe "restrict_student_access feature" do
+      before :once do
+        course_with_teacher(active_all: true)
+        student_in_course(active_all: true, course: @course)
+        @student2 = @student
+        student_in_course(active_all: true, course: @course)
+      end
+
+      context "when restrict_student_access feature is enabled" do
+        before do
+          @course.root_account.enable_feature!(:restrict_student_access)
+          user_session(@teacher)
+        end
+
+        it "forces individual messages when teacher sends to multiple recipients" do
+          expect(Conversation.count).to eq(0)
+
+          post "create", params: {
+            recipients: [@student.id.to_s, @student2.id.to_s],
+            body: "Test message to multiple students",
+            context_code: @course.asset_string
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(2)
+
+          [@student, @student2].each do |student|
+            conversation = student.conversations.first
+            expect(conversation.other_participants.map(&:id)).to eq([@teacher.id])
+          end
+        end
+
+        it "does not affect behavior when teacher sends to single recipient" do
+          expect(Conversation.count).to eq(0)
+
+          post "create", params: {
+            recipients: [@student.id.to_s],
+            body: "Test message to single student",
+            context_code: @course.asset_string
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(1)
+        end
+
+        it "does not affect non-teacher users" do
+          user_session(@student)
+          expect(Conversation.count).to eq(0)
+
+          post "create", params: {
+            recipients: [@teacher.id.to_s, @student2.id.to_s],
+            body: "Test message from student",
+            context_code: @course.asset_string,
+            group_conversation: true
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(1)
+        end
+
+        it "does not affect messaging outside course context" do
+          other_user = user_factory
+
+          post "create", params: {
+            recipients: [@student.id.to_s, other_user.id.to_s],
+            body: "Test message without course context",
+            group_conversation: true
+            # No context_code provided
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(1)
+        end
+
+        it "forces individual messages when teacher replies to existing conversation with new recipients" do
+          expect(Conversation.count).to eq(0)
+
+          post "create", params: {
+            recipients: [@student.id.to_s],
+            body: "Initial message",
+            context_code: @course.asset_string
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(1)
+
+          conversation_id = Conversation.first.id
+
+          post "add_message", params: {
+            conversation_id:,
+            body: "Reply with additional recipient",
+            recipients: [@student.id.to_s, @student2.id.to_s],
+            context_code: @course.asset_string
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(3)
+
+          [@student, @student2].each do |student|
+            student_conversations = student.conversations.map(&:conversation)
+            expect(student_conversations.any? { |c| c.participants.map(&:id).sort == [@teacher.id, student.id].sort }).to be true
+          end
+        end
+
+        it "ensures new recipients don't see original conversation history when added" do
+          expect(Conversation.count).to eq(0)
+
+          post "create", params: {
+            recipients: [@student.id.to_s],
+            body: "Original private message",
+            context_code: @course.asset_string
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(1)
+
+          conversation_id = Conversation.first.id
+
+          post "add_message", params: {
+            conversation_id:,
+            body: "Reply with new student added",
+            recipients: [@student.id.to_s, @student2.id.to_s],
+            context_code: @course.asset_string
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(3)
+
+          student2_conversation = @student2.conversations.first.conversation
+          expect(student2_conversation.conversation_messages.count).to eq(1)
+          expect(student2_conversation.conversation_messages.first.body).to eq("Reply with new student added")
+
+          student1_new_conversation = @student.conversations.find { |conv| conv.conversation.conversation_messages.one? }
+          expect(student1_new_conversation).not_to be_nil
+          expect(student1_new_conversation.conversation.conversation_messages.first.body).to eq("Reply with new student added")
+
+          original_conversation = Conversation.find(conversation_id)
+          expect(original_conversation.conversation_messages.count).to eq(1)
+          expect(original_conversation.conversation_messages.first.body).to eq("Original private message")
+        end
+
+        it "allows normal replies to existing conversation without adding new recipients" do
+          expect(Conversation.count).to eq(0)
+
+          post "create", params: {
+            recipients: [@student.id.to_s],
+            body: "Initial message",
+            context_code: @course.asset_string
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(1)
+
+          conversation_id = Conversation.first.id
+
+          post "add_message", params: {
+            conversation_id:,
+            body: "Reply to existing conversation",
+            context_code: @course.asset_string
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(1)
+
+          conversation = Conversation.first
+          expect(conversation.conversation_messages.count).to eq(2)
+        end
+      end
+
+      context "when restrict_student_access feature is disabled" do
+        before do
+          @course.account.disable_feature!(:restrict_student_access)
+          user_session(@teacher)
+        end
+
+        it "allows normal group conversation behavior for teachers" do
+          expect(Conversation.count).to eq(0)
+
+          post "create", params: {
+            recipients: [@student.id.to_s, @student2.id.to_s],
+            body: "Test message to multiple students",
+            context_code: @course.asset_string,
+            group_conversation: true
+          }
+
+          expect(response).to be_successful
+          expect(Conversation.count).to eq(1)
+
+          conversation = Conversation.first
+          participant_ids = conversation.conversation_participants.map(&:user_id).sort
+          expected_ids = [@teacher.id, @student.id, @student2.id].sort
+          expect(participant_ids).to eq(expected_ids)
+        end
+      end
+    end
   end
 
   describe "POST 'update'" do
@@ -761,7 +1011,7 @@ describe ConversationsController do
       course_with_student_logged_in(active_all: true)
       conversation(num_other_users: 2).update_attribute(:workflow_state, "unread")
 
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
       post "update", params: { id: @conversation.conversation_id, conversation: { subscribed: "0", workflow_state: "archived", starred: true } }
 
       expect(response).to be_successful
@@ -769,33 +1019,33 @@ describe ConversationsController do
       expect(@conversation.subscribed?).to be_falsey
       expect(@conversation).to be_archived
       expect(@conversation.starred).to be_truthy
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.archived.legacy")
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.starred.legacy")
-      expect(InstStatsd::Statsd).not_to have_received(:increment).with("inbox.conversation.archived.react")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.archived.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.starred.legacy")
+      expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("inbox.conversation.archived.react")
     end
 
     it "updates the archived conversation to be read" do
       course_with_student_logged_in(active_all: true)
       conversation(num_other_users: 2).update_attribute(:workflow_state, "archived")
 
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
       post "update", params: { id: @conversation.conversation_id, conversation: { workflow_state: "read" } }
 
       expect(response).to be_successful
       @conversation.reload
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.unarchived.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.unarchived.legacy")
     end
 
     it "updates the archived conversation to be unread" do
       course_with_student_logged_in(active_all: true)
       conversation(num_other_users: 2).update_attribute(:workflow_state, "archived")
 
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
       post "update", params: { id: @conversation.conversation_id, conversation: { workflow_state: "unread" } }
 
       expect(response).to be_successful
       @conversation.reload
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.unarchived.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.unarchived.legacy")
     end
 
     it "updates the conversation to be unstarred" do
@@ -806,7 +1056,7 @@ describe ConversationsController do
       expect(response).to be_successful
       @conversation.reload
       expect(@conversation.starred).to be_falsey
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.unstarred.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.unstarred.legacy")
     end
 
     it "updates the conversation to be unread" do
@@ -817,7 +1067,7 @@ describe ConversationsController do
       expect(response).to be_successful
       @conversation.reload
       expect(@conversation.starred).to be_falsey
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.unread.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.unread.legacy")
     end
   end
 
@@ -864,9 +1114,9 @@ describe ConversationsController do
       attachment = @user.conversation_attachments_folder.attachments.create!(filename: "somefile.doc", context: @user, uploaded_data: StringIO.new("test"))
       post "add_message", params: { conversation_id: @conversation.conversation_id, body: "hello world", attachment_ids: [attachment.id] }
 
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.message.sent.legacy")
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.message.sent.isReply.legacy")
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.message.sent.attachment.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.message.sent.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.message.sent.isReply.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.message.sent.attachment.legacy")
       expect(InstStatsd::Statsd).to have_received(:count).with("inbox.message.sent.recipients.legacy", 0)
       expect(response).to be_successful
       expect(@conversation.messages.size).to eq 2
@@ -920,42 +1170,6 @@ describe ConversationsController do
       run_jobs
       expect(@conversation.reload.messages.count(:all)).to eq 2
       expect(@conversation.reload.last_message_at).to eql expected_lma
-    end
-
-    context "when the deprecate_faculty_journal feature flag is disabled" do
-      before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-      it "generates a user note when requested" do
-        Account.default.update_attribute :enable_user_notes, true
-        course_with_teacher_logged_in(active_all: true)
-        conversation
-
-        post "add_message", params: { conversation_id: @conversation.conversation_id, body: "hello world" }
-        expect(response).to be_successful
-        message = @conversation.messages.first # newest message is first
-        student = message.recipients.first
-        expect(student.user_notes.size).to eq 0
-
-        post "add_message", params: { conversation_id: @conversation.conversation_id, body: "make a note", user_note: 1 }
-        expect(response).to be_successful
-        message = @conversation.messages.first
-        student = message.recipients.first
-        expect(student.user_notes.size).to eq 1
-      end
-    end
-
-    context "when the deprecate_faculty_journal feature flag is enabled" do
-      it "does not generate a user note when requested" do
-        Account.default.update_attribute :enable_user_notes, true
-        course_with_teacher_logged_in(active_all: true)
-        conversation
-
-        post "add_message", params: { conversation_id: @conversation.conversation_id, body: "make a note", user_note: 1 }
-        expect(response).to be_successful
-        message = @conversation.messages.first
-        student = message.recipients.first
-        expect(student.user_notes.size).to eq 0
-      end
     end
 
     it "does not allow new messages in concluded courses for students" do
@@ -1109,11 +1323,11 @@ describe ConversationsController do
 
     it "refrains from duplicating the RCE-created media_comment" do
       course_with_student_logged_in(active_all: true)
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
       conversation
       @student.media_objects.where(media_id: "m-whatever", media_type: "video/mp4").first_or_create!
       post "add_message", params: { conversation_id: @conversation.conversation_id, body: "hello world", media_comment_id: "m-whatever", media_comment_type: "video" }
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.message.sent.media.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.message.sent.media.legacy")
       expect(response).to be_successful
       expect(@student.media_objects.by_media_id("m-whatever").count).to eq 1
     end
@@ -1312,7 +1526,7 @@ describe ConversationsController do
     it "returns basic feed attributes" do
       conversation
       get "public_feed", params: { feed_code: @student.feed_code }, format: "atom"
-      feed = Feedjira.parse(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed).not_to be_nil
       expect(feed.title).to eq "Conversations Feed"
       expect(feed.feed_url).to match(/conversations/)
@@ -1336,7 +1550,7 @@ describe ConversationsController do
       message = "Sending a test message to some random users, in the hopes that it really works."
       conversation(message:)
       get "public_feed", params: { feed_code: @student.feed_code }, format: "atom"
-      feed = Feedjira.parse(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed).not_to be_nil
       expect(feed.entries.first.title).to match(/Sending a test/)
       expect(feed.entries.first.title).not_to match(message)
@@ -1346,7 +1560,7 @@ describe ConversationsController do
       message = "Sending a test message to some random users, in the hopes that it really works."
       conversation(message:)
       get "public_feed", params: { feed_code: @student.feed_code }, format: "atom"
-      feed = Feedjira.parse(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed).not_to be_nil
       expect(feed.entries.first.content).to match(message)
     end
@@ -1355,7 +1569,7 @@ describe ConversationsController do
       message = "Sending a test message to some random users, in the hopes that it really works."
       conversation(num_other_users: 4, message:)
       get "public_feed", params: { feed_code: @student.feed_code }, format: "atom"
-      feed = Feedjira.parse(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed).not_to be_nil
       expect(feed.entries.first.content).to match(/Message Course/)
       expect(feed.entries.first.content).to match(/User/)
@@ -1368,7 +1582,7 @@ describe ConversationsController do
       @conversation.add_message("test attachment", attachment_ids: [attachment.id])
       allow(HostUrl).to receive(:context_host).and_return("test.host")
       get "public_feed", params: { feed_code: @student.feed_code }, format: "atom"
-      feed = Feedjira.parse(response.body) rescue nil
+      feed = Feedjira.parse(response.body)
       expect(feed).not_to be_nil
       expect(feed.entries.first.content).to match(/somefile\.doc/)
     end

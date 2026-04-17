@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-class Favorite < ActiveRecord::Base
+class Favorite < ApplicationRecord
   belongs_to :context, polymorphic: [:course, :group], inverse_of: :favorites
   belongs_to :user
   belongs_to :root_account, class_name: "Account", inverse_of: :favorites
@@ -33,5 +33,9 @@ class Favorite < ActiveRecord::Base
 
   def populate_root_account_id
     self.root_account = context.root_account
+  end
+
+  def self.create_or_find_by(user:, context:)
+    new(user:, context:).insert(on_conflict: -> { user.favorites.find_by(context:) })
   end
 end

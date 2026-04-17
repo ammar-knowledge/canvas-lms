@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-class Profile < ActiveRecord::Base
+class Profile < ApplicationRecord
   belongs_to :context, polymorphic: [:course], exhaustive: false
   belongs_to :root_account, class_name: "Account"
 
@@ -33,8 +33,8 @@ class Profile < ActiveRecord::Base
   validates :visibility, inclusion: { in: %w[public unlisted private] }
 
   def title=(title)
-    write_attribute(:title, title)
-    write_attribute(:path, infer_path) if path.nil?
+    super
+    self.path ||= infer_path
   end
 
   def infer_path
@@ -51,7 +51,7 @@ class Profile < ActiveRecord::Base
   end
 
   def data
-    read_or_initialize_attribute(:data, {})
+    self["data"] ||= {}
   end
 
   def data_before_type_cast # for validations and such

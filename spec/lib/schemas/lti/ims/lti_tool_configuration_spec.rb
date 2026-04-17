@@ -49,7 +49,8 @@ describe Schemas::Lti::IMS::LtiToolConfiguration do
               "https://canvas.instructure.com/lti/account_navigation"
             ],
             roles: [],
-            target_link_uri: "http://yaltt.inseng.test/api/registrations/14/launch?placement=https://canvas.instructure.com/lti/account_navigation"
+            target_link_uri: "http://yaltt.inseng.test/api/registrations/14/launch?placement=https://canvas.instructure.com/lti/account_navigation",
+            "https://canvas.instructure.com/lti/display_type": "new_window",
           }
         ],
         target_link_uri: "http://yaltt.inseng.test/api/registrations/14/launch",
@@ -57,6 +58,9 @@ describe Schemas::Lti::IMS::LtiToolConfiguration do
         "https://canvas.instructure.com/lti/tool_id": "toolid-385"
       }
     end
+
+    # More tested as part of OidcRegistration schema in
+    # spec/lib/schemas/lti/ims/oidc_registration_spec.rb
 
     it "succeeds if configuration is valid" do
       config_errors = Schemas::Lti::IMS::LtiToolConfiguration.simple_validation_errors(
@@ -83,7 +87,33 @@ describe Schemas::Lti::IMS::LtiToolConfiguration do
         error_format: :hash
       )
 
-      expect(config_errors).not_to be_blank
+      expect(config_errors).not_to be_empty
+    end
+
+    it "accepts disable_reinstall extension" do
+      config_with_extension = valid_configuration.merge(
+        "https://canvas.instructure.com/lti/disable_reinstall" => true
+      )
+
+      config_errors = Schemas::Lti::IMS::LtiToolConfiguration.simple_validation_errors(
+        config_with_extension,
+        error_format: :hash
+      )
+
+      expect(config_errors).to be_blank
+    end
+
+    it "accepts false value for disable_reinstall extension" do
+      config_with_extension = valid_configuration.merge(
+        "https://canvas.instructure.com/lti/disable_reinstall" => false
+      )
+
+      config_errors = Schemas::Lti::IMS::LtiToolConfiguration.simple_validation_errors(
+        config_with_extension,
+        error_format: :hash
+      )
+
+      expect(config_errors).to be_blank
     end
   end
 end

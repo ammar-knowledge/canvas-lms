@@ -17,10 +17,10 @@
 
 import Backbone from '@canvas/backbone'
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import '@canvas/jquery/jquery.instructure_forms'
 
-const I18n = useI18nScope('course_restore')
+const I18n = createI18nScope('course_restore')
 
 export default class CourseRestore extends Backbone.Model {
   baseUrl() {
@@ -75,28 +75,17 @@ export default class CourseRestore extends Backbone.Model {
     const setTakingTooLong = () => (takingTooLong = true)
     setTimeout(setTakingTooLong, 60000)
 
-    let restoreError
-    let restoreSuccess
-
-    const ajaxRequest = (url, method = 'GET') =>
-      $.ajax({
-        url,
-        type: method,
-        success: restoreSuccess,
-        error: restoreError,
-      })
-
-    restoreError = (_response = {}) => {
+    const restoreError = (_response = {}) => {
       $.flashError(
         I18n.t(
           'restore_error',
-          'There was an error attempting to restore the course. Course was not restored.'
-        )
+          'There was an error attempting to restore the course. Course was not restored.',
+        ),
       )
       return deferred.reject()
     }
 
-    restoreSuccess = response => {
+    const restoreSuccess = response => {
       if (takingTooLong) {
         return restoreError()
       }
@@ -113,6 +102,14 @@ export default class CourseRestore extends Backbone.Model {
           return restoreError()
       }
     }
+
+    const ajaxRequest = (url, method = 'GET') =>
+      $.ajax({
+        url,
+        type: method,
+        success: restoreSuccess,
+        error: restoreError,
+      })
 
     ajaxRequest(`${this.baseUrl()}/?course_ids[]=${this.get('id')}&event=undelete`, 'PUT')
     return deferred

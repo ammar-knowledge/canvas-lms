@@ -16,15 +16,20 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {isEmpty} from 'lodash'
+import {isEmpty} from 'es-toolkit/compat'
 import ProgressStore from '../ProgressStore'
-import sinon from 'sinon'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 
+const server = setupServer()
 let progress_id
 let progress
-let server
 
 describe('ProgressStoreSpec', () => {
+  beforeAll(() => {
+    server.listen()
+  })
+
   beforeEach(() => {
     progress_id = 2
     progress = {
@@ -36,24 +41,36 @@ describe('ProgressStoreSpec', () => {
       completion: 0,
       workflow_state: 'queued',
     }
-    server = sinon.fakeServer.create()
   })
 
   afterEach(() => {
     ProgressStore.clearState()
-    server.restore()
+    server.resetHandlers()
   })
 
-  it('get', function () {
-    server.respondWith('GET', `/api/v1/progress/${progress_id}`, [
-      200,
-      {'Content-Type': 'application/json'},
-      JSON.stringify(progress),
-    ])
+  afterAll(() => {
+    server.close()
+  })
+
+  it('get', async function () {
+    server.use(
+      http.get('/api/v1/progress/:id', ({params}) => {
+        if (params.id === String(progress_id)) {
+          return HttpResponse.json(progress)
+        }
+        return new HttpResponse(null, {status: 404})
+      }),
+    )
+
     // precondition
     expect(isEmpty(ProgressStore.getState())).toBeTruthy()
+
+    // ProgressStore.get doesn't return a promise, so we need to wait for the state to update
     ProgressStore.get(progress_id)
-    server.respond()
+
+    // Wait for the async request to complete
+    await new Promise(resolve => setTimeout(resolve, 10))
+
     const state = ProgressStore.getState()
     expect(state[progress.id]).toEqual(progress)
   })

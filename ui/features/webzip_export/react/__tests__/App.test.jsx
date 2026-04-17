@@ -17,21 +17,31 @@
  */
 
 import React from 'react'
-import moxios from 'moxios'
-import sinon from 'sinon'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 import WebZipExportApp from '../App'
 import {act, render, waitFor} from '@testing-library/react'
+import {assignLocation} from '@canvas/util/globalUtils'
+
+// Mock the assignLocation function
+vi.mock('@canvas/util/globalUtils', () => ({
+  assignLocation: vi.fn(),
+}))
+
+const server = setupServer()
 
 describe('Webzip export app', () => {
-  beforeEach(() => {
-    moxios.install()
-  })
-
+  beforeAll(() => server.listen())
   afterEach(() => {
-    moxios.uninstall()
+    server.resetHandlers()
+    vi.clearAllMocks()
   })
+  afterAll(() => server.close())
 
   test('renders a spinner before API call', () => {
+    // Set up handler to prevent MSW warning, but the test checks the loading state
+    // before the API response is processed
+    server.use(http.get('/api/v1/courses/2/web_zip_exports', () => HttpResponse.json([])))
     ENV.context_asset_string = 'courses_2'
     const wrapper = render(<WebZipExportApp />)
     expect(wrapper.getByText('Loading')).toBeInTheDocument()
@@ -45,16 +55,12 @@ describe('Webzip export app', () => {
         workflow_state: 'generated',
       },
     ]
-    moxios.stubOnce('GET', '/api/v1/courses/2/web_zip_exports', {
-      status: 200,
-      responseText: data,
-    })
+    server.use(http.get('/api/v1/courses/2/web_zip_exports', () => HttpResponse.json(data)))
     ENV.context_asset_string = 'courses_2'
     const ref = React.createRef()
     const wrapper = render(<WebZipExportApp ref={ref} />)
     ref.current.componentDidMount()
-    await waitFor(async () => {
-      moxios.requests.mostRecent()
+    await waitFor(() => {
       expect(wrapper.getByText('Package export from')).toBeInTheDocument()
     })
   })
@@ -67,32 +73,24 @@ describe('Webzip export app', () => {
         workflow_state: 'failed',
       },
     ]
-    moxios.stubOnce('GET', '/api/v1/courses/2/web_zip_exports', {
-      status: 200,
-      responseText: data,
-    })
+    server.use(http.get('/api/v1/courses/2/web_zip_exports', () => HttpResponse.json(data)))
     ENV.context_asset_string = 'courses_2'
     const ref = React.createRef()
     const wrapper = render(<WebZipExportApp ref={ref} />)
     ref.current.componentDidMount()
-    await waitFor(async () => {
-      moxios.requests.mostRecent()
+    await waitFor(() => {
       expect(wrapper.queryByText('Loading')).toBeInTheDocument()
     })
   })
 
   test('renders empty webzip list text if there are no exports from API', async () => {
     const data = []
-    moxios.stubOnce('GET', '/api/v1/courses/2/web_zip_exports', {
-      status: 200,
-      responseText: data,
-    })
+    server.use(http.get('/api/v1/courses/2/web_zip_exports', () => HttpResponse.json(data)))
     ENV.context_asset_string = 'courses_2'
     const ref = React.createRef()
     const wrapper = render(<WebZipExportApp ref={ref} />)
     ref.current.componentDidMount()
-    await waitFor(async () => {
-      moxios.requests.mostRecent()
+    await waitFor(() => {
       expect(wrapper.queryByText('No exports to display')).toBeInTheDocument()
     })
   })
@@ -106,16 +104,12 @@ describe('Webzip export app', () => {
         progress_id: '123',
       },
     ]
-    moxios.stubOnce('GET', '/api/v1/courses/2/web_zip_exports', {
-      status: 200,
-      responseText: data,
-    })
+    server.use(http.get('/api/v1/courses/2/web_zip_exports', () => HttpResponse.json(data)))
     ENV.context_asset_string = 'courses_2'
     const ref = React.createRef()
     const wrapper = render(<WebZipExportApp ref={ref} />)
     ref.current.componentDidMount()
-    await waitFor(async () => {
-      moxios.requests.mostRecent()
+    await waitFor(() => {
       expect(wrapper.queryByText('Loading')).toBeNull()
       expect(wrapper.queryByText('No exports to display')).toBeNull()
       expect(wrapper.queryByText('An error occurred. Please try again later.')).toBeNull()
@@ -138,16 +132,12 @@ describe('Webzip export app', () => {
         progress_id: '123',
       },
     ]
-    moxios.stubOnce('GET', '/api/v1/courses/2/web_zip_exports', {
-      status: 200,
-      responseText: data,
-    })
+    server.use(http.get('/api/v1/courses/2/web_zip_exports', () => HttpResponse.json(data)))
     ENV.context_asset_string = 'courses_2'
     const ref = React.createRef()
     const wrapper = render(<WebZipExportApp ref={ref} />)
     ref.current.componentDidMount()
-    await waitFor(async () => {
-      moxios.requests.mostRecent()
+    await waitFor(() => {
       expect(wrapper.queryByText('Loading')).toBeNull()
       expect(wrapper.getByText('Package export from')).toBeInTheDocument()
       expect(wrapper.getByText('Processing')).toBeInTheDocument()
@@ -155,16 +145,16 @@ describe('Webzip export app', () => {
   })
 
   test('renders errors', async () => {
-    moxios.stubOnce('GET', '/api/v1/courses/2/web_zip_exports', {
-      status: 666,
-      responseText: 'Demons!',
-    })
+    server.use(
+      http.get('/api/v1/courses/2/web_zip_exports', () =>
+        HttpResponse.text('Demons!', {status: 666}),
+      ),
+    )
     ENV.context_asset_string = 'courses_2'
     const ref = React.createRef()
     const wrapper = render(<WebZipExportApp ref={ref} />)
     ref.current.componentDidMount()
-    await waitFor(async () => {
-      moxios.requests.mostRecent()
+    await waitFor(() => {
       expect(wrapper.queryByText('Loading')).toBeNull()
       expect(wrapper.getByText('An error occurred. Please try again later.')).toBeInTheDocument()
     })
@@ -179,16 +169,12 @@ describe('Webzip export app', () => {
         progress_id: '124',
       },
     ]
-    moxios.stubOnce('GET', '/api/v1/courses/2/web_zip_exports', {
-      status: 200,
-      responseText: data,
-    })
+    server.use(http.get('/api/v1/courses/2/web_zip_exports', () => HttpResponse.json(data)))
     ENV.context_asset_string = 'courses_2'
     const ref = React.createRef()
     const wrapper = render(<WebZipExportApp ref={ref} />)
     ref.current.componentDidMount()
-    await waitFor(async () => {
-      moxios.requests.mostRecent()
+    await waitFor(() => {
       expect(wrapper.queryByText('Loading')).toBeNull()
       expect(wrapper.getByText('Processing')).toBeInTheDocument()
     })
@@ -203,22 +189,16 @@ describe('Webzip export app', () => {
         progress_id: '126',
       },
     ]
-    moxios.stubOnce('GET', '/api/v1/courses/2/web_zip_exports', {
-      status: 200,
-      responseText: data,
-    })
+    server.use(http.get('/api/v1/courses/2/web_zip_exports', () => HttpResponse.json(data)))
     ENV.context_asset_string = 'courses_2'
     const ref = React.createRef()
     const wrapper = render(<WebZipExportApp ref={ref} />)
-    const download = sinon.stub(ref.current, 'downloadLink')
     act(() => {
       ref.current.getExports('126')
     })
-    await waitFor(async () => {
-      moxios.requests.mostRecent()
+    await waitFor(() => {
       expect(wrapper.queryByText('Loading')).toBeNull()
       expect(wrapper.getByText('Most recent export')).toBeInTheDocument()
-      download.restore()
     })
   })
 
@@ -231,22 +211,16 @@ describe('Webzip export app', () => {
         progress_id: '126',
       },
     ]
-    moxios.stubOnce('GET', '/api/v1/courses/2/web_zip_exports', {
-      status: 200,
-      responseText: data,
-    })
+    server.use(http.get('/api/v1/courses/2/web_zip_exports', () => HttpResponse.json(data)))
     ENV.context_asset_string = 'courses_2'
     const ref = React.createRef()
     const wrapper = render(<WebZipExportApp ref={ref} />)
-    const download = sinon.stub(ref.current, 'downloadLink')
     act(() => {
       ref.current.getExports('126')
     })
-    await waitFor(async () => {
-      moxios.requests.mostRecent()
+    await waitFor(() => {
       expect(wrapper.queryByText('Loading')).toBeNull()
-      sinon.assert.calledOnce(download)
-      download.restore()
+      expect(assignLocation).toHaveBeenCalledWith('http://example.com/thing')
     })
   })
 })

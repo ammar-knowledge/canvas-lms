@@ -43,7 +43,7 @@ describe "communication channel selenium tests" do
       error_boxes = ff(".error_box")
       text = error_boxes.map(&:text).join
       expect(text).to include("Must be at least 8 characters")
-      expect(text).to_not include("Doesn't match")
+      expect(text).not_to include("Doesn't match")
     end
 
     it "requires the terms if configured to do so" do
@@ -91,7 +91,7 @@ describe "communication channel selenium tests" do
       expect(f(".email_channels")).to contain_css(".unconfirmed")
       f(".email_channels .path").click
       Notification.create!(name: "Confirm Email Communication Channel", category: "Registration")
-      f("#confirm_email_channel .re_send_confirmation_link").click
+      f("[role=dialog][aria-label='Confirm Email Address'] [aria-label='Re-Send Confirmation']").click
       expect(Message.last.subject).to eq("Confirm Email: Canvas")
       url = Message.last.url
 
@@ -112,7 +112,7 @@ describe "communication channel selenium tests" do
       expect(f(".other_channels")).to contain_css(".unconfirmed")
       f(".other_channels .path").click
       Notification.create!(name: "Confirm SMS Communication Channel", category: "Registration")
-      f("#confirm_communication_channel .re_send_confirmation_link").click
+      f("[role=dialog][aria-label='Confirm Communication Channel'] [aria-label='Re-Send Confirmation']").click
       wait_for_ajaximations
 
       expect(@user.messages.count).to eq 1

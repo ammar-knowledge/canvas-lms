@@ -19,9 +19,49 @@
 #
 
 describe Pseudonym do
+  describe ".normalize" do
+    delegate :normalize, to: :Pseudonym
+
+    it "normalizes according to RFC4518" do
+      # Ⅳ ligature gets decomposed to IV (and dowercased)
+      expect(normalize("Ⅳ")).to eql "iv"
+      expect(normalize("interior  spaces")).to eql "interior spaces"
+      expect(normalize("  leading")).to eql "leading"
+      expect(normalize("trailing  ")).to eql "trailing"
+      expect(normalize("  leading  trailing Ⅳ  ")).to eql "leading trailing iv"
+      expect(normalize(" ")).to eql " "
+      expect(normalize("   ")).to eql " "
+      expect(normalize("\u200fcody")).to eql "cody"
+      expect(normalize("cody\u200f")).to eql "cody"
+      expect(normalize("\u202a\u202a\u202acody\u202c\u202c\u202c")).to eql "cody"
+      expect(normalize("\u200f\u202acody\u202c\u200f")).to eql "cody"
+    end
+
+    it "self-heals corrupted unique_id_normalized on save" do
+      user = user_model
+      pseudonym = Pseudonym.create!(valid_pseudonym_attributes.merge(user:))
+
+      # Corrupt unique_id_normalized by bypassing validations
+      # This simulates what might happen from old migration code or manual database updates
+      pseudonym.update_column(:unique_id_normalized, "corrupted@example.com")
+      pseudonym.reload
+
+      # Verify corruption exists
+      expect(pseudonym.unique_id_normalized).to eq("corrupted@example.com")
+      expect(pseudonym.unique_id_normalized).not_to eq(normalize(pseudonym.unique_id))
+
+      # Save the pseudonym (without changing unique_id)
+      pseudonym.save!
+      pseudonym.reload
+
+      # Verify self-healing: unique_id_normalized should now match normalized unique_id
+      expect(pseudonym.unique_id_normalized).to eq(normalize(pseudonym.unique_id))
+    end
+  end
+
   it "creates a new instance given valid attributes" do
     user_model
-    expect { factory_with_protected_attributes(Pseudonym, valid_pseudonym_attributes) }.to change(Pseudonym, :count).by(1)
+    expect { Pseudonym.create!(valid_pseudonym_attributes) }.to change(Pseudonym, :count).by(1)
   end
 
   it "allows single character usernames" do
@@ -46,6 +86,17 @@ describe Pseudonym do
     expect(pseudonym).to be_valid
   end
 
+  it "normalizes on validation (preserving the original input)" do
+    # Ⅳ ligature gets decomposed to IV
+    pseudonym = Pseudonym.new(unique_id: "HenryⅣ@instructure.com",
+                              password: "password",
+                              password_confirmation: "password")
+    pseudonym.user_id = 1
+    expect(pseudonym).to be_valid
+    expect(pseudonym.unique_id).to eql "HenryⅣ@instructure.com"
+    expect(pseudonym.unique_id_normalized).to eql "henryiv@instructure.com"
+  end
+
   it "validates the presence of user and infer default account" do
     Account.default
     u = User.create!
@@ -59,7 +110,6 @@ describe Pseudonym do
     # make sure a password was generated
     expect(p.password).not_to be_nil
     expect(p.password).not_to match(/tmp-pw/)
-    expect(p.login_attribute).to be_nil
   end
 
   it "does not allow active duplicates" do
@@ -75,32 +125,105 @@ describe Pseudonym do
     p1.save!
     # Should allow creating a new active one if the others are deleted
     Pseudonym.create!(unique_id: "cody@instructure.com", user: u)
+
+    # Failed; conflicts with the nil auth provider version
+    expect do
+      Pseudonym.create!(unique_id: "cody@instructure.com",
+                        user: u,
+                        authentication_provider: Account.default.canvas_authentication_provider)
+    end.to raise_error(ActiveRecord::RecordInvalid)
+    Pseudonym.create!(unique_id: "cody2@instructure.com",
+                      user: u,
+                      authentication_provider: Account.default.canvas_authentication_provider)
+    # Failed; conflicts with the canvas auth provider version
+    expect do
+      Pseudonym.create!(unique_id: "cody2@instructure.com", user: u)
+    end.to raise_error(ActiveRecord::RecordInvalid)
+
+    saml1 = Account.default.authentication_providers.create!(auth_type: "saml")
+    saml2 = Account.default.authentication_providers.create!(auth_type: "saml")
+
+    # duplicates across SAML auth providers or SAML-and-Canvas are okay
+    Pseudonym.create!(unique_id: "cody3@instructure.com", user: u, authentication_provider: saml1)
+    Pseudonym.create!(unique_id: "cody3@instructure.com", user: u, authentication_provider: saml2)
+    Pseudonym.create!(unique_id: "cody2@instructure.com", user: u, authentication_provider: saml1)
+
+    # duplicates between no auth provider and SAML are not okay
+    # and vice versa
+    expect { Pseudonym.create!(unique_id: "cody@instructure.com", user: u, authentication_provider: saml1) }
+      .to raise_error(ActiveRecord::RecordInvalid)
+    expect { Pseudonym.create!(unique_id: "cody3@instructure.com", user: u) }
+      .to raise_error(ActiveRecord::RecordInvalid)
   end
 
-  it "does not allow a login_attribute without an authentication provider" do
+  it "allows deleted duplicates" do
+    saml = Account.default.authentication_providers.create!(auth_type: "saml")
+    canvas = Account.default.canvas_authentication_provider
     u = User.create!
-    expect { u.pseudonyms.create!(unique_id: "a@b.com", login_attribute: "b") }.to raise_error(ActiveRecord::StatementInvalid)
+
+    # each of these cases creates an active pseudonym, then two deleted, then vice verse
+    # in order to ensure the trigger is okay with multiples, and order of creation
+    # doesn't matter
+
+    # duplication within the same auth provider
+    Pseudonym.create!(unique_id: "a@instructure.com", user: u)
+    Pseudonym.create!(unique_id: "a@instructure.com", user: u, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "a@instructure.com", user: u, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "b@instructure.com", user: u, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "b@instructure.com", user: u, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "b@instructure.com", user: u)
+    Pseudonym.create!(unique_id: "c@instructure.com", user: u, authentication_provider: saml)
+    Pseudonym.create!(unique_id: "c@instructure.com", user: u, authentication_provider: saml, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "c@instructure.com", user: u, authentication_provider: saml, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "d@instructure.com", user: u, authentication_provider: saml, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "d@instructure.com", user: u, authentication_provider: saml, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "d@instructure.com", user: u, authentication_provider: saml)
+    Pseudonym.create!(unique_id: "c@instructure.com", user: u, authentication_provider: canvas)
+    Pseudonym.create!(unique_id: "c@instructure.com", user: u, authentication_provider: canvas, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "c@instructure.com", user: u, authentication_provider: canvas, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "d@instructure.com", user: u, authentication_provider: canvas, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "d@instructure.com", user: u, authentication_provider: canvas, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "d@instructure.com", user: u, authentication_provider: canvas)
+
+    # duplication across a specific auth provider and no auth provider
+    Pseudonym.create!(unique_id: "e@instructure.com", user: u, authentication_provider: saml)
+    Pseudonym.create!(unique_id: "e@instructure.com", user: u, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "e@instructure.com", user: u, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "f@instructure.com", user: u)
+    Pseudonym.create!(unique_id: "f@instructure.com", user: u, authentication_provider: saml, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "f@instructure.com", user: u, authentication_provider: saml, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "g@instructure.com", user: u, authentication_provider: canvas)
+    Pseudonym.create!(unique_id: "g@instructure.com", user: u, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "g@instructure.com", user: u, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "h@instructure.com", user: u)
+    Pseudonym.create!(unique_id: "h@instructure.com", user: u, authentication_provider: canvas, workflow_state: "deleted")
+    Pseudonym.create!(unique_id: "h@instructure.com", user: u, authentication_provider: canvas, workflow_state: "deleted")
   end
 
-  it "infers the login_attribute on a new pseudonym for an auth provider that uses them" do
-    u = User.create!
-    ap = Account.default.authentication_providers.create!(auth_type: "microsoft", tenant: "microsoft")
-    p = u.pseudonyms.create!(unique_id: "a@b.com", authentication_provider: ap)
-    expect(p.login_attribute).to eq "sub"
-  end
+  describe ".by_unique_id" do
+    it "finds the correct pseudonym for logins" do
+      user = User.create!
+      p1 = Pseudonym.create!(unique_id: "Cody@instructure.com", user:)
+      Pseudonym.create!(unique_id: "codY@instructure.com", user:) { |p| p.workflow_state = "deleted" }
+      expect(Pseudonym.active.by_unique_id("cody@instructure.com").first).to eq p1
+      account = Account.create!
+      p3 = Pseudonym.create!(unique_id: "cOdy@instructure.com", account:, user:)
+      expect(Pseudonym.active.by_unique_id("cody@instructure.com").sort).to eq [p1, p3]
+      p4 = Pseudonym.create!(unique_id: "c①dy@instructure.com", account:, user:)
+      expect(Pseudonym.active.by_unique_id("c①dy@instructure.com")).to eq [p4]
 
-  it "finds the correct pseudonym for logins" do
-    user = User.create!
-    p1 = Pseudonym.create!(unique_id: "Cody@instructure.com", user:)
-    Pseudonym.create!(unique_id: "codY@instructure.com", user:) { |p| p.workflow_state = "deleted" }
-    expect(Pseudonym.active.by_unique_id("cody@instructure.com").first).to eq p1
-    account = Account.create!
-    p3 = Pseudonym.create!(unique_id: "cOdy@instructure.com", account:, user:)
-    expect(Pseudonym.active.by_unique_id("cody@instructure.com").sort).to eq [p1, p3]
-  end
+      scope = Pseudonym.active
+      shard = instance_double(Shard, settings: {})
+      allow(shard).to receive(:is_a?).with(Shard).and_return(true)
+      allow(shard).to receive(:is_a?).with(Switchman::DefaultShard).and_return(false)
+      # return our double once for the named scope, then the real thing for the query
+      allow(scope).to receive(:primary_shard).and_return(shard, Shard.default)
+      expect(scope.by_unique_id("c1dy@instructure.com")).to eq [p4]
+    end
 
-  it "does not blow up if by_unique_id is passed a non-string" do
-    expect(Pseudonym.active.by_unique_id(123)).to eq []
+    it "does not blow up if by_unique_id is passed a non-string" do
+      expect(Pseudonym.active.by_unique_id(123)).to eq []
+    end
   end
 
   it "associates to another user" do
@@ -143,6 +266,46 @@ describe Pseudonym do
     expect(@user.user_account_associations).to eq []
   end
 
+  describe "#encryption_type" do
+    subject(:encryption_type) { pseudonym.encryption_type }
+
+    let(:pseudonym) { pseudonym_model }
+
+    context "when crypted_password is blank" do
+      before { pseudonym.update_column(:crypted_password, "") }
+
+      it { is_expected.to be_nil }
+    end
+
+    context "when sis_ssha is present" do
+      before { pseudonym.update_column(:sis_ssha, "$SSHA$Q0pF5X/UfUyxZQ2FZgFzYmFhZGViYTRkYTAyMzg3ZjE=$") }
+
+      it { is_expected.to eq :SSHA }
+    end
+
+    context "when crypted_password is scrypt" do
+      let(:scrypt_password) { ScryptProvider.new("4000$8$1$").encrypt("plaintext_password") }
+
+      before { pseudonym.update_column(:crypted_password, scrypt_password) }
+
+      it { is_expected.to eq :SCRYPT }
+    end
+
+    context "when crypted_password is sha512" do
+      let(:sha512_password) { Authlogic::CryptoProviders::Sha512.encrypt("plaintext_password") }
+
+      before { pseudonym.update_column(:crypted_password, sha512_password) }
+
+      it { is_expected.to eq :SHA512 }
+    end
+
+    context "when the encryption type is not recognized" do
+      before { pseudonym.update_column(:crypted_password, "unknown_encryption_type") }
+
+      it { is_expected.to eq :UNKNOWN }
+    end
+  end
+
   describe "#destroy" do
     it "allows deleting pseudonyms" do
       user_with_pseudonym(active_all: true)
@@ -164,6 +327,37 @@ describe Pseudonym do
         @pseudonym.destroy
         expect(@pseudonym.auditor_records.where(action: "deleted", performing_user: performing_user.id)).to exist
       end
+    end
+
+    context "with additional arguments" do
+      let(:pseudonym) { pseudonym_model }
+
+      it "passes additional arguments to #save" do
+        expect(pseudonym).to receive(:save).with(validate: false)
+
+        pseudonym.destroy(custom_deleted_at: Time.now.utc, validate: false)
+      end
+    end
+  end
+
+  describe "suspend auditing" do
+    it "audits suspension" do
+      pseudonym_model
+      @pseudonym.suspend!
+      expect(@pseudonym.auditor_records.where(action: "suspended")).to exist
+    end
+
+    it "audits unsuspension" do
+      pseudonym_model(workflow_state: "suspended")
+      @pseudonym.unsuspend!
+      expect(@pseudonym.auditor_records.where(action: "unsuspended")).to exist
+    end
+
+    it "logs deletion in preference to unsuspension" do
+      pseudonym_model(workflow_state: "suspended")
+      @pseudonym.destroy
+      expect(@pseudonym.auditor_records.where(action: "deleted")).to exist
+      expect(@pseudonym.auditor_records.where(action: "unsuspended")).not_to exist
     end
   end
 
@@ -305,12 +499,12 @@ describe Pseudonym do
     ap = p.account.authentication_providers.create!(auth_type: "ldap")
     expect(p).to be_passwordable
     p.authentication_provider = ap
-    expect(p).to_not be_passwordable
+    expect(p).not_to be_passwordable
     p.account.canvas_authentication_provider.destroy
     p.authentication_provider = nil
     p.save!
     p.reload
-    expect(p).to_not be_passwordable
+    expect(p).not_to be_passwordable
   end
 
   context "login assertions" do
@@ -410,6 +604,72 @@ describe Pseudonym do
     end
   end
 
+  describe "session cache expiration" do
+    specs_require_sharding
+
+    let(:user) { User.create! }
+
+    it "expires session cache when password changes" do
+      pseudonym = Pseudonym.create!(
+        password: "abcdefgh",
+        password_confirmation: "abcdefgh",
+        unique_id: "bob@instructure.com",
+        user:
+      )
+      allow(Rails.cache).to receive(:delete)
+      pseudonym.update!(password: "12345678", password_confirmation: "12345678")
+      expect(Rails.cache).to have_received(:delete).with(Pseudonym.cache_key_for(pseudonym.global_id))
+    end
+
+    it "does not expire session cache when password stays the same" do
+      pseudonym = Pseudonym.create!(
+        password: "abcdefgh",
+        password_confirmation: "abcdefgh",
+        unique_id: "bob@instructure.com",
+        user:
+      )
+      allow(Rails.cache).to receive(:delete)
+      pseudonym.update!(unique_id: "billy@instructure.com")
+      expect(Rails.cache).not_to have_received(:delete)
+    end
+
+    it "expires session cache when password is re-set to the same value" do
+      pseudonym = Pseudonym.create!(
+        password: "abcdefgh",
+        password_confirmation: "abcdefgh",
+        unique_id: "bob@instructure.com",
+        user:
+      )
+      original_crypted_password = pseudonym.crypted_password
+      allow(Rails.cache).to receive(:delete)
+      pseudonym.update!(password: "abcdefgh", password_confirmation: "abcdefgh")
+      # even though the password string is the same
+      # the crypted_password changes due to rehashing
+      expect(pseudonym.crypted_password).not_to eq(original_crypted_password)
+      expect(Rails.cache).to have_received(:delete)
+    end
+
+    it "expires cache only for the updated pseudonym" do
+      Pseudonym.create!(
+        password: "primarypass",
+        password_confirmation: "primarypass",
+        unique_id: "primary@example.com",
+        user:
+      )
+      secondary = Pseudonym.create!(
+        password: "secondarypass",
+        password_confirmation: "secondarypass",
+        unique_id: "secondary@example.com",
+        user:
+      )
+      allow(Rails.cache).to receive(:delete)
+      # trigger a password update for the secondary pseudonym
+      secondary.update!(password: "secondarynewpass", password_confirmation: "secondarynewpass")
+      # only the secondary pseudonym’s cache should be cleared
+      expect(Rails.cache).to have_received(:delete).with(Pseudonym.cache_key_for(secondary.global_id)).once
+    end
+  end
+
   context "cas" do
     let!(:cas_ticket) { CanvasUuid::Uuid.generate_securish_uuid }
     let!(:redis_key) { "cas_session_slo:#{cas_ticket}" }
@@ -432,7 +692,7 @@ describe Pseudonym do
 
     it "expires a cas ticket" do
       expect(Canvas.redis).to receive(:set).once.and_return(true)
-      expect(Pseudonym.expire_cas_ticket(cas_ticket)).to be_truthy
+      expect(Pseudonym.expire_cas_ticket(cas_ticket, nil)).to be_truthy
     end
   end
 
@@ -737,32 +997,9 @@ describe Pseudonym do
         expect(pseud).to be_nil
       end
 
-      context "with a hash of unique ids" do
-        it "only matches against the proper login attribute" do
-          new_pseud.update_attribute(:login_attribute, "sub")
-          Account.default.pseudonyms.create!(user: bob,
-                                             unique_id: "BobbyRicky",
-                                             authentication_provider: aac,
-                                             login_attribute: "oid")
-
-          pseud = Account.default.pseudonyms.for_auth_configuration({ "sub" => "BobbyRicky" }, aac)
-          expect(pseud).to eq(new_pseud)
-        end
-
-        it "still matches against a null login attribute" do
-          pseud = Account.default.pseudonyms.for_auth_configuration({ "sub" => "BobbyRicky" }, aac)
-          expect(pseud).to eq(new_pseud)
-        end
-
-        it "matches against the proper login attribute before a null login_attribute" do
-          proper_pseud = Account.default.pseudonyms.create!(user: bob,
-                                                            unique_id: "BobbyRicky",
-                                                            authentication_provider: aac,
-                                                            login_attribute: "sub")
-
-          pseud = Account.default.pseudonyms.for_auth_configuration({ "sub" => "BobbyRicky" }, aac)
-          expect(pseud).to eq(proper_pseud)
-        end
+      it "accepts a hash of unique ids" do
+        pseud = Account.default.pseudonyms.for_auth_configuration({ "sub" => "BobbyRicky" }, aac)
+        expect(pseud).to eq(new_pseud)
       end
     end
   end
@@ -772,26 +1009,26 @@ describe Pseudonym do
     aac = Account.default.authentication_providers.create!(auth_type: "facebook")
     u.pseudonyms.create!(unique_id: "a", account: Account.default)
     p2 = u.pseudonyms.new(unique_id: "a", account: Account.default)
-    expect(p2).to_not be_valid
-    expect(p2.errors[:unique_id].first.type).to eq :taken
+    expect(p2).not_to be_valid
+    expect(p2.errors.details[:unique_id].first[:error]).to eq :taken
     p2.authentication_provider = aac
     expect(p2).to be_valid
   end
 
-  describe ".find_all_by_arbtrary_credentials" do
-    let_once(:p) do
+  describe ".find_all_by_arbitrary_credentials" do
+    let_once(:pseudonym) do
       u = User.create!
       u.pseudonyms.create!(unique_id: "a", account: Account.default, password: "abcdefgh", password_confirmation: "abcdefgh")
     end
 
     it "finds a valid pseudonym" do
-      expect(Pseudonym.find_all_by_arbitrary_credentials({ unique_id: "a", password: "abcdefgh" }, [Account.default.id])).to eq [p]
+      expect(Pseudonym.find_all_by_arbitrary_credentials({ unique_id: "a", password: "abcdefgh" }, [Account.default.id])).to eq [pseudonym]
     end
 
     it "doesn't choke on if global lookups is down" do
       expect(GlobalLookups).to receive(:enabled?).and_return(true)
       expect(Pseudonym).to receive(:associated_shards).and_raise("an error")
-      expect(Pseudonym.find_all_by_arbitrary_credentials({ unique_id: "a", password: "abcdefgh" }, [Account.default.id])).to eq [p]
+      expect(Pseudonym.find_all_by_arbitrary_credentials({ unique_id: "a", password: "abcdefgh" }, [Account.default.id])).to eq [pseudonym]
     end
 
     it "throws an error if your credentials are absurd" do
@@ -802,64 +1039,83 @@ describe Pseudonym do
     end
 
     it "doesn't find deleted pseudonyms" do
-      p.update!(workflow_state: "deleted")
+      pseudonym.update!(workflow_state: "deleted")
       expect(Pseudonym.find_all_by_arbitrary_credentials({ unique_id: "a", password: "abcdefgh" }, [Account.default.id])).to eq []
     end
 
     it "doesn't find suspended pseudonyms" do
-      p.update!(workflow_state: "suspended")
+      pseudonym.update!(workflow_state: "suspended")
       expect(Pseudonym.find_all_by_arbitrary_credentials({ unique_id: "a", password: "abcdefgh" }, [Account.default.id])).to eq []
     end
   end
 
-  describe "migrate_login_attribute" do
-    before :once do
-      user_factory(active_all: true, active_cc: true)
-      Notification.create!(name: "Account Verification", subject: "Test", category: "Registration", delay_for: 0)
-      @authentication_provider = Account.default.authentication_providers.create!(auth_type: "microsoft", tenant: "common", login_attribute: "tid+oid")
-      @authentication_provider.settings["old_login_attribute"] = "email"
-      @authentication_provider.save!
-      @pseudonym = @user.pseudonyms.create!(unique_id: "foo@example.com", authentication_provider: @authentication_provider)
-      @pseudonym.begin_login_attribute_migration!({ "email" => "foo@example.com", "tid+oid" => "67890#abcde" })
+  describe "#validate_password" do
+    let(:pseudonym) { Pseudonym.new }
+    let(:attr) { :password }
+    let(:val) { "new_password" }
+
+    before do
+      allow(Canvas::Security::PasswordPolicy).to receive(:validate)
     end
 
-    it "allows the user to migrate to the new login attribute via the emailed code" do
-      message = @user.messages.find_by(notification_name: "Account Verification")
-      expect(message).to be_present
-      code = message.body.match(/use the following code to complete your login: (\w+)/)[1]
-      expect(@pseudonym.migrate_login_attribute(code:)).to be true
-      expect(@pseudonym.reload.unique_id).to eq "67890#abcde"
-    end
-
-    it "rejects an invalid code" do
-      expect(@pseudonym.migrate_login_attribute(code: "invalid")).to be false
-      expect(@pseudonym.reload.unique_id).to eq "foo@example.com"
-    end
-
-    it "allows an admin to migrate the login attribute" do
-      expect(@pseudonym.migrate_login_attribute(admin_user: account_admin_user)).to be true
-      expect(@pseudonym.reload.unique_id).to eq "67890#abcde"
-    end
-
-    it "rejects a user without permission to modify the login" do
-      expect(@pseudonym.migrate_login_attribute(admin_user: user_factory)).to be false
-      expect(@pseudonym.reload.unique_id).to eq "foo@example.com"
-    end
-
-    it "keeps the verification token if a new login attempt is made within 5 minutes" do
-      token = @pseudonym.verification_token
-      @pseudonym.begin_login_attribute_migration!({ "email" => "foo@example.com", "tid+oid" => "67890#abcde" })
-      expect(@pseudonym.reload.verification_token).to eq token
-      expect(@user.messages.where(notification_name: "Account Verification").count).to eq 2
-    end
-
-    it "regenerates the verification token if a new login attempt is made after 5 minutes" do
-      token = @pseudonym.verification_token
-      Timecop.travel(10.minutes.from_now) do
-        @pseudonym.begin_login_attribute_migration!({ "email" => "foo@example.com", "tid+oid" => "67890#abcde" })
+    context "when password_auto_generated? is true and canvas_generated_password? is true" do
+      before do
+        allow(pseudonym).to receive_messages(password_auto_generated?: true, canvas_generated_password?: true)
       end
-      expect(@pseudonym.reload.verification_token).not_to eq token
-      expect(@user.messages.where(notification_name: "Account Verification").count).to eq 2
+
+      it "does not call Canvas::Security::PasswordPolicy.validate" do
+        pseudonym.validate_password(attr, val)
+        expect(Canvas::Security::PasswordPolicy).not_to have_received(:validate)
+      end
+    end
+
+    context "when password_auto_generated? is false" do
+      before do
+        allow(pseudonym).to receive_messages(password_auto_generated?: false, canvas_generated_password?: true)
+      end
+
+      it "calls Canvas::Security::PasswordPolicy.validate" do
+        pseudonym.validate_password(attr, val)
+        expect(Canvas::Security::PasswordPolicy).to have_received(:validate).with(pseudonym, attr, val)
+      end
+    end
+
+    context "when canvas_generated_password? is false" do
+      before do
+        allow(pseudonym).to receive_messages(password_auto_generated?: true, canvas_generated_password?: false)
+      end
+
+      it "calls Canvas::Security::PasswordPolicy.validate" do
+        pseudonym.validate_password(attr, val)
+        expect(Canvas::Security::PasswordPolicy).to have_received(:validate).with(pseudonym, attr, val)
+      end
+    end
+  end
+
+  describe "#infer_defaults" do
+    let(:pseudonym) do
+      Pseudonym.new.tap do |p|
+        p.user = user_model
+        p.account = Account.default
+        p.unique_id = "some_unique_id"
+      end
+    end
+
+    before do
+      expect(pseudonym).to receive(:infer_defaults).once.and_call_original
+    end
+
+    it "sets @canvas_generated_password to true if generate temporary password conditions are met" do
+      pseudonym.save!
+      expect(pseudonym.instance_variable_get(:@canvas_generated_password)).to be true
+    end
+
+    it "does not set @canvas_generated_password if generate temporary password conditions are not met" do
+      pseudonym.password = "password"
+      pseudonym.password_confirmation = "password"
+      pseudonym.save!
+
+      expect(pseudonym.instance_variable_get(:@canvas_generated_password)).to be_nil
     end
   end
 end

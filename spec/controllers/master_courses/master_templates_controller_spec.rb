@@ -78,8 +78,6 @@ describe MasterCourses::MasterTemplatesController do
         end
 
         it "works with media tracks" do
-          expect(Account.site_admin).to receive(:feature_enabled?).and_call_original
-          expect(Account.site_admin).to receive(:feature_enabled?).with(:media_links_use_attachment_id).and_return(true)
           media = media_object
           attachment = media.attachment
           mt = attachment.media_tracks.create!(kind: "subtitles", locale: "en", content: "en subs", media_object: media)
@@ -90,6 +88,136 @@ describe MasterCourses::MasterTemplatesController do
           expect(json["asset_name"]).to eq(attachment.filename)
           expect(json["asset_type"]).to eq("media_track")
           expect(json["change_type"]).to eq("created")
+        end
+      end
+    end
+  end
+
+  describe "GET 'associated_courses'" do
+    def get_associated_courses(params = {})
+      get "associated_courses",
+          params: {
+            course_id: @course.id,
+            template_id: "default",
+            **params
+          },
+          format: "json"
+    end
+
+    it "requires authorization" do
+      get_associated_courses
+      assert_unauthorized
+    end
+
+    context "with authorization" do
+      before do
+        user_session(@teacher)
+      end
+
+      it "returns empty array when no associated courses" do
+        json = parse_response(get_associated_courses)
+        expect(json).to eq([])
+      end
+
+      context "with associated courses" do
+        before do
+          @teacher1 = User.create!(name: "Teacher One")
+          @teacher2 = User.create!(name: "Teacher Two")
+
+          @term = EnrollmentTerm.create!(name: "Fall 2023", root_account: @course.root_account)
+
+          @child_course = Course.create!(
+            name: "Child Course",
+            course_code: "CHILD101",
+            sis_source_id: "child_sis_123",
+            enrollment_term: @term
+          )
+          @child_course.enroll_teacher(@teacher1, enrollment_state: "active")
+          @child_course.enroll_teacher(@teacher2, enrollment_state: "active")
+
+          @concluded_child_course = Course.create!(
+            name: "Concluded Child Course",
+            course_code: "CONCLUDED101",
+            sis_source_id: "concluded_sis_456",
+            enrollment_term: @term
+          )
+          @concluded_child_course.enroll_teacher(@teacher1, enrollment_state: "active")
+          @concluded_child_course.soft_conclude!
+          @concluded_child_course.save!
+
+          @template.add_child_course!(@child_course)
+          @template.add_child_course!(@concluded_child_course)
+        end
+
+        it "returns associated courses with all expected fields" do
+          json = parse_response(get_associated_courses)
+          expect(json.length).to eq(2)
+
+          child_course_json = json.find { |c| c["id"] == @child_course.id }
+          expect(child_course_json["name"]).to eq("Child Course")
+          expect(child_course_json["course_code"]).to eq("CHILD101")
+          expect(child_course_json["concluded"]).to be_falsey
+          expect(child_course_json["term_name"]).to eq("Fall 2023")
+          expect(child_course_json["teachers"].length).to eq(2)
+          expect(child_course_json["teachers"].pluck("display_name")).to match_array(["Teacher One", "Teacher Two"])
+
+          concluded_course_json = json.find { |c| c["id"] == @concluded_child_course.id }
+          expect(concluded_course_json["name"]).to eq("Concluded Child Course")
+          expect(concluded_course_json["course_code"]).to eq("CONCLUDED101")
+          expect(concluded_course_json["concluded"]).to be_truthy
+          expect(concluded_course_json["term_name"]).to eq("Fall 2023")
+          expect(concluded_course_json["teachers"].length).to eq(1)
+          expect(concluded_course_json["teachers"][0]["display_name"]).to eq("Teacher One")
+        end
+      end
+    end
+  end
+
+  describe "PUT restrict_item" do
+    subject do
+      put "restrict_item", params:
+    end
+
+    let(:params) do
+      {
+        course_id: @course.id,
+        template_id: "default",
+        content_type:,
+        content_id: content.id,
+        restricted: true,
+      }
+    end
+
+    before do
+      user_session(@teacher)
+    end
+
+    context "discussion_topic as content" do
+      let(:content) { DiscussionTopic.create_graded_topic!(course: @course, title: "Graded Discussion") }
+      let(:content_type) { "discussion_topic" }
+
+      it "updates master tag for discussion topic" do
+        subject
+        expect(MasterCourses::MasterContentTag.find_by(content:).restrictions).to match(hash_including(@template.default_restrictions))
+      end
+
+      context "when provided restrictions is invalid" do
+        before do
+          params[:restrictions] = { invalid: "restriction" }
+        end
+
+        it "returns bad request if tag is invalid" do
+          subject
+          expect(response).to have_http_status(:bad_request)
+        end
+      end
+
+      context "with sub assignments" do
+        let!(:sub_assignment) { content.assignment.sub_assignments.create!(context: content.context, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC) }
+
+        it "updates master tag for sub assignments" do
+          subject
+          expect(MasterCourses::MasterContentTag.find_by(content: sub_assignment).restrictions).to match(hash_including(@template.default_restrictions))
         end
       end
     end

@@ -29,11 +29,12 @@ module CoursesHelper
     show_assignment_type_icon = opts[:show_assignment_type_icon]
 
     return [nil, "Quiz", "icon-quiz"] if recent_event.is_a?(Quizzes::Quiz)
-    return [nil, "Event", "icon-calendar-day"] unless recent_event.is_a?(Assignment)
+    return [nil, "Event", "icon-calendar-day"] unless recent_event.is_a?(Assignment) || recent_event.is_a?(SubAssignment) || recent_event.is_a?(PeerReviewSubAssignment)
 
     event_type = ["Assignment", "icon-assignment"]
     event_type = ["Quiz", "icon-quiz"] if recent_event.submission_types == "online_quiz"
     event_type = ["Discussion", "icon-discussion"] if recent_event.submission_types == "discussion_topic"
+    event_type = ["Peer Review", "icon-peer-review"] if recent_event.submission_types == "peer_review"
 
     # because this happens in a sidebar, the context may be wrong. check and fix
     # it if that's the case.
@@ -50,15 +51,19 @@ module CoursesHelper
       end
       icon_data[0] = nil unless recent_event.expects_submission?
     elsif !student_only && can_do(context, current_user, :manage_grades)
+      event_needs_grading = current_user.assignments_needing_grading(
+        contexts:,
+        is_peer_review_sub_assignment: recent_event.is_a?(PeerReviewSubAssignment)
+      ).include?(recent_event)
+
       # no submissions
       icon_data = if !recent_event.has_submitted_submissions?
                     [t("#courses.recent_event.no_submissions", "no submissions")] + event_type
                   # all received submissions graded (but not all turned in)
-                  elsif recent_event.submitted_count < context.students.size &&
-                        !current_user.assignments_needing_grading(contexts:).include?(recent_event)
+                  elsif recent_event.submitted_count < context.students.size && !event_needs_grading
                     [t("#courses.recent_event.no_new_submissions", "no new submissions")] + event_type
                   # all submissions turned in and graded
-                  elsif !current_user.assignments_needing_grading(contexts:).include?(recent_event)
+                  elsif !event_needs_grading
                     [t("#courses.recent_event.all_graded", "all graded")] + event_type
                   # assignments need grading
                   else
@@ -78,6 +83,8 @@ module CoursesHelper
     context = recent_event.context
     if recent_event.is_a?(Assignment)
       context_url(context, :context_assignment_url, id: recent_event.id)
+    elsif recent_event.is_a?(SubAssignment) || recent_event.is_a?(PeerReviewSubAssignment)
+      context_url(context, :context_assignment_url, id: recent_event.parent_assignment_id)
     else
       calendar_url_for(nil, {
                          query: { month: recent_event.start_at.month, year: recent_event.start_at.year },
@@ -113,7 +120,6 @@ module CoursesHelper
     if submission.grade &&
        submission.workflow_state == "graded"
       if submission.grading_type == "points" &&
-         submission.assignment &&
          submission.assignment.respond_to?(:points_possible)
         score_out_of_points_possible(submission.grade, submission.assignment.points_possible)
       else
@@ -122,8 +128,8 @@ module CoursesHelper
     end
   end
 
-  def skip_custom_role?(cr)
-    cr[:count] == 0 && cr[:workflow_state] == "inactive"
+  def skip_custom_role?(custom_role)
+    custom_role[:count] == 0 && custom_role[:workflow_state] == "inactive"
   end
 
   def user_type(course, user, enrollments = nil)
@@ -138,6 +144,7 @@ module CoursesHelper
 
     type
   end
+
   module_function :user_type
 
   def why_cant_i_enable_master_course(course)
@@ -158,6 +165,18 @@ module CoursesHelper
     Api::V1::Tab.tab_is?(tab, @context, const_name)
   end
 
+  def sortable_tabs_tab_disabled_message(tab)
+    if @context.elementary_subject_course?
+      I18n.t("courses.settings.tab_hidden_if_disabled_k5", "Tab disabled, won't appear in subject navigation")
+    elsif tab[:external]
+      I18n.t("courses.settings.tab_hidden_if_disabled", "Page disabled, won't appear in navigation")
+    elsif [Course::TAB_GRADES, Course::TAB_DISCUSSIONS].include?(tab[:id])
+      I18n.t("courses.settings.tab_cant_disable", "This page can't be disabled, only hidden")
+    else
+      I18n.t("courses.settings.tab_disabled", "Page disabled, will redirect to course home page")
+    end
+  end
+
   def sortable_tabs
     tabs =
       @context.tabs_available(
@@ -166,7 +185,8 @@ module CoursesHelper
         root_account: @domain_root_account,
         course_subject_tabs: @context.try(:elementary_subject_course?)
       )
-    tabs.select do |tab|
+
+    tabs = tabs.select do |tab|
       if tab_is?(tab, :TAB_COLLABORATIONS)
         Collaboration.any_collaborations_configured?(@context) &&
           !@context.feature_enabled?(:new_collaborations)
@@ -180,10 +200,21 @@ module CoursesHelper
         !tab_is?(tab, :TAB_SETTINGS)
       end
     end
+
+    tabs.map do |tab|
+      tab.merge({
+        immovable: @context.tab_enabled?(tab) ? nil : true,
+        disabled_message: sortable_tabs_tab_disabled_message(tab)
+      }.compact)
+    end
   end
 
   def get_sorting_order(curr_col, sorted_col, order)
-    "desc" if (sorted_col.nil? && curr_col == "published") || (curr_col == sorted_col && order != "desc")
+    if curr_col == sorted_col
+      (order == "desc") ? "asc" : "desc"
+    else
+      "asc"
+    end
   end
 
   def get_sorting_icon(curr_col, sorted_col, order)
@@ -194,11 +225,47 @@ module CoursesHelper
     end
   end
 
+  def sortable_th(table:, column:, label:, css: "")
+    sort_param  = "#{table}_sort"
+    order_param = "#{table}_order"
+
+    current_sort = params[sort_param]
+    sort_ord     = ((current_sort == column) ? params[order_param] : nil)
+    aria_sort    = case sort_ord
+                   when "asc"  then "ascending"
+                   when "desc" then "descending"
+                   end
+
+    aria_label = "#{label} column, sorted #{aria_sort || "none"}, click to sort"
+
+    th_attrs = { scope: "col", class: css }
+    th_attrs[:"aria-sort"] = aria_sort if aria_sort
+
+    link_url  = courses_path(get_courses_params(table, column, params))
+    link_id   = "#{table}_#{column}"
+    icon_cls  = [
+      "course-list-sort-icon",
+      ("sorted" if current_sort == column),
+      get_sorting_icon(column, current_sort, params[order_param])
+    ].compact.join(" ")
+
+    content_tag(:th, **th_attrs) do
+      link_to(link_url, id: link_id, "aria-label": aria_label) do
+        safe_join([label, content_tag(:i, "", class: icon_cls)], " ")
+      end
+    end
+  end
+
   def get_courses_params(table, col, params)
-    params.permit(:cc_sort, :cc_order, :pc_sort, :pc_order, :fc_sort, :fc_order).merge({
-                                                                                         "#{table}_sort": col,
-                                                                                         "#{table}_order": get_sorting_order(col, params[:cc_sort], params[:cc_order]),
-                                                                                         focus: table
-                                                                                       })
+    sort_param  = "#{table}_sort"
+    order_param = "#{table}_order"
+
+    params
+      .permit(:cc_sort, :cc_order, :pc_sort, :pc_order, :fc_sort, :fc_order)
+      .merge(
+        sort_param => col,
+        order_param => get_sorting_order(col, params[sort_param], params[order_param]),
+        :focus => table
+      )
   end
 end

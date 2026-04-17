@@ -39,7 +39,6 @@ describe('ToolLaunchResizer', () => {
 
     describe('when the wrapperId contains non-UUID chars', () => {
       beforeEach(() => {
-        /* eslint-disable-next-line no-template-curly-in-string */
         wrapperId = '<img src="x" onerror="alert(`${document.domain}_-`);" />'
       })
 
@@ -50,7 +49,7 @@ describe('ToolLaunchResizer', () => {
   })
 
   describe('#tool_content_wrapper', () => {
-    const sanitizeSpy = jest.fn()
+    const sanitizeSpy = vi.fn()
     const wrapperId = 'foo'
 
     beforeEach(() => {

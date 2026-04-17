@@ -33,7 +33,7 @@ describe "submission_comment" do
   let(:anonymous_user) { "Anonymous User" }
 
   context "anonymous peer disabled" do
-    context ".email" do
+    describe ".email" do
       let(:path_type) { :email }
 
       it "renders" do
@@ -48,7 +48,7 @@ describe "submission_comment" do
       end
     end
 
-    context ".sms" do
+    describe ".sms" do
       let(:path_type) { :sms }
 
       it "renders" do
@@ -57,17 +57,8 @@ describe "submission_comment" do
       end
     end
 
-    context ".summary" do
+    describe ".summary" do
       let(:path_type) { :summary }
-
-      it "renders" do
-        message = generate_message(notification_name, path_type, asset)
-        expect(message.body).not_to include(anonymous_user)
-      end
-    end
-
-    context ".twitter" do
-      let(:path_type) { :twitter }
 
       it "renders" do
         message = generate_message(notification_name, path_type, asset)
@@ -82,7 +73,7 @@ describe "submission_comment" do
       @comment.reload
     end
 
-    context ".email" do
+    describe ".email" do
       let(:path_type) { :email }
 
       it "shows anonymous when anonymous peer review enabled" do
@@ -91,7 +82,7 @@ describe "submission_comment" do
       end
     end
 
-    context ".sms" do
+    describe ".sms" do
       let(:path_type) { :sms }
 
       it "shows anonymous when anonymous peer review enabled" do
@@ -100,7 +91,7 @@ describe "submission_comment" do
       end
     end
 
-    context ".summary" do
+    describe ".summary" do
       let(:path_type) { :summary }
 
       it "shows anonymous when anonymous peer review enabled" do
@@ -108,14 +99,44 @@ describe "submission_comment" do
         expect(message.body).to include(anonymous_user)
       end
     end
+  end
 
-    context ".twitter" do
-      let(:path_type) { :twitter }
+  context "discussion checkpoint submissions" do
+    before :once do
+      @course.account.enable_feature!(:discussion_checkpoints)
+      @teacher = User.create!(name: "teacher")
+      @course.enroll_teacher(@teacher)
 
-      it "shows anonymous when anonymous peer review enabled" do
-        message = generate_message(notification_name, path_type, asset)
-        expect(message.body).to include(anonymous_user)
-      end
+      # Create a graded discussion with checkpoints
+      @discussion_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "Checkpointed Discussion")
+      @parent_assignment = @discussion_topic.assignment
+
+      # Create checkpoints
+      @reply_to_topic_checkpoint = Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: @discussion_topic,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: 1.day.from_now }],
+        points_possible: 5
+      )
+
+      # Student submits to the checkpoint
+      @checkpoint_submission = @reply_to_topic_checkpoint.grade_student(@student, { grade: "4", grader: @teacher }).first
+      @checkpoint_submission.workflow_state = "submitted"
+      @checkpoint_submission.save!
+
+      @checkpoint_comment = @checkpoint_submission.add_comment(comment: "Great work on the checkpoint!")
+    end
+
+    it "uses parent assignment ID in URLs for email notifications" do
+      email = generate_message(:submission_comment, :email, @checkpoint_comment, user: @student)
+      expect(email.url).to include("assignments/#{@parent_assignment.id}")
+      expect(email.url).not_to include("assignments/#{@reply_to_topic_checkpoint.id}")
+    end
+
+    it "uses parent assignment ID in URLs for summary notifications" do
+      summary = generate_message(:submission_comment, :summary, @checkpoint_comment, user: @student)
+      expect(summary.url).to include("assignments/#{@parent_assignment.id}")
+      expect(summary.url).not_to include("assignments/#{@reply_to_topic_checkpoint.id}")
     end
   end
 end

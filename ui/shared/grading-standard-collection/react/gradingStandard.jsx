@@ -22,11 +22,11 @@ import {shape, string} from 'prop-types'
 import update from 'immutability-helper'
 import DataRow from './dataRow'
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {chain, map, some} from 'lodash'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {map, some, compact, uniq} from 'es-toolkit/compat'
 import splitAssetString from '@canvas/util/splitAssetString'
 
-const I18n = useI18nScope('gradinggradingStandard')
+const I18n = createI18nScope('gradinggradingStandard')
 
 class GradingStandard extends React.Component {
   static propTypes = {
@@ -131,7 +131,7 @@ class GradingStandard extends React.Component {
   rowDataIsValid = () => {
     if (this.state.editingStandard.data.length <= 1) return true
     const rowValues = map(this.state.editingStandard.data, dataRow => String(dataRow[1]).trim())
-    const sanitizedRowValues = chain(rowValues).compact().uniq().value()
+    const sanitizedRowValues = uniq(compact(rowValues))
     const inputsAreUniqueAndNonEmpty = sanitizedRowValues.length === rowValues.length
     const valuesDoNotOverlap = !some(this.state.editingStandard.data, (element, index, list) => {
       if (index < 1) return false
@@ -145,7 +145,7 @@ class GradingStandard extends React.Component {
 
   rowNamesAreValid = () => {
     const rowNames = map(this.state.editingStandard.data, dataRow => dataRow[0].trim())
-    const sanitizedRowNames = chain(rowNames).compact().uniq().value()
+    const sanitizedRowNames = uniq(compact(rowNames))
     return sanitizedRowNames.length === rowNames.length
   }
 
@@ -211,7 +211,6 @@ class GradingStandard extends React.Component {
     return data.map(function (item, idx, array) {
       return (
         <DataRow
-          // eslint-disable-next-line react/no-array-index-key
           key={idx}
           uniqueId={idx}
           row={item}
@@ -332,7 +331,7 @@ class GradingStandard extends React.Component {
       this.props.standard.context_code !== ENV.context_asset_string
     ) {
       const url = `/${splitAssetString(this.props.standard.context_code).join(
-        '/'
+        '/',
       )}/grading_standards`
       const titleText = I18n.t('Manage grading schemes in %{context_name}', {
         context_name:
@@ -419,13 +418,14 @@ class GradingStandard extends React.Component {
         <div
           className="grading_standard react_grading_standard pad-box-mini border border-trbl border-round"
           id={this.renderIdNames()}
+          data-testid={this.renderIdNames()}
         >
           {this.renderStandardAlert()}
           <div>
             <table className="grading_standard_data">
               <caption className="screenreader-only">
                 {I18n.t(
-                  'A table that contains the grading scheme data. First is a name of the grading scheme and buttons for editing and deleting the scheme. Each row contains a name, a maximum percentage, and a minimum percentage. In addition, each row contains a button to add a new row below, and a button to delete the current row.'
+                  'A table that contains the grading scheme data. First is a name of the grading scheme and buttons for editing and deleting the scheme. Each row contains a name, a maximum percentage, and a minimum percentage. In addition, each row contains a button to add a new row below, and a button to delete the current row.',
                 )}
               </caption>
               <thead>

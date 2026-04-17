@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
@@ -18,24 +19,37 @@
  */
 
 import React from 'react'
-import fetchMock from 'fetch-mock'
-import {render, within} from '@testing-library/react'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
+import {cleanup, render, within} from '@testing-library/react'
 import {defaultGradebookProps} from '../../__tests__/GradebookSpecHelper'
 import {darken, defaultColors} from '../../constants/colors'
 import Gradebook from '../../Gradebook'
 import store from '../../stores/index'
-import {AssignmentGroup, Student} from '../../../../../../api.d'
-import '@testing-library/jest-dom/extend-expect'
+import type {AssignmentGroup, Student} from '../../../../../../api.d'
 
 const originalState = store.getState()
 
+window.ENV.SETTINGS = {}
+
+const server = setupServer(
+  http.get('*', () => new HttpResponse(null, {status: 200})),
+  http.post('*', () => new HttpResponse(null, {status: 200})),
+  http.put('*', () => new HttpResponse(null, {status: 200})),
+  http.delete('*', () => new HttpResponse(null, {status: 200})),
+)
+
 describe('Gradebook', () => {
   beforeEach(() => {
-    fetchMock.mock('*', 200)
+    server.listen({onUnhandledRequest: 'bypass'})
   })
   afterEach(() => {
+    cleanup()
     store.setState(originalState, true)
-    fetchMock.restore()
+    server.resetHandlers()
+  })
+  afterAll(() => {
+    server.close()
   })
 
   it('renders', () => {
@@ -91,7 +105,7 @@ describe('GridColor', () => {
       const node = document.createElement('div')
       const alert = {key: 'alert', message: 'Uh oh!', variant: 'error'}
       render(
-        <Gradebook {...defaultGradebookProps} flashAlerts={[alert]} flashMessageContainer={node} />
+        <Gradebook {...defaultGradebookProps} flashAlerts={[alert]} flashMessageContainer={node} />,
       )
       const {getByText} = within(node)
       expect(node).toContainElement(getByText(/Uh oh!/i))
@@ -200,13 +214,13 @@ describe('assignments-filter', () => {
         recentlyLoadedAssignmentGroups={{
           assignmentGroups: [],
         }}
-      />
+      />,
     )
 
     expect(getByText(/Assignment Names/)).toBeInTheDocument()
   })
 
-  it('disables the input if the grid has not yet rendered', function () {
+  it('disables the input if the grid has not yet rendered', () => {
     const {getByTestId, rerender} = render(<Gradebook {...defaultGradebookProps} />)
 
     rerender(
@@ -215,7 +229,7 @@ describe('assignments-filter', () => {
         recentlyLoadedAssignmentGroups={{
           assignmentGroups,
         }}
-      />
+      />,
     )
     expect(getByTestId('assignments-filter-select')).toBeDisabled()
   })
@@ -289,7 +303,7 @@ describe('student-names-filter', () => {
     },
   ]
 
-  it('disables the input if the grid has not yet rendered', function () {
+  it('disables the input if the grid has not yet rendered', () => {
     const {getByTestId, rerender} = render(<Gradebook {...defaultGradebookProps} />)
 
     rerender(<Gradebook {...defaultGradebookProps} recentlyLoadedStudents={students} />)
@@ -306,7 +320,7 @@ describe('ProgressBar for loading data', () => {
         isSubmissionDataLoaded={true}
         totalSubmissionsLoaded={0}
         totalStudentsToLoad={11}
-      />
+      />,
     )
 
     expect(queryByTestId('gradebook-submission-progress-bar')).not.toBeInTheDocument()
@@ -327,13 +341,12 @@ describe('ProgressBar for loading data', () => {
         isSubmissionDataLoaded={false}
         totalStudentsToLoad={300}
         totalSubmissionsLoaded={0}
-      />
+      />,
     )
 
-    expect(getByRole('progressbar')).toHaveAttribute(
-      'aria-label',
-      'Loading Gradebook submissions 0 / 60000'
-    )
+    const progressBar = getByRole('progressbar')
+    expect(progressBar).toHaveAttribute('aria-label', 'Loading Gradebook submissions')
+    expect(progressBar).toHaveAttribute('aria-valuetext', '0 / 60000')
   })
 })
 
@@ -356,7 +369,7 @@ describe('TotalGradeOverrideTrayProvider tests', () => {
         totalSubmissionsLoaded={0}
         totalStudentsToLoad={11}
         gradebookEnv={gradeBookEnv}
-      />
+      />,
     )
 
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -381,7 +394,7 @@ describe('TotalGradeOverrideTrayProvider tests', () => {
         totalSubmissionsLoaded={0}
         totalStudentsToLoad={11}
         gradebookEnv={gradeBookEnv}
-      />
+      />,
     )
 
     await new Promise(resolve => setTimeout(resolve, 0))

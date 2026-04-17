@@ -18,7 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 class Checkpoints::AdhocOverrideCommonService < ApplicationService
-  require_relative "discussion_checkpoint_error"
   include Checkpoints::DateOverrider
 
   def initialize(checkpoint:, override:)
@@ -39,7 +38,19 @@ class Checkpoints::AdhocOverrideCommonService < ApplicationService
     end
   end
 
-  def existing_parent_override
-    @checkpoint.parent_assignment.active_assignment_overrides.find_by(set_type: AssignmentOverride::SET_TYPE_ADHOC)
+  def existing_parent_override(student_ids:)
+    subquery = AssignmentOverrideStudent
+               .select(:assignment_override_id)
+               .where(user_id: student_ids, assignment_id: @checkpoint.parent_assignment.id)
+               .group(:assignment_override_id)
+               .having("COUNT(DISTINCT user_id) = ?", student_ids.size)
+
+    @checkpoint.parent_assignment.reload.active_assignment_overrides
+               .where(set_type: "ADHOC", id: subquery)
+               .first
+  end
+
+  def get_title(student_ids:)
+    I18n.t({ one: "1 student", other: "%{count} students" }, count: student_ids.size)
   end
 end

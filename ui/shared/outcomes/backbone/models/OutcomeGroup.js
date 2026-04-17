@@ -16,8 +16,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* eslint-disable no-void */
-
 import $ from 'jquery'
 import {extend} from '@canvas/backbone/utils'
 import Backbone from '@canvas/backbone'
@@ -97,7 +95,7 @@ OutcomeGroup.prototype.expand = function (force, options) {
         _this.isExpanding = false
         return _this.trigger('endexpanding')
       }
-    })(this)
+    })(this),
   )
   let ref, ref1
   let outcomesDfd

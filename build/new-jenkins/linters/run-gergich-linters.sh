@@ -1,6 +1,8 @@
 #!/bin/bash
 
 set -ex
+printenv | sort | sed -E 's/(.*_(KEY|SECRET))=.*/\1 is present/g'
+
 if [ "$GERRIT_PROJECT" == "canvas-lms" ]; then
   # when parent is not in $GERRIT_BRANCH (i.e. master)
   if ! git merge-base --is-ancestor HEAD~1 origin/$GERRIT_BRANCH; then
@@ -9,7 +11,7 @@ if [ "$GERRIT_PROJECT" == "canvas-lms" ]; then
   fi
 
   # when modifying Dockerfile, Dockerfile.jenkins, or Dockerfile.production, Dockerfile.template must also be modified.
-  ruby build/dockerfile_writer.rb --env development --compose-file docker-compose.yml,docker-compose.override.yml --in build/Dockerfile.template --out Dockerfile
+  ruby build/dockerfile_writer.rb --env development --compose-file inst-cli/docker-compose/docker-compose.local.dev.yml --in build/Dockerfile.template --out Dockerfile
   ruby build/dockerfile_writer.rb --env jenkins --compose-file docker-compose.yml,docker-compose.override.yml --in build/Dockerfile.template --out Dockerfile.jenkins
   ruby build/dockerfile_writer.rb --env production --compose-file docker-compose.yml,docker-compose.override.yml --in build/Dockerfile.template --out Dockerfile.production
   if ! git diff --exit-code Dockerfile; then
@@ -26,14 +28,14 @@ if [ "$GERRIT_PROJECT" == "canvas-lms" ]; then
   fi
 fi
 
-cp ui/shared/apollo/fragmentTypes.json ui/shared/apollo/fragmentTypes.json.old
+cp ui/shared/apollo-v3/possibleTypes.json ui/shared/apollo-v3/possibleTypes.json.old
 
 # always keep the graphQL schema up-to-date
 bin/rails graphql:schema RAILS_ENV=test
 
-if ! diff ui/shared/apollo/fragmentTypes.json ui/shared/apollo/fragmentTypes.json.old; then
-  message="ui/shared/apollo/fragmentTypes.json needs to be kept up-to-date. Run bundle exec rake graphql:schema and push the changes.\\n"
-  gergich comment "{\"path\":\"ui/shared/apollo/fragmentTypes.json\",\"position\":1,\"severity\":\"error\",\"message\":\"$message\"}"
+if ! diff ui/shared/apollo-v3/possibleTypes.json ui/shared/apollo-v3/possibleTypes.json.old; then
+  message="ui/shared/apollo-v3/possibleTypes.json needs to be kept up-to-date. Run bundle exec rake graphql:schema and push the changes.\\n"
+  gergich comment "{\"path\":\"ui/shared/apollo-v3/possibleTypes.json\",\"position\":1,\"severity\":\"error\",\"message\":\"$message\"}"
 fi
 
 gergich capture custom:./build/gergich/xsslint:Gergich::XSSLint 'node script/xsslint.js'
@@ -47,23 +49,29 @@ if [[ ! "${PRIVATE_PLUGINS[*]}" =~ "$GERRIT_PROJECT" ]]; then
   ruby script/tatl_tael
 fi
 
-if ! git diff HEAD~1 --exit-code -GENV -- 'packages/canvas-rce/**/*.js' 'packages/canvas-rce/**/*.jsx' 'packages/canvas-rce/**/*.ts' 'packages/canvas-rce/**/*.tsx'; then
+if git diff HEAD~1 -- 'packages/canvas-rce/**/*.js' 'packages/canvas-rce/**/*.jsx' 'packages/canvas-rce/**/*.ts' 'packages/canvas-rce/**/*.tsx' | grep -q '^+.*ENV'; then
   message="It looks like you added a reference to a Canvas ENV key inside the RCE. Instead, you should pass this value via a prop the RCEWrapper.\\n"
   gergich comment "{\"path\":\"/COMMIT_MSG\",\"position\":1,\"severity\":\"error\",\"message\":\"$message\"}"
 fi
 
-node ui-build/webpack/generatePluginBundles.js
-ruby script/tsc & TSC_PID=$!
+if ! git diff-tree --no-commit-id --name-only --diff-filter=D -r --find-renames --exit-code HEAD -- 'db/migrate'; then
+  # We have deleted migrations; only check for integrity migration update if
+  # other migrations were also modified (i.e. actual squashing occurred, not
+  # just deleting standalone migrations like DataFixups)
+  if ! git diff-tree --no-commit-id --name-only --diff-filter=M -r --exit-code HEAD -- 'db/migrate'; then
+    if git diff-tree --no-commit-id --name-only --diff-filter=A -r --no-renames --exit-code HEAD -- 'db/migrate/*_validate_migration_integrity.rb'; then
+      # No new migration integrity commit was added
+      message="Migrations were deleted (likely squashed) without the integrity migration being updated. Rename ValidateMigrationIntegrity to a new version and update last_squashed_migration_version to reflect the last removed migration."
+      gergich comment "{\"path\":\"/COMMIT_MSG\",\"position\":1,\"severity\":\"error\",\"message\":\"$message\"}"
+    fi
+  fi
+fi
+
 ruby script/stylelint
 ruby script/rlint --no-fail-on-offense
-[ "${SKIP_ESLINT-}" != "true" ] && ruby script/eslint
 ruby script/lint_commit_message
-node script/yarn-validate-workspace-deps.js 2>/dev/null < <(yarn --silent workspaces info --json)
-node_modules/.bin/depcruise ./ --include-only "^(ui|packages)"
-node ui-build/tools/component-info.mjs -i -v -g
 
 bin/rails css:styleguide doc:api
 
-wait $TSC_PID
 gergich status
 echo "LINTER OK!"

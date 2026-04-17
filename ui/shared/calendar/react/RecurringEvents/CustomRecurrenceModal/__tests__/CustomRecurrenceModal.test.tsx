@@ -25,7 +25,7 @@ import CustomRecurrenceModal, {type CustomRecurrenceModalProps} from '../CustomR
 const defaultTZ = 'Asia/Tokyo'
 
 const defaultProps = (
-  overrides: UnknownSubset<CustomRecurrenceModalProps> = {}
+  overrides: UnknownSubset<CustomRecurrenceModalProps> = {},
 ): CustomRecurrenceModalProps => ({
   eventStart: '2021-01-01T00:00:00.000Z',
   locale: 'en',
@@ -52,7 +52,7 @@ describe('CustomRecurrenceModal', () => {
   })
 
   it('calls onDismiss when the close button is clicked', () => {
-    const onDismiss = jest.fn()
+    const onDismiss = vi.fn()
     const {getByText} = render(<CustomRecurrenceModal {...defaultProps({onDismiss})} />)
 
     getByText('Close').click()
@@ -61,7 +61,7 @@ describe('CustomRecurrenceModal', () => {
   })
 
   it('calls onDismiss when the cancel button is clicked', () => {
-    const onDismiss = jest.fn()
+    const onDismiss = vi.fn()
     const {getByText} = render(<CustomRecurrenceModal {...defaultProps({onDismiss})} />)
 
     getByText('Cancel').click()
@@ -70,7 +70,7 @@ describe('CustomRecurrenceModal', () => {
   })
 
   it('calls onSave when the Done button is clicked', () => {
-    const onSave = jest.fn()
+    const onSave = vi.fn()
     const {getByText} = render(<CustomRecurrenceModal {...defaultProps({onSave})} />)
 
     getByText('Done').click()
@@ -79,9 +79,9 @@ describe('CustomRecurrenceModal', () => {
   })
 
   it('calls onSave witn an updated RRULE', () => {
-    const onSave = jest.fn()
+    const onSave = vi.fn()
     const {getByText, getByDisplayValue} = render(
-      <CustomRecurrenceModal {...defaultProps({onSave})} />
+      <CustomRecurrenceModal {...defaultProps({onSave})} />,
     )
 
     const interval = getByDisplayValue('1')

@@ -60,7 +60,7 @@ module Lti
           end
 
           it "update public jwk was successful" do
-            expect(response.parsed_body["public_jwk"]).to_not eq old_public_jwk
+            expect(response.parsed_body["public_jwk"]).not_to eq old_public_jwk
             expect(response.parsed_body["public_jwk"]).to eq new_public_jwk
             expect(developer_key.reload.public_jwk).to eq new_public_jwk
           end
@@ -85,11 +85,11 @@ module Lti
           end
 
           it "return 422 unathorized http status" do
-            expect(response).to have_http_status :unprocessable_entity
+            expect(response).to have_http_status :unprocessable_content
           end
         end
 
-        context "when pubic jwk is empty" do
+        context "when public jwk is empty" do
           let(:params_overrides) do
             { developer_key: { public_jwk: {} } }
           end
@@ -100,7 +100,7 @@ module Lti
           end
 
           it "update public jwk was not successful" do
-            expect(response.parsed_body["public_jwk"]).to eq old_public_jwk
+            expect(developer_key.reload.public_jwk).to eq old_public_jwk
           end
 
           it "return 400 unathorized http status" do

@@ -401,6 +401,7 @@ describe "Default Account Reports" do
                   created_by_sis]
              end
     header << "pronouns" if @report.should_add_pronouns?
+    header << "uuid" if format == "provisioning"
     header
   end
 
@@ -441,6 +442,7 @@ describe "Default Account Reports" do
              pseudonym&.sis_batch_id?&.to_s]
           end
     row << user.pronouns if @report.should_add_pronouns?
+    row << user.uuid if format == "provisioning"
     row
   end
 
@@ -543,6 +545,18 @@ describe "Default Account Reports" do
       it "runs provisioning report" do
         parameters = {}
         parameters["users"] = true
+        parsed = read_report("provisioning_csv", { params: parameters, order: [1, 2], header: true })
+
+        headers = parsed.shift
+        expect(headers).to eq user_headers(format: "provisioning")
+        expect(parsed.length).to eq 7
+        expect(parsed).to eq([@user6, @user7, @user9, @user1, @user2, @user3, @user4].map { |u| expected_user(u, format: "provisioning") })
+      end
+
+      it "interprets created_by_sis=0 correctly in a provisioning report" do
+        parameters = {}
+        parameters["users"] = "1"
+        parameters["created_by_sis"] = "0"
         parsed = read_report("provisioning_csv", { params: parameters, order: [1, 2], header: true })
 
         headers = parsed.shift
@@ -1967,6 +1981,40 @@ describe "Default Account Reports" do
                                           nil,
                                           "false"]]
         end
+
+        context "when temporary enrollment with deleted ending enrollment state and include_deleted" do
+          before(:once) do
+            @enrollment.destroy
+            @report_params = {
+              "enrollments" => true,
+              "include_deleted" => true,
+              "enrollment_filter" => "TeacherEnrollment"
+            }
+          end
+
+          it "includes deleted temporary enrollment in provisioning report" do
+            parsed = read_report("provisioning_csv", { params: @report_params, order: [1, 0] })
+
+            deleted_enrollment_row = parsed.find { |row| row[2] == @user2.id.to_s && row[14] == @enrollment.id.to_s }
+            expect(deleted_enrollment_row).not_to be_nil
+            expect(deleted_enrollment_row[8]).to eq "deleted"
+          end
+
+          it "excludes deleted temporary enrollment from SIS export" do
+            parsed = read_report("sis_export_csv", { params: @report_params, order: [1, 0] })
+
+            deleted_enrollment_row = parsed.find { |row| row[1] == @user2.pseudonyms.first.sis_user_id }
+            expect(deleted_enrollment_row).to be_nil
+          end
+
+          it "excludes deleted temporary enrollment when feature flag is disabled" do
+            @account.disable_feature!(:temporary_enrollments)
+            parsed = read_report("provisioning_csv", { params: @report_params, order: [1, 0] })
+
+            deleted_enrollment_row = parsed.find { |row| row[2] == @user2.id.to_s && row[14] == @enrollment.id.to_s }
+            expect(deleted_enrollment_row).to be_nil
+          end
+        end
       end
 
       describe "sharding" do
@@ -2417,7 +2465,7 @@ describe "Default Account Reports" do
         parameters["xlist"] = true
         parameters["include_deleted"] = true
         report = run_report("sis_export_csv", { params: parameters, account: @sub_account })
-        expect(report.parameters["extra_text"]).to eq "Term: All Terms; Include Deleted Objects; Reports: xlist "
+        expect(report.parameters["extra_text"]).to eq "Term: All Terms; Include Deleted/Concluded Objects; Reports: xlist "
         parsed = parse_report(report)
         expect(parsed).to match_array [%w[SIS_COURSE_ID_1
                                           english_section_3
@@ -2554,6 +2602,22 @@ describe "Default Account Reports" do
         parsed = read_report("sis_export_csv", { account: @sub_account, params: parameters, order: 0, header: true })
         expect(parsed).to match_array [%w[observer_id student_id status],
                                        %w[user_sis_id_02 user_sis_id_01 active]]
+      end
+
+      it "does not duplicate user rows for instructure identity pseudonyms" do
+        skip unless Pseudonym.column_names.include?("is_inst_id")
+
+        @account.pseudonyms.create!(user: @user1, unique_id: "inst_id_student", is_inst_id: true)
+        @account.pseudonyms.create!(user: @user2, unique_id: "inst_id_observer", is_inst_id: true)
+
+        parameters = {}
+        parameters["user_observers"] = true
+        parsed = read_report("provisioning_csv", { params: parameters, order: 0, header: true })
+
+        # Should still only have one row per observer relationship, not duplicated for each pseudonym combination
+        student_rows = parsed.select { |row| row[3] == "user_sis_id_01" }
+        expect(student_rows.length).to eq 1
+        expect(student_rows[0][1]).to eq "user_sis_id_02" # should be the regular SIS ID, not the Identity ID
       end
     end
 

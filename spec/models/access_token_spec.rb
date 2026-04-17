@@ -43,19 +43,19 @@ describe AccessToken do
 
     context "With auto expire" do
       before :once do
-        @dk = DeveloperKey.create!
+        @dk = DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}")
       end
 
       it "does not have auto expire tokens" do
         expect(DeveloperKey.default.auto_expire_tokens).to be true
       end
 
-      include_examples "#authenticate"
+      it_behaves_like "#authenticate"
     end
 
     context "Without auto expire" do
       before :once do
-        @dk = DeveloperKey.create!
+        @dk = DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}")
         @dk.auto_expire_tokens = false
         @dk.save!
       end
@@ -64,13 +64,13 @@ describe AccessToken do
         expect(@dk.auto_expire_tokens).to be false
       end
 
-      include_examples "#authenticate"
+      it_behaves_like "#authenticate"
     end
 
     context "when an access token argument is provided" do
       subject { AccessToken.authenticate(token.full_token, :crypted_token, token) }
 
-      let(:token) { AccessToken.create!(user: user_model) }
+      let(:token) { AccessToken.create!(user: user_model, purpose: "test") }
       let(:user) { user_model }
 
       shared_examples_for "contexts with a provided access token" do
@@ -112,7 +112,7 @@ describe AccessToken do
 
   context "hashed tokens" do
     before :once do
-      @at = AccessToken.create!(user: user_model, developer_key: DeveloperKey.default)
+      @at = AccessToken.create!(user: user_model, developer_key: DeveloperKey.default, purpose: "test")
       @token_string = @at.full_token
       @refresh_token_string = @at.plaintext_refresh_token
     end
@@ -132,10 +132,10 @@ describe AccessToken do
       @at.regenerate_access_token
       new_token_string = @at.full_token
 
-      expect(new_token_string).to_not eq @token_string
+      expect(new_token_string).not_to eq @token_string
       expect(AccessToken.authenticate(new_token_string)).to eq @at
 
-      expect(AccessToken.authenticate(@token_string)).to_not eq @at
+      expect(AccessToken.authenticate(@token_string)).not_to eq @at
     end
 
     it "does not authenticate expired tokens" do
@@ -153,9 +153,63 @@ describe AccessToken do
     end
   end
 
+  describe "#generate_refresh_token" do
+    let(:developer_key) { DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}") }
+    let(:access_token) { AccessToken.create!(user: user_model, developer_key:) }
+
+    context "when no refresh token exists" do
+      before { access_token.update!(crypted_refresh_token: nil) }
+
+      it "generates a new refresh token" do
+        expect(access_token.crypted_refresh_token).to be_nil
+        access_token.generate_refresh_token
+        expect(access_token.crypted_refresh_token).to be_present
+      end
+    end
+
+    context "when a refresh token exists" do
+      it "does not overwrite the existing refresh token by default" do
+        access_token.generate_refresh_token
+        initial_refresh_token = access_token.crypted_refresh_token
+        access_token.generate_refresh_token
+
+        expect(access_token.crypted_refresh_token).to eq(initial_refresh_token)
+      end
+
+      it "overwrites the existing refresh token if overwrite is true" do
+        access_token.generate_refresh_token
+        initial_refresh_token = access_token.crypted_refresh_token
+        access_token.generate_refresh_token(overwrite: true)
+
+        expect(access_token.crypted_refresh_token).not_to eq(initial_refresh_token)
+      end
+    end
+  end
+
+  describe "#set_permanent_expiration" do
+    let(:developer_key) { DeveloperKey.create!(client_type: DeveloperKey::PUBLIC_CLIENT_TYPE, name: "test_key_#{SecureRandom.hex(4)}") }
+    let(:access_token) { AccessToken.create!(user: user_model, developer_key:) }
+
+    context "when the developer key has a token expiration" do
+      it "sets the permanent_expires_at to the correct time" do
+        access_token.set_permanent_expiration
+        expect(access_token.permanent_expires_at).to be_within(1.second).of(2.hours.from_now)
+      end
+    end
+
+    context "when the developer key does not have a token expiration" do
+      let(:developer_key) { DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}") }
+
+      it "does not set the permanent_expires_at" do
+        access_token.set_permanent_expiration
+        expect(access_token.permanent_expires_at).to be_nil
+      end
+    end
+  end
+
   describe "usable?" do
     before :once do
-      @at = AccessToken.create!(user: user_model, developer_key: DeveloperKey.default)
+      @at = AccessToken.create!(user: user_model, developer_key: DeveloperKey.default, purpose: "test")
       @token_string = @at.full_token
       @refresh_token_string = @at.plaintext_refresh_token
     end
@@ -185,7 +239,7 @@ describe AccessToken do
     end
 
     it "is usable if it needs refreshed but dev key doesn't require it" do
-      dk = DeveloperKey.create!
+      dk = DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}")
       dk.update!(auto_expire_tokens: false)
       @at.update!(developer_key: dk, expires_at: 2.hours.ago)
       expect(@at.usable?).to be true
@@ -197,7 +251,7 @@ describe AccessToken do
     end
 
     it "is not usable if dev key isn't active" do
-      dk = DeveloperKey.create!(account: account_model)
+      dk = DeveloperKey.create!(account: account_model, name: "test_key_#{SecureRandom.hex(4)}")
       dk.deactivate
       @at.developer_key = dk
       @at.save
@@ -206,7 +260,7 @@ describe AccessToken do
     end
 
     it "is not usable if dev key isn't active, even if we request with a refresh token" do
-      dk = DeveloperKey.create!(account: account_model)
+      dk = DeveloperKey.create!(account: account_model, name: "test_key_#{SecureRandom.hex(4)}")
       dk.deactivate
       @at.developer_key = dk
       @at.save
@@ -224,10 +278,10 @@ describe AccessToken do
     specs_require_sharding
     it "only displays integrations from non-internal developer keys" do
       user = User.create!
-      trustedkey = DeveloperKey.create!(internal_service: true)
+      trustedkey = DeveloperKey.create!(internal_service: true, name: "test_key_#{SecureRandom.hex(4)}")
       user.access_tokens.create!({ developer_key: trustedkey })
 
-      untrustedkey = DeveloperKey.create!
+      untrustedkey = DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}")
       third_party_access_token = user.access_tokens.create!({ developer_key: untrustedkey })
 
       expect(AccessToken.visible_tokens(user.access_tokens).length).to eq 1
@@ -235,8 +289,8 @@ describe AccessToken do
     end
 
     it "access token and developer key scoping work cross-shard" do
-      trustedkey = DeveloperKey.new(internal_service: true)
-      untrustedkey = DeveloperKey.new
+      trustedkey = DeveloperKey.new(internal_service: true, name: "test_key_#{SecureRandom.hex(4)}")
+      untrustedkey = DeveloperKey.new(name: "test_key_#{SecureRandom.hex(4)}")
 
       @shard1.activate do
         trustedkey.save!
@@ -255,7 +309,7 @@ describe AccessToken do
     end
 
     it "does not display duplicate tokens" do
-      token = user_model.access_tokens.create!({ developer_key: @dk })
+      token = user_model.access_tokens.create!({ developer_key: @dk, purpose: "test" })
       visible_tokens = AccessToken.visible_tokens([token, token])
 
       expect(visible_tokens).to be_one
@@ -289,7 +343,7 @@ describe AccessToken do
 
     it "does not validate scopes if the workflow state is deleted" do
       dk_scopes = ["url:POST|/api/v1/accounts/:account_id/admins", "url:DELETE|/api/v1/accounts/:account_id/admins/:user_id", "url:GET|/api/v1/accounts/:account_id/admins"]
-      dk = DeveloperKey.create!(scopes: dk_scopes, require_scopes: true)
+      dk = DeveloperKey.create!(scopes: dk_scopes, require_scopes: true, name: "test_key_#{SecureRandom.hex(4)}")
       token = AccessToken.new(developer_key: dk, scopes: dk_scopes)
       dk.update!(scopes: [])
       expect { token.destroy! }.not_to raise_error
@@ -340,12 +394,12 @@ describe AccessToken do
       @sub_ac = @ac.sub_accounts.create!
       @foreign_ac = Account.create!
 
-      @dk = DeveloperKey.create!(account: @ac)
+      @dk = DeveloperKey.create!(account: @ac, name: "test_key_#{SecureRandom.hex(4)}")
       enable_developer_key_account_binding! @dk
       @at = AccessToken.create!(user: user_model, developer_key: @dk)
 
-      @dk_without_account = DeveloperKey.create!
-      @at_without_account = AccessToken.create!(user: user_model, developer_key: @dk2)
+      @dk_without_account = DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}")
+      @at_without_account = AccessToken.create!(user: user_model, developer_key: @dk_without_account)
     end
 
     it "account should be set" do
@@ -374,8 +428,8 @@ describe AccessToken do
 
     context "when the developer key new feature flags are on" do
       let(:root_account) { account_model }
-      let(:root_account_key) { DeveloperKey.create!(account: root_account) }
-      let(:site_admin_key) { DeveloperKey.create! }
+      let(:root_account_key) { DeveloperKey.create!(account: root_account, name: "test_key_#{SecureRandom.hex(4)}") }
+      let(:site_admin_key) { DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}") }
       let(:sub_account) do
         account = account_model(root_account:)
         account
@@ -472,7 +526,7 @@ describe AccessToken do
     end
 
     describe "adding scopes" do
-      let(:dev_key) { DeveloperKey.create! require_scopes: true, scopes: TokenScopes.all_scopes.slice(0, 10) }
+      let(:dev_key) { DeveloperKey.create! require_scopes: true, scopes: TokenScopes.all_scopes.slice(0, 10), name: "test_key_#{SecureRandom.hex(4)}" }
       let(:access_token) { AccessToken.new(user: user_model, developer_key: dev_key, scopes:) }
       let(:scopes) { [TokenScopes.all_scopes[12]] }
 
@@ -515,7 +569,7 @@ describe AccessToken do
   describe "regenerate_access_token" do
     before :once do
       # default developer keys no longer regenerate expirations
-      key = DeveloperKey.create!(redirect_uri: "http://example.com/a/b")
+      key = DeveloperKey.create!(redirect_uri: "http://example.com/a/b", name: "test_key_#{SecureRandom.hex(4)}")
       @at = AccessToken.create!(user: user_model, developer_key: key)
       @token_string = @at.full_token
       @refresh_token_string = @at.plaintext_refresh_token
@@ -533,7 +587,7 @@ describe AccessToken do
   describe "#dev_key_account_id" do
     it "returns the developer_key account_id" do
       account = Account.create!
-      dev_key = DeveloperKey.create!(account:)
+      dev_key = DeveloperKey.create!(account:, name: "test_key_#{SecureRandom.hex(4)}")
       at = AccessToken.create!(developer_key: dev_key)
       expect(at.dev_key_account_id).to eq account.id
     end
@@ -542,40 +596,55 @@ describe AccessToken do
   context "broadcast policy" do
     before(:once) do
       Notification.create!(name: "Manually Created Access Token Created")
+      Notification.create!(name: "Access Token Created On Behalf Of User")
+      Notification.create!(name: "Access Token Deleted")
       user_model
     end
 
     it "sends a notification when a new manually created access token is created" do
-      access_token = AccessToken.create!(user: @user)
+      access_token = AccessToken.create!(user: @user, purpose: "test")
       expect(access_token.messages_sent).to include("Manually Created Access Token Created")
+      expect(access_token.messages_sent).not_to include("Access Token Created On Behalf Of User")
     end
 
     it "sends a notification when a manually created access token is regenerated" do
-      AccessToken.create!(user: @user)
+      AccessToken.create!(user: @user, purpose: "test")
       access_token = AccessToken.last
       access_token.regenerate_access_token
       expect(access_token.messages_sent).to include("Manually Created Access Token Created")
     end
 
     it "does not send a notification when a manually created access token is touched" do
-      AccessToken.create!(user: @user)
+      AccessToken.create!(user: @user, purpose: "test")
       access_token = AccessToken.last
       access_token.touch
       expect(access_token.messages_sent).not_to include("Manually Created Access Token Created")
     end
 
     it "does not send a notification when a new non-manually created access token is created" do
-      developer_key = DeveloperKey.create!
+      developer_key = DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}")
       access_token = AccessToken.create!(user: @user, developer_key:)
       expect(access_token.messages_sent).not_to include("Manually Created Access Token Created")
+    end
+
+    it "sends a different notification if the token is pending" do
+      access_token = AccessToken.create!(user: @user, workflow_state: "pending", purpose: "test")
+      expect(access_token.messages_sent).not_to include("Manually Created Access Token Created")
+      expect(access_token.messages_sent).to include("Access Token Created On Behalf Of User")
+    end
+
+    it "sends a notification when a token is deleted" do
+      access_token = AccessToken.create!(user: @user, purpose: "test")
+      access_token.destroy
+      expect(access_token.messages_sent).to include("Access Token Deleted")
     end
   end
 
   describe "root_account_id" do
     let(:root_account) { account_model }
     let(:sub_account) { root_account.sub_accounts.create! name: "sub" }
-    let(:root_account_key) { DeveloperKey.create!(account: root_account) }
-    let(:site_admin_key) { DeveloperKey.create! }
+    let(:root_account_key) { DeveloperKey.create!(account: root_account, name: "test_key_#{SecureRandom.hex(4)}") }
+    let(:site_admin_key) { DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}") }
 
     it "uses root_account value from developer key association" do
       at = AccessToken.create!(user: user_model, developer_key: root_account_key)
@@ -603,7 +672,7 @@ describe AccessToken do
       tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud
       exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure
       dolor in reprehenderit."
-      at = AccessToken.new user: user_model, developer_key: DeveloperKey.default
+      at = AccessToken.new user: user_model, developer_key: DeveloperKey.default, purpose: "test"
       expect(at.save).to be true
       expect(at.update(purpose: lorem_ipsum)).to be false
     end
@@ -612,7 +681,7 @@ describe AccessToken do
   describe "#site_admin?" do
     specs_require_sharding
     let(:account) { account_model }
-    let(:access_token) { AccessToken.create!(user: user_model, developer_key: DeveloperKey.create!(account:)) }
+    let(:access_token) { AccessToken.create!(user: user_model, developer_key: DeveloperKey.create!(account:, name: "test_key_#{SecureRandom.hex(4)}")) }
 
     it "authenticates access token and calls #site_admin?" do
       expect(AccessToken).to receive(:authenticate).and_return(access_token)
@@ -636,8 +705,25 @@ describe AccessToken do
     end
   end
 
+  describe "#can_manually_regenerate?" do
+    it "returns true for manually created non-expired tokens" do
+      access_token = AccessToken.create!(user: user_model, purpose: "test")
+      expect(access_token.can_manually_regenerate?).to be true
+    end
+
+    it "returns false for non-manually created tokens" do
+      access_token = AccessToken.create!(user: user_model, developer_key: DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}"))
+      expect(access_token.can_manually_regenerate?).to be false
+    end
+
+    it "returns false for expired manually created tokens" do
+      access_token = AccessToken.create!(user: user_model, permanent_expires_at: 1.day.ago, purpose: "test")
+      expect(access_token.can_manually_regenerate?).to be false
+    end
+  end
+
   describe "#used!" do
-    let_once(:access_token) { AccessToken.create!(user: user_model, developer_key: DeveloperKey.default) }
+    let_once(:access_token) { AccessToken.create!(user: user_model, developer_key: DeveloperKey.default, purpose: "test") }
 
     it "updates last_used_at when not set yet" do
       access_token.used!
@@ -707,39 +793,43 @@ describe AccessToken do
   end
 
   describe "#queue_developer_key_token_count_increment" do
-    let(:dk) { DeveloperKey.create!(account: account_model) }
-    let(:access_token) { AccessToken.create!(user: user_model, developer_key: dk) }
-
-    it "increments the developer key token count" do
-      access_token = AccessToken.new(user: user_model, developer_key: dk)
-      expect { access_token.queue_developer_key_token_count_increment }.to change { dk.reload.access_token_count }.by(1)
+    it "returns early when developer_key is nil" do
+      token_without_key = AccessToken.new(user: user_model, purpose: "test")
+      expect(DeveloperKey).not_to receive(:increment_counter)
+      token_without_key.queue_developer_key_token_count_increment
     end
 
-    it "is called as an after create hook" do
-      access_token = AccessToken.new(user: user_model, developer_key: dk)
-      expect(access_token).to receive(:queue_developer_key_token_count_increment).and_call_original
+    it "returns early and does not increment for a default shard developer key" do
+      default_shard_key = DeveloperKey.create!(name: "test_key_#{SecureRandom.hex(4)}")
+      expect(default_shard_key.shard).to eq Shard.default
       expect do
-        access_token.save!
-      end.to change { dk.reload.access_token_count }.by(1)
+        AccessToken.create!(user: user_model, developer_key: default_shard_key, purpose: "test")
+      end.not_to change { default_shard_key.reload.access_token_count }
     end
 
-    it "enqueues using a strand that depends on global developer key id" do
-      expect(DeveloperKey).to \
-        receive(:delay_if_production)
-        .with(strand: "developer_key_token_count_increment_#{dk.id}")
-        .and_call_original
-      access_token
-    end
-
-    describe "in a sharded environment" do
+    context "with non-default shard developer key" do
       specs_require_sharding
 
-      let(:dk) { @shard1.activate { DeveloperKey.create!(account: account_model) } }
+      let_once(:non_default_dk) do
+        @shard1.activate { DeveloperKey.create!(account: account_model, name: "test_key_#{SecureRandom.hex(4)}") }
+      end
 
-      it "increments the developer key token count in the correct shard" do
+      it "increments the token count when invoked directly" do
+        at = AccessToken.new(user: user_model, developer_key: non_default_dk, purpose: "test")
+        expect { at.queue_developer_key_token_count_increment }.to change { non_default_dk.reload.access_token_count }.by(1)
+      end
+
+      it "increments the token count via after_create hook" do
+        expect do
+          AccessToken.create!(user: user_model, developer_key: non_default_dk, purpose: "test")
+        end.to change { non_default_dk.reload.access_token_count }.by(1)
+      end
+
+      it "increments in the correct shard when token created on another shard" do
         @shard2.activate do
-          expect { AccessToken.create!(user: user_model, developer_key: dk) }.to \
-            change { dk.reload.access_token_count }.by(1)
+          expect do
+            AccessToken.create!(user: user_model, developer_key: non_default_dk, purpose: "test")
+          end.to change { non_default_dk.reload.access_token_count }.by(1)
         end
       end
     end

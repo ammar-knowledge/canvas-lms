@@ -40,6 +40,7 @@ describe AssignmentsController do
 
   describe "GET 'index'" do
     it "throws 404 error without a valid context id" do
+      user_session(@student)
       get "index", params: { course_id: "notvalid" }
       assert_status(404)
     end
@@ -238,6 +239,49 @@ describe AssignmentsController do
       expect(assigns[:js_env][:FLAGS][:newquizzes_on_quiz_page]).to be_falsey
     end
 
+    it "sets FLAGS/new_quizzes_by_default in js_env if 'new_quizzes_by_default' is enabled" do
+      user_session @teacher
+      @course.context_external_tools.create!(
+        name: "Quizzes.Next",
+        consumer_key: "test_key",
+        shared_secret: "test_secret",
+        tool_id: "Quizzes 2",
+        url: "http://example.com/launch"
+      )
+      @course.root_account.settings[:provision] = { "lti" => "lti url" }
+      @course.root_account.save!
+      @course.root_account.enable_feature! :quizzes_next
+      @course.enable_feature! :quizzes_next
+      @course.enable_feature!(:new_quizzes_by_default)
+      get "index", params: { course_id: @course.id }
+      expect(assigns[:js_env][:FLAGS][:new_quizzes_by_default]).to be_truthy
+    end
+
+    it "does not set FLAGS/new_quizzes_by_default in js_env if 'new_quizzes_by_default' is disabled" do
+      user_session @teacher
+      @course.context_external_tools.create!(
+        name: "Quizzes.Next",
+        consumer_key: "test_key",
+        shared_secret: "test_secret",
+        tool_id: "Quizzes 2",
+        url: "http://example.com/launch"
+      )
+      @course.root_account.settings[:provision] = { "lti" => "lti url" }
+      @course.root_account.save!
+      @course.root_account.enable_feature! :quizzes_next
+      @course.enable_feature! :quizzes_next
+      @course.disable_feature!(:new_quizzes_by_default)
+      get "index", params: { course_id: @course.id }
+      expect(assigns[:js_env][:FLAGS][:new_quizzes_by_default]).to be_falsey
+    end
+
+    it "does not set FLAGS/new_quizzes_by_default in js_env if new quizzes isn't set up and enabled" do
+      user_session @teacher
+      @course.enable_feature!(:new_quizzes_by_default)
+      get "index", params: { course_id: @course.id }
+      expect(assigns[:js_env][:FLAGS][:new_quizzes_by_default]).to be_falsey
+    end
+
     it "js_env MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT is true when AssignmentUtil.name_length_required_for_account? == true" do
       user_session(@teacher)
       allow(AssignmentUtil).to receive(:name_length_required_for_account?).and_return(true)
@@ -257,6 +301,20 @@ describe AssignmentsController do
       allow(AssignmentUtil).to receive(:assignment_max_name_length).and_return(15)
       get "index", params: { course_id: @course.id }
       expect(assigns[:js_env][:MAX_NAME_LENGTH]).to eq(15)
+    end
+
+    it "sets PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED in js_env as true if enabled" do
+      user_session(@teacher)
+      @course.enable_feature!(:peer_review_allocation_and_grading)
+      get "index", params: { course_id: @course.id }
+      expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED]).to be(true)
+    end
+
+    it "sets PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED in js_env as false if disabled" do
+      user_session(@teacher)
+      @course.disable_feature!(:peer_review_allocation_and_grading)
+      get "index", params: { course_id: @course.id }
+      expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED]).to be(false)
     end
 
     context "course grading scheme defaults" do
@@ -316,12 +374,12 @@ describe AssignmentsController do
         expect(@course.reload.assignment_groups.count).to eq 1
       end
 
-      it "separates manage_assignments and manage_grades permissions" do
+      it "separates manage_assignments_edit and manage_grades permissions" do
         user_session(@teacher)
         @course.account.role_overrides.create! role: teacher_role, permission: "manage_assignments_edit", enabled: false
         get "index", params: { course_id: @course.id }
         expect(assigns[:js_env][:PERMISSIONS][:manage_grades]).to be_truthy
-        expect(assigns[:js_env][:PERMISSIONS][:manage_assignments]).to be_falsey
+        expect(assigns[:js_env][:PERMISSIONS][:manage_assignments_edit]).to be_falsey
         expect(assigns[:js_env][:PERMISSIONS][:manage]).to be_falsey
         expect(assigns[:js_env][:PERMISSIONS][:manage_course]).to be_truthy
       end
@@ -359,6 +417,44 @@ describe AssignmentsController do
         user_session(@ta)
         get "index", params: { course_id: @course.id }
         expect(assignment_permissions[@assignment.id][:update]).to be(false)
+      end
+    end
+
+    context "assign to differentiation tags" do
+      before :once do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = { value: true }
+          a.save!
+        end
+      end
+
+      it "is true if account setting is on" do
+        user_session(@teacher)
+        get "index", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "is false if account setting is off" do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = { value: false }
+          a.save!
+        end
+
+        user_session(@teacher)
+        get "index", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be false
+      end
+
+      it "CAN_MANAGE_DIFFERENTIATION_TAGS is true if user can manage tags" do
+        user_session(@teacher)
+        get "index", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "CAN_MANAGE_DIFFERENTIATION_TAGS is false if user cannot manage tags" do
+        user_session(@student)
+        get "index", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be false
       end
     end
   end
@@ -585,11 +681,32 @@ describe AssignmentsController do
   end
 
   describe "GET 'show'" do
+    it "sets correct breadcrumb with assignment title for old assignments (non-enhancement)" do
+      user_session(@student)
+      get :show, params: { course_id: @course.id, id: @assignment.id }
+
+      # Check that we have the expected 4 breadcrumbs: Home, Course, Assignments, Assignment ID
+      expect(assigns[:_crumbs]).to have(4).items
+
+      # Verify the assignment breadcrumb (4th item) contains the assignment title and URL
+      assignment_crumb = assigns[:_crumbs][3]
+      expect(assignment_crumb[0]).to eq(@assignment.title)
+      expect(assignment_crumb[1]).to include("/courses/#{@course.id}/assignments/#{@assignment.id}")
+    end
+
     it "returns 404 on non-existent assignment" do
       user_session(@student)
 
       get "show", params: { course_id: @course.id, id: Assignment.maximum(:id) + 100 }
       assert_status(404)
+    end
+
+    it "js_env MODULE_ITEM_ID is set when provided in params" do
+      user_session(@student)
+      a = @course.assignments.create(title: "some assignment")
+
+      get "show", params: { course_id: @course.id, id: a.id, module_item_id: "12345" }
+      expect(assigns[:js_env][:MODULE_ITEM_ID]).to eq "12345"
     end
 
     context "with public course" do
@@ -684,24 +801,28 @@ describe AssignmentsController do
 
       let(:assignment) { assignment_model }
       let(:launch_url) { "https://www.my-tool.com/login" }
-      let(:key) do
-        DeveloperKey.create!(
-          scopes: [
-            TokenScopes::LTI_AGS_LINE_ITEM_SCOPE,
-            TokenScopes::LTI_AGS_LINE_ITEM_READ_ONLY_SCOPE,
-            TokenScopes::LTI_AGS_RESULT_READ_ONLY_SCOPE,
-            TokenScopes::LTI_AGS_SCORE_SCOPE
-          ]
-        )
-      end
       let(:external_tool) do
-        external_tool_1_3_model(
-          context: assignment.course,
-          opts: {
-            url: launch_url,
-            developer_key: key
+        lti_registration_with_tool(
+          account: assignment.root_account,
+          configuration_params: {
+            domain: "www.my-tool.com",
+            target_link_uri: launch_url,
+            oidc_initiation_url: launch_url,
+            placements: [
+              {
+                placement: "course_navigation"
+              }
+            ]
+          },
+          developer_key_params: {
+            scopes: [
+              TokenScopes::LTI_AGS_LINE_ITEM_SCOPE,
+              TokenScopes::LTI_AGS_LINE_ITEM_READ_ONLY_SCOPE,
+              TokenScopes::LTI_AGS_RESULT_READ_ONLY_SCOPE,
+              TokenScopes::LTI_AGS_SCORE_SCOPE
+            ]
           }
-        )
+        ).deployments.first
       end
 
       before do
@@ -927,6 +1048,11 @@ describe AssignmentsController do
           expect(response).not_to render_template("assignments/show")
         end
 
+        it "renders the old layout in borderless mode" do
+          get :show, params: { course_id: @course.id, id: @assignment.id, display: "borderless" }
+          expect(response).to render_template("assignments/show")
+        end
+
         it "sets unlock date as a prerequisite for date locked assignment" do
           @assignment.unlock_at = 1.week.from_now
           @assignment.lock_at = 2.weeks.from_now
@@ -993,7 +1119,6 @@ describe AssignmentsController do
               nil
             )
 
-            @course.enable_feature!(:peer_reviews_for_a2)
             @course.enable_feature!(:assignments_2_student)
           end
 
@@ -1025,35 +1150,35 @@ describe AssignmentsController do
             expect(assigns[:js_env][:SUBMISSION_ID]).to be_nil
           end
 
-          it "sets the student SUBMISSION_ID when peer_reviews_for_a2 FF is off and reviewee_id param is present" do
-            @course.disable_feature!(:peer_reviews_for_a2)
+          it "sets the student SUBMISSION_ID when assignments_2_student FF is off and reviewee_id param is present" do
+            @course.disable_feature!(:assignments_2_student)
 
             user_session(@student)
             get "show", params: { course_id: @course.id, id: @assignment.id, reviewee_id: @reviewee.id }
             expect(assigns[:js_env][:SUBMISSION_ID]).to eq @student_submission.id
           end
 
-          it "sets the student SUBMISSION_ID when peer_reviews_for_a2 FF is off and anonymous_asset_id param is present" do
-            @course.disable_feature!(:peer_reviews_for_a2)
+          it "sets the student SUBMISSION_ID when assignments_2_student FF is off and anonymous_asset_id param is present" do
+            @course.disable_feature!(:assignments_2_student)
 
             user_session(@student)
             get "show", params: { course_id: @course.id, id: @assignment.id, anonymous_asset_id: @reviewee_submission.anonymous_id }
             expect(assigns[:js_env][:SUBMISSION_ID]).to eq @student_submission.id
           end
 
-          it "sets the peer_review_mode_enabled to true when peer_reviews_for_a2 FF is ON and reviewee_id is present" do
+          it "sets the peer_review_mode_enabled to true when assignments_2_student FF is ON and reviewee_id is present" do
             user_session(@student)
             get "show", params: { course_id: @course.id, id: @assignment.id, reviewee_id: @reviewee.id }
             expect(assigns[:js_env][:peer_review_mode_enabled]).to be true
           end
 
-          it "sets the peer_review_mode_enabled to true when peer_reviews_for_a2 FF is ON and anonymous_asset_id is present" do
+          it "sets the peer_review_mode_enabled to true when assignments_2_student FF is ON and anonymous_asset_id is present" do
             user_session(@student)
             get "show", params: { course_id: @course.id, id: @assignment.id, anonymous_asset_id: @reviewee_submission.anonymous_id }
             expect(assigns[:js_env][:peer_review_mode_enabled]).to be true
           end
 
-          it "sets the peer_review_mode_enabled to false when peer_reviews_for_a2 FF is ON with no presence of reviewee_id and anonymous_asset_id" do
+          it "sets the peer_review_mode_enabled to false when assignments_2_student FF is ON with no presence of reviewee_id and anonymous_asset_id" do
             user_session(@student)
             get "show", params: { course_id: @course.id, id: @assignment.id }
             expect(assigns[:js_env][:peer_review_mode_enabled]).to be false
@@ -1141,6 +1266,41 @@ describe AssignmentsController do
             get "show", params: { course_id: @course.id, id: @assignment.id, reviewee_id: @reviewee.id }
             expect(assigns[:js_env][:REVIEWER_SUBMISSION_ID]).to eq @student_submission_id
           end
+
+          it "sets peer_review_allocation_and_grading to true when feature is enabled and peer_review_sub_assignment is present" do
+            @course.enable_feature!(:peer_review_allocation_and_grading)
+            peer_review_model(parent_assignment: @assignment)
+            user_session(@student)
+            get "show", params: { course_id: @course.id, id: @assignment.id }
+            expect(assigns[:js_env][:peer_review_allocation_and_grading]).to be true
+          end
+
+          it "sets peer_review_allocation_and_grading to false when feature is enabled but peer_review_sub_assignment is not present" do
+            @course.enable_feature!(:peer_review_allocation_and_grading)
+            user_session(@student)
+            get "show", params: { course_id: @course.id, id: @assignment.id }
+            expect(assigns[:js_env][:peer_review_allocation_and_grading]).to be false
+          end
+
+          it "sets peer_review_allocation_and_grading to false when feature is disabled" do
+            @course.disable_feature!(:peer_review_allocation_and_grading)
+            user_session(@student)
+            get "show", params: { course_id: @course.id, id: @assignment.id }
+            expect(assigns[:js_env][:peer_review_allocation_and_grading]).to be false
+          end
+        end
+
+        it "sets correct breadcrumb with assignment title for assignment enhancements" do
+          user_session(@student)
+          get :show, params: { course_id: @course.id, id: @assignment.id }
+
+          # Check that we have the expected 4 breadcrumbs: Home, Course, Assignments, Assignment ID
+          expect(assigns[:_crumbs]).to have(4).items
+
+          # Verify the assignment breadcrumb (4th item) contains the assignment title and URL
+          assignment_crumb = assigns[:_crumbs][3]
+          expect(assignment_crumb[0]).to eq(@assignment.title)
+          expect(assignment_crumb[1]).to include("/courses/#{@course.id}/assignments/#{@assignment.id}")
         end
       end
 
@@ -1224,6 +1384,37 @@ describe AssignmentsController do
       end
     end
 
+    describe "assignment_enhancements_teacher_view" do
+      before do
+        @course.enable_feature!(:assignment_enhancements_teacher_view)
+        @course.save!
+      end
+
+      it "does not render the 'old' assignment page layout" do
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+        expect(response).not_to render_template("assignments/show")
+      end
+    end
+
+    describe "assignment_edit_enhancements_teacher_view" do
+      before do
+        @course.root_account.enable_feature!(:assignment_edit_enhancements_teacher_view)
+        @course.save!
+      end
+
+      it "does not render the 'old' edit assignment page layout" do
+        user_session(@teacher)
+        get :edit, params: { course_id: @course.id, id: @assignment.id }
+        expect(response).not_to render_template("assignments/edit")
+      end
+
+      it "does not render the 'old' create assignment page layout" do
+        user_session(@teacher)
+        get :new, params: { course_id: @course.id }
+        expect(response).not_to render_template("assignments/edit")
+      end
+    end
+
     it "does not show locked external tool assignments" do
       user_session(@student)
 
@@ -1261,6 +1452,13 @@ describe AssignmentsController do
     end
 
     it "sets 'ROOT_OUTCOME_GROUP' for external tool assignments in the teacher view" do
+      @course.context_external_tools.create!(
+        shared_secret: "test_secret",
+        consumer_key: "test_key",
+        name: "test tool",
+        domain: "example.com",
+        settings: { selection_width: 800, selection_height: 600 }
+      )
       user_session(@teacher)
       @assignment.submission_types = "external_tool"
       @assignment.build_external_tool_tag(url: "http://example.com/test")
@@ -1268,6 +1466,9 @@ describe AssignmentsController do
 
       get "show", params: { course_id: @course.id, id: @assignment.id }
       expect(assigns[:js_env][:ROOT_OUTCOME_GROUP]).not_to be_nil
+      expect(assigns[:js_env][:LTI_TOOL_ID]).not_to be_nil
+      expect(assigns[:js_env][:LTI_TOOL_SELECTION_WIDTH]).to eq 800
+      expect(assigns[:js_env][:LTI_TOOL_SELECTION_HEIGHT]).to eq 600
     end
 
     it "sets first_annotation_submission to true if it's the first submission and the assignment is annotatable" do
@@ -1384,7 +1585,16 @@ describe AssignmentsController do
             end
 
             it "is included when assignment is an external tool type" do
-              @assignment.update!(submission_types: "external_tool", external_tool_tag: ContentTag.new)
+              @course.context_external_tools.create!(
+                shared_secret: "test_secret",
+                consumer_key: "test_key",
+                name: "test tool",
+                domain: "example.com"
+              )
+              @assignment.submission_types = "external_tool"
+              @assignment.build_external_tool_tag(url: "http://example.com/test")
+              @assignment.save!
+
               get :show, params: { course_id: @course.id, id: @assignment.id }
               expect(assigns[:js_env][:SETTINGS]).to have_key(:filter_speed_grader_by_student_group)
             end
@@ -1464,13 +1674,29 @@ describe AssignmentsController do
           end
 
           it "includes group_categories when assignment is an external tool type" do
-            @assignment.update!(submission_types: "external_tool", external_tool_tag: ContentTag.new)
+            @course.context_external_tools.create!(
+              shared_secret: "test_secret",
+              consumer_key: "test_key",
+              name: "test tool",
+              domain: "example.com"
+            )
+            @assignment.submission_types = "external_tool"
+            @assignment.build_external_tool_tag(url: "http://example.com/test")
+            @assignment.save!
             get :show, params: { course_id: @course.id, id: @assignment.id }
             expect(assigns[:js_env]).to have_key(:group_categories)
           end
 
           it "includes selected_student_group_id when assignment is an external tool type" do
-            @assignment.update!(submission_types: "external_tool", external_tool_tag: ContentTag.new)
+            @course.context_external_tools.create!(
+              shared_secret: "test_secret",
+              consumer_key: "test_key",
+              name: "test tool",
+              domain: "example.com"
+            )
+            @assignment.submission_types = "external_tool"
+            @assignment.build_external_tool_tag(url: "http://example.com/test")
+            @assignment.save!
             first_group_id = @course.groups.first.id.to_s
             @teacher.preferences[:gradebook_settings] = {
               @course.global_id => {
@@ -1481,6 +1707,36 @@ describe AssignmentsController do
             }
             get :show, params: { course_id: @course.id, id: @assignment.id }
             expect(assigns[:js_env]).to have_key(:selected_student_group_id)
+          end
+
+          context "differentiation tags" do
+            before do
+              Account.default.settings[:allow_assign_to_differentiation_tags] = { value: true }
+              Account.default.save!
+              Account.default.reload
+              @non_collab_category = GroupCategory.create!(context: @course, name: "Tag Category", non_collaborative: true)
+            end
+
+            it "returns non collaborative group categories if the user has the correct permissions" do
+              get :show, params: { course_id: @course.id, id: @assignment.id }
+              group_category_ids = assigns[:js_env][:group_categories].pluck("id")
+              expect(group_category_ids).to eq @course.active_combined_group_and_differentiation_tag_categories.map(&:id)
+              expect(group_category_ids).to include(@non_collab_category.id)
+            end
+
+            it "returns only the normal group categories if the user does not have the correct manage tag permissions" do
+              RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS.each do |permission|
+                @course.account.role_overrides.create!(
+                  permission:,
+                  role: teacher_role,
+                  enabled: false
+                )
+              end
+              get :show, params: { course_id: @course.id, id: @assignment.id }
+              group_category_ids = assigns[:js_env][:group_categories].pluck("id")
+              expect(group_category_ids).to eq @course.group_categories.map(&:id)
+              expect(group_category_ids).not_to include(@non_collab_category.id)
+            end
           end
         end
 
@@ -1526,7 +1782,15 @@ describe AssignmentsController do
         end
 
         it "includes speed_grader_url when assignment is an external tool type" do
-          @assignment.update!(submission_types: "external_tool", external_tool_tag: ContentTag.new)
+          @course.context_external_tools.create!(
+            shared_secret: "test_secret",
+            consumer_key: "test_key",
+            name: "test tool",
+            domain: "example.com"
+          )
+          @assignment.submission_types = "external_tool"
+          @assignment.build_external_tool_tag(url: "http://example.com/test")
+          @assignment.save!
           get :show, params: { course_id: @course.id, id: @assignment.id }
           expect(assigns[:js_env]).to have_key(:speed_grader_url)
         end
@@ -1714,21 +1978,24 @@ describe AssignmentsController do
         expect(assigns[:js_env][:PERMISSIONS]).not_to include :can_edit_grades
       end
 
-      context "with default_due_time feature flag disabled" do
-        before do
-          Account.site_admin.disable_feature!(:default_due_time)
-          user_session(@teacher)
-        end
+      it "sets manage_rubrics to true for user with only manage_assignments_edit" do
+        custom_role = custom_teacher_role("NoRubricsTeacher", account: @course.account)
+        @course.account.role_overrides.create!(role: custom_role, permission: :manage_rubrics, enabled: false)
+        @course.account.role_overrides.create!(role: custom_role, permission: :manage_assignments_edit, enabled: true)
+        custom_teacher = course_with_user("TeacherEnrollment", {
+                                            active_all: true,
+                                            course: @course,
+                                            role: custom_role
+                                          }).user
+        user_session(custom_teacher)
 
-        it "does not set DEFAULT_DUE_TIME in the ENV" do
-          get :show, params: { course_id: @course.id, id: @assignment.id }
-          expect(assigns[:js_env][:DEFAULT_DUE_TIME]).to be_nil
-        end
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+
+        expect(assigns[:js_env][:PERMISSIONS]).to include manage_rubrics: true
       end
 
-      context "with default_due_time feature flag enabled" do
+      context "default_due_time" do
         before do
-          Account.site_admin.enable_feature!(:default_due_time)
           Account.default.update(settings: { default_due_time: { value: "22:00:00" } })
           user_session(@teacher)
         end
@@ -1736,6 +2003,212 @@ describe AssignmentsController do
         it "sets DEFAULT_DUE_TIME in the ENV" do
           get :show, params: { course_id: @course.id, id: @assignment.id }
           expect(assigns[:js_env][:DEFAULT_DUE_TIME]).to eq "22:00:00"
+        end
+      end
+
+      context "assigned_rubric and rubric_association" do
+        before do
+          Account.site_admin.enable_feature!(:enhanced_rubrics_assignments)
+          @course.enable_feature!(:enhanced_rubrics)
+          rubric = @course.rubrics.create! { |r| r.user = @teacher }
+          rubric_association_params = ActiveSupport::HashWithIndifferentAccess.new({
+                                                                                     hide_score_total: "0",
+                                                                                     purpose: "grading",
+                                                                                     skip_updating_points_possible: false,
+                                                                                     update_if_existing: true,
+                                                                                     use_for_grading: "1",
+                                                                                     association_object: @assignment
+                                                                                   })
+          rubric_assoc = RubricAssociation.generate(@teacher, rubric, @course, rubric_association_params)
+          @assignment.rubric_association = rubric_assoc
+          @assignment.save!
+        end
+
+        it "sets assigned_rubric and rubric_association in the ENV when FF is ON" do
+          get :show, params: { course_id: @course.id, id: @assignment.id }
+          expect(assigns[:js_env][:assigned_rubric][:id]).to eq @assignment.rubric_association.rubric_id
+          expect(assigns[:js_env][:assigned_rubric][:title]).to eq "Unnamed Course Rubric"
+          expect(assigns[:js_env][:assigned_rubric][:can_update]).to be_truthy
+          expect(assigns[:js_env][:assigned_rubric][:association_count]).to eq 1
+          expect(assigns[:js_env][:rubric_association][:id]).to eq @assignment.rubric_association.id
+        end
+
+        it "does not set assigned_rubric and rubric_association in the ENV when FF is OFF" do
+          Account.site_admin.disable_feature!(:enhanced_rubrics_assignments)
+          get :show, params: { course_id: @course.id, id: @assignment.id }
+          expect(assigns[:js_env][:assigned_rubric]).to be_nil
+          expect(assigns[:js_env][:rubric_association]).to be_nil
+        end
+
+        it "sets assigned_rubric and rubric_association for external_tool assignments" do
+          @course.context_external_tools.create!(
+            shared_secret: "test_secret",
+            consumer_key: "test_key",
+            name: "test tool",
+            domain: "example.com"
+          )
+          @assignment.submission_types = "external_tool"
+          @assignment.build_external_tool_tag(url: "http://example.com/test")
+          @assignment.save!
+          get :show, params: { course_id: @course.id, id: @assignment.id }
+          expect(assigns[:js_env][:assigned_rubric][:id]).to eq @assignment.rubric_association.rubric_id
+          expect(assigns[:js_env][:assigned_rubric][:title]).to eq "Unnamed Course Rubric"
+          expect(assigns[:js_env][:assigned_rubric][:can_update]).to be_truthy
+          expect(assigns[:js_env][:assigned_rubric][:association_count]).to eq 1
+          expect(assigns[:js_env][:rubric_association][:id]).to eq @assignment.rubric_association.id
+        end
+      end
+
+      it "sets ASSET_PROCESSOR_EULA_LAUNCH_URLS if the user is a student" do
+        user_session @student
+        urls = [
+          { url: "https://example.com", name: "Example" },
+          { url: "https://example2.com", name: "Example2" }
+        ]
+        allow(Lti::EulaUiService).to receive(:eula_launch_urls).and_return(urls)
+
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+
+        expect(assigns[:js_env][:ASSET_PROCESSOR_EULA_LAUNCH_URLS]).to eq urls
+      end
+
+      it "does not set ASSET_PROCESSOR_EULA_LAUNCH_URLS if the user is not student" do
+        user_session @teacher
+        urls = [
+          { url: "https://example.com", name: "Example" },
+          { url: "https://example2.com", name: "Example2" }
+        ]
+        allow(Lti::EulaUiService).to receive(:eula_launch_urls).and_return(urls)
+
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+
+        expect(assigns[:js_env][:ASSET_PROCESSOR_EULA_LAUNCH_URLS]).to be_nil
+      end
+    end
+
+    context "assign to differentiation tags" do
+      before :once do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = { value: true }
+          a.save!
+        end
+      end
+
+      it "is true if account setting is on" do
+        user_session(@teacher)
+        get "show", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "is false if account setting is off" do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = { value: false }
+          a.save!
+        end
+
+        user_session(@teacher)
+        get "show", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be false
+      end
+
+      it "CAN_MANAGE_DIFFERENTIATION_TAGS is true if user can manage tags" do
+        user_session(@teacher)
+        get "show", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "CAN_MANAGE_DIFFERENTIATION_TAGS is false if user cannot manage tags" do
+        user_session(@student)
+        get "show", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be false
+      end
+    end
+
+    context "js_env CAN_EDIT_ASSIGNMENTS" do
+      it "sets CAN_EDIT_ASSIGNMENTS in js_env as true if current user has assignment edit permissions" do
+        user_session(@teacher)
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_EDIT_ASSIGNMENTS]).to be(true)
+      end
+
+      it "sets CAN_EDIT_ASSIGNMENTS in js_env as false if current user does not have assignment edit permissions" do
+        user_session(@teacher)
+        @course.account.role_overrides.create! role: teacher_role, permission: "manage_assignments_edit", enabled: false
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:CAN_EDIT_ASSIGNMENTS]).to be(false)
+      end
+    end
+
+    context "js_env PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED" do
+      it "sets PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED in js_env as true if enabled" do
+        user_session(@teacher)
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED]).to be(true)
+      end
+
+      it "sets PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED in js_env as false if disabled" do
+        user_session(@teacher)
+        @course.disable_feature!(:peer_review_allocation_and_grading)
+        get :show, params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED]).to be(false)
+      end
+    end
+
+    it "shows assignment was submitted successfully alert if submitted in url" do
+      user_session(@student)
+      get :show, params: { course_id: @course.id, id: @assignment.id, submitted: 0 }
+      expect(flash[:notice]).to match(/Assignment successfully submitted./)
+    end
+
+    context "peer review sub-assignment redirect" do
+      let(:parent_assignment) do
+        @course.assignments.create!(
+          title: "Parent Assignment",
+          peer_reviews: true,
+          points_possible: 10
+        )
+      end
+
+      let(:peer_review_sub_assignment) do
+        PeerReviewSubAssignment.create!(
+          context: @course,
+          parent_assignment:,
+          title: "Peer Review",
+          points_possible: 10
+        )
+      end
+
+      context "when feature flag is enabled" do
+        before do
+          @course.enable_feature!(:peer_review_allocation_and_grading)
+        end
+
+        it "redirects to parent assignment when accessing peer review sub-assignment" do
+          user_session(@student)
+          get :show, params: { course_id: @course.id, id: peer_review_sub_assignment.id }
+          expect(response).to redirect_to(course_assignment_path(@course, parent_assignment))
+        end
+
+        it "does not redirect for regular assignments" do
+          user_session(@student)
+          get :show, params: { course_id: @course.id, id: @assignment.id }
+          expect(response).not_to be_redirect
+        end
+
+        it "does not redirect for deleted peer review sub-assignment" do
+          user_session(@student)
+          peer_review_sub_assignment.destroy
+          get :show, params: { course_id: @course.id, id: peer_review_sub_assignment.id }
+          expect(response).not_to be_redirect
+        end
+      end
+
+      context "when feature flag is disabled" do
+        it "does not redirect peer review sub-assignment" do
+          user_session(@student)
+          get :show, params: { course_id: @course.id, id: peer_review_sub_assignment.id }
+          expect(response).not_to be_redirect
         end
       end
     end
@@ -1750,6 +2223,7 @@ describe AssignmentsController do
       end
 
       it "notifies user and redirects back to assignments page" do
+        user_session(@student)
         subject
         expect(response).to be_redirect
         expect(flash[:error]).to match(/The assignment you requested is not associated with an LTI tool./)
@@ -1766,32 +2240,12 @@ describe AssignmentsController do
         @assignment.save!
       end
 
-      context "with a2_enabled_tool feature flag enabled" do
-        before do
-          Account.site_admin.enable_feature!(:external_tools_for_a2)
-        end
-
-        it "renders the LTI tool launch associated with assignment" do
-          user_session(@student)
-          subject
-          expect(response).to be_successful
-          expect(assigns[:lti_launch]).to be_present
-          expect(assigns[:js_env][:LTI_TOOL]).to eq("true")
-        end
-      end
-
-      context "with a2_enabled_tool feature flag disabled" do
-        before do
-          Account.site_admin.disable_feature!(:external_tools_for_a2)
-        end
-
-        it "renders the LTI tool launch associated with assignment" do
-          user_session(@student)
-          subject
-          expect(response).to be_successful
-          expect(assigns[:lti_launch]).to be_present
-          expect(assigns[:js_env][:LTI_TOOL]).to be_nil
-        end
+      it "renders the LTI tool launch associated with assignment" do
+        user_session(@student)
+        subject
+        expect(response).to be_successful
+        expect(assigns[:lti_launch]).to be_present
+        expect(assigns[:js_env][:LTI_TOOL]).to eq("true")
       end
     end
   end
@@ -1837,6 +2291,99 @@ describe AssignmentsController do
         expect(assigns[:course_home_sub_navigation_tools].size).to eq 0
       end
     end
+
+    context "with file links in syllabus body" do
+      before :once do
+        @image = attachment_model(context: @course, display_name: "file.jpg")
+        @video = attachment_model(context: @course, display_name: "file.mp4", media_entry_id: "cat_hugs")
+        @doc = attachment_model(context: @course, display_name: "file.docx")
+        @course.public_syllabus = true
+        @course.syllabus_body = <<~HTML
+          <p><img id="#{@image.id}" src="/courses/#{@course.id}/files/#{@image.id}/preview" alt="test-1.jpg" /></p>
+          <p><iframe style="width: 300px; height: 225px; display: inline-block;" title="Video player for cat_hugs.mp4" data-media-type="video" src="/media_attachments_iframe/#{@video.id}" loading="lazy" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="#{@video.media_entry_id}"></iframe></p>
+          <p><a class="instructure_file_link auto_open" title="Link" href="/courses/#{@course.id}/files/#{@doc.id}?wrap=1" target="_blank" rel="noopener" data-canvas-previewable="true">#{@doc.display_name}</a></p>
+        HTML
+        @course.saving_user = @teacher
+        @course.save!
+      end
+
+      shared_examples "with 'disable_file_verifiers_in_public_syllabus' feature flag enabled" do
+        before :once do
+          # The course is using the site_admin account by default, and it was having
+          # caching issues if I tried to enable the feature flag on the course's root account.
+          @course.root_account.enable_feature!(:disable_file_verifiers_in_public_syllabus)
+        end
+
+        it "adds location tags to file URLs instead of verifiers" do
+          get "syllabus", params: { course_id: @course.id }
+          expect(assigns[:syllabus_body]).to eql(<<~HTML)
+            <p><img id="#{@image.id}" src="/courses/#{@course.id}/files/#{@image.id}/preview?location=course_syllabus_#{@course.id}" alt="test-1.jpg" loading="lazy"></p>
+            <p><iframe style="width: 300px; height: 225px; display: inline-block;" title="Video player for cat_hugs.mp4" data-media-type="video" src="/media_attachments_iframe/#{@video.id}?location=course_syllabus_#{@course.id}" loading="lazy" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="#{@video.media_entry_id}"></iframe></p>
+            <p><a class="instructure_file_link auto_open" title="Link" href="/courses/#{@course.id}/files/#{@doc.id}?location=course_syllabus_#{@course.id}&amp;wrap=1" target="_blank" data-canvas-previewable="true">#{@doc.display_name}</a></p>
+          HTML
+        end
+
+        context "sharding" do
+          specs_require_sharding
+
+          it "handles short form cross-shard file URLs" do
+            @shard1.activate do
+              user_model
+              @course.enroll_teacher(@user)
+              @image1 = attachment_model(context: @user, display_name: "file1.jpg")
+              @video1 = attachment_model(context: @user, display_name: "file1.mp4", media_entry_id: "cat_hugs1")
+              @doc1 = attachment_model(context: @user, display_name: "file1.docx")
+            end
+
+            syllabus_body = <<~HTML
+              <p><img id="#{@image1.id}" src="/users/#{Shard.short_id_for(@user.id)}/files/#{Shard.short_id_for(@image1.id)}/preview" alt="test-1.jpg" /></p>
+              <p><iframe style="width: 300px; height: 225px; display: inline-block;" title="Video player for cat_hugs.mp4" data-media-type="video" src="/media_attachments_iframe/#{Shard.short_id_for(@video1.id)}" loading="lazy" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="#{@video1.media_entry_id}"></iframe></p>
+              <p><a class="instructure_file_link auto_open" title="Link" href="/users/#{Shard.short_id_for(@user.id)}/files/#{Shard.short_id_for(@doc1.id)}?wrap=1" target="_blank" rel="noopener" data-canvas-previewable="true">#{@doc1.display_name}</a></p>
+            HTML
+
+            @course.updating_user = @user
+            @course.update!(syllabus_body:)
+
+            get "syllabus", params: { course_id: @course.id }
+
+            expect(assigns[:syllabus_body]).to eql(<<~HTML)
+              <p><img id="#{@image1.global_id}" src="/users/#{Shard.short_id_for(@user.id)}/files/#{Shard.short_id_for(@image1.global_id)}/preview?location=course_syllabus_#{@course.id}" alt="test-1.jpg" loading="lazy"></p>
+              <p><iframe style="width: 300px; height: 225px; display: inline-block;" title="Video player for cat_hugs.mp4" data-media-type="video" src="/media_attachments_iframe/#{Shard.short_id_for(@video1.global_id)}?location=course_syllabus_#{@course.id}" loading="lazy" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="#{@video1.media_entry_id}"></iframe></p>
+              <p><a class="instructure_file_link auto_open" title="Link" href="/users/#{Shard.short_id_for(@user.id)}/files/#{Shard.short_id_for(@doc1.global_id)}?location=course_syllabus_#{@course.id}&amp;wrap=1" target="_blank" data-canvas-previewable="true">#{@doc1.display_name}</a></p>
+            HTML
+          end
+        end
+      end
+
+      context "when context grants :read permission to current_user" do
+        it_behaves_like "with 'disable_file_verifiers_in_public_syllabus' feature flag enabled"
+
+        it "doesn't make files publicly available" do
+          user_session(@student)
+
+          get "syllabus", params: { course_id: @course.id }
+          expect(assigns[:syllabus_body]).to eql(<<~HTML)
+            <p><img id="#{@image.id}" src="/courses/#{@course.id}/files/#{@image.id}/preview?location=course_syllabus_#{@course.id}" alt="test-1.jpg" loading="lazy"></p>
+            <p><iframe style="width: 300px; height: 225px; display: inline-block;" title="Video player for cat_hugs.mp4" data-media-type="video" src="/media_attachments_iframe/#{@video.id}?location=course_syllabus_#{@course.id}" loading="lazy" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="#{@video.media_entry_id}"></iframe></p>
+            <p><a class="instructure_file_link auto_open" title="Link" href="/courses/#{@course.id}/files/#{@doc.id}?location=course_syllabus_#{@course.id}&amp;wrap=1" target="_blank" data-canvas-previewable="true">#{@doc.display_name}</a></p>
+          HTML
+        end
+      end
+
+      context "when context does not grant :read permission to current_user" do
+        it_behaves_like "with 'disable_file_verifiers_in_public_syllabus' feature flag enabled"
+
+        it "does make files publicly available with public syllabus when user does not have access" do
+          @image.root_account.disable_feature!(:disable_adding_uuid_verifier_in_api)
+          get "syllabus", params: { course_id: @course.id }
+          expect(assigns[:syllabus_body]).to eql(<<~HTML)
+            <p><img id="#{@image.id}" src="/courses/#{@course.id}/files/#{@image.id}/preview?location=course_syllabus_#{@course.id}" alt="test-1.jpg" loading="lazy"></p>
+            <p><iframe style="width: 300px; height: 225px; display: inline-block;" title="Video player for cat_hugs.mp4" data-media-type="video" src="/media_attachments_iframe/#{@video.id}?location=course_syllabus_#{@course.id}" loading="lazy" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="#{@video.media_entry_id}"></iframe></p>
+            <p><a class="instructure_file_link auto_open" title="Link" href="/courses/#{@course.id}/files/#{@doc.id}?location=course_syllabus_#{@course.id}&amp;wrap=1" target="_blank" data-canvas-previewable="true">#{@doc.display_name}</a></p>
+          HTML
+        end
+      end
+    end
   end
 
   describe "PUT 'toggle_mute'" do
@@ -1857,7 +2404,7 @@ describe AssignmentsController do
 
         it "fails if grades are not published, and status is false" do
           put "toggle_mute", params: { course_id: @course.id, assignment_id: @assignment.id, status: false }, format: "json"
-          assert_unauthorized
+          assert_forbidden
         end
 
         it "mutes if grades are not published, and status is true" do
@@ -1921,6 +2468,7 @@ describe AssignmentsController do
     end
 
     it "defaults to unpublished for draft state" do
+      user_session(@teacher)
       @course.require_assignment_group
 
       get "new", params: { course_id: @course.id }
@@ -1980,6 +2528,7 @@ describe AssignmentsController do
     end
 
     it "set active_tab to assignments" do
+      user_session(@teacher)
       get "new", params: { course_id: @course.id, quiz_lti: true }
       expect(assigns[:active_tab]).to eq("assignments")
     end
@@ -2048,6 +2597,27 @@ describe AssignmentsController do
         expect(assigns[:_crumbs]).to include(["Quizzes", "/courses/#{@course.id}/quizzes", {}])
       end
     end
+
+    it "js_env GROUP_CATEGORIES excludes non_collaborative and student_organized categories regardless of allow_assign_to_differentiation_tags? setting state" do
+      @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
+      @course.account.save!
+      @course.account.reload
+
+      user_session(@teacher)
+      @course.group_categories.create!(name: "non_colaborative_category", non_collaborative: true)
+      @course.group_categories.create!(name: "student_organized_category", role: "student_organized")
+      regular_category = @course.group_categories.create!(name: "regular_category")
+
+      get :new, params: { course_id: @course.id }
+      expect(assigns[:js_env][:GROUP_CATEGORIES].pluck(:id)).to match_array [regular_category.id]
+
+      @course.account.settings[:allow_assign_to_differentiation_tags] = { value: false }
+      @course.account.save!
+      @course.account.reload
+
+      get :new, params: { course_id: @course.id }
+      expect(assigns[:js_env][:GROUP_CATEGORIES].pluck(:id)).to match_array [regular_category.id]
+    end
   end
 
   describe "POST 'create'" do
@@ -2091,6 +2661,7 @@ describe AssignmentsController do
     end
 
     it "defaults to unpublished if draft state is enabled" do
+      user_session(@teacher)
       post "create", params: { course_id: @course.id, assignment: { title: "some assignment" } }
       expect(assigns[:assignment]).to be_unpublished
     end
@@ -2114,6 +2685,7 @@ describe AssignmentsController do
     end
 
     it "uses the default post-to-SIS setting" do
+      user_session(@teacher)
       a = @course.account
       a.settings[:sis_default_grade_export] = { locked: false, value: true }
       a.save!
@@ -2122,8 +2694,37 @@ describe AssignmentsController do
     end
 
     it "sets important_dates if provided" do
+      user_session(@teacher)
       post "create", params: { course_id: @course.id, assignment: { important_dates: true } }
       expect(assigns[:assignment].important_dates).to be true
+    end
+
+    context "New Quizzes Surveys" do
+      before do
+        @course.context_external_tools.create!(
+          name: "Quizzes.Next",
+          consumer_key: "test_key",
+          shared_secret: "test_secret",
+          tool_id: "Quizzes 2",
+          url: "http://example.com/launch"
+        )
+      end
+
+      it "sets new quizzes survey attributes if provided" do
+        user_session(@teacher)
+        post "create", params: {
+          course_id: @course.id,
+          assignment: {
+            new_quizzes_quiz_type: "graded_survey",
+            new_quizzes_anonymous_submission: true
+          },
+          quiz_lti: 1
+        }
+        assignment = assigns[:assignment]
+        expect(assignment).not_to be_nil
+        expect(assignment.new_quizzes_type).to eq("graded_survey")
+        expect(assignment.anonymous_participants?).to be true
+      end
     end
   end
 
@@ -2219,6 +2820,22 @@ describe AssignmentsController do
       expect(assigns[:js_env][:PERMISSIONS]).to include can_edit_grades: true
     end
 
+    it "sets manage_rubrics to true for user with only manage_assignments_edit" do
+      custom_role = custom_teacher_role("NoRubricsTeacher", account: @course.account)
+      @course.account.role_overrides.create!(role: custom_role, permission: :manage_rubrics, enabled: false)
+      @course.account.role_overrides.create!(role: custom_role, permission: :manage_assignments_edit, enabled: true)
+      custom_teacher = course_with_user("TeacherEnrollment", {
+                                          active_all: true,
+                                          course: @course,
+                                          role: custom_role
+                                        }).user
+      user_session(custom_teacher)
+
+      get "edit", params: { course_id: @course.id, id: @assignment.id }
+
+      expect(assigns[:js_env][:PERMISSIONS]).to include manage_rubrics: true
+    end
+
     it "requires authorization" do
       # controller.use_rails_error_handling!
       get "edit", params: { course_id: @course.id, id: @assignment.id }
@@ -2249,6 +2866,125 @@ describe AssignmentsController do
       expect(assigns[:js_env][:COURSE_ID]).to eq @course.id
       expect(assigns[:js_env][:SELECTED_CONFIG_TOOL_ID]).to eq tool.id
       expect(assigns[:js_env][:SELECTED_CONFIG_TOOL_TYPE]).to eq tool.class.to_s
+    end
+
+    context "peer review override dates" do
+      before do
+        user_session(@teacher)
+        @assignment.update!(peer_reviews: true)
+      end
+
+      it "includes child peer review override dates when all conditions are met" do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        peer_review_sub = peer_review_model(parent_assignment: @assignment)
+        section = @course.course_sections.create!(name: "Test Section")
+        parent_override = @assignment.assignment_overrides.create!(set: section, due_at: 1.day.from_now)
+        child_override = peer_review_sub.assignment_overrides.create!(
+          set: section,
+          parent_override:,
+          due_at: 2.days.from_now
+        )
+
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+
+        overrides = assigns[:js_env][:ASSIGNMENT_OVERRIDES]
+        expect(overrides).to be_an(Array)
+        expect(overrides.length).to be > 0
+
+        parent_override_json = overrides.find { |o| o[:id] == parent_override.id }
+        expect(parent_override_json).to be_present
+        expect(parent_override_json[:peer_review_dates]).to be_present
+        expect(parent_override_json[:peer_review_dates][:id]).to eq(child_override.id)
+      end
+
+      it "does not include child peer review override dates when feature flag is disabled" do
+        section = @course.course_sections.create!(name: "Test Section")
+        parent_override = @assignment.assignment_overrides.create!(set: section, due_at: 1.day.from_now)
+
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+
+        overrides = assigns[:js_env][:ASSIGNMENT_OVERRIDES]
+        parent_override_json = overrides.find { |o| o[:id] == parent_override.id }
+        expect(parent_override_json).to be_present
+        expect(parent_override_json).not_to have_key(:peer_review_dates)
+      end
+
+      it "does not include child peer review override dates when peer_reviews is false" do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        @assignment.update!(peer_reviews: false)
+        section = @course.course_sections.create!(name: "Test Section")
+        parent_override = @assignment.assignment_overrides.create!(set: section, due_at: 1.day.from_now)
+
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+
+        overrides = assigns[:js_env][:ASSIGNMENT_OVERRIDES]
+        parent_override_json = overrides.find { |o| o[:id] == parent_override.id }
+        expect(parent_override_json).to be_present
+        expect(parent_override_json).not_to have_key(:peer_review_dates)
+      end
+
+      it "does not include child peer review override dates when peer_review_sub_assignment does not exist" do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        section = @course.course_sections.create!(name: "Test Section")
+        parent_override = @assignment.assignment_overrides.create!(set: section, due_at: 1.day.from_now)
+
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+
+        overrides = assigns[:js_env][:ASSIGNMENT_OVERRIDES]
+        parent_override_json = overrides.find { |o| o[:id] == parent_override.id }
+        expect(parent_override_json).to be_present
+        expect(parent_override_json).not_to have_key(:peer_review_dates)
+      end
+    end
+
+    context "peer_review_sub_assignment in js_env" do
+      before do
+        user_session(@teacher)
+        @assignment.update!(peer_reviews: true)
+      end
+
+      it "includes peer_review_sub_assignment when it exists and feature flag is enabled" do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        peer_review_model(parent_assignment: @assignment, points_possible: 20)
+
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+
+        assignment_data = assigns[:js_env][:ASSIGNMENT]
+        expect(assignment_data).to have_key("peer_review_sub_assignment")
+        expect(assignment_data["peer_review_sub_assignment"]).to be_a(Hash)
+        expect(assignment_data["peer_review_sub_assignment"]["points_possible"]).to eq(20)
+      end
+
+      it "includes peer_review_sub_assignment as null when it does not exist and feature flag is enabled" do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+
+        assignment_data = assigns[:js_env][:ASSIGNMENT]
+        expect(assignment_data).to have_key("peer_review_sub_assignment")
+        expect(assignment_data["peer_review_sub_assignment"]).to be_nil
+      end
+
+      it "includes peer_review_sub_assignment when it exists even if feature flag is disabled" do
+        @course.disable_feature!(:peer_review_allocation_and_grading)
+        peer_review_model(parent_assignment: @assignment, points_possible: 15)
+
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+
+        assignment_data = assigns[:js_env][:ASSIGNMENT]
+        expect(assignment_data).to have_key("peer_review_sub_assignment")
+        expect(assignment_data["peer_review_sub_assignment"]).to be_a(Hash)
+        expect(assignment_data["peer_review_sub_assignment"]["points_possible"]).to eq(15)
+      end
+
+      it "does not include peer_review_sub_assignment when it does not exist and feature flag is disabled" do
+        @course.disable_feature!(:peer_review_allocation_and_grading)
+
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+
+        assignment_data = assigns[:js_env][:ASSIGNMENT]
+        expect(assignment_data).not_to have_key("peer_review_sub_assignment")
+      end
     end
 
     it "bootstrap the assignment originality report visibility settings to js_env" do
@@ -2292,6 +3028,22 @@ describe AssignmentsController do
       expect(assigns[:js_env][:MODERATED_GRADING_MAX_GRADER_COUNT]).to eq @assignment.moderated_grading_max_grader_count
     end
 
+    context "when the account has suppress_assignments setting on" do
+      before do
+        account = @course.root_account
+        account.settings[:suppress_assignments] = true
+        account.save
+      end
+
+      it "reflects assignment.suppress_assignment when given query parameter suppress_assignment" do
+        user_session(@teacher)
+        expect(@assignment.suppress_assignment).to be(false) # default
+        get "edit", params: { course_id: @course.id, id: @assignment.id, suppress_assignment: true }
+        expect(assigns[:assignment]).to eql(@assignment)
+        expect(assigns[:assignment].suppress_assignment).to be(true)
+      end
+    end
+
     context "when the root account does not have a default tool url set" do
       subject { get :edit, params: { course_id: course.id, id: @assignment.id } }
 
@@ -2316,8 +3068,7 @@ describe AssignmentsController do
         let(:domain) { "justanexamplenotarealwebsite.com" }
 
         let(:tool) do
-          factory_with_protected_attributes(
-            @course.context_external_tools,
+          @course.context_external_tools.create!(
             domain:,
             url: "http://www.justanexamplenotarealwebsite.com/tool1",
             shared_secret: "test123",
@@ -2330,7 +3081,6 @@ describe AssignmentsController do
         end
 
         let(:tool_in_js_env) do
-          Setting.set("submission_type_selection_allowed_launch_domains", domain)
           tool
           subject
           assigns[:js_env][:SUBMISSION_TYPE_SELECTION_TOOLS][0]
@@ -2345,10 +3095,10 @@ describe AssignmentsController do
           )
         end
 
-        describe "require_resourse_selection property" do
+        describe "require_resource_selection property" do
           context "when not given in the settings" do
             it "is not set in the js_env tool" do
-              expect(tool_in_js_env).to_not include(:require_resource_selection)
+              expect(tool_in_js_env).not_to include(:require_resource_selection)
             end
           end
 
@@ -2621,19 +3371,19 @@ describe AssignmentsController do
       end
     end
 
-    describe "js_env ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED" do
-      it "sets ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED in js_env as true if enabled" do
+    describe "js_env PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED" do
+      it "sets PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED in js_env as true if enabled" do
         user_session(@teacher)
-        Account.site_admin.enable_feature!(:assignment_submission_type_card)
+        @course.enable_feature!(:peer_review_allocation_and_grading)
         get "edit", params: { course_id: @course.id, id: @assignment.id }
-        expect(assigns[:js_env][:ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED]).to be(true)
+        expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED]).to be(true)
       end
 
-      it "sets ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED in js_env as false if disabled" do
+      it "sets PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED in js_env as false if disabled" do
         user_session(@teacher)
-        Account.site_admin.disable_feature!(:assignment_submission_type_card)
+        @course.disable_feature!(:peer_review_allocation_and_grading)
         get "edit", params: { course_id: @course.id, id: @assignment.id }
-        expect(assigns[:js_env][:ASSIGNMENT_SUBMISSION_TYPE_CARD_ENABLED]).to be(false)
+        expect(assigns[:js_env][:PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED]).to be(false)
       end
     end
 
@@ -2650,6 +3400,104 @@ describe AssignmentsController do
         Account.site_admin.disable_feature!(:hide_zero_point_quizzes_option)
         get "edit", params: { course_id: @course.id, id: @assignment.id }
         expect(assigns[:js_env][:HIDE_ZERO_POINT_QUIZZES_OPTION_ENABLED]).to be(false)
+      end
+    end
+
+    it "sets COURSE_ID in js_env if assignment_edit_enhancements_teacher_view FF is enabled" do
+      user_session(@teacher)
+      @course.root_account.enable_feature!(:assignment_edit_enhancements_teacher_view)
+      get "edit", params: { course_id: @course.id, id: @assignment.id }
+      expect(assigns[:js_env][:COURSE_ID]).to be(@course.id)
+    end
+
+    it "js_env GROUP_CATEGORIES excludes non_collaborative and student_organized categories regardless of allow_assign_to_differentiation_tags? setting state" do
+      @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
+      @course.account.save!
+      @course.account.reload
+
+      user_session(@teacher)
+      @course.group_categories.create!(name: "non_colaborative_category", non_collaborative: true)
+      @course.group_categories.create!(name: "student_organized_category", role: "student_organized")
+      regular_category = @course.group_categories.create!(name: "regular_category")
+
+      get :edit, params: { course_id: @course.id, id: @assignment.id }
+      expect(assigns[:js_env][:GROUP_CATEGORIES].pluck(:id)).to match_array [regular_category.id]
+
+      @course.account.settings[:allow_assign_to_differentiation_tags] = { value: false }
+      @course.account.save!
+      @course.account.reload
+
+      get :edit, params: { course_id: @course.id, id: @assignment.id }
+      expect(assigns[:js_env][:GROUP_CATEGORIES].pluck(:id)).to match_array [regular_category.id]
+    end
+
+    context "assign to differentiation tags" do
+      it "is true if account setting is on" do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = { value: true }
+          a.save!
+        end
+
+        user_session(@teacher)
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "is false if account setting is off" do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = { value: false }
+          a.save!
+        end
+
+        user_session(@teacher)
+        get "edit", params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be false
+      end
+    end
+
+    context "assigned_rubric and rubric_association" do
+      before do
+        Account.site_admin.enable_feature!(:enhanced_rubrics_assignments)
+        @course.enable_feature!(:enhanced_rubrics)
+        rubric = @course.rubrics.create!(user: @teacher, data: [])
+        rubric_association_params = ActiveSupport::HashWithIndifferentAccess.new({
+                                                                                   hide_score_total: "0",
+                                                                                   purpose: "grading",
+                                                                                   skip_updating_points_possible: false,
+                                                                                   update_if_existing: true,
+                                                                                   use_for_grading: "1",
+                                                                                   association_object: @assignment
+                                                                                 })
+        rubric_assoc = RubricAssociation.generate(@teacher, rubric, @course, rubric_association_params)
+        @assignment.rubric_association = rubric_assoc
+        @assignment.save!
+        user_session(@teacher)
+      end
+
+      it "sets assigned_rubric and rubric_association in the ENV when FF is ON" do
+        allow_any_instance_of(Assignment).to receive(:quiz_lti?).and_return(true)
+        get :edit, params: { course_id: @course.id, id: @assignment.id, quiz_lti: true }
+        expect(assigns[:js_env][:assigned_rubric][:id]).to eq @assignment.rubric_association.rubric_id
+        expect(assigns[:js_env][:assigned_rubric][:title]).to eq "Unnamed Course Rubric"
+        expect(assigns[:js_env][:assigned_rubric][:can_update]).to be_truthy
+        expect(assigns[:js_env][:assigned_rubric][:association_count]).to eq 1
+        expect(assigns[:js_env][:rubric_association][:id]).to eq @assignment.rubric_association.id
+      end
+
+      it "does not set assigned_rubric and rubric_association in the ENV when FF is OFF" do
+        allow_any_instance_of(Assignment).to receive(:quiz_lti?).and_return(true)
+        Account.site_admin.disable_feature!(:enhanced_rubrics_assignments)
+        get :edit, params: { course_id: @course.id, id: @assignment.id, quiz_lti: true }
+        expect(assigns[:js_env][:assigned_rubric]).to be_nil
+        expect(assigns[:js_env][:rubric_association]).to be_nil
+      end
+
+      it "does not set assigned_rubric and rubric_association in the ENV when FF is OFF and quiz_lti is false" do
+        allow_any_instance_of(Assignment).to receive(:quiz_lti?).and_return(false)
+        Account.site_admin.disable_feature!(:enhanced_rubrics_assignments)
+        get :edit, params: { course_id: @course.id, id: @assignment.id }
+        expect(assigns[:js_env][:assigned_rubric]).to be_nil
+        expect(assigns[:js_env][:rubric_association]).to be_nil
       end
     end
   end
@@ -2685,28 +3533,6 @@ describe AssignmentsController do
 
       expect(@assignment.reload).to be_published
     end
-
-    context "granular_permissions" do
-      before do
-        @course.root_account.enable_feature!(:granular_permissions_manage_assignments)
-      end
-
-      it "requires authorization" do
-        post "publish_quizzes", params: { course_id: @course.id, quizzes: [@assignment.id] }
-        assert_unauthorized
-      end
-
-      it "publishes unpublished assignments" do
-        user_session(@teacher)
-        @assignment = @course.assignments.build(title: "New quiz!", workflow_state: "unpublished")
-        @assignment.save!
-
-        expect(@assignment).not_to be_published
-        post "publish_quizzes", params: { course_id: @course.id, quizzes: [@assignment.id] }
-
-        expect(@assignment.reload).to be_published
-      end
-    end
   end
 
   describe "POST 'unpublish'" do
@@ -2723,27 +3549,6 @@ describe AssignmentsController do
       post "unpublish_quizzes", params: { course_id: @course.id, quizzes: [@assignment.id] }
 
       expect(@assignment.reload).not_to be_published
-    end
-
-    context "granular_permissions" do
-      before do
-        @course.root_account.enable_feature!(:granular_permissions_manage_assignments)
-      end
-
-      it "requires authorization" do
-        post "unpublish_quizzes", params: { course_id: @course.id, quizzes: [@assignment.id] }
-        assert_unauthorized
-      end
-
-      it "unpublishes published quizzes" do
-        user_session(@teacher)
-        @assignment = @course.assignments.create(title: "New quiz!", workflow_state: "published")
-
-        expect(@assignment).to be_published
-        post "unpublish_quizzes", params: { course_id: @course.id, quizzes: [@assignment.id] }
-
-        expect(@assignment.reload).not_to be_published
-      end
     end
   end
 
@@ -2815,6 +3620,330 @@ describe AssignmentsController do
       it "students instance variable contains the assessor when there are no peer reviews assigned to the assessor" do
         get "peer_reviews", params: { course_id: @course.id, assignment_id: @assignment.id, search_term: "ji", selected_option: "all" }
         expect(assigns[:students]).to include(have_attributes(name: "Jim Carey"))
+      end
+    end
+  end
+
+  describe "POST #assign_peer_reviews" do
+    before do
+      course_with_teacher(active_all: true)
+      @assignment = @course.assignments.create(title: "Peer Review Assignment", workflow_state: "published")
+      @assignment.update!(peer_reviews: true, submission_types: "text_entry")
+      student1 = student_in_course(active_all: true).user
+      student2 = student_in_course(active_all: true).user
+      [student1, student2].each do |student|
+        submission = @assignment.submit_homework(student)
+        submission.submission_type = "online_text_entry"
+        submission.save!
+      end
+      user_session(@teacher)
+    end
+
+    it "returns a JSON response" do
+      post :assign_peer_reviews, params: {
+        course_id: @course.id,
+        assignment_id: @assignment.id,
+        peer_review_count: 1,
+        format: :json
+      }
+
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body.size).to eq(2)
+    end
+  end
+
+  describe "GET 'rubric_data'" do
+    before do
+      user_session(@teacher)
+      @rubric = @course.rubrics.create!(user: @teacher, data: [])
+      rubric_association_params = {
+        purpose: "grading",
+        use_for_grading: "1",
+        association_object: @assignment
+      }
+      @assignment.rubric_association = RubricAssociation.generate(@teacher, @rubric, @course, rubric_association_params)
+      @assignment.save!
+    end
+
+    it "returns rubric data when assignment has an active rubric association" do
+      get :rubric_data, params: { course_id: @course.id, assignment_id: @assignment.id }, format: :json
+
+      expect(response).to have_http_status(:ok)
+      json = response.parsed_body
+      expect(json["assigned_rubric"]).to be_present
+      expect(json["assigned_rubric"]["id"]).to eq @rubric.id
+      expect(json["rubric_association"]).to be_present
+      expect(json["rubric_association"]["id"]).to eq @assignment.rubric_association.id
+    end
+
+    it "returns nil rubric data when assignment has no rubric association" do
+      @assignment.rubric_association.destroy
+      get :rubric_data, params: { course_id: @course.id, assignment_id: @assignment.id }, format: :json
+
+      expect(response).to have_http_status(:ok)
+      json = response.parsed_body
+      expect(json["assigned_rubric"]).to be_nil
+      expect(json["rubric_association"]).to be_nil
+    end
+
+    it "includes can_update permission in rubric data" do
+      get :rubric_data, params: { course_id: @course.id, assignment_id: @assignment.id }, format: :json
+
+      expect(response).to have_http_status(:ok)
+      json = response.parsed_body
+      expect(json["assigned_rubric"]["can_update"]).to be_truthy
+    end
+
+    it "includes association_count in rubric data" do
+      get :rubric_data, params: { course_id: @course.id, assignment_id: @assignment.id }, format: :json
+
+      expect(response).to have_http_status(:ok)
+      json = response.parsed_body
+      expect(json["assigned_rubric"]["association_count"]).to eq 1
+    end
+
+    it "returns 404 for non-existent assignment" do
+      get :rubric_data, params: { course_id: @course.id, assignment_id: 99_999 }, format: :json
+
+      expect(response).to have_http_status(:not_found)
+    end
+
+    context "as a student" do
+      it "denies students access to rubric data" do
+        user_session(@student)
+        get :rubric_data, params: { course_id: @course.id, assignment_id: @assignment.id }, format: :json
+
+        expect(response).to have_http_status(:forbidden)
+      end
+    end
+
+    context "as a TA with grading permissions" do
+      it "allows TAs with update permission to view rubric data" do
+        ta = user_factory(active_all: true)
+        @course.enroll_ta(ta, enrollment_state: "active")
+        user_session(ta)
+
+        get :rubric_data, params: { course_id: @course.id, assignment_id: @assignment.id }, format: :json
+
+        expect(response).to have_http_status(:ok)
+        json = response.parsed_body
+        expect(json["assigned_rubric"]).to be_present
+      end
+    end
+
+    context "without update permission" do
+      it "denies access to users without update permission" do
+        observer = user_factory(active_all: true)
+        @course.enroll_user(observer, "ObserverEnrollment", enrollment_state: "active")
+        user_session(observer)
+
+        get :rubric_data, params: { course_id: @course.id, assignment_id: @assignment.id }, format: :json
+
+        expect(response).to have_http_status(:forbidden)
+      end
+    end
+  end
+
+  describe "GET 'peer_reviews' with A2 student view" do
+    before :once do
+      @assignment = @course.assignments.create!(
+        title: "Peer Review Assignment",
+        workflow_state: "published",
+        peer_reviews: true,
+        submission_types: "text_entry"
+      )
+      @student2 = student_in_course(active_all: true).user
+      @assignment.assign_peer_review(@student, @student2)
+    end
+
+    context "when assignment does not have peer reviews enabled" do
+      it "redirects to the assignment page" do
+        @assignment.update!(peer_reviews: false)
+        user_session(@student)
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).to redirect_to(course_assignment_url(@course, @assignment))
+      end
+    end
+
+    context "when all conditions for A2 peer review student view are met" do
+      before :once do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        @course.enable_feature!(:assignments_2_student)
+        @assignment.create_peer_review_sub_assignment!(
+          peer_reviews: true,
+          peer_review_count: 2
+        )
+      end
+
+      before do
+        user_session(@student)
+      end
+
+      it "renders the A2 peer review student view" do
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).to have_http_status(:ok)
+        expect(response).to render_template(layout: "layouts/application")
+      end
+
+      it "sets ASSIGNMENT_ID in js_env" do
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(assigns[:js_env][:ASSIGNMENT_ID]).to eq(@assignment.id)
+      end
+
+      it "sets EMOJIS_ENABLED in js_env based on feature flag" do
+        @course.enable_feature!(:submission_comment_emojis)
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(assigns[:js_env][:EMOJIS_ENABLED]).to be(true)
+
+        @course.disable_feature!(:submission_comment_emojis)
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(assigns[:js_env][:EMOJIS_ENABLED]).to be(false)
+      end
+
+      it "sets the page title to assignment title with Peer Review" do
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(assigns[:page_title]).to eq("Peer Review Assignment Peer Review")
+      end
+
+      it "sets restrict_quantitative_data in js_env based on course setting" do
+        @course.root_account.enable_feature! :restrict_quantitative_data
+        @course.restrict_quantitative_data = true
+        @course.save!
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(assigns[:js_env][:restrict_quantitative_data]).to be(true)
+
+        @course.restrict_quantitative_data = false
+        @course.save!
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(assigns[:js_env][:restrict_quantitative_data]).to be(false)
+      end
+    end
+
+    context "when FF is enabled but assignment has legacy peer reviews (no sub-assignment)" do
+      before :once do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        @course.enable_feature!(:assignments_2_student)
+      end
+
+      it "does not render A2 peer review student view for students" do
+        user_session(@student)
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).to have_http_status(:unauthorized)
+      end
+
+      it "renders the legacy peer review page for teachers" do
+        user_session(@teacher)
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).not_to redirect_to(course_assignment_path(@course, @assignment, open_allocation_tray: true))
+      end
+    end
+
+    context "when user is a teacher and peer_review_allocation_and_grading FF is enabled" do
+      before :once do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        @assignment.create_peer_review_sub_assignment!(
+          peer_reviews: true,
+          peer_review_count: 2
+        )
+      end
+
+      before do
+        user_session(@teacher)
+      end
+
+      it "redirects to assignment page with open_allocation_tray parameter" do
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).to redirect_to(course_assignment_path(@course, @assignment, open_allocation_tray: true))
+      end
+    end
+
+    context "when peer_review_allocation_and_grading feature is disabled" do
+      before :once do
+        @course.disable_feature!(:peer_review_allocation_and_grading)
+        @course.enable_feature!(:assignments_2_student)
+        @assignment.create_peer_review_sub_assignment!(
+          peer_reviews: true,
+          peer_review_count: 2
+        )
+      end
+
+      before do
+        user_session(@student)
+      end
+
+      it "does not render A2 peer review student view" do
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).to have_http_status(:unauthorized)
+      end
+    end
+
+    context "when assignments_2_student feature is disabled" do
+      before :once do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        @course.disable_feature!(:assignments_2_student)
+        @assignment.create_peer_review_sub_assignment!(
+          peer_reviews: true,
+          peer_review_count: 2
+        )
+      end
+
+      before do
+        user_session(@student)
+      end
+
+      it "returns unauthorized status" do
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).to have_http_status(:unauthorized)
+      end
+
+      it "shows a custom error message about required feature flags" do
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(assigns[:unauthorized_message]).to include("Canvas Administrator")
+        expect(assigns[:unauthorized_details]).to include("Assignment Enhancements - Student")
+        expect(assigns[:unauthorized_details].length).to eq(4)
+      end
+    end
+
+    context "when user has both student and teacher enrollments" do
+      before :once do
+        @dual_user = @student
+        teacher_in_course(course: @course, user: @dual_user, active_all: true)
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        @course.enable_feature!(:assignments_2_student)
+        @assignment.create_peer_review_sub_assignment!(
+          peer_reviews: true,
+          peer_review_count: 2
+        )
+      end
+
+      before do
+        user_session(@dual_user)
+      end
+
+      it "renders the A2 peer review student view when assigned to the assignment" do
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).to have_http_status(:ok)
+        expect(response).to render_template(layout: "layouts/application")
+      end
+
+      it "does not redirect to the allocation tray when assigned to the assignment" do
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).not_to redirect_to(course_assignment_path(@course, @assignment, open_allocation_tray: true))
+      end
+
+      it "shows unauthorized view instead of allocation tray when assignments_2_student is disabled" do
+        @course.disable_feature!(:assignments_2_student)
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).to have_http_status(:unauthorized)
+        expect(assigns[:unauthorized_message]).to include("Canvas Administrator")
+      end
+
+      it "redirects to allocation tray when not assigned to the assignment" do
+        @assignment.update!(only_visible_to_overrides: true)
+        other_section = @course.course_sections.create!(name: "Other Section")
+        @assignment.assignment_overrides.create!(set: other_section)
+        get :peer_reviews, params: { course_id: @course.id, assignment_id: @assignment.id }
+        expect(response).to redirect_to(course_assignment_path(@course, @assignment, open_allocation_tray: true))
       end
     end
   end

@@ -17,7 +17,7 @@
  */
 
 import {extend} from '@canvas/backbone/utils'
-import {map} from 'lodash'
+import {map} from 'es-toolkit/compat'
 import Backbone from '@canvas/backbone'
 import I18n from '@canvas/i18n'
 import template from '../../jst/DaySubstitution.handlebars'
@@ -70,7 +70,7 @@ DaySubstitutionView.prototype.updateModelData = function () {
 DaySubstitutionView.prototype.updateName = function () {
   return this.$subDay.attr(
     'name',
-    'date_shift_options[day_substitutions][' + this.$currentDay.val() + ']'
+    'date_shift_options[day_substitutions][' + this.$currentDay.val() + ']',
   )
 }
 
@@ -107,7 +107,7 @@ DaySubstitutionView.prototype.weekdays = function () {
           name: day,
         }
       }
-    })(this)
+    })(this),
   )
 }
 

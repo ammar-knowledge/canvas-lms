@@ -16,11 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import create from 'zustand'
+import {create} from 'zustand'
 import type {RubricsStore} from '../../../assignments_show_student.d'
 
 const store = create<RubricsStore>(() => ({
   displayedAssessment: null,
+  selfAssessment: null,
   isSavingRubricAssessment: false,
 }))
 

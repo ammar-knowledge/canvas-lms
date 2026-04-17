@@ -22,7 +22,7 @@ module ConditionalRelease
     class << self
       # handle the parts of the service that was making API calls back to canvas to create/remove assignment overrides
 
-      def handle_grade_change(submission)
+      def handle_grade_change(progress, submission)
         return unless submission.graded? && submission.posted? # sanity check
 
         sets_to_assign, sets_to_unassign = find_assignment_sets(submission)
@@ -33,6 +33,8 @@ module ConditionalRelease
                                                                  student_id: submission.user_id,
                                                                  actor_id: submission.grader_id,
                                                                  source: "grade_change")
+
+        progress.update_completion!(100)
       end
 
       def handle_assignment_set_selection(student, trigger_assignment, assignment_set_id)
@@ -81,32 +83,102 @@ module ConditionalRelease
         ActiveRecord::Associations.preload(existing_overrides,
                                            :assignment_override_students,
                                            AssignmentOverrideStudent.where(user_id: student_id)) # only care about records for this student
+        existing_overrides_map_with_dates = existing_overrides.group_by { |override| [override.assignment_id, override.due_at] }
         existing_overrides_map = existing_overrides.group_by(&:assignment_id)
 
-        assignments_to_assign.each do |to_assign|
-          overrides = existing_overrides_map[to_assign.id]
-          if overrides
-            unless overrides.any? { |o| o.assignment_override_students.map(&:user_id).include?(student_id) }
-              override = overrides.min_by(&:id) # kind of arbitrary but may as well be consistent and always pick the earliest
-              # we can pass in :no_enrollment to skip some queries - i assume they have an enrollment since they have a submission
-              override.assignment_override_students.create!(user_id: student_id, no_enrollment: false)
-            end
-          else
-            # have to create an override
-            new_override = to_assign.assignment_overrides.create!(
-              set_type: "ADHOC",
-              assignment_override_students: [
-                AssignmentOverrideStudent.new(assignment: to_assign, user_id: student_id, no_enrollment: false)
-              ]
-            )
-            existing_overrides_map[to_assign.id] = [new_override]
-          end
+        noop_due_dates = AssignmentOverride.active
+                                           .where(assignment_id: assignments_to_assign, set_type: "Noop")
+                                           .where.not(due_at: nil)
+                                           .pluck(:assignment_id, :due_at)
+                                           .to_h
+
+        due_dates = {}
+        course_pace = nil
+
+        course = [assignments_to_assign.first, assignments_to_unassign.first].compact.first&.course
+
+        if course
+          enrollment = StudentEnrollment.current.find_by(user_id: student_id, course:)
+          course_pace = CoursePace.pace_for_context(course, enrollment)
+          due_dates = CoursePaceDueDatesCalculator.new(course_pace).get_due_dates(course_pace.course_pace_module_items, enrollment, by_assignment: true) if course_pace
         end
 
         assignments_to_unassign.each do |to_unassign|
           overrides = existing_overrides_map[to_unassign.id] || []
           overrides.each do |o|
             o.assignment_override_students.detect { |aos| aos.user_id == student_id }&.destroy!
+          end
+        end
+
+        assignments_to_assign.each do |to_assign|
+          due_at = if course_pace
+                     due_dates[to_assign.id]
+                   else
+                     noop_due_dates[to_assign.id]
+                   end
+
+          if due_at.present?
+            fancy_due_at = CanvasTime.fancy_midnight(due_at)
+            normalized_due_at = fancy_due_at.change(nsec: fancy_due_at.usec * 1000)
+          end
+
+          # With course pacing: group by assignment + due date (students get pace-calculated dates)
+          # Without course pacing: group by assignment only (allows manual due date edits)
+          overrides = if course_pace
+                        existing_overrides_map_with_dates[[to_assign.id, normalized_due_at]]
+                      else
+                        existing_overrides_map[to_assign.id]
+                      end
+          if overrides
+            unless overrides.any? { |o| o.assignment_override_students.map(&:user_id).include?(student_id) }
+              override = overrides.min_by(&:id)
+              override.assignment_override_students.create!(user_id: student_id, no_enrollment: false)
+            end
+          else
+            new_override = to_assign.assignment_overrides.create!(
+              set_type: "ADHOC",
+              assignment_override_students: [
+                AssignmentOverrideStudent.new(assignment: to_assign, user_id: student_id, no_enrollment: false)
+              ],
+              due_at_overridden: due_at&.present?,
+              due_at:
+            )
+
+            if course_pace
+              existing_overrides_map_with_dates[[to_assign.id, normalized_due_at]] = [new_override]
+            else
+              existing_overrides_map[to_assign.id] = [new_override]
+            end
+          end
+        end
+        if course
+          affected_assignments = assignments_to_assign.concat(assignments_to_unassign)
+          SubmissionLifecycleManager.recompute_users_for_course([student_id], course, affected_assignments)
+          affected_assignment_ids = affected_assignments.map(&:id)
+          ct = ContentTag.arel_table
+          conditions = ct[:content_type].eq("Assignment").and(ct[:content_id].in(affected_assignment_ids))
+
+          wiki_page_ids = WikiPage.where(assignment_id: affected_assignment_ids).pluck(:id)
+          conditions = conditions.or(ct[:content_type].eq("WikiPage").and(ct[:content_id].in(wiki_page_ids))) if wiki_page_ids.any?
+
+          discussion_ids = DiscussionTopic.where(assignment_id: affected_assignment_ids).pluck(:id)
+          conditions = conditions.or(ct[:content_type].eq("DiscussionTopic").and(ct[:content_id].in(discussion_ids))) if discussion_ids.any?
+
+          quiz_ids = Quizzes::Quiz.where(assignment_id: affected_assignment_ids).pluck(:id)
+          conditions = conditions.or(ct[:content_type].in(Quizzes::Quiz.class_names).and(ct[:content_id].in(quiz_ids))) if quiz_ids.any?
+
+          affected_context_modules = ContextModule.active.joins(:content_tags).where(conditions).distinct
+
+          if course.root_account.feature_enabled? :mastery_path_invalidate_assignment_visibility_cache
+            AssignmentVisibility::AssignmentVisibilityService.invalidate_cache(course_ids: [course.id], user_ids: [student_id])
+            QuizVisibility::QuizVisibilityService.invalidate_cache(user_ids: [student_id], course_ids: [course.id])
+          end
+
+          student = User.find(student_id)
+          affected_context_modules.each do |context_module|
+            progression = context_module.find_or_create_progression(student)
+            progression.mark_as_outdated!
+            progression.reload.evaluate
           end
         end
       end

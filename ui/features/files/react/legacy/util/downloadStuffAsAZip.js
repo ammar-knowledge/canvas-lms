@@ -16,13 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
-import {throttle} from 'lodash'
+import {throttle} from 'es-toolkit/compat'
 import Progress from '@canvas/progress/backbone/models/Progress'
 import Folder from '@canvas/files/backbone/models/Folder'
+import {assignLocation} from '@canvas/util/globalUtils'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 export default function downloadStuffAsAZip(filesAndFolders, {contextType, contextId}) {
   let promptBeforeLeaving
@@ -48,12 +49,12 @@ export default function downloadStuffAsAZip(filesAndFolders, {contextType, conte
   const throttledSRMessage = throttle(
     $.screenReaderFlashMessageExclusive,
     screenreaderMessageWaitTimeMS,
-    {leading: false}
+    {leading: false},
   )
 
   // TODO: handle progress events with nicer UI
   const $progressIndicator = $(
-    '<div style="position: fixed; top: 4px; left: 50%; margin-left: -120px; width: 240px; z-index: 11; text-align: center; box-sizing: border-box; padding: 8px;" class="alert alert-info">'
+    '<div style="position: fixed; top: 4px; left: 50%; margin-left: -120px; width: 240px; z-index: 11; text-align: center; box-sizing: border-box; padding: 8px;" class="alert alert-info">',
   )
 
   function onProgress(progessAPIResponse) {
@@ -75,12 +76,12 @@ export default function downloadStuffAsAZip(filesAndFolders, {contextType, conte
   $(window).on(
     'beforeunload',
     (promptBeforeLeaving = () =>
-      I18n.t('If you leave, the zip file download currently being prepared will be canceled.'))
+      I18n.t('If you leave, the zip file download currently being prepared will be canceled.')),
   )
 
   return $.post(url, data)
     .pipe(progressObject =>
-      new Progress({url: progressObject.progress_url}).poll().progress(onProgress)
+      new Progress({url: progressObject.progress_url}).poll().progress(onProgress),
     )
     .pipe(progressObject => {
       const contentExportId = progressObject.context_id
@@ -89,13 +90,13 @@ export default function downloadStuffAsAZip(filesAndFolders, {contextType, conte
     .pipe(response => {
       $(window).off('beforeunload', promptBeforeLeaving)
       if (response.workflow_state === 'exported') {
-        window.location = response.attachment.url
+        assignLocation(response.attachment.url)
       } else {
         $.flashError(I18n.t('An error occurred trying to prepare download, please try again.'))
       }
     })
     .fail(() =>
-      $.flashError(I18n.t('An error occurred trying to prepare download, please try again.'))
+      $.flashError(I18n.t('An error occurred trying to prepare download, please try again.')),
     )
     .always(() => {
       $(window).off('beforeunload', promptBeforeLeaving)

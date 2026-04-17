@@ -156,15 +156,73 @@ describe QuizzesNext::Importers::CourseContentImporter do
         expect(migration.workflow_state).to eq("imported")
         expect(migration.migration_settings[:imported_assets][:lti_assignment_quiz_set])
           .to eq([[assignment01.global_id, quiz01.global_id]])
-        expect(quiz01.workflow_state).to eq("deleted")
         expect(quiz01.assignment.ready_to_migrate_to_quiz_next?).to be(false)
+        expect(quiz01.reload.workflow_state).to eq("deleted")
+      end
+    end
+
+    context "with attachment association feature flags enabled" do
+      let!(:attachment) do
+        attachment = Attachment.create!(
+          context: course,
+          filename: "test.txt",
+          uploaded_data: StringIO.new("test")
+        )
+        attachment
+      end
+
+      let!(:quiz_lti_tool) do
+        tool = course.context_external_tools.create!(
+          name: "Quizzes.Next",
+          consumer_key: "test_key",
+          shared_secret: "test_secret",
+          tool_id: "Quizzes 2",
+          url: "http://example.com/launch"
+        )
+        tool
+      end
+
+      before do
+        course.root_account.enable_feature!(:allow_attachment_association_creation)
+        course.root_account.enable_feature!(:file_association_access)
+        course.root_account.enable_feature!(:quizzes_next)
+        course.enable_feature!(:quizzes_next)
+
+        assignment01.description = "<p><a href='/courses/#{course.id}/files/#{attachment.id}/download'>file 1</a></p>"
+        assignment01.save!
+      end
+
+      it "sets importing flag to prevent attachment association user validation error" do
+        expect(Importers::CourseContentImporter).to receive(:import_content)
+
+        # Spy on update_attachment_associations to verify importing flag behavior
+        call_data = []
+        allow_any_instance_of(Assignment).to receive(:update_attachment_associations).and_wrap_original do |method, **kwargs|
+          assignment = method.receiver
+          if assignment.id == assignment01.id
+            call_data << {
+              importing: assignment.importing,
+              migration: kwargs[:migration]
+            }
+          end
+          method.call(**kwargs)
+        end
+
+        # Should not raise "User is required to update attachment links" error
+        expect { importer.import_content(double) }.not_to raise_error
+
+        # Verify that importing flag was set, causing early return in update_attachment_associations
+        # This prevents the "User is required" error from being raised
+        expect(call_data.size).to be > 0, "Expected update_attachment_associations to be called"
+        importing_call = call_data.find { |d| d[:importing] == true && d[:migration].nil? }
+        expect(importing_call).not_to be_nil, "Expected importing=true to prevent user validation error"
       end
     end
   end
 
   context "migration context is not a Course" do
     let(:context) { double }
-    let(:migration) { instance_double("ContextMigration") }
+    let(:migration) { instance_double(ContentMigration) }
     let(:data) { double }
 
     before do

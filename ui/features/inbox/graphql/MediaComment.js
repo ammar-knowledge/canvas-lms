@@ -17,22 +17,22 @@
  */
 
 import {arrayOf, bool, shape, string} from 'prop-types'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {MediaSource} from './MediaSource'
 import {MediaTrack} from './MediaTrack'
 
 export const MediaComment = {
   fragment: gql`
-    fragment MediaComment on MediaObject {
+    fragment InboxMediaComment on MediaObject {
       _id
       id
       title
       canAddCaptions
       mediaSources {
-        ...MediaSource
+        ...InboxMediaSource
       }
       mediaTracks {
-        ...MediaTrack
+        ...InboxMediaTrack
       }
     }
     ${MediaSource.fragment}

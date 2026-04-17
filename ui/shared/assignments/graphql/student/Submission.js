@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {shape, string} from 'prop-types'
 import {
   SubmissionInterface,
@@ -24,16 +24,16 @@ import {
 
 export const Submission = {
   fragment: gql`
-    fragment Submission on Submission {
+    fragment StudentAssignmentSubmission on Submission {
       ...SubmissionInterface
       _id
       id
+      autoGradeResultPresent
     }
     ${SubmissionInterface.fragment}
   `,
 
   shape: shape({
-    // eslint-disable-next-line react/forbid-foreign-prop-types
     ...SubmissionInterface.shape.propTypes,
     _id: string.isRequired,
     id: string.isRequired,
@@ -95,6 +95,12 @@ export const SubmissionMocks = {
     gradingStatus: 'needs_grading',
     state: 'submitted',
     submissionStatus: 'submitted',
+    submittedAt: new Date().toISOString(),
+  },
+
+  pendingReview: {
+    attempt: 1,
+    state: 'pending_review',
     submittedAt: new Date().toISOString(),
   },
 

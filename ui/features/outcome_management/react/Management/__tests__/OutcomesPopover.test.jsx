@@ -20,7 +20,7 @@ import React from 'react'
 import {render, fireEvent, act} from '@testing-library/react'
 import OutcomesPopover from '../OutcomesPopover'
 
-jest.useFakeTimers()
+vi.useFakeTimers()
 
 describe('OutcomesPopover', () => {
   let onClearHandlerMock
@@ -35,7 +35,7 @@ describe('OutcomesPopover', () => {
           canUnlink: false,
         },
       }),
-      {}
+      {},
     )
 
   const defaultProps = (numberToGenerate = 2) => ({
@@ -46,12 +46,12 @@ describe('OutcomesPopover', () => {
 
   beforeAll(() => {
     window.ENV.LOCALE = 'en'
-    onClearHandlerMock = jest.fn()
+    onClearHandlerMock = vi.fn()
   })
 
   afterEach(() => {
     window.ENV = {}
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   it('renders the OutcomesPopover component', () => {
@@ -65,7 +65,7 @@ describe('OutcomesPopover', () => {
     expect(getByText('0 Outcomes Selected')).toBeInTheDocument()
     expect(getByText('0 Outcomes Selected').closest('button')).toHaveAttribute(
       'aria-disabled',
-      'true'
+      'true',
     )
   })
 
@@ -97,11 +97,11 @@ describe('OutcomesPopover', () => {
       outcomeCount: 4,
     }
     const {findAllByText, getByRole} = render(
-      <OutcomesPopover {...props} onClearHandler={onClearHandlerMock} />
+      <OutcomesPopover {...props} onClearHandler={onClearHandlerMock} />,
     )
     const button = getByRole('button')
     fireEvent.click(button)
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     const outcomes = await findAllByText(/Outcome /)
     expect(outcomes[0]).toContainHTML('Outcome 1')
     expect(outcomes[1]).toContainHTML('Outcome 2')

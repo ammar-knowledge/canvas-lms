@@ -41,7 +41,7 @@ describe "courses" do
 
       def validate_action_button(validation_text)
         f("#course_publish_button button").click
-        action_button = f("ul[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])")
+        action_button = f("div[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])")
         expect(action_button.text).to eq validation_text
         # Close menu
         f("#course_publish_button button").click
@@ -57,7 +57,7 @@ describe "courses" do
         validate_action_button("Publish")
         expect_new_page_load do
           f("#course_publish_button button").click
-          f("ul[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
+          f("div[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
         end
         validate_action_button("Unpublish")
 
@@ -82,7 +82,7 @@ describe "courses" do
         validate_action_button("Unpublish")
         expect_new_page_load do
           f("#course_publish_button button").click
-          f("ul[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
+          f("div[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
         end
         validate_action_button("Publish")
       end
@@ -95,7 +95,7 @@ describe "courses" do
         validate_action_button("Publish")
         expect_new_page_load do
           f("#course_publish_button button").click
-          f("ul[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
+          f("div[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
         end
         @course.reload
         expect(@course).to be_available
@@ -109,26 +109,7 @@ describe "courses" do
         expect(f("#content")).not_to contain_css("#course_publish_button")
       end
 
-      it "allows publishing/unpublishing with only change_course_state permission" do
-        @course.root_account.disable_feature!(:granular_permissions_manage_courses)
-        @course.account.role_overrides.create!(permission: :manage_course_content, role: teacher_role, enabled: false)
-        @course.account.role_overrides.create!(permission: :manage_courses, role: teacher_role, enabled: false)
-
-        get "/courses/#{@course.id}"
-        expect_new_page_load do
-          f("#course_publish_button button").click
-          f("ul[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
-        end
-        validate_action_button("Publish")
-        expect_new_page_load do
-          f("#course_publish_button button").click
-          f("ul[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
-        end
-        validate_action_button("Unpublish")
-      end
-
-      it "allows publishing/unpublishing with only manage_courses_publish permission (granular permissions)" do
-        @course.root_account.enable_feature!(:granular_permissions_manage_courses)
+      it "allows publishing/unpublishing with only manage_courses_publish permission" do
         @course.account.role_overrides.create!(
           permission: :manage_course_content,
           role: teacher_role,
@@ -143,26 +124,17 @@ describe "courses" do
         get "/courses/#{@course.id}"
         expect_new_page_load do
           f("#course_publish_button button").click
-          f("ul[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
+          f("div[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
         end
         validate_action_button("Publish")
         expect_new_page_load do
           f("#course_publish_button button").click
-          f("ul[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
+          f("div[role='menu'][aria-label='course_publish_menu'] button:not([aria-disabled])").click
         end
         validate_action_button("Unpublish")
       end
 
-      it "does not allow publishing/unpublishing without change_course_state permission" do
-        @course.root_account.disable_feature!(:granular_permissions_manage_courses)
-        @course.account.role_overrides.create!(permission: :change_course_state, role: teacher_role, enabled: false)
-
-        get "/courses/#{@course.id}"
-        expect(f("#content")).not_to contain_css("#course_publish_button")
-      end
-
-      it "does not allow publishing/unpublishing without manage_courses_publish permission (granular permissions)" do
-        @course.root_account.disable_feature!(:granular_permissions_manage_courses)
+      it "does not allow publishing/unpublishing without manage_courses_publish permission" do
         @course.account.role_overrides.create!(
           permission: :manage_courses_publish,
           role: teacher_role,
@@ -179,7 +151,6 @@ describe "courses" do
 
       # first try setting the quota explicitly
       get "/courses/#{@course.id}/settings"
-      f("#ui-id-1").click
       form = f("#course_form")
       expect(form).to be_displayed
       quota_input = form.find_element(:css, "input#course_storage_quota_mb")
@@ -239,7 +210,9 @@ describe "courses" do
       # Test that only users in the approved section are displayed.
       get "/courses/#{@course.id}/users"
       wait_for_ajaximations
-      expect(ff(".roster .rosterUser").length).to eq 2
+      wait_for(method: nil, timeout: 5) do
+        expect(ff(".roster .rosterUser").length).to eq 2
+      end
     end
 
     it "displays users section name" do
@@ -342,35 +315,6 @@ describe "courses" do
       expect(content).to include_text("group1")
     end
 
-    it "resets cached permissions when enrollment is activated by date" do
-      skip "Fails with logic around observed_users enabled in CoursesController#show"
-      enable_cache do
-        enroll_student(@student, true)
-
-        @course.start_at = 1.day.from_now
-        @course.restrict_enrollments_to_course_dates = true
-        @course.restrict_student_future_view = true
-        @course.save!
-
-        user_session(@student)
-
-        User.where(id: @student).update_all(updated_at: 5.minutes.ago) # make sure that touching the user resets the cache
-
-        get "/courses/#{@course.id}"
-
-        # cache unauthorized permission
-        expect(f("#unauthorized_message")).to be_displayed
-
-        # manually trigger a stale enrollment - should recalculate on visit if it didn't already in the background
-        Course.where(id: @course).update_all(start_at: 1.day.ago)
-        Enrollment.where(id: @student.student_enrollments).update_all(updated_at: 1.minute.from_now) # because of enrollment date caching
-        EnrollmentState.where(enrollment_id: @student.student_enrollments).update_all(state_is_current: false)
-
-        refresh_page
-        expect(f("#course_home_content")).to be_displayed
-      end
-    end
-
     it "does not display global nav on k5 subject with embed mode enabled" do
       toggle_k5_setting(@course.account)
       enroll_student(@student, true)
@@ -425,7 +369,7 @@ describe "courses" do
 
       expect(f("#announcements_on_home_page")).to be_displayed
       expect(f("#announcements_on_home_page")).to include_text(@text)
-      expect(f("#announcements_on_home_page")).to_not include_text(@html)
+      expect(f("#announcements_on_home_page")).not_to include_text(@html)
     end
 
     ["wiki", "syllabus"].each do |view|

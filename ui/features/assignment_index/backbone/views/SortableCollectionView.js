@@ -17,7 +17,7 @@
  */
 
 import {extend} from '@canvas/backbone/utils'
-import {extend as lodashExtend} from 'lodash'
+import {extend as lodashExtend} from 'es-toolkit/compat'
 import $ from 'jquery'
 import CollectionView from '@canvas/backbone-collection-view'
 import 'jqueryui/sortable'
@@ -60,7 +60,7 @@ SortableCollectionView.prototype._initSort = function (opts) {
   this.$list.sortable(
     lodashExtend({}, this.sortOptions, opts, {
       scope: this.cid,
-    })
+    }),
   )
   this.$list.on('sortupdate', this._updateSort)
   return this.$list.disableSelection()

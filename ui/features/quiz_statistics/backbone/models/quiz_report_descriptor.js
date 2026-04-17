@@ -17,9 +17,9 @@
  */
 
 import * as DateTimeHelpers from '@canvas/quiz-legacy-client-apps/util/date_time_helpers'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('quiz_reports')
+const I18n = createI18nScope('quiz_reports')
 
 const STUDENT_ANALYSIS = 'student_analysis'
 const ITEM_ANALYSIS = 'item_analysis'
@@ -68,9 +68,13 @@ export default {
     if (!report.generatable) {
       return I18n.t(
         'non_generatable_report_notice',
-        'Report can not be generated for Survey Quizzes.'
+        'Report can not be generated for Survey Quizzes.',
       )
     } else if (report.isGenerated) {
+      // Guard against missing file data during race conditions
+      if (!report.file || !report.file.createdAt) {
+        return I18n.t('generatable', 'Report has never been generated.')
+      }
       return I18n.t('generated_at', 'Generated: %{date}', {
         date: friendlyDatetime(fudgeDateForProfileTimezone(report.file.createdAt)),
       })

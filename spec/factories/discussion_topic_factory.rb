@@ -48,7 +48,7 @@ module Factories
   def topic_with_nested_replies
     course_with_teacher(active_all: true)
     student_in_course(course: @course, active_all: true)
-    @topic = @course.discussion_topics.create!(title: "title", message: "message", user: @teacher, discussion_type: "threaded")
+    @topic = @course.discussion_topics.create!(title: "title", message: "message", user: @teacher, saving_user: @teacher, discussion_type: "threaded")
     @root1 = @topic.reply_from(user: @student, html: "root1")
     @root2 = @topic.reply_from(user: @student, html: "root2")
     @reply1 = @root1.reply_from(user: @teacher, html: "reply1")
@@ -133,5 +133,38 @@ module Factories
     @topic.assignment = @assignment
     @topic.save
     @topic
+  end
+
+  def graded_discussion_topic_with_checkpoints(opts = {})
+    @context = opts[:context] || @context || course_factory(active_all: true)
+    topic_opts = {}
+    topic_opts.merge!(opts)
+    topic_opts[:title] = opts[:title] || "graded discussion with checkpoints"
+    # options below are not valid for the discussion_topic_model
+    topic_opts.reject! { |k| %i[due_date_reply_to_topic due_date_reply_to_entry points_possible_reply_to_topic points_possible_reply_to_entry].include?(k) }
+    @topic = discussion_topic_model(topic_opts)
+    @assignment = @topic.context.assignments.build(submission_types: "discussion_topic", title: @topic.title)
+    @assignment.infer_times
+    @assignment.saved_by = :discussion_topic
+    @topic.assignment = @assignment
+    @topic.save
+    due_date_reply_to_topic = [{ type: "everyone", due_at: opts[:due_date_reply_to_topic] || 1.day.from_now }]
+    due_date_reply_to_entry = [{ type: "everyone", due_at: opts[:due_date_reply_to_entry] || 3.days.from_now }]
+    reply_to_topic = Checkpoints::DiscussionCheckpointCreatorService.call(
+      discussion_topic: @topic,
+      checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+      dates: due_date_reply_to_topic,
+      points_possible: opts[:points_possible_reply_to_topic] || 5,
+      updating_user: opts[:updating_user]
+    )
+    reply_to_entry = Checkpoints::DiscussionCheckpointCreatorService.call(
+      discussion_topic: @topic,
+      checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+      dates: due_date_reply_to_entry,
+      points_possible: opts[:points_possible_reply_to_entry] || 5,
+      replies_required: opts[:reply_to_entry_required_count] || 3,
+      updating_user: opts[:updating_user]
+    )
+    [reply_to_topic, reply_to_entry, @topic]
   end
 end

@@ -19,9 +19,25 @@
 
 class SectionTabPresenter
   include Rails.application.routes.url_helpers
+  include NavMenuLinkTabs::HrefHelper
 
+  TabDefinition = Struct.new(:id,
+                             :css_class,
+                             :label,
+                             :target,
+                             :hidden,
+                             :hidden_unused,
+                             :args,
+                             :href,
+                             :no_args,
+                             :icon,
+                             :account_id,
+                             :visibility,
+                             :external,
+                             :position,
+                             :link_context_type)
   def initialize(tab, context)
-    @tab = OpenStruct.new(tab)
+    @tab = TabDefinition.new(**tab)
     @context = context
   end
   attr_reader :tab, :context
@@ -41,7 +57,7 @@ class SectionTabPresenter
   end
 
   def target?
-    !!(tab.respond_to?(:target) && tab.target)
+    !!tab.target
   end
 
   def path
@@ -61,5 +77,13 @@ class SectionTabPresenter
       path:,
       label: tab.label
     }
+  end
+
+  def nav_menu_link?
+    NavMenuLinkTabs.nav_menu_link_tab_id?(tab.id)
+  end
+
+  def external?
+    !!tab.external
   end
 end

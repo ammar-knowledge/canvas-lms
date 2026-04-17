@@ -21,18 +21,18 @@ module TestDatabaseUtils
   class << self
     def check_migrations!
       if ENV["SKIP_MIGRATION_CHECK"] != "1"
-        migrations = ActiveRecord::Base.connection.migration_context.migrations
+        migrations = ActiveRecord::Base.migration_context.migrations
         skipped_migrations = ActiveRecord::Migrator.new(
           :up,
           migrations,
-          ActiveRecord::Base.connection.schema_migration,
-          ActiveRecord::InternalMetadata.new(ActiveRecord::Base.connection)
+          ActiveRecord::Base.schema_migration,
+          ActiveRecord::Base.internal_metadata
         ).skipped_migrations
 
         # total migration - all run migrations - all skipped migrations
         needs_migration =
           migrations.map(&:version) -
-          ActiveRecord::Base.connection.migration_context.get_all_versions -
+          ActiveRecord::Base.migration_context.get_all_versions -
           skipped_migrations.map(&:version)
 
         unless needs_migration.empty?
@@ -49,16 +49,21 @@ module TestDatabaseUtils
     end
 
     def reset_database!
-      return unless truncate_all_tables? || randomize_sequences?
+      non_empty_tables = ActiveRecord::Base.connection.non_empty_tables
+      return unless !non_empty_tables.empty? || randomize_sequences?
 
-      start = Time.now
+      start = Time.zone.now
 
       # this won't create/migrate them, but it will let us with_each_shard any
       # persistent ones that already exist
       require "switchman/test_helper"
       ::Switchman::TestHelper.recreate_persistent_test_shards(dont_create: ENV["CREATE_SHARDS"] != "1")
 
-      truncate_all_tables! if truncate_all_tables?
+      unless non_empty_tables.empty?
+        puts ActiveRecord::Base.connection.non_empty_tables_message(non_empty_tables) unless ENV["SUPPRESS_OUTPUT"] == "1" # rubocop:disable RSpec/Output
+
+        truncate_all_tables!
+      end
       randomize_sequences! if randomize_sequences?
 
       # now delete any shard objects we created
@@ -66,7 +71,7 @@ module TestDatabaseUtils
       Shard.default(reload: true)
 
       # RSpecQ fails when using json formatter due to this output. Don't output when running on RSpecQ
-      puts "finished resetting test db in #{Time.now - start} seconds" unless ENV["SUPPRESS_OUTPUT"] == "1"
+      puts "finished resetting test db in #{Time.zone.now - start} seconds" unless ENV["SUPPRESS_OUTPUT"] == "1" # rubocop:disable RSpec/Output
     end
 
     # Like ActiveRecord::Base.connection.reset_pk_sequence! but handles the
@@ -113,14 +118,8 @@ module TestDatabaseUtils
       table_names
     end
 
-    def truncate_all_tables?
-      # Only account should be the dummy account with id=0
-      Account.where.not(id: 0).any? || Account.where(id: 0).none?
-    end
-
     def truncate_all_tables!
       # RSpecQ fails when using json formatter due to this output. Don't output when running on RSpecQ
-      puts "truncating all tables..." unless ENV["SUPPRESS_OUTPUT"] == "1"
       each_connection do |connection|
         table_names = get_table_names(connection)
         next if table_names.empty?
@@ -147,7 +146,7 @@ module TestDatabaseUtils
 
     def randomize_sequences!
       # RSpecQ fails when using json formatter due to this output. Don't output when running on RSpecQ
-      puts "randomizing db sequences..." unless ENV["SUPPRESS_OUTPUT"] == "1"
+      puts "randomizing db sequences..." unless ENV["SUPPRESS_OUTPUT"] == "1" # rubocop:disable RSpec/Output
       seed = ::RSpec.configuration.seed
       i = 0
       each_connection do |connection|

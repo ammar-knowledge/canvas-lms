@@ -18,8 +18,8 @@
 
 import $ from 'jquery'
 import fcUtil from '@canvas/calendar/jquery/fcUtil'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import _, {some} from 'lodash'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {some} from 'es-toolkit/compat'
 import htmlEscape from '@instructure/html-escape'
 import commonEventFactory from '@canvas/calendar/jquery/CommonEvent/index'
 import TimeBlockList from './TimeBlockList'
@@ -34,7 +34,7 @@ import '@canvas/jquery/jquery.instructure_forms'
 import {CommonEventShowError} from '@canvas/calendar/jquery/CommonEvent/CommonEvent'
 import {unfudgeDateForProfileTimezone} from '@instructure/moment-utils'
 
-const I18n = useI18nScope('EditAppointmentGroupDetails')
+const I18n = createI18nScope('EditAppointmentGroupDetails')
 
 export default class EditAppointmentGroupDetails {
   constructor(selector, apptGroup, contexts, closeCB, event, useScheduler) {
@@ -61,6 +61,7 @@ export default class EditAppointmentGroupDetails {
           pattern="[0-9]"
           name="duration"
           value="30"
+          min="1"
           style="width: 40px"
           aria-label="${htmlEscape(I18n.t('Minutes per slot'))}"
         />`,
@@ -81,10 +82,10 @@ export default class EditAppointmentGroupDetails {
           min="1"
           style="width: 40px"
           aria-label="${htmlEscape(
-            I18n.t('Maximum number of appointments a participant can attend')
+            I18n.t('Maximum number of appointments a participant can attend'),
           )}"
         />`,
-      })
+      }),
     )
 
     this.contextsHash = {}
@@ -93,14 +94,14 @@ export default class EditAppointmentGroupDetails {
     this.form = $(selector).find('form')
     // disallow courses in foreign shards
     const editableContexts = this.contexts.filter(
-      c => !c.concluded && (c.id || '').toString().length < 14
+      c => !c.concluded && (c.id || '').toString().length < 14,
     )
     this.contextSelector = new ContextSelector(
       '.ag-menu-container',
       this.apptGroup,
       editableContexts,
       this.contextsChanged,
-      this.toggleContextsMenu
+      this.toggleContextsMenu,
     )
 
     if (this.editing()) {
@@ -136,13 +137,16 @@ export default class EditAppointmentGroupDetails {
       this.form.find('.time-block-list-body'),
       this.form.find('.splitter'),
       timeBlocks,
-      {date: this.event && this.event.date}
+      {date: this.event && this.event.date},
     )
 
     this.form.find('[name="slot_duration"]').change(e => {
       if (this.form.find('[name="autosplit_option"]').is(':checked')) {
-        this.timeBlockList.split(e.target.value)
-        return this.timeBlockList.render()
+        const value = parseFloat(e.target.value)
+        if (value > 0) {
+          this.timeBlockList.split(value)
+          return this.timeBlockList.render()
+        }
       }
     })
 
@@ -214,7 +218,7 @@ export default class EditAppointmentGroupDetails {
     const slotLimit = parseInt(input.val(), 10)
     return this.helpIconShowIf(
       checkbox,
-      some(this.apptGroup.appointments, a => a.child_events_count > slotLimit)
+      some(this.apptGroup.appointments, a => a.child_events_count > slotLimit),
     )
   }
 
@@ -231,7 +235,7 @@ export default class EditAppointmentGroupDetails {
       })
     return this.helpIconShowIf(
       checkbox,
-      some(apptCounts, (count, _userId) => count > apptLimit)
+      some(apptCounts, (count, _userId) => count > apptLimit),
     )
   }
 
@@ -290,7 +294,7 @@ export default class EditAppointmentGroupDetails {
     if (data.max_appointments_per_participant_option === '1') {
       if (data.max_appointments_per_participant < 1) {
         $('[name="max_appointments_per_participant"]').errorBox(
-          I18n.t('bad_max_appts', 'You must allow at least one appointment per participant')
+          I18n.t('bad_max_appts', 'You must allow at least one appointment per participant'),
         )
         return false
       } else {
@@ -315,7 +319,7 @@ export default class EditAppointmentGroupDetails {
     if (data.per_slot_option === '1') {
       if (data.participants_per_appointment < 1) {
         $('[name="participants_per_appointment"]').errorBox(
-          I18n.t('bad_per_slot', 'You must allow at least one appointment per time slot')
+          I18n.t('bad_per_slot', 'You must allow at least one appointment per time slot'),
         )
         return false
       } else {
@@ -344,7 +348,7 @@ export default class EditAppointmentGroupDetails {
     const contextCodes = this.contextSelector.selectedContexts()
     if (contextCodes.length === 0) {
       $('.ag_contexts_selector').errorBox(
-        I18n.t('context_required', 'You need to select a calendar')
+        I18n.t('context_required', 'You need to select a calendar'),
       )
       return
     } else {
@@ -400,11 +404,9 @@ export default class EditAppointmentGroupDetails {
       }
       if (sectionCodes.length > 0) {
         const sectionCode = sectionCodes[0]
-        const section = _.chain(this.contexts)
-          .pluck('course_sections')
-          .flatten()
+        const section = this.contexts
+          .flatMap(c => c.course_sections)
           .find(s => s.asset_string === sectionCode)
-          .value()
         text = section.name
         if (sectionCodes.length > 1) {
           text += ` ${I18n.t('and_n_sectionCodes', 'and %{n} others', {
@@ -443,6 +445,15 @@ export default class EditAppointmentGroupDetails {
       contextCodes.every(c => this.contextsHash[c].allow_observers_in_appointment_groups)
     this.allowObserverOption = showObserverSignupCheckbox
     this.form.find('#observer-signup-option').toggle(showObserverSignupCheckbox)
+
+    if (showObserverSignupCheckbox && this.creating()) {
+      const shouldDefaultChecked = contextCodes.some(
+        c => this.contextsHash[c].default_allow_observer_signup,
+      )
+      this.form
+        .find('#observer-signup-option input[type="checkbox"]')
+        .prop('checked', shouldDefaultChecked)
+    }
   }
 
   disableGroups() {

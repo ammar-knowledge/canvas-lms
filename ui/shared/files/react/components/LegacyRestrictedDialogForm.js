@@ -18,14 +18,14 @@
 
 import $ from 'jquery'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import Folder from '../../backbone/models/Folder'
 import customPropTypes from '../modules/customPropTypes'
 import setUsageRights from '../../util/setUsageRights'
 import updateModelsUsageRights from '../../util/updateModelsUsageRights'
 import '@canvas/jquery/jquery.instructure_forms'
 
-const I18n = useI18nScope('restrict_student_access')
+const I18n = createI18nScope('restrict_student_access')
 
 export default {
   displayName: 'RestrictedDialogForm',
@@ -34,6 +34,7 @@ export default {
     closeDialog: PropTypes.func.isRequired,
     models: PropTypes.arrayOf(customPropTypes.filesystemObject).isRequired,
     usageRightsRequiredForContext: PropTypes.bool.isRequired,
+    onPublishChange: PropTypes.func,
   },
 
   getInitialState() {
@@ -70,7 +71,7 @@ export default {
       // They didn't choose a use justification
       if (values.use_justification === 'choose') {
         $(this.usageSelection.usageRightSelection).errorBox(
-          I18n.t('You must specify a usage right.')
+          I18n.t('You must specify a usage right.'),
         )
         return false
       }
@@ -100,7 +101,7 @@ export default {
     const attributes = this.restrictedSelection.extractFormValues()
     if (attributes.unlock_at && attributes.lock_at && attributes.unlock_at > attributes.lock_at) {
       $(this.restrictedSelection.unlock_at).errorBox(
-        I18n.t('"Available From" date must precede "Available Until"')
+        I18n.t('"Available From" date must precede "Available Until"'),
       )
       return false
     }
@@ -112,11 +113,16 @@ export default {
       // We do this so if some other user changes the name while we are looking at the page,
       // when we submit this form, we don't blow away their change and change the name back
       // to what it was. we just update the things we intended.
-      item.save({}, {attrs: attributes})
+      item.save({}, {attrs: attributes}),
     )
 
     const dfd = $.when(...Array.from(promises || []))
-    dfd.done(() => this.props.closeDialog())
+    dfd.done(() => {
+      if (this.props.onPublishChange) {
+        this.props.onPublishChange()
+      }
+      this.props.closeDialog()
+    })
     $(this.dialogForm).disableWhileLoading(dfd)
   },
 

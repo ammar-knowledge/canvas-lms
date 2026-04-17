@@ -16,8 +16,8 @@
 
 import React from 'react'
 import formatMessage from '../format-message'
-import _ from 'lodash'
-import minimatch from 'minimatch'
+import {cloneDeep, memoize} from 'es-toolkit/compat'
+import {minimatch} from 'minimatch'
 import {TreeBrowser} from '@instructure/ui-tree-browser'
 import {Text} from '@instructure/ui-text'
 import {Spinner} from '@instructure/ui-spinner'
@@ -139,7 +139,8 @@ class FileBrowser extends React.Component {
 
   // Memoized function to fetch all subfolders
   // of the given folder ID, handing pagination
-  fetchSubFolders = _.memoize(id => {
+  /** @type {(id: number) => void} */
+  fetchSubFolders = memoize(id => {
     this.source.fetchBookmarkedData(
       this.source.fetchSubFolders.bind(this.source),
       {
@@ -151,10 +152,9 @@ class FileBrowser extends React.Component {
       },
       error => {
         this.props.onLoading(false)
-        /* eslint-disable no-console */
         console.error('Error fetching data from API')
         console.error(error)
-      }
+      },
     )
   })
 
@@ -172,7 +172,7 @@ class FileBrowser extends React.Component {
       error => {
         this.props.onLoading(false)
         console.error(error)
-      }
+      },
     )
   }
 
@@ -190,14 +190,14 @@ class FileBrowser extends React.Component {
         () => {
           this.fetchSubFolders(id)
           this.fetchFiles(id)
-        }
+        },
       )
     }
   }
 
   populateCollectionsList = (folderList, opts = {}) => {
     this.setState((state, props) => {
-      const newCollections = _.cloneDeep(state.collections)
+      const newCollections = cloneDeep(state.collections)
       folderList.forEach(folder => {
         const collection = this.formatFolderInfo(folder, {
           ...opts,
@@ -210,7 +210,7 @@ class FileBrowser extends React.Component {
           collectionCollections.push(collection.id)
           newCollections[parentId].collections = this.orderedIdsFromList(
             newCollections,
-            collectionCollections
+            collectionCollections,
           )
         }
       })
@@ -229,8 +229,8 @@ class FileBrowser extends React.Component {
 
   populateItemsList = fileList => {
     this.setState((state, _props) => {
-      const newItems = _.cloneDeep(state.items)
-      const newCollections = _.cloneDeep(state.collections)
+      const newItems = cloneDeep(state.items)
+      const newCollections = cloneDeep(state.collections)
       fileList.forEach(file => {
         if (this.contentTypeIsAllowed(file.type)) {
           const item = this.formatFileInfo(file)
@@ -267,7 +267,7 @@ class FileBrowser extends React.Component {
       existingCollections && {
         collections: existingCollections.collections,
         items: existingCollections.items,
-      }
+      },
     )
     return folder
   }
@@ -341,7 +341,7 @@ class FileBrowser extends React.Component {
         } else if (!collection.locked) {
           newFolders = newFolders.concat(openFolders)
           newFolders.push(folderId)
-          newCollections = _.cloneDeep(state.collections)
+          newCollections = cloneDeep(state.collections)
           newCollections[folderId] = collection
         }
         return {openFolders: newFolders, uploadFolder: folderId, collections: newCollections}
@@ -353,7 +353,7 @@ class FileBrowser extends React.Component {
             this.getFolderData(folderId)
           }
         }
-      }
+      },
     )
   }
 

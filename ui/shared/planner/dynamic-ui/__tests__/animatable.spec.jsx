@@ -21,7 +21,6 @@ import {render} from '@testing-library/react'
 import {animatable} from '../animatable'
 import {DynamicUiProvider} from '../provider'
 
-// eslint-disable-next-line react/prefer-stateless-function
 class MockComponent extends React.Component {
   render() {
     return <div data-testid="mock-component" />
@@ -33,23 +32,26 @@ MockComponent.displayName = 'MockComponent'
 it('passes trigger property functions and forwards the calls to the dynamic ui manager', () => {
   const Wrapped = animatable(MockComponent)
   const mockManager = {
-    handleAction: jest.fn(),
-    registerAnimatable: jest.fn(),
-    deregisterAnimatable: jest.fn(),
-    preTriggerUpdates: jest.fn(),
-    triggerUpdates: jest.fn(),
+    handleAction: vi.fn(),
+    registerAnimatable: vi.fn(),
+    deregisterAnimatable: vi.fn(),
+    preTriggerUpdates: vi.fn(),
+    triggerUpdates: vi.fn(),
   }
 
   const ref = React.createRef()
+
   const wrapper = render(
     <DynamicUiProvider manager={mockManager}>
-      <Wrapped ref={ref} />
-    </DynamicUiProvider>
+      <Wrapped innerRef={ref} />
+    </DynamicUiProvider>,
   )
-  expect(wrapper.getByTestId('mock-component')).toMatchSnapshot()
 
-  ref.current.registerAnimatable('type', 'component', 42, ['item'])
+  expect(wrapper.getByTestId('mock-component')).toBeInTheDocument()
+
+  const mockComponentProps = ref.current.props
+  mockComponentProps.registerAnimatable('type', 'component', 42, ['item'])
   expect(mockManager.registerAnimatable).toHaveBeenCalledWith('type', 'component', 42, ['item'])
-  ref.current.deregisterAnimatable('type', 'component', ['item'])
+  mockComponentProps.deregisterAnimatable('type', 'component', ['item'])
   expect(mockManager.deregisterAnimatable).toHaveBeenCalledWith('type', 'component', ['item'])
 })

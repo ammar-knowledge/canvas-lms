@@ -15,12 +15,12 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {shape, string} from 'prop-types'
 
 export const MediaSource = {
   fragment: gql`
-    fragment MediaSource on MediaSource {
+    fragment InboxMediaSource on MediaSource {
       type: contentType
       src: url
       height

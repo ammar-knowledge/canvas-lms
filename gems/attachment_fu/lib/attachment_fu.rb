@@ -108,7 +108,7 @@ module AttachmentFu # :nodoc:
       end
 
       extend ClassMethods unless (class << self; included_modules; end).include?(ClassMethods)
-      include InstanceMethods unless included_modules.include?(InstanceMethods)
+      include InstanceMethods unless include?(InstanceMethods)
 
       parent_options = attachment_options || {}
       # doing these shenanigans so that #attachment_options is available to processors and backends
@@ -130,7 +130,7 @@ module AttachmentFu # :nodoc:
       end
 
       storage_mod = AttachmentFu::Backends.const_get(:"#{options[:storage].to_s.classify}Backend")
-      include storage_mod unless included_modules.include?(storage_mod)
+      include storage_mod unless include?(storage_mod)
 
       unless parent_options[:processor]
         case attachment_options[:processor]
@@ -140,7 +140,7 @@ module AttachmentFu # :nodoc:
             if processors.any?
               attachment_options[:processor] = "#{processors.first}Processor"
               processor_mod = AttachmentFu::Processors.const_get(attachment_options[:processor])
-              prepend processor_mod unless included_modules.include?(processor_mod)
+              prepend processor_mod unless include?(processor_mod)
             end
           rescue Object
             raise unless load_related_exception?($!)
@@ -151,11 +151,11 @@ module AttachmentFu # :nodoc:
         else
           begin
             processor_mod = AttachmentFu::Processors.const_get(:"#{attachment_options[:processor].to_s.classify}Processor")
-            include processor_mod unless included_modules.include?(processor_mod)
+            include processor_mod unless include?(processor_mod)
           rescue Object
             raise unless load_related_exception?($!)
 
-            puts "Problems loading #{options[:processor]}Processor: #{$!}"
+            warn "Problems loading #{options[:processor]}Processor: #{$!}"
           end
         end
       end # Don't let child override processor
@@ -240,9 +240,7 @@ module AttachmentFu # :nodoc:
     end
 
     # Returns the class used to create new thumbnails for this attachment.
-    def thumbnail_class
-      self.class.thumbnail_class
-    end
+    delegate :thumbnail_class, to: :class
 
     # Gets the thumbnail name for a filename.  'foo.jpg' becomes 'foo_thumbnail.jpg'
     def thumbnail_name_for(thumbnail = nil)
@@ -299,12 +297,12 @@ module AttachmentFu # :nodoc:
 
     # Sets the content type.
     def content_type=(new_type)
-      write_attribute :content_type, new_type.to_s.strip
+      super(new_type.to_s.strip)
     end
 
     # Sanitizes a filename.
     def filename=(new_name)
-      write_attribute :filename, sanitize_filename(new_name)
+      super(sanitize_filename(new_name))
     end
 
     # Returns the width/height in a suitable format for the image_tag helper: (100x100)
@@ -397,7 +395,7 @@ module AttachmentFu # :nodoc:
         if (existing_attachment = find_existing_attachment_for_md5)
           self.temp_path = nil if respond_to?(:temp_path=)
           self.temp_data = nil if respond_to?(:temp_data=)
-          write_attribute(:filename, nil) if respond_to?(:filename=)
+          self.filename = nil if respond_to?(:filename=)
           self.root_attachment = existing_attachment
         end
         file_data
@@ -414,6 +412,8 @@ module AttachmentFu # :nodoc:
     end
 
     def find_existing_attachment_for_md5
+      return nil if avoid_linking_to_root_attachment
+
       shard.activate do
         GuardRail.activate(:secondary) do
           if md5.present? && (ns = infer_namespace)

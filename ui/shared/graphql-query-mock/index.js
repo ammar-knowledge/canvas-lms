@@ -19,8 +19,8 @@ import {addMocksToSchema} from '@graphql-tools/mock'
 import {makeExecutableSchema} from '@graphql-tools/schema'
 import {addTypenameToDocument} from 'apollo-utilities'
 import {graphql} from 'graphql'
-import gql from 'graphql-tag'
-import {mergeWith} from 'lodash'
+import {gql} from '@apollo/client'
+import {mergeWith} from 'es-toolkit/compat'
 import {print} from 'graphql/language/printer'
 
 // If file is not present locally, run `bundle exec rails graphql:schema`. This
@@ -107,7 +107,7 @@ function nodeInterfaceProperlyMocked(queryAST, mocks) {
   // flatMap
   const selections = queryAST.definitions.reduce(
     (acc, d) => acc.concat(d.selectionSet.selections),
-    []
+    [],
   )
   const selectionNames = new Set(selections.map(s => s.name.value))
   if (selectionNames.has('node') || selectionNames.has('legacyNode')) {
@@ -121,7 +121,7 @@ export default async function mockGraphqlQuery(
   query,
   overrides = [],
   variables = {},
-  resolvers = undefined
+  resolvers = undefined,
 ) {
   const queryAST = typeof query === 'string' ? gql(query) : query
   const mocks = await createMocks(overrides)

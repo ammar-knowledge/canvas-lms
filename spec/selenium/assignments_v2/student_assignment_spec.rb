@@ -24,6 +24,7 @@ require_relative "../rcs/pages/rce_next_page"
 describe "as a student" do
   specs_require_sharding
   include RCENextPage
+
   include_context "in-process server selenium tests"
 
   context "on assignments 2 page" do
@@ -299,7 +300,7 @@ describe "as a student" do
       end
 
       it "shows assignment title" do
-        expect(StudentAssignmentPageV2.assignment_title(@assignment.title)).to_not be_nil
+        expect(StudentAssignmentPageV2.assignment_title(@assignment.title)).not_to be_nil
       end
 
       it "shows details toggle" do
@@ -315,11 +316,11 @@ describe "as a student" do
       end
 
       it "shows assignment due date" do
-        expect(StudentAssignmentPageV2.due_date_css(@assignment.due_at)).to_not be_nil
+        expect(StudentAssignmentPageV2.due_date_css(@assignment.due_at)).not_to be_nil
       end
 
       it "shows how many points possible the assignment is worth" do
-        expect(StudentAssignmentPageV2.points_possible_css(@assignment.points_possible)).to_not be_nil
+        expect(StudentAssignmentPageV2.points_possible_css(@assignment.points_possible)).not_to be_nil
       end
     end
 
@@ -393,6 +394,96 @@ describe "as a student" do
         StudentAssignmentPageV2.cancel_attempt_button.click
 
         expect(StudentAssignmentPageV2.submission_workflow_tracker).to include_text("Review Feedback")
+      end
+    end
+
+    context "allowed attempts" do
+      before(:once) do
+        @assignment = @course.assignments.create!(
+          name: "Test Assignment",
+          submission_types: "online_text_entry",
+          allowed_attempts: 2,
+          points_possible: 10
+        )
+      end
+
+      context "with allowed_attempts on the assignment" do
+        it "prevents submitting if the student has exceeded the max number of attempts" do
+          @assignment.submit_homework(@student, body: "first attempt", submission_type: "online_text_entry")
+          @assignment.submit_homework(@student, body: "second attempt", submission_type: "online_text_entry")
+
+          user_session(@student)
+          StudentAssignmentPageV2.visit(@course, @assignment)
+          wait_for_ajaximations
+          expect(StudentAssignmentPageV2.assignment_title("Test Assignment")).to be_displayed
+
+          expect(StudentAssignmentPageV2.view).to include_text("2 Attempts")
+          expect(f("body")).not_to contain_css("button[data-testid='submit-button']")
+        end
+
+        it "allows submitting if the student has not exceeded the max number of attempts" do
+          user_session(@student)
+          StudentAssignmentPageV2.visit(@course, @assignment)
+          wait_for_ajaximations
+          expect(StudentAssignmentPageV2.assignment_title("Test Assignment")).to be_displayed
+
+          expect(StudentAssignmentPageV2.view).to include_text("2 Attempts")
+          expect(StudentAssignmentPageV2.submit_button).to be_displayed
+        end
+
+        it "shows the new attempt button when student has attempts remaining after submitting" do
+          assignment = @course.assignments.create!(
+            name: "Test Assignment",
+            submission_types: "online_text_entry",
+            allowed_attempts: 3,
+            points_possible: 10
+          )
+          assignment.submit_homework(@student, body: "first attempt", submission_type: "online_text_entry")
+
+          user_session(@student)
+          StudentAssignmentPageV2.visit(@course, assignment)
+          wait_for_ajaximations
+          expect(StudentAssignmentPageV2.assignment_title("Test Assignment")).to be_displayed
+
+          expect(StudentAssignmentPageV2.view).to include_text("3 Attempts")
+          expect(StudentAssignmentPageV2.new_attempt_button).to be_displayed
+        end
+      end
+
+      context "without allowed_attempts on the assignment" do
+        it "does not show attempt data when allowed_attempts is -1" do
+          assignment = @course.assignments.create!(
+            name: "Test Assignment",
+            submission_types: "online_text_entry",
+            allowed_attempts: -1,
+            points_possible: 10
+          )
+          assignment.submit_homework(@student, body: "first attempt", submission_type: "online_text_entry")
+
+          user_session(@student)
+          StudentAssignmentPageV2.visit(@course, assignment)
+          wait_for_ajaximations
+          expect(StudentAssignmentPageV2.assignment_title("Test Assignment")).to be_displayed
+
+          expect(StudentAssignmentPageV2.view).to include_text("Unlimited Attempts")
+          expect(StudentAssignmentPageV2.new_attempt_button).to be_displayed
+        end
+
+        it "shows unlimited attempts when allowed_attempts is null" do
+          assignment = @course.assignments.create!(
+            name: "Test Assignment",
+            submission_types: "online_text_entry",
+            points_possible: 10
+          )
+
+          user_session(@student)
+          StudentAssignmentPageV2.visit(@course, assignment)
+          wait_for_ajaximations
+          expect(StudentAssignmentPageV2.assignment_title("Test Assignment")).to be_displayed
+
+          expect(StudentAssignmentPageV2.view).to include_text("Unlimited Attempts")
+          expect(StudentAssignmentPageV2.submit_button).not_to be_disabled
+        end
       end
     end
 
@@ -548,6 +639,21 @@ describe "as a student" do
         refresh_page
         expect(StudentAssignmentPageV2.url_text_box.attribute("value")).to include(url_text)
       end
+
+      it "clears any errors when starting a new attempt" do
+        url_text = "www.google.com"
+        StudentAssignmentPageV2.create_url_draft(url_text)
+        StudentAssignmentPageV2.submit_assignment
+        wait_for_ajaximations
+        StudentAssignmentPageV2.new_attempt_button.click
+        wait_for_ajaximations
+        StudentAssignmentPageV2.submit_assignment
+        expect(StudentAssignmentPageV2.url_entry).to include_text("Please enter a valid url")
+        StudentAssignmentPageV2.cancel_attempt_button.click
+        wait_for_ajaximations
+        StudentAssignmentPageV2.new_attempt_button.click
+        expect(StudentAssignmentPageV2.url_entry).not_to include_text("Please enter a valid url")
+      end
     end
 
     context "moduleSequenceFooter" do
@@ -569,6 +675,38 @@ describe "as a student" do
         expect(f("[data-testid='previous-assignment-btn']")).to have_attribute("href", "/courses/#{@course.id}/modules/items/#{@item_before.id}")
         expect(f("[data-testid='next-assignment-btn']")).to have_attribute("href", "/courses/#{@course.id}/modules/items/#{@item_after.id}")
       end
+
+      it "does not show the legacy sequence footer" do
+        expect(f("body")).not_to contain_css("#sequence_footer")
+      end
+
+      it "does not show the legacy sequence footer for lti assignments" do
+        tool = @course.context_external_tools.create!(
+          name: "LTI Test Tool",
+          consumer_key: "key",
+          shared_secret: "secret",
+          use_1_3: true,
+          developer_key: DeveloperKey.create!,
+          tool_id: "LTI Test Tool",
+          url: "http://lti13testtool.docker/launch"
+        )
+        tag = ContentTag.new(url: tool.url, content: tool, new_tab: true)
+        lti_assignment = @course.assignments.create!(
+          title: "LTI assignment",
+          submission_types: "external_tool",
+          context: @course,
+          points_possible: 10,
+          external_tool_tag: tag,
+          workflow_state: "published"
+        )
+        @module.add_item(type: "assignment", id: lti_assignment.id)
+
+        user_session(@student)
+        StudentAssignmentPageV2.visit(@course, lti_assignment)
+        wait_for_ajaximations
+
+        expect(f("body")).not_to contain_css("#sequence_footer")
+      end
     end
 
     context "media assignments" do
@@ -589,8 +727,10 @@ describe "as a student" do
       end
 
       it "can open the record media modal for submission" do
-        scroll_to(StudentAssignmentPageV2.open_record_media_modal_button)
-        StudentAssignmentPageV2.open_record_media_modal_button.click
+        button = StudentAssignmentPageV2.open_record_media_modal_button
+        scroll_to(button)
+        wait_for_ajaximations
+        button.click
 
         expect(StudentAssignmentPageV2.record_media_modal_panel).to be_displayed
       end
@@ -712,22 +852,23 @@ describe "as a student" do
         wait_for_ajaximations
       end
 
-      it "displays similarity pledge checkbox and disables submit button until checked" do
+      it "displays similarity pledge checkbox and shows error message if student submits with it un-checked" do
         StudentAssignmentPageV2.create_url_draft("www.google.com")
 
         expect(StudentAssignmentPageV2.similarity_pledge).to include_text("This assignment submission is my own, original work")
-        expect(StudentAssignmentPageV2.submit_button).to be_disabled
+        StudentAssignmentPageV2.submit_button.click
+        expect(StudentAssignmentPageV2.similarity_pledge).to include_text("You must agree to the submission pledge before you can submit the assignment")
 
         scroll_to(StudentAssignmentPageV2.similarity_pledge)
         StudentAssignmentPageV2.similarity_pledge.click
+        expect(StudentAssignmentPageV2.similarity_pledge).not_to include_text("You must agree to the submission pledge before you can submit the assignment")
 
-        expect(StudentAssignmentPageV2.submit_button).to_not be_disabled
+        expect(StudentAssignmentPageV2.submit_button).not_to be_disabled
       end
     end
 
     context "peer reviews" do
       before(:once) do
-        Account.default.enable_feature!(:peer_reviews_for_a2)
         @student1 = student_in_course(name: "Student 1", course: @course, enrollment_state: :active).user
         @student2 = student_in_course(name: "Student 2", course: @course, enrollment_state: :active).user
         @student3 = student_in_course(name: "Student 3", course: @course, enrollment_state: :active).user
@@ -810,6 +951,28 @@ describe "as a student" do
           body: "student 3 attempt",
           submission_type: "online_text_entry"
         )
+        StudentAssignmentPageV2.visit(@course, @peer_review_assignment)
+        wait_for_ajaximations
+
+        wait_for_tiny(StudentAssignmentPageV2.text_entry_area)
+        StudentAssignmentPageV2.create_text_entry_draft("hello")
+        wait_for_tiny(StudentAssignmentPageV2.text_entry_area)
+        StudentAssignmentPageV2.submit_button_enabled
+        StudentAssignmentPageV2.submit_assignment
+        StudentAssignmentPageV2.peer_review_next_button.click
+        StudentAssignmentPageV2.leave_a_comment("great job!")
+
+        expect(StudentAssignmentPageV2.comment_container).to include_text("Your peer review is complete!")
+        expect(StudentAssignmentPageV2.comment_container).to include_text("great job!")
+      end
+
+      it "allows peer reviewer to complete a review even if reviewee has been excused" do
+        @peer_review_assignment.submit_homework(
+          @student3,
+          body: "student 3 attempt",
+          submission_type: "online_text_entry"
+        )
+        @peer_review_assignment.grade_student(@student3, excused: true, grader: @teacher)
         StudentAssignmentPageV2.visit(@course, @peer_review_assignment)
         wait_for_ajaximations
 
@@ -955,6 +1118,12 @@ describe "as a student" do
         before(:once) do
           rubric_model
           @association = @rubric.associate_with(@peer_review_assignment, @course, purpose: "grading", use_for_grading: true)
+        end
+
+        it "does not show legacy rubrics partial view" do
+          StudentAssignmentPageV2.visit(@course, @peer_review_assignment)
+          wait_for_ajaximations
+          expect(f("body")).not_to contain_css("#rubrics")
         end
 
         it "shows a modal reminding the student that they have 2 peer reviews and 1 is availible after submitting" do
@@ -1222,6 +1391,142 @@ describe "as a student" do
           expect(StudentAssignmentPageV2.peer_review_header_text).to include("You have 1 more Peer Review to complete.")
           expect(StudentAssignmentPageV2.peer_review_next_button).to be_displayed
         end
+      end
+    end
+
+    context "peer reviews with peer_review_allocation_and_grading FF enabled" do
+      before(:once) do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        @student1 = student_in_course(name: "Student 1", course: @course, enrollment_state: :active).user
+        @student2 = student_in_course(name: "Student 2", course: @course, enrollment_state: :active).user
+        @student3 = student_in_course(name: "Student 3", course: @course, enrollment_state: :active).user
+
+        @peer_review_assignment = assignment_model({
+                                                     course: @course,
+                                                     peer_reviews: true,
+                                                     automatic_peer_reviews: false,
+                                                     points_possible: 10,
+                                                     submission_types: "online_text_entry"
+                                                   })
+
+        PeerReview::PeerReviewCreatorService.call(parent_assignment: @peer_review_assignment)
+
+        @peer_review_assignment.assign_peer_review(@student1, @student3)
+      end
+
+      before do
+        user_session(@student1)
+      end
+
+      it "does not show peer review details in modal after submitting" do
+        @peer_review_assignment.assign_peer_review(@student1, @student2)
+        @peer_review_assignment.submit_homework(
+          @student3,
+          body: "student 3 attempt",
+          submission_type: "online_text_entry"
+        )
+        StudentAssignmentPageV2.visit(@course, @peer_review_assignment)
+        wait_for_ajaximations
+        wait_for_tiny(StudentAssignmentPageV2.text_entry_area)
+        StudentAssignmentPageV2.create_text_entry_draft("hello")
+        wait_for_tiny(StudentAssignmentPageV2.text_entry_area)
+        StudentAssignmentPageV2.submit_button_enabled
+        StudentAssignmentPageV2.submit_assignment
+
+        expect(StudentAssignmentPageV2.peer_review_header_text).to include("Your work has been submitted.\nCheck back later to view feedback.")
+        expect(StudentAssignmentPageV2.peer_review_header_text).not_to include("Peer Review")
+        expect(element_exists?("[data-testid='peer-review-next-button']")).to be_falsey
+      end
+
+      it "does not show peer review counter or navigation link in header" do
+        @peer_review_assignment.submit_homework(
+          @student3,
+          body: "student 3 attempt",
+          submission_type: "online_text_entry"
+        )
+        StudentAssignmentPageV2.visit(@course, @peer_review_assignment)
+        wait_for_ajaximations
+
+        expect(element_exists?("[data-testid='header-peer-review-link']")).to be_falsey
+      end
+
+      context "without a peer review sub assignment" do
+        before(:once) do
+          @legacy_assignment = assignment_model({
+                                                  course: @course,
+                                                  peer_reviews: true,
+                                                  automatic_peer_reviews: false,
+                                                  points_possible: 10,
+                                                  submission_types: "online_text_entry"
+                                                })
+
+          @legacy_assignment.assign_peer_review(@student1, @student3)
+          @legacy_assignment.assign_peer_review(@student1, @student2)
+        end
+
+        it "shows peer review details in modal after submitting" do
+          @legacy_assignment.submit_homework(
+            @student3,
+            body: "student 3 attempt",
+            submission_type: "online_text_entry"
+          )
+          StudentAssignmentPageV2.visit(@course, @legacy_assignment)
+          wait_for_ajaximations
+          wait_for_tiny(StudentAssignmentPageV2.text_entry_area)
+          StudentAssignmentPageV2.create_text_entry_draft("hello")
+          wait_for_tiny(StudentAssignmentPageV2.text_entry_area)
+          StudentAssignmentPageV2.submit_button_enabled
+          StudentAssignmentPageV2.submit_assignment
+
+          expect(StudentAssignmentPageV2.peer_review_header_text).to include("Your work has been submitted.\nCheck back later to view feedback.")
+          expect(StudentAssignmentPageV2.peer_review_sub_header_text).to include("You have 2 Peer Reviews to complete.\nPeer submissions ready for review: 1")
+        end
+
+        it "shows peer review counter and navigation link in header" do
+          @legacy_assignment.submit_homework(
+            @student3,
+            body: "student 3 attempt",
+            submission_type: "online_text_entry"
+          )
+          StudentAssignmentPageV2.visit(@course, @legacy_assignment)
+          wait_for_ajaximations
+
+          expect(element_exists?("[data-testid='header-peer-review-link']")).to be_truthy
+        end
+      end
+    end
+
+    context "with an active and concluded enrollment" do
+      before do
+        @assignment = @course.assignments.create!
+        @sec1 = @course.course_sections.create!(name: "section 1")
+        @sec2 = @course.course_sections.create!(name: "section 2")
+        @sec3 = @course.course_sections.create!(name: "section 3")
+
+        @student = student_in_course(course: @course, active_all: true, user_name: "student").user
+        @course.enroll_student(@student, enrollment_state: "active", section: @sec1, allow_multiple_enrollments: true)
+        concluded_enrollment = @course.enroll_student(@student, enrollment_state: "active", section: @sec2, allow_multiple_enrollments: true)
+        deleted_enrollment = @course.enroll_student(@student, enrollment_state: "active", section: @sec3, allow_multiple_enrollments: true)
+
+        concluded_enrollment.conclude
+        deleted_enrollment.destroy
+      end
+
+      it "does not allow student to submit for assignment assigned to concluded section" do
+        create_section_override_for_assignment(@assignment, course_section: @sec2)
+        @assignment.update!(only_visible_to_overrides: true)
+        user_session(@student)
+        StudentAssignmentPageV2.visit(@course, @assignment)
+        wait_for_ajaximations
+        expect(StudentAssignmentPageV2.view).to include_text("You are unable to submit to this assignment as your enrollment in this section has been concluded.")
+      end
+
+      it "allows student to submit for assignment assigned to active section" do
+        create_section_override_for_assignment(@assignment, course_section: @sec1)
+        user_session(@student)
+        StudentAssignmentPageV2.visit(@course, @assignment)
+        wait_for_ajaximations
+        expect(StudentAssignmentPageV2.view).not_to include_text("You are unable to submit to this assignment as your enrollment in this section has been concluded.")
       end
     end
   end

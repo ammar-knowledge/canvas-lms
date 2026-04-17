@@ -19,8 +19,9 @@
 #
 require "English"
 
-class ContentExport < ActiveRecord::Base
+class ContentExport < ApplicationRecord
   include Workflow
+
   belongs_to :context, polymorphic: [:course, :group, { context_user: "User" }]
   belongs_to :user
   belongs_to :attachment
@@ -54,6 +55,8 @@ class ContentExport < ActiveRecord::Base
   ZIP = "zip"
   QUIZZES2 = "quizzes2"
   CC_EXPORT_TYPES = [COMMON_CARTRIDGE, COURSE_COPY, MASTER_COURSE_COPY, QTI, QUIZZES2].freeze
+
+  class ExternalExportNotCompletedError < StandardError; end
 
   workflow do
     state :created
@@ -139,7 +142,15 @@ class ContentExport < ActiveRecord::Base
     quizzes_next? && root_account.feature_enabled?(:newquizzes_on_quiz_page)
   end
 
+  def waiting_for_external_tool?
+    workflow_state == "waiting_for_external_tool"
+  end
+
   def export(opts = {})
+    if waiting_for_external_tool? && !new_quizzes_export_state_completed?
+      raise ExternalExportNotCompletedError
+    end
+
     save if capture_job_id
 
     shard.activate do
@@ -207,7 +218,7 @@ class ContentExport < ActiveRecord::Base
       if @cc_exporter.export
         self.progress = 100
         job_progress.try :complete!
-        duration = Time.now - created_at
+        duration = Time.zone.now - created_at
         InstStatsd::Statsd.timing("content_migrations.export_duration", duration, tags: { export_type:, selective_export: selective_export? })
         self.workflow_state = if for_course_copy?
                                 "exported_for_course_copy"
@@ -315,6 +326,7 @@ class ContentExport < ActiveRecord::Base
         )
         settings[:quizzes2][:qti_export] = {}
         settings[:quizzes2][:qti_export][:url] = attachment.public_download_url
+        settings[:quizzes2][:anonymous_participants] = assignment.anonymous_participants?
         self.progress = 100
         mark_exported
       else
@@ -374,7 +386,7 @@ class ContentExport < ActiveRecord::Base
     end
   end
 
-  def queue_api_job(opts)
+  def initialize_job_progress
     if job_progress
       p = job_progress
     else
@@ -385,8 +397,6 @@ class ContentExport < ActiveRecord::Base
     p.completion = 0
     p.user = user
     p.save!
-    quizzes2_build_assignment(opts) if new_quizzes_page_enabled?
-    export(opts)
   end
 
   def referenced_files
@@ -449,6 +459,14 @@ class ContentExport < ActiveRecord::Base
     end
   end
 
+  def selected_new_quizzes=(copy_settings)
+    settings[:selected_new_quizzes] = copy_settings
+  end
+
+  def selected_new_quizzes
+    settings[:selected_new_quizzes]
+  end
+
   def create_key(obj, prepend = "")
     shard.activate do
       if for_master_migration? && !is_external_object?(obj)
@@ -460,7 +478,11 @@ class ContentExport < ActiveRecord::Base
   end
 
   def is_external_object?(obj)
-    obj.is_a?(ContextExternalTool) && obj.context_type == "Account"
+    (
+      obj.is_a?(ContextExternalTool) && obj.context_type == "Account"
+    ) || (
+      obj.is_a?(NavMenuLink) && obj.course_id.nil?
+    )
   end
 
   # Method Summary
@@ -479,6 +501,24 @@ class ContentExport < ActiveRecord::Base
       return true if selected_content["discussion_topics"] && is_set?(selected_content["discussion_topics"][select_content_key(obj)])
 
       asset_type ||= "announcements"
+    end
+
+    if obj.is_a?(ContentTag) &&
+       Account.site_admin.feature_enabled?(:selective_content_tag_export) &&
+       context.try(:horizon_course?) &&
+       obj.context_module.present? &&
+       export_object?(obj.context_module)
+      if settings[:selective_content_tag_export]
+        # Selective mode: EXCLUDE content tags even when parent module is selected,
+        # unless the content tag is explicitly selected. This allows exporting individual
+        # module items (like ExternalUrls) without exporting all items in the module.
+        return false unless selected_content["content_tags"]
+
+        return is_set?(selected_content["content_tags"][select_content_key(obj)])
+      end
+
+      # parent module is being exported, export this content tag
+      return true
     end
 
     asset_type ||= obj.class.table_name
@@ -571,7 +611,7 @@ class ContentExport < ActiveRecord::Base
   end
 
   def settings
-    read_or_initialize_attribute(:settings, {}.with_indifferent_access)
+    self["settings"] ||= {}.with_indifferent_access
   end
 
   def fast_update_progress(val)
@@ -607,19 +647,33 @@ class ContentExport < ActiveRecord::Base
     end
   end
 
-  def prepare_new_quizzes_export
-    set_contains_new_quizzes_settings
-    mark_waiting_for_external_tool if contains_new_quizzes?
-  end
+  def prepare_new_quizzes_export(selected_assignments = nil)
+    unless new_quizzes_common_cartridge_enabled?
+      settings[:contains_new_quizzes] = false
+      return
+    end
 
-  def set_contains_new_quizzes_settings
-    settings[:contains_new_quizzes] = contains_new_quizzes?
+    nq_assignments = course.assignments.active.type_quiz_lti.where.not(workflow_state: ["failed_to_duplicate", "fail_to_import"])
+
+    is_selective_export = !selected_assignments.nil?
+    if is_selective_export
+      selected_new_quizzes_ids = nq_assignments.where(id: selected_assignments).map { |id| Shard.global_id_for(id) }
+
+      unless selected_new_quizzes_ids.blank?
+        self.selected_new_quizzes = selected_new_quizzes_ids
+      end
+    end
+
+    settings[:contains_new_quizzes] = is_selective_export ? selected_new_quizzes.present? : nq_assignments.count.positive?
+    mark_waiting_for_external_tool if contains_new_quizzes_setting?
   end
 
   def contains_new_quizzes?
-    return false unless new_quizzes_common_cartridge_enabled?
+    new_quizzes_common_cartridge_enabled? && contains_new_quizzes_setting?
+  end
 
-    context.assignments.active.type_quiz_lti.count.positive?
+  def contains_new_quizzes_setting?
+    settings[:contains_new_quizzes] == true
   end
 
   def include_new_quizzes_in_export?

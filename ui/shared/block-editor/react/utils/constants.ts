@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-const white = '#fff'
-const black = '#2d3b45'
+const white = '#ffffff'
+const black = '#273540'
 
 export {white, black}

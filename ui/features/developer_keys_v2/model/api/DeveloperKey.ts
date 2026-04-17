@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import type {LtiScope} from '../LtiScopes'
+import type {LtiScope} from '@canvas/lti/model/LtiScope'
 import type {LtiRegistration} from '../LtiRegistration'
 import type {Configuration} from './LtiToolConfiguration'
 
@@ -44,6 +44,7 @@ export interface DeveloperKey {
   vendor_code: string | null
   redirect_uri: string | null
   redirect_uris?: string
+  unified_tool_id?: string | null
   public_jwk_url?: string
   public_jwk?: string
   email: string | null
@@ -55,4 +56,5 @@ export interface DeveloperKey {
   is_lti_key: boolean
   is_lti_registration: boolean
   lti_registration?: LtiRegistration
+  lti_registration_workflow_state?: string
 }

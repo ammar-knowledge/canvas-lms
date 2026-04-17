@@ -114,10 +114,10 @@ module GradebooksHelper
     "assignment_#{submission.assignment_id}_user_#{submission.user_id}_current_grade"
   end
 
-  def student_score_display_for(submission, show_student_view = false)
+  def student_score_display_for(submission, student_view: false)
     return "-" if submission.blank?
 
-    score, grade = if show_student_view
+    score, grade = if student_view
                      [submission.published_score, submission.published_grade]
                    else
                      [submission.score, submission.grade]
@@ -194,10 +194,17 @@ module GradebooksHelper
                      end
 
     if override_dates.count == 1
-      I18n.t("Due: %{assignment_due_date_time}", assignment_due_date_time: datetime_string(force_zone(override_dates.first)))
-    else
-      I18n.t("Due: No Due Date")
+      return I18n.t("Due: %{assignment_due_date_time}", assignment_due_date_time: datetime_string(force_zone(override_dates.first)))
     end
+
+    if assignment.has_sub_assignments?
+      latest_due_date = assignment.sub_assignments.active.filter_map { |sub_assignment| sub_assignment.overridden_for(@current_user).due_at }.max
+      if latest_due_date
+        return I18n.t("Due: %{assignment_due_date_time}", assignment_due_date_time: datetime_string(force_zone(latest_due_date)))
+      end
+    end
+
+    I18n.t("Due: No Due Date")
   end
 
   def show_message_students_with_observers_dialog?

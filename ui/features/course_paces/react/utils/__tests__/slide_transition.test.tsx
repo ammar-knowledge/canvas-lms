@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -18,18 +17,30 @@
  */
 
 import React from 'react'
-import {render, waitFor} from '@testing-library/react'
+import {render, act} from '@testing-library/react'
+import {vi} from 'vitest'
 
-import SlideTransition from '../slide_transition'
+import SlideTransition, {type ComponentProps} from '../slide_transition'
 
-const renderComponent = props =>
+const renderComponent = (props: Omit<ComponentProps, 'size' | 'children'>) =>
   render(
     <SlideTransition size={100} {...props}>
       <span>Hey look it&apos;s me!</span>
-    </SlideTransition>
+    </SlideTransition>,
   )
 
 describe('SlideTransition', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    // Drain all pending timers from BaseTransition (@instructure/ui-motion)
+    // before teardown to avoid leaked timer warnings.
+    vi.runAllTimers()
+    vi.useRealTimers()
+  })
+
   it('shows child components when expanded', () => {
     const {getByText} = renderComponent({direction: 'vertical', expanded: true})
     expect(getByText("Hey look it's me!")).toBeInTheDocument()
@@ -37,7 +48,11 @@ describe('SlideTransition', () => {
 
   it('hides child components when collapsed', async () => {
     const {queryByText} = renderComponent({direction: 'vertical', expanded: false})
-    await waitFor(() => expect(queryByText("Hey look it's me!")).not.toBeInTheDocument())
+    // Advance timers to complete the exit transition in BaseTransition
+    await act(async () => {
+      vi.runAllTimers()
+    })
+    expect(queryByText("Hey look it's me!")).not.toBeInTheDocument()
   })
 
   it('shrinks vertically when collapsed', () => {

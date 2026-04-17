@@ -19,6 +19,8 @@
 #
 
 class LearnPlatformController < ApplicationController
+  skip_before_action :require_user
+
   def learnplatform_api
     @learnplatform_api ||= LearnPlatform::Api.new
   end
@@ -28,7 +30,9 @@ class LearnPlatformController < ApplicationController
       page: params[:page] || 1,
       per_page: params[:per_page] || 20
     }
+    params[:q][:canvas_integrated_only] = true
     options[:q] = params[:q].to_unsafe_h if params[:q]
+    configure_translation_lang(options)
 
     response = learnplatform_api.products(options)
 
@@ -38,7 +42,9 @@ class LearnPlatformController < ApplicationController
   end
 
   def index_by_category
-    response = learnplatform_api.products_by_category
+    options = {}
+    configure_translation_lang(options)
+    response = learnplatform_api.products_by_category(options)
 
     return render json: response, status: :internal_server_error if response.key?(:lp_server_error)
 
@@ -46,7 +52,9 @@ class LearnPlatformController < ApplicationController
   end
 
   def show
-    response = learnplatform_api.product(params[:id])
+    options = {}
+    configure_translation_lang(options)
+    response = learnplatform_api.product(params[:id], options)
 
     return render json: response, status: :internal_server_error if response.key?(:lp_server_error)
 
@@ -54,10 +62,43 @@ class LearnPlatformController < ApplicationController
   end
 
   def filters
-    response = learnplatform_api.product_filters
+    options = {}
+    configure_translation_lang(options)
+    response = learnplatform_api.product_filters(options)
 
     return render json: response, status: :internal_server_error if response.key?(:lp_server_error)
 
     render json: response
+  end
+
+  def index_by_organization
+    options = {
+      page: params[:page] || 1,
+      per_page: params[:per_page] || 20
+    }
+    options[:q] = params[:q].to_unsafe_h if params[:q]
+
+    response = learnplatform_api.products_by_organization(params[:organization_salesforce_id], options)
+
+    return render json: response, status: :internal_server_error if response.key?(:lp_server_error)
+
+    render json: response
+  end
+
+  def custom_filters
+    response = learnplatform_api.custom_filters(params[:salesforce_id])
+
+    return render json: response, status: :internal_server_error if response.key?(:lp_server_error)
+
+    render json: response
+  end
+
+  private
+
+  # Set the translate_lang option if needed.
+  def configure_translation_lang(options)
+    if I18n.locale.present? && I18n.locale != :en
+      options[:translate_lang] = I18n.locale.to_s
+    end
   end
 end

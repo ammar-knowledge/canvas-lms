@@ -17,7 +17,7 @@
  */
 
 import $ from 'jquery'
-import _ from 'lodash'
+import {chunk} from 'es-toolkit/compat'
 import Conversation from './Conversation'
 
 function ConversationCreator(opts) {
@@ -26,11 +26,11 @@ function ConversationCreator(opts) {
 
 ConversationCreator.prototype.save = function (data, saveOpts) {
   data.context_code = ENV.context_asset_string
-  const xhrs = _.chunk(data.recipients, this.chunkSize).map(function (chunk) {
+  const xhrs = chunk(data.recipients, this.chunkSize).map(function (chunk) {
     const chunkData = {...data, recipients: chunk}
     return new Conversation().save(chunkData, saveOpts)
   })
-  // eslint-disable-next-line prefer-spread
+
   return $.when.apply($, xhrs)
 }
 

@@ -16,26 +16,64 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-type HTMLElement = import('react').HTMLElement
-type FC = import('react').FC
-type KeyboardEventHandler = import('react').KeyboardEventHandler
-type MouseEventHandler = import('react').MouseEventHandler
-type ReactNode = import('react').ReactNode
-type ChangeEvent = import('react').ChangeEvent
-
 // These are special webpack-processed imports that Typescript doesn't understand
 // by default. Declaring them as wildcard modules allows TS to recognize them as
 // bare-bones interfaces with the `any` type.
 // See https://www.typescriptlang.org/docs/handbook/modules.html#wildcard-module-declarations
 declare module '*.graphql'
 declare module '*.handlebars'
-declare module '*.svg'
-
-declare module 'convert-case' {
-  export function camelize<T>(props: {[key: string]: unknown}): T
-  export function underscore<T>(props: {[key: string]: unknown}): T
+declare module '*.svg' {
+  const value: string
+  export default value
+}
+declare module '*.css'
+declare module '*.module.css' {
+  const classes: {readonly [key: string]: string}
+  export default classes
+}
+declare module 'redux-logger' {
+  import type {Middleware} from 'redux'
+  export function createLogger(options?: {diff?: boolean; duration?: boolean}): Middleware
 }
 
-// Global scope declarations are only allowed in module contexts, so we
-// need this to make Typescript think this is a module. 🙄
-export {}
+// Intl.DurationFormat is a newer ES API not yet in TypeScript's lib
+declare namespace Intl {
+  interface DurationFormatOptions {
+    style?: 'long' | 'short' | 'narrow' | 'digital'
+  }
+  class DurationFormat {
+    constructor(locales?: string | string[], options?: DurationFormatOptions)
+    format(duration: {hours?: number; minutes?: number; seconds?: number}): string
+  }
+}
+
+// @instructure/reactour has no type definitions
+declare module '@instructure/reactour/dist/reactour.cjs' {
+  import type {ComponentType} from 'react'
+  interface ReactourProps {
+    CustomHelper: ComponentType<any>
+    steps: any[]
+    isOpen: boolean
+    onRequestClose: (options?: {forceClose?: boolean}) => void
+  }
+  const Reactour: ComponentType<ReactourProps & Record<string, any>>
+  export default Reactour
+}
+
+// @instructure/ui-media-player has no type definitions
+declare module '@instructure/ui-media-player' {
+  import type {ComponentType} from 'react'
+  interface MediaPlayerProps {
+    sources: Array<{src?: string; label?: string; width?: string; height?: string}>
+    tracks?: Array<{src?: string; label?: string; type?: string; language?: string}>
+  }
+  export const MediaPlayer: ComponentType<MediaPlayerProps & Record<string, any>>
+}
+
+// Auto-generated plugin bundles module (created at build time by webpack)
+declare module 'plugin-bundles-generated' {
+  const pluginBundles: {
+    [bundle: string]: () => Promise<unknown>
+  }
+  export default pluginBundles
+}

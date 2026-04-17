@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class CommunicationChannel < ActiveRecord::Base
+class CommunicationChannel < ApplicationRecord
   # You should start thinking about communication channels
   # as independent of pseudonyms
   include ManyRootAccounts
@@ -63,7 +63,7 @@ class CommunicationChannel < ActiveRecord::Base
   TYPE_PUSH           = "push"
   TYPE_SMS            = "sms"
   TYPE_SLACK          = "slack"
-  TYPE_TWITTER        = "twitter"
+  TYPE_TWITTER        = "twitter" # NOTE: Deprecated
   TYPE_PERSONAL_EMAIL = "personal_email"
 
   VALID_TYPES = [TYPE_EMAIL, TYPE_SMS, TYPE_TWITTER, TYPE_PUSH, TYPE_SLACK, TYPE_PERSONAL_EMAIL].freeze
@@ -88,7 +88,7 @@ class CommunicationChannel < ActiveRecord::Base
   # as TYPE_EMAIL.  It is just kept distinct for the purposes of customers
   # querying records in Canvas Data.
   def path_type
-    raw_value = read_attribute(:path_type)
+    raw_value = super
     return TYPE_EMAIL if raw_value == TYPE_PERSONAL_EMAIL
 
     raw_value
@@ -114,10 +114,11 @@ class CommunicationChannel < ActiveRecord::Base
   end
 
   def pseudonym
-    user.pseudonyms.where(unique_id: path).first if user
+    user.pseudonyms.by_unique_id(path).first if user
   end
 
   def broadcast_data
+    @root_account ||= Account.find_by(id: root_account_ids.first) || user.associated_root_accounts.first
     return unless @root_account
 
     { root_account_id: @root_account.global_id, from_host: HostUrl.context_host(@root_account) }
@@ -150,7 +151,7 @@ class CommunicationChannel < ActiveRecord::Base
 
     p.dispatch :merge_email_communication_channel
     p.to { self }
-    p.whenever { @send_merge_notification && path_type == TYPE_EMAIL }
+    p.whenever { @send_merge_notification && path_type == TYPE_EMAIL && !user.all_active_pseudonyms.empty? }
     p.data { broadcast_data }
 
     p.dispatch :confirm_sms_communication_channel
@@ -183,6 +184,8 @@ class CommunicationChannel < ActiveRecord::Base
       end
     end
   end
+
+  attr_reader :email # Allow adding an error to the email attribute
 
   def validate_email
     # this is not perfect and will allow for invalid emails, but it mostly works.
@@ -229,13 +232,8 @@ class CommunicationChannel < ActiveRecord::Base
   end
 
   # Return the 'path' for simple communication channel types like email and sms.
-  # For Twitter, return the user's configured user_name for the service.
   def path_description
     case path_type
-    when TYPE_TWITTER
-      res = user.user_services.for_service(TYPE_TWITTER).first.service_user_name rescue nil
-      res ||= t :default_twitter_handle, "X.com Handle"
-      res
     when TYPE_PUSH
       t "For All Devices"
     else
@@ -248,7 +246,7 @@ class CommunicationChannel < ActiveRecord::Base
 
     @request_password = true
     Rails.cache.write(["recent_password_reset", global_id].cache_key, true, expires_in: RESEND_PASSWORD_RESET_TIME)
-    set_confirmation_code(true, 2.hours.from_now)
+    set_confirmation_code(reset: true, expires_at: 2.hours.from_now)
     save!
     @request_password = false
   end
@@ -294,24 +292,44 @@ class CommunicationChannel < ActiveRecord::Base
     !raw_number.start_with?(Login::OtpHelper::DEFAULT_US_COUNTRY_CODE)
   end
 
+  def send_dsr_notification!(dsr_request)
+    account = dsr_request.account
+    download_url = dsr_request.access_url
+    tz = dsr_request.requestor.time_zone || "UTC"
+    request_time = dsr_request.updated_at.in_time_zone(tz)
+
+    m = messages.temp_record
+    m.to = path
+    m.context = account || Account.default
+    m.user = user
+    m.notification = Notification.new(name: "dsr_request", category: "Registration")
+    m.data = { download_url:, request_time: }
+    m.parse!("email")
+    m.subject = I18n.t("Canvas DSR Report")
+    Mailer.deliver(Mailer.create_message(m))
+  end
+
   def send_otp!(code, account = nil)
     message = t :body, "Your Canvas verification code is %{verification_code}", verification_code: code
-
     case path_type
     when TYPE_SMS
       if Setting.get("mfa_via_sms", true) == "true" && e164_path && account&.feature_enabled?(:notification_service)
         InstStatsd::Statsd.increment("message.deliver.sms.one_time_password",
                                      short_stat: "message.deliver",
                                      tags: { path_type: "sms", notification_name: "one_time_password" })
-        InstStatsd::Statsd.increment("message.deliver.sms.#{account.global_id}",
-                                     short_stat: "message.deliver_per_account",
-                                     tags: { path_type: "sms", root_account_id: account.global_id })
+        InstStatsd::Statsd.increment(
+          "message.deliver.sms.#{account.global_id}",
+          short_stat: "message.deliver_per_account",
+          tags: { path_type: "sms" }.merge(
+            Utils::InstStatsdUtils::Tags.tags_for(account.shard)
+          )
+        )
         Services::NotificationService.process(
           "otp:#{global_id}",
           message,
           "sms",
           e164_path,
-          true
+          priority: true
         )
       else
         delay_if_production(priority: Delayed::HIGH_PRIORITY).send_otp_via_sms_gateway!(message)
@@ -333,9 +351,9 @@ class CommunicationChannel < ActiveRecord::Base
 
   # If you are creating a new communication_channel, do nothing, this just
   # works.  If you are resetting the confirmation_code, call @cc.
-  # set_confirmation_code(true), or just save the record to leave the old
+  # set_confirmation_code(reset: true), or just save the record to leave the old
   # confirmation code in place.
-  def set_confirmation_code(reset = false, expires_at = nil)
+  def set_confirmation_code(reset: false, expires_at: nil)
     self.confirmation_code = nil if reset
     self.confirmation_code ||= if path_type == TYPE_EMAIL || path_type.nil?
                                  CanvasSlug.generate(nil, 25)
@@ -364,14 +382,7 @@ class CommunicationChannel < ActiveRecord::Base
   # Get the list of communication channels that overrides an association's default order clause.
   # This returns an unretired and properly ordered already fetch array of CommunicationChannel objects ready for usage.
   def self.all_ordered_for_display(user)
-    # Add communication channel for users that already had Twitter
-    # integrated before we started offering it as a cc
-    twitter_service = user.user_services.for_service(CommunicationChannel::TYPE_TWITTER).first
-    twitter_service&.assert_communication_channel
-
     rank_order = [TYPE_EMAIL, TYPE_SMS, TYPE_PUSH]
-    # Add twitter and yo (in that order) if the user's account is setup for them.
-    rank_order << TYPE_TWITTER if twitter_service
     rank_order << TYPE_SLACK if user.associated_root_accounts.any? { |a| a.settings[:encrypted_slack_key] }
     unretired.where(communication_channels: { path_type: rank_order })
              .order(Arel.sql("#{rank_sql(rank_order, "communication_channels.path_type")} ASC, communication_channels.position asc")).to_a
@@ -430,7 +441,7 @@ class CommunicationChannel < ActiveRecord::Base
     # can be used for any root_account, so just set root_account_ids from user.
     self.root_account_ids = user.root_account_ids
     if root_account_ids_changed? && log
-      InstStatsd::Statsd.increment("communication_channel.root_account_ids_set", short_stat: "communication_channel.root_account_ids_set")
+      InstStatsd::Statsd.distributed_increment("communication_channel.root_account_ids_set")
     end
     save! if persist_changes && root_account_ids_changed?
   end
@@ -450,7 +461,7 @@ class CommunicationChannel < ActiveRecord::Base
     [Shard.default]
   end
 
-  def merge_candidates(break_on_first_found = false)
+  def merge_candidates(break_on_first_found: false)
     return [] if path_type == "push"
 
     shards = self.class.associated_shards(path) if Enrollment.cross_shard_invitations?
@@ -465,7 +476,7 @@ class CommunicationChannel < ActiveRecord::Base
 
       ccs.map(&:user).select do |u|
         result = merge_candidates.fetch(u.global_id) do
-          merge_candidates[u.global_id] = !u.all_active_pseudonyms.empty?
+          merge_candidates[u.global_id] = !u.all_active_pseudonyms(reload: true).empty?
         end
         return [u] if result && break_on_first_found
 
@@ -475,7 +486,7 @@ class CommunicationChannel < ActiveRecord::Base
   end
 
   def has_merge_candidates?
-    !merge_candidates(true).empty?
+    !merge_candidates(break_on_first_found: true).empty?
   end
 
   def bouncing?

@@ -34,7 +34,7 @@
 # such as the Canvas user's email address is referred to throughout MicrosoftSync
 # as a "ULUV" or User Lookup Value.
 #
-class MicrosoftSync::UserMapping < ActiveRecord::Base
+class MicrosoftSync::UserMapping < ApplicationRecord
   belongs_to :root_account, class_name: "Account"
   belongs_to :user
   validates :root_account, presence: true
@@ -181,7 +181,7 @@ class MicrosoftSync::UserMapping < ActiveRecord::Base
 
           GuardRail.activate(:primary) do
             where(user:, root_account: acct)
-              .update_all(updated_at: Time.now, needs_updating: true)
+              .update_all(updated_at: Time.zone.now, needs_updating: true)
           end
         end
       end

@@ -64,15 +64,6 @@ module ConversationsCommon
     selected[0].attribute("value")
   end
 
-  def course_filter
-    skip("course filter selector fails intermittently (stale element reference), probably due to dynamic loading and refreshing")
-    # try to make it load the courses first so it doesn't randomly refresh
-    selector = ".course-filter.bootstrap-select"
-    driver.execute_script(%{$('#{selector}').focus();})
-    wait_for_ajaximations
-    f(selector)
-  end
-
   def message_course
     f(".message_course.bootstrap-select")
   end
@@ -100,11 +91,6 @@ module ConversationsCommon
 
   def select_view(new_view)
     view_filter.find_element(:css, "option[value='#{new_view}']").click
-    wait_for_ajaximations
-  end
-
-  def select_course(new_course)
-    set_bootstrap_select_value(course_filter, new_course)
     wait_for_ajaximations
   end
 
@@ -142,15 +128,11 @@ module ConversationsCommon
     wait_for_ajaximations
   end
 
-  def select_message_course(new_course, is_group = false)
+  def select_message_course(new_course)
     new_course = new_course.name if new_course.respond_to? :name
     f(".dropdown-toggle", message_course).click
     wait_for_ajaximations
-    if is_group
-      fj("a:contains('Groups')", message_course).click
-    else
-      fj("a:contains('Favorite Courses')", message_course).click
-    end
+    fj("a:contains('Favorite Courses')", message_course).click
     fj("a:contains('#{new_course}')", message_course).click
   end
 
@@ -179,11 +161,6 @@ module ConversationsCommon
     message_body_input.send_keys(body)
   end
 
-  def click_faculty_journal # if the checkbox is not visible then end otherwise check it
-    checkbox = "div.message-header-row:nth-child(5) > div:nth-child(2) > label:nth-child(2)"
-    f(".user_note").click if fj("#{checkbox}:visible")
-  end
-
   def click_send
     f(".compose-message-dialog .send-message").click
     wait_for_ajaximations
@@ -197,7 +174,6 @@ module ConversationsCommon
     (options[:to] || []).each { |recipient| add_message_recipient recipient }
     write_message_subject(options[:subject]) if options[:subject]
     write_message_body(options[:body]) if options[:body]
-    click_faculty_journal if options[:journal]
     click_send if options[:send].nil? || options[:send]
   end
 

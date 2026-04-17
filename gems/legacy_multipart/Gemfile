@@ -5,3 +5,7 @@ source "https://rubygems.org"
 gemspec
 
 gem "canvas_slug", path: "../canvas_slug"
+
+gem "rack-test", "~> 2.1"
+gem "rake"
+gem "rspec", "~> 3.12"

@@ -21,9 +21,9 @@ import {fireEvent, render, screen} from '@testing-library/react'
 import GradingStandard from '../gradingStandard'
 
 const stubs = {
-  onDeleteGradingStandard: jest.fn(),
-  onSaveGradingStandard: jest.fn(),
-  onSetEditingStatus: jest.fn(),
+  onDeleteGradingStandard: vi.fn(),
+  onSaveGradingStandard: vi.fn(),
+  onSetEditingStatus: vi.fn(),
 }
 const defaultProps = (props = {}) => ({
   editing: false,
@@ -94,7 +94,7 @@ describe('GradingStandard', () => {
 
   afterEach(() => {
     delete window.ENV
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   describe('when not being edited', () => {
@@ -122,7 +122,7 @@ describe('GradingStandard', () => {
       renderGradingStandard()
 
       expect(screen.getByText('Edit Grading Scheme Example Grading Scheme')).toHaveClass(
-        'screenreader-only'
+        'screenreader-only',
       )
     })
 
@@ -130,7 +130,7 @@ describe('GradingStandard', () => {
       renderGradingStandard()
 
       expect(screen.getByRole('button', {name: /Edit Grading Scheme/i})).not.toHaveClass(
-        'read_only'
+        'read_only',
       )
     })
 
@@ -144,7 +144,7 @@ describe('GradingStandard', () => {
       renderGradingStandard()
 
       expect(screen.getByText('Delete Grading Scheme Example Grading Scheme')).toHaveClass(
-        'screenreader-only'
+        'screenreader-only',
       )
     })
 

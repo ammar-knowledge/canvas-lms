@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -17,13 +16,13 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {ReactElement} from 'react'
+import React, {type ReactElement} from 'react'
 import {CloseButton} from '@instructure/ui-buttons'
 import {Heading} from '@instructure/ui-heading'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Modal} from '@instructure/ui-modal'
 
-const I18n = useI18nScope('modal')
+const I18n = createI18nScope('modal')
 
 /*
 ---
@@ -65,6 +64,7 @@ type Props = {
   closeButtonLabel?: string
   onDismiss: () => void
   children: ReactElement | ReactElement[]
+  closeButtonElementRef?: (element: Element | null) => void
   [key: string]: any
 }
 
@@ -75,6 +75,7 @@ function getLiveRegion(): HTMLElement | null {
 function CanvasInstUIModal({
   label,
   closeButtonLabel,
+  closeButtonElementRef,
   onDismiss,
   children,
   ...otherPropsToPassOnToModal
@@ -93,6 +94,7 @@ function CanvasInstUIModal({
           offset="medium"
           onClick={onDismiss}
           screenReaderLabel={closeButtonLabel || I18n.t('Close')}
+          elementRef={closeButtonElementRef}
         />
         <Heading>{label}</Heading>
       </Modal.Header>

@@ -16,16 +16,16 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import fcUtil from '../fcUtil'
 import '@canvas/jquery/jquery.ajaxJSON'
 import 'jquery-tinypubsub'
 import {datetimeString, dateString} from '@canvas/datetime/date-functions'
 import splitAssetString from '@canvas/util/splitAssetString'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert} from '@instructure/platform-alerts'
 
-const I18n = useI18nScope('calendar')
+const I18n = createI18nScope('calendar')
 
 const EVENT_TYPES = {
   todo_item: 'todo_item',
@@ -125,11 +125,7 @@ Object.assign(CommonEvent.prototype, {
       // No groups because planner notes don't support groups
       if (!assetString || assetString.startsWith('group_')) return false
 
-      return (
-        assetString === this.contextCode() ||
-        assetString.startsWith('user_') ||
-        !managedContexts.includes(assetString)
-      )
+      return assetString.startsWith('user_') || !managedContexts.includes(assetString)
     })
   },
 

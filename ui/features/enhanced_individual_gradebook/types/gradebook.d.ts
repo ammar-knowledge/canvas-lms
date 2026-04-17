@@ -67,6 +67,7 @@ export type HandleCheckboxChange = (key: keyof CustomOptions, value: boolean) =>
 
 export type GradebookOptions = {
   activeGradingPeriods?: GradingPeriod[]
+  assignmentEnhancementsEnabled?: boolean
   anonymizeStudents?: boolean
   sortOrder: GradebookSortOrder
   selectedSection?: string
@@ -98,6 +99,7 @@ export type GradebookOptions = {
   saveViewUngradedAsZeroToServer?: boolean | null
   settingUpdateUrl?: string | null
   settingsUpdateUrl?: string | null
+  stickersEnabled?: boolean
   teacherNotes?: TeacherNotes | null
   customOptions: CustomOptions
   showTotalGradeAsPoints?: boolean | null
@@ -120,6 +122,8 @@ export type SortableAssignment = AssignmentConnection & {
   sortableName: string
   sortableDueDate: number
   gradingPeriodId?: string | null
+  isPeerReviewSubAssignment?: boolean
+  parentAssignmentId?: string
 }
 
 export type AssignmentSortContext = {

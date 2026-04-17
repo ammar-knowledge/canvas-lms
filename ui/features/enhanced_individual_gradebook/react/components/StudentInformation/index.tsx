@@ -25,8 +25,8 @@ import type {
   FinalGradeOverrideMap,
   FinalGradeOverride,
 } from '@canvas/grading/grading.d'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {showFlashError} from '@canvas/alerts/react/FlashAlert'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {showFlashError} from '@instructure/platform-alerts'
 import {Text} from '@instructure/ui-text'
 import {IconWarningLine} from '@instructure/ui-icons'
 import {
@@ -48,7 +48,7 @@ import {GradingPeriodScores} from './GradingPeriodScores'
 import {AssignmentGroupScores} from './AssignmentGroupScores'
 import {Link} from '@instructure/ui-link'
 
-const I18n = useI18nScope('enhanced_individual_gradebook')
+const I18n = createI18nScope('enhanced_individual_gradebook')
 
 type Props = {
   student?: GradebookStudentDetails
@@ -97,7 +97,7 @@ export default function StudentInformation({
       studentNotesColumnId,
       customColumnsUrl,
       customColumnDataUrl,
-      customColumnDatumUrl
+      customColumnDatumUrl,
     )
 
   useEffect(() => {
@@ -141,7 +141,7 @@ export default function StudentInformation({
       gradeCalcIgnoreUnpostedAnonymousEnabled,
       gradingPeriodSet,
       student,
-    ]
+    ],
   )
 
   if (!student || !submissions || !studentGradeResults) {
@@ -207,7 +207,7 @@ export default function StudentInformation({
     const showPointsText = !!(!hidePointsText && gradeToDisplay)
     let pointsText = ''
     if (showPointsText) {
-      const scoreText = I18n.n(gradeToDisplay.score, {
+      const scoreText = I18n.n(gradeToDisplay.score ?? 0, {
         precision: gradingStandardPointsBased ? 2 : undefined,
       })
       const possibleText = gradingStandardPointsBased
@@ -223,8 +223,8 @@ export default function StudentInformation({
             score,
             gradingStandard,
             gradingStandardPointsBased,
-            gradingStandardScalingFactor
-          )
+            gradingStandardScalingFactor,
+          ),
         )}`
       : ''
 
@@ -247,7 +247,7 @@ export default function StudentInformation({
       {
         count: invalidAssignmentGroupsLength,
         list_of_group_names: invalidAssignmentGroupsNames.join(' or '),
-      }
+      },
     )
   }
 

@@ -172,7 +172,7 @@ describe "account admin question bank" do
   end
 
   it "deletes a question bank" do
-    expect_new_page_load(true) { f("#right-side .delete_bank_link").click }
+    expect_new_page_load(accept_alert: true) { f("#right-side .delete_bank_link").click }
     @question_bank.reload
     expect(@question_bank.workflow_state).to eq "deleted"
   end
@@ -247,28 +247,42 @@ describe "account admin question bank" do
       expect(fj("[data-id=#{outcome.id}]:visible")).to include_text outcome.short_description
     end
 
-    it "aligns an outcome" do
-      skip_if_chrome("issue with add_outcome_to_bank method")
-      add_outcome_to_bank(@outcome)
-      expect(fj("[data-id=#{@outcome.id}]:visible")).to include_text("60%")
-      expect(@question_bank.reload.learning_outcome_alignments.count).to be > 0
-      learning_outcome_tag = @question_bank.learning_outcome_alignments.where(mastery_score: 0.6).first
-      expect(learning_outcome_tag).to be_present
-    end
-
-    it "changes the outcome set mastery score" do
-      skip_if_chrome("issue with add_outcome_to_bank method")
-      add_outcome_to_bank(@outcome, 40)
-      expect(fj("[data-id=#{@outcome.id}]:visible .content")).to include_text("mastery at 40%")
-      learning_outcome_tag = AssessmentQuestionBank.last.learning_outcome_alignments.where(mastery_score: 0.4).first
-      expect(learning_outcome_tag).to be_present
-    end
-
     it "deletes an aligned outcome" do
       add_outcome_to_bank(@outcome)
       fj("[data-id='#{@outcome.id}']:visible .delete_outcome_link").click
       driver.switch_to.alert.accept
       expect(f("#content")).not_to contain_jqcss("[data-id='#{@outcome.id}']:visible .delete_outcome_link")
+    end
+
+    it "validates mastery at range in question bank" do
+      # Create a test outcome first
+      outcome = Account.default.root_outcome_group.child_outcome_links.first.content
+
+      # Test with value below range (0)
+      f(".add_outcome_link").click
+      wait_for_ajaximations
+      f(".outcome-link").click
+      wait_for_ajaximations
+      replace_content(f("#outcome_mastery_at"), 0)
+      fj(".btn-primary:visible").click
+      wait_for_ajaximations
+      error_box = f("#outcome_mastery_at_container [class$=formFieldMessages] > span:last-child")
+      expect(error_box).to be_present
+      expect(error_box).to include_text("Must be between 1 and 100")
+      # Clear the error and test with value above range (101)
+      replace_content(f("#outcome_mastery_at"), 101)
+      fj(".btn-primary:visible").click
+      wait_for_ajaximations
+      error_box = f("#outcome_mastery_at_container [class$=formFieldMessages] > span:last-child")
+      expect(error_box).to be_present
+      expect(error_box).to include_text("Must be between 1 and 100")
+      # Test with valid boundary values
+      replace_content(f("#outcome_mastery_at"), 100)
+      fj(".btn-primary:visible").click
+      wait_for_ajaximations
+
+      # Verify the outcome was successfully added with 100% mastery
+      expect(fj("[data-id=#{outcome.id}]")).to include_text("mastery at 100%")
     end
   end
 end

@@ -16,21 +16,18 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* eslint-disable no-void */
-
 import {extend} from '@canvas/backbone/utils'
-import {includes} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {includes} from 'es-toolkit/compat'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import Backbone from '@canvas/backbone'
 import $ from 'jquery'
 import template from '../../jst/GradingTypeSelector.handlebars'
 import '../../jquery/toggleAccessibly'
-import '@canvas/util/jquery/fixDialogButtons'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render, rerender} from '@canvas/react'
 import {GradingSchemesSelector} from '@canvas/grading-scheme'
 
-const I18n = useI18nScope('assignment_grading_type')
+const I18n = createI18nScope('assignment_grading_type')
 
 const GRADING_TYPE = '#assignment_grading_type'
 const VIEW_GRADING_LEVELS = '#view-grading-levels'
@@ -43,6 +40,7 @@ function GradingTypeSelector() {
   this.showGradingSchemeDialog = this.showGradingSchemeDialog.bind(this)
   this.showGpaDialog = this.showGpaDialog.bind(this)
   this.handleGradingTypeChange = this.handleGradingTypeChange.bind(this)
+  this.root = null
   return GradingTypeSelector.__super__.constructor.apply(this, arguments)
 }
 
@@ -77,7 +75,7 @@ GradingTypeSelector.optionProperty('canEditGrades')
 GradingTypeSelector.prototype.handleGradingTypeChange = function (_ev) {
   const gradingType = this.$gradingType.val()
   this.$viewGradingLevels.toggleAccessibly(
-    gradingType === 'letter_grade' || gradingType === 'gpa_scale'
+    gradingType === 'letter_grade' || gradingType === 'gpa_scale',
   )
   if (ENV.GRADING_SCHEME_UPDATES_ENABLED) {
     if (gradingType === 'letter_grade' || gradingType === 'gpa_scale') {
@@ -154,7 +152,10 @@ GradingTypeSelector.prototype.toJSON = function () {
     nested: this.nested,
     preventNotGraded:
       this.preventNotGraded ||
-      (((ref = this.lockedItems) != null ? ref.points : void 0) && !this.parentModel.isNotGraded()),
+      (((ref = this.lockedItems) != null ? ref.points : void 0) &&
+        !this.parentModel.isNotGraded()) ||
+      (ENV.PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED &&
+        this.parentModel.hasPeerReviewSubmissions?.()),
     freezeGradingType:
       includes(this.parentModel.frozenAttributes(), 'grading_type') ||
       this.parentModel.inClosedGradingPeriod() ||
@@ -187,19 +188,24 @@ GradingTypeSelector.prototype.renderGradingSchemeSelector = function () {
       ? this.parentModel.gradingStandardId()
       : undefined,
     canManage: ENV.PERMISSIONS.manage_grading_schemes,
+    canSet: ENV.PERMISSIONS.set_grading_scheme,
     courseDefaultSchemeId: courseDefaultGradingSchemeId,
     onChange: this.handleGradingStandardIdChanged,
     contextId: ENV.COURSE_ID,
     contextType: 'Course',
     archivedGradingSchemesEnabled: ENV.ARCHIVED_GRADING_SCHEMES_ENABLED,
     assignmentId:
-      ENV.ASSIGNMENT?.id ?? ENV.ASSIGNMENT_ID ?? this.parentModel.id
+      (ENV.ASSIGNMENT?.id ?? ENV.ASSIGNMENT_ID ?? this.parentModel.id)
         ? String(this.parentModel.id)
         : undefined,
   }
   const mountPoint = document.querySelector('#grading_scheme_selector-target')
-  // eslint-disable-next-line react/no-render-return-value
-  return ReactDOM.render(React.createElement(GradingSchemesSelector, props), mountPoint)
+  const element = React.createElement(GradingSchemesSelector, props)
+  if (!this.root) {
+    this.root = render(element, mountPoint)
+  } else {
+    rerender(this.root, element)
+  }
 }
 
 export default GradingTypeSelector

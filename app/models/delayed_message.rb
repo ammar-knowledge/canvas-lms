@@ -18,8 +18,9 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class DelayedMessage < ActiveRecord::Base
+class DelayedMessage < ApplicationRecord
   include NotificationPreloader
+
   belongs_to :notification_policy, inverse_of: :delayed_messages
   belongs_to :notification_policy_override, inverse_of: :delayed_messages
   belongs_to :context, polymorphic:
@@ -27,11 +28,13 @@ class DelayedMessage < ActiveRecord::Base
       :discussion_entry,
       :assignment,
       :sub_assignment,
+      :peer_review_sub_assignment,
       :submission_comment,
       :submission,
       :conversation_message,
       :course,
       :discussion_topic,
+      :mention,
       :enrollment,
       :attachment,
       :assignment_override,
@@ -67,9 +70,9 @@ class DelayedMessage < ActiveRecord::Base
 
   def summary=(val)
     if !val || val.length < self.class.maximum_text_length
-      write_attribute(:summary, val)
+      super
     else
-      write_attribute(:summary, val[0, self.class.maximum_text_length])
+      super(val[0, self.class.maximum_text_length])
     end
   end
 
@@ -97,7 +100,7 @@ class DelayedMessage < ActiveRecord::Base
   workflow do
     state :pending do
       event :begin_send, transitions_to: :sent do
-        self.batched_at = Time.now
+        self.batched_at = Time.zone.now
       end
       event :cancel, transitions_to: :cancelled
     end
@@ -124,13 +127,39 @@ class DelayedMessage < ActiveRecord::Base
       m.communication_channel&.active? &&
         !m.communication_channel.bouncing?
     end
-    to = first.communication_channel rescue nil
+    to = first&.communication_channel
     return nil unless to
     return nil if delayed_messages.empty?
 
-    user = to.user rescue nil
+    user = to.user
     context = delayed_messages.select(&:context).compact.first.try(:context)
     return nil unless context # the context for this message has already been deleted
+
+    # Filter out inactive enrollments
+    courses = delayed_messages.filter_map do |dm|
+      course_from_context(dm.context)
+    end
+    courses.uniq!
+
+    enrollments = {}
+    if courses.any?
+      # lets try a bulk query to avoid a O(n) situation
+      # group courses by shard to query each shard separately
+      courses.group_by(&:shard).each do |shard, shard_courses|
+        shard.activate do
+          Enrollment.where(user_id: user, course_id: shard_courses)
+                    .find_each { |e| enrollments[e.course_id] = e }
+        end
+      end
+    end
+
+    delayed_messages = delayed_messages.select do |dm|
+      course = course_from_context(dm.context)
+      # only active enrollments should result into a summary
+      course ? enrollments[course.local_id]&.workflow_state == "active" : true
+    end
+
+    return nil if delayed_messages.empty?
 
     notification = BroadcastPolicy.notification_finder.by_name("Summaries")
     path = HostUrl.outgoing_email_address
@@ -151,6 +180,17 @@ class DelayedMessage < ActiveRecord::Base
       message.delay_for = 0
       message.parse!
       message.save
+    end
+  end
+
+  def self.course_from_context(context)
+    return nil unless context
+
+    case context
+    when Course
+      context
+    else
+      context.context if context.respond_to?(:context) && context.context.is_a?(Course)
     end
   end
 

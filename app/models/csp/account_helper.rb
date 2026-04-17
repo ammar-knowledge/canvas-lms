@@ -151,7 +151,7 @@ module Csp::AccountHelper
   end
 
   def csp_tools_grouped_by_domain(internal_service_only: false)
-    csp_tool_scope = ContextExternalTool.where(context_type: "Account", context_id: account_chain_ids).active
+    csp_tool_scope = Lti::ContextToolFinder.all_tools_for(self, order_in_scope: false) # unordered to not mess with the .distinct
 
     if internal_service_only
       csp_tool_scope = csp_tool_scope.where.not(developer_key_id: nil)
@@ -186,7 +186,7 @@ module Csp::AccountHelper
       files_host = if separator == "."
                      "*.#{files_host}"
                    else
-                     "*.#{files_host[files_host.index(".") + 1..]}"
+                     "*.#{files_host[(files_host.index(".") + 1)..]}"
                    end
     end
     canvadocs_host = Canvadocs.enabled?.presence && URI.parse(Canvadocs.config["base_url"]).host
@@ -198,10 +198,6 @@ module Csp::AccountHelper
     csp_files_domains << inst_fs_cdn_host if inst_fs_cdn_host
 
     csp_files_domains.compact
-  end
-
-  def csp_logging_config
-    @config ||= Rails.application.credentials.csp_logging || {}
   end
 
   private

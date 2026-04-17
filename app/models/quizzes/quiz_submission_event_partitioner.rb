@@ -23,27 +23,29 @@ class Quizzes::QuizSubmissionEventPartitioner
   PRECREATE_TABLES = 2
   KEEP_MONTHS = 6
 
-  def self.process(in_migration = false, prune: false)
+  def self.process(in_migration: false, prune: false)
     Shard.current.database_server.unguard do
       GuardRail.activate(:deploy) do
         log "*" * 80
         log "-" * 80
+        ActiveRecord::Migrator.with_advisory_lock do
+          partman = CanvasPartman::PartitionManager.create(Quizzes::QuizSubmissionEvent)
 
-        partman = CanvasPartman::PartitionManager.create(Quizzes::QuizSubmissionEvent)
+          partman.ensure_partitions(PRECREATE_TABLES)
 
-        partman.ensure_partitions(PRECREATE_TABLES)
-
-        if prune
-          Shard.current.database_server.unguard do
-            partman.prune_partitions(KEEP_MONTHS)
+          if prune
+            Shard.current.database_server.unguard do
+              partman.prune_partitions(KEEP_MONTHS)
+            end
           end
         end
-
         log "Done. Bye!"
         log "*" * 80
         unless in_migration || Rails.env.test?
           ActiveRecord::Base.connection_pool.disconnect!
         end
+      rescue ActiveRecord::ConcurrentMigrationError
+        # ignore
       end
     end
   end
@@ -52,8 +54,8 @@ class Quizzes::QuizSubmissionEventPartitioner
     process(prune: true)
   end
 
-  def self.log(*args)
-    logger&.info(*args)
+  def self.log(*)
+    logger&.info(*)
   end
 
   def self.processed?

@@ -29,7 +29,6 @@ describe('UploadFile', () => {
       source: {
         initializeCollection() {},
         initializeUpload() {},
-        initializeFlickr() {},
         initializeImages() {},
         initializeDocuments() {},
         initializeMedia() {},
@@ -50,7 +49,7 @@ describe('UploadFile', () => {
         trayProps={trayProps}
         onDismiss={handleDismiss}
         panels={['COMPUTER', 'URL']}
-      />
+      />,
     )
 
     const closeBtn = getAllByText('Close')[0]
@@ -69,7 +68,7 @@ describe('UploadFile', () => {
         onDismiss={handleDismiss}
         onSubmit={handleSubmit}
         panels={['COMPUTER', 'URL']}
-      />
+      />,
     )
     // We need to make sure that a file is present, or the submit button will be disabled.
     const fakeFile = new File(['(⌐□_□)'], 'somename.png', {
@@ -98,7 +97,7 @@ describe('UploadFile', () => {
           trayProps={trayProps}
           onDismiss={() => {}}
           panels={['COMPUTER', 'URL']}
-        />
+        />,
       )
 
       expect(getByLabelText('Computer')).toBeInTheDocument()
@@ -113,7 +112,7 @@ describe('UploadFile', () => {
           trayProps={trayProps}
           onDismiss={() => {}}
           panels={['COMPUTER']}
-        />
+        />,
       )
 
       expect(getByLabelText('Computer')).toBeInTheDocument()
@@ -131,7 +130,7 @@ describe('UploadFile', () => {
           onDismiss={() => {}}
           onSubmit={() => {}}
           panels={['COMPUTER', 'URL']}
-        />
+        />,
       )
 
       const urlTab = getByText('URL')
@@ -149,7 +148,7 @@ describe('UploadFile', () => {
           onDismiss={() => {}}
           onSubmit={() => {}}
           panels={['COMPUTER', 'URL']}
-        />
+        />,
       )
 
       const computerTab = getByText('Computer')
@@ -167,7 +166,7 @@ describe('UploadFile', () => {
           onDismiss={() => {}}
           onSubmit={() => {}}
           panels={['COMPUTER', 'URL']}
-        />
+        />,
       )
 
       const urlTab = getByText('URL')
@@ -177,7 +176,7 @@ describe('UploadFile', () => {
       const computerTab = getByText('Computer')
       await userEvent.click(computerTab)
       const fileDrop = await waitFor(() =>
-        getByText('Drag and drop, or click to browse your computer')
+        getByText('Drag and drop, or click to browse your computer'),
       )
       expect(fileDrop).toBeVisible()
     })
@@ -236,9 +235,9 @@ describe('UploadFile', () => {
           'images/*',
           'COMPUTER',
           {theFile: fakeFile},
-          {startMediaUpload: fakeMediaUpload}
+          {startMediaUpload: fakeMediaUpload},
         )
-        expect(fakeMediaUpload).toHaveBeenCalledWith('images', {
+        expect(fakeMediaUpload).toHaveBeenCalledWith({
           parentFolderId: 'media',
           name: 'foo.png',
           size: 3000,
@@ -259,9 +258,9 @@ describe('UploadFile', () => {
           'video/*',
           'COMPUTER',
           {theFile: fakeFile},
-          {startMediaUpload: fakeMediaUpload}
+          {startMediaUpload: fakeMediaUpload},
         )
-        expect(fakeMediaUpload).toHaveBeenCalledWith('media', {
+        expect(fakeMediaUpload).toHaveBeenCalledWith({
           parentFolderId: 'media',
           name: 'foo.mov',
           size: 3000,
@@ -284,9 +283,9 @@ describe('UploadFile', () => {
             theFile: fakeFile,
             imageOptions: {altText: '(╯°□°）╯︵ ┻━┻', displayAs: 'embed', isDecorativeImage: true},
           },
-          {startMediaUpload: fakeMediaUpload}
+          {startMediaUpload: fakeMediaUpload},
         )
-        expect(fakeMediaUpload).toHaveBeenCalledWith('images', {
+        expect(fakeMediaUpload).toHaveBeenCalledWith({
           altText: '(╯°□°）╯︵ ┻━┻',
           displayAs: 'embed',
           isDecorativeImage: true,
@@ -311,9 +310,9 @@ describe('UploadFile', () => {
           'audio/*',
           'COMPUTER',
           {theFile: fakeFile},
-          {startMediaUpload: fakeMediaUpload}
+          {startMediaUpload: fakeMediaUpload},
         )
-        expect(fakeMediaUpload).toHaveBeenCalledWith('media', {
+        expect(fakeMediaUpload).toHaveBeenCalledWith({
           parentFolderId: 'media',
           name: 'foo.mp3',
           size: 3000,
@@ -334,9 +333,9 @@ describe('UploadFile', () => {
           'video/*',
           'COMPUTER',
           {theFile: fakeFile},
-          {startMediaUpload: fakeMediaUpload}
+          {startMediaUpload: fakeMediaUpload},
         )
-        expect(fakeMediaUpload).toHaveBeenCalledWith('documents', {
+        expect(fakeMediaUpload).toHaveBeenCalledWith({
           parentFolderId: 'media',
           name: 'foo.txt',
           size: 3000,
@@ -360,7 +359,7 @@ describe('UploadFile', () => {
           onDismiss={() => {}}
           onSubmit={fakeOnSubmit}
           panels={['COMPUTER', 'URL']}
-        />
+        />,
       )
     })
 

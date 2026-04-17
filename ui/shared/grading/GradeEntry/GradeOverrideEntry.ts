@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2018 - present Instructure, Inc.
  *
@@ -29,13 +28,14 @@ import GradeOverrideInfo from './GradeOverrideInfo'
 import GradeEntry, {EnterGradesAs} from './index'
 import type {GradeType, DeprecatedGradingScheme, GradeEntryMode} from '../grading.d'
 
+// @ts-expect-error
 function schemeKeyForPercentage(percentage, gradingScheme: DeprecatedGradingScheme) {
   if (gradingScheme) {
     const grade = scoreToGrade(
       percentage,
       gradingScheme.data,
       gradingScheme.pointsBased,
-      gradingScheme.scalingFactor
+      gradingScheme.scalingFactor,
     )
     return GradeFormatHelper.replaceDashWithMinus(grade)
   }
@@ -48,6 +48,7 @@ export default class GradeOverrideEntry extends GradeEntry {
     return EnterGradesAs.PERCENTAGE
   }
 
+  // @ts-expect-error
   formatGradeInfoForDisplay(gradeInfo) {
     const {valid, enteredValue, grade} = gradeInfo
     if (!valid) {
@@ -69,6 +70,7 @@ export default class GradeOverrideEntry extends GradeEntry {
     })
   }
 
+  // @ts-expect-error
   formatGradeInfoForInput({enteredValue, grade, valid}) {
     if (!valid) {
       return enteredValue
@@ -89,6 +91,7 @@ export default class GradeOverrideEntry extends GradeEntry {
     })
   }
 
+  // @ts-expect-error
   gradeInfoFromGrade(grade, inputByUser: boolean) {
     if (!grade) {
       return this.parseValue(null)
@@ -99,9 +102,11 @@ export default class GradeOverrideEntry extends GradeEntry {
   }
 
   hasGradeChanged(
+    // @ts-expect-error
     assignedGradeInfo,
+    // @ts-expect-error
     currentGradeInfo,
-    previousGradeInfo: null | GradeOverrideInfo = null
+    previousGradeInfo: null | GradeOverrideInfo = null,
   ) {
     const effectiveGradeInfo = previousGradeInfo || assignedGradeInfo
 
@@ -124,8 +129,9 @@ export default class GradeOverrideEntry extends GradeEntry {
     return currentGradeInfo.grade.percentage !== effectiveGradeInfo.grade.percentage
   }
 
+  // @ts-expect-error
   parseValue(value, inputByUser: boolean = true): GradeOverrideInfo {
-    const gradingScheme: string | {data: DeprecatedGradingScheme[]} = this.options.gradingScheme
+    const gradingScheme = this.options.gradingScheme
     const parseResult = parseEntryValue(value, gradingScheme)
 
     let enteredAs: null | GradeType = null
@@ -135,7 +141,7 @@ export default class GradeOverrideEntry extends GradeEntry {
     } = null
     let valid = parseResult.isCleared
 
-    if (parseResult.isSchemeKey && typeof gradingScheme === 'object') {
+    if (parseResult.isSchemeKey && gradingScheme !== null && typeof gradingScheme === 'object') {
       enteredAs = EnterGradesAs.GRADING_SCHEME
       grade = {
         percentage: gradeToScoreLowerBound(parseResult.value, gradingScheme.data),
@@ -156,6 +162,7 @@ export default class GradeOverrideEntry extends GradeEntry {
       } else if (parseResult.isPoints) {
         enteredAs = EnterGradesAs.POINTS
         grade = {
+          // @ts-expect-error
           percentage: gradePointsToPercentage(parseResult.value, gradingScheme),
           schemeKey: null,
         }
@@ -166,6 +173,7 @@ export default class GradeOverrideEntry extends GradeEntry {
       enteredAs = EnterGradesAs.PERCENTAGE
       grade = {
         percentage: parseResult.value,
+        // @ts-expect-error
         schemeKey: schemeKeyForPercentage(parseResult.value, gradingScheme),
       }
       valid = true

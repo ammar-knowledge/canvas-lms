@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2019 - present Instructure, Inc.
  *
@@ -20,24 +19,43 @@
 import React from 'react'
 import {arrayOf, shape, string, bool, func} from 'prop-types'
 import {formatGradingPeriodTitleForDisplay} from '../../Gradebook.utils'
+import type {CamelizedGradingPeriod} from '@canvas/grading/grading.d'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ContentFilter from '@canvas/gradebook-content-filters/react/ContentFilter'
 
-const I18n = useI18nScope(
-  'gradebook_default_gradebook_components_content_filters_grading_period_filter'
+const I18n = createI18nScope(
+  'gradebook_default_gradebook_components_content_filters_grading_period_filter',
 )
 
-function normalizeGradingPeriods(gradingPeriods) {
+function normalizeGradingPeriods(gradingPeriods: Array<{id: string; title: string}>) {
   return gradingPeriods.map(gradingPeriod => ({
     id: gradingPeriod.id,
-    name: formatGradingPeriodTitleForDisplay(gradingPeriod),
+    name:
+      formatGradingPeriodTitleForDisplay(
+        gradingPeriod as unknown as Pick<
+          CamelizedGradingPeriod,
+          'title' | 'startDate' | 'endDate' | 'closeDate'
+        >,
+      ) ?? gradingPeriod.title,
   }))
 }
 
-export default function GradingPeriodFilter(props) {
-  const {disabled, onSelect, gradingPeriods, selectedGradingPeriodId, ...filterProps} = props
+type Props = {
+  disabled: boolean
+  onSelect: (id: string) => void
+  gradingPeriods: Array<{id: string; title: string}>
+  selectedGradingPeriodId?: string | null
+  [key: string]: unknown
+}
 
+export default function GradingPeriodFilter({
+  disabled,
+  onSelect,
+  gradingPeriods,
+  selectedGradingPeriodId,
+  ...filterProps
+}: Props) {
   return (
     <ContentFilter
       {...filterProps}
@@ -59,7 +77,7 @@ GradingPeriodFilter.propTypes = {
     shape({
       id: string.isRequired,
       title: string.isRequired,
-    })
+    }),
   ).isRequired,
 
   selectedGradingPeriodId: string,

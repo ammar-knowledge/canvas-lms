@@ -30,18 +30,30 @@ describe ContentExport do
     ContentExport.new({ context: course }.merge(opts))
   end
 
-  it "records the job id" do
-    allow(Delayed::Worker).to receive(:current_job).and_return(double("Delayed::Job", id: 123))
-    @ce.export(synchronous: true)
-    expect(@ce.reload.settings[:job_id]).to eq(123)
-  end
+  describe "#export" do
+    subject { @ce.export(synchronous: true) }
 
-  it "logs duration on export success" do
-    allow(InstStatsd::Statsd).to receive(:timing)
-    @ce.export(synchronous: true)
-    expect(InstStatsd::Statsd).to have_received(:timing).with("content_migrations.export_duration", anything, {
-                                                                tags: { export_type: nil, selective_export: false }
-                                                              }).once
+    it "records the job id" do
+      allow(Delayed::Worker).to receive(:current_job).and_return(instance_double(Delayed::Job, id: 123))
+
+      subject
+
+      expect(@ce.reload.settings[:job_id]).to eq(123)
+    end
+
+    it "logs duration on export success" do
+      allow(InstStatsd::Statsd).to receive(:timing)
+
+      subject
+
+      expect(InstStatsd::Statsd).to have_received(:timing).with("content_migrations.export_duration", anything, { tags: { export_type: nil, selective_export: false } }).once
+    end
+
+    it "raises ExternalExportNotCompletedError" do
+      allow(@ce).to receive_messages(waiting_for_external_tool?: true, new_quizzes_export_state_completed?: false)
+
+      expect { subject }.to raise_error(ContentExport::ExternalExportNotCompletedError)
+    end
   end
 
   context "export_object?" do
@@ -77,6 +89,134 @@ describe ContentExport do
       @ce.save!
       @ce.selected_content = { content_exports: { CC::CCHelper.create_key(@ce) => "1" } }
       expect(@ce.export_object?(@ce)).to be true
+    end
+
+    context "with ContentTags and selective_content_tag_export" do
+      before :once do
+        @course.account.enable_feature!(:horizon_course_setting)
+        @course.update!(horizon_course: true)
+
+        @module = @course.context_modules.create!(name: "Test Module")
+        @ct1 = @module.content_tags.create!(
+          content_id: 0,
+          tag_type: "context_module",
+          content_type: "ExternalUrl",
+          context: @course,
+          title: "Item 1",
+          url: "https://example.com/1"
+        )
+        @ct2 = @module.content_tags.create!(
+          content_id: 0,
+          tag_type: "context_module",
+          content_type: "ExternalUrl",
+          context: @course,
+          title: "Item 2",
+          url: "https://example.com/2"
+        )
+      end
+
+      context "with feature flag enabled" do
+        before do
+          Account.site_admin.enable_feature!(:selective_content_tag_export)
+        end
+
+        it "excludes content tags even when parent module is selected unless explicitly selected" do
+          @ce.settings[:selective_content_tag_export] = true
+          @ce.selected_content = {
+            "context_modules" => { CC::CCHelper.create_key(@module) => "1" },
+            "content_tags" => { CC::CCHelper.create_key(@ct1) => "1" }
+          }
+
+          # ct1 is explicitly selected and should be exported
+          expect(@ce.export_object?(@ct1)).to be true
+          # ct2 is NOT selected and should be excluded even though parent module IS selected
+          expect(@ce.export_object?(@ct2)).to be false
+        end
+
+        it "returns false when content_tags not in selected_content" do
+          @ce.settings[:selective_content_tag_export] = true
+          @ce.selected_content = {
+            "context_modules" => { CC::CCHelper.create_key(@module) => "1" }
+          }
+
+          expect(@ce.export_object?(@ct1)).to be false
+          expect(@ce.export_object?(@ct2)).to be false
+        end
+
+        it "returns true for ExternalUrl content_type when selected" do
+          @ce.settings[:selective_content_tag_export] = true
+          @ce.selected_content = {
+            "context_modules" => { CC::CCHelper.create_key(@module) => "1" },
+            "content_tags" => { CC::CCHelper.create_key(@ct1) => "1" }
+          }
+
+          # ct1 is an ExternalUrl type that IS selected
+          expect(@ct1.content_type).to eq("ExternalUrl")
+          expect(@ce.export_object?(@ct1)).to be true
+        end
+
+        it "returns false for ExternalUrl content_type when not selected" do
+          @ce.settings[:selective_content_tag_export] = true
+          @ce.selected_content = {
+            "context_modules" => { CC::CCHelper.create_key(@module) => "1" },
+            "content_tags" => { CC::CCHelper.create_key(@ct1) => "1" }
+          }
+
+          # ct2 is an ExternalUrl type that is NOT selected
+          expect(@ct2.content_type).to eq("ExternalUrl")
+          expect(@ce.export_object?(@ct2)).to be false
+        end
+
+        it "returns true for SubHeader content_type when selected" do
+          subheader = @module.content_tags.create!(
+            content_id: 0,
+            tag_type: "context_module",
+            content_type: "ContextModuleSubHeader",
+            context: @course,
+            title: "Section Header"
+          )
+
+          @ce.settings[:selective_content_tag_export] = true
+          @ce.selected_content = {
+            "context_modules" => { CC::CCHelper.create_key(@module) => "1" },
+            "content_tags" => { CC::CCHelper.create_key(subheader) => "1" }
+          }
+
+          expect(subheader.content_type).to eq("ContextModuleSubHeader")
+          expect(@ce.export_object?(subheader)).to be true
+        end
+
+        it "returns false for SubHeader content_type when not selected" do
+          subheader = @module.content_tags.create!(
+            content_id: 0,
+            tag_type: "context_module",
+            content_type: "ContextModuleSubHeader",
+            context: @course,
+            title: "Section Header"
+          )
+
+          @ce.settings[:selective_content_tag_export] = true
+          @ce.selected_content = {
+            "context_modules" => { CC::CCHelper.create_key(@module) => "1" },
+            "content_tags" => { CC::CCHelper.create_key(@ct1) => "1" }
+          }
+
+          expect(subheader.content_type).to eq("ContextModuleSubHeader")
+          expect(@ce.export_object?(subheader)).to be false
+        end
+
+        it "returns true when content tags are selected even if parent module is not" do
+          @ce.settings[:selective_content_tag_export] = true
+          @ce.selected_content = {
+            "content_tags" => { CC::CCHelper.create_key(@ct1) => "1" }
+          }
+
+          # ct1 is selected and should be exported even though parent module is not selected
+          expect(@ce.export_object?(@ct1)).to be true
+          # ct2 is not selected
+          expect(@ce.export_object?(@ct2)).to be false
+        end
+      end
     end
   end
 
@@ -208,15 +348,6 @@ describe ContentExport do
       before do
         @course.enable_feature!(:quizzes_next)
         @course.root_account.enable_feature!(:newquizzes_on_quiz_page)
-      end
-
-      it "sets up assignment and content_export settings" do
-        expect(@ce).to receive(:export)
-        @ce.queue_api_job({})
-        expect(@ce.settings["quizzes2"]).not_to be_nil
-        assignment_id = @ce.settings["quizzes2"]["assignment"]["assignment_id"]
-        assignment = Assignment.find_by(id: assignment_id)
-        expect(assignment).not_to be_nil
       end
 
       # CC export is the first step of Quiz migration
@@ -455,8 +586,10 @@ describe ContentExport do
   end
 
   describe "common_cartridge" do
-    before :once do
-      assignment_model(submission_types: "external_tool", course: @course)
+    let(:new_quiz_assignment) { assignment_model(submission_types: "external_tool", course: @course) }
+
+    before do
+      new_quiz_assignment
       tool = @c.context_external_tools.create!(
         name: "Quizzes.Next",
         consumer_key: "test_key",
@@ -470,6 +603,7 @@ describe ContentExport do
       @course.root_account.settings[:provision] = { "lti" => "lti url" }
       @course.root_account.save!
       @ce = @course.content_exports.create!
+      @ce.save!
     end
 
     context "with feature flags enabled" do
@@ -481,14 +615,65 @@ describe ContentExport do
         expect(@ce.settings[:contains_new_quizzes]).to be_nil
       end
 
-      context "when setting the contains_new_quizzes" do
-        before do
-          @ce.set_contains_new_quizzes_settings
+      it "contains lti assignments" do
+        expect(@ce.course.assignments.active.type_quiz_lti.where.not(workflow_state: ["failed_to_duplicate", "fail_to_import"]).count).to eq(1)
+      end
+
+      it "does not contain failed_to_duplicate lti assignments" do
+        lti_assignment = @ce.course.assignments.first
+        lti_assignment.workflow_state = "failed_to_duplicate"
+        lti_assignment.save!
+        expect(@ce.course.assignments.active.type_quiz_lti.where.not(workflow_state: ["failed_to_duplicate", "fail_to_import"]).count).to eq(0)
+      end
+
+      it "does not contain fail_to_import lti assignments" do
+        lti_assignment = @ce.course.assignments.first
+        lti_assignment.workflow_state = "fail_to_import"
+        lti_assignment.save!
+        expect(@ce.course.assignments.active.type_quiz_lti.where.not(workflow_state: ["failed_to_duplicate", "fail_to_import"]).count).to eq(0)
+      end
+
+      describe "setting the contains_new_quizzes setting" do
+        context "when the course has New Quizzes assignments and selected_content is { everything: true }" do
+          before do
+            @ce.settings[:selected_content] = { "everything" => true }
+            @ce.save!
+          end
+
+          it "the settings to contains_new_quizzes should be set to true" do
+            @ce.prepare_new_quizzes_export
+            expect(@ce.settings[:contains_new_quizzes]).to be true
+            expect(@ce.settings[:selected_new_quizzes]).to be_nil
+          end
         end
 
-        context "when the course has New Quizzes assignments" do
-          it "the settings to contains_new_quizzes should be set to true" do
+        context "when the export settings have selected content" do
+          before do
+            new_quiz_assignment
+            @ce.settings[:selected_content] = { "assignments" => { CC::CCHelper.create_key(@assignment) => "1" } }
+            @ce.save!
+          end
+
+          it "sets the selected new quiz in selected_new_quizzes" do
+            @ce.prepare_new_quizzes_export [new_quiz_assignment.id]
             expect(@ce.settings[:contains_new_quizzes]).to be true
+            expect(@ce.settings[:selected_new_quizzes]).to match_array [Shard.global_id_for(new_quiz_assignment.id)]
+          end
+
+          context "when the given selected ids are not associated to a new quiz assignment" do
+            it "sets contains_new_quizzes to false" do
+              @ce.prepare_new_quizzes_export [888_888]
+              expect(@ce.settings[:contains_new_quizzes]).to be false
+              expect(@ce.settings[:selected_new_quizzes]).to be_nil
+            end
+          end
+
+          context "when selected assignments is empty array" do
+            it "sets contains_new_quizzes to false" do
+              @ce.prepare_new_quizzes_export []
+              expect(@ce.settings[:contains_new_quizzes]).to be false
+              expect(@ce.settings[:selected_new_quizzes]).to be_nil
+            end
           end
         end
 
@@ -496,10 +681,10 @@ describe ContentExport do
           before do
             @another_course = course_model
             @ce = @another_course.content_exports.create!
-            @ce.set_contains_new_quizzes_settings
           end
 
           it "the settings to contains_new_quizzes should be set to false" do
+            @ce.prepare_new_quizzes_export
             expect(@ce.settings[:contains_new_quizzes]).to be false
           end
         end
@@ -508,7 +693,7 @@ describe ContentExport do
 
     context "with feature flags disabled" do
       before do
-        @ce.set_contains_new_quizzes_settings
+        @ce.prepare_new_quizzes_export
       end
 
       context "when the course has New Quizzes assignments" do
@@ -521,7 +706,7 @@ describe ContentExport do
         before do
           @another_course = course_model
           @ce = @another_course.content_exports.create!
-          @ce.set_contains_new_quizzes_settings
+          @ce.prepare_new_quizzes_export
         end
 
         it "should not contain a New Quiz in the export" do

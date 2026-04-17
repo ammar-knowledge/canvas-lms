@@ -41,18 +41,9 @@ describe "page views" do
     course_with_teacher(active_all: 1, user: user_with_pseudonym)
     @topic = @course.discussion_topics.create!
     enable_default_developer_key!
-    get "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", params: { access_token: @user.access_tokens.create!.full_token }
+    get "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", params: { access_token: @user.access_tokens.create!(purpose: "Test Access Token").full_token }
     pv = PageView.last
     expect(pv.http_method).to eq "get"
-  end
-
-  it "does not record gets for api request when setting disabled" do
-    Setting.set("create_get_api_page_views", "false")
-    course_with_teacher(active_all: 1, user: user_with_pseudonym)
-    @topic = @course.discussion_topics.create!
-    expect do
-      get "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", params: { access_token: @user.access_tokens.create!.full_token }
-    end.not_to change(PageView, :count)
   end
 
   it "records the developer key when an access token was used" do
@@ -61,7 +52,7 @@ describe "page views" do
     @topic = @course.discussion_topics.create!
     enable_default_developer_key!
 
-    post "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", params: { message: "hello", access_token: @user.access_tokens.create!.full_token }
+    post "/api/v1/courses/#{@course.id}/discussion_topics/#{@topic.id}/entries", params: { message: "hello", access_token: @user.access_tokens.create!(purpose: "Test Access Token").full_token }
     expect(response).to be_successful
 
     pv = PageView.last

@@ -22,9 +22,6 @@ import RCELoader from '../serviceRCELoader'
 import $ from 'jquery'
 import fakeENV from '@canvas/test-utils/fakeENV'
 import editorUtils from '@canvas/rce/editorUtils'
-import sinon from 'sinon'
-
-const sandbox = sinon.createSandbox()
 
 let fakeRceModule
 
@@ -49,27 +46,28 @@ describe('Rce Abstraction - integration', () => {
               on() {},
             }
           },
+          tinymceOn() {},
         }
         return renderCallback(fakeEditor)
       },
     }
-    sandbox.stub(RCELoader, 'loadRCE').callsFake(callback => callback(fakeRceModule))
+    vi.spyOn(RCELoader, 'loadRCE').mockImplementation(callback => callback(fakeRceModule))
   })
 
   afterEach(() => {
     fakeENV.teardown()
     $('#fixtures').empty()
     editorUtils.resetRCE()
+    vi.restoreAllMocks()
   })
 
-  // fails in Jest, passes in QUnit
-  it.skip('instatiating a remote editor', async () => {
+  it('instatiating a remote editor', async () => {
     RichContentEditor.preloadRemoteModule()
     const target = $('#big_rce_text')
     loadNewEditor()
-    await waitFor(() => RCELoader.loadRCE.callCount > 0)
+    await waitFor(() => expect(RCELoader.loadRCE).toHaveBeenCalled())
     expect(target.parent().attr('id')).toBe('tinymce-parent-of-big_rce_text')
-    expect(target.parent().find('#fake-editor').length).toBe(1)
+    expect(target.parent().find('#fake-editor')).toHaveLength(1)
   })
 })
 

@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Button, CloseButton} from '@instructure/ui-buttons'
 import {Heading} from '@instructure/ui-heading'
 import {IconArrowOpenStartLine} from '@instructure/ui-icons'
@@ -32,10 +32,11 @@ import type {AnyAction} from 'redux'
 import {Flex} from '@instructure/ui-flex'
 import {View} from '@instructure/ui-view'
 import {Spinner} from '@instructure/ui-spinner'
-import GenericErrorPage from '@canvas/generic-error-page/react'
-import errorShipUrl from '@canvas/images/ErrorShip.svg'
+import {GenericErrorPage} from '@instructure/platform-generic-error-page'
+import {reportError, canvasErrorPageTranslations} from '@canvas/error-page-utils'
+import errorShipUrl from '@instructure/platform-images/assets/ErrorShip.svg'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 type DynamicRegistrationModalProps = {
   contextId: string
   store: ReturnType<typeof storeCreator>
@@ -163,7 +164,9 @@ const DynamicRegistrationModalBody = ({contextId}: DynamicRegistrationModalBodyP
         <Modal.Body>
           <GenericErrorPage
             imageUrl={errorShipUrl}
-            error={state.error}
+            onReportError={reportError}
+            translations={canvasErrorPageTranslations}
+            errorMessage={state.error?.message}
             errorCategory="Dynamic Registration"
           />
         </Modal.Body>
@@ -204,7 +207,15 @@ const DynamicRegistrationModalFooter = (props: DynamicRegistrationModalFooterPro
             margin="small"
             disabled={
               !isValidUrl(state.dynamicRegistrationUrl) ||
-              state.tag === 'loading_registration_token'
+              state.tag === 'loading_registration_token' ||
+              ENV.devKeysReadOnly
+            }
+            title={
+              ENV.devKeysReadOnly
+                ? I18n.t(
+                    'You do not have permission to create or modify developer keys / LTI registrations in this account',
+                  )
+                : undefined
             }
             onClick={() => {
               loadingRegistrationToken()
@@ -230,6 +241,7 @@ const DynamicRegistrationModalFooter = (props: DynamicRegistrationModalFooterPro
             color="secondary"
             margin="small"
             onClick={() => open(state.dynamicRegistrationUrl)}
+            // @ts-expect-error
             renderIcon={IconArrowOpenStartLine}
           >
             Back
@@ -248,8 +260,8 @@ const DynamicRegistrationModalFooter = (props: DynamicRegistrationModalFooterPro
           // Redux types are really bad, hence the cast here...
           actions.getDeveloperKeys(
             `/api/v1/accounts/${props.contextId}/developer_keys`,
-            true
-          ) as unknown as AnyAction
+            true,
+          ) as unknown as AnyAction,
         )
         close()
       }
@@ -261,7 +273,6 @@ const DynamicRegistrationModalFooter = (props: DynamicRegistrationModalFooterPro
             margin="0 x-small"
             disabled={buttonsDisabled}
             onClick={() => {
-              // eslint-disable-next-line promise/catch-or-return
               deleteKey(state.registration).then(onFinish)
             }}
           >
@@ -272,11 +283,10 @@ const DynamicRegistrationModalFooter = (props: DynamicRegistrationModalFooterPro
             margin="0 x-small"
             disabled={buttonsDisabled}
             onClick={() => {
-              // eslint-disable-next-line promise/catch-or-return
               closeAndSaveOverlay(
                 props.contextId,
                 state.registration,
-                state.overlayStore.getState().state.registration
+                state.overlayStore.getState().state.registration,
               ).then(onFinish)
             }}
           >
@@ -288,11 +298,10 @@ const DynamicRegistrationModalFooter = (props: DynamicRegistrationModalFooterPro
             disabled={buttonsDisabled}
             data-testid="dynamic-reg-modal-enable-and-close-button"
             onClick={() => {
-              // eslint-disable-next-line promise/catch-or-return
               enableAndClose(
                 props.contextId,
                 state.registration,
-                state.overlayStore.getState().state.registration
+                state.overlayStore.getState().state.registration,
               ).then(onFinish)
             }}
           >

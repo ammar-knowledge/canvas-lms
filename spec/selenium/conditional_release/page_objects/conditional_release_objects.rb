@@ -42,11 +42,11 @@ class ConditionalReleaseObjects
     end
 
     def due_at_exists?
-      element_exists?("//*[contains(@class,'ui-dialog')]//input[@name='due_at']", true)
+      element_exists?("//*[contains(@class,'ui-dialog')]//input[@name='due_at']", xpath: true)
     end
 
     def points_possible_exists?
-      element_exists?("//*[contains(@class,'ui-dialog')]//input[@name='points_possible']", true)
+      element_exists?("//*[contains(@class,'ui-dialog')]//input[@name='points_possible']", xpath: true)
     end
 
     # Quizzes Page
@@ -59,12 +59,20 @@ class ConditionalReleaseObjects
     end
 
     def disabled_cr_editor_exists?
-      element_exists?("//li[@aria-disabled = 'true']/a[@href = '#mastery-paths-editor']", true)
+      element_exists?("//li[@aria-disabled = 'true']/a[@href = '#mastery-paths-editor']", xpath: true)
     end
 
     # Assignment Edit
     def scoring_ranges
       ff(".cr-scoring-range")
+    end
+
+    def scoring_input_error
+      ff(scoring_input_error_selector)
+    end
+
+    def scoring_input_error_selector
+      "[data-testid='cr-score-input-error']"
     end
 
     def top_scoring_boundary
@@ -75,33 +83,15 @@ class ConditionalReleaseObjects
       f("[title='Lower Bound']")
     end
 
-    def division_cutoff1
-      f("[title='Division cutoff 1']")
-    end
+    def division_cutoff(index)
+      return unless (0..1).cover?(index)
 
-    def division_cutoff2
-      f("[title='Division cutoff 2']")
-    end
-
-    def must_not_be_empty_exists?
-      element_exists?("//*[contains(@id,'error') and contains(text(),'must not be empty')]", true)
-    end
-
-    def these_scores_are_out_of_order_exists?
-      element_exists?("//*[contains(@id,'error') and contains(text(),'these scores are out of order')]", true)
-    end
-
-    def must_be_a_number_exists?
-      element_exists?("//*[contains(@id,'error') and contains(text(),'must be a number')]", true)
-    end
-
-    def number_is_too_small_exists?
-      element_exists?("//*[contains(@id,'error') and contains(text(),'number is too small')]", true)
+      ff(".cr-scoring-range")[index].find("input[title='Cutoff Points']")
     end
 
     # Common Selectors
     def conditional_release_link
-      f("#conditional_release_link")
+      fxpath("//*[@role='tab' and contains(text(),'Mastery Paths')]")
     end
 
     def conditional_release_editor_exists?
@@ -157,7 +147,7 @@ class ConditionalReleaseObjects
     end
 
     def assignment_exists_in_scoring_range?(ordered_range, assignment_name)
-      element_exists?("//*[@class = 'cr-scoring-range' and position() = #{ordered_range}]//div[@aria-label = '#{assignment_name}']", true)
+      element_exists?("//*[@class = 'cr-scoring-range' and position() = #{ordered_range}]//div[@aria-label = '#{assignment_name}']", xpath: true)
     end
 
     def assignment_selection_modal

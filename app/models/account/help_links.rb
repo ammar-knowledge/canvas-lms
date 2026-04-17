@@ -18,18 +18,20 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 class Account::HelpLinks
+  USER_TYPES = %w[user student teacher admin observer unenrolled].freeze
+
   attr_reader :account
 
   def initialize(account)
     @account = account
   end
 
-  def default_links(filter = true)
+  def default_links(filter: true)
     defaults = [
       {
         available_to: ["student"],
         text: -> { I18n.t("#help_dialog.instructor_question", "Ask Your Instructor a Question") },
-        subtext: -> { I18n.t("#help_dialog.instructor_question_sub", "Questions are submitted to your instructor") },
+        subtext: -> { I18n.t("#help_dialog.instructor_question_sub", "Questions are submitted to your instructor.") },
         url: "#teacher_feedback",
         type: "default",
         id: :instructor_question,
@@ -40,7 +42,7 @@ class Account::HelpLinks
       {
         available_to: %w[user student teacher admin observer unenrolled],
         text: -> { I18n.t("#help_dialog.search_the_canvas_guides", "Search the Canvas Guides") },
-        subtext: -> { I18n.t("#help_dialog.canvas_help_sub", "Find answers to common questions") },
+        subtext: -> { I18n.t("#help_dialog.canvas_help_sub", "Find answers to common questions.") },
         url: I18n.t(:"community.guides_home"),
         type: "default",
         id: :search_the_canvas_guides,
@@ -51,7 +53,7 @@ class Account::HelpLinks
       {
         available_to: %w[user student teacher admin observer unenrolled],
         text: -> { I18n.t("#help_dialog.report_problem", "Report a Problem") },
-        subtext: -> { I18n.t("#help_dialog.report_problem_sub", "If Canvas misbehaves, tell us about it") },
+        subtext: -> { I18n.t("#help_dialog.report_problem_sub", "If Canvas misbehaves, tell us about it.") },
         url: "#create_ticket",
         type: "default",
         id: :report_a_problem,
@@ -59,18 +61,22 @@ class Account::HelpLinks
         is_new: false,
         feature_headline: -> { "" }
       }.freeze,
-      {
+    ]
+
+    if @account.root_account.feature_enabled?(:ada_chatbot)
+      defaults << {
         available_to: %w[user student teacher admin observer unenrolled],
-        text: -> { I18n.t("#help_dialog.covid", "COVID-19 Canvas Resources") },
-        subtext: -> { I18n.t("#help_dialog.covid_sub", "Tips for teaching and learning online") },
-        url: I18n.t(:"community.contingency_covid"),
+        text: -> { I18n.t("#help_dialog.ada_chatbot", "Ask Panda Bot") },
+        subtext: -> { I18n.t("#help_dialog.ada_chatbot_sub", "Get instant help from our Virtual Assistant.") },
+        url: "#ada_chatbot",
         type: "default",
-        id: :covid,
-        is_new: false,
+        id: :ada_chatbot,
         is_featured: false,
+        is_new: false,
         feature_headline: -> { "" }
       }.freeze
-    ]
+    end
+
     filter ? filtered_links(defaults) : defaults
   end
 
@@ -78,12 +84,9 @@ class Account::HelpLinks
     @default_links_hash ||= default_links.index_by { |link| link[:id] }
   end
 
-  # do not return the covid help link unless the featured_help_links FF is enabled
   def filtered_links(links)
     show_feedback_link = Setting.get("show_feedback_link", "false") == "true"
     links.select do |link|
-      (link[:id].to_s == "covid") ? Account.site_admin.feature_enabled?(:featured_help_links) : true
-    end.select do |link|
       (link[:id].to_s == "report_a_problem" || link[:id].to_s == "instructor_question") ? show_feedback_link : true
     end
   end
@@ -94,7 +97,6 @@ class Account::HelpLinks
       link[:text] = link[:text].call if link[:text].respond_to?(:call)
       link[:subtext] = link[:subtext].call if link[:subtext].respond_to?(:call)
       link[:feature_headline] = link[:feature_headline].call if link[:feature_headline].respond_to?(:call)
-      link = link.except(:is_featured, :is_new, :feature_headline) unless Account.site_admin.feature_enabled?(:featured_help_links)
       link
     end
     featured, not_featured = instantiated.partition { |link| link[:is_featured] }
@@ -104,8 +106,12 @@ class Account::HelpLinks
   # take an array of links, and infer default values for links that aren't customized
   # (text is only stored in account settings if it's customized)
   def map_default_links(links)
-    links.map do |link|
+    links.filter_map do |link|
       default_link = link[:type] == "default" && default_links_hash[link[:id]&.to_sym]
+      # Drop default-type links whose definition no longer exists (e.g. FF
+      # turned off) and have no text of their own — they would render blank.
+      next if link[:type] == "default" && !default_link && link[:text].blank?
+
       if default_link
         link = link.dup
         link[:text] ||= default_link[:text]
@@ -128,16 +134,19 @@ class Account::HelpLinks
     links.each do |link|
       link[:is_featured] = Canvas::Plugin.value_to_boolean(link[:is_featured])
       link[:is_new] = Canvas::Plugin.value_to_boolean(link[:is_new])
+      link[:available_to] = link[:available_to] & USER_TYPES if link[:available_to].is_a?(Array)
     end
 
     links.map do |link|
       default_link = link[:type] == "default" && default_links_hash[link[:id]&.to_sym]
       if default_link
+        default_is_new = Canvas::Plugin.value_to_boolean(default_link[:is_new])
+        default_is_featured = Canvas::Plugin.value_to_boolean(default_link[:is_featured])
         link.delete(:text) if link[:text] == default_link[:text].call
         link.delete(:subtext) if link[:subtext] == default_link[:subtext].call
         link.delete(:url) if link[:url] == default_link[:url]
-        link.delete(:is_featured) if link[:is_featured] == default_link[:is_featured]
-        link.delete(:is_new) if link[:is_new] == default_link[:is_new]
+        link.delete(:is_featured) if link[:is_featured] == default_is_featured
+        link.delete(:is_new) if link[:is_new] == default_is_new
         link.delete(:feature_headline) if link[:feature_headline] == default_link[:feature_headline].try(:call)
       end
       link

@@ -34,6 +34,12 @@ module Factories
         https://purl.imsglobal.org/spec/lti-ags/scope/result.readonly
         https://purl.imsglobal.org/spec/lti-ags/scope/score
         https://purl.imsglobal.org/spec/lti-nrps/scope/contextmembership.readonly
+        https://purl.imsglobal.org/spec/lti/scope/noticehandlers
+        https://purl.imsglobal.org/spec/lti/scope/asset.readonly
+        https://purl.imsglobal.org/spec/lti/scope/report
+        https://purl.imsglobal.org/spec/lti/scope/eula/user
+        https://purl.imsglobal.org/spec/lti/scope/eula/deployment
+
         https://canvas.instructure.com/lti/public_jwk/scope/update
         https://canvas.instructure.com/lti/account_lookup/scope/show
         https://canvas.instructure.com/lti-ags/progress/scope/show
@@ -76,8 +82,21 @@ module Factories
     }.with_indifferent_access.freeze
 
   def lti_ims_registration_model(**params)
-    params = LTI_IMS_REGISTRATION_BASE_ATTRS.merge(params)
-    params[:developer_key] ||= developer_key_model(public_jwk_url: LTI_IMS_REGISTRATION_BASE_ATTRS[:jwks_uri], account: params.delete(:account) || account_model)
+    params = LTI_IMS_REGISTRATION_BASE_ATTRS.deep_merge(params)
+    account = params.delete(:account) || account_model
+    params[:developer_key] ||= developer_key_model(
+      public_jwk_url: params[:jwks_uri],
+      oidc_initiation_url: params[:initiate_login_uri],
+      icon_url: params[:logo_uri],
+      redirect_uris: params[:redirect_uris],
+      scopes: params[:scopes],
+      account:,
+      is_lti_key: true,
+      name: params[:client_name] || "Unnamed tool"
+    )
+    params[:lti_registration] ||= params[:developer_key].lti_registration
     @ims_registration = Lti::IMS::Registration.create!(params)
+    @ims_registration.lti_registration.update(name: @ims_registration.client_name)
+    @ims_registration
   end
 end

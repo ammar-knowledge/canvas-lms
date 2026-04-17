@@ -33,7 +33,7 @@ export interface Bookmark {
 export interface Links {
   prev?: Bookmark
   next?: Bookmark
-  current: Bookmark
+  current?: Bookmark
 }
 
 export interface FetchedEnrollments {
@@ -108,8 +108,8 @@ export interface User {
 }
 
 export interface DuplicateUser {
-  address?: string
-  account_name?: string
+  address: string
+  account_name: string
   email?: string
   user_id: string
   user_name: string

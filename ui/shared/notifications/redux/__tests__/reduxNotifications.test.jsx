@@ -17,12 +17,9 @@
  */
 
 import {subscribeFlashNotifications, notificationActions, reduceNotifications} from '../actions'
-import * as FlashAlert from '@canvas/alerts/react/FlashAlert'
+import * as FlashAlert from '@instructure/platform-alerts'
 
-jest.mock('@canvas/alerts/react/FlashAlert', () => ({
-  showFlashAlert: jest.fn(),
-  destroyContainer: jest.fn(),
-}))
+vi.mock('@instructure/platform-alerts')
 
 const createMockStore = state => ({
   subs: [],
@@ -30,18 +27,18 @@ const createMockStore = state => ({
     this.subs.push(cb)
   },
   getState: () => state,
-  dispatch: jest.fn(),
+  dispatch: vi.fn(),
   mockStateChange() {
     this.subs.forEach(sub => sub())
   },
 })
 
 describe('Redux Notifications', () => {
-  afterEach(() => {
-    FlashAlert.destroyContainer.mockClear()
+  beforeEach(() => {
+    vi.clearAllMocks()
   })
 
-  test('subscribes to a store and calls showFlashAlert for each notification in state', done => {
+  test('subscribes to a store and calls showFlashAlert for each notification in state', () => {
     const mockStore = createMockStore({
       notifications: [
         {id: '1', message: 'hello'},
@@ -52,16 +49,17 @@ describe('Redux Notifications', () => {
     subscribeFlashNotifications(mockStore)
     mockStore.mockStateChange()
 
-    setTimeout(() => {
-      expect(FlashAlert.showFlashAlert).toHaveBeenCalledTimes(2)
-      expect(FlashAlert.showFlashAlert).toHaveBeenCalledWith({id: '1', message: 'hello'})
-      expect(FlashAlert.showFlashAlert).toHaveBeenCalledWith({id: '2', message: 'world'})
+    vi.useFakeTimers()
+    vi.runAllTimers()
 
-      done()
-    }, 1)
+    expect(FlashAlert.showFlashAlert).toHaveBeenCalledTimes(2)
+    expect(FlashAlert.showFlashAlert).toHaveBeenCalledWith({id: '1', message: 'hello'})
+    expect(FlashAlert.showFlashAlert).toHaveBeenCalledWith({id: '2', message: 'world'})
+
+    vi.useRealTimers()
   })
 
-  test('subscribes to a store and dispatches clearNotifications for each notification in state', done => {
+  test('subscribes to a store and dispatches clearNotifications for each notification in state', () => {
     const mockStore = createMockStore({
       notifications: [
         {id: '1', message: 'hello'},
@@ -72,13 +70,14 @@ describe('Redux Notifications', () => {
     subscribeFlashNotifications(mockStore)
     mockStore.mockStateChange()
 
-    setTimeout(() => {
-      expect(mockStore.dispatch).toHaveBeenCalledTimes(2)
-      expect(mockStore.dispatch).toHaveBeenCalledWith(notificationActions.clearNotification('1'))
-      expect(mockStore.dispatch).toHaveBeenCalledWith(notificationActions.clearNotification('2'))
+    vi.useFakeTimers()
+    vi.runAllTimers()
 
-      done()
-    }, 1)
+    expect(mockStore.dispatch).toHaveBeenCalledTimes(2)
+    expect(mockStore.dispatch).toHaveBeenCalledWith(notificationActions.clearNotification('1'))
+    expect(mockStore.dispatch).toHaveBeenCalledWith(notificationActions.clearNotification('2'))
+
+    vi.useRealTimers()
   })
 })
 
@@ -114,7 +113,7 @@ describe('reduceNotifications', () => {
   test('adds new info notification on NOTIFY_INFO', () => {
     const newState = reduceNotifications(
       [],
-      notificationActions.notifyInfo({message: 'hello world'})
+      notificationActions.notifyInfo({message: 'hello world'}),
     )
     expect(newState).toMatchObject([{type: 'info', message: 'hello world'}])
   })
@@ -122,7 +121,7 @@ describe('reduceNotifications', () => {
   test('adds new error notification on NOTIFY_ERROR', () => {
     const newState = reduceNotifications(
       [],
-      notificationActions.notifyError({message: 'hello world', err: 'bad things happened'})
+      notificationActions.notifyError({message: 'hello world', err: 'bad things happened'}),
     )
     expect(newState).toMatchObject([
       {type: 'error', message: 'hello world', err: 'bad things happened'},
@@ -132,7 +131,7 @@ describe('reduceNotifications', () => {
   test('removes notification on CLEAR_NOTIFICATION', () => {
     const newState = reduceNotifications(
       [{id: '1', message: 'hello world', type: 'info'}],
-      notificationActions.clearNotification('1')
+      notificationActions.clearNotification('1'),
     )
     expect(newState).toEqual([])
   })

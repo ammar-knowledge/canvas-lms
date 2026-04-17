@@ -32,6 +32,12 @@
 # Usage:
 #   PandataEvents.send_event(:an_event, { context_id: 2, meta: :data }, for_user_id: @current_user.global_id)
 module PandataEvents
+  Canvas::Reloader.on_reload do
+    @config = nil
+    @credentials = nil
+    @endpoint = nil
+  end
+
   def self.credentials
     @credentials ||= Rails.application.credentials.pandata_creds&.with_indifferent_access || {}
   end
@@ -48,7 +54,7 @@ module PandataEvents
   # since it's always available for specific dev keys
   # in UsersController#pandata_events_token
   def self.enabled?
-    !!config[:enabled_for_canvas]
+    ActiveModel::Type::Boolean.new.cast(config[:enabled_for_canvas])
   end
 
   # Send data to the PandataEvents service, partitioned by `event_type`.
@@ -59,7 +65,7 @@ module PandataEvents
 
     Thread.new(event_type, data, for_user_id) { |et, d, fui| post_event(et, d, fui) }
   rescue ThreadError
-    InstStatsd::Statsd.increment("pandata_events.error.queue_failure", tags: { event_type: })
+    InstStatsd::Statsd.distributed_increment("pandata_events.error.queue_failure", tags: { event_type: })
   end
 
   def self.post_event(event_type, data, sub)
@@ -83,11 +89,11 @@ module PandataEvents
     when Net::HTTPSuccess
       true
     else
-      InstStatsd::Statsd.increment("pandata_events.error.http_failure", tags: { event_type:, status_code: res.code })
+      InstStatsd::Statsd.distributed_increment("pandata_events.error.http_failure", tags: { event_type:, status_code: res.code })
       false
     end
   rescue CanvasHttp::Error
-    InstStatsd::Statsd.increment("pandata_events.error", tags: { event_type: })
+    InstStatsd::Statsd.distributed_increment("pandata_events.error", tags: { event_type: })
     false
   end
   private_class_method :post_event

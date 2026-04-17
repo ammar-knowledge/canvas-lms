@@ -23,11 +23,12 @@ import {
   ADDRESS_BOOK_RECIPIENTS,
   ADDRESS_BOOK_RECIPIENTS_WITH_COMMON_COURSES,
 } from '../../../graphql/Queries'
-import {useQuery} from 'react-apollo'
-import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useQuery} from '@apollo/client'
+import {AlertManagerContext} from '@instructure/platform-alerts'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {decodeHTMLShortName} from '../../../util/utils'
 
-const I18n = useI18nScope('conversations_2')
+const I18n = createI18nScope('conversations_2')
 
 export const AddressBookContainer = props => {
   const {setOnSuccess} = useContext(AlertManagerContext)
@@ -95,7 +96,7 @@ export const AddressBookContainer = props => {
         courseContextCode: props.courseContextCode,
       },
       notifyOnNetworkStatusChange: true,
-    }
+    },
   )
   const {loading, data} = addressBookRecipientsQuery
 
@@ -119,7 +120,7 @@ export const AddressBookContainer = props => {
           one: '1 Address book result loaded',
           other: '%{count} Address book results loaded',
         },
-        {count: searchResults.length}
+        {count: searchResults.length},
       )
       setOnSuccess(loadedMessage)
     }
@@ -187,14 +188,14 @@ export const AddressBookContainer = props => {
 
   const getCommonCoursesInformation = commonCourses => {
     const activeEnrollments = commonCourses?.nodes.filter(
-      courseEnrollment => courseEnrollment.state === 'active'
+      courseEnrollment => courseEnrollment.state === 'active',
     )
     return activeEnrollments.map(
       courseEnrollment =>
         (courseEnrollment = {
           courseID: courseEnrollment.course._id,
           courseRole: courseEnrollment.type,
-        })
+        }),
     )
   }
 
@@ -222,16 +223,11 @@ export const AddressBookContainer = props => {
   }, [props.activeCourseFilter])
 
   const menuData = useMemo(() => {
-    // If loading is true and there is no data, return an empty array.
-    if (loading && !data) {
-      return []
-    }
-
     // Extract contextData: { id, name, and context_type}
     let contextData = (data?.legacyNode?.recipients?.contextsConnection?.nodes || []).map(c => {
       return {
         id: c.id,
-        name: c.name,
+        name: decodeHTMLShortName(c.name),
         userCount: c.userCount,
         itemType: CONTEXT_TYPE,
       }
@@ -242,19 +238,40 @@ export const AddressBookContainer = props => {
       return {
         _id: u._id,
         id: u.id,
-        name: u.shortName,
+        name: decodeHTMLShortName(u.shortName),
         pronouns: u.pronouns,
         commonCoursesInfo: props.includeCommonCourses
           ? getCommonCoursesInformation(u.commonCoursesConnection)
           : [],
         observerEnrollments: u?.observerEnrollmentsConnection?.nodes || [],
         itemType: USER_TYPE,
+        sisId: u.sisId,
       }
     })
 
     // Ensure contextData and userData are not null.
     contextData = contextData || []
     userData = userData || []
+
+    // Detect duplicate names and only include sisId for duplicates
+    if (userData.length > 0) {
+      const nameCountMap = {}
+
+      userData.forEach(user => {
+        const normalizedName = (user.name || '').trim().toLowerCase()
+        nameCountMap[normalizedName] = (nameCountMap[normalizedName] || 0) + 1
+      })
+
+      // Only keep sisId for users with duplicate names
+      userData = userData.map(user => {
+        const normalizedName = (user.name || '').trim().toLowerCase()
+        const hasDuplicateName = nameCountMap[normalizedName] > 1
+        return {
+          ...user,
+          sisId: hasDuplicateName ? user.sisId : undefined,
+        }
+      })
+    }
 
     // Set isLast property to the last items in contextData and userData if they are not loading.
     // this is used to know which menu item will trigger a fetchMore call.
@@ -338,6 +355,7 @@ export const AddressBookContainer = props => {
       isOnObserverSubmenu={isOnObserverSubmenu()}
       placeholder={props.placeholder}
       addressBookLabel={props.addressBookLabel}
+      renderingContext={props.renderingContext}
     />
   )
 }
@@ -384,6 +402,7 @@ AddressBookContainer.propTypes = {
    */
   placeholder: PropTypes.string,
   addressBookLabel: PropTypes.string,
+  renderingContext: PropTypes.string,
 }
 
 AddressBookContainer.defaultProps = {

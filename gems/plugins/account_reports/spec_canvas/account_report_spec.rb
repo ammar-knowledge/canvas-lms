@@ -20,6 +20,15 @@
 
 require_relative "report_spec_helper"
 
+class FakeAccountReport
+  attr_accessor :parameters, :user
+
+  def initialize
+    @parameters = {}
+    @user = @admin
+  end
+end
+
 describe "Account Reports" do
   include ReportSpecHelper
 
@@ -52,14 +61,14 @@ describe "Account Reports" do
   end
 
   it "records the job id" do
-    expect(Delayed::Worker).to receive(:current_job).and_return(double("Delayed::Job", id: 1234))
+    expect(Delayed::Worker).to receive(:current_job).and_return(instance_double(Delayed::Job, id: 1234))
     report = run_report("unpublished_courses_csv")
     expect(report.job_ids).to eq [1234]
   end
 
   it "records account report runner job ids for parallelized reports" do
-    expect(Delayed::Worker).to receive(:current_job).and_return(double("Delayed::Job", id: 123),
-                                                                double("Delayed::Job", id: 456))
+    expect(Delayed::Worker).to receive(:current_job).and_return(instance_double(Delayed::Job, id: 123),
+                                                                instance_double(Delayed::Job, id: 456))
     report = run_report("grade_export_csv")
     expect(report.job_ids).to eq [123]
     expect(report.account_report_runners.first.job_ids).to eq [456]
@@ -79,8 +88,8 @@ describe "Account Reports" do
               end
       }
     }
-    expect(Delayed::Worker).to receive(:current_job).and_return(double("Delayed::Job", id: 123),
-                                                                double("Delayed::Job", id: 456))
+    expect(Delayed::Worker).to receive(:current_job).and_return(instance_double(Delayed::Job, id: 123),
+                                                                instance_double(Delayed::Job, id: 456))
 
     ar = AccountReport.create!(account: Account.default, user: account_admin_user, report_type: "fake_report")
     ar.run_report
@@ -90,7 +99,32 @@ describe "Account Reports" do
     expect(ar.job_ids).to eq([123, 456])
   end
 
-  it "does not retry PG::ConnectionBad forever" do
+  it "retries ActiveRecord::ConnectionFailed" do
+    retried = false
+    AccountReports.configure_account_report "Default", {
+      "fake_report" => {
+        title: -> { "Fake Report" },
+        proc: lambda do |report|
+                unless retried
+                  retried = true
+                  raise ActiveRecord::ConnectionFailed
+                end
+                report.update workflow_state: "complete"
+              end
+      }
+    }
+    expect(Delayed::Worker).to receive(:current_job).and_return(instance_double(Delayed::Job, id: 123),
+                                                                instance_double(Delayed::Job, id: 456))
+
+    ar = AccountReport.create!(account: Account.default, user: account_admin_user, report_type: "fake_report")
+    ar.run_report
+    run_jobs
+    ar.reload
+    expect(ar).to be_complete
+    expect(ar.job_ids).to eq([123, 456])
+  end
+
+  it "does not retry exceptions forever" do
     count = 0
     AccountReports.configure_account_report "Default", {
       "sad_report" => {
@@ -124,5 +158,79 @@ describe "Account Reports" do
     run_jobs
     expect(count).to eq 1
     expect(ar.reload).to be_error
+  end
+
+  it "does not run reports that were deleted before the job starts" do
+    ran = false
+    AccountReports.configure_account_report "Default", {
+      "sad_report" => {
+        title: -> { "Test Report" },
+        proc: ->(_report) { ran = true }
+      }
+    }
+
+    ar = AccountReport.create!(account: Account.default, user: account_admin_user, report_type: "sad_report")
+    ar.run_report
+    ar.destroy
+    run_jobs
+
+    expect(ar.reload).to be_deleted
+    expect(ran).to be false
+  end
+
+  describe ".failed_report" do
+    let(:account_report) { FakeAccountReport.new }
+
+    it "sets a generic failure message by default" do
+      exception = StandardError.new("something bad happened")
+      AccountReports.failed_report(account_report, exception:)
+      message = "Failed, the report failed to generate a file. Please try again."
+      expect(account_report.parameters["extra_text"]).to eq message
+    end
+
+    context "when given an error report id" do
+      it "includes the error report id in the message" do
+        AccountReports.failed_report(account_report, error_report_id: 42)
+        message = "Failed, please report the following error code to your system administrator: ErrorReport:42;"
+        expect(account_report.parameters["extra_text"]).to eq message
+      end
+    end
+
+    context "when custom reports is installed" do
+      before do
+        stub_const("CustomReports", Module.new)
+        stub_const("CustomReports::Rubrics", Module.new)
+        stub_const("CustomReports::Rubrics::RootAccountRequiredError", Class.new(RuntimeError))
+      end
+
+      it "when exception is a RootAccountRequiredError it sets a more descriptive message" do
+        exception = CustomReports::Rubrics::RootAccountRequiredError.new
+        AccountReports.failed_report(account_report, exception:)
+        message = "This report can only be run on the root account."
+        expect(account_report.parameters["extra_text"]).to eq message
+      end
+    end
+  end
+
+  describe "sharding" do
+    specs_require_sharding
+
+    it "activates the report's shard before calling the proc" do
+      active_shard_id = nil
+      AccountReports.configure_account_report "Default", {
+        "test_report" => {
+          title: -> { "Test Report" },
+          proc: lambda do |_report|
+            active_shard_id = Shard.current.id
+          end
+        }
+      }
+      ar = AccountReport.create!(account: Account.default, user: account_admin_user, report_type: "test_report")
+
+      @shard1.activate { ar.run_report }
+      run_jobs
+
+      expect(active_shard_id).to eq ar.shard.id
+    end
   end
 end

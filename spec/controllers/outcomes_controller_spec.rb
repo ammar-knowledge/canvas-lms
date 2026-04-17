@@ -18,19 +18,24 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+require "feature_flag_helper"
+
 describe OutcomesController do
+  include FeatureFlagHelper
+
   def context_outcome(context)
     @outcome_group ||= context.root_outcome_group
     @outcome = context.created_learning_outcomes.create!(title: "outcome")
     @outcome_group.add_outcome(@outcome)
+    @outcome
   end
 
   def course_outcome
-    context_outcome(@course)
+    @course_outcome = context_outcome(@course)
   end
 
   def account_outcome
-    context_outcome(@account)
+    @account_outcome = context_outcome(@account)
   end
 
   def create_learning_outcome_result(user, score, assignment, alignment, rubric_association, submitted_at)
@@ -88,6 +93,7 @@ describe OutcomesController do
       user_session(@admin)
       account_outcome
       get "index", params: { account_id: @account.id }
+      expect(response).to be_successful
     end
 
     it "does not find a common core group from settings" do
@@ -148,17 +154,9 @@ describe OutcomesController do
 
     context "outcomes_friendly_description" do
       it "returns true if outcomes_friendly_description feature flag is enabled" do
-        Account.site_admin.enable_feature!(:outcomes_friendly_description)
         user_session(@admin)
         get "index", params: { account_id: @account.id }
         expect(assigns[:js_env][:OUTCOMES_FRIENDLY_DESCRIPTION]).to be true
-      end
-
-      it "returns false if outcomes_friendly_description feature flag is disabled" do
-        Account.site_admin.disable_feature!(:outcomes_friendly_description)
-        user_session(@admin)
-        get "index", params: { account_id: @account.id }
-        expect(assigns[:js_env][:OUTCOMES_FRIENDLY_DESCRIPTION]).to be false
       end
     end
 
@@ -175,6 +173,22 @@ describe OutcomesController do
         user_session(@admin)
         get "index", params: { account_id: @account.id }
         expect(assigns[:js_env][:ARCHIVE_OUTCOMES]).to be false
+      end
+    end
+
+    context "lmgb_student_reporting" do
+      it "returns true if lmgb_student_reporting feature flag is enabled for course" do
+        @course.enable_feature!(:lmgb_student_reporting)
+        user_session(@teacher)
+        get "index", params: { course_id: @course.id }
+        expect(assigns[:js_env][:LMGB_STUDENT_REPORTING]).to be true
+      end
+
+      it "returns false if lmgb_student_reporting feature flag is disabled for course" do
+        @course.disable_feature!(:lmgb_student_reporting)
+        user_session(@teacher)
+        get "index", params: { course_id: @course.id }
+        expect(assigns[:js_env][:LMGB_STUDENT_REPORTING]).to be false
       end
     end
   end
@@ -197,17 +211,23 @@ describe OutcomesController do
 
   context "menu_option_for_outcome_details_page" do
     it "returns true if menu_option_for_outcome_details_page feature flage is enabled" do
-      Account.site_admin.enable_feature!(:menu_option_for_outcome_details_page)
       user_session(@admin)
       get "index", params: { account_id: @account.id }
       expect(assigns[:js_env][:MENU_OPTION_FOR_OUTCOME_DETAILS_PAGE]).to be true
     end
 
     it "returns false if menu_option_for_outcome_details_page feature flage is disabled" do
-      Account.site_admin.disable_feature!(:menu_option_for_outcome_details_page)
+      mock_feature_flag_on_account(:menu_option_for_outcome_details_page, false)
       user_session(@admin)
       get "index", params: { account_id: @account.id }
       expect(assigns[:js_env][:MENU_OPTION_FOR_OUTCOME_DETAILS_PAGE]).to be false
+    end
+
+    it "returns true if menu_option_for_outcome_details_page feature flag is enabled" do
+      allow_any_instance_of(Account).to receive(:feature_enabled?).and_call_original
+      user_session(@admin)
+      get "index", params: { account_id: @account.id }
+      expect(assigns[:js_env][:MENU_OPTION_FOR_OUTCOME_DETAILS_PAGE]).to be true
     end
   end
 
@@ -280,6 +300,7 @@ describe OutcomesController do
       user_session(@admin)
       account_outcome
       get "details", params: { account_id: @account.id, outcome_id: @outcome.id }
+      expect(response).to be_successful
     end
   end
 
@@ -290,12 +311,56 @@ describe OutcomesController do
       assert_unauthorized
     end
 
-    it "returns outcomes for the given user" do
-      account_outcome
+    it "returns outcomes for the given user in an account" do
+      3.times do
+        account_outcome
+      end
+      course_outcome
+
       user_session(@admin)
       get "user_outcome_results", params: { account_id: @account.id, user_id: @student.id }
       expect(response).to be_successful
-      expect(response).to render_template("user_outcome_results")
+      expect(assigns[:outcomes].length).to eq 4
+    end
+
+    it "returns outcomes for the given user in a course" do
+      course_outcome
+      user_session(@admin)
+      get "user_outcome_results", params: { course_id: @course.id, user_id: @student.id }
+      expect(response).to be_successful
+      expect(assigns[:outcomes].length).to eq 1
+      expect(assigns[:outcomes].first.id).to eq @outcome.id
+    end
+
+    it "returns imported account outcomes for the given user in a course" do
+      course_outcome # creates a course level outcome in the course's root group
+      account_outcome # create an account outcome and associates it with the course's root group (mimics importing)
+
+      user_session(@teacher)
+      get "user_outcome_results", params: { course_id: @course.id, user_id: @student.id }
+      expect(response).to be_successful
+      expect(assigns[:outcomes].length).to eq 2
+      expect(assigns[:outcomes].map(&:id)).to contain_exactly(@course_outcome.id, @account_outcome.id)
+    end
+
+    it "does not return outcomes that are located outside of the course context" do
+      course_outcome
+      @course.account.learning_outcomes.create!(title: "account outcome")
+      user_session(@teacher)
+      get "user_outcome_results", params: { course_id: @course.id, user_id: @student.id }
+      expect(response).to be_successful
+      expect(assigns[:outcomes].length).to eq 1
+      expect(assigns[:outcomes].first.id).to eq @outcome.id
+    end
+
+    it "does not return outcomes for the given user in a course if the user is not in the course" do
+      course_with_teacher(active_all: true)
+      outcome_group = @course.root_outcome_group
+      outcome = @course.created_learning_outcomes.create!(title: "outcome")
+      outcome_group.add_outcome(outcome)
+      user_session(@teacher)
+      get "user_outcome_results", params: { course_id: @course.id, user_id: @student.id }
+      expect(response).to be_not_found
     end
 
     it "lastest score" do
@@ -316,7 +381,7 @@ describe OutcomesController do
       rubric_association3 = rubric.associate_with(assignment3, @course, purpose: "grading")
       rubric_association2 = rubric.associate_with(assignment2, @course, purpose: "grading")
 
-      now = Time.now
+      now = Time.zone.now
       yesterday = now - 1.day
       day_before_yesterday = now - 2.days
 
@@ -387,6 +452,7 @@ describe OutcomesController do
     end
 
     it "lists account outcomes for a course context" do
+      course_outcome
       account_outcome
 
       user_session(@teacher)
@@ -394,6 +460,17 @@ describe OutcomesController do
       expect(response).to be_successful
       data = json_parse
       expect(data).not_to be_empty
+    end
+
+    it "does not list account outcomes that are not in a course" do
+      # creates an outcome in the course's account but does not import it into the course
+      @course.account.learning_outcomes.create!(title: "account outcome")
+
+      user_session(@teacher)
+      get "list", params: { course_id: @course.id }
+      expect(response).to be_successful
+      data = json_parse
+      expect(data).to be_empty
     end
   end
 
@@ -432,6 +509,16 @@ describe OutcomesController do
           expect(group).to eql(@course.root_outcome_group)
         end
       end
+    end
+
+    it "creates attachment associations if necessary" do
+      user_session(@teacher)
+      aa_test_data = AttachmentAssociationsSpecHelper.new(@course.account, @course)
+      post "create", params: { course_id: @course.id, learning_outcome: outcome_params.merge({ description: aa_test_data.base_html }) }
+      expect(assigns[:outcome]).not_to be_nil
+      aas = AttachmentAssociation.where(context_type: "LearningOutcome", context_id: assigns[:outcome].id)
+      expect(aas.count).to eq 1
+      expect(aas.first.attachment_id).to eq aa_test_data.attachment1.id
     end
 
     it "allows creating a new outcome with a specific group" do
@@ -492,6 +579,30 @@ describe OutcomesController do
       @outcome.reload
       expect(@outcome[:short_description]).to eql test_string
     end
+
+    it "updates attachment associations if necessary" do
+      user_session(@teacher)
+      aa_test_data = AttachmentAssociationsSpecHelper.new(@course.account, @course)
+      put "update", params: { course_id: @course.id,
+                              id: @outcome.id,
+                              learning_outcome: { description: aa_test_data.added_html } }
+
+      aas = AttachmentAssociation.where(context_type: "LearningOutcome", context_id: @outcome.id)
+      expect(aas.count).to eq 2
+      attachment_ids = aas.pluck(:attachment_id)
+      expect(attachment_ids).to match_array [aa_test_data.attachment1.id, aa_test_data.attachment2.id]
+    end
+
+    it "removes attachment associations if necessary" do
+      user_session(@teacher)
+      aa_test_data = AttachmentAssociationsSpecHelper.new(@course.account, @course)
+      put "update", params: { course_id: @course.id,
+                              id: @outcome.id,
+                              learning_outcome: { description: aa_test_data.removed_html } }
+
+      aas = AttachmentAssociation.where(context_type: "LearningOutcome", context_id: @outcome.id)
+      expect(aas.count).to eq 0
+    end
   end
 
   describe "DELETE 'destroy'" do
@@ -547,13 +658,14 @@ describe OutcomesController do
       end
 
       it "does not return deleted results" do
-        skip("skip due to flakiness, resolve with OUT-4368")
-        @outcome.learning_outcome_results.last.destroy
+        last_outcome_result = @outcome.learning_outcome_results.last
+        last_outcome_result.destroy
+
         user_session(@teacher)
         get "outcome_result",
             params: { course_id: @course.id,
                       outcome_id: @outcome.id,
-                      id: @outcome.learning_outcome_results.last }
+                      id: last_outcome_result.id }
         expect(response).to be_not_found
       end
 

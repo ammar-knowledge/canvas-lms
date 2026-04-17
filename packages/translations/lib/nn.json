@@ -269,6 +269,9 @@
     "choose_caption_file_9c45bc4e": {
         "message": "Vel undertekstfil"
     },
+    "choose_file_8d89ccab": {
+        "message": "Vel fil"
+    },
     "choose_usage_rights_33683854": {
         "message": "Vel bruksrett..."
     },
@@ -283,12 +286,6 @@
     },
     "clear_image_3213fe62": {
         "message": "Tøm bilde"
-    },
-    "clear_selected_file_82388e50": {
-        "message": "Fjern vald fil"
-    },
-    "clear_selected_file_filename_2fe8a58e": {
-        "message": "Fjern vald fil: { filename }"
     },
     "click_or_shift_click_for_the_html_editor_25d70bb4": {
         "message": "Klikk eller shift+klikk for å gå til html-editoren."
@@ -329,6 +326,9 @@
     "collapse_to_hide_types_1ab46d2e": {
         "message": "Skjul og lukk { types }"
     },
+    "color_a363e1b0": {
+        "message": "Farge"
+    },
     "color_picker_6b359edf": {
         "message": "Fargeveljar"
     },
@@ -343,9 +343,6 @@
     },
     "complex_numbers_a543d004": {
         "message": "Komplekse tal"
-    },
-    "compose_44c904f4": {
-        "message": "Komponere"
     },
     "computer_1d7dfa6f": {
         "message": "Datamaskin"
@@ -373,9 +370,6 @@
     },
     "coproduct_e7838082": {
         "message": "Koprodukt"
-    },
-    "copy_9748f9f": {
-        "message": "Kopi"
     },
     "copyright_holder_66ee111": {
         "message": "Rettshavar:"
@@ -482,6 +476,9 @@
     "deep_purple_bb3e2907": {
         "message": "Mørk lilla"
     },
+    "default_9db103d": {
+        "message": "Standard"
+    },
     "default_bulleted_unordered_list_47079da8": {
         "message": "standard uordna liste med kulepunkt"
     },
@@ -505,9 +502,6 @@
     },
     "describe_the_type_ff448da5": {
         "message": "(Beskriv { TYPE })"
-    },
-    "describe_the_video_2fe8f46a": {
-        "message": "(Skildre videoen)"
     },
     "description_436c48d7": {
         "message": "Skildring"
@@ -631,9 +625,6 @@
     },
     "edit_link_7f53bebb": {
         "message": "Endre lenke"
-    },
-    "editor_statusbar_26ac81fc": {
-        "message": "Statusrad editor"
     },
     "element_starting_with_start_91bf4c3b": {
         "message": "Element som startar med { start }"
@@ -1256,6 +1247,12 @@
     "links_to_an_external_site_de74145d": {
         "message": "Lenker til eit ekstern område."
     },
+    "list_collapsed_9ac35920": {
+        "message": "Liste er skjult."
+    },
+    "list_expanded_efec2d0": {
+        "message": "Liste er utvida."
+    },
     "lists_should_be_formatted_as_lists_f862de8d": {
         "message": "Lister burde formaterast som lister."
     },
@@ -1393,9 +1390,6 @@
     },
     "music_icon_4db5c972": {
         "message": "Musikk-ikon"
-    },
-    "must_be_at_least_width_x_height_px_41dc825e": {
-        "message": "Må vere minst { width } x { height }px"
     },
     "my_files_2f621040": {
         "message": "Mine filer"
@@ -1568,6 +1562,9 @@
     "operators_a2ef9a93": {
         "message": "Operatør"
     },
+    "options_3ab0ea65": {
+        "message": "Alternativ"
+    },
     "or_9b70ccaa": {
         "message": "Eller"
     },
@@ -1585,9 +1582,6 @@
     },
     "outline_size_a6059a21": {
         "message": "Storleik på omriss"
-    },
-    "p_is_not_a_valid_protocol_which_must_be_ftp_http_h_adf13fc2": {
-        "message": "{ p } er ikkje ein gyldig protokoll. Den må vere anten ftp, http, https, mailto, skype, tel, eller utelatast"
     },
     "page_50c4823d": {
         "message": "Side"
@@ -1721,6 +1715,9 @@
     "prime_numbers_13464f61": {
         "message": "Primtal"
     },
+    "processing_8c569014": {
+        "message": "Behandlar..."
+    },
     "product_39cf144f": {
         "message": "Produkt"
     },
@@ -1781,6 +1778,9 @@
     "religion_icon_246e0be1": {
         "message": "Religion-ikon"
     },
+    "remove_f47dc62a": {
+        "message": "Fjern"
+    },
     "remove_heading_style_5fdc8855": {
         "message": "Fjern stil på overskrift"
     },
@@ -1819,9 +1819,6 @@
     },
     "result_index_of_max_7db5ad8b": {
         "message": "Resultat { index } av { max }."
-    },
-    "retry_ebd5f8ba": {
-        "message": "Prøv på nytt"
     },
     "rho_a0244a36": {
         "message": "Rho"
@@ -1973,23 +1970,11 @@
     "shortcut_911d6255": {
         "message": "Snarveg"
     },
-    "show_all_967a90f0": {
-        "message": "Vis alt"
-    },
-    "show_audio_options_b489926b": {
-        "message": "Vis lydalternativ"
-    },
     "show_image_options_1e2ecc6b": {
         "message": "Vis alternativ for bilde"
     },
     "show_link_options_545338fd": {
         "message": "Vis lenkealternativ"
-    },
-    "show_studio_media_options_a0c748c6": {
-        "message": "Vis medievalg for studio"
-    },
-    "show_video_options_6ed3721a": {
-        "message": "Vis videoalternativ"
     },
     "sighted_users_browse_web_pages_quickly_looking_for_1d4db0c1": {
         "message": "Personer med normalt syn navigerer nettsider raskt ved å sjå etter store eller utheva titlar. Skjermlesarar brukar titlar for å forstå konteksten. Titlar burde bruke riktig struktur."
@@ -2102,6 +2087,9 @@
     "submit_a3cc6859": {
         "message": "Send!"
     },
+    "submitting_b90fac62": {
+        "message": "Leverer..."
+    },
     "subscript_59744f96": {
         "message": "Senka skrift"
     },
@@ -2198,9 +2186,6 @@
     "the_document_preview_is_currently_being_processed__7d9ea135": {
         "message": "Førehandsvisinga av dokumentet blir behandla no. Prøv på nytt seinare."
     },
-    "the_following_content_is_partner_provided_ed1da756": {
-        "message": "Følgande innhald er lagt til av partnar"
-    },
     "the_material_is_in_the_public_domain_279c39a3": {
         "message": "Materialet er ikkje opphavsrettbeskytta"
     },
@@ -2209,9 +2194,6 @@
     },
     "the_material_is_subject_to_an_exception_e_g_fair_u_a39c8ca2": {
         "message": "Materialet er brukt i samsvar med sitatretten"
-    },
-    "the_preceding_content_is_partner_provided_d753928c": {
-        "message": "Det føregåande innhaldet er lagt til av partnar"
     },
     "the_pretty_html_editor_is_not_keyboard_accessible__d6d5d2b": {
         "message": "I den pene HTML-editoren kan du ikkje redigere med tastatur. Trykk Shift-O for å opne den reine HTML-editoren."
@@ -2324,6 +2306,9 @@
     "updated_link_a827e441": {
         "message": "Oppdatert lenke"
     },
+    "upload_8b403d05": {
+        "message": "Last opp"
+    },
     "upload_document_253f0478": {
         "message": "Last opp dokument frå disk"
     },
@@ -2428,9 +2413,6 @@
     },
     "used_by_screen_readers_to_describe_the_content_of__b1e76d9e": {
         "message": "Skjermlesarar brukar dette for å skildre innhaldet i eit bilde"
-    },
-    "used_by_screen_readers_to_describe_the_video_37ebad25": {
-        "message": "Brukt av skjermlesarar for å skildre videoen"
     },
     "user_documents_c206e61f": {
         "message": "Brukardokument"

@@ -28,8 +28,8 @@ describe CanvasImportedHtmlConverter do
   end
 
   describe ".convert" do
-    def convert_exported_html(*args)
-      @converter.convert_exported_html(*args)[0]
+    def convert_exported_html(*)
+      @converter.convert_exported_html(*)[0]
     end
 
     it "converts a wiki reference" do
@@ -334,7 +334,7 @@ describe CanvasImportedHtmlConverter do
       expect(version.yaml).to include("asdf")
       WikiPage.where(id: p.id).update_all(body: "fdsa")
       @converter.rewrite_item_version!(p.reload)
-      expect(version.reload.yaml).to_not include("asdf")
+      expect(version.reload.yaml).not_to include("asdf")
       expect(version.reload.yaml).to include("fdsa")
     end
   end

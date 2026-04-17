@@ -20,9 +20,9 @@ import $ from 'jquery'
 import {Flex} from '@instructure/ui-flex'
 import {Button} from '@instructure/ui-buttons'
 import {IconAddSolid} from '@instructure/ui-icons'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('assignmentsIndexView')
+const I18n = createI18nScope('assignmentsIndexView')
 
 export type IndexCreateProps = {
   newAssignmentUrl: string
@@ -43,7 +43,7 @@ export default ({
               <Button
                 id="new_quiz_lti"
                 data-testid="new_quiz_button"
-                renderIcon={IconAddSolid}
+                renderIcon={<IconAddSolid />}
                 href={newAssignmentUrl + '?quiz_lti'}
               >
                 {I18n.t('New Quiz')}
@@ -51,7 +51,7 @@ export default ({
             )}
             <Button
               data-testid="new_group_button"
-              renderIcon={IconAddSolid}
+              renderIcon={<IconAddSolid />}
               onClick={e => {
                 const hiddenInput = $('[data-view=addGroup]')
                 hiddenInput.click()
@@ -61,7 +61,7 @@ export default ({
             </Button>
             <Button
               data-testid="new_assignment_button"
-              renderIcon={IconAddSolid}
+              renderIcon={<IconAddSolid />}
               color="primary"
               href={newAssignmentUrl}
             >

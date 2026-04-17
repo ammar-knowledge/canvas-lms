@@ -20,6 +20,7 @@
 
 class TestApiInstance
   include Api
+
   def initialize(root_account, current_user)
     @domain_root_account = root_account
     @current_user = current_user
@@ -52,7 +53,7 @@ describe Api do
     end
 
     it "does not find a missing record" do
-      expect { @api.api_find(User, (User.all.map(&:id).max + 1)) }.to raise_error(ActiveRecord::RecordNotFound)
+      expect { @api.api_find(User, User.all.map(&:id).max + 1) }.to raise_error(ActiveRecord::RecordNotFound)
     end
 
     it "finds an existing sis_id record" do
@@ -223,7 +224,7 @@ describe Api do
 
     it "finds group by lti_context_id" do
       lti_group = Group.create!(context: course_factory)
-      Lti::Asset.opaque_identifier_for(lti_group)
+      Lti::V1p1::Asset.opaque_identifier_for(lti_group)
       expect(@api.api_find(Group, "lti_context_id:#{lti_group.lti_context_id}")).to eq lti_group
     end
 
@@ -310,13 +311,13 @@ describe Api do
       end
 
       it "infers `writable: false` from read-only request method" do
-        expect(@api).to receive(:request).and_return(double(method: "GET"))
+        expect(@api).to receive(:request).and_return(instance_double(ActionDispatch::Request, method: "GET"))
         user = @api.api_find(User, "sis_user_id:cross_shard_user")
         expect(user).to be_shadow_record
       end
 
       it "infers `writable: true` from writable request method" do
-        expect(@api).to receive(:request).and_return(double(method: "POST"))
+        expect(@api).to receive(:request).and_return(instance_double(ActionDispatch::Request, method: "POST"))
         user = @api.api_find(User, "sis_user_id:cross_shard_user")
         expect(user).not_to be_shadow_record
       end
@@ -342,7 +343,7 @@ describe Api do
     end
 
     it "does not find a missing record" do
-      expect(@api.api_find_all(User, [(User.all.map(&:id).max + 1)])).to eq []
+      expect(@api.api_find_all(User, [User.all.map(&:id).max + 1])).to eq []
     end
 
     it "finds an existing sis_id record" do
@@ -394,7 +395,7 @@ describe Api do
     end
 
     it "does not hit the database if no valid conditions were found" do
-      collection = double
+      collection = class_double(Course)
       allow(collection).to receive(:table_name).and_return("courses")
       expect(collection).to receive(:none).once
       relation = @api.api_find_all(collection, ["sis_invalid:1"])
@@ -501,9 +502,9 @@ describe Api do
     end
 
     it "tries and make params when non-ar_id columns have returned with ar_id columns" do
-      collection = double
+      collection = class_double(Course)
       pluck_result = ["thing2", "thing3"]
-      relation_result = double(eager_load_values: nil, pluck: pluck_result)
+      relation_result = instance_double(ActiveRecord::Relation, eager_load_values: nil, pluck: pluck_result)
       expect(Api).to receive(:sis_find_sis_mapping_for_collection).with(collection).and_return({ lookups: { "id" => "test-lookup" } })
       expect(Api).to receive(:sis_parse_ids).with("test-ids", { "id" => "test-lookup" }, anything, root_account: "test-root-account")
                                             .and_return({ "test-lookup" => { ids: ["thing1", "thing2"] }, "other-lookup" => { ids: ["thing2", "thing3"] } })
@@ -512,9 +513,9 @@ describe Api do
     end
 
     it "tries and make params when non-ar_id columns have returned without ar_id columns" do
-      collection = double
+      collection = class_double(Course)
       pluck_result = ["thing2", "thing3"]
-      relation_result = double(eager_load_values: nil, pluck: pluck_result)
+      relation_result = instance_double(ActiveRecord::Relation, eager_load_values: nil, pluck: pluck_result)
       expect(Api).to receive(:sis_find_sis_mapping_for_collection).with(collection).and_return({ lookups: { "id" => "test-lookup" } })
       expect(Api).to receive(:sis_parse_ids).with("test-ids", { "id" => "test-lookup" }, anything, root_account: "test-root-account")
                                             .and_return({ "other-lookup" => ["thing2", "thing3"] })
@@ -523,7 +524,7 @@ describe Api do
     end
 
     it "does not try and make params when no non-ar_id columns have returned with ar_id columns" do
-      collection = double
+      collection = class_double(Course)
       expect(Api).to receive(:sis_find_sis_mapping_for_collection).with(collection).and_return({ lookups: { "id" => "test-lookup" } })
       expect(Api).to receive(:sis_parse_ids).with("test-ids", { "id" => "test-lookup" }, anything, root_account: "test-root-account")
                                             .and_return({ "test-lookup" => { ids: ["thing1", "thing2"] } })
@@ -532,7 +533,7 @@ describe Api do
     end
 
     it "does not try and make params when no non-ar_id columns have returned without ar_id columns" do
-      collection = double
+      collection = class_double(Course)
       expect(Api).to receive(:sis_find_sis_mapping_for_collection).with(collection).and_return({ lookups: { "id" => "test-lookup" } })
       expect(Api).to receive(:sis_parse_ids).with("test-ids", { "id" => "test-lookup" }, anything, root_account: "test-root-account")
                                             .and_return({})
@@ -681,7 +682,7 @@ describe Api do
     end
 
     it "properly generates an escaped arg string" do
-      expect(Api.relation_for_sis_mapping_and_columns(User, { "id" => { ids: ["1", 2, 3] } }, { scope: "scope" }, Account.default).to_sql).to match(/\(scope = #{Account.default.id} AND \(id IN \('1',2,3\)\)\)/)
+      expect(Api.relation_for_sis_mapping_and_columns(User, { "id" => { ids: ["1", 2, 3] } }, { root_account_id_column: "scope" }, Account.default).to_sql).to match(/\(scope = #{Account.default.id} AND \(id IN \('1', 2, 3\)\)\)/)
     end
 
     it "works with no columns" do
@@ -689,11 +690,11 @@ describe Api do
     end
 
     it "adds in joins if the sis_mapping has some with columns" do
-      expect(Api.relation_for_sis_mapping_and_columns(User, { "id" => { ids: ["1", 2, 3] } }, { scope: "scope", joins: "some joins" }, Account.default).eager_load_values).to eq ["some joins"]
+      expect(Api.relation_for_sis_mapping_and_columns(User, { "id" => { ids: ["1", 2, 3] } }, { root_account_id_column: "scope", joins: "some joins" }, Account.default).eager_load_values).to eq ["some joins"]
     end
 
     it "works with a few different column types and account scopings" do
-      expect(Api.relation_for_sis_mapping_and_columns(User, { "id1" => { ids: [1, 2, 3] }, "id2" => { ids: %w[a b c] }, "id3" => { ids: %w[s1 s2 s3] } }, { scope: "some_scope", is_not_scoped_to_account: ["id3"] }, Account.default).to_sql).to match(/\(\(some_scope = #{Account.default.id} AND \(id1 IN \(1,2,3\)\)\) OR \(some_scope = #{Account.default.id} AND \(id2 IN \('a','b','c'\)\)\) OR id3 IN \('s1','s2','s3'\)\)/)
+      expect(Api.relation_for_sis_mapping_and_columns(User, { "id1" => { ids: [1, 2, 3] }, "id2" => { ids: %w[a b c] }, "id3" => { ids: %w[s1 s2 s3] } }, { root_account_id_column: "some_scope", is_not_scoped_to_account: ["id3"] }, Account.default).to_sql).to match(/\(\(some_scope = #{Account.default.id} AND \(id1 IN \(1, 2, 3\)\)\) OR \(some_scope = #{Account.default.id} AND \(id2 IN \('a', 'b', 'c'\)\)\) OR id3 IN \('s1', 's2', 's3'\)\)/)
     end
 
     it "fails if we're scoping to an account and the scope isn't provided" do
@@ -817,27 +818,56 @@ describe Api do
 
   context "ISO8601 regex" do
     it "does not allow invalid dates" do
-      expect("10/01/2014").to_not match Api::ISO8601_REGEX
+      expect(Api::ISO8601_REGEX).not_to match "10/01/2014"
     end
 
     it "does not allow non ISO8601 dates" do
-      expect("2014-10-01").to_not match Api::ISO8601_REGEX
+      expect(Api::ISO8601_REGEX).not_to match "2014-10-01"
     end
 
     it "does not allow garbage dates" do
-      expect("bad_data").to_not match Api::ISO8601_REGEX
+      expect(Api::ISO8601_REGEX).not_to match "bad_data"
     end
 
     it "allows valid dates" do
-      expect("2014-10-01T00:00:00-06:00").to match Api::ISO8601_REGEX
+      expect(Api::ISO8601_REGEX).to match "2014-10-01T00:00:00-06:00"
     end
 
     it "does not allow valid dates BC" do
-      expect("-2014-10-01T00:00:00-06:00").to_not match Api::ISO8601_REGEX
+      expect(Api::ISO8601_REGEX).not_to match "-2014-10-01T00:00:00-06:00"
     end
   end
 
-  context ".api_user_content" do
+  context "SHARDID_REGEX" do
+    let(:regex) { /\A#{Api::SHARDID_REGEX}\z/o }
+
+    it "matches simple numeric IDs" do
+      expect(regex).to match "123"
+      expect(regex).to match "1"
+      expect(regex).to match "999999"
+    end
+
+    it "matches shard-prefixed IDs" do
+      expect(regex).to match "2~123"
+      expect(regex).to match "10~456"
+      expect(regex).to match "1~1"
+    end
+
+    it "does not match invalid formats" do
+      expect(regex).not_to match "abc"
+      expect(regex).not_to match "~123"
+      expect(regex).not_to match "123~"
+      expect(regex).not_to match "a~b"
+      expect(regex).not_to match "123~abc"
+    end
+
+    it "does not match negative numbers" do
+      expect(regex).not_to match "-123"
+      expect(regex).not_to match "2~-123"
+    end
+  end
+
+  describe ".api_user_content" do
     let(:klass) do
       Class.new do
         include Api
@@ -888,6 +918,46 @@ describe Api do
       end
     end
 
+    context "with location tag" do
+      let(:proxy_instance) { klass.new }
+
+      before do
+        proxy_instance.instance_variable_set(:@domain_root_account, Account.default)
+        proxy_instance.extend Rails.application.routes.url_helpers
+        proxy_instance.extend ActionDispatch::Routing::UrlFor
+
+        allow(proxy_instance).to receive_messages(
+          request: nil,
+          get_host_and_protocol_from_request: ["school.instructure.com", "https"],
+          url_options: {}
+        )
+      end
+
+      it "adds location to html file tags" do
+        student_in_course
+        @course.root_account.enable_feature!(:file_association_access)
+        att = attachment_model(context: @course)
+        att2 = attachment_model(context: @student)
+
+        html = <<~HTML
+          <iframe src="/media_attachments_iframe/#{att.id}"></iframe>
+          <img src="/courses/#{@course.id}/files/#{att.id}/preview">
+          <img src="/users/#{@student.id}/files/#{att2.id}/preview">
+          <img src="https://dummy-web.test/asdf">
+        HTML
+
+        location = "course_#{@course.id}"
+
+        expected = <<~HTML
+          <iframe src="https://school.instructure.com/media_attachments_iframe/#{att.id}?location=#{location}" loading="lazy"></iframe>
+          <img src="https://school.instructure.com/courses/#{@course.id}/files/#{att.id}/preview?location=#{location}" loading="lazy" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@course.id}/files/#{att.id}" data-api-returntype="File">
+          <img src="https://school.instructure.com/users/#{@student.id}/files/#{att2.id}/preview?location=#{location}" loading="lazy" data-api-endpoint="https://school.instructure.com/api/v1/users/#{@student.id}/files/#{att2.id}" data-api-returntype="File">
+          <img src="https://dummy-web.test/asdf" loading="lazy">
+        HTML
+        expect(proxy_instance.api_user_content(html, @course, @student, location: @course.asset_string)).to eq expected
+      end
+    end
+
     context "sharding" do
       specs_require_sharding
 
@@ -906,24 +976,31 @@ describe Api do
           )
         end
 
-        it "transposes ids in urls, leaving equation images alone" do
-          html = @shard1.activate do
-            a = Account.create!
-            student_in_course(account: a, active_all: true)
-            @file = attachment_model(context: @course, folder: Folder.root_folders(@course).first)
-            <<~HTML
-              <img src="/equation_images/1%2520%252B%25201%2520%252B%2520n%2520%252B%25202%250A2%2520%252B%25201n%2520%252B%25202n%250A3%2520%252B%2520n%250Ax%2520%252B%250A4%2520%252B%250An?scale=1">
-              <img src="/courses/#{@course.id}/files/#{@file.id}/download?wrap=1" data-api-returntype="File" data-api-endpoint="https://canvas.vanity.edu/api/v1/courses/#{@course.id}/files/#{@file.id}">
-              <a href="/courses/#{@course.id}/pages/module-1" data-api-returntype="Page" data-api-endpoint="https://canvas.vanity.edu/api/v1/courses/#{@course.id}/pages/module-1">link</a>
-            HTML
+        context "with double testing disable_adding_uuid_verifier_in_api FF" do
+          before do
+            @html = @shard1.activate do
+              a = Account.create!
+              student_in_course(account: a, active_all: true)
+              @file = attachment_model(context: @course, folder: Folder.root_folders(@course).first)
+              <<~HTML
+                <img src="/equation_images/1%2520%252B%25201%2520%252B%2520n%2520%252B%25202%250A2%2520%252B%25201n%2520%252B%25202n%250A3%2520%252B%2520n%250Ax%2520%252B%250A4%2520%252B%250An?scale=1">
+                <img src="/courses/#{@course.id}/files/#{@file.id}/download?wrap=1" data-api-returntype="File" data-api-endpoint="https://canvas.vanity.edu/api/v1/courses/#{@course.id}/files/#{@file.id}">
+                <a href="/courses/#{@course.id}/pages/module-1" data-api-returntype="Page" data-api-endpoint="https://canvas.vanity.edu/api/v1/courses/#{@course.id}/pages/module-1">link</a>
+              HTML
+            end
           end
 
-          res = proxy_instance.api_user_content(html, @course, @student)
-          expect(res).to eq <<~HTML
-            <img src="https://school.instructure.com/equation_images/1%2520%252B%25201%2520%252B%2520n%2520%252B%25202%250A2%2520%252B%25201n%2520%252B%25202n%250A3%2520%252B%2520n%250Ax%2520%252B%250A4%2520%252B%250An?scale=1">
-            <img src="https://school.instructure.com/courses/#{@shard1.id}~#{@course.local_id}/files/#{@shard1.id}~#{@file.local_id}/download?verifier=#{@file.uuid}&amp;wrap=1" data-api-returntype="File" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~#{@course.local_id}/files/#{@shard1.id}~#{@file.local_id}">
-            <a href="https://school.instructure.com/courses/#{@shard1.id}~#{@course.local_id}/pages/module-1" data-api-returntype="Page" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~#{@course.local_id}/pages/module-1">link</a>
-          HTML
+          double_testing_with_disable_adding_uuid_verifier_in_api_ff(attachment_variable_name: "file") do
+            it "transposes ids in urls, leaving equation images alone" do
+              Account.default.disable_feature!(:disable_adding_uuid_verifier_in_api) unless disable_adding_uuid_verifier_in_api
+              res = proxy_instance.api_user_content(@html, @course, @student)
+              expect(res).to eq <<~HTML
+                <img src="https://school.instructure.com/equation_images/1%2520%252B%25201%2520%252B%2520n%2520%252B%25202%250A2%2520%252B%25201n%2520%252B%25202n%250A3%2520%252B%2520n%250Ax%2520%252B%250A4%2520%252B%250An?scale=1" loading="lazy">
+                <img src="https://school.instructure.com/courses/#{@shard1.id}~#{@course.local_id}/files/#{@shard1.id}~#{@file.local_id}/download#{disable_adding_uuid_verifier_in_api ? "?" : "?verifier=#{@file.uuid}&amp;"}wrap=1" data-api-returntype="File" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~#{@course.local_id}/files/#{@shard1.id}~#{@file.local_id}" loading="lazy">
+                <a href="https://school.instructure.com/courses/#{@shard1.id}~#{@course.local_id}/pages/module-1" data-api-returntype="Page" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~#{@course.local_id}/pages/module-1">link</a>
+              HTML
+            end
+          end
         end
       end
 
@@ -941,13 +1018,13 @@ describe Api do
     end
   end
 
-  context ".process_incoming_html_content" do
+  describe ".process_incoming_html_content" do
     let(:klass) do
       Class.new do
         extend Api
 
         def self.request
-          OpenStruct.new({ host: "some-host.com", port: 80 })
+          @request ||= ActionDispatch::Request.new("HTTP_HOST" => "some-host.com")
         end
       end
     end
@@ -996,10 +1073,10 @@ describe Api do
     end
   end
 
-  context ".paginate" do
-    let(:request) { double("request", query_parameters: {}) }
-    let(:response) { double("response", headers: {}) }
-    let(:controller) { double("controller", request:, response:, params: {}) }
+  describe ".paginate" do
+    let(:request) { instance_double(ActionDispatch::Request, query_parameters: {}) }
+    let(:response) { instance_double(ActionDispatch::Response, headers: {}) }
+    let(:controller) { instance_double(ApplicationController, request:, response:, params: {}) }
 
     describe "#ordered_colection" do
       it "orders a relation" do
@@ -1011,10 +1088,28 @@ describe Api do
     describe "ordinal collection" do
       let(:collection) { [1, 2, 3] }
 
+      it "works as expected with a page number in range" do
+        controller = instance_double(ApplicationController, request:, response:, params: { per_page: 1 })
+        page = Api.paginate(collection, controller, "example.com", page: 2)
+        expect(page).to eq [2]
+        expect(page.next_page).to eq 3
+        expect(page.last_page).to eq 3
+      end
+
+      it "retrieves the last page" do
+        controller = instance_double(ApplicationController, request:, response:, params: { per_page: 1 })
+        page = Api.paginate(collection, controller, "example.com", page: 3)
+        expect(page).to eq [3]
+        expect(page.next_page).to be_nil
+        expect(page.last_page).to eq 3
+      end
+
       it "does not raise Folio::InvalidPage for pages past the end" do
-        controller = double("controller", request:, response:, params: { per_page: 1 })
-        expect(Api.paginate(collection, controller, "example.com", page: collection.size + 1))
-          .to eq []
+        controller = instance_double(ApplicationController, request:, response:, params: { per_page: 1 })
+        page = Api.paginate(collection, controller, "example.com", page: 4)
+        expect(page).to eq []
+        expect(page.next_page).to be_nil
+        expect(page.last_page).to eq 3
       end
 
       it "does not raise Folio::InvalidPage for integer-equivalent non-Integer pages" do
@@ -1041,7 +1136,7 @@ describe Api do
 
       context "with no max_per_page argument" do
         it "limits to the default max_per_page" do
-          controller = double("controller", request:, response:, params: { per_page: Api::MAX_PER_PAGE + 5 })
+          controller = instance_double(ApplicationController, request:, response:, params: { per_page: Api::MAX_PER_PAGE + 5 })
           expect(Api.paginate(collection, controller, "example.com").size)
             .to eq Api::MAX_PER_PAGE
         end
@@ -1049,14 +1144,14 @@ describe Api do
 
       context "with no per_page parameter" do
         it "limits to the default per_page" do
-          controller = double("controller", request:, response:, params: {})
+          controller = instance_double(ApplicationController, request:, response:, params: {})
           expect(Api.paginate(collection, controller, "example.com").size)
             .to eq Api::PER_PAGE
         end
       end
 
       context "with per_page parameter > max_per_page argument" do
-        let(:controller) { double("controller", request:, response:, params: { per_page: 100 }) }
+        let(:controller) { instance_double(ApplicationController, request:, response:, params: { per_page: 100 }) }
 
         it "takes the smaller of the max_per_page arugment and the per_page param" do
           expect(Api.paginate(collection, controller, "example.com", { max_per_page: 75 }).size)
@@ -1065,7 +1160,7 @@ describe Api do
       end
 
       context "with per_page parameter < max_per_page argument" do
-        let(:controller) { double("controller", request:, response:, params: { per_page: 75 }) }
+        let(:controller) { instance_double(ApplicationController, request:, response:, params: { per_page: 75 }) }
 
         it "takes the smaller of the max_per_page arugment and the per_page param" do
           expect(Api.paginate(collection, controller, "example.com", { max_per_page: 100 }).size)
@@ -1075,10 +1170,10 @@ describe Api do
     end
   end
 
-  context ".jsonapi_paginate" do
-    let(:request) { double("request", query_parameters: {}) }
-    let(:response) { double("response", headers: {}) }
-    let(:controller) { double("controller", request:, response:, params: {}) }
+  describe ".jsonapi_paginate" do
+    let(:request) { instance_double(ActionDispatch::Request, query_parameters: {}) }
+    let(:response) { instance_double(ActionDispatch::Response, headers: {}) }
+    let(:controller) { instance_double(ApplicationController, request:, response:, params: {}) }
     let(:collection) { [1, 2, 3] }
 
     it "returns the links in the headers" do
@@ -1101,7 +1196,7 @@ describe Api do
     end
   end
 
-  context ".build_links" do
+  describe ".build_links" do
     it "does not build links if not pagination is provided" do
       expect(Api.build_links("www.example.com")).to be_empty
     end
@@ -1186,17 +1281,17 @@ describe Api do
 
     it "returns true when application/vnd.api+json in the Accept header" do
       controller = test_api_controller.new
-      allow(controller).to receive(:request).and_return double(headers: {
-                                                                 "Accept" => "application/vnd.api+json"
-                                                               })
+      allow(controller).to receive(:request).and_return instance_double(ActionDispatch::Request, headers: {
+                                                                          "Accept" => "application/vnd.api+json"
+                                                                        })
       expect(controller.accepts_jsonapi?).to be true
     end
 
     it "returns false when application/vnd.api+json not in the Accept header" do
       controller = test_api_controller.new
-      allow(controller).to receive(:request).and_return double(headers: {
-                                                                 "Accept" => "application/json"
-                                                               })
+      allow(controller).to receive(:request).and_return instance_double(ActionDispatch::Request, headers: {
+                                                                          "Accept" => "application/json"
+                                                                        })
       expect(controller.accepts_jsonapi?).to be false
     end
   end
@@ -1238,6 +1333,111 @@ describe Api do
     it "returns url with a combination of items" do
       url = @api.templated_url(:course_assignment_url, "{courses.id}", "1}")
       expect(url).to eq "http://www.example.com/courses/{courses.id}/assignments/1%7D"
+    end
+  end
+
+  context "api_user_content with YouTube banner injection" do
+    let(:test_controller) do
+      Class.new(ApplicationController) do
+        include Api
+
+        attr_accessor :current_user, :context, :domain_root_account, :include_mobile, :native_app_user_agent
+
+        def initialize
+          @current_user = nil
+          @context = nil
+          @domain_root_account = nil
+          @include_mobile = false
+          @native_app_user_agent = nil
+          super
+        end
+
+        def request
+          @request ||= Struct.new(:user_agent, :host_with_port, :ssl?) do
+            def initialize(user_agent, host_with_port = "example.com", ssl: false)
+              super(user_agent, host_with_port, ssl)
+            end
+          end.new(@native_app_user_agent)
+        end
+      end
+    end
+
+    let(:controller) { test_controller.new }
+    let(:course) { course_model }
+    let(:user) { user_model }
+
+    let(:html_with_youtube) do
+      '<p>Check out this video:</p><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" width="560" height="315" lazy="true" loading="lazy"></iframe>'
+    end
+
+    let(:html_without_youtube) do
+      "<p>This is regular content without any videos.</p>"
+    end
+
+    before do
+      controller.current_user = user
+      controller.context = course
+      controller.domain_root_account = Account.default
+    end
+
+    context "when accessed from native mobile app" do
+      before do
+        controller.native_app_user_agent = "iosTeacher/1.0" # Simulate Canvas iOS Teacher app
+      end
+
+      it "injects YouTube banner when YouTube embeds are present" do
+        result = controller.api_user_content(html_with_youtube)
+
+        expect(result).to include("This page has embedded YouTube content that may display advertisements.")
+        expect(result).to include(html_with_youtube)
+      end
+
+      it "does not inject banner when no YouTube embeds are present" do
+        result = controller.api_user_content(html_without_youtube)
+
+        expect(result).not_to include("This page has embedded YouTube content that may display advertisements.")
+        expect(result).to include(html_without_youtube)
+      end
+    end
+
+    context "when accessed from web browser" do
+      before do
+        controller.native_app_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" # Regular web browser
+      end
+
+      it "does not inject YouTube banner even when YouTube embeds are present" do
+        result = controller.api_user_content(html_with_youtube)
+
+        expect(result).not_to include("This page has embedded YouTube content that may display advertisements.")
+        expect(result).to include(html_with_youtube)
+      end
+    end
+
+    context "when mobile_device? method is not available" do
+      let(:controller_without_mobile) do
+        Class.new do
+          include Api
+
+          attr_accessor :current_user, :context, :domain_root_account
+
+          def initialize
+            @current_user = nil
+            @context = nil
+            @domain_root_account = nil
+          end
+        end.new
+      end
+
+      it "does not inject banner and does not raise error" do
+        controller_without_mobile.current_user = user
+        controller_without_mobile.context = course
+        controller_without_mobile.domain_root_account = Account.default
+
+        result = controller_without_mobile.api_user_content(html_with_youtube)
+
+        expect(result).not_to include("YouTube Content Detected")
+        expect(result).to include(html_with_youtube)
+      end
     end
   end
 end

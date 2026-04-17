@@ -17,7 +17,6 @@
  */
 
 import UploadQueue from '../UploadQueue'
-import sinon from 'sinon'
 
 const mockFileOptions = (name = 'foo', type = 'bar', expandZip = false) => ({
   file: {
@@ -75,17 +74,15 @@ describe('UploadQueue', () => {
     UploadQueue.attemptNextUpload = original
   })
 
-  test('processes one upload at a time', done => {
+  test('processes one upload at a time', async () => {
     const original = UploadQueue.createUploader
     UploadQueue.createUploader = mockFileUploader
     UploadQueue.enqueue('foo')
     UploadQueue.enqueue('bar')
     UploadQueue.enqueue('baz')
     expect(UploadQueue.length()).toBe(2) // first item starts, remainder are waiting
-    window.setTimeout(() => {
-      expect(UploadQueue.length()).toBe(1) // after two more ticks there is only one remaining
-      done()
-    }, 2)
+    await new Promise(resolve => window.setTimeout(resolve, 2))
+    expect(UploadQueue.length()).toBe(1) // after two more ticks there is only one remaining
     UploadQueue.createUploader = original
   })
 
@@ -113,23 +110,23 @@ describe('UploadQueue', () => {
     const sentinel = mockFileOptions('sentinel')
     UploadQueue.currentUploader = sentinel
     const all = UploadQueue.getAllUploaders()
-    expect(all.length).toBe(3)
+    expect(all).toHaveLength(3)
     expect(all.indexOf(sentinel)).toBe(0)
     UploadQueue.currentUploader = undefined
     UploadQueue.attemptNextUpload = original
   })
 
   test('calls onChange', () => {
-    const onChangeSpy = sinon.spy(UploadQueue, 'onChange')
-    const callbackSpy = sinon.spy()
+    const onChangeSpy = vi.spyOn(UploadQueue, 'onChange')
+    const callbackSpy = vi.fn()
     UploadQueue.addChangeListener(callbackSpy)
     const foo = mockFileOptions('foo', 'bar', true)
     const uploader = UploadQueue.createUploader(foo)
 
     uploader.onProgress()
-    expect(onChangeSpy.calledOnce).toBe(true)
-    expect(callbackSpy.calledWith(UploadQueue)).toBe(true)
-    expect(callbackSpy.calledOnce).toBe(true)
+    expect(onChangeSpy).toHaveBeenCalledTimes(1)
+    expect(callbackSpy).toHaveBeenCalledWith(UploadQueue)
+    expect(callbackSpy).toHaveBeenCalledTimes(1)
   })
 
   test('can retry a specific uploader', async () => {

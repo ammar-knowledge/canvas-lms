@@ -19,12 +19,12 @@
 
 module Lti
   # @API Webhooks Subscriptions for Plagiarism Platform
-  # **LTI API for Webhook Subscriptions (Must use <a href="jwt_access_tokens.html">JWT access tokens</a> with this API).**
+  # **LTI API for Webhook Subscriptions (Must use <a href="file.jwt_access_tokens.html">JWT access tokens</a> with this API).**
   #
   # This is intended for use with Canvas'
-  # <a href="plagiarism_platform.html">Plagiarism Detection Platform</a>. For
+  # <a href="file.plagiarism_platform.html">Plagiarism Detection Platform</a>. For
   # general-purpose event subscriptions see
-  # <a href="data_service_introduction.html">Live Events</a>.
+  # <a href="file.data_service_introduction.html">Live Events</a>.
   #
   # The tool proxy must also have the appropriate enabled capabilities (See appendix).
   #
@@ -57,7 +57,7 @@ module Lti
       }.freeze
     ].freeze
 
-    skip_before_action :load_user
+    skip_before_action :load_user, :require_user
     before_action :authorized_lti2_tool, :verify_service_configured
 
     rescue_from Lti::SubscriptionsValidator::InvalidContextType do

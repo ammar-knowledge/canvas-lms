@@ -27,7 +27,7 @@ describe Quizzes::QuizzesController do
     override.save!
   end
 
-  context "#show" do
+  describe "#show" do
     before do
       course_with_teacher_logged_in(active_all: true)
       assignment_model(course: @course)
@@ -131,7 +131,7 @@ describe Quizzes::QuizzesController do
   context "show_student" do
     before do
       course_with_student_logged_in(active_all: true)
-      course_quiz true
+      course_quiz(active: true)
       post "/courses/#{@course.id}/quizzes/#{@quiz.id}/take?user_id=#{@student.id}"
 
       get "/courses/#{@course.id}/quizzes/#{@quiz.id}/take"
@@ -156,7 +156,7 @@ describe Quizzes::QuizzesController do
     end
   end
 
-  context "#history" do
+  describe "#history" do
     context "pending_review" do
       def mkquiz
         quiz_with_graded_submission([{ question_data: { :name => "question 1", :points_possible => 1, "question_type" => "essay_question" } },
@@ -222,7 +222,7 @@ describe Quizzes::QuizzesController do
     end
   end
 
-  def course_quiz(active = false)
+  def course_quiz(active: false)
     @quiz = @course.quizzes.create
     @quiz.workflow_state = "available" if active
     @quiz.save!

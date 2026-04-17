@@ -17,10 +17,6 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-# manually require since ::MessageableUser satisfies
-# AddressBook::MessageableUser and prevents the autoload
-require_relative "address_book/messageable_user"
-
 # see AddressBook::Base for primary documentation of the interface
 module AddressBook
   STRATEGIES = {
@@ -79,7 +75,7 @@ module AddressBook
       case context_type
       when "course" then Course
       when "section" then CourseSection
-      when "group" then Group
+      when "group", "differentiation_tag" then Group
       when "discussion_topic" then DiscussionTopic
       end
     context_class.find(context_id)

@@ -16,30 +16,57 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React from 'react'
 import {RadioInputGroup, RadioInput} from '@instructure/ui-radio-input'
 import {Checkbox} from '@instructure/ui-checkbox'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
+import {confirm} from '@canvas/instui-bindings/react/Confirm'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 
 export default class DeveloperKeyStateControl extends React.Component {
-  setBindingState = newValue => {
-    // eslint-disable-next-line no-alert
-    const confirmation = window.confirm(
-      I18n.t('Are you sure you want to change the state of this developer key?')
-    )
+  confirmStateChange = (developerKey, newState) => {
+    const keyName = developerKey?.name || developerKey?.tool_configuration?.title
+
+    return confirm({
+      title:
+        newState === 'on'
+          ? I18n.t('Turn On Developer Key')
+          : newState === 'off'
+            ? I18n.t('Turn Off Developer Key')
+            : newState === 'allow'
+              ? I18n.t('Set Developer Key to "Allow"')
+              : undefined,
+      confirmButtonLabel:
+        newState === 'on'
+          ? I18n.t('Switch to On')
+          : newState === 'off'
+            ? I18n.t('Switch to Off')
+            : newState === 'allow'
+              ? I18n.t('Switch to Allow')
+              : I18n.t('Confirm'),
+      message: keyName
+        ? I18n.t('Are you sure you want to change the state of the developer key "%{keyName}"?', {
+            keyName,
+          })
+        : I18n.t('Are you sure you want to change the state of this developer key?'),
+    })
+  }
+
+  setBindingState = async newValue => {
+    const confirmation = await this.confirmStateChange(this.props.developerKey, newValue)
     if (!confirmation) {
       return
     }
+
     this.props.store.dispatch(
       this.props.actions.setBindingWorkflowState(
         this.props.developerKey,
         this.props.ctx.params.contextId,
-        newValue
-      )
+        newValue,
+      ),
     )
   }
 
@@ -55,6 +82,15 @@ export default class DeveloperKeyStateControl extends React.Component {
   }
 
   radioGroupValue() {
+    if (
+      ENV.FEATURES?.lti_deactivate_registrations &&
+      this.props.developerKey.is_lti_key &&
+      !this.isSiteAdmin() &&
+      !this.props.inheritedTab
+    ) {
+      return this.props.developerKey.lti_registration_workflow_state === 'active' ? 'on' : 'off'
+    }
+
     const devKeyBinding = this.props.developerKey.developer_key_account_binding
     if (devKeyBinding) {
       return devKeyBinding.workflow_state || 'allow'
@@ -110,7 +146,7 @@ export default class DeveloperKeyStateControl extends React.Component {
             <ScreenReaderContent>{I18n.t('Key state for the current account')}</ScreenReaderContent>
           }
           onChange={(e, val) => this.setBindingState(val)}
-          disabled={this.isDisabled()}
+          disabled={this.isDisabled() || ENV.devKeysReadOnly}
           name={this.props.developerKey.id}
           value={this.radioGroupValue()}
         >
@@ -175,8 +211,8 @@ export default class DeveloperKeyStateControl extends React.Component {
           checked={this.radioGroupValue() === 'on'}
           disabled={this.isDisabled()}
           name={this.props.developerKey.id}
-          onChange={e => {
-            const newValue = e.target.checked ? 'on' : 'off'
+          onChange={() => {
+            const newValue = this.radioGroupValue() === 'on' ? 'off' : 'on'
             this.setBindingState(newValue)
           }}
         />
@@ -195,6 +231,8 @@ DeveloperKeyStateControl.propTypes = {
   developerKey: PropTypes.shape({
     id: PropTypes.string.isRequired,
     inherited_to: PropTypes.string,
+    is_lti_key: PropTypes.bool,
+    lti_registration_workflow_state: PropTypes.string,
     workflow_state: PropTypes.string,
     name: PropTypes.string,
     developer_key_account_binding: PropTypes.shape({
@@ -207,6 +245,7 @@ DeveloperKeyStateControl.propTypes = {
       contextId: PropTypes.string.isRequired,
     }),
   }).isRequired,
+  inheritedTab: PropTypes.bool,
 }
 
 DeveloperKeyStateControl.defaultProps = {

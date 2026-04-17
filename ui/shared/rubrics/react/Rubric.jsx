@@ -17,16 +17,17 @@
  */
 import {Flex} from '@instructure/ui-flex'
 import {Table} from '@instructure/ui-table'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {get, isUndefined, keyBy, max, sum} from 'lodash'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {keyBy, get, isUndefined, max, sum} from 'es-toolkit/compat'
 import PropTypes from 'prop-types'
 import React, {useEffect, useRef, useState} from 'react'
 import Criterion from './Criterion'
 import {getSavedComments} from './helpers'
 import {roundIfWhole} from './Points'
 import {rubricAssessmentShape, rubricAssociationShape, rubricShape} from './types'
+import AiUsageButton from './components/AiUsageButton'
 
-const I18n = useI18nScope('edit_rubricRubric')
+const I18n = createI18nScope('edit_rubricRubric')
 
 // be a little responsive about minimum widths of columns in the rubric table
 const MIN_WIDTH_PERCENT = 20
@@ -50,18 +51,17 @@ const totalAssessingString = (score, possible) =>
 const HiddenTableRow = ({children}) => <tr style={{visibility: 'collapse'}}>{children}</tr>
 HiddenTableRow.displayName = 'Row'
 
-const Rubric = props => {
-  const {
-    allowExtraCredit,
-    customRatings,
-    onAssessmentChange,
-    rubric,
-    rubricAssessment,
-    rubricAssociation,
-    isSummary,
-    flexWidth,
-  } = props
-
+const Rubric = ({
+  allowExtraCredit = false,
+  customRatings = [],
+  onAssessmentChange = null,
+  rubric,
+  rubricAssessment = null,
+  rubricAssociation = {},
+  isAiEvaluated = false,
+  isSummary = false,
+  flexWidth = false,
+}) => {
   const tableRef = useRef()
   const [narrowColWidths, setNarrowColWidths] = useState(undefined)
 
@@ -90,7 +90,7 @@ const Rubric = props => {
 
   // we show the last column for points or comments button
   const showPointsColumn = () => {
-    if (ENV['restrict_quantitative_data']) {
+    if (ENV.restrict_quantitative_data) {
       return false
     }
     if (isSummary) {
@@ -176,7 +176,7 @@ const Rubric = props => {
       setNarrowColWidths(
         (width * MIN_WIDTH_PERCENT) / 100 > MIN_WIDTH_PIXELS
           ? `${MIN_WIDTH_PERCENT}%`
-          : `${MIN_WIDTH_PIXELS}px`
+          : `${MIN_WIDTH_PIXELS}px`,
       )
     }
 
@@ -195,14 +195,17 @@ const Rubric = props => {
           <HiddenTableRow>{headingCells}</HiddenTableRow>
           <Table.Row>
             <Table.ColHeader id="rubric-title" colSpan={numColumns}>
-              {rubric.title}
+              <Flex justifyItems="space-between" alignItems="center" padding="0">
+                {rubric.title}
+                {isAiEvaluated && <AiUsageButton />}
+              </Flex>
             </Table.ColHeader>
           </Table.Row>
           <Table.Row>{headingCells}</Table.Row>
         </Table.Head>
         <Table.Body data-testid="criterions">
           {criteria}
-          {showTotalPoints && !ENV['restrict_quantitative_data'] && (
+          {showTotalPoints && !ENV.restrict_quantitative_data && (
             <Table.Row>
               <Table.Cell colSpan={numColumns}>
                 <Flex justifyItems="end">
@@ -232,16 +235,6 @@ Rubric.propTypes = {
   rubricAssociation: PropTypes.shape(rubricAssociationShape),
   isSummary: PropTypes.bool,
   flexWidth: PropTypes.bool,
-}
-
-Rubric.defaultProps = {
-  allowExtraCredit: false,
-  customRatings: [],
-  onAssessmentChange: null,
-  rubricAssessment: null,
-  rubricAssociation: {},
-  isSummary: false,
-  flexWidth: false,
 }
 
 export default Rubric

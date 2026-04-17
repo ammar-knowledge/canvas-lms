@@ -24,7 +24,7 @@ describe Quizzes::QuizStatistics do
     @quiz = @course.quizzes.create!
     @quiz.quiz_questions.create!(question_data: { name: "test 1" })
     @quiz.generate_quiz_data
-    @quiz.published_at = Time.now
+    @quiz.published_at = Time.zone.now
     @quiz.save!
   end
 
@@ -47,7 +47,7 @@ describe Quizzes::QuizStatistics do
     # and one in progress
     @quiz.generate_submission(@student)
 
-    stats = @quiz.statistics(false)
+    stats = @quiz.statistics(include_all_versions: false)
     expect(stats[:multiple_attempts_exist]).to be_falsey
   end
 
@@ -79,7 +79,7 @@ describe Quizzes::QuizStatistics do
 
     stats2 = Timecop.freeze(2.minutes.from_now) do
       @quiz.one_question_at_a_time = true
-      @quiz.published_at = Time.now
+      @quiz.published_at = Time.zone.now
       @quiz.save!
       @quiz.reload
       @quiz.current_statistics_for("student_analysis") # twice
@@ -155,11 +155,11 @@ describe Quizzes::QuizStatistics do
 
   describe "self#large_quiz?" do
     let :active_quiz_questions do
-      double(size: 50)
+      instance_double(ActiveRecord::Relation, size: 50)
     end
 
     let :quiz_submissions do
-      double(size: 15)
+      instance_double(ActiveRecord::Relation, size: 15)
     end
 
     let :quiz do

@@ -27,10 +27,13 @@ module Lti
       include_context "lti2_api_spec_helper"
 
       let(:service_name) { "vnd.Canvas.CustomSecurity" }
+      let(:host) { request.host }
 
       controller(ApplicationController) do
         include Lti::IMS::AccessTokenHelper
+
         before_action :authorized_lti2_tool
+        skip_before_action :require_user
 
         def index
           head :ok

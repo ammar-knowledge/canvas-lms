@@ -152,25 +152,25 @@ const props = {
   isLoading: false,
   isLoadingMoreMenuData: false,
   hasMoreMenuData: false,
-  fetchMoreMenuData: jest.fn(),
+  fetchMoreMenuData: vi.fn(),
   isError: {},
 }
 
-jest.mock('../../../../util/utils', () => ({
-  ...jest.requireActual('../../../../util/utils'),
-  responsiveQuerySizes: jest.fn(),
+vi.mock('../../../../util/utils', async () => ({
+  ...(await vi.importActual('../../../../util/utils')),
+  responsiveQuerySizes: vi.fn(),
 }))
 
 describe('ConversationListHolder', () => {
   beforeAll(() => {
     // Add appropriate mocks for responsive
-    window.matchMedia = jest.fn().mockImplementation(() => {
+    window.matchMedia = vi.fn().mockImplementation(() => {
       return {
         matches: true,
         media: '',
         onchange: null,
-        addListener: jest.fn(),
-        removeListener: jest.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
       }
     })
 
@@ -190,7 +190,7 @@ describe('ConversationListHolder', () => {
   it('renders the provided conversations', () => {
     const {getAllByTestId} = render(<ConversationListHolder {...props} />)
     const conversations = getAllByTestId('conversation')
-    expect(conversations.length).toBe(5)
+    expect(conversations).toHaveLength(5)
   })
 
   it('should be able to select conversations', () => {
@@ -198,11 +198,11 @@ describe('ConversationListHolder', () => {
     const conversation = getAllByText('This is a different subject line')
     fireEvent.click(conversation[0])
     const checkboxes = getAllByTestId('conversationListItem-Checkbox')
-    expect(checkboxes.filter(c => c.checked === true).length).toBe(1)
+    expect(checkboxes.filter(c => c.checked === true)).toHaveLength(1)
   })
 
   it('Sets the selected conversation as the conversation not the conversation participant', () => {
-    const onSelect = jest.fn()
+    const onSelect = vi.fn()
     const {getAllByText} = render(<ConversationListHolder {...props} onSelect={onSelect} />)
     const conversation = getAllByText('This is a different subject line')
     fireEvent.click(conversation[0])
@@ -211,7 +211,7 @@ describe('ConversationListHolder', () => {
   })
 
   it('should be able to open conversations', () => {
-    const onSelectMock = jest.fn()
+    const onSelectMock = vi.fn()
     const {getAllByText} = render(<ConversationListHolder onSelect={onSelectMock} {...props} />)
     const conversation = getAllByText('This is a different subject line')
     fireEvent.click(conversation[0])
@@ -229,7 +229,7 @@ describe('ConversationListHolder', () => {
       metaKey: true,
     })
     const checkboxes = getAllByTestId('conversationListItem-Checkbox')
-    expect(checkboxes.filter(c => c.checked === true).length).toBe(3)
+    expect(checkboxes.filter(c => c.checked === true)).toHaveLength(3)
   })
 
   it('should be able to select multiple conversations using crtl key', () => {
@@ -243,7 +243,7 @@ describe('ConversationListHolder', () => {
       ctrlKey: true,
     })
     const checkboxes = getAllByTestId('conversationListItem-Checkbox')
-    expect(checkboxes.filter(c => c.checked === true).length).toBe(3)
+    expect(checkboxes.filter(c => c.checked === true)).toHaveLength(3)
   })
 
   it('should unselect multi select when conversation opened', () => {
@@ -258,7 +258,7 @@ describe('ConversationListHolder', () => {
     })
     fireEvent.click(conversations[4])
     const checkboxes = getAllByTestId('conversationListItem-Checkbox')
-    expect(checkboxes.filter(c => c.checked === true).length).toBe(1)
+    expect(checkboxes.filter(c => c.checked === true)).toHaveLength(1)
   })
 
   it('Should display No Conversations to Show Panda SVG', async () => {

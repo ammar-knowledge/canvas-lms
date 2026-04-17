@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -22,14 +21,14 @@ import {InstUISettingsProvider} from '@instructure/emotion'
 import {IconButton} from '@instructure/ui-buttons'
 import {IconExpandStartLine} from '@instructure/ui-icons'
 import {Text} from '@instructure/ui-text'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import AssignmentGradeInput from '../AssignmentGradeInput/index'
 import InvalidGradeIndicator from '../InvalidGradeIndicator'
 import SimilarityIndicator from '../SimilarityIndicator'
 import type {Submission} from '../../../../../../../api.d' // !!!! FIXME
 import type {CamelizedAssignment, GradeEntryMode} from '@canvas/grading/grading.d'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 const componentOverrides = {
   IconButton: {
@@ -49,6 +48,8 @@ type Props = {
   editorOptions: {
     column: {
       assignmentId: string
+      isPeerReviewAssignment: boolean
+      peerReviewAssignment: CamelizedAssignment | null
     }
     grid: {}
     item: {
@@ -181,7 +182,12 @@ export default class AssignmentRowCell extends Component<Props> {
 
   handleToggleTrayButtonClick = () => {
     const options = this.props.editorOptions
-    this.props.onToggleSubmissionTrayOpen(options.item.id, options.column.assignmentId)
+
+    const submissionTrayAssignmentId = options.column.isPeerReviewAssignment
+      ? (options.column.peerReviewAssignment as CamelizedAssignment).id
+      : options.column.assignmentId
+
+    this.props.onToggleSubmissionTrayOpen(options.item.id, submissionTrayAssignmentId)
   }
 
   focus() {
@@ -233,9 +239,12 @@ export default class AssignmentRowCell extends Component<Props> {
               disabled={this.props.submissionIsUpdating}
               gradingScheme={this.props.gradingScheme}
               pointsBasedGradingScheme={this.props.pointsBasedGradingScheme}
+              // @ts-expect-error
               pendingGradeInfo={this.props.pendingGradeInfo}
               ref={this.bindGradeInput}
+              // @ts-expect-error
               scalingFactor={this.props.scalingFactor}
+              // @ts-expect-error
               submission={this.props.submission}
             />
           </div>

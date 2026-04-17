@@ -31,7 +31,6 @@ describe('Instructure Image Plugin: clickCallback', () => {
       source: {
         initializeCollection() {},
         initializeUpload() {},
-        initializeFlickr() {},
         initializeImages() {},
         initializeDocuments() {},
         initializeMedia() {},
@@ -53,7 +52,7 @@ describe('Instructure Image Plugin: clickCallback', () => {
     container.className = 'canvas-rce-upload-container'
     document.body.appendChild(container)
     await clickCallback(editor, document, trayProps)
-    expect(document.querySelectorAll('.canvas-rce-upload-container').length).toEqual(1)
+    expect(document.querySelectorAll('.canvas-rce-upload-container')).toHaveLength(1)
   })
 
   it('opens the UploadImage modal when called', async () => {
@@ -61,7 +60,7 @@ describe('Instructure Image Plugin: clickCallback', () => {
     expect(
       getAllByLabelText(document, 'Upload Image', {
         selector: 'form',
-      })[0]
+      })[0],
     ).toBeVisible()
   })
 })

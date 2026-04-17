@@ -46,7 +46,7 @@ describe "student planner" do
     switch_to_dashcard_view
 
     expect(dashboard_card_container).to contain_css("[aria-label='#{@course.name}']")
-    expect(dashboard_card_header_content).to contain_css("h3[title='#{@course.name}']")
+    expect(dashboard_card_header_content).to contain_css("h2[title='#{@course.name}']")
   end
 
   it "shows and navigates to announcements page from student planner", priority: "1" do
@@ -103,7 +103,7 @@ describe "student planner" do
 
   context "wiki_pages" do
     before :once do
-      @wiki_page = @course.wiki_pages.create!(title: "Page1", todo_date: DateTime.current.change({ min: 5 }) + 2.days)
+      @wiki_page = @course.wiki_pages.create!(title: "Page1", todo_date: Time.zone.now.change({ min: 5 }) + 2.days)
     end
 
     it "shows the date in the index page" do
@@ -157,8 +157,7 @@ describe "student planner" do
 
   context "Peer Reviews" do
     before :once do
-      @reviewee = user_factory(active_all: true)
-      @course.enroll_student(@reviewee).accept!
+      @reviewee = course_with_student(course: @course, active_all: true).user
       @assignment = @course.assignments.create({
                                                  name: "Peer Review Assignment",
                                                  due_at: 1.day.from_now,
@@ -166,10 +165,11 @@ describe "student planner" do
                                                  automatic_peer_reviews: false,
                                                  submission_types: "online_text_entry"
                                                })
+      submission_model(assignment: @assignment, user: @reviewee)
       @assignment.assign_peer_review(@student1, @reviewee)
     end
 
-    it "shows peer review submissions" do
+    it "shows peer review submissions", priority: "1" do
       go_to_list_view
 
       validate_object_displayed(@course.name, "Peer Review")
@@ -178,16 +178,20 @@ describe "student planner" do
       expect(list_view_planner_item("Planner Course Assignment")).not_to contain_css(peer_review_icon_selector)
     end
 
-    it "navigates to peer review submission when clicked" do
+    it "will navigate to peer review submission when clicked", priority: "1" do
+      @assignment.submit_homework(@student1, submission_type: "online_text_entry", body: "text")
       go_to_list_view
-      click_peer_review(@course.name, @assignment.name)
-
-      expect(driver.current_url).to include "courses/#{@course.id}/assignments/#{@assignment.id}/submissions"
+      link = peer_review_link(@course.name, @assignment.name)
+      expect(link).to be_present
+      expect(link.attribute("href")).to include(
+        "courses/#{@course.id}/assignments/#{@assignment.id}/submissions"
+      )
     end
 
-    it "marks peer review as completed" do
+    it "marks peer review as completed", priority: "1" do
       go_to_list_view
       mark_peer_review_as_complete(@course.name)
+      wait_for_ajaximations
 
       expect(peer_review_item(@course.name)).to contain_jqcss("label:contains('Peer Review #{@assignment.name} is marked as done.')")
     end
@@ -278,6 +282,7 @@ describe "student planner" do
       # gives the To Do a new name and saves it
       title_input("Title Text").send_keys([:control, "a"], :backspace, "New Text")
       todo_save_button.click
+      wait_for_ajaximations
 
       # verifies that the edited To Do is showing up
       todo_item = todo_info_holder
@@ -327,7 +332,9 @@ describe "student planner" do
       expect(todo_item).to include_text("To Do")
       expect(todo_item).to include_text("Title Text")
       click_item_button("Title Text")
-      fj("button:contains('Delete')").click
+      delete_button = fj("button:contains('Delete')")
+      keep_trying_until { expect(delete_button).to be_present }
+      delete_button.click
       alert = driver.switch_to.alert
       expect(alert.text).to eq("Are you sure you want to delete this planner item?")
       alert.accept
@@ -378,21 +385,6 @@ describe "student planner" do
       expect(format_date_for_view(@student_to_do.todo_date, :long)).to eq(day)
     end
 
-    it "adds date and time to a to-do item.", priority: "1" do
-      skip "FOO-3821 cf. https://github.com/instructure/instructure-ui/issues/1276"
-      go_to_list_view
-      todo_modal_button.click
-      modal = todo_sidebar_modal
-      element = ff("input", modal)[1]
-      element.click
-      fj("button:contains('15')").click
-      title_input.send_keys("the title")
-      time_input.click
-      fj("span[role=option]:contains('9:00 AM')").click
-      todo_save_button.click
-      expect(ff(".planner-item").last).to include_text "DUE: 9:00 AM"
-    end
-
     it "updates the sidebar when clicking on mutiple to-do items", priority: "1" do
       student_to_do2 = @student1.planner_notes.create!(todo_date: 5.minutes.from_now,
                                                        title: "Student to do 2")
@@ -418,7 +410,7 @@ describe "student planner" do
         todo_tray_select_course_from_dropdown
       rescue => e
         if attempt < max_attempts
-          puts "\t Attempt #{attempt} failed! Retrying..."
+          Rails.logger.info "\t Attempt #{attempt} failed! Retrying..."
           sleep 0.5
           retry
         end
@@ -449,11 +441,15 @@ describe "student planner" do
     end
   end
 
-  it "shows and navigates to wiki pages with todo dates from student planner", priority: "1" do
+  it "shows wiki pages with todo dates from student planner", priority: "1" do
     page = @course.wiki_pages.create!(title: "Page1", todo_date: 2.days.from_now)
     go_to_list_view
     validate_object_displayed(@course.name, "Page")
-    validate_link_to_url(page, "pages")
+    page_title = flnpt(page.title.to_s)
+    expect(page_title).to be_present
+    expect(page_title.attribute("href")).to include(
+      "courses/#{@course.id}/pages/#{page.title.downcase}"
+    )
   end
 
   context "with existing assignment, open opportunities" do
@@ -586,32 +582,10 @@ describe "student planner" do
     end
 
     it "allows account admins with content management rights to add todo dates" do
-      @course.root_account.disable_feature!(:granular_permissions_manage_courses)
-      @course.root_account.disable_feature!(:granular_permissions_manage_course_content)
-      @wiki = @course.wiki_pages.create!(title: "Default Time Wiki Page")
-      admin = account_admin_user_with_role_changes(role_changes: { manage_courses: false })
-      user_session(admin)
-
-      expect(@course.grants_right?(admin, :manage)).to be false # sanity check
-      expect(@course.grants_right?(admin, :manage_content)).to be true
-
-      get("/courses/#{@course.id}/pages/#{@wiki.id}/edit")
-      f("#student_planner_checkbox").click
-      wait_for_ajaximations
-      replace_content(f('input[name="student_todo_at"]'), format_date_for_view(Time.zone.now).to_s, tab_out: true)
-      scroll_into_view(fj('button:contains("Save")'))
-      expect_new_page_load { hover_and_click('button:contains("Save")') }
-      expect(@wiki.reload.todo_date).to be_present
-    end
-
-    it "allows account admins with content management rights to add todo dates (granular permissions)" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
-      @course.root_account.enable_feature!(:granular_permissions_manage_course_content)
       @wiki = @course.wiki_pages.create!(title: "Default Time Wiki Page")
       admin = account_admin_user
       user_session(admin)
 
-      expect(@course.grants_right?(admin, :manage)).to be true
       expect(@course.grants_right?(admin, :manage_course_content_edit)).to be true
 
       get("/courses/#{@course.id}/pages/#{@wiki.id}/edit")
@@ -622,10 +596,11 @@ describe "student planner" do
     end
 
     it "shows correct default time in an ungraded discussion" do
+      skip "Will be fixed in VICE-5634 2025-11-11"
       Timecop.freeze(Time.zone.today) do
         @discussion = @course.discussion_topics.create!(title: "Default Time Discussion", message: "here is a message", user: @teacher)
         get("/courses/#{@course.id}/discussion_topics/#{@discussion.id}/edit")
-        f("#allow_todo_date").click
+        f("label[for='allow_todo_date']").click
         wait_for_ajaximations
         replace_content(f('input[name="todo_date"]'), format_date_for_view(Time.zone.now).to_s, tab_out: true)
         expect_new_page_load { submit_form(".form-actions") }

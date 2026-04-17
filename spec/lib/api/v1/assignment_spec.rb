@@ -17,18 +17,15 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require_relative "../../../spec_helper"
 require "webmock/rspec"
 
 class AssignmentApiHarness
   include Api::V1::Assignment
 
-  def value_to_boolean(value)
-    Canvas::Plugin.value_to_boolean(value)
-  end
+  delegate :value_to_boolean, to: :"Canvas::Plugin"
 
-  def api_user_content(description, course, user, _)
-    "api_user_content(#{description}, #{course.id}, #{user.id})"
+  def api_user_content(description, course, user, _, location: nil)
+    "api_user_content(#{description}, #{course.id}, #{user.id}, location: #{location})"
   end
 
   def course_assignment_url(context_id, assignment)
@@ -47,12 +44,20 @@ class AssignmentApiHarness
     "/course/#{course.id}/quizzes/#{quiz.id}/submissions?zip=1"
   end
 
+  def speed_grader_course_gradebook_url(course, assignment_id:)
+    "/course/#{course.id}/gradebook/speed_grader?assignment_id=#{assignment_id}"
+  end
+
   def strong_anything
     ArbitraryStrongishParams::ANYTHING
   end
 
   def grading_periods?
     false
+  end
+
+  def in_app?
+    true
   end
 end
 
@@ -70,6 +75,7 @@ describe "Api::V1::Assignment" do
       json = api.assignment_json(assignment, user, session, { override_dates: false })
       expect(json["needs_grading_count"]).to eq(0)
       expect(json["needs_grading_count_by_section"]).to be_nil
+      expect(json["new_quizzes_anonymous_participants"]).to be false
     end
 
     it "includes section-based counts when grading flag is passed" do
@@ -80,6 +86,14 @@ describe "Api::V1::Assignment" do
                                  { override_dates: false, needs_grading_count_by_section: true })
       expect(json["needs_grading_count"]).to eq(0)
       expect(json["needs_grading_count_by_section"]).to eq []
+    end
+
+    it "includes new_quizzes_anonymous_participants when set to true" do
+      assignment.settings = { "new_quizzes" => { "anonymous_participants" => true } }
+      assignment.save!
+
+      json = api.assignment_json(assignment, user, session)
+      expect(json["new_quizzes_anonymous_participants"]).to be true
     end
 
     it "includes an associated planner override when flag is passed" do
@@ -213,6 +227,7 @@ describe "Api::V1::Assignment" do
     context "checkpoints" do
       context "not in-place" do
         it "json does not have has_sub_assignments and checkpoints when FF is turned off" do
+          assignment.course.account.disable_feature!(:discussion_checkpoints)
           json = api.assignment_json(assignment, user, session, { include_checkpoints: true })
           expect(json).not_to have_key "has_sub_assignments"
           expect(json).not_to have_key "checkpoints"
@@ -221,7 +236,7 @@ describe "Api::V1::Assignment" do
 
       context "discussion_checkpoints enabled without checkpoints" do
         before do
-          assignment.root_account.enable_feature!(:discussion_checkpoints)
+          assignment.course.account.enable_feature!(:discussion_checkpoints)
         end
 
         it "returns false for the has_sub_assignments attribute and [] for the checkpoints attribute" do
@@ -233,7 +248,7 @@ describe "Api::V1::Assignment" do
 
       context "discussion_checkpoints enabled with checkpoints" do
         before do
-          assignment.root_account.enable_feature!(:discussion_checkpoints)
+          assignment.course.account.enable_feature!(:discussion_checkpoints)
 
           assignment.update_attribute(:has_sub_assignments, true)
 
@@ -354,7 +369,7 @@ describe "Api::V1::Assignment" do
       describe "checkpointed assignments" do
         before do
           @student1 = student_in_course(course: @course, active_all: true).user
-          @course.root_account.enable_feature!(:discussion_checkpoints)
+          @course.account.enable_feature!(:discussion_checkpoints)
 
           @topic = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
           Checkpoints::DiscussionCheckpointCreatorService.call(
@@ -383,6 +398,27 @@ describe "Api::V1::Assignment" do
           expect(json["all_dates"].pluck(:due_at)).to contain_exactly(*due_dates)
         end
       end
+
+      it "returns empty all_dates array and all_dates_count when there are more than 25 overrides" do
+        course = course_model
+        teacher = teacher_in_course(course:, active_all: true).user
+        assignment = assignment_model(course:)
+
+        # Create 26 sections and one override for each section
+        26.times do |i|
+          section = course.course_sections.create!(name: "Section #{i + 1}")
+          assignment.assignment_overrides.create!(
+            set_type: "CourseSection",
+            set_id: section.id,
+            due_at: (i + 1).days.from_now
+          )
+        end
+
+        json = api.assignment_json(assignment, teacher, session, { include_all_dates: true })
+
+        expect(json["all_dates"]).to eq([])
+        expect(json["all_dates_count"]).to eq(26)
+      end
     end
 
     context "for a quiz" do
@@ -397,6 +433,44 @@ describe "Api::V1::Assignment" do
         json = api.assignment_json(@assignment, user, session)
 
         expect(json["submissions_download_url"]).to eq "/course/#{@course.id}/quizzes/#{@quiz.id}/submissions?zip=1"
+      end
+    end
+
+    it "handles include_module_ids gracefully when quiz is nil (CNVS-15477)" do
+      orphaned_quiz_assignment = assignment_model
+      orphaned_quiz_assignment.update_column(:submission_types, "online_quiz")
+      # Intentionally not creating a quiz to simulate orphaned state
+
+      expect(orphaned_quiz_assignment.submission_types).to eq "online_quiz"
+      expect(orphaned_quiz_assignment.quiz).to be_nil
+
+      json = api.assignment_json(orphaned_quiz_assignment, user, session, { include_module_ids: true })
+
+      expect(json["module_ids"]).to be_nil
+      expect(json["module_positions"]).to be_nil
+    end
+
+    it "handles include_module_ids gracefully when discussion_topic is nil" do
+      orphaned_discussion_assignment = assignment_model
+      orphaned_discussion_assignment.update_column(:submission_types, "discussion_topic")
+      # Intentionally not creating a discussion_topic to simulate orphaned state
+
+      expect(orphaned_discussion_assignment.submission_types).to eq "discussion_topic"
+      expect(orphaned_discussion_assignment.discussion_topic).to be_nil
+
+      json = api.assignment_json(orphaned_discussion_assignment, user, session, { include_module_ids: true })
+
+      expect(json["module_ids"]).to be_nil
+      expect(json["module_positions"]).to be_nil
+    end
+
+    context "when file_association_access feature flag is enabled" do
+      it "adds location tag to description" do
+        attachment = Attachment.create!(context: user, filename: "user_avatar_pic", uploaded_data: StringIO.new("sometextgoeshere"))
+        assignment.description = "<img src='/users/#{user.id}/files/#{attachment.id}>"
+
+        json = api.assignment_json(assignment, user, session, { override_dates: false })
+        expect(json["description"]).to eq(api.api_user_content(assignment.description, @course, user, {}, location: assignment.asset_string))
       end
     end
 
@@ -416,7 +490,7 @@ describe "Api::V1::Assignment" do
                                  { override_dates: false })
       expect(json).to be_a(Hash)
       expect(json).to have_key "description"
-      expect(json["description"]).to eq(api.api_user_content("Foobers", @course, user, {}))
+      expect(json["description"]).to eq(api.api_user_content("Foobers", @course, user, {}, location: assignment.asset_string))
 
       json = api.assignment_json(assignment,
                                  user,
@@ -431,7 +505,7 @@ describe "Api::V1::Assignment" do
                                  { override_dates: false })
       expect(json).to be_a(Hash)
       expect(json).to have_key "description"
-      expect(json["description"]).to eq(api.api_user_content("Foobers", @course, user, {}))
+      expect(json["description"]).to eq(api.api_user_content("Foobers", @course, user, {}, location: assignment.asset_string))
     end
 
     it "excludes needs_grading_counts when exclude_response_fields flag is " \
@@ -567,6 +641,189 @@ describe "Api::V1::Assignment" do
           json = api.assignment_json(assignment, user, session, {})
           expect(json).to have_key("require_lockdown_browser")
           expect(json["require_lockdown_browser"]).to be_falsy
+        end
+      end
+    end
+
+    context "in a horizon course" do
+      let(:account) { Account.create!(name: "Horizon Account", horizon_account: true) }
+      let(:course) { Course.create!(horizon_course: true, account:) }
+      let(:assignment) { assignment_model(course:) }
+
+      before do
+        account.enable_feature!(:horizon_course_setting)
+        EstimatedDuration.create!(duration: 5.minutes, assignment:)
+      end
+
+      it "returns estimated duration" do
+        json = api.assignment_json(assignment, user, session, {})
+        expect(json).to have_key("estimated_duration")
+      end
+    end
+
+    context "with peer_review_allocation_and_grading feature flag enabled" do
+      before do
+        @assignment = assignment_model
+        @assignment.update_attribute(:peer_reviews, true)
+        @assignment.update_attribute(:peer_review_count, 2)
+        @assignment.course.enable_feature!(:peer_review_allocation_and_grading)
+        @student1 = student_in_course(active_all: true, course: @assignment.course).user
+        @student2 = student_in_course(active_all: true, course: @assignment.course).user
+      end
+
+      it "includes peer_review_count" do
+        json = api.assignment_json(@assignment, user, session, {})
+        expect(json).to have_key("peer_review_count")
+        expect(json["peer_review_count"]).to eq 2
+      end
+
+      it "includes has_peer_review_submissions as false when no peer reviews completed" do
+        json = api.assignment_json(@assignment, user, session, {})
+        expect(json).to have_key("has_peer_review_submissions")
+        expect(json["has_peer_review_submissions"]).to be false
+      end
+
+      it "includes has_peer_review_submissions as true when peer reviews completed" do
+        submission1 = @assignment.find_or_create_submission(@student1)
+        submission2 = @assignment.find_or_create_submission(@student2)
+        AssessmentRequest.create!(
+          user: @student1,
+          asset: submission1,
+          assessor_asset: submission2,
+          assessor: @student2,
+          workflow_state: "completed"
+        )
+
+        json = api.assignment_json(@assignment, user, session, {})
+        expect(json).to have_key("has_peer_review_submissions")
+        expect(json["has_peer_review_submissions"]).to be true
+      end
+
+      it "does not include has_peer_review_submissions when peer reviews are disabled" do
+        @assignment.update_attribute(:peer_reviews, false)
+        json = api.assignment_json(@assignment, user, session, {})
+        expect(json).not_to have_key("has_peer_review_submissions")
+      end
+
+      it "does not include has_peer_review_submissions when feature flag is disabled" do
+        @assignment.course.disable_feature!(:peer_review_allocation_and_grading)
+        json = api.assignment_json(@assignment, user, session, {})
+        expect(json).not_to have_key("has_peer_review_submissions")
+      end
+    end
+
+    context "peer review sub-assignment html_url" do
+      it "uses parent assignment ID in html_url for peer review sub-assignments" do
+        course = course_model
+        parent_assignment = assignment_model(course:)
+        peer_review_sub_assignment = PeerReviewSubAssignment.create!(parent_assignment:)
+
+        json = api.assignment_json(peer_review_sub_assignment, user, session, {})
+
+        expect(json["html_url"]).to eq("assignment/url/#{course.id}/#{parent_assignment.id}")
+      end
+
+      it "uses its own ID in html_url for regular assignments" do
+        course = course_model
+        regular_assignment = assignment_model(course:)
+
+        json = api.assignment_json(regular_assignment, user, session, {})
+
+        expect(json["html_url"]).to eq("assignment/url/#{course.id}/#{regular_assignment.id}")
+      end
+    end
+
+    context "availability_status" do
+      it "includes availability_status when assignment is open with future lock date" do
+        course = course_model
+        teacher = teacher_in_course(course:, active_all: true).user
+        assignment = assignment_model(course:, lock_at: 5.days.from_now)
+
+        json = api.assignment_json(assignment, teacher, session, {})
+
+        expect(json).to have_key("availability_status")
+        expect(json["availability_status"]["status"]).to eq("open")
+        expect(json["availability_status"]["date"]).to eq(assignment.lock_at)
+      end
+
+      it "includes availability_status when assignment is pending with future unlock date" do
+        course = course_model
+        teacher = teacher_in_course(course:, active_all: true).user
+        assignment = assignment_model(course:, unlock_at: 5.days.from_now, due_at: 10.days.from_now)
+
+        json = api.assignment_json(assignment, teacher, session, {})
+
+        expect(json).to have_key("availability_status")
+        expect(json["availability_status"]["status"]).to eq("pending")
+        expect(json["availability_status"]["date"]).to eq(assignment.unlock_at)
+      end
+
+      it "includes availability_status when assignment is closed with past lock date" do
+        course = course_model
+        teacher = teacher_in_course(course:, active_all: true).user
+        assignment = assignment_model(course:, lock_at: 5.days.ago, due_at: 10.days.ago)
+
+        json = api.assignment_json(assignment, teacher, session, {})
+
+        expect(json).to have_key("availability_status")
+        expect(json["availability_status"]["status"]).to eq("closed")
+        expect(json["availability_status"]["date"]).to be_nil
+      end
+
+      it "does not include availability_status when assignment has no date restrictions" do
+        course = course_model
+        teacher = teacher_in_course(course:, active_all: true).user
+        assignment = assignment_model(course:, unlock_at: nil, lock_at: nil)
+
+        json = api.assignment_json(assignment, teacher, session, {})
+
+        expect(json).not_to have_key("availability_status")
+      end
+
+      it "does not include availability_status when unlock_at is in past and lock_at is nil" do
+        course = course_model
+        teacher = teacher_in_course(course:, active_all: true).user
+        assignment = assignment_model(course:, unlock_at: 5.days.ago, lock_at: nil)
+
+        json = api.assignment_json(assignment, teacher, session, {})
+
+        expect(json).not_to have_key("availability_status")
+      end
+
+      context "with all_dates" do
+        it "includes availability_status for each date override" do
+          course = course_model
+          teacher = teacher_in_course(course:, active_all: true).user
+          assignment = assignment_model(course:, lock_at: 5.days.from_now)
+          section = course.course_sections.create!(name: "Test Section")
+          assignment.assignment_overrides.create!(
+            set_type: "CourseSection",
+            set_id: section.id,
+            unlock_at: 2.days.from_now,
+            lock_at: 10.days.from_now
+          )
+
+          json = api.assignment_json(assignment, teacher, session, { include_all_dates: true })
+
+          expect(json["all_dates"]).to be_present
+          open_dates = json["all_dates"].select { |d| d["availability_status"]&.dig("status") == "open" }
+          pending_dates = json["all_dates"].select { |d| d["availability_status"]&.dig("status") == "pending" }
+
+          expect(open_dates).not_to be_empty
+          expect(pending_dates).not_to be_empty
+        end
+
+        it "does not include availability_status for dates with no restrictions" do
+          course = course_model
+          teacher = teacher_in_course(course:, active_all: true).user
+          assignment = assignment_model(course:, unlock_at: nil, lock_at: nil)
+
+          json = api.assignment_json(assignment, teacher, session, { include_all_dates: true })
+
+          expect(json["all_dates"]).to be_present
+          json["all_dates"].each do |date|
+            expect(date).not_to have_key("availability_status")
+          end
         end
       end
     end
@@ -949,16 +1206,16 @@ describe "Api::V1::Assignment" do
     context "when workflow_state is 'duplicating'" do
       let(:workflow_state) { "duplicating" }
 
-      include_examples "retains the original publication state"
-      include_examples "falls back to 'unpublished' state"
-      include_examples "sets workflow_state to outcome_alignment_cloning"
+      it_behaves_like "retains the original publication state"
+      it_behaves_like "falls back to 'unpublished' state"
+      it_behaves_like "sets workflow_state to outcome_alignment_cloning"
     end
 
     context "when workflow_state is 'failed_to_duplicate'" do
       let(:workflow_state) { "failed_to_duplicate" }
 
-      include_examples "retains the original publication state"
-      include_examples "falls back to 'unpublished' state"
+      it_behaves_like "retains the original publication state"
+      it_behaves_like "falls back to 'unpublished' state"
     end
 
     context "when workflow_state is other that 'duplicating' or 'failed_to_duplicate'" do
@@ -968,7 +1225,7 @@ describe "Api::V1::Assignment" do
       it "does not transition to another state" do
         expect do
           api.update_api_assignment(assignment, assignment_update_params, user)
-        end.to_not change { assignment.workflow_state }
+        end.not_to change { assignment.workflow_state }
       end
     end
 
@@ -1016,7 +1273,10 @@ describe "Api::V1::Assignment" do
       Assignment.last
     end
 
-    let_once(:tool) { external_tool_1_3_model(context: account, developer_key:) }
+    let_once(:registration) do
+      lti_registration_with_tool(account:)
+    end
+    let_once(:tool) { registration.deployments.first }
     let_once(:assignment_create_params) do
       ActionController::Parameters.new(
         name: "New Assignment",
@@ -1029,7 +1289,6 @@ describe "Api::V1::Assignment" do
     let_once(:assignment) { Assignment.new(context: course) }
     let_once(:course) { course_model }
     let_once(:account) { assignment.root_account }
-    let_once(:developer_key) { dev_key_model_1_3(account:) }
     let_once(:user) { user_model }
 
     context "external tool url" do
@@ -1094,6 +1353,81 @@ describe "Api::V1::Assignment" do
       it "doesn't create the assignment if the custom params are invalid" do
         assignment_create_params[:external_tool_tag_attributes][:custom_params] = "invalid"
         expect { subject }.not_to change { Assignment.count }
+      end
+    end
+
+    context "when asset processor content items are passed in" do
+      let_once(:assignment_create_params) do
+        ActionController::Parameters.new(
+          name: "New Assignment",
+          asset_processors: [
+            { "new_content_item" => make_ap_content_item("Processor 1!") },
+            { "new_content_item" => make_ap_content_item("Processor 2!") },
+          ],
+          submission_type: "online",
+          submission_types: ["online_upload"],
+          similarityDetectionTool: ""
+        )
+      end
+
+      before do
+        Account.default.enable_feature! :lti_asset_processor
+      end
+
+      def make_ap_content_item(title)
+        {
+          "url" => "",
+          "title" => title,
+          "text" => "Lti 1.3 Tool Text",
+          "custom" => { k: "v" },
+          "icon" => {},
+          "report" => { released: true, indicator: false, custom: { some_setting: "az-123" } },
+          "context_external_tool_id" => tool.id,
+        }
+      end
+
+      context "when the content_items are valid" do
+        it "creates asset processors for the assignment" do
+          expect { subject }.to change { Assignment.count }.by(1)
+          expect(subject.lti_asset_processors.pluck(:title)).to match_array ["Processor 1!", "Processor 2!"]
+        end
+      end
+
+      context "when the content_items is nil" do
+        it "does not create asset processors for the assignment" do
+          assignment_create_params[:asset_processors] = nil
+          expect { subject }.to change { Assignment.count }.by(1)
+          expect(subject.lti_asset_processors.count).to eq 0
+        end
+      end
+
+      context "when the assignment is not asset processor capable" do
+        it "does not create asset processors for the assignment" do
+          assignment_create_params[:submission_types] = ["online_url"]
+          expect { subject }.to change { Assignment.count }.by(1)
+          expect(subject.lti_asset_processors.count).to eq 0
+        end
+      end
+
+      context "when the lti_asset_processor FF is off" do
+        it "does not create asset processors for the assignment" do
+          Account.default.disable_feature! :lti_asset_processor
+          expect { subject }.to change { Assignment.count }.by(1)
+          expect(subject.lti_asset_processors.count).to eq 0
+        end
+      end
+
+      context "when not in app (API token authentication)" do
+        before do
+          allow(api).to receive(:in_app?).and_return(false)
+        end
+
+        it "raises RequestError with forbidden status" do
+          expect { subject }.to raise_error(RequestError) do |error|
+            expect(error.response_status).to eq(403)
+            expect(error.message).to include("LTI Deep Linking flow")
+          end
+        end
       end
     end
   end
@@ -1181,7 +1515,7 @@ describe "Api::V1::Assignment" do
 
           json = api.assignment_json(assignment, user, session, opts)
           expect(json).to be_a(Hash)
-          expect(json).to_not have_key "migrated_urls_content_migration_id"
+          expect(json).not_to have_key "migrated_urls_content_migration_id"
         end
       end
 
@@ -1196,8 +1530,771 @@ describe "Api::V1::Assignment" do
 
           json = api.assignment_json(assignment, user, session, opts)
           expect(json).to be_a(Hash)
-          expect(json).to_not have_key "migrated_urls_content_migration_id"
+          expect(json).not_to have_key "migrated_urls_content_migration_id"
         end
+      end
+    end
+
+    context "when asset processor content items are passed in" do
+      def make_ap(title, context_external_tool)
+        assignment.lti_asset_processors.create!(title:, context_external_tool:)
+      end
+
+      let(:account) { assignment.root_account }
+      let(:tool) do
+        reg = lti_registration_with_tool(account:)
+        reg.deployments.first
+      end
+      let(:tool2) { tool.lti_registration.new_external_tool(account) }
+
+      let(:existing_ap1) { make_ap("Existing1", tool) }
+      let(:existing_ap2) { make_ap("Existing2", tool2) }
+
+      let(:content_items) do
+        [
+          { "existing_id" => existing_ap1.id },
+          {
+            "new_content_item" => {
+              "title" => "AP Title",
+              "text" => "AP Text",
+              "report" => {},
+              "context_external_tool_id" => tool.id,
+            }
+          }
+        ]
+      end
+
+      # don't use let_once (it could cause two different assignments to be created)
+      let(:assignment_update_params) do
+        ActionController::Parameters.new(
+          name: assignment.name,
+          submission_type: "online",
+          submission_types: ["online_upload"],
+          asset_processors: content_items,
+          similarityDetectionTool: ""
+        )
+      end
+
+      before do
+        Account.default.enable_feature! :lti_asset_processor
+        assignment.update!(submission_types: "online_upload")
+        existing_ap1
+        existing_ap2
+      end
+
+      context "when the content_items are valid" do
+        it "creates, deletes, and retains asset processors as appropriate" do
+          expect { subject }.to \
+            change { assignment.lti_asset_processors.pluck(:title).sort }
+            .from(["Existing1", "Existing2"])
+            .to(["AP Title", "Existing1"])
+        end
+      end
+
+      context "when the assignment is no longer asset processor capable" do
+        it "deletes any previous asset processors" do
+          assignment_update_params[:submission_types] = ["online_url"]
+          expect { subject }.to change { assignment.lti_asset_processors.count }.from(2).to(0)
+        end
+      end
+
+      context "when not in app (API token authentication)" do
+        before do
+          allow(api).to receive(:in_app?).and_return(false)
+        end
+
+        context "when creating new asset processors" do
+          it "raises RequestError with forbidden status" do
+            expect { subject }.to raise_error(RequestError) do |error|
+              expect(error.response_status).to eq(403)
+              expect(error.message).to include("LTI Deep Linking flow")
+            end
+          end
+        end
+
+        context "when deleting asset processors" do
+          let(:content_items) { [] }
+
+          it "allows deletion" do
+            expect { subject }.to change { assignment.lti_asset_processors.count }.from(2).to(0)
+          end
+        end
+
+        context "when only keeping existing asset processors" do
+          let(:content_items) do
+            [
+              { "existing_id" => existing_ap1.id }
+            ]
+          end
+
+          it "allows keeping existing processors" do
+            expect { subject }.not_to raise_error
+            expect(assignment.lti_asset_processors.pluck(:title)).to eq(["Existing1"])
+          end
+        end
+      end
+    end
+
+    context "when not in a horizon course" do
+      context "when estimated duration attrs are passed in" do
+        let(:assignment_update_params) do
+          ActionController::Parameters.new(
+            estimated_duration_attributes: {
+              minutes: 5
+            }
+          )
+        end
+
+        it "does not update the estimated duration" do
+          expect { subject }.not_to change { assignment.estimated_duration&.duration }.from(nil)
+        end
+      end
+    end
+
+    context "when in a horizon course" do
+      let(:account) { Account.create!(name: "Horizon Account", horizon_account: true) }
+      let(:course) { Course.create!(horizon_course: true, account:) }
+      let(:assignment) { assignment_model(course:) }
+
+      before do
+        account.enable_feature!(:horizon_course_setting)
+      end
+
+      context "when estimated duration attrs are passed in" do
+        let(:assignment_update_params) do
+          ActionController::Parameters.new(
+            estimated_duration_attributes: {
+              minutes: 5
+            }
+          )
+        end
+
+        it "updates the estimated duration" do
+          expect { subject }.to change {
+            assignment.estimated_duration&.duration
+          }.from(nil).to(5.minutes)
+        end
+      end
+
+      context "when estimated duration is set" do
+        let(:estimated_duration) { EstimatedDuration.create!(assignment:) }
+
+        context "when options to remove estimated duration are set" do
+          let(:assignment_update_params) do
+            ActionController::Parameters.new(
+              estimated_duration_attributes: {
+                id: estimated_duration.id,
+                _destroy: true
+              }
+            )
+          end
+
+          it "removes the estimated duration" do
+            expect { subject }.to change { estimated_duration.destroyed? }.to(true)
+          end
+        end
+      end
+    end
+  end
+
+  describe "#update_new_quizzes_params" do
+    let(:assignment_params) { {} }
+
+    context "when assignment is not a quiz_lti assignment" do
+      before do
+        allow(assignment).to receive(:quiz_lti?).and_return(false)
+      end
+
+      it "returns without modifying new quizzes type" do
+        expect(assignment).not_to receive(:new_quizzes_type=)
+        api.update_new_quizzes_params(assignment, assignment_params)
+      end
+
+      it "does not modify assignment new quizzes type even with valid type" do
+        assignment_params[:new_quizzes_quiz_type] = "graded_quiz"
+        expect(assignment).not_to receive(:new_quizzes_type=)
+        api.update_new_quizzes_params(assignment, assignment_params)
+      end
+    end
+
+    context "when assignment is a quiz_lti assignment" do
+      before do
+        allow(assignment).to receive(:quiz_lti?).and_return(true)
+      end
+
+      context "when assignment is not a new record" do
+        before do
+          allow(assignment).to receive(:new_record?).and_return(false)
+        end
+
+        it "does not modify assignment settings" do
+          assignment_params[:new_quizzes_quiz_type] = "ungraded_survey"
+
+          expect(assignment).not_to receive(:new_quizzes_type=)
+          api.update_new_quizzes_params(assignment, assignment_params)
+        end
+      end
+
+      context "when assignment is a new record" do
+        before do
+          allow(assignment).to receive(:new_record?).and_return(true)
+        end
+
+        context "when new_quizzes_quiz_type param is not present" do
+          it "does not modify assignment settings" do
+            expect(assignment).not_to receive(:new_quizzes_type=)
+            api.update_new_quizzes_params(assignment, assignment_params)
+          end
+        end
+
+        context "when new_quizzes_quiz_type param is blank" do
+          it "does not modify assignment settings" do
+            assignment_params[:new_quizzes_quiz_type] = ""
+
+            expect(assignment).not_to receive(:new_quizzes_type=)
+            api.update_new_quizzes_params(assignment, assignment_params)
+          end
+        end
+
+        context "when new_quizzes_quiz_type param is nil" do
+          it "does not modify assignment settings" do
+            assignment_params[:new_quizzes_quiz_type] = nil
+
+            expect(assignment).not_to receive(:new_quizzes_type=)
+            api.update_new_quizzes_params(assignment, assignment_params)
+          end
+        end
+
+        context "edge cases" do
+          it "ignores string keys in assignment_params" do
+            assignment_params["new_quizzes_quiz_type"] = "ungraded_survey"
+
+            api.update_new_quizzes_params(assignment, assignment_params)
+
+            # graded_quiz is the default value
+            expect(assignment.new_quizzes_type).to eq("graded_quiz")
+          end
+        end
+
+        context "when new_quizzes_quiz_type param has content" do
+          context "when quiz type is ungraded_survey" do
+            before do
+              assignment_params[:new_quizzes_quiz_type] = "ungraded_survey"
+            end
+
+            it "sets hide_in_gradebook and omit_from_final_grade to true" do
+              api.update_new_quizzes_params(assignment, assignment_params)
+
+              expect(assignment.new_quizzes_type).to eq "ungraded_survey"
+              expect(assignment.hide_in_gradebook).to be true
+              expect(assignment.omit_from_final_grade).to be true
+            end
+          end
+
+          context "when quiz type is graded_quiz" do
+            before do
+              assignment_params[:new_quizzes_quiz_type] = "graded_quiz"
+            end
+
+            it "does not set hide_in_gradebook and omit_from_final_grade to true" do
+              api.update_new_quizzes_params(assignment, assignment_params)
+
+              expect(assignment.new_quizzes_type).to eq "graded_quiz"
+              expect(assignment.hide_in_gradebook).to be false
+              expect(assignment.omit_from_final_grade).to be false
+            end
+          end
+
+          context "when quiz type is graded_survey" do
+            before do
+              assignment_params[:new_quizzes_quiz_type] = "graded_survey"
+            end
+
+            it "does not set hide_in_gradebook and omit_from_final_grade to true" do
+              api.update_new_quizzes_params(assignment, assignment_params)
+
+              expect(assignment.new_quizzes_type).to eq "graded_survey"
+              expect(assignment.hide_in_gradebook).to be false
+              expect(assignment.omit_from_final_grade).to be false
+            end
+          end
+        end
+      end
+    end
+  end
+
+  describe "#prepare_peer_review_params" do
+    context "when params is nil" do
+      it "returns empty hash" do
+        expect(api.send(:prepare_peer_review_params, nil)).to eq({})
+      end
+    end
+
+    context "when params is empty hash" do
+      it "returns empty hash" do
+        expect(api.send(:prepare_peer_review_params, {})).to eq({})
+      end
+    end
+
+    context "when params has values" do
+      let(:params) do
+        {
+          points_possible: 10,
+          grading_type: "points",
+          due_at: "2025-01-15T12:00:00Z"
+        }
+      end
+
+      it "includes all provided params" do
+        result = api.send(:prepare_peer_review_params, params)
+        expect(result).to eq(params)
+      end
+    end
+
+    context "when params has explicit nil values" do
+      let(:params) do
+        {
+          due_at: nil,
+          unlock_at: nil,
+          lock_at: nil
+        }
+      end
+
+      it "includes nil values to enable clearing dates" do
+        result = api.send(:prepare_peer_review_params, params)
+        expect(result).to eq(params)
+        expect(result).to have_key(:due_at)
+        expect(result[:due_at]).to be_nil
+      end
+    end
+
+    context "when params has blank string values" do
+      let(:params) do
+        {
+          points_possible: "",
+          due_at: "",
+          unlock_at: ""
+        }
+      end
+
+      it "filters out blank strings" do
+        result = api.send(:prepare_peer_review_params, params)
+        expect(result).to eq({})
+      end
+    end
+
+    context "when params has mix of values, nils, and blanks" do
+      let(:params) do
+        {
+          points_possible: 10,
+          grading_type: "",
+          due_at: nil,
+          unlock_at: "2025-01-15T12:00:00Z"
+        }
+      end
+
+      it "includes values and nil, but filters out blank strings" do
+        result = api.send(:prepare_peer_review_params, params)
+        expect(result[:points_possible]).to eq(10)
+        expect(result).to have_key(:due_at)
+        expect(result[:due_at]).to be_nil
+        expect(result[:unlock_at]).to eq("2025-01-15T12:00:00Z")
+        expect(result).not_to have_key(:grading_type)
+      end
+    end
+  end
+
+  describe "#create_api_peer_review_sub_assignment" do
+    let(:course) { course_factory(active_all: true) }
+    let(:teacher) { teacher_in_course(course:, active_all: true).user }
+    let(:section) { course.default_section }
+    let(:parent_assignment) do
+      course.assignments.create!(
+        title: "Parent Assignment",
+        peer_reviews: true,
+        submission_types: "online_text_entry"
+      )
+    end
+
+    before do
+      course.enable_feature!(:peer_review_allocation_and_grading)
+    end
+
+    context "when creating peer review overrides alongside assignment overrides" do
+      it "successfully creates both assignment and peer review overrides" do
+        parent_assignment.assignment_overrides.create!(
+          set_type: "CourseSection",
+          set_id: section.id,
+          due_at: 2.days.from_now
+        )
+
+        params = {
+          points_possible: 10,
+          due_at: 3.days.from_now,
+          peer_review_overrides: [
+            {
+              course_section_id: section.id,
+              due_at: 4.days.from_now
+            }
+          ]
+        }
+
+        result = api.send(:create_api_peer_review_sub_assignment, parent_assignment, params)
+
+        expect(result).to be_a(Hash)
+        peer_review_sub = result[:peer_review_sub_assignment]
+        expect(peer_review_sub).to be_a(PeerReviewSubAssignment)
+        expect(peer_review_sub).to be_persisted
+        expect(parent_assignment.assignment_overrides.count).to eq(1)
+        expect(peer_review_sub.assignment_overrides.count).to eq(1)
+
+        peer_review_override = peer_review_sub.assignment_overrides.first
+        expect(peer_review_override.set_type).to eq("CourseSection")
+        expect(peer_review_override.set_id).to eq(section.id)
+        expect(peer_review_override.parent_override_id).to eq(parent_assignment.assignment_overrides.first.id)
+      end
+
+      it "successfully creates ADHOC peer review overrides" do
+        student1 = student_in_course(course:, active_all: true).user
+        student2 = student_in_course(course:, active_all: true).user
+
+        parent_override = parent_assignment.assignment_overrides.create!(
+          set_type: "ADHOC",
+          due_at: 2.days.from_now
+        )
+        parent_override.assignment_override_students.create!(user: student1)
+        parent_override.assignment_override_students.create!(user: student2)
+
+        params = {
+          points_possible: 10,
+          due_at: 3.days.from_now,
+          peer_review_overrides: [
+            {
+              student_ids: [student1.id, student2.id],
+              due_at: 4.days.from_now
+            }
+          ]
+        }
+
+        result = api.send(:create_api_peer_review_sub_assignment, parent_assignment, params)
+
+        expect(result).to be_a(Hash)
+        peer_review_sub = result[:peer_review_sub_assignment]
+        expect(peer_review_sub).to be_persisted
+        expect(peer_review_sub.assignment_overrides.count).to eq(1)
+
+        peer_review_override = peer_review_sub.assignment_overrides.first
+        expect(peer_review_override.set_type).to eq("ADHOC")
+        expect(peer_review_override.assignment_override_students.count).to eq(2)
+        expect(peer_review_override.parent_override_id).to eq(parent_override.id)
+      end
+    end
+  end
+
+  describe "#update_api_peer_review_sub_assignment" do
+    let(:course) { course_factory(active_all: true) }
+    let(:teacher) { teacher_in_course(course:, active_all: true).user }
+    let(:section) { course.default_section }
+    let(:parent_assignment) do
+      course.assignments.create!(
+        title: "Parent Assignment",
+        peer_reviews: true,
+        submission_types: "online_text_entry"
+      )
+    end
+    let(:peer_review_sub_assignment) do
+      PeerReview::PeerReviewCreatorService.call(
+        parent_assignment:,
+        points_possible: 10,
+        due_at: 3.days.from_now
+      )
+    end
+
+    before do
+      course.root_account.enable_feature!(:peer_review_allocation_and_grading)
+    end
+
+    context "when updating peer review overrides alongside assignment overrides" do
+      it "successfully creates peer review overrides during update" do
+        peer_review_sub_assignment
+        parent_assignment.reload
+
+        parent_assignment.assignment_overrides.create!(
+          set_type: "CourseSection",
+          set_id: section.id,
+          due_at: 2.days.from_now
+        )
+
+        params = {
+          due_at: 5.days.from_now,
+          peer_review_overrides: [
+            {
+              course_section_id: section.id,
+              due_at: 6.days.from_now
+            }
+          ]
+        }
+
+        result = api.send(:update_api_peer_review_sub_assignment, parent_assignment, params)
+
+        expect(result).to be_a(Hash)
+        peer_review_sub = result[:peer_review_sub_assignment]
+        expect(peer_review_sub).to be_a(PeerReviewSubAssignment)
+        expect(peer_review_sub).to be_persisted
+        expect(peer_review_sub.assignment_overrides.count).to eq(1)
+
+        peer_review_override = peer_review_sub.assignment_overrides.first
+        expect(peer_review_override.set_type).to eq("CourseSection")
+        expect(peer_review_override.set_id).to eq(section.id)
+        expect(peer_review_override.parent_override_id).to eq(parent_assignment.assignment_overrides.first.id)
+      end
+    end
+  end
+
+  describe "transaction rollback when peer review creation fails" do
+    let(:course) { course_factory(active_all: true) }
+    let(:teacher) { teacher_in_course(course:, active_all: true).user }
+    let(:section) { course.default_section }
+
+    before do
+      course.enable_feature!(:peer_review_allocation_and_grading)
+    end
+
+    describe "#create_api_assignment" do
+      context "when peer review date validation fails" do
+        it "rolls back assignment creation when peer review due_at is before assignment due_at" do
+          initial_assignment_count = Assignment.count
+          assignment = course.assignments.build
+          assignment_params = ActionController::Parameters.new(
+            name: "Test Assignment 1",
+            peer_reviews: true,
+            submission_types: ["online_text_entry"],
+            due_at: 5.days.from_now.iso8601,
+            peer_review: {
+              points_possible: 10,
+              due_at: 2.days.from_now.iso8601
+            }
+          )
+
+          result = api.create_api_assignment(assignment, assignment_params, teacher, course)
+
+          expect(result).to be(false)
+          expect(Assignment.count).to eq(initial_assignment_count)
+          expect(Assignment.find_by(title: "Test Assignment 1")).to be_nil
+        end
+
+        it "rolls back when peer review unlock_at is before assignment due_at" do
+          initial_assignment_count = Assignment.count
+          assignment = course.assignments.build
+          assignment_params = ActionController::Parameters.new(
+            name: "Test Assignment 2",
+            peer_reviews: true,
+            submission_types: ["online_text_entry"],
+            due_at: 5.days.from_now.iso8601,
+            peer_review: {
+              points_possible: 10,
+              unlock_at: 3.days.from_now.iso8601,
+              due_at: 7.days.from_now.iso8601
+            }
+          )
+
+          result = api.create_api_assignment(assignment, assignment_params, teacher, course)
+
+          expect(result).to be(false)
+          expect(Assignment.count).to eq(initial_assignment_count)
+          expect(Assignment.find_by(title: "Test Assignment 2")).to be_nil
+        end
+
+        it "rolls back when peer review lock_at is after assignment lock_at" do
+          initial_assignment_count = Assignment.count
+          assignment = course.assignments.build
+          assignment_params = ActionController::Parameters.new(
+            name: "Test Assignment 3",
+            peer_reviews: true,
+            submission_types: ["online_text_entry"],
+            due_at: 3.days.from_now.iso8601,
+            lock_at: 5.days.from_now.iso8601,
+            peer_review: {
+              points_possible: 10,
+              due_at: 4.days.from_now.iso8601,
+              lock_at: 7.days.from_now.iso8601
+            }
+          )
+
+          result = api.create_api_assignment(assignment, assignment_params, teacher, course)
+
+          expect(result).to be(false)
+          expect(Assignment.count).to eq(initial_assignment_count)
+          expect(Assignment.find_by(title: "Test Assignment 3")).to be_nil
+        end
+      end
+
+      context "when peer review override validation fails" do
+        it "rolls back when ADHOC override has no matching parent override" do
+          student1 = student_in_course(course:, active_all: true).user
+          student2 = student_in_course(course:, active_all: true).user
+          initial_assignment_count = Assignment.count
+          assignment = course.assignments.build
+          assignment_params = ActionController::Parameters.new(
+            name: "Test Assignment 4",
+            peer_reviews: true,
+            submission_types: ["online_text_entry"],
+            due_at: 3.days.from_now.iso8601,
+            peer_review: {
+              points_possible: 10,
+              due_at: 5.days.from_now.iso8601,
+              peer_review_overrides: [
+                {
+                  student_ids: [student1.id, student2.id],
+                  due_at: 6.days.from_now.iso8601
+                }
+              ]
+            }
+          )
+
+          result = api.create_api_assignment(assignment, assignment_params, teacher, course)
+
+          expect(result).to be(false)
+          expect(Assignment.count).to eq(initial_assignment_count)
+          expect(Assignment.find_by(title: "Test Assignment 4")).to be_nil
+        end
+      end
+
+      context "successful creation for comparison" do
+        it "creates assignment and peer review when dates are valid" do
+          assignment = course.assignments.build
+          assignment_params = ActionController::Parameters.new(
+            name: "Test Assignment 5",
+            peer_reviews: true,
+            submission_types: ["online_text_entry"],
+            due_at: 3.days.from_now.iso8601,
+            peer_review: {
+              points_possible: 10,
+              due_at: 5.days.from_now.iso8601
+            }
+          )
+
+          result = api.create_api_assignment(assignment, assignment_params, teacher, course)
+
+          expect(result).to eq(:created)
+          expect(assignment).to be_persisted
+          expect(assignment.peer_review_sub_assignment).to be_present
+        end
+      end
+    end
+
+    describe "#update_api_assignment" do
+      let(:existing_assignment) do
+        course.assignments.create!(
+          name: "Existing Assignment",
+          peer_reviews: false,
+          submission_types: "online_text_entry",
+          due_at: 5.days.from_now
+        )
+      end
+
+      it "rolls back update when peer review creation fails due to invalid dates" do
+        update_params = ActionController::Parameters.new(
+          peer_reviews: true,
+          peer_review: {
+            points_possible: 10,
+            due_at: 2.days.from_now.iso8601
+          }
+        )
+
+        result = api.update_api_assignment(existing_assignment, update_params, teacher, course)
+
+        expect(result).to be(false)
+        existing_assignment.reload
+        expect(existing_assignment.peer_reviews).to be(false)
+        expect(existing_assignment.peer_review_sub_assignment).to be_nil
+      end
+
+      it "rolls back update when peer review unlock_at is before assignment due_at" do
+        update_params = ActionController::Parameters.new(
+          peer_reviews: true,
+          peer_review: {
+            points_possible: 10,
+            unlock_at: 3.days.from_now.iso8601,
+            due_at: 7.days.from_now.iso8601
+          }
+        )
+
+        result = api.update_api_assignment(existing_assignment, update_params, teacher, course)
+
+        expect(result).to be(false)
+        existing_assignment.reload
+        expect(existing_assignment.peer_reviews).to be(false)
+        expect(existing_assignment.peer_review_sub_assignment).to be_nil
+      end
+    end
+
+    describe "#create_api_peer_review_sub_assignment rollback scenarios" do
+      let(:parent_assignment) do
+        course.assignments.create!(
+          title: "Parent Assignment",
+          peer_reviews: true,
+          submission_types: "online_text_entry",
+          due_at: 3.days.from_now
+        )
+      end
+
+      it "returns false and adds error when peer review due_at is before assignment due_at" do
+        params = {
+          points_possible: 10,
+          due_at: 1.day.from_now
+        }
+
+        result = api.send(:create_api_peer_review_sub_assignment, parent_assignment, params)
+
+        expect(result).to be(false)
+        expect(parent_assignment.errors[:base]).to include(a_string_matching(/Peer review due date cannot be before assignment due date/))
+      end
+
+      it "returns false when peer review override due_at is before parent override due_at" do
+        parent_assignment.assignment_overrides.create!(
+          set_type: "CourseSection",
+          set_id: section.id,
+          due_at: 5.days.from_now,
+          due_at_overridden: true
+        )
+
+        params = {
+          points_possible: 10,
+          due_at: 4.days.from_now,
+          peer_review_overrides: [
+            {
+              course_section_id: section.id,
+              due_at: 4.days.from_now
+            }
+          ]
+        }
+
+        result = api.send(:create_api_peer_review_sub_assignment, parent_assignment, params)
+
+        expect(result).to be(false)
+        expect(parent_assignment.errors[:base]).to include(a_string_matching(/Peer review override due date cannot be before parent override due date/))
+      end
+
+      it "returns false when ADHOC override has no matching parent override" do
+        student1 = student_in_course(course:, active_all: true).user
+        student2 = student_in_course(course:, active_all: true).user
+
+        params = {
+          points_possible: 10,
+          due_at: 5.days.from_now,
+          peer_review_overrides: [
+            {
+              student_ids: [student1.id, student2.id],
+              due_at: 6.days.from_now
+            }
+          ]
+        }
+
+        result = api.send(:create_api_peer_review_sub_assignment, parent_assignment, params)
+
+        expect(result).to be(false)
+        expect(parent_assignment.errors[:base]).to include(a_string_matching(/ADHOC override not found/i))
       end
     end
   end

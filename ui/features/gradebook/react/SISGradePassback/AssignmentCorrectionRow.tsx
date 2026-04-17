@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2014 - present Instructure, Inc.
  *
@@ -18,8 +17,8 @@
  */
 
 import $ from 'jquery'
-import {where, isEmpty} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {isEmpty, filter} from 'es-toolkit/compat'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {datetimeString} from '@canvas/datetime/date-functions'
 import assignmentUtils from './assignmentUtils'
@@ -27,7 +26,7 @@ import classnames from 'classnames'
 import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
 import type {AssignmentWithOverride} from '../default_gradebook/gradebook.d'
 
-const I18n = useI18nScope('modules')
+const I18n = createI18nScope('modules')
 
 type Props = {
   onDateChanged: (date: string) => void
@@ -41,7 +40,7 @@ class AssignmentCorrectionRow extends React.Component<Props> {
 
   dueAtRef: React.RefObject<HTMLInputElement>
 
-  constructor(props) {
+  constructor(props: Props) {
     super(props)
     this.nameRef = React.createRef<HTMLInputElement>()
     this.dueAtRef = React.createRef<HTMLInputElement>()
@@ -51,6 +50,7 @@ class AssignmentCorrectionRow extends React.Component<Props> {
     this.initDueAtDateTimeField()
   }
 
+  // @ts-expect-error
   handleDateChanged = _e => {
     // send date chosen in jquery date-picker so that
     // the assignment or assignment override due_at is set
@@ -63,10 +63,13 @@ class AssignmentCorrectionRow extends React.Component<Props> {
   initDueAtDateTimeField = () => {
     if (this.dueAtRef.current) {
       const $picker = $(this.dueAtRef.current)
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - jQuery DatetimeField plugin method
       renderDatetimeField($picker).change(this.handleDateChanged)
     }
   }
 
+  // @ts-expect-error
   ignoreAssignment = e => {
     e.preventDefault()
     this.props.updateAssignment({please_ignore: true})
@@ -75,6 +78,7 @@ class AssignmentCorrectionRow extends React.Component<Props> {
   // The real 'change' event for due_at happens in initDueAtDateTimeField,
   // but we need to check a couple of things during keypress events to
   // maintain assignment state consistency
+  // @ts-expect-error
   checkDueAtChange = e => {
     if (this.props.assignment.overrideForThisSection) {
       if (!e.target.value && this.dueAtRef.current) {
@@ -97,13 +101,20 @@ class AssignmentCorrectionRow extends React.Component<Props> {
     }
   }
 
+  // @ts-expect-error
   updateAssignmentName = e => {
     this.props.updateAssignment({name: e.target.value, please_ignore: false})
   }
 
+  // @ts-expect-error
   currentSectionforOverride = a => {
     if (
-      isEmpty(where(a.overrides, {course_section_id: a.currentlySelected.id.toString()})) ||
+      isEmpty(
+        filter(
+          a.overrides,
+          override => override.course_section_id === a.currentlySelected.id.toString(),
+        ),
+      ) ||
       a.currentlySelected.type === 'course'
     ) {
       return true
@@ -112,6 +123,7 @@ class AssignmentCorrectionRow extends React.Component<Props> {
     }
   }
 
+  // @ts-expect-error
   validCheck = a => {
     if (a.overrideForThisSection && a.currentlySelected.type === 'course') {
       return a.due_at != null
@@ -190,6 +202,7 @@ class AssignmentCorrectionRow extends React.Component<Props> {
             type="text"
             aria-label={I18n.t('Assignment Name')}
             className="input-mlarge assignment-name"
+            // @ts-expect-error placeholder expects string | undefined, not null
             placeholder={assignment.name ? null : I18n.t('No Assignment Name')}
             defaultValue={unescape(assignment.name)}
             onChange={this.updateAssignmentName}

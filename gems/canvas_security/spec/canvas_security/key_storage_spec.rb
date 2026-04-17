@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
-
 describe CanvasSecurity::KeyStorage do
   before do
     @fallback_proxy = DynamicSettings::FallbackProxy.new({
@@ -107,6 +105,6 @@ describe CanvasSecurity::KeyStorage do
   end
 
   def select_public_claims(key)
-    key.select { |k, _| %w[kty e n kid alg use].include?(k) }
+    key.slice("kty", "e", "n", "kid", "alg", "use")
   end
 end

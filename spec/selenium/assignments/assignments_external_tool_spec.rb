@@ -18,30 +18,29 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require_relative "../common"
+require_relative "../helpers/assignments_common"
 
 describe "external tool assignments" do
   include_context "in-process server selenium tests"
+  include AssignmentsCommon
 
   before do
     course_with_teacher_logged_in
-    @t1 = factory_with_protected_attributes(@course.context_external_tools, url: "http://www.justanexamplenotarealwebsite.com/tool1", domain: "justanexamplenotarealwebsite.com", shared_secret: "test123", consumer_key: "test123", name: "tool 1")
-    @t2 = factory_with_protected_attributes(@course.context_external_tools, url: "http://www.justanexamplenotarealwebsite.com/tool2", domain: "justanexamplenotarealwebsite.com", shared_secret: "test123", consumer_key: "test123", name: "tool 2")
+    @t1 = @course.context_external_tools.create!(
+      url: "http://www.justanexamplenotarealwebsite.com/tool1", domain: "justanexamplenotarealwebsite.com", shared_secret: "test123", consumer_key: "test123", name: "tool 1"
+    )
+    @t2 = @course.context_external_tools.create!(
+      url: "http://www.justanexamplenotarealwebsite.com/tool2", domain: "justanexamplenotarealwebsite.com", shared_secret: "test123", consumer_key: "test123", name: "tool 2"
+    )
   end
 
   it "allows creating through index", priority: "2" do
     @course.root_account.enable_feature!(:instui_nav)
+    ag = @course.assignment_groups.create!(name: "Stuff")
     get "/courses/#{@course.id}/assignments"
     expect_no_flash_message :error
     # create assignment
-    f(".add_assignment").click
-    f(".ui-datepicker-trigger").click
-    f('.create_assignment_dialog input[name="name"]').send_keys("test1")
-    datepicker = datepicker_next
-    datepicker.find_element(:css, ".ui-datepicker-ok").click
-    replace_content(f('.create_assignment_dialog input[name="points_possible"]'), "5")
-    click_option('.create_assignment_dialog select[name="submission_types"]', "External Tool")
-    f(".create_assignment").click
-    wait_for_ajaximations
+    build_assignment_with_type("External Tool", assignment_group_id: ag.id, name: "name", points: "30", submit: true)
 
     a = @course.assignments.reload.last
     expect(a).to be_present
@@ -53,7 +52,7 @@ describe "external tool assignments" do
 
     # create assignment
     f(".add_assignment").click
-    expect_new_page_load { f(".more_options").click }
+    expect_new_page_load { f("[data-testid='more-options-button']").click }
 
     f("#assignment_name").send_keys("test1")
     click_option("#assignment_submission_type", "External Tool")
@@ -83,6 +82,35 @@ describe "external tool assignments" do
     expect(a.external_tool_tag.new_tab).to be_falsey
   end
 
+  it "Renders iframe in assignment details page if external tool is not set to open in new window", priority: "2" do
+    a = assignment_model(course: @course, title: "test1", submission_types: "external_tool")
+    a.create_external_tool_tag(url: @t1.url)
+    a.external_tool_tag.update_attribute(:content_type, "ContextExternalTool")
+
+    student_in_course(course: @course, active_all: true)
+    user_session(@student)
+
+    get "/courses/#{a.context.id}/assignments/#{a.id}"
+
+    # expect that the iframe is present
+    expect(f("iframe[class='tool_launch']")).to be_displayed
+  end
+
+  it "does not render iframe in assignment details page if external tool is set to open in new window", priority: "2" do
+    a = assignment_model(course: @course, title: "test1", submission_types: "external_tool")
+    a.create_external_tool_tag(url: @t1.url)
+    a.external_tool_tag.update_attribute(:content_type, "ContextExternalTool")
+    a.external_tool_tag.update_attribute(:new_tab, true)
+
+    student_in_course(course: @course, active_all: true)
+    user_session(@student)
+
+    get "/courses/#{a.context.id}/assignments/#{a.id}"
+
+    # expect that the iframe is not present
+    expect(have_no_selector("iframe[class='tool_launch']")).to be_truthy
+  end
+
   it "allows editing", priority: "2" do
     a = assignment_model(course: @course, title: "test2", submission_types: "external_tool")
     a.create_external_tool_tag(url: @t1.url)
@@ -107,38 +135,12 @@ describe "external tool assignments" do
     expect(a.external_tool_tag.url).to eq @t1.url
   end
 
-  it "shows module sequence even without module_item_id param" do
-    skip "EVAL-2593 (8/25/22)"
-
-    allow(BasicLTI::Sourcedid).to receive(:encryption_secret) { "encryption-secret-5T14NjaTbcYjc4" }
-    allow(BasicLTI::Sourcedid).to receive(:signing_secret) { "signing-secret-vp04BNqApwdwUYPUI" }
-    a = assignment_model(course: @course, title: "test2", submission_types: "external_tool")
-    a.create_external_tool_tag(url: @t1.url)
-    a.external_tool_tag.update_attribute(:content_type, "ContextExternalTool")
-
-    mod = @course.context_modules.create!
-    mod.add_item(id: a.id, type: "assignment")
-    page = @course.wiki_pages.create!(title: "wiki title")
-    mod.add_item(id: page.id, type: "wiki_page")
-
-    student_in_course(course: @course, active_all: true)
-    user_session(@student)
-
-    get "/courses/#{@course.id}/assignments/#{a.id}"
-    expect(f(".module-sequence-footer-button--next")).to be_displayed
-  end
-
   context "submission type selection placement" do
     before do
       [@t1, @t2].each do |tool|
         tool.submission_type_selection = { text: "link to #{tool.name} or whatever" }
         tool.save!
       end
-      Setting.set("submission_type_selection_allowed_launch_domains", "justanexamplenotarealwebsite.com")
-    end
-
-    after do
-      Setting.remove("submission_type_selection_allowed_launch_domains")
     end
 
     it "is able to select the tool directly from the submission type drop-down" do
@@ -174,6 +176,16 @@ describe "external tool assignments" do
       expect(card.text).to include("link to #{@t1.name} or whatever") # the launch button uses the placement text
     end
 
+    it "validates the user selected a resource before saving if require_resource_selection is true" do
+      @t1.settings["submission_type_selection"]["require_resource_selection"] = true
+      @t1.save!
+      get "/courses/#{@course.id}/assignments/new"
+      click_option("#assignment_submission_type", @t1.name)
+      f(".btn-primary[type=\"submit\"]").click
+      wait_for_ajaximations
+      expect(f("#assignment_submission_type_selection_launch_button_errors").text).to eq("Please click above to launch the tool and select a resource.")
+    end
+
     it "displays external data for mastery connect" do
       ext_data = {
         key: "https://canvas.instructure.com/lti/mastery_connect_assessment",
@@ -204,12 +216,13 @@ describe "external tool assignments" do
       get "/courses/#{@course.id}/assignments/new"
       click_option("#assignment_submission_type", @t1.name) # should use the tool name for drop-down
       f("#assignment_submission_type_selection_launch_button").click
-      expect(fxpath("//span[@aria-label = 'Launch External Tool']//h2").text).to include("link to #{@t1.name} or whatever")
+      tool_title = @t1.submission_type_selection["text"]
+      expect(fxpath("//span[@aria-label = '#{tool_title}']//h2").text).to include("link to #{@t1.name} or whatever")
 
-      close_button_selector = "//span[@aria-label = 'Launch External Tool']//button[//*[text() = 'Close']]"
+      close_button_selector = "//span[@aria-label = '#{tool_title}']//button[//*[text() = 'Close']]"
       close_button = fxpath(close_button_selector)
       close_button.click
-      expect(element_exists?(close_button_selector, true)).to be(false)
+      expect(element_exists?(close_button_selector, xpath: true)).to be(false)
     end
 
     context "when editing an assignment created by an external tool" do

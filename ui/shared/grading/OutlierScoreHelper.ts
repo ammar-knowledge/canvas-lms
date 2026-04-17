@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2016 - present Instructure, Inc.
  *
@@ -25,8 +24,11 @@ function isNegativePoints(score: number | null) {
   return typeof score === 'number' && score < 0
 }
 
-export function isUnusuallyHigh(score, pointsPossible) {
-  if (pointsPossible === 0 || pointsPossible == null) {
+export function isUnusuallyHigh(
+  score: number | null | undefined,
+  pointsPossible: number | null | undefined,
+) {
+  if (pointsPossible === 0 || pointsPossible == null || score == null) {
     return false
   }
   const outlierBoundary = pointsPossible * MULTIPLIER
@@ -36,9 +38,9 @@ export function isUnusuallyHigh(score, pointsPossible) {
 export default class OutlierScoreHelper {
   score: number | null
 
-  pointsPossible: number
+  pointsPossible: number | null
 
-  constructor(score?: number | null, pointsPossible: number) {
+  constructor(score: number | null = null, pointsPossible: number | null) {
     this.score = score
     this.pointsPossible = pointsPossible
   }

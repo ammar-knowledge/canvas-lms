@@ -43,6 +43,7 @@ module DrDiff
     end
 
     extend Forwardable
+
     def_delegators :@git, :wip?, :changes
 
     def parsed_diff
@@ -64,7 +65,6 @@ module DrDiff
                  command:,
                  include_git_dir_in_output: false,
                  severe_levels: SEVERE_LEVELS)
-
       command_comments = CommandCapture.run(format, command)
       diff = DiffParser.new(git.diff, raw: true, campsite:)
 

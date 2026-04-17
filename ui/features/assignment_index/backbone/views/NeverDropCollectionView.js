@@ -18,9 +18,9 @@
 
 import $ from 'jquery'
 import {extend} from '@canvas/backbone/utils'
-import {debounce} from 'lodash'
+import {debounce} from 'es-toolkit/compat'
 import CollectionView from '@canvas/backbone-collection-view'
-import NeverDropView from './NeverDropView'
+import NeverDropView from './NeverDropView.jsx'
 import template from '../../jst/NeverDropCollection.handlebars'
 
 extend(NeverDropCollectionView, CollectionView)
@@ -52,7 +52,7 @@ NeverDropCollectionView.prototype.createItemView = function (model) {
   const options = {
     canChangeDropRules: this.canChangeDropRules,
   }
-  // eslint-disable-next-line new-cap
+
   return new this.itemView(
     $.extend(
       {},
@@ -60,8 +60,8 @@ NeverDropCollectionView.prototype.createItemView = function (model) {
       {
         model,
       },
-      options
-    )
+      options,
+    ),
   )
 }
 

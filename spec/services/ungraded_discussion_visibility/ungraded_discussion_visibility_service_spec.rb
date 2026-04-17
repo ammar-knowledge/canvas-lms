@@ -23,7 +23,7 @@ describe "UngradedDiscussionVisibility" do
   include StudentVisibilityCommon
 
   def assignment_ids_visible_to_user(user)
-    AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_student(course_id: @course.id, user_id: user.id).map(&:assignment_id)
+    AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(course_ids: @course.id, user_ids: user.id).map(&:assignment_id)
   end
 
   before :once do
@@ -36,13 +36,22 @@ describe "UngradedDiscussionVisibility" do
     @discussion2 = DiscussionTopic.create!(context: @course, title: "Page 2")
   end
 
-  context "discussion topic visibility" do
+  context "ungraded discussion topic visibility" do
     let(:learning_object1) { @discussion1 }
     let(:learning_object2) { @discussion2 }
     let(:learning_object_type) { "discussion_topic" }
 
-    it_behaves_like "learning object visiblities with modules"
-    it_behaves_like "learning object visiblities"
+    it_behaves_like "learning object visibilities with modules" do
+      before :once do
+        Account.site_admin.disable_feature!(:visibility_performance_improvements)
+      end
+    end
+    it_behaves_like "learning object visibilities with modules" do
+      before :once do
+        Account.site_admin.enable_feature!(:visibility_performance_improvements)
+      end
+    end
+    it_behaves_like "learning object visibilities"
 
     it "does not include unpublished discussion topics" do
       @discussion1.workflow_state = "unpublished"
@@ -72,7 +81,7 @@ describe "UngradedDiscussionVisibility" do
       expect(ids_visible_to_user(@student1, "discussion_topic")).to contain_exactly(@discussion1.id, @discussion2.id)
     end
 
-    it "assignment_student_visibilities shows correct visibilities for graded discussion topic's assignment" do
+    it "assignment_ids_visible_to_user shows correct visibilities for graded discussion topic's assignment" do
       @discussion1_assignment.only_visible_to_overrides = true
       @discussion1_assignment.save!
 
@@ -94,6 +103,61 @@ describe "UngradedDiscussionVisibility" do
 
       expect(assignment_ids_visible_to_user(@student1)).to contain_exactly(@discussion1.assignment.id, @discussion2.assignment.id)
       expect(assignment_ids_visible_to_user(@student2)).to contain_exactly(@discussion2.assignment.id)
+    end
+  end
+
+  describe ".invalidate_cache" do
+    it "raises an error when neither course_ids nor discussion_topic_ids are provided" do
+      expect do
+        UngradedDiscussionVisibility::UngradedDiscussionVisibilityService.invalidate_cache(user_ids: [@student1.id])
+      end.to raise_error(ArgumentError, "at least one non nil course_id or discussion_topic_id is required (for query performance reasons)")
+    end
+
+    it "deletes the cache when called with course_ids" do
+      UngradedDiscussionVisibility::UngradedDiscussionVisibilityService.discussion_topics_visible(
+        course_ids: [@course.id],
+        user_ids: [@student1.id],
+        discussion_topic_ids: [@discussion1.id]
+      )
+
+      expect(Rails.cache).to receive(:delete).and_call_original
+
+      UngradedDiscussionVisibility::UngradedDiscussionVisibilityService.invalidate_cache(
+        course_ids: [@course.id],
+        user_ids: [@student1.id],
+        discussion_topic_ids: [@discussion1.id]
+      )
+    end
+
+    it "deletes the cache when called with discussion_topic_ids only" do
+      UngradedDiscussionVisibility::UngradedDiscussionVisibilityService.discussion_topics_visible(
+        discussion_topic_ids: [@discussion1.id, @discussion2.id]
+      )
+
+      expect(Rails.cache).to receive(:delete).and_call_original
+
+      UngradedDiscussionVisibility::UngradedDiscussionVisibilityService.invalidate_cache(
+        discussion_topic_ids: [@discussion1.id, @discussion2.id]
+      )
+    end
+
+    it "accepts include_concluded parameter" do
+      expect do
+        UngradedDiscussionVisibility::UngradedDiscussionVisibilityService.invalidate_cache(
+          course_ids: [@course.id],
+          include_concluded: false
+        )
+      end.not_to raise_error
+    end
+
+    it "works with multiple user_ids" do
+      expect(Rails.cache).to receive(:delete).and_call_original
+
+      UngradedDiscussionVisibility::UngradedDiscussionVisibilityService.invalidate_cache(
+        course_ids: [@course.id],
+        user_ids: [@student1.id, @student2.id],
+        discussion_topic_ids: [@discussion1.id]
+      )
     end
   end
 end

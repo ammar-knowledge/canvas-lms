@@ -71,8 +71,8 @@ module DashboardHelper
 
     contexts.map do |name, url|
       url = nil if category == "Conversation"
-      url.present? ? "<a href=\"#{url}\" aria-label=\"#{accessibility_category_label(category)} for #{h(name)}\">#{h(name)}</a>" : h(name)
-    end.to_sentence.html_safe
+      url.present? ? tag.a(name, href: url, aria: { label: "#{accessibility_category_label(category)} for #{name}" }) : h(name)
+    end.to_sentence.html_safe # rubocop:disable Rails/OutputSafety
   end
 
   def accessibility_category_label(category)
@@ -140,8 +140,8 @@ module DashboardHelper
     [:grading, :moderation].include?(activity_type.to_sym)
   end
 
-  def todo_ignore_api_url(activity_type, item, force_permanent = false)
-    permanent = (!todo_ignore_dropdown_type?(activity_type) || force_permanent) ? 1 : nil
+  def todo_ignore_api_url(activity_type, item)
+    permanent = 1 unless todo_ignore_dropdown_type?(activity_type)
 
     api_v1_users_todo_ignore_url(item.asset_string, activity_type, { permanent: })
   end

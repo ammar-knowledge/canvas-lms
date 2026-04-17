@@ -92,7 +92,7 @@ module DataFixup::RebuildQuizSubmissionsFromQuizSubmissionVersions
       models = Version.where(
         versionable_type: "Quizzes::QuizSubmission",
         versionable_id: qs_id
-      ).order("id ASC").map(&:model)
+      ).order(:id).map(&:model)
 
       # Filter by attempt
       models.select! { |qs| qs.attempt = submission.attempt }
@@ -117,9 +117,7 @@ module DataFixup::RebuildQuizSubmissionsFromQuizSubmissionVersions
       end
 
       # grade the submission!
-      if persisted_qs.submission_data.is_a? Array
-        persisted_qs
-      else
+      unless persisted_qs.submission_data.is_a?(Array)
         Rails.logger.warn LOG_PREFIX + "Versions contained ungraded data: submission_id: #{submission.id} version:#{model.version_number} qs:#{qs_id}"
         grade_with_new_submission_data(persisted_qs, persisted_qs.finished_at)
       end

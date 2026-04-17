@@ -18,7 +18,7 @@
 
 import React, {useCallback, useEffect, useState} from 'react'
 import moment from 'moment-timezone'
-import CanvasDateInput from '@canvas/datetime/react/components/DateInput'
+import CanvasDateInput2 from '@canvas/datetime/react/components/DateInput2'
 import {FormField, FormFieldGroup} from '@instructure/ui-form-field'
 import {NumberInput} from '@instructure/ui-number-input'
 import {px} from '@instructure/ui-utils'
@@ -29,9 +29,9 @@ import {IconWarningLine} from '@instructure/ui-icons'
 import {DEFAULT_COUNT, MAX_COUNT} from '../RRuleHelper'
 import type {FrequencyValue} from '../types'
 
-import {useScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useScope('calendar_custom_recurring_event_end_picker')
+const I18n = createI18nScope('calendar_custom_recurring_event_end_picker')
 
 export type ModeValues = 'ON' | 'AFTER'
 export type OnRecurrenceEndChangeType = {
@@ -96,8 +96,7 @@ export const CountValidator = {
 
   isValidCount: (cnt: number | undefined, mode: ModeValues): boolean => {
     if (mode === 'ON') return true // we don't care
-    // @ts-expect-error isInteger will prevent the following checks being done on undefined, but ts doesn't know that
-    if (Number.isInteger(cnt) && cnt > 0 && cnt <= MAX_COUNT) return true
+    if (cnt !== undefined && Number.isInteger(cnt) && cnt > 0 && cnt <= MAX_COUNT) return true
     return false
   },
 
@@ -158,7 +157,7 @@ export const UntilValidator = {
     start: moment.Moment,
     until: moment.Moment,
     freq: FrequencyValue,
-    interval: number
+    interval: number,
   ): number {
     const days = until.diff(start, UntilValidator.freq2Diff(freq))
     return Math.floor(days / interval) + 1
@@ -171,7 +170,7 @@ export const UntilValidator = {
     mode: ModeValues,
     freq: FrequencyValue,
     interval: number,
-    courseEndAt: string | undefined
+    courseEndAt: string | undefined,
   ): InstuiMessage[] | undefined => {
     if (mode === 'AFTER') {
       return UntilValidator.hint(courseEndAt)
@@ -216,11 +215,11 @@ export default function RecurrenceEndPicker({
     return start.add(1, 'year').format('YYYY-MM-DDTHH:mm:ssZ')
   })
   const [countNumber, setCountNumber] = useState<number | undefined>(
-    CountValidator.makeDefaultCount(count)
+    CountValidator.makeDefaultCount(count),
   )
   const [countValue, setCountValue] = useState<string>(countNumber?.toString() || '')
   const [countMessage, setCountMessage] = useState<InstuiMessage[] | undefined>(
-    CountValidator.hint()
+    CountValidator.hint(),
   )
 
   const dateFormatter = new Intl.DateTimeFormat(locale, {
@@ -256,7 +255,7 @@ export default function RecurrenceEndPicker({
   }
 
   const fireOnChange = useCallback(
-    (newMode, newUntil, newCount): void => {
+    (newMode: ModeValues, newUntil: string | undefined, newCount: number | undefined): void => {
       if (newMode === 'ON') {
         if (newUntil === undefined) return
         onChange({until: newUntil, count: undefined})
@@ -266,7 +265,7 @@ export default function RecurrenceEndPicker({
         onChange({until: undefined, count: undefined})
       }
     },
-    [onChange]
+    [onChange],
   )
 
   const handleModeChange = useCallback(
@@ -280,11 +279,17 @@ export default function RecurrenceEndPicker({
       setMode(newMode)
       fireOnChange(newMode, untilDate, countNumber)
     },
-    [fireOnChange, untilDate, countNumber]
+    [fireOnChange, untilDate, countNumber],
   )
 
   const handleCountChange = useCallback(
-    (_event, value: string | number): void => {
+    (
+      _event:
+        | React.ChangeEvent<HTMLInputElement>
+        | React.KeyboardEvent<HTMLInputElement>
+        | React.MouseEvent<HTMLButtonElement, MouseEvent>,
+      value: string | number,
+    ): void => {
       const cnt = typeof value === 'string' ? parseFloat(value) : value
       setCountNumber(cnt)
       setCountValue(value.toString())
@@ -296,7 +301,7 @@ export default function RecurrenceEndPicker({
         fireOnChange(mode, untilDate, undefined)
       }
     },
-    [fireOnChange, mode, untilDate]
+    [fireOnChange, mode, untilDate],
   )
 
   const handleDateChange = useCallback(
@@ -314,7 +319,7 @@ export default function RecurrenceEndPicker({
       setUntilDate(newISODate)
       fireOnChange(mode, newISODate, countNumber)
     },
-    [timezone, untilDate, fireOnChange, mode, countNumber]
+    [timezone, untilDate, fireOnChange, mode, countNumber],
   )
 
   const gridStyle = {
@@ -343,7 +348,7 @@ export default function RecurrenceEndPicker({
             onChange={handleModeChange}
           />
         </div>
-        <CanvasDateInput
+        <CanvasDateInput2
           dataTestid="recurrence-ends-on-input"
           interaction={mode === 'ON' ? 'enabled' : 'disabled'}
           locale={locale}
@@ -359,7 +364,7 @@ export default function RecurrenceEndPicker({
             mode,
             freq,
             interval,
-            formatCourseEndDate(courseEndAt)
+            formatCourseEndDate(courseEndAt),
           )}
         />
         <div style={alignMe}>
@@ -378,6 +383,7 @@ export default function RecurrenceEndPicker({
         >
           <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
             <NumberInput
+              allowStringValue={true}
               data-testid="recurrence-end-count-input"
               display="inline-block"
               interaction={mode === 'AFTER' ? 'enabled' : 'disabled'}

@@ -52,9 +52,9 @@ class TempCache
     end.join("/")
   end
 
-  def self.cache(*args)
+  def self.cache(*)
     if @enabled
-      key = create_key(*args)
+      key = create_key(*)
       if @cache.key?(key)
         @cache[key]
       else
@@ -63,5 +63,9 @@ class TempCache
     else
       yield
     end
+  end
+
+  def self.exist?(*)
+    @enabled ? @cache.key?(create_key(*)) : false
   end
 end

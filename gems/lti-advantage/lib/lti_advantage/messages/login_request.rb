@@ -33,7 +33,7 @@ module LtiAdvantage::Messages
       canvas_environment
       client_id
       lti_storage_target
-      deployment_id
+      lti_deployment_id
     ].freeze
 
     attr_accessor(*(REQUIRED_PARAMETERS + OPTIONAL_PARAMETERS))

@@ -20,7 +20,7 @@
 
 # @API CommMessages
 #
-# API for accessing the messages (emails, sms, X.com, etc) that have
+# API for accessing the messages (emails, sms, etc) that have
 # been sent to a user.
 #
 # @model CommMessage
@@ -44,7 +44,7 @@
 #           "type": "datetime"
 #         },
 #         "workflow_state": {
-#           "description": "The workflow state of the message. One of 'created', 'staged', 'sending', 'sent', 'bounced', 'dashboard', 'cancelled', or 'closed'",
+#           "description": "The workflow state of the message. Possible values: 'created' : The message has been created, but not yet processed. 'staged' : The message is queued for sending. 'sending' : The message is being sent currently. 'sent' : The message has been successfully sent. 'bounced' : An error occurred during the sending of the message.'dashboard' : The message has been sent to the dashboard. 'closed' :  The message has been sent and closed, typically for dashboard messages or messages sent to deleted users. 'cancelled' : The message was cancelled before it could be sent.",
 #           "example": "sent",
 #           "type": "string",
 #           "allowableValues": {
@@ -101,8 +101,6 @@
 class CommMessagesApiController < ApplicationController
   include Api::V1::CommMessage
 
-  before_action :require_user
-
   # @API List of CommMessages for a user
   #
   # Retrieve a paginated list of messages sent to a user.
@@ -124,7 +122,7 @@ class CommMessagesApiController < ApplicationController
     start_time = CanvasTime.try_parse(params[:start_time])
     end_time = CanvasTime.try_parse(params[:end_time])
 
-    query = user.messages.order("created_at DESC")
+    query = user.messages.order(created_at: :desc)
 
     # site admins see all, but if not a site admin...
     unless Account.site_admin.grants_right?(@current_user, :read_messages) && @domain_root_account.grants_right?(@current_user, :read)

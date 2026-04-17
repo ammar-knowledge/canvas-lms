@@ -30,7 +30,7 @@ describe Outcomes::CSVImporter do
 
     updates ||= no_errors
     Tempfile.open do |tf|
-      CSV.open(tf.path, "wb", col_sep: separator) do |csv|
+      CSV.open(tf.path, "wb", col_sep: separator, encoding: nil) do |csv|
         rows.each { |r| csv << r }
       end
       tf.binmode
@@ -174,20 +174,6 @@ describe Outcomes::CSVImporter do
 
       expect(by_method["decaying_average"].map(&:calculation_int)).to include(40)
       expect(by_method["standard_decaying_average"].map(&:calculation_int)).to include(65)
-      expect(by_method["n_mastery"][0].calculation_int).to eq(3)
-    end
-
-    it "properly sets scoring types if new_decaying_average Calculation Feature Flag is OFF" do
-      @account.disable_feature!(:outcomes_new_decaying_average_calculation)
-      expect_ok_import(csv_file("scoring"))
-
-      by_method = LearningOutcome.all.to_a.group_by(&:calculation_method)
-
-      # methods = OutcomeCalculationMethod::CALCULATION_METHODS.sort
-      methods = %w[average decaying_average highest latest n_mastery]
-      expect(by_method.keys.sort).to eq(methods)
-
-      expect(by_method["decaying_average"].map(&:calculation_int)).to include(65)
       expect(by_method["n_mastery"][0].calculation_int).to eq(3)
     end
 

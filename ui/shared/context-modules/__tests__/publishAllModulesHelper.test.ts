@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2023 - present Instructure, Inc.
  *
@@ -18,16 +17,15 @@
  */
 
 import {waitFor} from '@testing-library/dom'
-import doFetchApi from '@canvas/do-fetch-api-effect'
 import publishOneModuleHelperModule from '../utils/publishOneModuleHelper'
 
 import publishAllModulesHelperModule from '../utils/publishAllModulesHelper'
 import {initBody, makeModuleWithItems} from './testHelpers'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 
 const {
   batchUpdateAllModulesApiCall,
-  monitorProgress,
-  cancelBatchUpdate,
   fetchAllItemPublishedStates,
   updateModulePendingPublishedStates,
   updateModulePublishedState,
@@ -40,25 +38,52 @@ const {renderContextModulesPublishIcon} = {
   ...publishOneModuleHelperModule,
 }
 
-jest.mock('@canvas/do-fetch-api-effect')
-jest.mock('../utils/publishOneModuleHelper')
+vi.mock('../utils/publishOneModuleHelper')
+
+const server = setupServer()
 
 describe('publishAllModulesHelper', () => {
+  // Track captured request for verification
+  let lastCapturedRequest: {method: string; path: string; body?: any} | null = null
+
+  beforeAll(() => server.listen())
+  afterAll(() => server.close())
+
   beforeEach(() => {
-    doFetchApi.mockResolvedValue({response: {ok: true}, json: {published: true}})
+    lastCapturedRequest = null
+    // Default handlers
+    server.use(
+      http.put('/api/v1/courses/:courseId/modules', async ({request}) => {
+        const url = new URL(request.url)
+        lastCapturedRequest = {
+          method: 'PUT',
+          path: url.pathname,
+          body: await request.json(),
+        }
+        return HttpResponse.json({published: true})
+      }),
+      http.get('/api/v1/courses/:courseId/modules', ({request}) => {
+        const url = new URL(request.url)
+        lastCapturedRequest = {
+          method: 'GET',
+          path: url.pathname + url.search,
+        }
+        return HttpResponse.json([])
+      }),
+    )
     initBody()
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
-    doFetchApi.mockReset()
+    server.resetHandlers()
+    vi.clearAllMocks()
     document.body.innerHTML = ''
   })
 
   describe('batchUpdateAllModulesApiCall', () => {
     beforeEach(() => {
-      makeModuleWithItems(1, 'Lesson 2', [117, 119], false)
-      makeModuleWithItems(2, 'Lesson 2', [217, 219], true)
+      makeModuleWithItems(1, [117, 119], false)
+      makeModuleWithItems(2, [217, 219], true)
     })
 
     it('PUTS the batch request', async () => {
@@ -66,216 +91,99 @@ describe('publishAllModulesHelper', () => {
       const skipItems = true
       await batchUpdateAllModulesApiCall(1, publish, skipItems)
 
-      expect(doFetchApi).toHaveBeenCalledTimes(1)
-      expect(doFetchApi).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'PUT',
-          path: '/api/v1/courses/1/modules',
-          body: {
-            module_ids: [1, 2],
-            event: 'publish',
-            skip_content_tags: skipItems,
-            async: true,
-          },
-        })
-      )
+      await waitFor(() => {
+        expect(lastCapturedRequest).not.toBeNull()
+      })
+      expect(lastCapturedRequest!.method).toBe('PUT')
+      expect(lastCapturedRequest!.path).toBe('/api/v1/courses/1/modules')
+      expect(lastCapturedRequest!.body).toEqual({
+        module_ids: [1, 2],
+        event: 'publish',
+        skip_content_tags: skipItems,
+        async: true,
+      })
     })
 
     it('returns a rejected promise on error', async () => {
-      const whoops = new Error('whoops')
-      doFetchApi.mockRejectedValueOnce(whoops)
-      await expect(batchUpdateAllModulesApiCall(2, true, true)).rejects.toBe(whoops)
-    })
-  })
-
-  describe('monitorProgress', () => {
-    beforeAll(() => {
-      jest.useFakeTimers()
-    })
-
-    afterEach(() => {
-      doFetchApi.mockRestore()
-    })
-
-    it('polls for progress until completed', async () => {
-      doFetchApi.mockResolvedValueOnce({
-        json: {
-          id: '3533',
-          workflow_state: 'queued',
-          url: '/api/v1/progress/3533',
-        },
-      })
-      doFetchApi.mockResolvedValueOnce({
-        json: {
-          id: '3533',
-          workflow_state: 'running',
-          url: '/api/v1/progress/3533',
-        },
-      })
-      doFetchApi.mockResolvedValueOnce({
-        json: {
-          id: '3533',
-          workflow_state: 'completed',
-          url: '/api/v1/progress/3533',
-        },
-      })
-
-      const setCurrentProgress = jest.fn()
-      monitorProgress(3533, setCurrentProgress, () => {})
-      await waitFor(() => expect(setCurrentProgress).toHaveBeenCalledTimes(1))
-      expect(doFetchApi).toHaveBeenCalledTimes(1)
-      expect(doFetchApi).toHaveBeenNthCalledWith(1, {path: '/api/v1/progress/3533'})
-      jest.runOnlyPendingTimers()
-      await waitFor(() => expect(setCurrentProgress).toHaveBeenCalledTimes(2))
-      expect(doFetchApi).toHaveBeenCalledTimes(2)
-      expect(doFetchApi).toHaveBeenNthCalledWith(2, {path: '/api/v1/progress/3533'})
-      jest.runOnlyPendingTimers()
-      await waitFor(() => expect(setCurrentProgress).toHaveBeenCalledTimes(3))
-      expect(doFetchApi).toHaveBeenCalledTimes(3)
-      expect(doFetchApi).toHaveBeenNthCalledWith(3, {path: '/api/v1/progress/3533'})
-      jest.runOnlyPendingTimers()
-    })
-
-    it('polls for progress until failed', async () => {
-      doFetchApi.mockResolvedValueOnce({
-        json: {
-          id: '3533',
-          workflow_state: 'queued',
-          url: '/api/v1/progress/3533',
-        },
-      })
-      doFetchApi.mockResolvedValueOnce({
-        json: {
-          id: '3533',
-          workflow_state: 'failed',
-          url: '/api/v1/progress/3533',
-        },
-      })
-
-      const setCurrentProgress = jest.fn()
-      monitorProgress(3533, setCurrentProgress, () => {})
-      await waitFor(() => expect(setCurrentProgress).toHaveBeenCalledTimes(1))
-      expect(doFetchApi).toHaveBeenCalledTimes(1)
-      expect(doFetchApi).toHaveBeenNthCalledWith(1, {path: '/api/v1/progress/3533'})
-      jest.runOnlyPendingTimers()
-      await waitFor(() => expect(setCurrentProgress).toHaveBeenCalledTimes(2))
-      expect(doFetchApi).toHaveBeenCalledTimes(2)
-      expect(doFetchApi).toHaveBeenNthCalledWith(2, {path: '/api/v1/progress/3533'})
-      jest.runOnlyPendingTimers()
-    })
-
-    it('calls onProgressFail on a catestrophic failure', async () => {
-      const err = new Error('whoops')
-      doFetchApi.mockRejectedValueOnce(err)
-      const onProgressFail = jest.fn()
-      monitorProgress(3533, () => {}, onProgressFail)
-      await waitFor(() => expect(onProgressFail).toHaveBeenCalledWith(err))
-    })
-  })
-
-  describe('cancelBatchUpdate', () => {
-    beforeEach(() => {
-      doFetchApi.mockResolvedValue({})
-    })
-
-    it('bails out of no progress is provided', () => {
-      const onCancelComplete = jest.fn()
-      cancelBatchUpdate(undefined, onCancelComplete)
-      expect(onCancelComplete).toHaveBeenCalledTimes(0)
-      expect(doFetchApi).toHaveBeenCalledTimes(0)
-    })
-
-    it('bails out if the progress has already completed', () => {
-      const onCancelComplete = jest.fn()
-      cancelBatchUpdate({workflow_state: 'completed'}, onCancelComplete)
-      expect(onCancelComplete).toHaveBeenCalledTimes(0)
-      expect(doFetchApi).toHaveBeenCalledTimes(0)
-    })
-
-    it('bails out if the progress has already failed', () => {
-      const onCancelComplete = jest.fn()
-      cancelBatchUpdate({workflow_state: 'failed'}, onCancelComplete)
-      expect(onCancelComplete).toHaveBeenCalledTimes(0)
-      expect(doFetchApi).toHaveBeenCalledTimes(0)
-    })
-
-    it('cancels the progress', async () => {
-      const onCancelComplete = jest.fn()
-      cancelBatchUpdate({id: '17', workflow_state: 'running'}, onCancelComplete)
-      expect(doFetchApi).toHaveBeenCalledTimes(1)
-      expect(doFetchApi).toHaveBeenCalledWith({
-        method: 'POST',
-        path: '/api/v1/progress/17/cancel',
-        body: {message: 'canceled'},
-      })
-      await waitFor(() => expect(onCancelComplete).toHaveBeenCalled())
-      expect(onCancelComplete).toHaveBeenCalledTimes(1)
-      expect(onCancelComplete).toHaveBeenCalledWith()
-    })
-
-    it('calls onCancelComplete with the error on failure', async () => {
-      doFetchApi.mockRejectedValueOnce('whoops')
-      const onCancelComplete = jest.fn()
-      cancelBatchUpdate({id: '17', workflow_state: 'running'}, onCancelComplete)
-      expect(doFetchApi).toHaveBeenCalledTimes(1)
-      expect(doFetchApi).toHaveBeenCalledWith({
-        method: 'POST',
-        path: '/api/v1/progress/17/cancel',
-        body: {message: 'canceled'},
-      })
-      await waitFor(() => expect(onCancelComplete).toHaveBeenCalled())
-      expect(onCancelComplete).toHaveBeenCalledTimes(1)
-      expect(onCancelComplete).toHaveBeenCalledWith('whoops')
+      server.use(
+        http.put('/api/v1/courses/:courseId/modules', () => HttpResponse.error()),
+      )
+      await expect(batchUpdateAllModulesApiCall(2, true, true)).rejects.toThrow()
     })
   })
 
   describe('fetchAllItemPublishedStates', () => {
+    let requestCount = 0
+    let requestPaths: string[] = []
+
     beforeEach(() => {
-      doFetchApi.mockReset()
-      doFetchApi.mockResolvedValue({response: {ok: true}, json: [], link: null})
+      requestCount = 0
+      requestPaths = []
+      server.use(
+        http.get('/api/v1/courses/:courseId/modules', ({request}) => {
+          const url = new URL(request.url)
+          requestCount++
+          requestPaths.push(url.pathname + url.search)
+          return HttpResponse.json([])
+        }),
+      )
     })
-    it('GETs the module item states', () => {
+
+    it('GETs the module item states', async () => {
       fetchAllItemPublishedStates(7)
-      expect(doFetchApi).toHaveBeenCalledTimes(1)
-      expect(doFetchApi).toHaveBeenCalledWith({
-        method: 'GET',
-        path: '/api/v1/courses/7/modules?include[]=items',
+      await waitFor(() => {
+        expect(requestCount).toBe(1)
       })
+      expect(requestPaths[0]).toBe('/api/v1/courses/7/modules?include[]=items')
     })
+
     it('exhausts paginated responses', async () => {
-      doFetchApi.mockResolvedValueOnce({
-        response: {ok: true},
-        json: [{id: 1, published: true, items: []}],
-        link: {next: {url: '/another/page'}},
-      })
+      // Override with paginated response
+      server.use(
+        http.get('/api/v1/courses/:courseId/modules', ({request}) => {
+          const url = new URL(request.url)
+          requestCount++
+          requestPaths.push(url.pathname + url.search)
+          return HttpResponse.json(
+            [{id: 1, published: true, items: []}],
+            {headers: {Link: '</another/page>; rel="next"'}},
+          )
+        }),
+        http.get('/another/page', ({request}) => {
+          requestCount++
+          requestPaths.push(new URL(request.url).pathname)
+          return HttpResponse.json([])
+        }),
+      )
 
       fetchAllItemPublishedStates(7)
-      await waitFor(() => expect(doFetchApi).toHaveBeenCalledTimes(2))
-      expect(doFetchApi).toHaveBeenLastCalledWith({
-        method: 'GET',
-        path: '/another/page',
-      })
+      await waitFor(() => expect(requestCount).toBe(2))
+      expect(requestPaths[1]).toBe('/another/page')
     })
+
     it('returns a rejected promise on error', async () => {
-      const whoops = new Error('whoops')
-      doFetchApi.mockRejectedValueOnce(whoops)
-      await expect(fetchAllItemPublishedStates(7)).rejects.toBe(whoops)
+      server.use(
+        http.get('/api/v1/courses/:courseId/modules', () => HttpResponse.error()),
+      )
+      await expect(fetchAllItemPublishedStates(7)).rejects.toThrow()
     })
   })
 
   describe('updateModulePendingPublishedStates', () => {
-    let updateModuleSpy, updateItemsSpy
+    let updateModuleSpy: any
+    let updateItemsSpy: any
     beforeEach(() => {
-      makeModuleWithItems(1, 'Lesson 2', [117, 119], false)
-      makeModuleWithItems(2, 'Lesson 2', [217, 219], true)
+      makeModuleWithItems(1, [117, 119], false)
+      makeModuleWithItems(2, [217, 219], true)
     })
     afterEach(() => {
       updateModuleSpy?.mockRestore()
+      updateItemsSpy?.mockRestore()
     })
 
     it('updates the modules and their items', () => {
-      updateModuleSpy = jest.spyOn(publishAllModulesHelperModule, 'updateModulePublishedState')
-      updateItemsSpy = jest.spyOn(publishOneModuleHelperModule, 'updateModuleItemsPublishedStates')
+      updateModuleSpy = vi.spyOn(publishAllModulesHelperModule, 'updateModulePublishedState')
+      updateItemsSpy = vi.spyOn(publishOneModuleHelperModule, 'updateModuleItemsPublishedStates')
       const isPublishing = true
       updateModulePendingPublishedStates(isPublishing)
       expect(updateModuleSpy).toHaveBeenCalledTimes(2)
@@ -285,13 +193,9 @@ describe('publishAllModulesHelper', () => {
   })
 
   describe('updateModulePublishedState', () => {
-    let spy
     beforeEach(() => {
-      makeModuleWithItems(1, 'Lesson 2', [117, 119], false)
-      makeModuleWithItems(2, 'Lesson 2', [217, 219], true)
-    })
-    afterEach(() => {
-      spy?.mockRestore()
+      makeModuleWithItems(1, [117, 119], false)
+      makeModuleWithItems(2, [217, 219], true)
     })
 
     it('updates the module', () => {

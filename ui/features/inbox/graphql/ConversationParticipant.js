@@ -15,18 +15,18 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {shape, string} from 'prop-types'
 import {User} from './User'
 
 export const ConversationParticipant = {
   fragment: gql`
-    fragment ConversationParticipant on ConversationParticipant {
+    fragment InboxConversationParticipant on ConversationParticipant {
       _id
       id
       label
       user {
-        ...User
+        ...InboxUser
       }
       workflowState
     }

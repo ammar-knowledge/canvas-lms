@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -17,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import Formatter from './Formatter'
+import type Formatter from './Formatter'
 import spacing from './formatters/spacing'
 
 enum MimeTypes {
@@ -88,21 +87,23 @@ class ContentChunker {
     const chunks: Array<Chunk> = []
     const body = this.bodyFor(content)
     const mathElement = body.querySelector(this.selector)
-    const [preMath, postMath] = body.innerHTML.split(mathElement?.outerHTML)
+
+    // If no math element, return the whole content as HTML
+    if (!mathElement) {
+      chunks.push({content: this.applyFormatters(body.innerHTML), mimeType: MimeTypes.html})
+      return chunks
+    }
+
+    const [preMath, postMath] = body.innerHTML.split(mathElement.outerHTML)
 
     // Add pre-math content
     chunks.push({content: this.applyFormatters(preMath), mimeType: MimeTypes.html})
 
     // Add the math
-    if (mathElement) {
-      chunks.push({
-        content: mathElement.getAttribute(this.mathMLAttr) || '',
-        mimeType: MimeTypes.mathML,
-      })
-      // Recursive base case: no more chunks to process
-    } else if (!mathElement) {
-      return chunks
-    }
+    chunks.push({
+      content: mathElement.getAttribute(this.mathMLAttr) || '',
+      mimeType: MimeTypes.mathML,
+    })
 
     // Recurse and concat results
     chunks.push(...this.chunk(postMath))

@@ -29,12 +29,12 @@ import {List, Map} from 'immutable'
 
 import Path from '../assignment-path'
 import * as actions from '../actions'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {transformScore} from '../score-helpers'
 
-const I18n = useI18nScope('conditional_release')
+const I18n = createI18nScope('conditional_release')
 
-const {object, func} = PropTypes
+const {object, func, bool} = PropTypes
 
 export class AssignmentCardMenu extends React.Component {
   static get propTypes() {
@@ -44,6 +44,7 @@ export class AssignmentCardMenu extends React.Component {
       assignment: object.isRequired,
       removeAssignment: func.isRequired,
       triggerAssignment: object,
+      readOnly: bool,
 
       // action props
       moveAssignment: func.isRequired,
@@ -60,7 +61,7 @@ export class AssignmentCardMenu extends React.Component {
         name: this.props.assignment.get('name'),
         lower: transformScore(range.get('lower_bound'), this.props.triggerAssignment, false),
         upper: transformScore(range.get('upper_bound'), this.props.triggerAssignment, true),
-      })
+      }),
     )
   }
 
@@ -79,7 +80,7 @@ export class AssignmentCardMenu extends React.Component {
                 lower: transformScore(
                   range.get('lower_bound'),
                   this.props.triggerAssignment,
-                  false
+                  false,
                 ),
                 upper: transformScore(range.get('upper_bound'), this.props.triggerAssignment, true),
               })}
@@ -91,6 +92,9 @@ export class AssignmentCardMenu extends React.Component {
   }
 
   render() {
+    if (this.props.readOnly) {
+      return null
+    }
     return (
       <Menu
         trigger={
@@ -127,8 +131,8 @@ const ConnectedAssignmentCardMenu = connect(
         moveAssignment: actions.moveAssignment,
         setAriaAlert: actions.setAriaAlert,
       },
-      dispatch
-    )
+      dispatch,
+    ),
 )(AssignmentCardMenu)
 
 export default ConnectedAssignmentCardMenu

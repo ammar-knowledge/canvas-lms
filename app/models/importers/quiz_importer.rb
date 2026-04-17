@@ -22,6 +22,8 @@ module Importers
   class QuizImporter < Importer
     self.item_class = Quizzes::Quiz
 
+    ATTRIBUTES_FOR_DATE_SHIFT = %i[due_at lock_at unlock_at show_correct_answers_at hide_correct_answers_at].freeze
+
     # try to standardize the data to make life easier later on
     # in particular, strip out all of the embedded questions and add explicitly to assessment_questions
     def self.preprocess_migration_data(data)
@@ -157,7 +159,7 @@ module Importers
           assignment["quiz_migration_id"] = migration_id
         end
         begin
-          Importers::QuizImporter.import_from_migration(assessment, migration.context, migration, question_data, nil, allow_update)
+          Importers::QuizImporter.import_from_migration(assessment, migration.context, migration, question_data, nil, allow_update:)
         rescue
           migration.add_import_warning(t("#migration.quiz_type", "Quiz"), assessment[:title], $!)
         end
@@ -166,7 +168,7 @@ module Importers
 
     # Import a quiz from a hash.
     # It assumes that all the referenced questions are already in the database
-    def self.import_from_migration(hash, context, migration, question_data = nil, item = nil, allow_update = false)
+    def self.import_from_migration(hash, context, migration, question_data = nil, item = nil, allow_update: false)
       hash = hash.with_indifferent_access
       # there might not be an import id if it's just a text-only type...
       item ||= Quizzes::Quiz.where(context_type: context.class.to_s, context_id: context, id: hash[:id]).first if hash[:id]
@@ -230,7 +232,15 @@ module Importers
       end
 
       item.saved_by = :migration
-      item.save!
+
+      # Putting date shift here since this is the first place where we save after the dates are set
+      # This is important to avoid issues to try to put the shifted dates to the model and not update later
+      if Account.site_admin.feature_enabled?(:pre_date_shift_for_assignment_importing)
+        try_to_save_with_date_shift(item, migration)
+      else
+        item.save!
+      end
+
       recache_due_dates = item.assignment&.needs_update_cached_due_dates # quiz ends up getting reloaded by the end
       build_assignment = false
 
@@ -242,8 +252,17 @@ module Importers
         end
         item.assignment = nil if item.assignment&.quiz && item.assignment.quiz.id != item.id
         item.assignment ||= context.assignments.temp_record
-        item.assignment = ::Importers::AssignmentImporter.import_from_migration(hash[:assignment], context, migration, item.assignment, item)
+
+        # For Quizzes.next, use the quiz's migration_id instead of the assignment's
+        assignment_hash = hash[:assignment].dup
+        if hash[:qti_new_quiz]
+          assignment_hash[:migration_id] = hash[:migration_id]
+        end
+
+        item.assignment = ::Importers::AssignmentImporter.import_from_migration(assignment_hash, context, migration, item.assignment, item)
         if migration.cc_qti_migration? && (migration.import_quizzes_next? || !!hash[:qti_new_quiz])
+          migration.migration_settings[:quiz_next_imported] = true
+          migration.save if migration.changed?
           item.assignment.mark_as_ready_to_migrate_to_quiz_next
           item.save!
         end
@@ -285,7 +304,7 @@ module Importers
 
       item.generate_quiz_data if hash[:available] || item.published?
 
-      if hash.key?(:points_possible) && migration.quizzes_next_migration?
+      if hash.key?(:points_possible) && (migration.quizzes_next_migration? || hash["qti_new_quiz"] == true)
         item.points_possible = hash[:points_possible]
 
         # prevent overriding the points_possible field
@@ -294,7 +313,7 @@ module Importers
 
       if hash[:available]
         item.workflow_state = "available"
-        item.published_at = Time.now
+        item.published_at = Time.zone.now
       elsif item.can_unpublish? && (new_record || master_migration)
         item.workflow_state = "unpublished"
         item.assignment.workflow_state = "unpublished" if item.assignment
@@ -314,7 +333,7 @@ module Importers
         item.assignment.points_possible = item.points_possible
       end
 
-      item.root_entries(true) if !item.available? && !item.survey? # reload items so we get accurate points
+      item.root_entries(force_check: true) if !item.available? && !item.survey? # reload items so we get accurate points
       item.notify_of_update = false
       item.save
       item.assignment.save_without_broadcasting if item.assignment&.changed?
@@ -389,6 +408,44 @@ module Importers
         end
       end
       item.reload # reload to catch question additions
+    end
+
+    def self.try_to_save_with_date_shift(item, migration)
+      unless migration.date_shift_options
+        item.save!
+        return item
+      end
+      shift_options = CourseContentImporter.shift_date_options_from_migration(migration)
+
+      original_due_at = item.due_at
+      original_lock_at = item.lock_at
+      original_unlock_at = item.unlock_at
+      original_show_correct_answers_at = item.show_correct_answers_at
+      original_hide_correct_answers_at = item.hide_correct_answers_at
+
+      item.due_at = CourseContentImporter.shift_date(item.due_at, shift_options) if item.due_at
+      item.lock_at = CourseContentImporter.shift_date(item.lock_at, shift_options) if item.lock_at
+      item.unlock_at = CourseContentImporter.shift_date(item.unlock_at, shift_options) if item.unlock_at
+      item.show_correct_answers_at = CourseContentImporter.shift_date(item.show_correct_answers_at, shift_options) if item.show_correct_answers_at
+      item.hide_correct_answers_at = CourseContentImporter.shift_date(item.hide_correct_answers_at, shift_options) if item.hide_correct_answers_at
+
+      if item.invalid? && CourseContentImporter.error_on_dates?(item, ATTRIBUTES_FOR_DATE_SHIFT)
+        migration.add_warning(t("Couldn't adjust dates on quiz %{name} (ID %{id})", name: item.title, id: item.id&.to_s))
+
+        item.errors.delete(:due_at)
+        item.due_at = original_due_at
+        item.errors.delete(:lock_at)
+        item.lock_at = original_lock_at
+        item.errors.delete(:unlock_at)
+        item.unlock_at = original_unlock_at
+        item.errors.delete(:show_correct_answers_at)
+        item.show_correct_answers_at = original_show_correct_answers_at
+        item.errors.delete(:hide_correct_answers_at)
+        item.hide_correct_answers_at = original_hide_correct_answers_at
+      end
+
+      item.save!
+      item
     end
   end
 end

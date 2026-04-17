@@ -18,10 +18,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 class VideoCaptionService < ApplicationService
-  def initialize(media_object, skip_polling: false)
+  MAX_RETRY_ATTEMPTS = 10
+
+  def initialize(media_object)
     super()
 
-    @skip_polling = skip_polling # for testing purposes
     @media_object = media_object
     @type = media_object.media_type
     @title = media_object.title
@@ -32,30 +33,16 @@ class VideoCaptionService < ApplicationService
     update_status(:processing)
     return update_status(:failed_initial_validation) unless pass_initial_checks
 
-    # send to Notorious so it can process the media; grab and use the media_id from the handoff response
-    @media_id = handoff
-    return update_status(:failed_handoff) unless @media_id
-
-    if @skip_polling
-      # tell Notorious to start generating captions -- must be complete with handoff first
-      request_caption_response = request_caption
-      return update_status(:failed_request) unless (200..299).cover?(request_caption_response.code)
-
-      process_captions_ready
-    else
-      delay.poll_caption_request
-    end
+    @media_object.update_attribute(:auto_caption_media_id, @media_id)
+    delay.poll_if_we_can_request_captions_yet
   end
 
   private
 
   def pass_initial_checks
-    return false unless config["app-host"].present?
-    return false unless auth_token.present?
     return false unless @type&.include?("video")
     return false unless @media_id
     return false if @media_object.media_tracks.where(kind: "subtitles").exists?
-    return false if url.nil?
 
     true
   end
@@ -69,128 +56,52 @@ class VideoCaptionService < ApplicationService
     end
   end
 
-  def handoff
-    response = request_handoff
-    response&.dig("media", "id")
-  end
-
-  def grab_captions(srclang)
-    response = collect_captions(srclang)
-    if (200..299).cover?(response.code)
-      return response.body
-    end
-
-    nil
-  end
-
-  def url
-    @url ||= grab_url_from_media_sources
-  end
-
-  def grab_url_from_media_sources
-    media_sources = @media_object.reload.media_sources
-    media_source = media_sources.min_by { |ms| ms[:bitrate]&.to_i }
-    media_source&.fetch(:url, nil)
-  end
-
-  def handoff_url
-    "#{notorious_host}/api/media"
-  end
-
-  def caption_request_url
-    "#{notorious_host}/api/media/#{@media_id}/captions"
-  end
-
-  def media_url
-    "#{notorious_host}/api/media/#{@media_id}"
-  end
-
-  def caption_collect_url(srclang)
-    "#{notorious_host}/api/media/#{@media_id}/captions/#{srclang}"
-  end
-
-  def notorious_host
-    config["app-host"]
-  end
-
-  def auth_token
-    Rails.application.credentials.send(:"notorious-admin")&.[](:client_authentication_key)
-  end
-
-  def request_headers
-    { "Authorization" => auth_token }
-  end
-
-  def request_handoff
-    HTTParty.post(handoff_url, body: { url:, name: @title }, headers: request_headers)
-  end
-
-  def request_caption
-    HTTParty.post(caption_request_url, headers: request_headers)
-  end
-
-  def media
-    HTTParty.get(media_url, headers: request_headers)
-  end
-
-  def collect_captions(srclang)
-    HTTParty.get(caption_collect_url(srclang), headers: request_headers)
-  end
-
-  def config
-    @config ||= DynamicSettings.find("notorious-admin", tree: :private) || {}
-  end
-
   def update_status(status)
     @media_object.update_attribute(:auto_caption_status, status)
   end
 
-  def process_captions_ready
-    response = media
-    if response.dig("media", "captions", 0, "language") && response.dig("media", "captions", 0, "status") == "succeeded"
-      srclang = response.dig("media", "captions", 0, "language")
-      srclang = nil unless srclang.start_with?("en")
-      return update_status(:non_english_captions) unless srclang
+  def poll_if_we_can_request_captions_yet(attempts = 1)
+    response = kaltura_client.mediaGet(@media_id)
 
-      save_media_track(grab_captions(srclang), srclang)
-    else
-      update_status(:failed_captions)
-    end
-  end
-
-  def poll_caption_request(attempts = 1)
-    response = request_caption
-    if (200..299).cover?(response.code)
-      delay.poll_captions_ready
+    if CanvasKaltura::ClientV3::Enums::KalturaEntryStatus[response&.dig(:status)] == :READY
+      delay.request_to_start_caption_generation
     elsif attempts < 10
-      delay(run_at: reschedule_time(attempts)).poll_caption_request(attempts + 1)
+      delay(run_at: reschedule_time(attempts)).poll_if_we_can_request_captions_yet(attempts + 1)
     else
       update_status(:failed_request)
     end
   end
-  alias_method :generate_captions, :poll_caption_request
 
-  def poll_captions_ready(attempts = 1)
-    response = media
-    response_succeeded = response.dig("media", "captions", 0, "status") == "succeeded"
-    language_detected = response.dig("media", "captions", 0, "language")
+  def request_to_start_caption_generation(attempts = 1)
+    caption_asset = kaltura_client.create_caption_asset(@media_id)
 
-    if response_succeeded && language_detected
-      if language_detected.start_with?("en")
-        save_media_track(grab_captions(language_detected), language_detected)
-      else
-        update_status(:non_english_captions)
-      end
-    elsif attempts < 10
-      delay(run_at: reschedule_time(attempts)).poll_captions_ready(attempts + 1)
+    if (@caption_id = caption_asset&.dig(:id))
+      delay.check_if_captions_are_ready
+    elsif attempts < MAX_RETRY_ATTEMPTS
+      delay(run_at: reschedule_time(attempts)).request_to_start_caption_generation(attempts + 1)
+    else
+      update_status(:failed_request)
+    end
+  end
+
+  def check_if_captions_are_ready(attempts = 1)
+    caption_asset = kaltura_client.caption_asset(@caption_id)
+
+    if CanvasKaltura::ClientV3::Enums::KalturaCaptionAssetStatus[caption_asset&.dig(:status)] == :READY
+      save_media_track(kaltura_client.caption_asset_contents(@caption_id), caption_asset[:languageCode])
+    elsif attempts < MAX_RETRY_ATTEMPTS
+      delay(run_at: reschedule_time(attempts)).check_if_captions_are_ready(attempts + 1)
     else
       update_status(:failed_captions)
     end
   end
-  alias_method :poll_for_captions_ready, :poll_captions_ready
 
   def reschedule_time(attempt)
     # This mimics the exponential backoff algorithm used by inst jobs
     (5 + (attempt**4)).seconds.from_now
+  end
+
+  def kaltura_client
+    CanvasKaltura::ClientV3.new.tap { it.startSession(CanvasKaltura::SessionType::ADMIN) }
   end
 end

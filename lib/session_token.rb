@@ -19,45 +19,48 @@
 #
 
 class SessionToken
-  attr_accessor :pseudonym_id, :created_at, :signature, :current_user_id, :used_remember_me_token
+  attr_accessor :pseudonym_id, :created_at, :current_user_id, :used_remember_me_token, :consent_from_mobile
+  attr_writer :signature
 
-  def initialize(pseudonym_id, current_user_id: nil, used_remember_me_token: nil)
+  def initialize(pseudonym_id, current_user_id: nil, used_remember_me_token: nil, consent_from_mobile: nil)
     self.created_at = Time.now.utc
     self.pseudonym_id = pseudonym_id
     self.current_user_id = current_user_id
     self.used_remember_me_token = used_remember_me_token
-    self.signature = Canvas::Security.hmac_sha1(signature_string)
+    self.consent_from_mobile = consent_from_mobile
+    self.signature = nil
   end
 
   def self.parse(serialized_token)
     # deserialize and validate structure
-    result = JSONToken.decode(serialized_token) rescue nil
+    result = JSONToken.decode(serialized_token)
     return nil unless
       result.is_a?(Hash) &&
-      result.keys.sort == %w[created_at current_user_id pseudonym_id signature used_remember_me_token] &&
+      (%w[created_at current_user_id pseudonym_id signature used_remember_me_token] - result.keys).empty? &&
       result["created_at"].is_a?(Integer) &&
       result["pseudonym_id"].is_a?(Integer) &&
       (result["current_user_id"].nil? || result["current_user_id"].is_a?(Integer)) &&
       [nil, true, false].include?(result["used_remember_me_token"]) &&
+      [nil, true, false].include?(result["consent_from_mobile"]) &&
       result["signature"].is_a?(String)
 
     # reconstruct token (validation of values for created_at and signature will
     # take place later)
     token = new(result["pseudonym_id"],
-                current_user_id: result["current_user_id"],
-                used_remember_me_token: result["used_remember_me_token"])
-    token.created_at = Time.at(result["created_at"])
+                **result.except("pseudonym_id", "created_at", "signature").symbolize_keys)
+    token.created_at = Time.zone.at(result["created_at"])
     token.signature = result["signature"]
     token
+  rescue JSON::ParserError, ArgumentError
+    nil
   end
 
   VALIDITY_PERIOD = 30
 
   def valid?
     now = Time.now.utc
-    created_at >= now - VALIDITY_PERIOD.seconds &&
-      created_at <= now + VALIDITY_PERIOD.seconds &&
-      Canvas::Security.verify_hmac_sha1(signature, signature_string) rescue false
+    created_at.between?(now - VALIDITY_PERIOD.seconds, now + VALIDITY_PERIOD.seconds) &&
+      Canvas::Security.verify_hmac_sha1(signature, signature_string)
   end
 
   def as_json
@@ -66,6 +69,7 @@ class SessionToken
       pseudonym_id: pseudonym_id.to_i,
       current_user_id: current_user_id&.to_i,
       used_remember_me_token: used_remember_me_token.nil? ? nil : !!used_remember_me_token,
+      consent_from_mobile: consent_from_mobile.nil? ? nil : !!consent_from_mobile,
       signature: signature.to_s
     }
   end
@@ -74,10 +78,21 @@ class SessionToken
     JSONToken.encode(as_json)
   end
 
-  def signature_string
+  private
+
+  def signature_values
     [created_at.to_i.to_s,
      pseudonym_id.to_s,
      current_user_id.to_s,
-     used_remember_me_token.to_s].join("::")
+     used_remember_me_token.to_s,
+     consent_from_mobile.to_s]
+  end
+
+  def signature_string
+    signature_values.join("::")
+  end
+
+  def signature
+    @signature ||= Canvas::Security.hmac_sha1(signature_string)
   end
 end

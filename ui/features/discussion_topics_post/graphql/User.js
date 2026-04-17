@@ -16,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {arrayOf, shape, string} from 'prop-types'
 
 export const User = {
   fragment: gql`
-    fragment User on User {
+    fragment DiscussionPostUser on User {
       id
       _id
       avatarUrl

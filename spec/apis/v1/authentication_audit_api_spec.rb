@@ -36,8 +36,8 @@ describe "AuthenticationAudit API", type: :request do
     @page_view.user = @viewing_user
     @page_view.request_id = @request_id
     @page_view.remote_ip = "10.10.10.10"
-    @page_view.created_at = Time.now
-    @page_view.updated_at = Time.now
+    @page_view.created_at = Time.zone.now
+    @page_view.updated_at = Time.zone.now
     @page_view.save!
 
     @event = Auditors::Authentication.record(@pseudonym, "login")
@@ -170,7 +170,8 @@ describe "AuthenticationAudit API", type: :request do
           "default_time_zone" => @account.default_time_zone.tzinfo.name,
           "default_storage_quota_mb" => @account.default_storage_quota_mb,
           "default_user_storage_quota_mb" => @account.default_user_storage_quota_mb,
-          "default_group_storage_quota_mb" => @account.default_group_storage_quota_mb
+          "default_group_storage_quota_mb" => @account.default_group_storage_quota_mb,
+          "course_template_id" => nil
         }]
       end
     end
@@ -330,34 +331,34 @@ describe "AuthenticationAudit API", type: :request do
       allow(LoadAccount).to receive(:default_domain_root_account).and_return(new_root_account)
       @user, @pseudonym, @viewing_user = @user, @pseudonym, user_with_pseudonym(account: new_root_account)
 
-      fetch_for_context(@pseudonym, expected_status: 401, type: "login")
-      fetch_for_context(@account, expected_status: 401)
-      fetch_for_context(@user, expected_status: 401)
+      fetch_for_context(@pseudonym, expected_status: 403, type: "login")
+      fetch_for_context(@account, expected_status: 403)
+      fetch_for_context(@user, expected_status: 403)
     end
 
     context "no permission on account" do
       it "does not authorize the login endpoint" do
-        fetch_for_context(@pseudonym, expected_status: 401, type: "login")
+        fetch_for_context(@pseudonym, expected_status: 403, type: "login")
       end
 
       it "does not authorize the account endpoint" do
-        fetch_for_context(@account, expected_status: 401)
+        fetch_for_context(@account, expected_status: 403)
       end
 
       it "does not authorize the user endpoint" do
-        fetch_for_context(@user, expected_status: 401)
+        fetch_for_context(@user, expected_status: 403)
       end
     end
 
     context "with :view_statistics permission on account" do
       before do
-        @user, _ = @user,
-account_admin_user_with_role_changes(
-  account: @account,
-  user: @viewing_user,
-  role: @custom_role,
-  role_changes: { view_statistics: true }
-)
+        @user, = @user,
+                   account_admin_user_with_role_changes(
+                     account: @account,
+                     user: @viewing_user,
+                     role: @custom_role,
+                     role_changes: { view_statistics: true }
+                   )
       end
 
       it "authorizes the login endpoint" do
@@ -375,13 +376,13 @@ account_admin_user_with_role_changes(
 
     context "with :manage_user_logins permission on account" do
       before do
-        @user, _ = @user,
-account_admin_user_with_role_changes(
-  account: @account,
-  user: @viewing_user,
-  role: @custom_role,
-  role_changes: { manage_user_logins: true }
-)
+        @user, = @user,
+                   account_admin_user_with_role_changes(
+                     account: @account,
+                     user: @viewing_user,
+                     role: @custom_role,
+                     role_changes: { manage_user_logins: true }
+                   )
       end
 
       it "authorizes the login endpoint" do
@@ -399,13 +400,13 @@ account_admin_user_with_role_changes(
 
     context "with :view_statistics permission on site admin account" do
       before do
-        @user, _ = @user,
-account_admin_user_with_role_changes(
-  account: Account.site_admin,
-  user: @viewing_user,
-  role: @custom_sa_role,
-  role_changes: { view_statistics: true }
-)
+        @user, = @user,
+                   account_admin_user_with_role_changes(
+                     account: Account.site_admin,
+                     user: @viewing_user,
+                     role: @custom_sa_role,
+                     role_changes: { view_statistics: true }
+                   )
       end
 
       it "authorizes the login endpoint" do
@@ -423,13 +424,13 @@ account_admin_user_with_role_changes(
 
     context "with :manage_user_logins permission on site admin account" do
       before do
-        @user, _ = @user,
-account_admin_user_with_role_changes(
-  account: Account.site_admin,
-  user: @viewing_user,
-  role: @custom_sa_role,
-  role_changes: { manage_user_logins: true }
-)
+        @user, = @user,
+                   account_admin_user_with_role_changes(
+                     account: Account.site_admin,
+                     user: @viewing_user,
+                     role: @custom_sa_role,
+                     role_changes: { manage_user_logins: true }
+                   )
       end
 
       it "authorizes the login endpoint" do
@@ -445,18 +446,28 @@ account_admin_user_with_role_changes(
       end
     end
 
+    context "with a suspended user" do
+      before do
+        @pseudonym.update!(workflow_state: "suspended")
+      end
+
+      it "does not authorize the user endpoint for an unprivileged user" do
+        fetch_for_context(@user, expected_status: 403)
+      end
+    end
+
     describe "per-account permissions when fetching by user" do
       before do
         @account = account_model
         user_with_pseudonym(user: @user, account: @account, active_all: true)
         custom_role = custom_account_role("CustomAdmin", account: @account)
-        @user, _ = @user,
-account_admin_user_with_role_changes(
-  account: @account,
-  user: @viewing_user,
-  role: custom_role,
-  role_changes: { manage_user_logins: true }
-)
+        @user, = @user,
+                   account_admin_user_with_role_changes(
+                     account: @account,
+                     user: @viewing_user,
+                     role: custom_role,
+                     role_changes: { manage_user_logins: true }
+                   )
       end
 
       context "without permission on the second account" do
@@ -467,13 +478,13 @@ account_admin_user_with_role_changes(
 
       context "with permission on the site admin account" do
         before do
-          @user, _ = @user,
-account_admin_user_with_role_changes(
-  account: Account.site_admin,
-  user: @viewing_user,
-  role: @custom_sa_role,
-  role_changes: { manage_user_logins: true }
-)
+          @user, = @user,
+                     account_admin_user_with_role_changes(
+                       account: Account.site_admin,
+                       user: @viewing_user,
+                       role: @custom_sa_role,
+                       role_changes: { manage_user_logins: true }
+                     )
         end
 
         it "includes cross-account events at user endpoint" do
@@ -512,16 +523,16 @@ account_admin_user_with_role_changes(
     context "with permission on only a subset of accounts" do
       before do
         @user, @viewing_user = @user, @shard2.activate { user_model }
-        @user, _ = @user,
-@shard2.activate do
-  custom_role = custom_account_role("CustomAdmin", account: @account)
-  account_admin_user_with_role_changes(
-    account: @account,
-    user: @viewing_user,
-    role: custom_role,
-    role_changes: { manage_user_logins: true }
-  )
-end
+        @user, = @user,
+                   @shard2.activate do
+                     custom_role = custom_account_role("CustomAdmin", account: @account)
+                     account_admin_user_with_role_changes(
+                       account: @account,
+                       user: @viewing_user,
+                       role: custom_role,
+                       role_changes: { manage_user_logins: true }
+                     )
+                   end
       end
 
       it "includes events from visible accounts" do
@@ -530,6 +541,46 @@ end
 
       it "does not include events from non-visible accounts" do
         forbid_event_for_context(@user, @event)
+      end
+    end
+
+    context "with a suspended pseudonym on the other shard via role link" do
+      before do
+        Account.default.trust_links.create!(managing_account: @account)
+        @shard2.activate do
+          @account.trust_links.create!(managing_account: Account.default)
+        end
+
+        @shard2.activate do
+          @suspended_pseudonym = @pseudonym
+          @suspended_event = Auditors::Authentication.record(@suspended_pseudonym, "login")
+          @suspended_pseudonym.update!(workflow_state: "suspended")
+        end
+
+        # Admin lives on Account.default with CustomAdmin (has manage_user_logins)
+        @user, @viewing_user = @user, user_model
+        Account.default.role_overrides.create!(
+          permission: "manage_user_logins",
+          role: @custom_role,
+          enabled: true
+        )
+        Account.default.account_users.create!(user: @viewing_user, role: @custom_role)
+
+        # Role link grants a lesser role on shard2 that lacks manage_user_logins
+        @shard2_role = @shard2.activate do
+          custom_account_role("LinkedAdmin", account: @account)
+        end
+        @shard2.activate do
+          @account.role_links.create!(
+            managing_account: Account.default,
+            managing_role: @custom_role,
+            managed_role: @shard2_role
+          )
+        end
+      end
+
+      it "does not include events from the suspended pseudonym's shard" do
+        forbid_event_for_context(@user, @suspended_event)
       end
     end
   end

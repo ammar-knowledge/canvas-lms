@@ -17,7 +17,7 @@
  */
 
 import {DropTarget} from 'react-dnd'
-import {flowRight as compose} from 'lodash'
+import {flowRight as compose} from 'es-toolkit/compat'
 import ItemTypes from './Types'
 import DashboardCardBox from './DashboardCardBox'
 import DefaultDragDropContext from './DefaultDragDropContext'
@@ -31,7 +31,7 @@ const getDroppableDashboardCardBox = (withDragDropContext = DefaultDragDropConte
     withDragDropContext,
     DropTarget(ItemTypes.CARD, cardTarget, connect => ({
       connectDropTarget: connect.dropTarget(),
-    }))
+    })),
   )(DashboardCardBox)
 
 export default getDroppableDashboardCardBox

@@ -46,10 +46,6 @@ module Submissions
         @body_classes.push("full-width", "student-annotation-container")
       end
 
-      if @assignment.moderated_grading?
-        @moderated_grading_allow_list = @submission.moderated_grading_allow_list
-      end
-
       @anonymous_instructor_annotations = @context.grants_right?(@current_user, :manage_grades) &&
                                           @assignment.anonymous_instructor_annotations
 
@@ -66,7 +62,7 @@ module Submissions
           @anonymize_students = anonymize_students?
           flash.now[:notice] = flash_message if flash_message
           render template: "submissions/show_preview", locals: {
-            anonymize_students: @anonymize_students
+            anonymize_students: @anonymize_students,
           }
         end
       end
@@ -133,7 +129,7 @@ module Submissions
     end
 
     def redirect_to_quiz_history?
-      !redirect_to_quiz? && (@submission.submission_type == "online_quiz" && @submission.quiz_submission_version)
+      !redirect_to_quiz? && @submission.submission_type == "online_quiz" && @submission.quiz_submission_version
     end
   end
 end

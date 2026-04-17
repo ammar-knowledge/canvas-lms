@@ -16,33 +16,41 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
+import {AlertManagerContext} from '@instructure/platform-alerts'
 import {AnonymousUser} from '../../../../graphql/AnonymousUser'
 import {Discussion} from '../../../../graphql/Discussion'
 import {DiscussionEntry} from '../../../../graphql/DiscussionEntry'
 import {fireEvent, render, waitFor} from '@testing-library/react'
 import {SplitScreenThreadsContainer} from '../SplitScreenThreadsContainer'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
 import {PageInfo} from '../../../../graphql/PageInfo'
 import React from 'react'
+import fakeENV from '@canvas/test-utils/fakeENV'
 import {updateDiscussionEntryParticipantMock} from '../../../../graphql/Mocks'
+import {ObserverContext} from '../../../utils/ObserverContext'
 
-jest.mock('../../../utils/constants', () => ({
-  ...jest.requireActual('../../../utils/constants'),
-  AUTO_MARK_AS_READ_DELAY: 0,
-}))
+vi.mock('../../../utils/constants', async importOriginal => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    AUTO_MARK_AS_READ_DELAY: 0,
+  }
+})
 
-jest.mock('../../../utils', () => ({
-  ...jest.requireActual('../../../utils'),
-  responsiveQuerySizes: () => ({desktop: {maxWidth: '1024px'}}),
-}))
+vi.mock('../../../utils', async importOriginal => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    responsiveQuerySizes: () => ({desktop: {maxWidth: '1024px'}}),
+  }
+})
 
 describe('SplitScreenThreadsContainer', () => {
-  const setOnFailure = jest.fn()
-  const setOnSuccess = jest.fn()
+  const setOnFailure = vi.fn()
+  const setOnSuccess = vi.fn()
 
   beforeAll(() => {
-    window.ENV = {
+    fakeENV.setup({
       discussion_topic_id: '1',
       manual_mark_as_read: false,
       current_user: {
@@ -51,15 +59,18 @@ describe('SplitScreenThreadsContainer', () => {
         avatar_image_url: 'www.avatar.com',
       },
       course_id: '1',
-    }
+    })
 
-    window.matchMedia = jest.fn().mockImplementation(() => {
+    window.matchMedia = vi.fn().mockImplementation(() => {
       return {
         matches: true,
         media: '',
         onchange: null,
-        addListener: jest.fn(),
-        removeListener: jest.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
       }
     })
   })
@@ -96,10 +107,14 @@ describe('SplitScreenThreadsContainer', () => {
   const setup = (props, mocks) => {
     return render(
       <MockedProvider mocks={mocks}>
-        <AlertManagerContext.Provider value={{setOnFailure, setOnSuccess}}>
-          <SplitScreenThreadsContainer {...props} />
-        </AlertManagerContext.Provider>
-      </MockedProvider>
+        <ObserverContext.Provider
+          value={{observerRef: {current: undefined}, nodesRef: {current: new Map()}}}
+        >
+          <AlertManagerContext.Provider value={{setOnFailure, setOnSuccess}}>
+            <SplitScreenThreadsContainer {...props} />
+          </AlertManagerContext.Provider>
+        </ObserverContext.Provider>
+      </MockedProvider>,
     )
   }
 
@@ -125,28 +140,28 @@ describe('SplitScreenThreadsContainer', () => {
       const container = setup(
         defaultProps({
           overrides: {hasMoreNewerReplies: true, fetchingMoreNewerReplies: true},
-        })
+        }),
       )
       await waitFor(() => expect(container.queryByTestId('new-reply-spinner')).toBeTruthy())
     })
 
     it('hide newer button spinner when fetchingMoreNewerReplies is false', async () => {
       const container = setup(
-        defaultProps({overrides: {hasMoreNewerReplies: true, fetchingMoreNewerReplies: false}})
+        defaultProps({overrides: {hasMoreNewerReplies: true, fetchingMoreNewerReplies: false}}),
       )
       await waitFor(() => expect(container.queryByTestId('new-reply-spinner')).toBeNull())
     })
 
     it('show older button spinner when fetchingMoreOlderReplies is true', async () => {
       const container = setup(
-        defaultProps({overrides: {hasMoreOlderReplies: true, fetchingMoreOlderReplies: true}})
+        defaultProps({overrides: {hasMoreOlderReplies: true, fetchingMoreOlderReplies: true}}),
       )
       await waitFor(() => expect(container.queryByTestId('old-reply-spinner')).toBeTruthy())
     })
 
     it('hide older button spinner when fetchingMoreOlderReplies is false', async () => {
       const container = setup(
-        defaultProps({overrides: {hasMoreOlderReplies: true, fetchingMoreOlderReplies: false}})
+        defaultProps({overrides: {hasMoreOlderReplies: true, fetchingMoreOlderReplies: false}}),
       )
       await waitFor(() => expect(container.queryByTestId('old-reply-spinner')).toBeNull())
     })
@@ -154,9 +169,9 @@ describe('SplitScreenThreadsContainer', () => {
 
   describe('show more replies buttons', () => {
     it('clicking show older replies button calls showOlderReplies()', async () => {
-      const showOlderReplies = jest.fn()
+      const showOlderReplies = vi.fn()
       const container = setup(
-        defaultProps({overrides: {hasMoreOlderReplies: true, showOlderReplies}})
+        defaultProps({overrides: {hasMoreOlderReplies: true, showOlderReplies}}),
       )
       const showOlderRepliesButton = await container.findByTestId('show-more-replies-button')
       fireEvent.click(showOlderRepliesButton)
@@ -164,9 +179,9 @@ describe('SplitScreenThreadsContainer', () => {
     })
 
     it('clicking show newer replies button calls showNewerReplies()', async () => {
-      const showNewerReplies = jest.fn()
+      const showNewerReplies = vi.fn()
       const container = setup(
-        defaultProps({overrides: {hasMoreNewerReplies: true, showNewerReplies}})
+        defaultProps({overrides: {hasMoreNewerReplies: true, showNewerReplies}}),
       )
       const showNewerRepliesButton = await container.findByTestId('show-more-replies-button')
       fireEvent.click(showNewerRepliesButton)
@@ -176,7 +191,7 @@ describe('SplitScreenThreadsContainer', () => {
 
   describe('thread actions menu', () => {
     it('allows toggling the unread state of an entry', async () => {
-      const onToggleUnread = jest.fn()
+      const onToggleUnread = vi.fn()
       const props = defaultProps({overrides: {onToggleUnread}})
       props.discussionEntry.discussionSubentriesConnection.nodes[0].entryParticipant.read = true
       const {findAllByTestId, findByTestId} = setup(props)
@@ -190,7 +205,7 @@ describe('SplitScreenThreadsContainer', () => {
     })
 
     it('only shows the delete option if you have permission', async () => {
-      const props = defaultProps({overrides: {onDelete: jest.fn()}})
+      const props = defaultProps({overrides: {onDelete: vi.fn()}})
       props.discussionEntry.discussionSubentriesConnection.nodes[0].permissions.delete = false
       const {queryByTestId, findAllByTestId} = setup(props)
 
@@ -200,7 +215,7 @@ describe('SplitScreenThreadsContainer', () => {
     })
 
     it('allows deleting an entry', async () => {
-      const onDelete = jest.fn()
+      const onDelete = vi.fn()
       const {getByTestId, findAllByTestId} = setup(defaultProps({overrides: {onDelete}}))
 
       const threadActionsMenu = await findAllByTestId('thread-actions-menu')
@@ -211,7 +226,7 @@ describe('SplitScreenThreadsContainer', () => {
     })
 
     it('only shows the SpeedGrader option if you have permission', async () => {
-      const props = defaultProps({overrides: {onOpenInSpeedGrader: jest.fn()}})
+      const props = defaultProps({overrides: {onOpenInSpeedGrader: vi.fn()}})
       props.discussionTopic.permissions.speedGrader = false
       const {queryByTestId, findAllByTestId} = setup(props)
 
@@ -221,7 +236,7 @@ describe('SplitScreenThreadsContainer', () => {
     })
 
     it('allows opening an entry in speedgrader', async () => {
-      const onOpenInSpeedGrader = jest.fn()
+      const onOpenInSpeedGrader = vi.fn()
       const {getByTestId, findAllByTestId} = setup(defaultProps({overrides: {onOpenInSpeedGrader}}))
 
       const threadActionsMenu = await findAllByTestId('thread-actions-menu')
@@ -263,7 +278,7 @@ describe('SplitScreenThreadsContainer', () => {
               reportType: 'other',
             },
           },
-        })
+        }),
       )
 
       fireEvent.click(getByTestId('thread-actions-menu'))
@@ -277,7 +292,7 @@ describe('SplitScreenThreadsContainer', () => {
         updateDiscussionEntryParticipantMock({
           discussionEntryId: '50',
           reportType: 'other',
-        })
+        }),
       )
 
       fireEvent.click(getByTestId('thread-actions-menu'))
@@ -317,7 +332,7 @@ describe('SplitScreenThreadsContainer', () => {
     })
 
     beforeEach(() => {
-      window.IntersectionObserver = jest.fn().mockImplementation(intersectionObserverMock)
+      window.IntersectionObserver = vi.fn().mockImplementation(intersectionObserverMock)
     })
 
     it('observer is not created when entry is already read', () => {
@@ -337,6 +352,14 @@ describe('SplitScreenThreadsContainer', () => {
       expect(window.IntersectionObserver).toHaveBeenCalledTimes(0)
     })
 
+    it('observer is not created when entry is deleted', () => {
+      const props = defaultProps()
+      props.discussionEntry.discussionSubentriesConnection.nodes[0].deleted = true
+      const container = setup(props)
+      expect(container).toBeTruthy()
+      expect(window.IntersectionObserver).toHaveBeenCalledTimes(0)
+    })
+
     it('observer is created for unread entries', () => {
       const props = defaultProps()
       props.discussionEntry.discussionSubentriesConnection.nodes[0].entryParticipant.read = false
@@ -347,7 +370,7 @@ describe('SplitScreenThreadsContainer', () => {
   })
 
   it('Go To Quoted Reply should work', () => {
-    const onOpenSplitScreenView = jest.fn()
+    const onOpenSplitScreenView = vi.fn()
     const props = defaultProps({
       discussionEntryOverrides: {
         rootEntryId: '50',

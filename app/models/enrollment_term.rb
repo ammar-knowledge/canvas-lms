@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class EnrollmentTerm < ActiveRecord::Base
+class EnrollmentTerm < ApplicationRecord
   DEFAULT_TERM_NAME = "Default Term"
   include Workflow
 
@@ -40,6 +40,7 @@ class EnrollmentTerm < ActiveRecord::Base
   after_save :recompute_course_scores_later, if: :grading_period_group_id_has_changed?
 
   include StickySisFields
+
   are_sis_sticky :name, :start_at, :end_at
 
   def self.ensure_dummy_enrollment_term
@@ -101,22 +102,22 @@ class EnrollmentTerm < ActiveRecord::Base
   end
 
   def default_term?
-    read_attribute(:name) == EnrollmentTerm::DEFAULT_TERM_NAME
+    self["name"] == EnrollmentTerm::DEFAULT_TERM_NAME
   end
 
   def name
     if default_term?
       EnrollmentTerm.i18n_default_term_name
     else
-      read_attribute(:name)
+      super
     end
   end
 
   def name=(new_name)
     if new_name == EnrollmentTerm.i18n_default_term_name
-      write_attribute(:name, DEFAULT_TERM_NAME)
+      super(DEFAULT_TERM_NAME)
     else
-      write_attribute(:name, new_name)
+      super
     end
   end
 
@@ -196,7 +197,7 @@ class EnrollmentTerm < ActiveRecord::Base
   end
 
   def consistent_account_associations
-    if read_attribute(:grading_period_group_id).present? && (root_account_id != grading_period_group.account_id)
+    if grading_period_group_id && (root_account_id != grading_period_group.account_id)
       errors.add(:grading_period_group, t("cannot be associated with a different account"))
     end
   end

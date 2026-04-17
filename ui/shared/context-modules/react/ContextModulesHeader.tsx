@@ -29,15 +29,17 @@ import {
 } from '@instructure/ui-icons'
 import {View} from '@instructure/ui-view'
 import {Menu, MenuItem} from '@instructure/ui-menu'
-import {Responsive, ResponsivePropsObject, QueriesMatching} from '@instructure/ui-responsive'
+import {
+  Responsive,
+  type ResponsivePropsObject,
+  type QueriesMatching,
+} from '@instructure/ui-responsive'
 
 import ContextModulesPublishMenu from './ContextModulesPublishMenu'
-import {
-  setExpandAllButton,
-  setExpandAllButtonHandler,
-  resetExpandAllButtonBindings,
-  openExternalTool,
-} from '../jquery/utils'
+import {openExternalTool} from '../jquery/utils'
+import {useScope as createI18nScope} from '@canvas/i18n'
+
+const I18n = createI18nScope('context_modules')
 
 type MenuToolsProps = {
   items: [
@@ -48,7 +50,7 @@ type MenuToolsProps = {
       class: string
       icon: string
       title: string
-    }
+    },
   ]
   visible: boolean
 }
@@ -66,20 +68,35 @@ type PublishMenuProps = {
   visible: boolean
 }
 
+type OverridesProps = {
+  hideTitle?: boolean
+  hasModules?: boolean
+  publishMenu?: {
+    onPublishComplete?: () => void
+  }
+  expandCollapseAll?: {
+    onExpandCollapseAll?: () => void
+    anyModuleExpanded?: boolean
+    disabled?: boolean
+  }
+  handleAddModule?: () => void
+  renderIconLegend?: () => JSX.Element
+}
+
 type Props = {
   title: string
+  hideTitle?: boolean
   publishMenu: PublishMenuProps
+  hasModules?: boolean
   viewProgress: {
     label: string
     url: string
     visible: boolean
   }
   expandCollapseAll: {
-    label: string
-    dataUrl: string
-    dataExpand: boolean
-    ariaExpanded: boolean
-    ariaLabel: string
+    onExpandCollapseAll: () => void
+    anyModuleExpanded: boolean
+    disabled: boolean
   }
   addModule: {
     label: string
@@ -96,6 +113,7 @@ type Props = {
     date: string
     visible: boolean
   }
+  overrides?: OverridesProps
 }
 
 type ContentProps = Props & {
@@ -114,6 +132,7 @@ type MoreMenuProps = {
 }
 
 const ContextModulesHeaderMoreMenu = ({component, items}: MoreMenuProps) => {
+  // @ts-expect-error
   const onClickToolHandler = (e, tool) => {
     e.target.href = tool.href
     e.target.dataset.toolId = tool['data-tool-id']
@@ -149,21 +168,18 @@ const ContextModulesHeaderContent = ({responsive, ...props}: ContentProps) => {
   const [publishMenu, setPublishMenu] = useState<PublishMenuProps>(props.publishMenu)
 
   useEffect(() => {
-    setExpandAllButton()
-    setExpandAllButtonHandler()
-  })
-
-  useEffect(() => {
     window.addEventListener('update-publish-menu-disabled-state', ((e: CustomEvent) => {
       setPublishMenu((prev: PublishMenuProps) => ({
         ...prev,
         disabled: e.detail.disabled,
       }))
-      // eslint-disable-next-line no-undef
     }) as EventListener)
   }, [])
 
-  resetExpandAllButtonBindings()
+  const expandCollapseAll = {...props.expandCollapseAll, ...props.overrides?.expandCollapseAll}
+
+  const showExpandAll = props.overrides?.hasModules ?? true
+
   return (
     <>
       <Flex
@@ -173,36 +189,36 @@ const ContextModulesHeaderContent = ({responsive, ...props}: ContentProps) => {
         withVisualDebug={false}
         alignItems="stretch"
       >
-        <Flex.Item
-          shouldGrow={true}
-          shouldShrink={false}
-          margin={responsive.matches.includes('large') ? '0' : '0 0 medium 0'}
-        >
-          <Heading level="h1" margin="0 0 small 0">
-            {props.title}
-          </Heading>
-          {props.lastExport.visible && (
-            <Link href={props.lastExport.url}>
-              {props.lastExport.label} {props.lastExport.date}
-            </Link>
-          )}
-        </Flex.Item>
+        {!props.overrides?.hideTitle && (
+          <Flex.Item
+            shouldGrow={true}
+            shouldShrink={false}
+            margin={responsive.matches.includes('large') ? '0' : '0 0 medium 0'}
+          >
+            <Heading level="h1" margin="0 0 small 0">
+              {props.title}
+            </Heading>
+            {props.lastExport.visible && (
+              <Link href={props.lastExport.url}>
+                {props.lastExport.label} {props.lastExport.date}
+              </Link>
+            )}
+          </Flex.Item>
+        )}
 
         <Flex.Item
           overflowY="visible"
           margin={responsive.matches.includes('large') ? 'x-small 0 0 0' : '0'}
         >
-          <Flex
-            gap="small"
-            withVisualDebug={false}
-            direction={responsive.matches.includes('small') ? 'column-reverse' : 'row'}
-          >
+          <Flex gap="small" wrap="wrap" justifyItems="end" withVisualDebug={false}>
+            {props.overrides?.renderIconLegend?.()}
             {props.moreMenu.menuTools.visible && (
               <Flex.Item overflowY="visible">
                 <View
                   as="div"
                   display={responsive.props.display}
                   maxHeight="2.375rem"
+                  // @ts-expect-error
                   className={
                     responsive.matches.includes('small')
                       ? 'context-modules-header-more-menu-responsive'
@@ -229,25 +245,29 @@ const ContextModulesHeaderContent = ({responsive, ...props}: ContentProps) => {
                 </View>
               </Flex.Item>
             )}
-
-            <Flex.Item overflowY="visible">
-              <Button
-                id="expand_collapse_all"
-                display={responsive.props.display}
-                aria-expanded={props.expandCollapseAll.ariaExpanded}
-                data-expand={props.expandCollapseAll.dataExpand}
-                data-url={props.expandCollapseAll.dataUrl}
-                aria-label={props.expandCollapseAll.ariaLabel}
-              >
-                {props.expandCollapseAll.label}
-              </Button>
-            </Flex.Item>
+            {showExpandAll && (
+              <Flex.Item overflowY="visible">
+                <Button
+                  id="expand_collapse_all"
+                  onClick={expandCollapseAll.onExpandCollapseAll}
+                  aria-label={
+                    expandCollapseAll.anyModuleExpanded
+                      ? I18n.t('Collapse All Modules')
+                      : I18n.t('Expand All Modules')
+                  }
+                  interaction={expandCollapseAll.disabled ? 'disabled' : 'enabled'}
+                >
+                  {expandCollapseAll.anyModuleExpanded
+                    ? I18n.t('Collapse All')
+                    : I18n.t('Expand All')}
+                </Button>
+              </Flex.Item>
+            )}
 
             {props.viewProgress.visible && (
               <Flex.Item overflowY="visible">
                 <Button
                   id="context-modules-header-view-progress-button"
-                  display={responsive.props.display}
                   href={props.viewProgress.url}
                 >
                   {props.viewProgress.label}
@@ -258,10 +278,10 @@ const ContextModulesHeaderContent = ({responsive, ...props}: ContentProps) => {
             {!props.moreMenu.menuTools.visible && props.moreMenu.exportCourseContent.visible && (
               <Flex.Item overflowY="visible">
                 <Button
+                  // @ts-expect-error
                   renderIcon={IconExportLine}
                   href={props.moreMenu.exportCourseContent.url}
                   id="context-modules-header-export-course-button"
-                  display={responsive.props.display}
                 >
                   {props.moreMenu.exportCourseContent.label}
                 </Button>
@@ -272,9 +292,11 @@ const ContextModulesHeaderContent = ({responsive, ...props}: ContentProps) => {
               <Flex.Item overflowY="visible">
                 <View
                   id="context-modules-publish-menu"
+                  data-testid="context-modules-publish-menu"
                   as="div"
                   display={responsive.props.display}
                   maxHeight="2.375rem"
+                  // @ts-expect-error
                   className={
                     responsive.matches.includes('small')
                       ? 'context-modules-header-publish-menu-responsive'
@@ -282,7 +304,10 @@ const ContextModulesHeaderContent = ({responsive, ...props}: ContentProps) => {
                   }
                   data-progress-id={publishMenu.runningProgressId}
                 >
-                  <ContextModulesPublishMenu {...publishMenu} />
+                  <ContextModulesPublishMenu
+                    {...publishMenu}
+                    onPublishComplete={props.overrides?.publishMenu?.onPublishComplete}
+                  />
                 </View>
               </Flex.Item>
             )}
@@ -290,11 +315,16 @@ const ContextModulesHeaderContent = ({responsive, ...props}: ContentProps) => {
             {props.addModule.visible && (
               <Flex.Item overflowY="visible">
                 <Button
-                  onClick={e => document.add_module_link_handler(e)}
+                  onClick={
+                    props.overrides?.handleAddModule
+                      ? props.overrides.handleAddModule
+                      : // @ts-expect-error
+                        e => document.add_module_link_handler(e)
+                  }
                   id="context-modules-header-add-module-button"
                   color="primary"
+                  // @ts-expect-error
                   renderIcon={IconAddLine}
-                  display={responsive.props.display}
                 >
                   {props.addModule.label}
                 </Button>
@@ -321,6 +351,7 @@ const ContextModulesHeader = (props: Props) => {
         large: {direction: 'row', display: 'inline-block'},
       }}
       render={(_props, matches) => (
+        // @ts-expect-error
         <ContextModulesHeaderContent {...props} responsive={{props: _props, matches}} />
       )}
     />

@@ -33,36 +33,40 @@ describe('handleDeepLinking', () => {
     data: {subject: 'LtiDeepLinkingResponse', content_items, ...dataOverrides},
   })
 
-  let ajaxJSON, flashError, env
+  let ajaxJSON, flashError, flashWarning, env
 
   beforeAll(() => {
     env = window.ENV
     flashError = $.flashError
+    flashWarning = $.flashWarning
     ajaxJSON = $.ajaxJSON
 
     window.ENV = {
       DEEP_LINKING_POST_MESSAGE_ORIGIN: 'http://www.test.com',
     }
 
-    $.flashError = jest.fn()
-    $.ajaxJSON = jest.fn().mockImplementation(() => ({}))
+    $.flashError = vi.fn()
+    $.flashWarning = vi.fn()
+    $.ajaxJSON = vi.fn().mockImplementation(() => ({}))
   })
 
   afterAll(() => {
     window.ENV = env
     $.flashError = flashError
+    $.flashWarning = flashWarning
     $.ajaxJSON = ajaxJSON
   })
 
   beforeEach(() => {
     $.ajaxJSON.mockClear()
     $.flashError.mockClear()
+    $.flashWarning.mockClear()
   })
 
   function mockNewCollaborationElement() {
-    jest
+    vi
       .spyOn(document, 'querySelector')
-      .mockReturnValue({getAttribute: key => ({action: '/collaborations'}[key])})
+      .mockReturnValue({getAttribute: key => ({action: '/collaborations'})[key]})
   }
 
   function expectAJAXWithContentItems(url, method) {
@@ -86,13 +90,13 @@ describe('handleDeepLinking', () => {
 
   describe('when there is a service_id in the postMessage', () => {
     it('updates the collaboration', async () => {
-      jest.spyOn(document, 'querySelector').mockReturnValue({href: '/collaborations/123'})
+      vi.spyOn(document, 'querySelector').mockReturnValue({href: '/collaborations/123'})
       await handleDeepLinking(event({service_id: 123}))
       expectAJAXWithContentItems('/collaborations/123?tool_id=', 'PUT')
     })
 
     it('passes along the tool_id from the postMessage', async () => {
-      jest.spyOn(document, 'querySelector').mockReturnValue({href: '/collaborations/123'})
+      vi.spyOn(document, 'querySelector').mockReturnValue({href: '/collaborations/123'})
       await handleDeepLinking(event({service_id: 123, tool_id: 9876}))
       expectAJAXWithContentItems('/collaborations/123?tool_id=9876', 'PUT')
     })
@@ -106,7 +110,7 @@ describe('handleDeepLinking', () => {
 
     it('shows an error message to the user', async () => {
       await handleDeepLinking(event({content_items: 1}))
-      expect($.flashError).toHaveBeenCalled()
+      expect($.flashWarning).toHaveBeenCalled()
     })
   })
 })
@@ -118,27 +122,23 @@ describe('collaborationUrl', () => {
 })
 
 describe('onExternalContentReady', () => {
-  let querySelector, ajaxJSON
+  let ajaxJSON
+  let querySelectorSpy
 
-  beforeAll(() => {
-    querySelector = global.document.querySelector
+  beforeEach(() => {
     ajaxJSON = $.ajaxJSON
+    $.ajaxJSON = vi.fn().mockImplementation(() => ({}))
 
-    global.document.querySelector = jest.fn().mockImplementation(() => ({
+    // Create a fresh spy for each test to avoid issues with mockClear
+    querySelectorSpy = vi.spyOn(document, 'querySelector').mockImplementation(() => ({
       href: 'http://www.test.com/update',
       getAttribute: () => 'http://www.test.com/create',
     }))
-    $.ajaxJSON = jest.fn().mockImplementation(() => ({}))
   })
 
-  afterAll(() => {
-    global.document.querySelector = querySelector
+  afterEach(() => {
     $.ajaxJSON = ajaxJSON
-  })
-
-  beforeEach(() => {
-    global.document.querySelector.mockClear()
-    $.ajaxJSON.mockClear()
+    querySelectorSpy.mockRestore()
   })
 
   it('creates a new collaboration', () => {
@@ -148,7 +148,7 @@ describe('onExternalContentReady', () => {
       'POST',
       expect.anything(),
       expect.anything(),
-      expect.anything()
+      expect.anything(),
     )
   })
 
@@ -160,7 +160,7 @@ describe('onExternalContentReady', () => {
         'PUT',
         expect.anything(),
         expect.anything(),
-        expect.anything()
+        expect.anything(),
       )
     })
   })

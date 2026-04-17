@@ -16,16 +16,16 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender} from '@canvas/react'
 
 import {Modal} from '@instructure/ui-modal'
 import {Button, CloseButton} from '@instructure/ui-buttons'
 import {Heading} from '@instructure/ui-heading'
 import {Alert} from '@instructure/ui-alerts'
 
-const I18n = useI18nScope('dashcards')
+const I18n = createI18nScope('dashcards')
 
 export function showConfirmUnfavorite(props: Props) {
   const parent = document.createElement('div')
@@ -36,10 +36,7 @@ export function showConfirmUnfavorite(props: Props) {
     if (modal) modal.show()
   }
 
-  ReactDOM.render(
-    <ConfirmUnfavoriteCourseModal {...props} ref={showConfirmUnfavoriteRef} />,
-    parent
-  )
+  legacyRender(<ConfirmUnfavoriteCourseModal {...props} ref={showConfirmUnfavoriteRef} />, parent)
   return parent
 }
 
@@ -52,13 +49,13 @@ export function showNoFavoritesAlert() {
   parent.setAttribute('class', 'no-favorites-alert-container')
   document.querySelector('.ic-DashboardCard__box')?.appendChild(parent)
 
-  ReactDOM.render(
+  legacyRender(
     <Alert variant="info" renderCloseButtonLabel="Close" margin="small">
       {I18n.t(`You have no courses favorited. Reloading this page will show all
       your active courses. To add favorites, go to `)}{' '}
       <a href="/courses">{I18n.t('All Courses.')}</a>
     </Alert>,
-    parent
+    parent,
   )
   return parent
 }
@@ -129,7 +126,7 @@ export default class ConfirmUnfavoriteCourseModal extends React.Component<Props,
         <Modal.Body>
           {I18n.t(
             `You are about to remove this course from your dashboard. It will still be available
-              by navigating to Courses > All Courses from the main menu.`
+              by navigating to Courses > All Courses from the main menu.`,
           )}
         </Modal.Body>
 

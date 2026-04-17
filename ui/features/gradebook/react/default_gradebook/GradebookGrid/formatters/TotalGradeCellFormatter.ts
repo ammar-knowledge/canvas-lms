@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -18,25 +17,31 @@
  */
 
 import round from '@canvas/round'
-import {escape as lodashEscape} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {escape as lodashEscape} from 'es-toolkit/compat'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {scoreToGrade} from '@instructure/grading-utils'
 import {scoreToPercentage, scoreToScaledPoints} from '@canvas/grading/GradeCalculationHelper'
 import htmlEscape from '@instructure/html-escape'
 import listFormatterPolyfill from '@canvas/util/listFormatter'
+import numberHelper from '@canvas/i18n/numberHelper'
 import type Gradebook from '../../Gradebook'
 import type {Assignment} from '../../../../../../api.d'
 import type {DeprecatedGradingScheme} from '@canvas/grading/grading.d'
 import GradeFormatHelper from '@canvas/grading/GradeFormatHelper'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 const listFormatter = Intl.ListFormat
   ? new Intl.ListFormat(ENV.LOCALE || navigator.language)
   : listFormatterPolyfill
 
-function getGradePercentage(score: number, pointsPossible: number) {
-  const grade = scoreToPercentage(score, pointsPossible)
+function getGradePercentage(score: number | string, pointsPossible: number | string) {
+  // the args can be i18n formatted strings, which may use commas instead of decimals like "3,5"
+  const numScore = typeof score === 'string' ? numberHelper.parse(score) : score
+  const numPossible =
+    typeof pointsPossible === 'string' ? numberHelper.parse(pointsPossible) : pointsPossible
+
+  const grade = scoreToPercentage(numScore, numPossible)
   return round(grade, round.DEFAULT)
 }
 
@@ -44,7 +49,7 @@ function buildHiddenAssignmentsWarning() {
   return {
     icon: 'icon-off',
     warningText: I18n.t(
-      "This grade may differ from the student's view of the grade because some assignment grades are not yet posted"
+      "This grade may differ from the student's view of the grade because some assignment grades are not yet posted",
     ),
   }
 }
@@ -59,7 +64,7 @@ function buildInvalidAssignmentGroupsWarning(invalidAssignmentGroups: {name: str
     {
       count: names.length,
       groups: listFormatter.format(names),
-    }
+    },
   )
 
   return {
@@ -75,6 +80,7 @@ function buildNoPointsPossibleWarning() {
   }
 }
 
+// @ts-expect-error
 // xsslint safeString.property score possible warningText icon letterGrade
 function render(options) {
   let tooltip = ''
@@ -164,6 +170,7 @@ export default class TotalGradeCellFormatter {
     }
   }
 
+  // @ts-expect-error
   render = (_row, _cell, grade /* value */, _columnDef, student /* dataContext */) => {
     if (grade == null) {
       return ''
@@ -172,19 +179,23 @@ export default class TotalGradeCellFormatter {
     let percentage = getGradePercentage(grade.score, grade.possible)
     percentage = Number.isFinite(percentage) ? percentage : 0
 
-    let possible = round(grade.possible, round.DEFAULT)
+    let possible: string | number = round(grade.possible, round.DEFAULT)
     possible = possible ? I18n.n(possible) : possible
 
     let letterGrade
     const scheme = this.options.getGradingStandard()
     if (grade.possible && scheme) {
       letterGrade = GradeFormatHelper.replaceDashWithMinus(
-        scoreToGrade(percentage, scheme.data, scheme.pointsBased, scheme.scalingFactor)
+        scoreToGrade(percentage, scheme.data, scheme.pointsBased, scheme.scalingFactor),
       )
     }
 
     let displayAsScaledPoints = false
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore scaledScore/scaledPossible used as numbers for calculation, then formatted strings
     let scaledScore = NaN
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore scaledScore/scaledPossible used as numbers for calculation, then formatted strings
     let scaledPossible = NaN
 
     if (scheme) {
@@ -192,16 +203,22 @@ export default class TotalGradeCellFormatter {
       const scalingFactor = scheme.scalingFactor
 
       if (displayAsScaledPoints && grade.possible) {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore I18n.n returns string, but scaledPossible starts as NaN for backward compat
         scaledPossible = I18n.n(scalingFactor, {
           precision: 2,
         })
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore I18n.n returns string, but scaledScore starts as NaN for backward compat
         scaledScore = I18n.n(scoreToScaledPoints(grade.score, grade.possible, scalingFactor), {
           precision: 2,
         })
 
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore scaledScore/scaledPossible are strings but getGradePercentage coerces to numbers
         const scaledPercentage = getGradePercentage(scaledScore, scaledPossible)
         letterGrade = GradeFormatHelper.replaceDashWithMinus(
-          scoreToGrade(scaledPercentage, scheme.data, scheme.pointsBased, scheme.scalingFactor)
+          scoreToGrade(scaledPercentage, scheme.data, scheme.pointsBased, scheme.scalingFactor),
         )
       }
     }

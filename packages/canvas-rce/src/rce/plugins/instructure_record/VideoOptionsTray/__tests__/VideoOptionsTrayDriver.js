@@ -20,6 +20,8 @@ import {
   fireEvent,
   getAllByText,
   getByLabelText,
+  getByPlaceholderText,
+  getByText,
   queryByLabelText,
   queryByTestId,
   waitFor,
@@ -51,8 +53,12 @@ export default class VideoOptionsTrayDriver {
     return this.$element.getAttribute('aria-label')
   }
 
+  get $titleInput() {
+    return this.$element.querySelector('input[placeholder="Enter a media title"]')
+  }
+
   get $titleTextField() {
-    return this.$element.querySelector('textarea')
+    return this.$titleInput
   }
 
   get $displayAsField() {
@@ -65,7 +71,7 @@ export default class VideoOptionsTrayDriver {
 
   get $doneButton() {
     return [...this.$element.querySelectorAll('button,[role="button"]')].find(
-      $button => $button.textContent.trim() === 'Done'
+      $button => $button.textContent.trim() === 'Done',
     )
   }
 
@@ -74,11 +80,11 @@ export default class VideoOptionsTrayDriver {
   }
 
   get titleText() {
-    return this.$titleTextField.value
+    return this.$titleInput.value
   }
 
   get titleTextDisabled() {
-    return this.$titleTextField.disabled
+    return this.$titleInput.disabled
   }
 
   get displayAs() {
@@ -93,8 +99,44 @@ export default class VideoOptionsTrayDriver {
     return this.$doneButton.disabled
   }
 
+  get $manualCaptionsAddNewButton() {
+    return getByText(this.$closedCaptionPanel, /Add new/i)
+  }
+
+  get $manualCaptionsLanguageSelect() {
+    return getByPlaceholderText(this.$closedCaptionPanel, /Select Language/i)
+  }
+
+  get $manualCaptionsFileInput() {
+    return this.$closedCaptionPanel.querySelector('input[type="file"]')
+  }
+
+  get $manualCaptionsCancelButton() {
+    return getByText(this.$closedCaptionPanel, 'Cancel')
+  }
+
+  get $manualCaptionsUploadButton() {
+    return getByText(this.$closedCaptionPanel, 'Upload')
+  }
+
+  get $automaticCaptionsAddNewButton() {
+    return getByText(this.$closedCaptionPanel, 'Request')
+  }
+
+  get $automaticCaptionsLanguageSelect() {
+    return getByPlaceholderText(this.$closedCaptionPanel, /Select Language/i)
+  }
+
+  get $automaticCaptionsCancelButton() {
+    return getByText(this.$closedCaptionPanel, 'Cancel')
+  }
+
+  get $automaticCaptionsRequestButton() {
+    return getByText(this.$closedCaptionPanel, 'Request')
+  }
+
   setTitleText(titleText) {
-    fireEvent.change(this.$titleTextField, {target: {value: titleText}})
+    fireEvent.change(this.$titleInput, {target: {value: titleText}})
   }
 
   setDisplayAs(value) {
@@ -107,5 +149,10 @@ export default class VideoOptionsTrayDriver {
     await waitFor(() => getSizeOptions(this.$sizeSelect))
     const $options = getSizeOptions(this.$sizeSelect)
     $options.find($option => $option.textContent.trim().includes(sizeText)).click()
+  }
+
+  messageText() {
+    const message = queryByTestId(this.$element, 'message')
+    return message.textContent
   }
 }

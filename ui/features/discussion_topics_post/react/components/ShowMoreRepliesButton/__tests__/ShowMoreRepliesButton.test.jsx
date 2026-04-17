@@ -25,7 +25,7 @@ const setup = props => {
 }
 
 describe('ShowMoreRepliesButton', () => {
-  const onClick = jest.fn()
+  const onClick = vi.fn()
 
   it('Should show the button text', () => {
     const {queryByText} = setup({buttonText: 'Show older replies'})
@@ -37,7 +37,7 @@ describe('ShowMoreRepliesButton', () => {
     const {getByTestId} = setup({onClick, buttonText: 'Click Me'})
 
     fireEvent.click(getByTestId('show-more-replies-button'))
-    expect(onClick.mock.calls.length).toBe(1)
+    expect(onClick.mock.calls).toHaveLength(1)
   })
 
   it('should render with disabled prop', () => {

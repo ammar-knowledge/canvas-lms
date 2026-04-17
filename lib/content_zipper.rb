@@ -20,6 +20,8 @@
 require "zip"
 
 class ContentZipper
+  MAX_FILENAME_LENGTH = 255
+
   def initialize(options = {})
     @check_user = options.key?(:check_user) ? options[:check_user] : true
     @logger = Rails.logger
@@ -28,6 +30,7 @@ class ContentZipper
 
   # we evaluate some ERB templates from under app/views/ while generating assignment zips
   include I18nUtilities
+
   def t(...)
     I18n.t(...)
   end
@@ -87,7 +90,7 @@ class ContentZipper
 
     make_zip_tmpdir(filename) do |zip_name|
       @logger.debug("creating #{zip_name}")
-      Zip::File.open(zip_name, Zip::File::CREATE) do |zipfile|
+      Zip::File.open(zip_name, create: true) do |zipfile|
         count = submissions.length
         # prevents browser hangs when there are no submissions to download
         mark_successful! if count == 0
@@ -160,14 +163,14 @@ class ContentZipper
 
     all_attachments = rich_text_attachments + static_attachments
 
-    filename = portfolio.name
-    make_zip_tmpdir(filename) do |zip_name|
+    make_zip_tmpdir(portfolio.name) do |zip_name|
       index = 0
       count = all_attachments.length + 2
-      Zip::File.open(zip_name, Zip::File::CREATE) do |zipfile|
+      Zip::File.open(zip_name, create: true) do |zipfile|
         update_progress(zip_attachment, index, count)
         portfolio_entries.each do |entry|
-          filename = "#{entry.full_slug}.html"
+          # if filename > 180 characters (allows 75 character buffer for the unique slug)
+          filename = Attachment.shorten_filename(entry.full_slug.concat(".html"))
           content = render_eportfolio_page_content(entry, portfolio, all_attachments, submissions_hash)
           zipfile.get_output_stream(filename) { |f| f.puts content }
         end
@@ -195,8 +198,8 @@ class ContentZipper
     )
   end
 
-  def self.zip_base_folder(*args)
-    ContentZipper.new.zip_base_folder(*args)
+  def self.zip_base_folder(*)
+    ContentZipper.new.zip_base_folder(*)
   end
 
   def zip_base_folder(zip_attachment, folder)
@@ -211,7 +214,7 @@ class ContentZipper
     filename = "#{folder.context.short_name}-#{folder.name} files"
     make_zip_tmpdir(filename) do |zip_name|
       @logger.debug("creating #{zip_name}")
-      Zip::File.open(zip_name, Zip::File::CREATE) do |zipfile|
+      Zip::File.open(zip_name, create: true) do |zipfile|
         @logger.debug("zip_name: #{zip_name}")
         process_folder(folder, zipfile)
       end
@@ -314,9 +317,11 @@ class ContentZipper
   def add_attachment_to_zip(attachment, zipfile, filename = nil)
     filename ||= attachment.filename
 
+    @files_in_zip ||= Set.new
+    # if filename > 180 characters (allows 75 character buffer for the unique filename)
+    filename = Attachment.shorten_filename(filename)
     # we allow duplicate filenames in the same folder. it's a bit silly, but we
     # have to handle it here or people might not get all their files zipped up.
-    @files_in_zip ||= Set.new
     filename = Attachment.make_unique_filename(filename, @files_in_zip)
     @files_in_zip << filename
 

@@ -17,7 +17,7 @@
  */
 
 import {arrayOf, bool, number, shape, string} from 'prop-types'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {RubricCriterion} from './RubricCriterion'
 
 export const Rubric = {
@@ -32,6 +32,7 @@ export const Rubric = {
       points_possible: pointsPossible
       ratingOrder
       title
+      button_display: buttonDisplay
     }
     ${RubricCriterion.fragment}
   `,

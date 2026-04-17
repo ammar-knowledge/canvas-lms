@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2023 - present Instructure, Inc.
  *
@@ -17,11 +16,36 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {getByText, getAllByText, waitFor} from '@testing-library/dom'
-import doFetchApi from '@canvas/do-fetch-api-effect'
+import {findByText, getAllByText, waitFor} from '@testing-library/dom'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 import {updateModuleItem} from '../jquery/utils'
 import publishOneModuleHelperModule from '../utils/publishOneModuleHelper'
 import {initBody, makeModuleWithItems} from './testHelpers'
+import type {KeyedModuleItems} from '../react/types'
+import {type MockInstance} from 'vitest'
+
+const server = setupServer()
+
+// tests fail if I don't mock the showAllOrLess module
+// This has something to do with '../jquery/utils' importing
+// the showAllOrLess module, but the imported function is never called
+// so I don't know why this is necessary. it does make the tests pass.
+vi.mock('../utils/showAllOrLess', () => ({
+  addShowAllOrLess: vi.fn(),
+}))
+
+vi.mock('@canvas/relock-modules-dialog', () => ({
+  default: vi.fn().mockImplementation(() => ({
+    renderIfNeeded: vi.fn().mockImplementation(json => {
+      if (json.relock_warning) {
+        const dialog = document.createElement('div')
+        dialog.className = 'relock-modules-dialog'
+        document.body.appendChild(dialog)
+      }
+    }),
+  })),
+}))
 
 const {
   batchUpdateOneModuleApiCall,
@@ -37,147 +61,202 @@ const {
   ...publishOneModuleHelperModule,
 }
 
-jest.mock('@canvas/do-fetch-api-effect')
-
-jest.mock('../jquery/utils', () => {
-  const originalModule = jest.requireActual('../jquery/utils')
+vi.mock('../jquery/utils', async () => {
+  const originalModule = await vi.importActual('../jquery/utils')
   return {
     __esmodule: true,
     ...originalModule,
-    updateModuleItem: jest.fn(),
+    updateModuleItem: vi.fn(),
   }
 })
 
-const updatePublishMenuDisabledState = jest.fn()
+const updatePublishMenuDisabledState = vi.fn()
 
 describe('publishOneModuleHelper', () => {
   beforeAll(() => {
+    server.listen()
     // @ts-expect-error
     window.modules = {
       updatePublishMenuDisabledState,
+      initModuleManagement: () => Promise.resolve(),
     }
   })
 
+  afterAll(() => server.close())
+
   beforeEach(() => {
-    doFetchApi.mockResolvedValue({response: {ok: true}, json: {published: true}})
+    server.use(
+      http.put('/api/v1/courses/:courseId/modules/:moduleId', () => {
+        return HttpResponse.json({published: true})
+      }),
+      http.get('/api/v1/courses/:courseId/modules/:moduleId/items', () => {
+        return HttpResponse.json([
+          {id: '117', published: true},
+          {id: '119', published: true},
+        ])
+      }),
+    )
     initBody()
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
-    doFetchApi.mockReset()
+    server.resetHandlers()
+    vi.clearAllMocks()
+    // Clear flash alert holders to prevent alerts from leaking between tests
+    document.getElementById('flashalert_message_holder')?.remove()
+    document.getElementById('flash_screenreader_holder')?.remove()
     document.body.innerHTML = ''
   })
 
   describe('publishModule', () => {
-    let spy
+    let spy: MockInstance
     beforeEach(() => {
-      spy = jest.spyOn(publishOneModuleHelperModule, 'batchUpdateOneModuleApiCall')
-      makeModuleWithItems(1, 'Lesson 2', [117, 119], false)
+      // Mock the implementation to prevent actual async operations
+      spy = vi
+        .spyOn(publishOneModuleHelperModule, 'batchUpdateOneModuleApiCall')
+        .mockResolvedValue(undefined)
+      makeModuleWithItems(1, [117, 119], false)
     })
     afterEach(() => {
       spy.mockRestore()
     })
-    it('calls batchUpdateOneModuleApiCall with the correct argumets', () => {
-      const spy = jest.spyOn(publishOneModuleHelperModule, 'batchUpdateOneModuleApiCall')
+    it('calls batchUpdateOneModuleApiCall with the correct argumets', async () => {
       const courseId = 1
       const moduleId = 1
       let skipItems = false
-      publishModule(courseId, moduleId, skipItems)
+      const onPublishComplete = () => {}
+      const setIsPublishing = () => {}
+      const moduleIsPublished = false
+      publishModule({
+        courseId,
+        moduleId,
+        skipItems,
+        onPublishComplete,
+        setIsPublishing,
+        moduleIsPublished,
+      })
       expect(spy).toHaveBeenCalledWith(
         courseId,
         moduleId,
         true,
         skipItems,
         'Publishing module and items',
-        'Module and items published'
+        'Module and items published',
+        onPublishComplete,
+        setIsPublishing,
+        moduleIsPublished,
       )
       spy.mockClear()
       skipItems = true
-      publishModule(courseId, moduleId, skipItems)
+      publishModule({
+        courseId,
+        moduleId,
+        skipItems,
+        onPublishComplete,
+        setIsPublishing,
+        moduleIsPublished,
+      })
       expect(spy).toHaveBeenCalledWith(
         courseId,
         moduleId,
         true,
         skipItems,
         'Publishing module',
-        'Module published'
+        'Module published',
+        onPublishComplete,
+        setIsPublishing,
+        moduleIsPublished,
       )
     })
   })
 
   describe('unpublishModule', () => {
-    let spy
+    let spy: MockInstance
     beforeEach(() => {
-      spy = jest.spyOn(publishOneModuleHelperModule, 'batchUpdateOneModuleApiCall')
-      makeModuleWithItems(1, 'Lesson 2', [117, 119], false)
+      // Mock the implementation to prevent actual async operations
+      spy = vi
+        .spyOn(publishOneModuleHelperModule, 'batchUpdateOneModuleApiCall')
+        .mockResolvedValue(undefined)
+      makeModuleWithItems(1, [117, 119], false)
     })
     afterEach(() => {
       spy.mockRestore()
     })
-    it('calls batchUpdateOneModuleApiCall with the correct argumets', () => {
+    it('calls batchUpdateOneModuleApiCall with the correct argumets', async () => {
       const courseId = 1
       const moduleId = 1
       const skipItems = false
-      unpublishModule(courseId, moduleId, skipItems)
+      const onPublishComplete = () => {}
+      const setIsPublishing = () => {}
+      const moduleIsPublished = false
+      unpublishModule({
+        courseId,
+        moduleId,
+        skipItems,
+        onPublishComplete,
+        setIsPublishing,
+        moduleIsPublished,
+      })
       expect(spy).toHaveBeenCalledWith(
         courseId,
         moduleId,
         false,
         skipItems,
         'Unpublishing module and items',
-        'Module and items unpublished'
+        'Module and items unpublished',
+        onPublishComplete,
+        setIsPublishing,
+        moduleIsPublished,
       )
     })
   })
 
   describe('batchUpdateOneModuleApiCall', () => {
-    let spy, spy2
+    let spy: MockInstance | null = null
+    const spy2: MockInstance | null = null
     beforeEach(() => {
-      makeModuleWithItems(1, 'Lesson 2', [117, 119], false)
-      makeModuleWithItems(2, 'Lesson 2', [217, 219], true)
-
-      // the batch update
-      doFetchApi.mockResolvedValueOnce({response: {ok: true}, json: {published: true}})
+      makeModuleWithItems(1, [117, 119], false)
+      makeModuleWithItems(2, [217, 219], true)
     })
     afterEach(() => {
       spy?.mockRestore()
+      // @ts-expect-error
       spy2?.mockRestore()
     })
 
     it('PUTS the batch request then GETs the updated results', async () => {
-      doFetchApi.mockResolvedValueOnce({
-        json: [
-          {id: '117', published: true},
-          {id: '119', published: true},
-        ],
-        link: null,
-      })
-      await batchUpdateOneModuleApiCall(1, 2, false, true, 'loading message', 'success message')
+      let putCalled = false
+      let getCalled = false
 
-      expect(doFetchApi).toHaveBeenCalledTimes(2)
-      expect(doFetchApi).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'PUT',
-          path: '/api/v1/courses/1/modules/2',
-          body: {
+      server.use(
+        http.put('/api/v1/courses/1/modules/2', async ({request}) => {
+          const body = await request.json()
+          expect(body).toEqual({
             module: {
               published: false,
               skip_content_tags: true,
             },
-          },
-        })
+          })
+          putCalled = true
+          return HttpResponse.json({published: true})
+        }),
+        http.get('/api/v1/courses/1/modules/2/items', () => {
+          getCalled = true
+          return HttpResponse.json([
+            {id: '117', published: true},
+            {id: '119', published: true},
+          ])
+        }),
       )
-      expect(doFetchApi).toHaveBeenCalledWith(
-        expect.objectContaining({
-          method: 'GET',
-          path: '/api/v1/courses/1/modules/2/items',
-        })
-      )
+
+      await batchUpdateOneModuleApiCall(1, 2, false, true, 'loading message', 'success message')
+
+      expect(putCalled).toBe(true)
+      expect(getCalled).toBe(true)
     })
 
     it('disables the "Publish All" button while running', async () => {
-      spy = jest.spyOn(publishOneModuleHelperModule, 'disableContextModulesPublishMenu')
+      spy = vi.spyOn(publishOneModuleHelperModule, 'disableContextModulesPublishMenu')
       await batchUpdateOneModuleApiCall(1, 2, false, true, 'loading message', 'success message')
       expect(spy).toHaveBeenCalledTimes(2)
       expect(spy).toHaveBeenCalledWith(true)
@@ -185,7 +264,7 @@ describe('publishOneModuleHelper', () => {
     })
 
     it('renders the modules publish button', async () => {
-      spy = jest.spyOn(publishOneModuleHelperModule, 'renderContextModulesPublishIcon')
+      spy = vi.spyOn(publishOneModuleHelperModule, 'renderContextModulesPublishIcon')
       await batchUpdateOneModuleApiCall(1, 2, false, true, 'loading message', 'success message')
       expect(spy).toHaveBeenCalledTimes(2)
       expect(spy).toHaveBeenCalledWith(1, 2, true, true, 'loading message')
@@ -193,88 +272,188 @@ describe('publishOneModuleHelper', () => {
     })
 
     it('updates the module items when skipping item update', async () => {
-      doFetchApi.mockResolvedValueOnce({
-        json: [{id: '117', published: true}],
-        link: {next: {url: '/another/page'}},
+      spy = vi.spyOn(publishOneModuleHelperModule, 'updateModuleItemsPublishedStates')
+      await batchUpdateOneModuleApiCall(1, 2, false, true, 'loading message', 'success message')
+      await waitFor(() => {
+        expect(spy).toHaveBeenCalledTimes(1)
+        expect(spy).toHaveBeenCalledWith(2, undefined, true)
       })
-      doFetchApi.mockResolvedValueOnce({
-        json: [{id: '119', published: true}],
-        link: null,
-      })
-      spy = jest.spyOn(publishOneModuleHelperModule, 'updateModuleItemsPublishedStates')
-      spy2 = jest.spyOn(publishOneModuleHelperModule, 'updateModuleItemPublishedState')
-      await batchUpdateOneModuleApiCall(1, 1, true, true, 'loading message', 'success message')
-      expect(spy).toHaveBeenCalledTimes(1)
-      expect(spy).toHaveBeenCalledWith(1, undefined, true)
-      // one for each item when disabling before the update +
-      // one for each item after the fetch completes (which happens over 2 pages)
-      // even if skipItems is true
-      expect(spy2).toHaveBeenCalledTimes(4)
     })
 
     it('updates the module items when publishing item update', async () => {
-      doFetchApi.mockResolvedValueOnce({
-        json: [{id: '117', published: true}],
-        link: {next: {url: '/another/page'}},
-      })
-      doFetchApi.mockResolvedValueOnce({
-        json: [{id: '119', published: true}],
-        link: null,
-      })
-      spy = jest.spyOn(publishOneModuleHelperModule, 'updateModuleItemsPublishedStates')
-      spy2 = jest.spyOn(publishOneModuleHelperModule, 'updateModuleItemPublishedState')
-      await batchUpdateOneModuleApiCall(1, 1, true, false, 'loading message', 'success message')
+      spy = vi.spyOn(publishOneModuleHelperModule, 'fetchModuleItemPublishedState')
+      await batchUpdateOneModuleApiCall(1, 2, false, false, 'loading message', 'success message')
       expect(spy).toHaveBeenCalledTimes(1)
-      expect(spy).toHaveBeenCalledWith(1, undefined, true)
-      expect(spy2).toHaveBeenCalledTimes(4)
+      expect(spy).toHaveBeenCalledWith(1, 2)
     })
 
-    it('shows an alert if not all items were published', async () => {
-      doFetchApi.mockReset()
-      doFetchApi.mockResolvedValueOnce({
-        response: {ok: true},
-        json: {published: true, publish_warning: true},
-      })
+    it('shows plain warning when publish_warning_items is absent', async () => {
+      server.use(
+        http.put('/api/v1/courses/1/modules/2', () => {
+          return HttpResponse.json({published: true, publish_warning: true})
+        }),
+      )
 
-      await batchUpdateOneModuleApiCall(1, 1, true, true, 'loading message', 'success message')
-      expect(getAllByText(document.body, 'Some module items could not be published')).toHaveLength(
-        2
-      ) // one visual, one screenreader alert
+      await batchUpdateOneModuleApiCall(1, 2, false, true, 'loading message', 'success message')
+      await waitFor(() => {
+        expect(
+          getAllByText(document.body, 'Some module items could not be published'),
+        ).toHaveLength(2)
+      })
+    })
+
+    it('shows item names and reasons when publish_warning_items is present', async () => {
+      server.use(
+        http.put('/api/v1/courses/1/modules/2', () => {
+          return HttpResponse.json({
+            published: true,
+            publish_warning: true,
+            publish_warning_items: [
+              {id: '42', title: 'Secret File', reason: 'file_in_hidden_folder'},
+              {id: '99', title: 'Unlicensed Image', reason: 'usage_rights_required'},
+              {id: '100', title: 'Locked Item', reason: 'unpublishable'},
+              {id: '101', title: 'Mystery Item', reason: 'unknown'},
+            ],
+          })
+        }),
+      )
+
+      await batchUpdateOneModuleApiCall(1, 2, false, false, 'loading message', 'success message')
+      await waitFor(() => {
+        expect(document.body.textContent).toContain('Some module items could not be published:')
+        expect(document.body.textContent).toContain('Secret File')
+        expect(document.body.textContent).toContain('file is in a hidden folder')
+        expect(document.body.textContent).toContain('Unlicensed Image')
+        expect(document.body.textContent).toContain('usage rights are required')
+        expect(document.body.textContent).toContain('Locked Item')
+        expect(document.body.textContent).toContain('cannot be published')
+        expect(document.body.textContent).toContain('Mystery Item')
+        expect(document.body.textContent).toContain('could not be published')
+      })
+    })
+
+    it('falls back to plain string when publish_warning_items is empty', async () => {
+      server.use(
+        http.put('/api/v1/courses/1/modules/2', () => {
+          return HttpResponse.json({
+            published: true,
+            publish_warning: true,
+            publish_warning_items: [],
+          })
+        }),
+      )
+
+      await batchUpdateOneModuleApiCall(1, 2, false, true, 'loading message', 'success message')
+      await waitFor(() => {
+        expect(
+          getAllByText(document.body, 'Some module items could not be published'),
+        ).toHaveLength(2)
+      })
+    })
+
+    it('shows an alert if not all items were unpublished', async () => {
+      server.use(
+        http.put('/api/v1/courses/1/modules/2', () => {
+          return HttpResponse.json({published: false, unpublish_warning: true})
+        }),
+      )
+
+      await batchUpdateOneModuleApiCall(1, 2, false, true, 'loading message', 'success message')
+      await waitFor(() => {
+        expect(
+          getAllByText(document.body, 'Some module items could not be unpublished.'),
+        ).toHaveLength(2)
+        expect(
+          getAllByText(
+            document.body,
+            'Items with student submissions or other restrictions cannot be unpublished.',
+          ),
+        ).toHaveLength(2)
+      })
     })
 
     it('shows an alert if the publish failed', async () => {
-      doFetchApi.mockRejectedValueOnce(new Error('whoops'))
+      server.use(
+        http.put('/api/v1/courses/1/modules/1', () => {
+          return HttpResponse.error()
+        }),
+      )
 
       await batchUpdateOneModuleApiCall(1, 1, true, true, 'loading message', 'success message')
-      expect(
-        getAllByText(document.body, 'There was an error while saving your changes')
-      ).toHaveLength(2) // one visual, one screenreader alert
+      await waitFor(() => {
+        expect(
+          getAllByText(document.body, 'There was an error while saving your changes'),
+        ).toHaveLength(2)
+      })
     })
 
     it('shows the re-lock modal when necessary', async () => {
-      doFetchApi.mockResolvedValueOnce({
-        response: {ok: true},
-        json: {published: true, relock_warning: true},
-      })
+      server.use(
+        http.put('/api/v1/courses/1/modules/2', () => {
+          return HttpResponse.json({published: true, relock_warning: true})
+        }),
+      )
 
-      await batchUpdateOneModuleApiCall(1, 1, true, true, 'loading message', 'success message')
-      expect(
-        // @ts-expect-error
-        getByText(document.querySelector('.ui-dialog'), 'Requirements Changed')
-      ).toBeInTheDocument()
+      await batchUpdateOneModuleApiCall(1, 2, false, true, 'loading message', 'success message')
+      await waitFor(() => {
+        expect(document.querySelector('.relock-modules-dialog')).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('fetchModuleItemPublishedState', () => {
+    beforeEach(() => {
+      makeModuleWithItems(1, [117, 119], false)
+    })
+
+    it('GETs the module item states', async () => {
+      let getCalled = false
+      server.use(
+        http.get('/api/v1/courses/1/modules/1/items', () => {
+          getCalled = true
+          return HttpResponse.json([{id: '117', published: true}])
+        }),
+      )
+
+      await fetchModuleItemPublishedState(1, 1)
+      expect(getCalled).toBe(true)
+    })
+
+    it('exhausts paginated responses', async () => {
+      let firstCallMade = false
+      let secondCallMade = false
+
+      server.use(
+        http.get('/api/v1/courses/1/modules/1/items', () => {
+          firstCallMade = true
+          return HttpResponse.json([{id: '117', published: true}], {
+            headers: {
+              Link: '<http://localhost/next-page>; rel="next"',
+            },
+          })
+        }),
+        http.get('/next-page', () => {
+          secondCallMade = true
+          return HttpResponse.json([{id: '119', published: true}])
+        }),
+      )
+
+      await fetchModuleItemPublishedState(1, 1)
+      expect(firstCallMade).toBe(true)
+      expect(secondCallMade).toBe(true)
     })
   })
 
   describe('updateModuleItemsPublishedStates', () => {
-    let allModuleItems
+    let allModuleItems: KeyedModuleItems
     beforeEach(() => {
-      makeModuleWithItems(1, 'Lesson 2', [117, 119])
-      makeModuleWithItems(2, 'Lesson 2', [217, 219, 117])
+      makeModuleWithItems(1, [117, 119])
+      makeModuleWithItems(2, [217, 219, 117])
       allModuleItems = getAllModuleItems()
     })
 
     it('calls updateModuleItemPublishedState for each module item', () => {
-      const spy = jest.spyOn(publishOneModuleHelperModule, 'updateModuleItemPublishedState')
+      const spy = vi.spyOn(publishOneModuleHelperModule, 'updateModuleItemPublishedState')
       const published = true
       const isPublishing = false
 
@@ -284,24 +463,24 @@ describe('publishOneModuleHelper', () => {
         expect.any(HTMLElement),
         published,
         isPublishing,
-        allModuleItems
+        allModuleItems,
       )
       expect(spy).toHaveBeenCalledWith(
         expect.any(HTMLElement),
         published,
         isPublishing,
-        allModuleItems
+        allModuleItems,
       )
       expect((spy.mock.calls[0][0] as HTMLElement).getAttribute('data-module-item-id')).toEqual(
-        '1117'
+        '1117',
       )
       expect((spy.mock.calls[1][0] as HTMLElement).getAttribute('data-module-item-id')).toEqual(
-        '1119'
+        '1119',
       )
     })
 
     it('does not change published state if undefined', () => {
-      const spy = jest.spyOn(publishOneModuleHelperModule, 'updateModuleItemPublishedState')
+      const spy = vi.spyOn(publishOneModuleHelperModule, 'updateModuleItemPublishedState')
       const published = undefined
       const isPublishing = true
 
@@ -311,20 +490,20 @@ describe('publishOneModuleHelper', () => {
       expect(updateModuleItem).toHaveBeenCalledWith(
         expect.objectContaining({assignment_117: expect.any(Object)}),
         {bulkPublishInFlight: isPublishing},
-        expect.any(Object)
+        expect.any(Object),
       )
       expect(updateModuleItem).toHaveBeenCalledWith(
         expect.objectContaining({assignment_119: expect.any(Object)}),
         {bulkPublishInFlight: isPublishing},
-        expect.any(Object)
+        expect.any(Object),
       )
     })
   })
 
   describe('updateModuleItemPublishedState', () => {
     beforeEach(() => {
-      makeModuleWithItems(1, 'Lesson 2', [117, 119])
-      makeModuleWithItems(2, 'Lesson 2', [217, 219, 117])
+      makeModuleWithItems(1, [117, 119])
+      makeModuleWithItems(2, [217, 219, 117])
     })
 
     it('calls updateModuleItem with all items for the same assignment', () => {
@@ -336,7 +515,7 @@ describe('publishOneModuleHelper', () => {
       expect(updateModuleItem).toHaveBeenCalledWith(
         {assignment_117: allModuleItems.assignment_117},
         {bulkPublishInFlight: isPublishing, published},
-        expect.anything() // view.model
+        expect.anything(), // view.model
       )
     })
 
@@ -348,7 +527,7 @@ describe('publishOneModuleHelper', () => {
       expect(updateModuleItem).toHaveBeenCalledWith(
         {assignment_117: [{view: expect.anything(), model: expect.anything()}]},
         {bulkPublishInFlight: isPublishing, published},
-        expect.anything() // view.model
+        expect.anything(), // view.model
       )
     })
 
@@ -358,7 +537,7 @@ describe('publishOneModuleHelper', () => {
       expect(updateModuleItem).toHaveBeenCalledWith(
         {assignment_117: [{view: expect.anything(), model: expect.anything()}]},
         {bulkPublishInFlight: isPublishing},
-        expect.anything() // view.model
+        expect.anything(), // view.model
       )
     })
 
@@ -367,14 +546,14 @@ describe('publishOneModuleHelper', () => {
       expect(
         document
           .querySelector('#context_module_item_1117 .ig-row')
-          ?.classList.contains('ig-published')
+          ?.classList.contains('ig-published'),
       ).toBe(true)
 
       updateModuleItemPublishedState('1117', false, false)
       expect(
         document
           .querySelector('#context_module_item_1117 .ig-row')
-          ?.classList.contains('ig-published')
+          ?.classList.contains('ig-published'),
       ).toBe(false)
     })
 
@@ -385,54 +564,25 @@ describe('publishOneModuleHelper', () => {
       expect(
         document
           .querySelector('#context_module_item_1117 .ig-row')
-          ?.classList.contains('ig-published')
+          ?.classList.contains('ig-published'),
       ).toBe(true)
       expect(
         document
           .querySelector('#context_module_item_2117 .ig-row')
-          ?.classList.contains('ig-published')
+          ?.classList.contains('ig-published'),
       ).toBe(true)
 
       updateModuleItemPublishedState('1117', false, false, allModuleItems)
       expect(
         document
           .querySelector('#context_module_item_1117 .ig-row')
-          ?.classList.contains('ig-published')
+          ?.classList.contains('ig-published'),
       ).toBe(false)
       expect(
         document
           .querySelector('#context_module_item_2117 .ig-row')
-          ?.classList.contains('ig-published')
+          ?.classList.contains('ig-published'),
       ).toBe(false)
-    })
-  })
-
-  describe('fetchModuleItemPublishedState', () => {
-    beforeEach(() => {
-      doFetchApi.mockReset()
-      doFetchApi.mockResolvedValue({response: {ok: true}, json: [], link: null})
-    })
-    it('GETs the module item states', () => {
-      fetchModuleItemPublishedState(7, 8)
-      expect(doFetchApi).toHaveBeenCalledTimes(1)
-      expect(doFetchApi).toHaveBeenCalledWith({
-        method: 'GET',
-        path: '/api/v1/courses/7/modules/8/items',
-      })
-    })
-    it('exhausts paginated responses', async () => {
-      doFetchApi.mockResolvedValueOnce({
-        response: {ok: true},
-        json: [{id: '1', published: true}],
-        link: {next: {url: '/another/page'}},
-      })
-
-      fetchModuleItemPublishedState(7, 8)
-      await waitFor(() => expect(doFetchApi).toHaveBeenCalledTimes(2))
-      expect(doFetchApi).toHaveBeenLastCalledWith({
-        method: 'GET',
-        path: '/another/page',
-      })
     })
   })
 
@@ -448,20 +598,20 @@ describe('publishOneModuleHelper', () => {
 
   describe('renderContextModulesPublishIcon', () => {
     beforeEach(() => {
-      makeModuleWithItems(2, 'Lesson 2', [217, 219], false)
+      makeModuleWithItems(2, [217, 219], false)
     })
-    it('renders the ContextModulesPublishIcon', () => {
+    it('renders the ContextModulesPublishIcon', async () => {
       renderContextModulesPublishIcon(1, 2, true, false, 'loading message')
       expect(
-        getByText(document.body, 'Lesson 2 module publish options, published')
+        await findByText(document.body, 'Lesson 2 module publish options, published'),
       ).toBeInTheDocument()
     })
   })
 
   describe('getAllModuleItems', () => {
     beforeEach(() => {
-      makeModuleWithItems(1, 'Lesson 2', [117, 119])
-      makeModuleWithItems(2, 'Lesson 2', [217, 219, 117])
+      makeModuleWithItems(1, [117, 119])
+      makeModuleWithItems(2, [217, 219, 117])
     })
 
     it('finds all the module items', () => {

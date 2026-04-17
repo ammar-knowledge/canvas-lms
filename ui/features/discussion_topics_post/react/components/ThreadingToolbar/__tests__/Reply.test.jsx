@@ -16,21 +16,21 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {render, fireEvent} from '@testing-library/react'
+import {fireEvent, render} from '@testing-library/react'
 import React from 'react'
 import {Reply} from '../Reply'
 import {responsiveQuerySizes} from '../../../utils'
 
-jest.mock('../../../utils')
+vi.mock('../../../utils')
 
 beforeAll(() => {
-  window.matchMedia = jest.fn().mockImplementation(() => {
+  window.matchMedia = vi.fn().mockImplementation(() => {
     return {
       matches: true,
       media: '',
       onchange: null,
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
     }
   })
 })
@@ -43,7 +43,7 @@ beforeEach(() => {
 
 const setup = props => {
   return render(
-    <Reply onClick={Function.prototype} delimiterKey="reply" authorName="Nikita" {...props} />
+    <Reply onClick={Function.prototype} delimiterKey="reply" authorName="Nikita" {...props} />,
   )
 }
 
@@ -59,11 +59,11 @@ describe('Reply', () => {
   })
 
   it('calls provided callback when clicked', () => {
-    const onClickMock = jest.fn()
+    const onClickMock = vi.fn()
     const {getByText} = setup({onClick: onClickMock})
-    expect(onClickMock.mock.calls.length).toBe(0)
+    expect(onClickMock.mock.calls).toHaveLength(0)
     fireEvent.click(getByText('Reply'))
-    expect(onClickMock.mock.calls.length).toBe(1)
+    expect(onClickMock.mock.calls).toHaveLength(1)
   })
 
   it('shows icon on desktop view', () => {
@@ -83,7 +83,7 @@ describe('Reply', () => {
       const container = setup()
 
       expect(container.getByTestId('threading-toolbar-reply').parentNode).toHaveStyle(
-        'margin: 0px 0.75rem 0px 0px'
+        'margin: 0px 0.375rem 0px 0px',
       )
     })
 

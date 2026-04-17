@@ -25,11 +25,21 @@ require_relative "../pages/gradebook_cells_page"
 require_relative "../setup/gradebook_setup"
 require_relative "../../assignments/page_objects/assignment_page"
 
-describe "filter SpeedGrader by student group" do
+# NOTE: We are aware that we're duplicating some unnecessary testcases, but this was the
+# easiest way to review, and will be the easiest to remove after the feature flag is
+# permanently removed. Testing both flag states is necessary during the transition phase.
+shared_examples "filter SpeedGrader by student group" do |ff_enabled|
   include_context "in-process server selenium tests"
   include GradebookSetup
 
   before :once do
+    # Set feature flag state for the test run - this affects how the gradebook data is fetched, not the data setup
+    if ff_enabled
+      Account.site_admin.enable_feature!(:performance_improvements_for_gradebook)
+    else
+      Account.site_admin.disable_feature!(:performance_improvements_for_gradebook)
+    end
+
     # course with student groups
     course_with_teacher(
       course_name: "Filter SpeedGrader Course",
@@ -61,6 +71,12 @@ describe "filter SpeedGrader by student group" do
     @group2_students = @students[2, 2]
 
     @course.update!(filter_speed_grader_by_student_group: true)
+  end
+
+  before do
+    if ff_enabled
+      allow(Services::PlatformServiceGradebook).to receive(:graphql_usage_rate).and_return(100)
+    end
   end
 
   context "on assignments page" do
@@ -96,22 +112,6 @@ describe "filter SpeedGrader by student group" do
       expect(Gradebook::GradeDetailTray.speedgrader_link.attribute("href")).to include(speedgrader_link_text)
     end
 
-    it "loads speedgrader when group selected" do
-      skip("Unskip in EVAL-2501")
-      # select group from gradebook setting
-      @teacher.preferences[:gradebook_settings] = {
-        @course.id => {
-          filter_rows_by: {
-            student_group_id: @category.groups.second.id
-          }
-        }
-      }
-      Speedgrader.visit(@course.id, @assignment.id)
-      # verify
-      Speedgrader.click_students_dropdown
-      expect(Speedgrader.fetch_student_names).to contain_exactly(@group2_students)
-    end
-
     it "disables speedgrader from tray" do
       Gradebook.visit(@course)
       # verify link is disabled and message
@@ -120,4 +120,9 @@ describe "filter SpeedGrader by student group" do
       expect(Gradebook::GradeDetailTray.speedgrader_link).to be_disabled
     end
   end
+end
+
+describe "filter SpeedGrader by student group" do
+  it_behaves_like "filter SpeedGrader by student group", true
+  it_behaves_like "filter SpeedGrader by student group", false
 end

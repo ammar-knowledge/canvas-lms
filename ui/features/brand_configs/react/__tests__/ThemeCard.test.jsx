@@ -18,14 +18,9 @@
 
 import React from 'react'
 import ThemeCard from '../ThemeCard'
-import {shallow} from 'enzyme'
-import sinon from 'sinon'
+import {render} from '@testing-library/react'
 
 let props
-
-const ok = x => expect(x).toBeTruthy()
-const notOk = x => expect(x).toBeFalsy()
-const equal = (x, y) => expect(x).toEqual(y)
 
 describe('ThemeCard Component', () => {
   beforeEach(() => {
@@ -34,74 +29,62 @@ describe('ThemeCard Component', () => {
       isActiveBrandConfig: false,
       isDeleteable: true,
       isBeingDeleted: false,
-      open: sinon.stub(),
-      startDeleting: sinon.stub(),
-      cancelDelete: sinon.stub(),
-      onDelete: sinon.stub(),
-      getVariable: sinon.stub(),
-      cancelDeleting: sinon.stub(),
+      open: vi.fn(),
+      startDeleting: vi.fn(),
+      cancelDelete: vi.fn(),
+      onDelete: vi.fn(),
+      getVariable: vi.fn(),
+      cancelDeleting: vi.fn(),
       showMultipleCurrentThemesMessage: false,
       isDeletable: true,
     }
   })
   test('Renders the name', () => {
-    const wrapper = shallow(<ThemeCard {...props} />)
-    equal(
-      wrapper.find('.ic-ThemeCard-name-button').text(),
-      `Edit this theme in Theme Editor${props.name}`,
-      'renders the name'
-    )
+    const {getByTestId} = render(<ThemeCard {...props} />)
+    expect(getByTestId('themecard-name-button-name')).toHaveTextContent(props.name)
   })
 
   test('Renders preview of colors', () => {
-    shallow(<ThemeCard {...props} />)
+    render(<ThemeCard {...props} />)
     const getVar = props.getVariable
-    ok(getVar.calledWith('ic-brand-primary'), 'prview ic-brand-primary')
-    ok(getVar.calledWith('ic-brand-button--primary-bgd'), 'prview ic-brand-button--primary-bgd')
-    ok(getVar.calledWith('ic-brand-button--secondary-bgd'), 'prview ic-brand-button--secondary-bgd')
-    ok(getVar.calledWith('ic-brand-global-nav-bgd'), 'prview ic-brand-global-nav-bgd')
-    ok(
-      getVar.calledWith('ic-brand-global-nav-ic-icon-svg-fill'),
-      'prview ic-brand-global-nav-ic-icon-svg-fill'
-    )
-    ok(
-      getVar.calledWith('ic-brand-global-nav-menu-item__text-color'),
-      'prview ic-brand-nav-menu-item__text-color'
-    )
+    expect(getVar).toHaveBeenCalledWith('ic-brand-primary')
+    expect(getVar).toHaveBeenCalledWith('ic-brand-button--primary-bgd')
+    expect(getVar).toHaveBeenCalledWith('ic-brand-button--secondary-bgd')
+    expect(getVar).toHaveBeenCalledWith('ic-brand-global-nav-bgd')
+    expect(getVar).toHaveBeenCalledWith('ic-brand-global-nav-ic-icon-svg-fill')
+    expect(getVar).toHaveBeenCalledWith('ic-brand-global-nav-menu-item__text-color')
   })
 
   test('Indicates if it is the current theme', () => {
-    let wrapper = shallow(<ThemeCard {...props} />)
-    notOk(
-      wrapper.find('.ic-ThemeCard-status__text').exists(),
-      'status text elment not found when isActiveBrandConfig is false'
-    )
+    const {container, rerender} = render(<ThemeCard {...props} />)
+    expect(container.querySelector('.ic-ThemeCard-status__text')).not.toBeInTheDocument()
 
-    props.isActiveBrandConfig = true
-    wrapper = shallow(<ThemeCard {...props} />)
-    equal(
-      wrapper.find('.ic-ThemeCard-status__text').text(),
-      'Current theme',
-      '"Current theme" status text found when isActiveBrandConfig is true'
-    )
+    const updatedProps = {...props, isActiveBrandConfig: true}
+    rerender(<ThemeCard {...updatedProps} />)
+    expect(container.querySelector('.ic-ThemeCard-status__text')).toHaveTextContent('Current theme')
   })
 
   test('Shows delete modal if isBeingDeleted is true', () => {
-    let wrapper = shallow(<ThemeCard {...props} />)
-    notOk(wrapper.find('ModalBody').exists())
+    const {container, rerender, queryByText} = render(<ThemeCard {...props} />)
+    expect(queryByText('Delete Test Theme?')).not.toBeInTheDocument()
 
-    props.isBeingDeleted = true
-    wrapper = shallow(<ThemeCard {...props} />)
-    equal(wrapper.find('ModalBody').prop('children'), 'Delete Test Theme?')
+    const updatedProps = {...props, isBeingDeleted: true}
+    rerender(<ThemeCard {...updatedProps} />)
+    expect(queryByText('Delete Test Theme?')).toBeInTheDocument()
   })
 
   test('Shows tooltip if there are multiple cards of the same theme', () => {
-    const wrapperWithoutDuplicates = shallow(<ThemeCard {...props} />)
-    notOk(wrapperWithoutDuplicates.find('.Button--icon-active-rev').exists())
+    const {container, rerender} = render(<ThemeCard {...props} />)
+    expect(container.querySelector('.Button--icon-active-rev')).not.toBeInTheDocument()
 
-    props.showMultipleCurrentThemesMessage = true
-    props.isActiveBrandConfig = true
-    const wrapper = shallow(<ThemeCard {...props} />)
-    ok(wrapper.find('.Button--icon-action-rev[data-tooltip][title]').exists())
+    const updatedProps = {
+      ...props,
+      showMultipleCurrentThemesMessage: true,
+      isActiveBrandConfig: true,
+    }
+    rerender(<ThemeCard {...updatedProps} />)
+    expect(
+      container.querySelector('.Button--icon-action-rev[data-tooltip][title]'),
+    ).toBeInTheDocument()
   })
 })

@@ -50,6 +50,8 @@ module CanvasRails
     config.encoding = "utf-8"
     require "logging_filter"
     config.filter_parameters.concat LoggingFilter.filtered_parameters
+    config.action_dispatch.rescue_responses["AuthenticationMethods::RevokedAccessTokenError"] = 401
+    config.action_dispatch.rescue_responses["AuthenticationMethods::ExpiredAccessTokenError"] = 401
     config.action_dispatch.rescue_responses["AuthenticationMethods::AccessTokenError"] = 401
     config.action_dispatch.rescue_responses["AuthenticationMethods::AccessTokenScopeError"] = 401
     config.action_dispatch.rescue_responses["AuthenticationMethods::LoggedOutError"] = 401
@@ -132,11 +134,17 @@ module CanvasRails
       config.logger.formatter = ContextFormatter.new(config.logger.formatter)
     end
 
+    config.active_record.automatic_scope_inversing = true
+
     # Activate observers that should always be running
-    config.active_record.observers = %i[cacher stream_item_cache live_events_observer]
+    config.active_record.observers ||= []
+    config.active_record.observers << %i[cacher stream_item_cache live_events_observer]
 
     config.active_support.encode_big_decimal_as_string = false
     config.active_support.remove_deprecated_time_with_zone_name = true
+
+    # Skip loading generators at boot - they're only needed for `rails generate` commands
+    Rails.autoloaders.main.ignore(Rails.root.join("lib/generators"))
 
     config.paths["lib"].eager_load!
     config.paths.add("app/middleware", eager_load: true, autoload_once: true)
@@ -148,7 +156,8 @@ module CanvasRails
     # This needs to be set for things in the `once` autoloader really early
     Rails.autoloaders.each do |autoloader|
       autoloader.inflector.inflect(
-        "csv_with_i18n" => "CSVWithI18n"
+        "csv_with_i18n" => "CSVWithI18n",
+        "llm_conversation" => "LlmConversation"
       )
     end
 
@@ -158,11 +167,10 @@ module CanvasRails
                                 Rails.root.join("app/stylesheets"),
                                 Rails.root.join("ui")]
 
-    config.middleware.use Rack::Chunked
-    config.middleware.use Rack::Deflater, if: lambda { |*|
+    config.middleware.insert_before Rack::ETag, Rack::Deflater, if: lambda { |*|
       ::DynamicSettings.find(tree: :private)["enable_rack_deflation", failsafe: true]
     }
-    config.middleware.use Rack::Brotli, if: lambda { |*|
+    config.middleware.insert_before Rack::ETag, Rack::Brotli, if: lambda { |*|
       ::DynamicSettings.find(tree: :private)["enable_rack_brotli", failsafe: true]
     }
 
@@ -185,38 +193,72 @@ module CanvasRails
 
       def connect
         hosts = Array(@connection_parameters[:host]).presence || [nil]
-        hosts.each_with_index do |host, index|
-          connection_parameters = @connection_parameters.dup
-          connection_parameters[:host] = host
+        passwords = Array(@connection_parameters[:password]).presence || [nil]
+        hosts.each_with_index do |host, host_index|
+          passwords.each_with_index do |password, password_index|
+            connection_parameters = @connection_parameters.dup
+            connection_parameters[:host] = host
+            connection_parameters[:password] = password
 
-          begin
-            @raw_connection = self.class.new_client(connection_parameters)
-          rescue ::ActiveRecord::ActiveRecordError, ::ActiveRecord::ConnectionFailed, ::ActiveRecord::ConnectionNotEstablished, ::PG::Error => e
-            # If exception occurs using parameters from a predefined pg service, retry without
-            if connection_parameters.key?(:service)
-              CanvasErrors.capture(e, { tags: { pg_service: connection_parameters[:service] } }, :warn)
-              Rails.logger.warn("Error connecting to database using pg service `#{connection_parameters[:service]}`; retrying without... (error: #{e.message})")
-              connection_parameters.delete(:service)
-              connection_parameters[:sslmode] = "disable"
-              retry
-            else
-              raise
+            begin
+              @raw_connection = self.class.new_client(connection_parameters)
+            rescue ::ActiveRecord::ActiveRecordError, ::ActiveRecord::ConnectionFailed, ::ActiveRecord::ConnectionNotEstablished, ::PG::Error => e
+              # If exception occurs using parameters from a predefined pg service, retry without
+              if connection_parameters.key?(:service)
+                CanvasErrors.capture(e, { tags: { pg_service: connection_parameters[:service] } }, :warn)
+                Rails.logger.warn("Error connecting to database using pg service `#{connection_parameters[:service]}`; retrying without... (error: #{e.message})")
+                connection_parameters.delete(:service)
+                connection_parameters[:sslmode] = "disable"
+                retry
+              else
+                raise
+              end
             end
+
+            raise "Canvas requires PostgreSQL 14 or newer" unless postgresql_version >= 14_00_00 # rubocop:disable Style/NumericLiterals
+
+            # we're in a nested loop, and we want to break out of both loops on success
+            return
+          rescue ActiveRecord::DatabaseConnectionError => e
+            raise if password_index == passwords.length - 1 || e.message.exclude?("password")
+            # else try next password
           end
-
-          raise "Canvas requires PostgreSQL 12 or newer" unless postgresql_version >= 12_00_00 # rubocop:disable Style/NumericLiterals
-
-          break
-          # we _shouldn't_ be catching a NoDatabaseError, but that's what Rails raises
-          # for an error where the database name is in the message (i.e. a hostname lookup failure)
+        # we _shouldn't_ be catching a NoDatabaseError, but that's what Rails raises
+        # for an error where the database name is in the message (i.e. a hostname lookup failure)
         rescue ActiveRecord::NoDatabaseError, ::ActiveRecord::ConnectionFailed, ActiveRecord::ConnectionNotEstablished, ::PG::Error => e
           if e.is_a?(::PG::Error) && e.message.include?("does not exist")
             raise ActiveRecord::NoDatabaseError, e.message
-          elsif index == hosts.length - 1
+          elsif host_index == hosts.length - 1
             raise
           end
           # else try next host
         end
+      end
+
+      def client_min_messages=(level)
+        return if level == "preset"
+
+        super
+      end
+
+      def set_standard_conforming_strings
+        # this has been the default since 9.1
+      end
+
+      def reconfigure_connection_timezone
+        return if @config[:timezone] == "preset"
+
+        super
+      end
+
+      def internal_execute(sql, name = "SCHEMA", *, **)
+        return super unless name == "SCHEMA"
+
+        if sql == "SET intervalstyle = iso_8601" && @config[:interval_style] == "preset"
+          return
+        end
+
+        super
       end
     end
 
@@ -316,7 +358,7 @@ module CanvasRails
       def call(env)
         req = ActionDispatch::Request.new(env)
         res = ApplicationController.make_response!(req)
-        ApplicationController.dispatch("rescue_action_dispatch_exception", req, res)
+        ApplicationController.dispatch(:rescue_action_dispatch_exception, req, res)
       end
     end
 
@@ -333,8 +375,13 @@ module CanvasRails
         %w[Set-Cookie X-Request-Context-Id X-Canvas-User-Id X-Canvas-Meta]
     end
 
-    def validate_secret_key_base(_)
-      # no validation; we don't use Rails' CookieStore session middleware, so we
+    def secret_key_base
+      # we don't use Rails' CookieStore session middleware, so we
+      # don't care about secret_key_base
+    end
+
+    def secret_key_base=(_)
+      # we don't use Rails' CookieStore session middleware, so we
       # don't care about secret_key_base
     end
 
@@ -374,22 +421,9 @@ module CanvasRails
       end
     end
 
-    if $canvas_rails < "7.2"
-      # This should run after all initializers are complete, as yjit optimizing initialization code is unhelpful
-      # (modeled after version of yjit enabling in rails main)
-      initializer :enable_yjit do
-        config.after_initialize do
-          yjit_enabled = ActiveModel::Type::Boolean.new.cast(::DynamicSettings.find(tree: :private)["enable_yjit", failsafe: "false"])
-          if yjit_enabled && defined?(RubyVM::YJIT.enable)
-            RubyVM::YJIT.enable
-          end
-        end
-      end
-    else
-      # ensure configure after dynamic settings is configured before yjit is managed
-      initializer :enable_yjit_check, before: "enable_yjit" do
-        config.yjit = ActiveModel::Type::Boolean.new.cast(::DynamicSettings.find(tree: :private)["enable_yjit", failsafe: "false"])
-      end
+    # ensure configure after dynamic settings is configured before yjit is managed
+    initializer :enable_yjit_check, before: "enable_yjit" do
+      config.yjit = ActiveModel::Type::Boolean.new.cast(::DynamicSettings.find(tree: :private)["enable_yjit", failsafe: "false"])
     end
 
     initializer "canvas.extend_shard", before: "active_record.initialize_database" do
@@ -416,15 +450,6 @@ module CanvasRails
       app.config.middleware.insert_before(Rack::Head, RequestThrottle)
       app.config.middleware.insert_before(Rack::MethodOverride, PreventNonMultipartParse)
       app.config.middleware.insert_before(Sentry::Rails::CaptureExceptions, SentryTraceScrubber)
-    end
-
-    initializer("set_allowed_request_id_setters", after: :finisher_hook) do |app|
-      # apparently there is no initialization hook that comes late enough for
-      # routes to already be loaded, so we have to load them explicitly
-      app.reload_routes!
-      RequestContext::Generator.allow_unsigned_request_context_for(
-        app.routes.url_helpers.api_graphql_subgraph_path
-      )
     end
   end
 end

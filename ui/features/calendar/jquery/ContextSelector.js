@@ -17,14 +17,14 @@
  */
 
 import $ from 'jquery'
-import {map, chain} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {map} from 'es-toolkit/compat'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import contextSelectorTemplate from '../jst/contextSelector.handlebars'
 import contextSelectorItemTemplate from '../jst/contextSelectorItem.handlebars'
 import preventDefault from '@canvas/util/preventDefault'
 import {publish, subscribe} from 'jquery-tinypubsub'
 
-const I18n = useI18nScope('context_sector')
+const I18n = createI18nScope('context_sector')
 
 class ContextSelectorItem {
   constructor(context) {
@@ -152,7 +152,7 @@ export default class ContextSelector {
     const $contextsList = this.$menu.find('.ag-contexts')
 
     subscribe('/contextSelector/changed', () =>
-      contextsChangedCB(this.selectedContexts(), this.selectedSections())
+      contextsChangedCB(this.selectedContexts(), this.selectedSections()),
     )
 
     this.contextSelectorItems = {}
@@ -218,23 +218,15 @@ export default class ContextSelector {
   }
 
   selectedContexts() {
-    const contexts = chain(this.contextSelectorItems)
-      .values()
+    return Object.values(this.contextSelectorItems)
       .filter(c => c.state !== 'off')
       .map(c => c.context.asset_string)
-      .value()
-
-    return contexts
   }
 
   selectedSections() {
-    const sections = chain(this.contextSelectorItems)
-      .values()
+    return Object.values(this.contextSelectorItems)
       .map(c => c.sections())
-      .reject(ss => ss.length === 0)
-      .flatten()
-      .value()
-
-    return sections
+      .filter(ss => ss.length > 0)
+      .flat()
   }
 }

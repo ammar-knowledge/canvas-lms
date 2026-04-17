@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
+import {AlertManagerContext} from '@instructure/platform-alerts'
 import {Button} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
 import {IconArrowOpenStartSolid, IconArrowOpenEndSolid} from '@instructure/ui-icons'
@@ -26,18 +26,18 @@ import {ScreenReaderContent, PresentationContent} from '@instructure/ui-a11y-con
 import theme from '@instructure/canvas-theme'
 import {Tooltip} from '@instructure/ui-tooltip'
 import {View} from '@instructure/ui-view'
-import WithBreakpoints, {breakpointsShape} from '@canvas/with-breakpoints'
+import {WithBreakpoints} from '@instructure/platform-with-breakpoints'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import api from '../apis/ContextModuleApi'
 
-const I18n = useI18nScope('assignments_2_file_upload')
+const I18n = createI18nScope('assignments_2_file_upload')
 
 function buildFooterStyle() {
   const footerStyle = {
-    backgroundColor: theme.variables.colors.white,
-    borderColor: theme.variables.colors.borderMedium,
+    backgroundColor: theme.colors.primitives.white,
+    borderColor: theme.colors.contrasts.grey1214,
   }
 
   if (document.querySelector('.with-embedded-chat')) {
@@ -173,7 +173,6 @@ const buttonPropType = PropTypes.shape({
 
 StudentFooter.propTypes = {
   assignmentID: PropTypes.string,
-  breakpoints: breakpointsShape,
   buttons: PropTypes.arrayOf(buttonPropType),
   courseID: PropTypes.string,
 }

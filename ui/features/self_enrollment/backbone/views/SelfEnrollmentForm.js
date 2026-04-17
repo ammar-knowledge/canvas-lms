@@ -21,9 +21,9 @@ import Backbone from '@canvas/backbone'
 import registrationErrors from '@canvas/normalize-registration-errors'
 import '@canvas/jquery/jquery.instructure_forms'
 import '@canvas/jquery/jquery.ajaxJSON'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('self_enrollment')
+const I18n = createI18nScope('self_enrollment')
 
 export default class SelfEnrollmentForm extends Backbone.View {
   static initClass() {
@@ -40,33 +40,38 @@ export default class SelfEnrollmentForm extends Backbone.View {
     this.action = this.initialAction = this.$el
       .find('input[type=hidden][name=initial_action]')
       .val()
+    this.timerId = null
+    // this is the registration form if the radio to register exists
+    this.canRegister = this.$el.find('input[id="selfEnrollmentAuthRegCreate"]').length > 0
 
     const retryCount = 5
-    function loadCaptcha(attempts) {
-      const that = this
-
+    // need to pass class context to loadCaptcha
+    const loadCaptcha = attempts => {
       if (!window.hasOwnProperty('grecaptcha')) {
         if (attempts < retryCount) {
-          setTimeout(() => loadCaptcha(attempts + 1), 500)
+          const boundLoad = loadCaptcha.bind(this, attempts + 1)
+          this.timerId = setTimeout(boundLoad, 500)
         } else {
           $.flashError(I18n.t('Captcha failed to load'))
         }
         return
+      } else if (this.timerId !== null) {
+        clearTimeout(this.timerId)
       }
 
       // this code will not be reached unless grecaptcha is defined
       // eslint-disable-next-line no-undef
-      grecaptcha.ready(function () {
+      grecaptcha.ready(() => {
         // eslint-disable-next-line no-undef
-        that.dataCaptchaId = grecaptcha.render(that.$el.find('.g-recaptcha')[0], {
+        this.dataCaptchaId = grecaptcha.render(this.$el.find('.g-recaptcha')[0], {
           sitekey: ENV.ACCOUNT.recaptcha_key,
           callback: () => {
-            that.recaptchaPassed = true
-            that.$el.find('#submit_button').prop('disabled', false)
+            this.recaptchaPassed = true
+            this.$el.find('#submit_button').prop('disabled', false)
           },
           'expired-callback': () => {
-            that.recaptchaPassed = false
-            that.$el.find('#submit_button').prop('disabled', true)
+            this.recaptchaPassed = false
+            this.$el.find('#submit_button').prop('disabled', true)
           },
         })
       })
@@ -76,7 +81,9 @@ export default class SelfEnrollmentForm extends Backbone.View {
       if (this.action === 'create') {
         this.$el.find('#submit_button').prop('disabled', true)
       }
-      loadCaptcha(0)
+      if (this.canRegister) {
+        loadCaptcha(0)
+      }
     }
     return this.$el.formSubmit({
       beforeSubmit: data => this.beforeSubmit(data),
@@ -119,7 +126,7 @@ export default class SelfEnrollmentForm extends Backbone.View {
           case 'enroll':
             return this.enrollUrl
         }
-      })()
+      })(),
     )
   }
 
@@ -182,7 +189,7 @@ export default class SelfEnrollmentForm extends Backbone.View {
     if (
       __guard__(
         errors.user != null ? errors.user.errors.self_enrollment_code : undefined,
-        x => x[0].type
+        x => x[0].type,
       ) === 'already_enrolled'
     ) {
       // just reload if already enrolled

@@ -1,6 +1,6 @@
 # Detect N+1 Queries
 
-Canvas uses the [prosopite](https://github.com/charkost/prosopite) gem to detect N+1 query problems and prints information about them to `log/development.log` in development, and to `log/test.log` in test. It also prints this information to its own dedicated log file, `log/prosopite.log` when in development. Here's an example report:
+Canvas uses the [prosopite](https://github.com/charkost/prosopite) gem to detect N+1 query problems and prints information about them to `log/development.log`. It also prints this information to its own dedicated log file, `log/prosopite.log` when in development. Here's an example report:
 
 ```ruby
 N+1 queries detected:
@@ -19,8 +19,6 @@ Call stack:
   lib/api/v1/assignment_group.rb:75:in `assignment_group_json'
   ...<more stack trace>
 ```
-
-In production, the gem can only be used via the `Prosopite.scan` method (the use case being testing some code for N+1s in a Rails Console).
 
 ## Prosopite.scan
 
@@ -64,6 +62,26 @@ Call stack:
 
 ## Enabling Detection
 
-Automatic N+1 detection for requests is off by default. Setting the N_PLUS_ONE_DETECTION environment variable to 'true' causes all controller actions to be wrapped in a `Prosopite.scan` while in `development` or `test`. It also causes all rspec tests to be wrapped in a `Prosopite.scan`.
+### In Development & Test
 
-You can manually invoke `Prosopite.scan` in any environment, even when the N_PLUS_ONE_DETECTION environment variable is not set to 'true'.
+Automatic N+1 detection for requests is on by default (`development` and `test` env only). All controller actions are wrapped in a `Prosopite.scan` while in `development` or `test`.
+
+To disable N+1 detection, set the DISABLE_N_PLUS_ONE_DETECTION environment variable to 'true'.
+
+You can manually invoke `Prosopite.scan` in any environment.
+
+### In Production
+
+You can enable N+1 detection on a per-request basis by passing a
+`n_plus_one_detection=true` parameter to the request. A report will be saved to
+your users files (`/files`). The format of the filename is:
+`n_plus_one_detection-<controller>#<action>-<iso8601 timestamp>`, but you can
+also specify a custom name by passing `n_plus_one_name=<name>` which will make
+the filename `n_plus_one_detection-<name>-<iso8601 timestamp>`.
+
+Note that you must be logged in as a Site Admin user to enable this
+functionality. This is to prevent abuse of the feature by regular users. However, a Site Admin user can masquerade as any non-site-admin user and generate an N+1 report (the resulting report will be in the Site Admin user's Canvas Files).
+
+### Limitations
+
+If you try to ask for both a flamegraph and an N+1 report, the N+1 report will not be generated. Flamegraphs take precedence over N+1 reports. This is to prevent the N+1 report from obfuscating the flamegraph data. Additionally, if the flamegraph grows too large, a stack overflow error may occur, which defeats the purpose of the reports.

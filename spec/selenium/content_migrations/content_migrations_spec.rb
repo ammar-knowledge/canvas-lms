@@ -98,6 +98,7 @@ end
 describe "content migrations", :non_parallel do
   before(:once) do
     Account.site_admin.disable_feature! :instui_for_import_page
+    Account.site_admin.disable_feature! :instui_for_course_copy_page
   end
 
   include_context "in-process server selenium tests"
@@ -145,23 +146,17 @@ describe "content migrations", :non_parallel do
       @filename = "cc_outcomes.imscc"
     end
 
-    context "with selectable_outcomes_in_course_copy enabled" do
-      before do
-        @course.root_account.enable_feature!(:selectable_outcomes_in_course_copy)
-      end
+    it "selectively copies outcomes" do
+      visit_page
 
-      it "selectively copies outcomes" do
-        visit_page
+      fill_migration_form
+      wait_for_ajaximations
 
-        fill_migration_form
-        wait_for_ajaximations
+      ContentMigrationPage.selective_imports(1).click
+      submit
+      run_migration
 
-        ContentMigrationPage.selective_imports(1).click
-        submit
-        run_migration
-
-        test_selective_outcome
-      end
+      test_selective_outcome
     end
   end
 
@@ -171,9 +166,6 @@ describe "content migrations", :non_parallel do
       @type = "common_cartridge_importer"
       @filename = "cc_full_test.zip"
     end
-
-    # TODO: reimplement per CNVS-29593, but make sure we're testing at the right level
-    it "should import all content immediately by default"
 
     it "shows each form" do
       visit_page
@@ -230,12 +222,6 @@ describe "content migrations", :non_parallel do
       end
     end
 
-    # TODO: reimplement per CNVS-29594, but make sure we're testing at the right level
-    it "should import selective content"
-
-    # TODO: reimplement per CNVS-29595, but make sure we're testing at the right level
-    it "should overwrite quizzes when option is checked and duplicate otherwise"
-
     it "shifts dates" do
       visit_page
       fill_migration_form
@@ -259,20 +245,6 @@ describe "content migrations", :non_parallel do
       expect(Date.parse(opts["new_start_date"])).to eq Date.new(2014, 8, 5)
       expect(Date.parse(opts["new_end_date"])).to eq Date.new(2014, 8, 15)
     end
-
-    # TODO: reimplement per CNVS-29596, but make sure we're testing at the right level
-    it "should remove dates"
-
-    context "default question bank" do
-      # TODO: reimplement per CNVS-29597, but make sure we're testing at the right level
-      it "should import into selected question bank"
-
-      # TODO: reimplement per CNVS-29598, but make sure we're testing at the right level
-      it "should import into new question bank"
-
-      # TODO: reimplement per CNVS-29599, but make sure we're testing at the right level
-      it "should import into default question bank if not selected"
-    end
   end
 
   context "course copy" do
@@ -282,7 +254,7 @@ describe "content migrations", :non_parallel do
       #  you run it with the whole suite
       #  because of a cached default account
       #  that no longer exists in the db
-      Account.clear_special_account_cache!(true)
+      Account.clear_special_account_cache!(force: true)
       @copy_from = course_factory
       @copy_from.update_attribute(:name, "copy from me")
       data = File.read(File.dirname(__FILE__) + "/../../fixtures/migration/cc_full_test_smaller.zip")
@@ -325,7 +297,7 @@ describe "content migrations", :non_parallel do
       click_option("#courseSelect", @copy_from.id.to_s, :value)
       wait_for_ajaximations
 
-      expect(ContentMigrationPage.course_select_warning).to_not be_displayed
+      expect(ContentMigrationPage.course_select_warning).not_to be_displayed
     end
 
     it "selects by drop-down or by search box", priority: "2" do
@@ -475,8 +447,7 @@ describe "content migrations", :non_parallel do
 
     context "with selectable_outcomes_in_course_copy enabled" do
       before do
-        @course.root_account.enable_feature!(:selectable_outcomes_in_course_copy)
-        root = @copy_from.root_outcome_group(true)
+        root = @copy_from.root_outcome_group(force: true)
         outcome_model(context: @copy_from, title: "root1")
 
         group = root.child_outcome_groups.create!(context: @copy_from, title: "group1")
@@ -485,10 +456,6 @@ describe "content migrations", :non_parallel do
         subgroup = group.child_outcome_groups.create!(context: @copy_from, title: "subgroup1")
         outcome_model(context: @copy_from, outcome_group: subgroup, title: "non-root2")
         outcome_model(context: @copy_from, outcome_group: subgroup, title: "non-root3")
-      end
-
-      after do
-        @course.root_account.disable_feature!(:selectable_outcomes_in_course_copy)
       end
 
       it "selectively copies outcomes" do
@@ -758,7 +725,7 @@ describe "content migrations", :non_parallel do
     submod.find_element(:css, "a.checkbox-caret").click
     wait_for_ajaximations
 
-    expect(submod.find_element(:css, ".module_options")).to_not be_displayed
+    expect(submod.find_element(:css, ".module_options")).not_to be_displayed
 
     sub_submod = submod.find_element(:css, "li.normal-treeitem")
     expect(sub_submod).to include_text("Study Guide")

@@ -44,12 +44,28 @@ module Types
     implements Interfaces::TimestampInterface
     implements Interfaces::LegacyIDInterface
 
-    field :submission_id, ID, null: false
+    connection_type_class TotalCountConnection
+
     field :created_at, Types::DateTimeType, null: false
-    field :comment, String, null: true
     field :draft, Boolean, null: false
+    field :submission_id, ID, null: false
 
     field :author, Types::UserType, null: true
+    field :author_visible_name, String, null: true
+    field :media_comment_id, String, null: true
+
+    field :comment, String, null: true
+    def comment
+      Nokogiri::HTML(object.comment).text
+    end
+
+    # To keep the GraphQL endpoint consistent, we need to keep the comment field as plain text
+    # and return the html comment separately
+    field :html_comment, String, null: true
+    def html_comment
+      Sanitize.clean((object.comment || "").to_s, CanvasSanitize::SANITIZE)
+    end
+
     def author
       # We are preloading submission and assignment here for the permission check.
       # Not ideal as that could be cached in redis, but in most cases the assignment
@@ -60,10 +76,30 @@ module Types
                     load_association(:submission).then do |submission|
                       Loaders::AssociationLoader.for(Submission, :assignment).load(submission)
                     end
-                  ]).then { object.author if object.grants_right?(current_user, :read_author) }
+                  ]).then { object.author if (current_user.id == object.submission.user.id || !object.submission.assignment.moderated_grading) && object.grants_right?(current_user, :read_author) }
     end
 
-    field :attachments, [Types::FileType], null: true
+    def author_visible_name
+      Promise.all([
+                    load_association(:author),
+                    load_association(:submission).then do |submission|
+                      Loaders::AssociationLoader.for(Submission, :assignment).load(submission)
+                    end
+                  ]).then do |results|
+        assignment = results[1]
+
+        preload_promises = []
+        if assignment.moderated_grading?
+          preload_promises << Loaders::AssociationLoader.for(Assignment, :moderation_graders).load(assignment)
+        end
+
+        Promise.all(preload_promises).then do
+          object.author_visible_name(current_user)
+        end
+      end
+    end
+
+    field :attachments, [Types::FileType], null: false
     def attachments
       attachment_ids = object.parse_attachment_ids
       return [] if attachment_ids.empty?
@@ -126,7 +162,16 @@ module Types
 
     field :can_reply, Boolean, null: true
     def can_reply
-      object.submission.grants_right?(current_user, :comment)
+      !object.submission.course.concluded? &&
+        object.submission.grants_right?(current_user, :comment)
     end
+
+    field :publishable, Boolean, null: false
+    def publishable
+      object.publishable_for?(current_user)
+    end
+
+    field :provisional, Boolean, null: false
+    delegate :provisional, to: :object
   end
 end

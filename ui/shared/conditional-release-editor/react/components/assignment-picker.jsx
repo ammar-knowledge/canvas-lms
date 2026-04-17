@@ -20,7 +20,7 @@ import React from 'react'
 import PropTypes from 'prop-types'
 import {connect} from 'react-redux'
 import {List, Map} from 'immutable'
-import _ from 'lodash'
+import {debounce} from 'es-toolkit/compat'
 
 import * as actions from '../assignment-picker-actions'
 
@@ -28,9 +28,9 @@ import {ALL_ID} from '../categories'
 import AssignmentFilter from './assignment-filter'
 import AssignmentList from './assignment-list'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('conditional_release')
+const I18n = createI18nScope('conditional_release')
 
 const {object, string, func} = PropTypes
 
@@ -56,7 +56,7 @@ export class AssignmentPicker extends React.Component {
     super()
     this.filterByName = this.filterByName.bind(this)
     this.filterByCategory = this.filterByCategory.bind(this)
-    this.updateScreenReaderResultCount = _.debounce(this.updateScreenReaderResultCount, 1000)
+    this.updateScreenReaderResultCount = debounce(this.updateScreenReaderResultCount, 1000)
     this.state = {}
   }
 
@@ -111,7 +111,7 @@ export class AssignmentPicker extends React.Component {
       },
       {
         count: this.state.resultCount || 0,
-      }
+      },
     )
 
     return (
@@ -157,7 +157,7 @@ const ConnectedAssignmentPicker = connect(
     categoryFilter: state.getIn(['assignment_picker', 'category_filter']),
     triggerAssignmentId: state.getIn(['trigger_assignment', 'id']),
   }), // mapStateToProps
-  actions // mapActionsToProps
+  actions, // mapActionsToProps
 )(AssignmentPicker)
 
 export default ConnectedAssignmentPicker

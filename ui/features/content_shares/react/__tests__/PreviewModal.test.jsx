@@ -29,12 +29,12 @@ describe('content_shares/PreviewModal', () => {
     const iframe = document.querySelector('iframe')
     expect(iframe).toBeInTheDocument()
     expect(iframe.getAttribute('src')).toBe(
-      `http://example.com?cartridge=${encodeURIComponent(share.content_export.attachment.url)}`
+      `http://example.com?cartridge=${encodeURIComponent(share.content_export.attachment.url)}`,
     )
   })
 
   it('dismisses the modal', () => {
-    const handleDismiss = jest.fn()
+    const handleDismiss = vi.fn()
     const {getAllByText} = render(<PreviewModal open={true} onDismiss={handleDismiss} />)
     const closeButtons = getAllByText(/close/i)
     closeButtons.forEach(button => fireEvent.click(button))

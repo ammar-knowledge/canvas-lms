@@ -443,7 +443,7 @@ describe NotificationMessageCreator do
       expect(channels.size).to eq(1)
       policy = nmc.send(:effective_policy_for, @user, channels.first)
       policy2 = nmc.send(:effective_policy_for, @user, channels.first)
-      expect(policy2.id).to_not be_nil
+      expect(policy2.id).not_to be_nil
       expect(policy2.id).to eq(policy.id)
     end
 
@@ -708,7 +708,7 @@ describe NotificationMessageCreator do
       end
 
       dm = @cc.delayed_messages.reload.first
-      expect(dm).to_not be_nil
+      expect(dm).not_to be_nil
 
       DelayedMessage.summarize([dm])
       message = @user.messages.reload.last
@@ -761,10 +761,11 @@ describe NotificationMessageCreator do
 
   describe "#cancel_pending_duplicate_messages" do
     context "partitions" do
-      let(:subject) { NotificationMessageCreator.new(double("notification", name: nil), nil) }
+      let(:subject) { NotificationMessageCreator.new(instance_double(Notification, name: nil), nil) }
+      let(:count_of_updated_record) { 10 }
 
       def set_up_stubs(start_time, *conditions)
-        scope = double("Message Scope")
+        scope = class_double(Message)
         expect(Message).to receive(:in_partition).ordered.with("created_at" => start_time).and_return(scope)
         expect(scope).to receive(:where).ordered.and_return(scope)
         expect(scope).to receive(:for).ordered.and_return(scope)
@@ -775,10 +776,11 @@ describe NotificationMessageCreator do
           expect(scope).to receive(:where).with(*conditions).ordered.and_return(scope)
         end
         allow(Message.connection).to receive(:table_exists?).and_return(true)
-        expect(scope).to receive(:update_all).ordered
+        expect(scope).to receive(:update_all).ordered.and_return(count_of_updated_record)
+        expect(InstStatsd::Statsd).to receive(:count).with("cancelled_duplicated_messages", count_of_updated_record)
 
         user = User.create!
-        to_user_channels = Hash.new([])
+        to_user_channels = Hash.new([].freeze)
         to_user_channels[user] = user.communication_channels
         subject.instance_variable_set(:@to_user_channels, to_user_channels)
       end

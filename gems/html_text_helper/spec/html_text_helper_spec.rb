@@ -17,8 +17,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
-
 describe HtmlTextHelper do
   let(:th) { Class.new.tap { |th| th.extend HtmlTextHelper } }
 
@@ -72,7 +70,7 @@ describe HtmlTextHelper do
     end
   end
 
-  context ".html_to_text" do
+  describe ".html_to_text" do
     it "formats links in markdown-like style" do
       expect(th.html_to_text("<a href='www.example.com'>Link</a>")).to eq("[Link] (www.example.com)")
       expect(th.html_to_text("<a href='www.example.com'>www.example.com</a>")).to eq("www.example.com")
@@ -279,7 +277,7 @@ describe HtmlTextHelper do
     end
   end
 
-  context "#strip_and_truncate" do
+  describe "#strip_and_truncate" do
     it "strips and truncate text" do
       allow(HtmlTextHelper).to receive(:strip_tags) { "something else" }
       allow(CanvasTextHelper).to receive(:truncate_text) { true }

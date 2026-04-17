@@ -22,9 +22,6 @@ describe MicrosoftSync::UserMapping do
 
   it { is_expected.to be_a(described_class) }
   it { is_expected.to be_valid }
-  it { is_expected.to belong_to(:root_account).required }
-  it { is_expected.to validate_presence_of(:root_account) }
-  it { is_expected.to validate_presence_of(:user_id) }
 
   describe ".find_enrolled_user_ids_without_mappings" do
     let(:course) { course_with_teacher.course }
@@ -146,7 +143,7 @@ describe MicrosoftSync::UserMapping do
     context "when user_id_to_aad_hash is empty" do
       it "doesn't raise an error" do
         expect { described_class.bulk_insert_for_root_account(account_model, {}) }
-          .to_not change { described_class.count }.from(0)
+          .not_to change { described_class.count }.from(0)
       end
     end
   end

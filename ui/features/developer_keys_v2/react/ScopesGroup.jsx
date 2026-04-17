@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React from 'react'
 import {Checkbox} from '@instructure/ui-checkbox'
@@ -27,7 +27,7 @@ import {ToggleDetails} from '@instructure/ui-toggle-details'
 import ScopesMethod from './ScopesMethod'
 import DeveloperKeyScope from './Scope'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 
 export default class ScopesGroup extends React.Component {
   state = {groupChecked: this.allScopesAreSelected(this.props)}
@@ -144,7 +144,11 @@ export default class ScopesGroup extends React.Component {
           </Flex.Item>
           <Flex.Item shouldGrow={true} padding="none small none none">
             <div data-automation="toggle-scope-group">
-              <ToggleDetails summary={this.groupSummary()} fluidWidth={true}>
+              <ToggleDetails
+                summary={this.groupSummary()}
+                fluidWidth={true}
+                defaultExpanded={!!this.props.expanded}
+              >
                 {this.props.scopes.map(scope => (
                   <DeveloperKeyScope
                     checked={this.props.selectedScopes.includes(scope.scope)}
@@ -168,8 +172,9 @@ ScopesGroup.propTypes = {
     PropTypes.shape({
       scope: PropTypes.string,
       verb: PropTypes.string.isRequired,
-    })
+    }),
   ).isRequired,
   selectedScopes: PropTypes.arrayOf(PropTypes.string).isRequired,
   name: PropTypes.string.isRequired,
+  expanded: PropTypes.bool,
 }

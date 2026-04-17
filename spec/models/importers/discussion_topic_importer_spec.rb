@@ -47,6 +47,7 @@ describe Importers::DiscussionTopicImporter do
       expect(topic.title).to eq data[:title]
       parsed_description = Nokogiri::HTML5.fragment(data[:description]).to_s
       expect(topic.message.index(parsed_description)).not_to be_nil
+      expect(topic.reply_to_entry_required_count).to eq(0)
 
       if data[:grading]
         expect(context.assignments.count).to eq 1
@@ -94,5 +95,99 @@ describe Importers::DiscussionTopicImporter do
 
     topic = DiscussionTopic.where(migration_id: data[:migration_id]).first
     expect(topic.attachment).to be_nil
+  end
+
+  describe "assignments" do
+    subject do
+      Importers::DiscussionTopicImporter.import_from_migration(data, context, migration)
+      DiscussionTopic.where(migration_id: data[:migration_id]).first
+    end
+
+    let(:data) { get_import_data("", "discussion_assignments")[:discussion_topics].first }
+    let(:context) { get_import_context }
+    let(:migration) { context.content_migrations.create! }
+
+    it "saves reply_to_entry_required_count" do
+      expect(subject.reply_to_entry_required_count).to eq(2)
+    end
+
+    it "saves assignment description" do
+      expect(subject.assignment.description).to eq(data[:description])
+    end
+
+    context "when discussion_checkpoints feature is enabled" do
+      before do
+        context.account.enable_feature!(:discussion_checkpoints)
+      end
+
+      it "saves the sub assignments" do
+        expect(subject.sub_assignments.count).to eq(2)
+      end
+
+      it "saves topic message to the sub assignments" do
+        topic = subject
+        topic.sub_assignments.each do |sub_assignment|
+          expect(sub_assignment.description).to eq(topic.message)
+        end
+      end
+
+      context "when sub_assignments are not present" do
+        before { data[:assignment].delete(:sub_assignments) }
+
+        it "imports assignment" do
+          expect(subject.assignment).to be_present
+        end
+
+        it "does not create sub assignments" do
+          expect(subject.sub_assignments).to be_empty
+        end
+      end
+    end
+
+    context "when reply_to_entry_required_count is not present" do
+      it "defaults to 0" do
+        context.account.disable_feature!(:discussion_checkpoints)
+        data.delete(:reply_to_entry_required_count)
+        expect(subject.reply_to_entry_required_count).to eq(0)
+      end
+    end
+
+    context "when discussion has lock_at but assignment does not" do
+      it "uses assignment lock_at for discussion topic" do
+        discussion_data = {
+          migration_id: "test_discussion",
+          title: "Test Discussion",
+          description: "Test description",
+          lock_at: "2025-04-05T00:00:00Z",
+          assignment: {
+            migration_id: "test_assignment",
+            title: "Test Assignment",
+            due_at: "2025-12-02T00:00:00Z",
+            lock_at: nil
+          }
+        }
+
+        topic = Importers::DiscussionTopicImporter.import_from_migration(discussion_data, context, migration)
+
+        expect(topic.lock_at).to be_nil
+        expect(topic.assignment.due_at).to eq(Time.zone.parse("2025-12-02T00:00:00Z"))
+        expect(topic.assignment.lock_at).to be_nil
+      end
+    end
+
+    context "when discussion type is side_comment" do
+      it "converts side_comment to threaded during import" do
+        discussion_data = {
+          migration_id: "test_side_comment_discussion",
+          title: "Side Comment Discussion",
+          description: "Test description",
+          discussion_type: "side_comment"
+        }
+
+        topic = Importers::DiscussionTopicImporter.import_from_migration(discussion_data, context, migration)
+
+        expect(topic.discussion_type).to eq("threaded")
+      end
+    end
   end
 end

@@ -21,12 +21,12 @@ import {
   UPDATE_DISCUSSION_ENTRY_PARTICIPANT,
   UPDATE_DISCUSSION_THREAD_READ_STATE,
 } from '../../graphql/Mutations'
-import {useMutation, useApolloClient} from 'react-apollo'
+import {useMutation, useApolloClient} from '@apollo/client'
 import {useCallback, useContext} from 'react'
-import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {AlertManagerContext} from '@instructure/platform-alerts'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('discussion_topics_post')
+const I18n = createI18nScope('discussion_topics_post')
 
 export const useUpdateDiscussionThread = ({
   discussionEntry,
@@ -61,12 +61,12 @@ export const useUpdateDiscussionThread = ({
           updateDiscussionEntryRootEntryCounts(
             cache,
             result.data.updateDiscussionEntryParticipant.discussionEntry,
-            discussionUnreadCountChange
+            discussionUnreadCountChange,
           )
         }
       }
     },
-    [discussionEntry, discussionTopic]
+    [discussionEntry, discussionTopic],
   )
 
   const updateLoadedSubentry = updatedEntry => {
@@ -74,7 +74,7 @@ export const useUpdateDiscussionThread = ({
     if (setLoadedSubentries) {
       setLoadedSubentries(loadedSubentries => {
         return loadedSubentries.map(entry =>
-          !!updatedEntry.rootEntryId && entry.id === updatedEntry.id ? updatedEntry : entry
+          !!updatedEntry.rootEntryId && entry.id === updatedEntry.id ? updatedEntry : entry,
         )
       })
     }
@@ -103,7 +103,7 @@ export const useUpdateDiscussionThread = ({
           forcedReadState: true,
         },
       }),
-    [discussionEntry, updateDiscussionEntryParticipant]
+    [discussionEntry, updateDiscussionEntryParticipant],
   )
 
   return {

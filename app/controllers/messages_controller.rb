@@ -28,11 +28,16 @@ class MessagesController < ApplicationController
   end
 
   def index
-    @messages = @context.messages.order("created_at DESC").paginate(page: params[:page], per_page: 20)
+    @messages = @context.messages.order(created_at: :desc).paginate(page: params[:page], per_page: 20)
+    add_crumb t("Messages")
+    page_has_instui_topnav
   end
 
   def show
     @messages = [@context.messages.find(params[:id])]
+    add_crumb t("Messages"), url_for(action: :index)
+    add_crumb params[:id]
+    page_has_instui_topnav
   end
 
   def create
@@ -51,7 +56,7 @@ class MessagesController < ApplicationController
   def html_message
     message = @context.messages.find(params[:message_id])
     if message.html_body.present?
-      render inline: message.html_body, layout: false # rubocop:disable Rails/RenderInline
+      render inline: Sanitize.clean(message.html_body, CanvasSanitize::SANITIZE), layout: false # rubocop:disable Rails/RenderInline
     else
       render layout: false
     end

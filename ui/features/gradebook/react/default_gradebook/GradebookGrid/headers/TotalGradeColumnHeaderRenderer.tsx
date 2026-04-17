@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
@@ -18,7 +19,7 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender, legacyUnmountComponentAtNode} from '@canvas/react'
 import TotalGradeColumnHeader from './TotalGradeColumnHeader'
 import {scoreToPercentage, scoreToScaledPoints} from '@canvas/grading/GradeCalculationHelper'
 import type Gradebook from '../../Gradebook'
@@ -41,7 +42,7 @@ function getProps(_column, gradebook: Gradebook, gridSupport: GridSupport, optio
 
   const isInBack = columns.scrollable[columns.scrollable.length - 1]?.id === 'total_grade'
   const isInFront = columns.frozen.some(
-    (frozenColumn: {id: string}) => frozenColumn.id === 'total_grade'
+    (frozenColumn: {id: string}) => frozenColumn.id === 'total_grade',
   )
 
   let onApplyScoreToUngraded
@@ -51,7 +52,11 @@ function getProps(_column, gradebook: Gradebook, gridSupport: GridSupport, optio
     }
   }
 
-  const processStudent = (student: Student): PartialStudent => {
+  const processStudent = (
+    student: Pick<Student, 'id' | 'isInactive' | 'name' | 'sortable_name'> & {
+      enrollments: Pick<Student['enrollments'][number], 'type'>[]
+    },
+  ): PartialStudent => {
     return {
       id: student.id,
       isInactive: Boolean(student.isInactive),
@@ -63,11 +68,11 @@ function getProps(_column, gradebook: Gradebook, gridSupport: GridSupport, optio
         ? scoreToScaledPoints(
             gradebook.calculatedGradesByStudentId[student.id]?.current.score,
             gradebook.calculatedGradesByStudentId[student.id]?.current.possible,
-            gradebook.options.grading_standard_scaling_factor
+            gradebook.options.grading_standard_scaling_factor,
           )
         : scoreToPercentage(
             gradebook.calculatedGradesByStudentId[student.id]?.current.score,
-            gradebook.calculatedGradesByStudentId[student.id]?.current.possible
+            gradebook.calculatedGradesByStudentId[student.id]?.current.possible,
           ),
     }
   }
@@ -139,10 +144,11 @@ export default class TotalGradeColumnHeaderRenderer {
 
   render(column, $container: HTMLElement, gridSupport: GridSupport, options) {
     const props = getProps(column, this.gradebook, gridSupport, options)
-    ReactDOM.render(<TotalGradeColumnHeader {...props} />, $container)
+
+    legacyRender(<TotalGradeColumnHeader {...props} />, $container)
   }
 
   destroy(_column, $container: HTMLElement, _gridSupport: GridSupport) {
-    ReactDOM.unmountComponentAtNode($container)
+    legacyUnmountComponentAtNode($container)
   }
 }

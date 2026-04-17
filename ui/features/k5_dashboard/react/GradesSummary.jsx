@@ -29,15 +29,19 @@ import {PresentationContent} from '@instructure/ui-a11y-content'
 import {ProgressBar} from '@instructure/ui-progress'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import instFSOptimizedImageUrl from '@canvas/dashboard-card/util/instFSOptimizedImageUrl'
 import {getK5ThemeVars} from '@canvas/k5/react/k5-theme'
 import {DEFAULT_COURSE_COLOR} from '@canvas/k5/react/utils'
 import {scoreToGrade} from '@instructure/grading-utils'
 
-const k5ThemeVariables = getK5ThemeVars()
+const k5ThemeVariables = getK5ThemeVars(
+  Boolean(ENV.use_high_contrast),
+  Boolean(ENV.USE_CLASSIC_FONT),
+  Boolean(ENV.use_dyslexic_font),
+)
 
-const I18n = useI18nScope('grades_summary')
+const I18n = createI18nScope('grades_summary')
 
 const DEFAULT_SIZE = 100
 
@@ -151,8 +155,8 @@ export const GradeSummaryLine = ({
                   display="inline-block"
                   isWithinText={false}
                   themeOverride={{
-                    color: k5ThemeVariables.colors.textDarkest,
-                    hoverColor: k5ThemeVariables.colors.textDarkest,
+                    color: k5ThemeVariables.colors.contrasts.grey125125,
+                    hoverColor: k5ThemeVariables.colors.contrasts.grey125125,
                     fontWeight: 700,
                   }}
                 >

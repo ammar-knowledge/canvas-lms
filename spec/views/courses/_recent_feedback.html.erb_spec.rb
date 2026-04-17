@@ -41,7 +41,7 @@ describe "courses/_recent_feedback" do
 
     render partial: "courses/recent_feedback", contexts: [@course], object: @submission, locals: { is_hidden: false }
 
-    expect(response.body).to_not include(@course.name)
+    expect(response.body).not_to include(@course.name)
   end
 
   it "shows the comment" do
@@ -149,5 +149,40 @@ describe "courses/_recent_feedback" do
     render partial: "courses/recent_feedback", object: @submission, locals: { is_hidden: false }
     url = context_url(@assignment.context, :context_assignment_submission_url, assignment_id: @assignment.id, id: student.id)
     expect(response.body).to include("\"#{url}\"")
+  end
+
+  context "discussion checkpoints" do
+    before do
+      course_with_student(active_all: true)
+      @course.root_account.enable_feature!(:discussion_checkpoints)
+      @reply_to_topic, @reply_to_entry = graded_discussion_topic_with_checkpoints(context: @course, title: "Discussion with Checkpoints")
+    end
+
+    it "displays proper title for reply to topic checkpoint" do
+      @reply_to_topic.submit_homework @student, body: "checkpoint submission for #{@student.name}"
+      submission_model(user: @student, assignment: @reply_to_topic)
+
+      render partial: "courses/recent_feedback", object: @submission, locals: { is_hidden: false }
+      expect(response).to include "#{@reply_to_topic.title} Reply to Topic"
+    end
+
+    it "displays proper title for reply to entry checkpoint" do
+      @reply_to_topic.submit_homework @student, body: "checkpoint submission for #{@student.name}"
+      submission_model(user: @student, assignment: @reply_to_entry)
+
+      render partial: "courses/recent_feedback", object: @submission, locals: { is_hidden: false }
+      expect(response).to include "#{@reply_to_entry.title} Required Replies (#{@topic.reply_to_entry_required_count})"
+    end
+
+    it "displays proper number of replies if assignment has been unlinked" do
+      @reply_to_topic.submit_homework @student, body: "checkpoint submission for #{@student.name}"
+      submission_model(user: @student, assignment: @reply_to_entry)
+      dt = @reply_to_entry.discussion_topic
+      dt.assignment = nil
+      dt.save!
+
+      render partial: "courses/recent_feedback", object: @submission, locals: { is_hidden: false }
+      expect(response).to include "#{@reply_to_entry.title} Required Replies (#{@topic.reply_to_entry_required_count})"
+    end
   end
 end

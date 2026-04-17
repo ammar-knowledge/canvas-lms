@@ -30,9 +30,9 @@ describe "new_account_user" do
   let(:notification_name) { :new_account_user }
   let(:asset) { @account_user }
 
-  include_examples "a message"
+  it_behaves_like "a message"
 
-  context ".email" do
+  describe ".email" do
     let(:path_type) { :email }
 
     it "uses the custom From: setting" do

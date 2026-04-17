@@ -16,10 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
+import {AlertManagerContext} from '@instructure/platform-alerts'
 import {Assignment} from '@canvas/assignments/graphql/student/Assignment'
-import {bool, func} from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {bool, func, object} from 'prop-types'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {isSubmitted} from '../../helpers/SubmissionHelpers'
 import MoreOptions from './MoreOptions/index'
 import {Submission} from '@canvas/assignments/graphql/student/Submission'
@@ -29,17 +29,16 @@ import {Billboard} from '@instructure/ui-billboard'
 import {Button} from '@instructure/ui-buttons'
 import {View} from '@instructure/ui-view'
 import {Flex} from '@instructure/ui-flex'
-import {IconEyeLine, IconExternalLinkLine} from '@instructure/ui-icons'
-import {Text} from '@instructure/ui-text'
-import {Link} from '@instructure/ui-link'
+import {IconEyeLine} from '@instructure/ui-icons'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
-import StudentViewContext from '../Context'
+import StudentViewContext from '@canvas/assignments/react/StudentViewContext'
 import {TextInput} from '@instructure/ui-text-input'
+import UrlSubmissionDisplay from '@canvas/assignments/react/UrlSubmissionDisplay'
 
-const I18n = useI18nScope('assignments_2_url_entry')
+const I18n = createI18nScope('assignments_2_url_entry')
 
 const ERROR_MESSAGE = [
-  {text: I18n.t('Please enter a valid url (e.g. https://example.com)'), type: 'error'},
+  {text: I18n.t('Please enter a valid url (e.g. https://example.com)'), type: 'newError'},
 ]
 
 class UrlEntry extends React.Component {
@@ -53,23 +52,44 @@ class UrlEntry extends React.Component {
   _urlInputRef = createRef()
 
   componentDidUpdate(prevProps) {
+    const {submission, submitButtonRef, newAttemptButtonRef} = this.props
     if (
-      this.props.submission?.submissionDraft?.url &&
-      this.props.submission.submissionDraft.url !== prevProps.submission?.submissionDraft?.url
+      submission?.submissionDraft?.url &&
+      submission.submissionDraft.url !== prevProps.submission?.submissionDraft?.url
     ) {
       this.updateInputState()
     }
+
+    submitButtonRef?.current?.addEventListener('click', this.handleSubmitClick)
+    newAttemptButtonRef?.current?.addEventListener('click', this.handleNewAttemptClick)
   }
 
   componentDidMount() {
+    const {submission, focusOnInit, submitButtonRef, newAttemptButtonRef} = this.props
     window.addEventListener('beforeunload', this.beforeunload)
-    if (this.props.submission?.submissionDraft?.url) {
+    if (submission?.submissionDraft?.url) {
       this.updateInputState()
     }
     window.addEventListener('message', this.handleLTIURLs)
 
-    if (this.props.focusOnInit && !isSubmitted(this.props.submission)) {
+    submitButtonRef?.current?.addEventListener('click', this.handleSubmitClick)
+    newAttemptButtonRef?.current?.addEventListener('click', this.handleNewAttemptClick)
+
+    if (focusOnInit && !isSubmitted(submission)) {
       this._urlInputRef.current.focus()
+    }
+  }
+
+  handleSubmitClick = () => {
+    if (!this.props.submission.submissionDraft?.meetsUrlCriteria) {
+      this._urlInputRef.current.focus()
+      this.setState({messages: ERROR_MESSAGE})
+    }
+  }
+
+  handleNewAttemptClick = () => {
+    if (this.state.messages.length > 0) {
+      this.setState({messages: []})
     }
   }
 
@@ -86,6 +106,11 @@ class UrlEntry extends React.Component {
   componentWillUnmount() {
     window.removeEventListener('beforeunload', this.beforeunload)
     window.removeEventListener('message', this.handleLTIURLs)
+    this.props.submitButtonRef?.current?.removeEventListener('click', this.handleSubmitClick)
+    this.props.newAttemptButtonRef?.current?.removeEventListener(
+      'click',
+      this.handleNewAttemptClick,
+    )
   }
 
   handleLTIURLs = async e => {
@@ -122,10 +147,15 @@ class UrlEntry extends React.Component {
     if (this.state.typingTimeout) {
       clearTimeout(this.state.typingTimeout)
     }
-    this.createSubmissionDraft(e.target.value)
+
+    if (e.target.value || this.props.submission?.submissionDraft?.url) {
+      this.createSubmissionDraft(e.target.value)
+    }
   }
 
   handleChange = e => {
+    // clear errors
+    this.setState({messages: []})
     this.props.updateEditingDraft(true)
     if (this.state.typingTimeout) {
       clearTimeout(this.state.typingTimeout)
@@ -223,22 +253,7 @@ class UrlEntry extends React.Component {
   )
 
   renderSubmission = () => {
-    return (
-      <Flex direction="column">
-        <Flex.Item textAlign="center" margin="small 0 medium 0">
-          <Text size="large">
-            <Link
-              icon={IconExternalLinkLine}
-              iconPlacement="end"
-              margin="small"
-              onClick={() => window.open(this.props.submission.url)}
-            >
-              <span data-testid="url-submission-text">{this.props.submission.url}</span>
-            </Link>
-          </Text>
-        </Flex.Item>
-      </Flex>
-    )
+    return <UrlSubmissionDisplay url={this.props.submission.url} />
   }
 
   render() {
@@ -256,6 +271,8 @@ UrlEntry.propTypes = {
   focusOnInit: bool.isRequired,
   submission: Submission.shape,
   updateEditingDraft: func,
+  submitButtonRef: object,
+  newAttemptButtonRef: object,
 }
 
 UrlEntry.contextType = AlertManagerContext

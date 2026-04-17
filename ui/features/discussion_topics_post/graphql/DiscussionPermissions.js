@@ -17,7 +17,7 @@
  */
 
 import {bool, shape} from 'prop-types'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 export const DiscussionPermissions = {
   fragment: gql`
@@ -29,7 +29,7 @@ export const DiscussionPermissions = {
       rate
       read
       readAsAdmin
-      manageContent
+      viewGroupPages
       manageCourseContentAdd
       manageCourseContentEdit
       manageCourseContentDelete
@@ -57,7 +57,7 @@ export const DiscussionPermissions = {
     rate: bool,
     read: bool,
     readAsAdmin: bool,
-    manageContent: bool,
+    viewGroupPages: bool,
     manageCourseContentAdd: bool,
     manageCourseContentEdit: bool,
     manageCourseContentDelete: bool,
@@ -84,7 +84,7 @@ export const DiscussionPermissions = {
     rate = true,
     read = true,
     readAsAdmin = true,
-    manageContent = true,
+    viewGroupPages = true,
     manageCourseContentAdd = true,
     manageCourseContentEdit = true,
     manageCourseContentDelete = true,
@@ -109,7 +109,7 @@ export const DiscussionPermissions = {
     rate,
     read,
     readAsAdmin,
-    manageContent,
+    viewGroupPages,
     manageCourseContentAdd,
     manageCourseContentEdit,
     manageCourseContentDelete,

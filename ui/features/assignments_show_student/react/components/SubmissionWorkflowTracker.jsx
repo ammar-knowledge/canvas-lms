@@ -18,13 +18,13 @@
 
 import {Flex} from '@instructure/ui-flex'
 import FriendlyDatetime from '@canvas/datetime/react/components/FriendlyDatetime'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {ProgressCircle} from '@instructure/ui-progress'
 import React from 'react'
 import {Submission} from '@canvas/assignments/graphql/student/Submission'
 import {Text} from '@instructure/ui-text'
 
-const I18n = useI18nScope('assignments_2_student_header')
+const I18n = createI18nScope('assignments_2_student_header')
 
 const possibleStates = {
   inProgress: {
@@ -80,7 +80,7 @@ function currentWorkflowState({submission}) {
   let currentState
   if (submission.state === 'graded') {
     currentState = submission.gradeHidden ? possibleStates.submitted : possibleStates.completed
-  } else if (submission.state === 'submitted') {
+  } else if (submission.state === 'submitted' || submission.state === 'pending_review') {
     currentState = possibleStates.submitted
   } else {
     // Also show "In Progress" when the assignment has not been started

@@ -25,7 +25,7 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
     "saml"
   end
 
-  def self.enabled?(_account = nil)
+  def self.enabled?(_account = nil, _user = nil)
     true
   end
 
@@ -45,6 +45,10 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
       sig_alg
       strip_domain_from_login_attribute
     ].freeze
+  end
+
+  def self.sensitive_params
+    [*super, :metadata].freeze
   end
 
   def self.deprecated_params
@@ -102,12 +106,12 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
      }]
   end
 
-  SENSITIVE_PARAMS = [:metadata].freeze
-
   before_validation :set_saml_defaults
   before_validation :download_metadata
+  before_validation :persist_metadata
 
   validate :validate_urls
+  validate :validate_metadata
 
   after_initialize do |ap|
     # default to the most secure signature we support, but only for new objects
@@ -153,9 +157,23 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
     end
   end
 
+  def validate_metadata
+    if settings["metadata"].blank?
+      errors.add(:metadata, t("Metadata must be present"))
+      return
+    end
+
+    entity = SAML2::Entity.parse(settings["metadata"])
+    unless entity&.valid_schema?
+      errors.add(:metadata, t("Metadata does not parse as a valid SAML entity"))
+    end
+  end
+
   def download_metadata
     return if metadata_uri.blank?
     return unless metadata_uri_changed? || idp_entity_id_changed?
+
+    effective_metadata_uri = metadata_uri
 
     Federation.descendants.each do |federation|
       # someone's trying to cheat; switch to our more efficient implementation
@@ -164,8 +182,13 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
       next unless metadata_uri == federation::URN
 
       if idp_entity_id.blank?
-        errors.add(:idp_entity_id, :present)
+        errors.add(:idp_entity_id, :blank)
         return
+      end
+
+      if federation::MDQ
+        effective_metadata_uri = federation.metadata_uri(idp_entity_id)
+        break
       end
 
       begin
@@ -185,10 +208,17 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
     end
 
     begin
-      populate_from_metadata_url(metadata_uri)
+      populate_from_metadata_url(effective_metadata_uri)
     rescue => e
       ::Canvas::Errors.capture_exception(:saml_metadata_refresh, e)
       errors.add(:metadata_uri, e.message)
+    end
+  end
+
+  def persist_metadata
+    if settings["metadata"].blank? || synthetic_metadata? || (settings["metadata_source"] == "url" && metadata_uri.blank?)
+      settings["metadata"] = synthetic_idp_metadata.to_xml.to_s
+      settings["metadata_source"] = "generated"
     end
   end
 
@@ -211,9 +241,8 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
   end
 
   def login_attribute
-    return "NameID" unless read_attribute(:login_attribute)
+    return "NameID" unless (result = super)
 
-    result = super
     # backcompat
     return "NameID" if result == "nameid"
     return "eduPersonPrincipalName" if result == "eduPersonPrincipalName_stripped"
@@ -223,7 +252,7 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
 
   def strip_domain_from_login_attribute?
     # backcompat
-    return true if read_attribute(:login_attribute) == "eduPersonPrincipalName_stripped"
+    return true if self["login_attribute"] == "eduPersonPrincipalName_stripped"
 
     !!settings["strip_domain_from_login_attribute"]
   end
@@ -234,7 +263,9 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
   end
 
   def signing_certificates
-    settings["signing_certificates"] ||= []
+    (settings["signing_certificates"] ||= []).map do |cert|
+      OpenSSL::X509::Certificate.new(Base64.decode64(cert))
+    end
   end
 
   def sig_alg
@@ -293,7 +324,7 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
     end
   end
 
-  def populate_from_metadata_xml(xml)
+  def populate_from_metadata_xml(xml, source: "manual")
     entity = SAML2::Entity.parse(xml)
     raise "Invalid schema" unless entity&.valid_schema?
 
@@ -303,6 +334,9 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
     raise "Must be a single Entity" unless entity.is_a?(SAML2::Entity)
 
     populate_from_metadata(entity)
+    # Only set this after all the above runs so that we catch any issues before overwriting the cached metadata
+    settings["metadata"] = xml
+    settings["metadata_source"] = source
   end
   alias_method :metadata=, :populate_from_metadata_xml
 
@@ -311,38 +345,54 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
       CanvasHttp.get(url) do |response|
         # raise error unless it's a 2xx
         response.value
-        populate_from_metadata_xml(response.body)
+        populate_from_metadata_xml(response.body, source: "url")
       end
     end
   end
 
-  # construct a metadata doc to represent the IdP
-  # TODO: eventually store the actual metadata we got from the IdP
   def idp_metadata
-    @idp_metadata ||= begin
-      entity = SAML2::Entity.new
-      entity.entity_id = idp_entity_id
+    @idp_metadata ||= if settings["metadata"].present?
+                        entity = SAML2::Entity.parse(settings["metadata"])
+                        if entity.is_a?(SAML2::Entity::Group) && idp_entity_id.present?
+                          entity = entity.find { |e| e.entity_id == idp_entity_id }
+                        end
+                        # fingerprints are not part of the SAML metadata XML schema, so they need to be restored after parsing
+                        # (but they should only be restored if the metadata is synthetic; real metadata must have real keys/certs)
+                        if synthetic_metadata? && certificate_fingerprint.present? && entity.identity_providers.first
+                          entity.identity_providers.first.fingerprints = certificate_fingerprint.split
+                        end
+                        # After we have finished migrating, this fallback should be removed
+                        entity&.valid_schema? ? entity : synthetic_idp_metadata
+                      else
+                        synthetic_idp_metadata
+                      end
+  end
 
-      idp = SAML2::IdentityProvider.new
-      idp.single_sign_on_services << SAML2::Endpoint.new(log_in_url,
-                                                         SAML2::Bindings::HTTPRedirect::URN)
-      if log_out_url.present?
-        idp.single_logout_services << SAML2::Endpoint.new(log_out_url,
-                                                          SAML2::Bindings::HTTPRedirect::URN)
-      end
-      idp.fingerprints = (certificate_fingerprint || "").split
-      Array.wrap(settings["signing_certificates"]).each do |cert|
-        idp.keys << SAML2::KeyDescriptor.new(cert, SAML2::KeyDescriptor::Type::SIGNING)
-      end
-      Array.wrap(settings["signing_keys"]).each do |key|
-        key_descriptor = SAML2::KeyDescriptor.new(nil, SAML2::KeyDescriptor::Type::SIGNING)
-        key_descriptor.key = OpenSSL::PKey.read(key)
-        idp.keys << key
-      end
+  # construct a metadata doc to represent the IdP
+  # TODO: this can be removed after we start requiring uploading metadata if you don't use a url or federation
+  def synthetic_idp_metadata
+    entity = SAML2::Entity.new
+    entity.entity_id = idp_entity_id
 
-      entity.roles << idp
-      entity
+    idp = SAML2::IdentityProvider.new
+    idp.single_sign_on_services << SAML2::Endpoint.new(log_in_url,
+                                                       SAML2::Bindings::HTTPRedirect::URN)
+    if log_out_url.present?
+      idp.single_logout_services << SAML2::Endpoint.new(log_out_url,
+                                                        SAML2::Bindings::HTTPRedirect::URN)
     end
+    idp.fingerprints = (certificate_fingerprint || "").split
+    Array.wrap(settings["signing_certificates"]).each do |cert|
+      idp.keys << SAML2::KeyDescriptor.new(cert, SAML2::KeyDescriptor::Type::SIGNING)
+    end
+    Array.wrap(settings["signing_keys"]).each do |key|
+      key_descriptor = SAML2::KeyDescriptor.new(nil, SAML2::KeyDescriptor::Type::SIGNING)
+      key_descriptor.key = OpenSSL::PKey.read(key)
+      idp.keys << key
+    end
+
+    entity.roles << idp
+    entity
   end
 
   def self.sp_metadata(entity_id, hosts, include_all_encryption_certificates: true)
@@ -399,7 +449,8 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
 
   def generate_authn_request_redirect(host: nil,
                                       parent_registration: false,
-                                      relay_state: nil)
+                                      relay_state: nil,
+                                      force_login: false)
     sp_metadata = self.class.sp_metadata_for_account(account, host).service_providers.first
     authn_request = SAML2::AuthnRequest.initiate(SAML2::NameID.new(entity_id),
                                                  idp_metadata.identity_providers.first,
@@ -410,7 +461,7 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
       authn_request.requested_authn_context.class_ref = requested_authn_context
       authn_request.requested_authn_context.comparison = :exact
     end
-    authn_request.force_authn = true if parent_registration
+    authn_request.force_authn = true if parent_registration || force_login
     private_key = self.class.private_key
     private_key = nil if sig_alg.nil?
     forward_url = SAML2::Bindings::HTTPRedirect.encode(authn_request,
@@ -499,6 +550,11 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
     path.exist? ? path.to_s : nil
   end
 
+  def slo?
+    idp = idp_metadata.identity_providers.first
+    !idp.single_logout_services.empty?
+  end
+
   def user_logout_redirect(controller, current_user)
     session = controller.session
 
@@ -528,5 +584,36 @@ class AuthenticationProvider::SAML < AuthenticationProvider::Delegated
     end
 
     result
+  end
+
+  def collected_responses_key
+    "saml:collected_responses:#{global_id}"
+  end
+
+  def collect_response(response, response_raw, **additional_fields)
+    return unless (maxlen = settings["collect_responses"])
+
+    maxlen = 10 unless maxlen.is_a?(Integer) && maxlen.positive?
+    shard.activate do
+      ::Canvas.redis.xadd(collected_responses_key,
+                          additional_fields.merge(xml: response_raw, errors: response.errors.join("\n")),
+                          maxlen:)
+    end
+  end
+
+  def collected_responses
+    shard.activate do
+      ::Canvas.redis.xrange(collected_responses_key, "-", "+").map(&:last)
+    end
+  end
+
+  def clear_collected_responsees
+    shard.activate do
+      ::Canvas.redis.del(collected_responses_key)
+    end
+  end
+
+  def synthetic_metadata?
+    settings["metadata_source"] == "generated"
   end
 end

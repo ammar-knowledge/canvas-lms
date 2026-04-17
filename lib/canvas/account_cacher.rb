@@ -21,17 +21,17 @@
 module Canvas
   module AccountCacher
     class CacheAccountOnAssociation < ::ActiveRecord::Associations::BelongsToAssociation
-      def find_target
+      def find_target(...)
         key = ["account2", owner.attribute(reflection.foreign_key)].cache_key
         RequestCache.cache([Switchman::Shard.current.id, key].cache_key) { Rails.cache.fetch(key) { super } }
       end
     end
 
     class CacheAccountOnPolymorphicAssociation < ::ActiveRecord::Associations::BelongsToPolymorphicAssociation
-      def find_target
+      def find_target(...)
         return super unless klass == Account
 
-        key = ["account", owner.attribute(reflection.foreign_key)].cache_key
+        key = ["account2", owner.attribute(reflection.foreign_key)].cache_key
         RequestCache.cache([Switchman::Shard.current.id, key].cache_key) { Rails.cache.fetch(key) { super } }
       end
     end
@@ -53,8 +53,8 @@ module Canvas
         next unless r.macro == :belongs_to
         next if name == "root_account"
 
-        if r.options[:polymorphic]
-          next unless klass.canonicalize_polymorph_list(r.options[:polymorphic]).map(&:last).include?("Account")
+        if r.options[:polymorphic].is_a?(Hash)
+          next unless r.options[:polymorphic].key?("Account") && !r.options[:separate_columns]
         else
           next unless r.class_name == "Account"
         end
@@ -69,9 +69,21 @@ module Canvas
 
         m = Module.new
         polymorphic_condition = "#{r.foreign_type} == 'Account' && " if r.options[:polymorphic]
+        # def context
+        #   if !association("context").loaded? &&
+        #      context_type == 'Account' && has_attribute?(:root_account_id) &&
+        #      context_id == root_account_id
+        #     return root_account
+        #   end
+        # end
         m.module_eval <<~RUBY, __FILE__, __LINE__ + 1
           def #{name}
-            return root_account if !association(#{r.name.to_sym.inspect}).loaded? && #{polymorphic_condition}root_account_id && #{r.foreign_key} == root_account_id
+            if !association(#{r.name.to_sym.inspect}).loaded? &&
+               #{polymorphic_condition}has_attribute?(:root_account_id) &&
+               root_account_id &&
+               #{r.foreign_key} == root_account_id
+              return root_account
+            end
             super
           end
         RUBY

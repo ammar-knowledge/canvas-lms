@@ -19,7 +19,7 @@
 
 module Lti
   # @API Plagiarism Detection Submissions
-  # **LTI API for Plagiarism Detection Submissions (Must use <a href="jwt_access_tokens.html">JWT access tokens</a> with this API).**
+  # **LTI API for Plagiarism Detection Submissions (Must use <a href="file.jwt_access_tokens.html">JWT access tokens</a> with this API).**
   #
   # @model Submission
   #     {
@@ -116,7 +116,7 @@ module Lti
   #           "type": "string"
   #         },
   #         "url": {
-  #           "example": "http://www.example.com/files/569/download?download_frd=1&verifier=c6HdZmxOZa0Fiin2cbvZeI8I5ry7yqD7RChQzb6P",
+  #           "example": "http://www.example.com/files/569/download?download_frd=1",
   #           "type": "string"
   #         },
   #         "id": {
@@ -160,7 +160,7 @@ module Lti
       }.freeze
     ].freeze
 
-    skip_before_action :load_user
+    skip_before_action :load_user, :require_user
     around_action :activate_tool_shard, only: :attachment
     before_action :authorized_lti2_tool
     before_action :authorized?
@@ -235,14 +235,14 @@ module Lti
     def api_json(submission)
       submission_attributes = %w[id body url submitted_at assignment_id user_id submission_type workflow_state attempt attachments]
       sub_hash = filtered_json(model: submission, allow_list: submission_attributes)
-      sub_hash[:user_id] = Lti::Asset.opaque_identifier_for(User.find(sub_hash[:user_id]), context: submission.assignment.context)
+      sub_hash[:user_id] = Lti::V1p1::Asset.opaque_identifier_for(User.find(sub_hash[:user_id]), context: submission.assignment.context)
       if submission.turnitin_data[:eula_agreement_timestamp].present?
         sub_hash[:eula_agreement_timestamp] = submission.turnitin_data[:eula_agreement_timestamp]
       end
       attachments = submission.versioned_attachments
       sub_hash[:attachments] = attachments.map { |a| attachment_json(a) }
       sub_hash[:course_id] = submission.assignment.context.global_id
-      sub_hash[:lti_course_id] = Lti::Asset.opaque_identifier_for(submission.assignment.context)
+      sub_hash[:lti_course_id] = Lti::V1p1::Asset.opaque_identifier_for(submission.assignment.context)
       sub_hash
     end
 
@@ -255,7 +255,7 @@ module Lti
     end
 
     def filtered_json(model:, allow_list:)
-      model.as_json(include_root: false).select { |k, _| allow_list.include?(k) }
+      model.as_json(include_root: false).slice(*allow_list)
     end
   end
 end

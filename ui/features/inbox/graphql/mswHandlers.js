@@ -26,6 +26,7 @@ import {graphql, HttpResponse} from 'msw'
 import {Group} from './Group'
 import {User} from './User'
 import {PageInfo} from './PageInfo'
+import {TotalCountPageInfo} from './TotalCountPageInfo'
 import {CONVERSATION_ID_WHERE_CAN_REPLY_IS_FALSE} from '../util/constants'
 
 // helper function that filters out undefined values in objects before assigning
@@ -35,8 +36,8 @@ const mswAssign = (target, ...objects) => {
     ...objects.map(object => {
       return Object.entries(object)
         .filter(([_k, v]) => v !== undefined)
-        .reduce((obj, [k, v]) => ((obj[k] = v), obj), {}) // eslint-disable-line no-sequences
-    })
+        .reduce((obj, [k, v]) => ((obj[k] = v), obj), {})
+    }),
   )
 }
 
@@ -137,7 +138,7 @@ export const handlers = [
         {
           ...ConversationParticipant.mock(
             {_id: '256', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU2', workflowState: 'unread'},
-            {_id: '257', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU4', workflowState: 'unread'}
+            {_id: '257', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU8', workflowState: 'unread'},
           ),
           conversation: Conversation.mock({
             _id: '197',
@@ -152,7 +153,7 @@ export const handlers = [
           {
             ...ConversationParticipant.mock(
               {_id: '256', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU2', workflowState: 'unread'},
-              {_id: '257', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU4', workflowState: 'unread'}
+              {_id: '257', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU8', workflowState: 'unread'},
             ),
             conversation: Conversation.mock({
               _id: '197',
@@ -163,7 +164,7 @@ export const handlers = [
           {
             ...ConversationParticipant.mock(
               {_id: '256', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU2', workflowState: 'unread'},
-              {_id: '257', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU4', workflowState: 'unread'}
+              {_id: '257', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU8', workflowState: 'unread'},
             ),
             conversation: Conversation.mock({
               _id: '905',
@@ -174,7 +175,7 @@ export const handlers = [
           {
             ...ConversationParticipant.mock(
               {_id: '256', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU2', workflowState: 'unread'},
-              {_id: '257', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU4', workflowState: 'unread'}
+              {_id: '257', id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU8', workflowState: 'unread'},
             ),
             conversation: Conversation.mock({
               _id: '906',
@@ -234,7 +235,7 @@ export const handlers = [
           }),
           ConversationParticipant.mock({
             _id: '257',
-            id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU4',
+            id: 'Q29udmVyc2F0aW9uUGFydGljaXBhbnQtMjU8',
             user: User.mock({_id: '1', name: 'Charles Xavier', shortName: 'Charles Xavier'}),
             workflowState: 'unread',
           }),
@@ -254,6 +255,12 @@ export const handlers = [
     })
   }),
 
+  graphql.query('GetUserInboxLabels', ({variables}) => {
+    return HttpResponse.json({
+      data: {legacyNode: {id: 'VXNlci0x', inboxLabels: ['LabelA', 'LabelB'], __typename: 'User'}},
+    })
+  }),
+
   graphql.query('GetConversationMessagesQuery', ({variables}) => {
     if (variables.conversationID === CONVERSATION_ID_WHERE_CAN_REPLY_IS_FALSE) {
       return HttpResponse.json({
@@ -265,45 +272,117 @@ export const handlers = [
     })
   }),
 
-  graphql.query('GetSubmissionComments', () => {
+  graphql.query('GetSubmissionCommentsQuery', ({variables}) => {
     const data = {
       legacyNode: {
-        _id: '1',
-        id: 'VXNlci06',
-        commentsConnection: {
+        _id: variables.submissionId || '1',
+        submissionCommentsConnection: {
           nodes: [
-            {
+            SubmissionComment.mock({
               _id: '1',
-              id: 'U3VibWlzc2lvbkNvbW1lbnQtMQ==',
-              submissionId: '3',
-              createdAt: '2022-04-04T12:19:38-06:00',
-              attempt: 0,
-              canReply: false,
-              author: User.mock(),
-              assignment: {
-                id: 'QXNzaWdubWVudC0x',
-                _id: '1',
-                name: 'test assignment',
-                __typename: 'Assignment',
-              },
               comment: 'my student comment',
-              course: Course.mock(),
-              read: true,
-              __typename: 'SubmissionComment',
-            },
+              htmlComment: '<p>my student comment</p>',
+              author: User.mock({_id: '1', name: 'Student One'}),
+              read: false,
+            }),
           ],
-          pageInfo: PageInfo.mock({hasNextPage: false}),
+          pageInfo: TotalCountPageInfo.mock({hasNextPage: false}),
           __typename: 'SubmissionCommentConnection',
-        },
-        user: {
-          _id: '75',
-          __typename: 'User',
         },
         __typename: 'Submission',
       },
     }
-
     return HttpResponse.json({data})
+  }),
+
+  graphql.query('GetInboxSubmissionComments', ({variables}) => {
+    return HttpResponse.json({
+      data: {
+        legacyNode: {
+          _id: variables.submissionID,
+          id: `Submission-${variables.submissionID}`,
+          canReply: false,
+          commentsConnection: {
+            nodes: [
+              {
+                _id: '1',
+                id: 'SubmissionComment-1',
+                submissionId: variables.submissionID,
+                createdAt: '2024-01-24T11:35:35-07:00',
+                attempt: 1,
+                canReply: false,
+                author: {
+                  _id: '1',
+                  id: 'VXNlci0x',
+                  name: 'Student Name',
+                  shortName: 'Student',
+                  pronouns: null,
+                  avatarUrl: null,
+                  __typename: 'User',
+                },
+                assignment: {
+                  _id: '1',
+                  id: 'QXNzaWdubWVudC0x',
+                  name: 'Test Assignment',
+                  htmlUrl: '/courses/1/assignments/1',
+                  __typename: 'Assignment',
+                },
+                comment: 'my student comment',
+                htmlComment: '<p>my student comment</p>',
+                course: {
+                  _id: '1',
+                  id: 'Q291cnNlLTE=',
+                  name: 'Test Course',
+                  courseNickname: null,
+                  contextName: 'Test Course',
+                  assetString: 'course_1',
+                  __typename: 'Course',
+                },
+                read: false,
+                __typename: 'SubmissionComment',
+              },
+            ],
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: null,
+              totalCount: null,
+              __typename: 'TotalCountPageInfo',
+            },
+            __typename: 'SubmissionCommentConnection',
+          },
+          user: {
+            _id: '1',
+            __typename: 'User',
+          },
+          __typename: 'Submission',
+        },
+      },
+    })
+  }),
+
+  graphql.query('GetSubmissionCommentsQuery', () => {
+    return HttpResponse.json({
+      data: {
+        legacyNode: {
+          _id: '1',
+          id: 'VXNlci0x',
+          submissionCommentsConnection: {
+            nodes: [
+              {
+                ...SubmissionComment.mock({
+                  _id: '1',
+                  comment: 'my student comment',
+                  createdAt: '2024-01-24T11:35:35-07:00',
+                }),
+              },
+            ],
+            pageInfo: TotalCountPageInfo.mock({hasNextPage: false}),
+            __typename: 'SubmissionCommentConnection',
+          },
+          __typename: 'User',
+        },
+      },
+    })
   }),
 
   graphql.query('ViewableSubmissionsQuery', () => {
@@ -315,6 +394,7 @@ export const handlers = [
           nodes: [
             {
               _id: '9',
+              readState: null,
               commentsConnection: {
                 nodes: [
                   {
@@ -332,6 +412,7 @@ export const handlers = [
                       __typename: 'Assignment',
                     },
                     comment: 'my student comment',
+                    htmlComment: '<p>my student comment</p>',
                     course: Course.mock(),
                     read: true,
                     __typename: 'SubmissionComment',
@@ -343,6 +424,7 @@ export const handlers = [
             },
             {
               _id: '10',
+              readState: null,
               commentsConnection: {
                 nodes: [
                   {
@@ -360,6 +442,7 @@ export const handlers = [
                       __typename: 'Assignment',
                     },
                     comment: 'my student comment',
+                    htmlComment: '<p>my student comment</p>',
                     course: Course.mock(),
                     read: true,
                     __typename: 'SubmissionComment',
@@ -370,7 +453,7 @@ export const handlers = [
               __typename: 'Submission',
             },
           ],
-          pageInfo: PageInfo.mock({hasNextPage: false}),
+          pageInfo: TotalCountPageInfo.mock({hasNextPage: false}),
           __typename: 'SubmissionConnection',
         },
         __typename: 'User',
@@ -446,7 +529,7 @@ export const handlers = [
     return HttpResponse.json({data})
   }),
 
-  graphql.query('GetAddressBookRecipients', ({variables}) => {
+  graphql.query('GetInboxAddressBookRecipients', ({variables}) => {
     const data = {
       legacyNode: {
         id: 'VXNlci0x',
@@ -660,8 +743,8 @@ export const handlers = [
       },
     }
 
-    if (variables.recipients.length > 0 && variables.contextCode) {
-      data.recipientsObservers = {
+    if (variables.recipientIds && variables.recipientIds.length > 0 && variables.contextCode) {
+      data.legacyNode.recipientsObservers = {
         nodes: [
           {
             id: 'TWVzc2FnZWFibGVVc2VyLTM',
@@ -670,6 +753,11 @@ export const handlers = [
             _id: '3',
           },
         ],
+        pageInfo: {
+          hasNextPage: false,
+          endCursor: null,
+          __typename: 'PageInfo',
+        },
       }
     }
     return HttpResponse.json({data})
@@ -753,7 +841,10 @@ export const handlers = [
     const SUBMISSION_ID_THAT_RETURNS_ERROR = '440'
     const data = {
       createSubmissionComment: {
-        submissionComment: SubmissionComment.mock({comment: variables.body}),
+        submissionComment: SubmissionComment.mock({
+          comment: variables.body,
+          htmlComment: variables.body,
+        }),
         errors: null,
         __typename: 'CreateSubmissionCommentPayload',
       },
@@ -782,7 +873,7 @@ export const handlers = [
               {
                 id: variables.conversationId,
                 read: variables.read,
-              }
+              },
             ),
           ],
           errors: null,

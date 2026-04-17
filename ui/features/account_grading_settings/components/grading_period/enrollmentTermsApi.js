@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import {map, flatten, isNumber} from 'lodash'
+import {map, isNumber, flatten} from 'es-toolkit/compat'
 import NaiveRequestDispatch from '@canvas/network/NaiveRequestDispatch/index'
 
 const listUrl = () => ENV.ENROLLMENT_TERMS_URL
@@ -34,20 +34,19 @@ const deserializeTerms = termGroups =>
           createdAt: term.created_at ? new Date(term.created_at) : null,
           gradingPeriodGroupId: newGroupID,
         }
-      })
-    )
+      }),
+    ),
   )
 
 export default {
   list() {
     return new Promise((resolve, reject) => {
       const dispatch = new NaiveRequestDispatch()
-      /* eslint-disable promise/catch-or-return */
+
       dispatch
         .getDepaginated(listUrl())
         .then(response => resolve(deserializeTerms(response)))
         .fail(error => reject(error))
-      /* eslint-enable promise/catch-or-return */
     })
   },
 }

@@ -18,7 +18,7 @@
 
 /* eslint no-console: 0 */
 
-import uuid from 'uuid'
+import * as uuid from 'uuid'
 import {
   NAVIGATION_MESSAGE as MENTIONS_NAVIGATION_MESSAGE,
   INPUT_CHANGE_MESSAGE as MENTIONS_INPUT_CHANGE_MESSAGE,
@@ -27,48 +27,19 @@ import {
 import type {LtiMessageHandler} from './lti_message_handler'
 import buildResponseMessages from './response_messages'
 import {getKey, hasKey, deleteKey} from './util'
+import {forwardedMsgSource} from './forwarded_msg_source'
+import {
+  SUBJECT_ALLOW_LIST,
+  SUBJECT_IGNORE_LIST,
+  type SubjectId,
+  SCOPE_REQUIRED_SUBJECTS,
+} from './constants'
 
 // page-global storage for data relevant to LTI postMessage events
 const ltiState: {
   tray?: {refreshOnClose?: boolean}
   fullWindowProxy?: Window | null
 } = {}
-
-const SUBJECT_ALLOW_LIST = [
-  'lti.enableScrollEvents',
-  'lti.fetchWindowSize',
-  'lti.frameResize',
-  'lti.hideRightSideWrapper',
-  'lti.removeUnloadMessage',
-  'lti.resourceImported',
-  'lti.screenReaderAlert',
-  'lti.scrollToTop',
-  'lti.setUnloadMessage',
-  'lti.showAlert',
-  'lti.showModuleNavigation',
-  'lti.capabilities',
-  'lti.get_data',
-  'lti.put_data',
-  'lti.getPageContent',
-  'lti.getPageSettings',
-  'requestFullWindowLaunch',
-  'toggleCourseNavigationMenu',
-] as const
-
-/**
- * A mapping of message subject to a list of scopes that grant permission
- * for that subject.
- * A tool only needs one of the scopes listed to be granted access.
- * If a subject is not listed here, it is assumed to be allowed for all tools.
- */
-const SCOPE_REQUIRED_SUBJECTS: {[key: string]: string[]} = {
-  'lti.getPageContent': [
-    'https://canvas.instructure.com/lti/page_content/show',
-    'http://canvas.instructure.com/lti/page_content/show',
-  ],
-}
-
-type SubjectId = (typeof SUBJECT_ALLOW_LIST)[number]
 
 const isAllowedSubject = (subject: unknown): subject is SubjectId =>
   typeof subject === 'string' && (SUBJECT_ALLOW_LIST as ReadonlyArray<string>).includes(subject)
@@ -77,7 +48,8 @@ const isIgnoredSubject = (subject: unknown): subject is SubjectId =>
   typeof subject === 'string' && (SUBJECT_IGNORE_LIST as ReadonlyArray<string>).includes(subject)
 
 const isUnsupportedInRCE = (subject: unknown): subject is SubjectId =>
-  typeof subject === 'string' && (UNSUPPORTED_IN_RCE as ReadonlyArray<string>).includes(subject)
+  typeof subject === 'string' &&
+  (['lti.enableScrollEvents', 'lti.scrollToTop'] as ReadonlyArray<string>).includes(subject)
 
 /**
  * Checks that the tool for the given tool_id has the required
@@ -94,24 +66,20 @@ const toolIsAuthorized = (subject: string, tool_id: string) => {
   }
 }
 
-// These are handled elsewhere so ignore them
-const SUBJECT_IGNORE_LIST = [
-  'A2ExternalContentReady',
-  'LtiDeepLinkingResponse',
-  'externalContentReady',
-  'externalContentCancel',
-  MENTIONS_NAVIGATION_MESSAGE,
-  MENTIONS_INPUT_CHANGE_MESSAGE,
-  MENTIONS_SELECTION_MESSAGE,
-  'betterchat.is_mini_chat',
-  'defaultToolContentReady',
-  'assignment.set_ab_guid',
-] as const
-
-const UNSUPPORTED_IN_RCE = ['lti.enableScrollEvents', 'lti.scrollToTop'] as const
-
 const isObject = (u: unknown): u is object => {
   return typeof u === 'object'
+}
+
+type IFrameThunk = () => HTMLIFrameElement | undefined | null
+
+// Determine whether the message event came from the given LTI tool launch iframe.
+// Returns true if e's source is the iframe's contentWindow.
+function iframeMatches(e: MessageEvent<unknown>, thunk: IFrameThunk): boolean {
+  const iframeSource = thunk()?.contentWindow
+  if (!iframeSource) {
+    return false
+  }
+  return iframeSource === e.source || iframeSource === forwardedMsgSource(e)
 }
 
 /**
@@ -137,6 +105,7 @@ const handlers: Record<
   (typeof SUBJECT_ALLOW_LIST)[number],
   () => Promise<{default: LtiMessageHandler<any>}>
 > = {
+  'lti.close': () => import(`./subjects/lti.close`),
   'lti.enableScrollEvents': () => import(`./subjects/lti.enableScrollEvents`),
   'lti.fetchWindowSize': () => import(`./subjects/lti.fetchWindowSize`),
   'lti.frameResize': () => import(`./subjects/lti.frameResize`),
@@ -155,6 +124,8 @@ const handlers: Record<
   'lti.getPageSettings': () => import(`./subjects/lti.getPageSettings`),
   requestFullWindowLaunch: () => import(`./subjects/requestFullWindowLaunch`),
   toggleCourseNavigationMenu: () => import(`./subjects/toggleCourseNavigationMenu`),
+  showNavigationMenu: () => import(`./subjects/showNavigationMenu`),
+  hideNavigationMenu: () => import(`./subjects/hideNavigationMenu`),
 }
 
 /**
@@ -191,12 +162,13 @@ async function ltiMessageHandler(e: MessageEvent<unknown>) {
 
   // look at messageType for backwards compatibility
   const subject = getKey('subject', message) || getKey('messageType', message)
+  const sourceToolInfo = getKey('sourceToolInfo', message) as unknown
   const responseMessages = buildResponseMessages({
     targetWindow,
     origin: e.origin,
     subject,
     message_id: getKey('message_id', message),
-    sourceToolInfo: getKey('sourceToolInfo', message),
+    sourceToolInfo,
   })
 
   if (subject === undefined || isIgnoredSubject(subject) || responseMessages.isResponse(e)) {
@@ -215,11 +187,20 @@ async function ltiMessageHandler(e: MessageEvent<unknown>) {
     return false
   } else {
     try {
+      const callback = () => {
+        for (const [cb, iframe] of callbacks[subject] || []) {
+          // Only call callback if message is from the window set up by the listener.
+          if (iframeMatches(e, iframe)) {
+            cb()
+          }
+        }
+      }
       const handlerModule = await handlers[subject]()
       const hasSentResponse = handlerModule.default({
         message,
         event: e,
         responseMessages,
+        callback,
       })
       if (!hasSentResponse) {
         responseMessages.sendSuccess()
@@ -262,6 +243,11 @@ async function ltiMessageHandler(e: MessageEvent<unknown>) {
 // Prevent duplicate listeners inside the same window
 let hasListener = false
 
+// Let any page define a callback for a given subject and iframe window
+// Ex: close a modal when `lti.close` is received for a tool in the iframe it owns
+type PostMessageCallbacks = Map<() => void, IFrameThunk>
+const callbacks: Partial<Record<(typeof SUBJECT_ALLOW_LIST)[number], PostMessageCallbacks>> = {}
+
 function monitorLtiMessages() {
   // This should only be true when canvas is in an iframe (like for postMessage forwarding),
   // to prevent duplicate listeners across canvas windows.
@@ -275,4 +261,45 @@ function monitorLtiMessages() {
   }
 }
 
-export {ltiState, SUBJECT_ALLOW_LIST, SUBJECT_IGNORE_LIST, ltiMessageHandler, monitorLtiMessages}
+/**
+ * Hook into a given LTI postMessage handler and run an extra callback.
+ * Example: close an on-page modal when `lti.close` is received.
+ * Will run all callbacks registered for the given subject.
+ *
+ * @param subject An allowed LTI postMessage subject
+ * @param placement A unique identifier for the tool launch placement
+ * @param callback A function to execute when a postMessage with the given subject is received
+ * @returns A cleanup function to remove the callback
+ */
+function callbackOnLtiPostMessage(
+  subject: (typeof SUBJECT_ALLOW_LIST)[number],
+  thunk: IFrameThunk,
+  callback: () => void,
+): () => void {
+  const cbWrapper: () => void = () => callback()
+  callbacks[subject] ??= new Map()
+  callbacks[subject].set(cbWrapper, thunk)
+  return () => {
+    callbacks[subject]?.delete(cbWrapper)
+  }
+}
+
+/**
+ * Be informed when Canvas receives an `lti.close` postMessage,
+ * and respond (usually by closing the tool launch modal).
+ *
+ * @param callback A function to execute on `lti.close`
+ * @returns A cleanup function to remove the callback
+ */
+function onLtiClosePostMessage(iframeThunk: IFrameThunk, callback: () => void) {
+  return callbackOnLtiPostMessage('lti.close', iframeThunk, callback)
+}
+
+export {
+  ltiState,
+  ltiMessageHandler,
+  monitorLtiMessages,
+  callbackOnLtiPostMessage,
+  onLtiClosePostMessage,
+  forwardedMsgSource,
+}

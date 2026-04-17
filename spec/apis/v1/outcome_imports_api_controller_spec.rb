@@ -266,11 +266,11 @@ describe OutcomeImportsApiController, type: :request do
              { import_type: "instructure_csv",
                attachment: fixture_file_upload("outcomes/test_outcomes_1.csv", "text/csv") },
              {},
-             expected_status: 401)
+             expected_status: 403)
   end
 
   it "works with import permissions" do
-    account_admin_user_with_role_changes(user: @user, role_changes: { manage_outcomes: false, import_outcomes: true })
+    account_with_role_changes(user: @user, role_changes: { manage_outcomes: false, import_outcomes: true })
     api_call(:post,
              "/api/v1/accounts/#{@account.id}/outcome_imports",
              { controller: "outcome_imports_api",

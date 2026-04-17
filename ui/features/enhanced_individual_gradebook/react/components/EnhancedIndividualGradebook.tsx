@@ -17,14 +17,14 @@
  */
 
 import React, {useCallback, useEffect, useState} from 'react'
-import {useQuery} from 'react-apollo'
 import {useSearchParams} from 'react-router-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import userSettings from '@canvas/user-settings'
 import {View} from '@instructure/ui-view'
 import gradingHelpers from '@canvas/grading/AssignmentGroupGradeCalculator'
 
 import type {AssignmentGroupCriteriaMap} from '@canvas/grading/grading.d'
+import type {WorkflowState} from '../../../../api.d'
 import AssignmentInformation from './AssignmentInformation'
 import ContentSelection from './ContentSelection'
 import GlobalSettings from './GlobalSettings'
@@ -34,7 +34,6 @@ import type {
   AssignmentSubmissionsMap,
   CustomOptions,
   GradebookOptions,
-  GradebookQueryResponse,
   GradebookUserSubmissionDetails,
   SectionConnection,
   SortableAssignment,
@@ -43,7 +42,6 @@ import type {
   TeacherNotes,
   CustomColumn,
 } from '../../types'
-import {GRADEBOOK_QUERY} from '../../queries/Queries'
 import {
   gradebookOptionsSetup,
   mapAssignmentGroupQueryResults,
@@ -52,8 +50,9 @@ import {
 } from '../../utils/gradebookUtils'
 import {useCurrentStudentInfo} from '../hooks/useCurrentStudentInfo'
 import {useCustomColumns} from '../hooks/useCustomColumns'
+import {useGradebookQuery} from '../hooks/useGradebookQuery'
 
-const I18n = useI18nScope('enhanced_individual_gradebook')
+const I18n = createI18nScope('enhanced_individual_gradebook')
 
 const STUDENT_SEARCH_PARAM = 'student'
 const ASSIGNMENT_SEARCH_PARAM = 'assignment'
@@ -70,7 +69,7 @@ export default function EnhancedIndividualGradebook() {
   const [searchParams, setSearchParams] = useSearchParams()
   const studentIdQueryParam = searchParams.get(STUDENT_SEARCH_PARAM)
   const [selectedStudentId, setSelectedStudentId] = useState<string | null | undefined>(
-    studentIdQueryParam
+    studentIdQueryParam,
   )
   const {currentStudent, studentSubmissions, updateSubmissionDetails, loadingStudent} =
     useCurrentStudentInfo(courseId, selectedStudentId)
@@ -78,28 +77,29 @@ export default function EnhancedIndividualGradebook() {
   const [assignmentGroupMap, setAssignmentGroupMap] = useState<AssignmentGroupCriteriaMap>({})
   const assignmentIdQueryParam = searchParams.get(ASSIGNMENT_SEARCH_PARAM)
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null | undefined>(
-    assignmentIdQueryParam
+    assignmentIdQueryParam,
   )
 
   const selectedAssignment = assignments?.find(assignment => assignment.id === selectedAssignmentId)
+
+  // Peer review submissions are returned as first-class submissions via the includePeerReviewSubmissions filter.
+  // They are stored in assignmentSubmissionsMap under their own assignment ID, so no extraction is needed.
+  // Note: subAssignmentSubmissions field only works for Discussion Checkpoints (checkpoints_parent? = true),
+  // not for peer review sub assignments (checkpoints_parent? = false).
   const submissionsMap = selectedAssignment ? assignmentSubmissionsMap[selectedAssignment.id] : {}
   const submissionsForSelectedAssignment = Object.values(submissionsMap ?? {})
 
   const [gradebookOptions, setGradebookOptions] = useState<GradebookOptions>(
-    gradebookOptionsSetup(ENV)
+    gradebookOptionsSetup(ENV),
   )
 
-  const {data, error} = useQuery<GradebookQueryResponse>(GRADEBOOK_QUERY, {
-    variables: {courseId},
-    fetchPolicy: 'no-cache',
-    skip: !courseId,
-  })
+  const {courseData, isLoading, isSuccess} = useGradebookQuery(courseId)
 
   const {customColumnsUrl} = gradebookOptions
 
   const {customColumns} = useCustomColumns(customColumnsUrl)
   const studentNotesColumnId = customColumns?.find(
-    (column: CustomColumn) => column.teacher_notes
+    (column: CustomColumn) => column.teacher_notes,
   )?.id
 
   const [currentStudentHiddenName, setCurrentStudentHiddenName] = useState<string>('')
@@ -113,26 +113,21 @@ export default function EnhancedIndividualGradebook() {
   }, [currentStudent, students])
 
   useEffect(() => {
-    if (error) {
-      // TODO: handle error
-    }
-
-    if (data?.course) {
+    if (courseData?.course && !isLoading && isSuccess) {
       const {
         assignmentGroupsConnection,
         enrollmentsConnection,
         sectionsConnection,
         submissionsConnection,
-      } = data.course
+      } = courseData.course
 
-      const {assignmentGradingPeriodMap, assignmentSubmissionsMap} = mapAssignmentSubmissions(
-        submissionsConnection.nodes
-      )
-      setAssignmentSubmissionsMap(assignmentSubmissionsMap)
+      const {assignmentGradingPeriodMap, assignmentSubmissionsMap: asMap} =
+        mapAssignmentSubmissions(submissionsConnection.nodes)
+      setAssignmentSubmissionsMap(asMap)
 
       const {mappedAssignmentGroupMap, mappedAssignments} = mapAssignmentGroupQueryResults(
         assignmentGroupsConnection.nodes,
-        assignmentGradingPeriodMap
+        assignmentGradingPeriodMap,
       )
 
       setAssignmentGroupMap(mappedAssignmentGroupMap)
@@ -144,11 +139,11 @@ export default function EnhancedIndividualGradebook() {
         return a.sortableName.localeCompare(b.sortableName)
       })
       sortedStudents.forEach(
-        (student, index) => (student.hiddenName = I18n.t('Student %{id}', {id: index + 1}))
+        (student, index) => (student.hiddenName = I18n.t('Student %{id}', {id: index + 1})),
       )
       setStudents(sortedStudents)
     }
-  }, [data, error])
+  }, [courseData, isLoading, isSuccess])
 
   useEffect(() => {
     if (!selectedAssignment || !assignments || !studentSubmissions || !assignmentGroupMap) {
@@ -179,7 +174,14 @@ export default function EnhancedIndividualGradebook() {
         workflow_state: submissionAssignment?.workflowState,
         excused: submission.excused,
         id: submission.id,
-        submission: {assignment_id: submissionAssignment?.id},
+        submission: {
+          score: submission.score,
+          grade: submission.grade,
+          assignment_id: submission.assignmentId,
+          workflow_state: submission.state as WorkflowState,
+          excused: submission.excused,
+          id: submission.id,
+        },
       }
     })
 
@@ -192,18 +194,21 @@ export default function EnhancedIndividualGradebook() {
     setAssignmentDropped(droppedAssignmentIds.includes(selectedAssignment.id))
   }, [selectedAssignment, assignments, studentSubmissions, assignmentGroupMap])
 
-  const invalidAssignmentGroups = Object.keys(assignmentGroupMap).reduce((invalidKeys, groupId) => {
-    const {invalid, name, gradingPeriodsIds} = assignmentGroupMap[groupId]
-    const {selectedGradingPeriodId} = gradebookOptions
-    if (
-      invalid ||
-      (selectedGradingPeriodId && !gradingPeriodsIds?.includes(selectedGradingPeriodId))
-    ) {
-      invalidKeys[groupId] = name
-    }
+  const invalidAssignmentGroups = Object.keys(assignmentGroupMap).reduce(
+    (invalidKeys, groupId) => {
+      const {invalid, name, gradingPeriodsIds} = assignmentGroupMap[groupId]
+      const {selectedGradingPeriodId} = gradebookOptions
+      if (
+        invalid ||
+        (selectedGradingPeriodId && !gradingPeriodsIds?.includes(selectedGradingPeriodId))
+      ) {
+        invalidKeys[groupId] = name
+      }
 
-    return invalidKeys
-  }, {} as Record<string, string>)
+      return invalidKeys
+    },
+    {} as Record<string, string>,
+  )
 
   const selectedAssignmentGroupInvalid = selectedAssignment?.assignmentGroupId
     ? !!invalidAssignmentGroups[selectedAssignment?.assignmentGroupId]
@@ -233,13 +238,14 @@ export default function EnhancedIndividualGradebook() {
     (newSubmission: GradebookUserSubmissionDetails) => {
       setAssignmentSubmissionsMap(prevAssignmentSubmissions => {
         const {assignmentId, id: submissionId} = newSubmission
+        prevAssignmentSubmissions[assignmentId] ||= {}
         prevAssignmentSubmissions[assignmentId][submissionId] = newSubmission
         return {...prevAssignmentSubmissions}
       })
 
       updateSubmissionDetails(newSubmission)
     },
-    [updateSubmissionDetails, setAssignmentSubmissionsMap]
+    [updateSubmissionDetails, setAssignmentSubmissionsMap],
   )
 
   const handleSetGrades = useCallback(
@@ -264,7 +270,7 @@ export default function EnhancedIndividualGradebook() {
         updateSubmissionDetails(submissionForUser)
       }
     },
-    [selectedStudentId, updateSubmissionDetails]
+    [selectedStudentId, updateSubmissionDetails],
   )
 
   return (

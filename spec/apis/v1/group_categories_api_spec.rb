@@ -28,6 +28,7 @@ describe "Group Categories API", type: :request do
       "name" => category.name,
       "role" => category.role,
       "self_signup" => category.self_signup,
+      "self_signup_end_at" => category.self_signup_end_at,
       "context_type" => category.context_type,
       "#{category.context_type.downcase}_id" => category.context_id,
       "created_at" => category.created_at.iso8601,
@@ -95,23 +96,21 @@ describe "Group Categories API", type: :request do
             @course.save!
           end
 
-          include_examples "basic course roster"
+          it_behaves_like "basic course roster"
         end
 
         context "normal course" do
-          include_examples "basic course roster"
+          it_behaves_like "basic course roster"
         end
       end
 
       context "granular permissions" do
         it "succeeds" do
-          @course.root_account.enable_feature!(:granular_permissions_manage_groups)
           status = raw_api_call(:get, api_url, api_route)
           expect(status).to eq 200
         end
 
         it "does not succeed if :manage_groups_add is not enabled" do
-          @course.root_account.enable_feature!(:granular_permissions_manage_groups)
           @course.account.role_overrides.create!(
             permission: "manage_groups_manage",
             role: teacher_role,
@@ -209,10 +208,10 @@ describe "Group Categories API", type: :request do
         end
       end
 
-      it "returns 401 for users outside the group_category" do
+      it "returns 403 for users outside the group_category" do
         user_factory # ?
         raw_api_call(:get, api_url, api_route)
-        expect(response).to have_http_status :unauthorized
+        expect(response).to have_http_status :forbidden
       end
 
       it "returns an error when search_term is fewer than 2 characters" do
@@ -283,9 +282,9 @@ describe "Group Categories API", type: :request do
                         @category_path_options.merge(action: "update", group_category_id: category2.to_param),
                         { :name => @name, :self_signup => "enabled", "create_group_count" => 3, :course_id => og_course.id },
                         {},
-                        { expected_status: 401 })
+                        { expected_status: 403 })
         expect(json["status"]).to eq "unauthorized"
-        expect(category2.reload.name).to_not eq @name
+        expect(category2.reload.name).not_to eq @name
       end
 
       it "allows a teacher to update a category and distribute students to new groups" do
@@ -506,7 +505,7 @@ describe "Group Categories API", type: :request do
                      "/api/v1/courses/#{@course.to_param}/group_categories.json",
                      @category_path_options.merge(action: "index",
                                                   course_id: @course.to_param))
-        expect(response).to have_http_status :unauthorized
+        expect(response).to have_http_status :forbidden
       end
 
       it "does not list all groups in category for a student" do
@@ -514,7 +513,7 @@ describe "Group Categories API", type: :request do
                      "/api/v1/group_categories/#{@category.id}/groups",
                      @category_path_options.merge(action: "groups",
                                                   group_category_id: @category.to_param))
-        expect(response).to have_http_status :unauthorized
+        expect(response).to have_http_status :forbidden
       end
 
       it "does not allow a student to create a course group category" do
@@ -524,7 +523,7 @@ describe "Group Categories API", type: :request do
                      @category_path_options.merge(action: "create",
                                                   course_id: @course.to_param),
                      { "name" => name })
-        expect(response).to have_http_status :unauthorized
+        expect(response).to have_http_status :forbidden
       end
 
       it "does not allow a teacher to delete the student groups category" do
@@ -533,7 +532,7 @@ describe "Group Categories API", type: :request do
                      "/api/v1/group_categories/#{@category.id}",
                      @category_path_options.merge(action: "destroy",
                                                   group_category_id: @category.to_param)
-        expect(response).to have_http_status :unauthorized
+        expect(response).to have_http_status :forbidden
       end
 
       it "does not allow a student to delete a category for a course" do
@@ -545,7 +544,7 @@ describe "Group Categories API", type: :request do
                      "/api/v1/group_categories/#{project_groups.id}",
                      @category_path_options.merge(action: "destroy",
                                                   group_category_id: project_groups.to_param)
-        expect(response).to have_http_status :unauthorized
+        expect(response).to have_http_status :forbidden
       end
 
       it "does not allow a student to update a category for a course" do
@@ -554,7 +553,7 @@ describe "Group Categories API", type: :request do
                      @category_path_options.merge(action: "update",
                                                   group_category_id: @category.to_param),
                      { name: "name" }
-        expect(response).to have_http_status :unauthorized
+        expect(response).to have_http_status :forbidden
       end
     end
 
@@ -569,7 +568,7 @@ describe "Group Categories API", type: :request do
                      @category_path_options.merge(action: "assign_unassigned_members",
                                                   group_category_id: category.to_param),
                      { "sync" => true }
-        assert_status(401)
+        assert_forbidden
       end
 
       it "requires valid group :category_id" do
@@ -853,6 +852,209 @@ describe "Group Categories API", type: :request do
                                                 group_category_id: @communities.to_param),
                    { name: "name" }
       expect(response).to have_http_status :unauthorized
+    end
+  end
+
+  describe "GET export_tags" do
+    let(:api_url) { "/api/v1/courses/#{@course.id}/group_categories/export_tags" }
+    let(:api_route) do
+      {
+        controller: "group_categories",
+        action: "export_tags",
+        course_id: @course.to_param,
+        format: "csv"
+      }
+    end
+
+    before :once do
+      course_with_teacher(active_all: true)
+      @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
+      @course.account.save!
+      @course.account.reload
+
+      @tag_category1 = @course.group_categories.create!(name: "Tag Category 1", non_collaborative: true)
+      @tag_category2 = @course.group_categories.create!(name: "Tag Category 2", non_collaborative: true)
+      @tag_category3 = @course.group_categories.create!(name: "Tag Category 3", non_collaborative: true)
+
+      @tag1 = @tag_category1.groups.create!(name: "Tag 1", context: @course)
+      @tag2 = @tag_category2.groups.create!(name: "Tag 2", context: @course)
+      @tag3 = @tag_category3.groups.create!(name: "Tag 3", context: @course)
+
+      @student = user_with_pseudonym(name: "SSS1")
+      @student2 = user_with_pseudonym(name: "SSS2")
+      @student3 = user_with_pseudonym(name: "SSS3")
+      @student_enroll = @course.enroll_user(@student, "StudentEnrollment", enrollment_state: "active")
+      @student2_enroll = @course.enroll_user(@student2, "StudentEnrollment", enrollment_state: "active")
+      @student3_enroll = @course.enroll_user(@student3, "StudentEnrollment", enrollment_state: "active")
+
+      @tag1.add_user(@student)
+      @tag2.add_user(@student2)
+      @tag3.add_user(@student3)
+
+      @user = @teacher
+    end
+
+    it "requires authorization" do
+      @user = nil
+      raw_api_call(:get, api_url, api_route)
+      assert_unauthorized
+    end
+
+    it "allows teachers with proper permissions to export tags" do
+      status = raw_api_call(:get, api_url, api_route)
+      expect(status).to eq(200)
+      expect(response.content_type).to eq("text/csv")
+      expect(response.headers["Content-Disposition"]).to include("attachment")
+      expect(response.headers["Content-Disposition"]).to include("#{@course.name} Tags.csv")
+    end
+
+    it "exports proper CSV headers without SIS permissions" do
+      RoleOverride.create!(context: Account.default, permission: "read_sis", role: teacher_role, enabled: false)
+      RoleOverride.create!(context: Account.default, permission: "manage_sis", role: teacher_role, enabled: false)
+
+      raw_api_call(:get, api_url, api_route)
+
+      csv_data = CSV.parse(response.body)
+      headers = csv_data.first
+
+      expected_headers = %w[
+        name
+        canvas_user_id
+        login_id
+        tag_name
+        canvas_tag_id
+        tag_set_name
+        canvas_tag_set_id
+      ]
+
+      expect(headers).to eq(expected_headers)
+    end
+
+    it "exports proper CSV headers with SIS permissions" do
+      raw_api_call(:get, api_url, api_route)
+
+      csv_data = CSV.parse(response.body)
+      headers = csv_data.first
+
+      expected_headers = %w[
+        name
+        canvas_user_id
+        user_id
+        login_id
+        tag_name
+        canvas_tag_id
+        tag_id
+        tag_set_name
+        canvas_tag_set_id
+        tag_set_id
+      ]
+
+      expect(headers).to eq(expected_headers)
+    end
+
+    it "exports user data with tag assignments" do
+      raw_api_call(:get, api_url, api_route)
+
+      csv_data = CSV.parse(response.body)
+      data_rows = csv_data[1..]
+
+      expect(data_rows.length).to eq(3)
+
+      student_row = data_rows.find { |row| row[1] == @student.id.to_s }
+      expect(student_row).not_to be_nil
+      expect(student_row[0]).to eq(@student.sortable_name)
+      expect(student_row[1]).to eq(@student.id.to_s)
+      expect(student_row[4]).to eq("Tag 1")
+      expect(student_row[5]).to eq(@tag1.id.to_s)
+      expect(student_row[7]).to eq("Tag Category 1")
+      expect(student_row[8]).to eq(@tag_category1.id.to_s)
+
+      student2_row = data_rows.find { |row| row[1] == @student2.id.to_s }
+      expect(student2_row).not_to be_nil
+      expect(student2_row[4]).to eq("Tag 2")
+      expect(student2_row[7]).to eq("Tag Category 2")
+
+      student3_row = data_rows.find { |row| row[1] == @student3.id.to_s }
+      expect(student3_row).not_to be_nil
+      expect(student3_row[4]).to eq("Tag 3")
+      expect(student3_row[7]).to eq("Tag Category 3")
+    end
+
+    it "handles students with no diff tag memberships" do
+      student_without_tags = student_in_course(name: "Untagged Student", course: @course, active_all: true).user
+
+      @user = @teacher
+      raw_api_call(:get, api_url, api_route)
+
+      csv_data = CSV.parse(response.body)
+      data_rows = csv_data[1..]
+
+      expect(data_rows.length).to eq(4)
+
+      untagged_row = data_rows.find { |row| row[1] == student_without_tags.id.to_s }
+      expect(untagged_row).not_to be_nil
+      expect(untagged_row[0]).to eq(student_without_tags.sortable_name)
+      expect(untagged_row[1]).to eq(student_without_tags.id.to_s)
+      expect(untagged_row[3]).to be_nil # tag_name should be empty
+      expect(untagged_row[4]).to be_nil # canvas_tag_id should be empty
+      expect(untagged_row[5]).to be_nil # tag_set_name should be empty
+      expect(untagged_row[6]).to be_nil # canvas_tag_set_id should be empty
+    end
+
+    it "includes SIS data when user has SIS permissions" do
+      @student.pseudonym.update!(sis_user_id: "sis_student_123")
+      @tag1.update!(sis_source_id: "sis_tag_456")
+      @tag_category1.update!(sis_source_id: "sis_category_789")
+
+      @course.account.role_overrides.create!(
+        permission: :read_sis,
+        role: teacher_role,
+        enabled: true
+      )
+      raw_api_call(:get, api_url, api_route)
+
+      csv_data = CSV.parse(response.body)
+      data_rows = csv_data[1..]
+
+      student_row = data_rows.find { |row| row[1] == @student.id.to_s }
+      expect(student_row).not_to be_nil
+      expect(student_row[2]).to eq("sis_student_123")
+      expect(student_row[6]).to eq("sis_tag_456")
+      expect(student_row[9]).to eq("sis_category_789")
+    end
+
+    it "fails when account settings disallow differentiation tags" do
+      @course.account.settings[:allow_assign_to_differentiation_tags] = { value: false }
+      @course.account.save!
+      raw_api_call(:get, api_url, api_route)
+      assert_unauthorized
+    end
+
+    it "sorts users by sortable_name" do
+      student_in_course(name: "Alpha Student", course: @course, active_all: true).user
+      student_in_course(name: "Zeta Student", course: @course, active_all: true).user
+
+      raw_api_call(:get, api_url, api_route)
+
+      csv_data = CSV.parse(response.body)
+      data_rows = csv_data[1..]
+
+      names = data_rows.pluck(0)
+      expect(names).to eq(names.sort)
+    end
+
+    it "handles multiple tags for the same user correctly" do
+      @tag2.add_user(@student)
+
+      raw_api_call(:get, api_url, api_route)
+
+      csv_data = CSV.parse(response.body)
+      data_rows = csv_data[1..]
+      student_rows = data_rows.select { |row| row[1] == @student.id.to_s }
+      expect(student_rows.length).to eq(2)
+
+      tag_names = student_rows.pluck(4).sort
+      expect(tag_names).to eq(["Tag 1", "Tag 2"])
     end
   end
 end

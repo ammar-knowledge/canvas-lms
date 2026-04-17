@@ -2,5 +2,6 @@
   "name": "@canvas/submission-sticker",
   "private": true,
   "version": "1.0.0",
-  "main": "./react/components/Sticker.tsx"
+  "main": "./index.ts",
+  "owner": "EVAL"
 }

@@ -19,10 +19,9 @@
 #
 
 require_relative "../api_spec_helper"
-require_relative "../../lti_1_3_spec_helper"
 
 describe DeveloperKeysController, type: :request do
-  include_context "lti_1_3_spec_helper"
+  include_context "key_storage_helper"
   let(:sa_id) { Account.site_admin.id }
 
   describe "GET 'index'" do
@@ -82,7 +81,7 @@ describe DeveloperKeysController, type: :request do
       d.update! visible: true
       get "/api/v1/accounts/#{a.id}/developer_keys", params: { inherited: true }
       expect(json_parse.first.keys).to match_array(
-        %w[name created_at icon_url workflow_state id developer_key_account_binding is_lti_key inherited_from is_lti_registration]
+        %w[name created_at icon_url workflow_state id developer_key_account_binding is_lti_key inherited_from is_lti_registration lti_registration_id]
       )
     end
 
@@ -105,7 +104,7 @@ describe DeveloperKeysController, type: :request do
       it "only includes a subset of attributes" do
         subject
         expect(json_parse.first.keys).to match_array(
-          %w[name created_at icon_url workflow_state id developer_key_account_binding is_lti_key inherited_from is_lti_registration]
+          %w[name created_at icon_url workflow_state id developer_key_account_binding is_lti_key inherited_from is_lti_registration lti_registration_id]
         )
       end
 
@@ -162,8 +161,8 @@ describe DeveloperKeysController, type: :request do
 
     it "includes the lti_registration for Dynamic Reg keys" do
       account = Account.default
-      developer_key = developer_key_model(account:)
-      ims_registration = lti_ims_registration_model(developer_key:)
+      developer_key = developer_key_model(account:, is_lti_key: true, public_jwk_url: "https://example.com/jwks")
+      ims_registration = lti_ims_registration_model(developer_key:, lti_registration: developer_key.lti_registration)
       admin_session
       json = api_call(:get, "/api/v1/accounts/#{account.id}/developer_keys", {
                         controller: "developer_keys",
@@ -319,8 +318,8 @@ describe DeveloperKeysController, type: :request do
     expect(DeveloperKey.where(id: key).first).to be_deleted
   end
 
-  def unauthorized_api_call(*args)
-    raw_api_call(*args)
+  def unauthorized_api_call(*)
+    raw_api_call(*)
     expect(response).to have_http_status :unauthorized
   end
 

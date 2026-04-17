@@ -27,7 +27,7 @@ class AuditLogFieldExtension < GraphQL::Schema::FieldExtension
 
       @dynamo = Canvas::DynamoDB::DatabaseBuilder.from_config(:auditors)
       @sequence = 0
-      @timestamp = Time.now
+      @timestamp = Time.zone.now
       @ttl = 90.days.from_now.to_i
     end
 
@@ -87,7 +87,7 @@ class AuditLogFieldExtension < GraphQL::Schema::FieldExtension
       end
 
       case entry
-      when SubmissionDraft
+      when SubmissionDraft, ModeratedGrading::ProvisionalGrade
         [Shard.global_id_for(entry.submission.root_account_id, entry.shard)]
       else
         raise "don't know how to resolve root_account for #{entry.inspect}"
@@ -136,22 +136,28 @@ class AuditLogFieldExtension < GraphQL::Schema::FieldExtension
       next unless AuditLogFieldExtension.enabled?
 
       mutation = field.mutation
-      # DiscussionEntryDrafts are not objects that need audit logs, they are
-      # only allowed to be created by the user, and they have timestamps, so
-      # skip audit logs for this mutation.
-      #
-      # Also skip audit logs for internal setting mutations, which can only
+      # Skip audit logs for internal setting mutations, which can only
       # be executed by siteadmins.
       #
       # Also skip audit logs for user inbox label mutations, which can only
       # be executed by the user itself. We can improve that later outside of
       # hackweek.
-      next if [Mutations::CreateDiscussionEntryDraft,
-               Mutations::CreateInternalSetting,
+      #
+      # Via the same logic for skipping audit logs for user inbox label,
+      # we can skip audit logs for updating gradebook group filter and
+      # learner dashboard tab selection, as they update the current user's settings.
+      next if [Mutations::CreateInternalSetting,
                Mutations::UpdateInternalSetting,
                Mutations::DeleteInternalSetting,
                Mutations::CreateUserInboxLabel,
-               Mutations::DeleteUserInboxLabel].include? mutation
+               Mutations::DeleteUserInboxLabel,
+               Mutations::UpdateGradebookGroupFilter,
+               Mutations::UpdateLearnerDashboardTabSelection,
+               Mutations::UpdateWidgetDashboardConfig,
+               Mutations::UpdateWidgetDashboardLayout,
+               Mutations::AcceptEnrollmentInvitation,
+               Mutations::RejectEnrollmentInvitation,
+               Mutations::SubmitAutoGradeFeedback].include? mutation
 
       logger = Logger.new(mutation, context, arguments)
 

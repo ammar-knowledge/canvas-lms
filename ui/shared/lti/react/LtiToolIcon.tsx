@@ -35,7 +35,7 @@ export type LtiToolIconProps = {
 
 export function LtiToolIcon({tool}: LtiToolIconProps) {
   const toolId = tool?.developer_key?.global_id || tool.id
-  const fallbackUrl = `/lti/tool_default_icon?id=${toolId}&name="${tool.title}"`
+  const fallbackUrl = `/lti/tool_default_icon?id=${toolId}&name=${encodeURIComponent(tool.title)}`
 
   return (
     <View>
@@ -43,7 +43,7 @@ export function LtiToolIcon({tool}: LtiToolIconProps) {
         name={tool.title}
         src={tool.icon_url || fallbackUrl}
         shape="rectangle"
-        margin="0 small"
+        margin="0 small 0 0"
         data-testid="lti-tool-icon"
       />
     </View>

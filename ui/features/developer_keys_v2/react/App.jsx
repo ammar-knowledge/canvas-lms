@@ -24,18 +24,19 @@ import {View} from '@instructure/ui-view'
 import {Text} from '@instructure/ui-text'
 import {Alert} from '@instructure/ui-alerts'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import PropTypes from 'prop-types'
 import AdminTable from './AdminTable'
 import InheritedTable from './InheritedTable'
 import DeveloperKey from './DeveloperKey'
 import NewKeyModal from './NewKeyModal'
-import {showFlashAlert, showFlashSuccess} from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert, showFlashSuccess} from '@instructure/platform-alerts'
 import DateHelper from '@canvas/datetime/dateHelper'
 import {DynamicRegistrationModal} from './dynamic_registration/DynamicRegistrationModal'
+import {Flex} from '@instructure/ui-flex'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 /**
  * @see {@link DeveloperKeysApp.developerKeySaveSuccessfulHandler}
  * @description
@@ -91,7 +92,11 @@ class DeveloperKeysApp extends React.Component {
     } = this.props
 
     if (nextPage && !listDeveloperKeysPending) {
-      return <Button onClick={this.showMoreButtonHandler}>{I18n.t('Show All Keys')}</Button>
+      return (
+        <Button data-testid="show-all-account" onClick={this.showMoreButtonHandler}>
+          {I18n.t('Show All Keys')}
+        </Button>
+      )
     }
     return null
   }
@@ -118,7 +123,9 @@ class DeveloperKeysApp extends React.Component {
 
     if (inheritedNextPage && !listInheritedDeveloperKeysPending) {
       return (
-        <Button onClick={this.showMoreInheritedButtonHandler}>{I18n.t('Show All Keys')}</Button>
+        <Button data-testid="show-all-inherited" onClick={this.showMoreInheritedButtonHandler}>
+          {I18n.t('Show All Keys')}
+        </Button>
       )
     }
     return null
@@ -139,15 +146,81 @@ class DeveloperKeysApp extends React.Component {
    * workaround and do it.
    * @todo Find a better way to avoid modal-focus-screenreader-bulldozing so
    * this isn't necessary.
-   * @param {string} warningMessage - A warning message to show to the user.
+   * @param {string | string[]} warningMessage - A warning message or a list of warning messages to show to the user.
    */
   developerKeySaveSuccessfulHandler(warningMessage) {
     setTimeout(() => {
       showFlashSuccess(I18n.t('Save successful.'))()
-      if (warningMessage) {
+      if (Array.isArray(warningMessage)) {
+        for (const message of warningMessage) {
+          if (message) {
+            showFlashAlert({message, type: 'warning'})
+          }
+        }
+      } else if (warningMessage) {
         showFlashAlert({message: warningMessage, type: 'warning'})
       }
     }, ALERT_WAIT_TIME)
+  }
+
+  alerts() {
+    return [
+      {
+        text: [
+          I18n.t(
+            `API GET requests with a body instead of query parameters will be blocked in Production soon, as part of the transition to serving Canvas using AWS CloudFront. These requests are already blocked in Beta and Test.`,
+          ),
+          I18n.t(
+            `You are being notified because this Canvas instance has recently received requests which would be blocked. You can review any current GET requests with a body on the *Reports Page*, read more in the **API Changelog**, and learn how to mitigate this change in the blog post linked there.`,
+            {
+              wrappers: [
+                `<a data-pendo='dev-key-reports-page' target='_blank' href='/accounts/${window.ENV.ACCOUNT_ID}/settings#tab-reports' style='text-decoration: underline'>$1</a>`,
+                `<a data-pendo='api-cdn-change-log' target='_blank' href='https://community.instructure.com/en/discussion/664378/2026-api-and-cli-change-log' style='text-decoration: underline'>$1</a>`,
+              ],
+            },
+          ),
+        ],
+        type: 'warning',
+        shouldShow: ENV.showApiGetWithBodyNotice,
+      },
+      {
+        text: [
+          I18n.t(
+            `API requests now require the User-Agent header to be set. These requests are now blocked in Beta, and enforcement in Test and Production is coming soon - please see the *API Change Log* for dates. `,
+            {
+              wrappers: [
+                `<a data-pendo='dev-key-change-log' target='_blank' href='https://community.instructure.com/en/discussion/626858/2025-api-and-cli-change-log/p1' style='text-decoration: underline'>$1</a>`,
+              ],
+            },
+          ),
+          I18n.t(
+            `You can review any current calls without a User-Agent set in Test and Production on the *Reports Page* until the enforcement date, and read more about the change on our **blog**.`,
+            {
+              wrappers: [
+                `<a data-pendo='dev-key-reports-page' target='_blank' href='/accounts/${window.ENV.ACCOUNT_ID}/settings#tab-reports' style='text-decoration: underline'>$1</a>`,
+                `<a data-pendo='dev-key-blog' target='_blank' href='https://community.canvaslms.com/t5/Canvas-LMS-Blog/Enforcing-User-Agent-Header-for-Canvas-API-Requests/ba-p/658205' style='text-decoration: underline'>$1</a>`,
+              ],
+            },
+          ),
+        ],
+        type: 'warning',
+        shouldShow: ENV.FEATURES?.developer_key_user_agent_alert,
+      },
+      {
+        text: [
+          I18n.t(
+            `LTI tool management is now live in *Canvas Apps*! Changes sync between both pages as we develop more features for Apps. From now on, Apps is the primary home for LTI tools.`,
+            {
+              wrappers: [
+                `<a data-pendo='dev-key-apps-link' target='_blank' href='/accounts/${window.ENV.ACCOUNT_ID}/apps/manage' style='text-decoration: underline'>$1</a>`,
+              ],
+            },
+          ),
+        ],
+        type: 'info',
+        shouldShow: true,
+      },
+    ]
   }
 
   render() {
@@ -169,22 +242,45 @@ class DeveloperKeysApp extends React.Component {
     const tab = this.state.selectedTab
     const globalInheritedList = (inheritedList || []).filter(key => key.inherited_from === 'global')
     const parentInheritedList = (inheritedList || []).filter(
-      key => key.inherited_from === 'federated_parent'
+      key => key.inherited_from === 'federated_parent',
     )
 
     return (
       <div>
-        <View as="div" margin="0 0 small 0" padding="none">
+        <View as="div" margin="none" padding="none">
           <Heading level="h1">{I18n.t('Developer Keys')}</Heading>
         </View>
+        {this.alerts()
+          .filter(alert => alert.shouldShow)
+          .map((alert, i) => (
+            <Alert
+              key={`alert-${i}`}
+              margin="medium 0"
+              variant={alert.type || 'info'}
+              hasShadow={false}
+            >
+              <Flex gap="xx-small" direction="column">
+                {alert.text.map((text, j) => (
+                  <Text
+                    key={j}
+                    dangerouslySetInnerHTML={{
+                      __html: text,
+                    }}
+                  />
+                ))}
+              </Flex>
+            </Alert>
+          ))}
         <Tabs
           onRequestTabChange={this.changeTab.bind(this)}
           shouldFocusOnRender={this.state.focusTab}
+          data-testid="developer-keys-tabs"
         >
           <Tabs.Panel
             renderTitle={I18n.t('Account')}
             id="tab-panel-account"
             isSelected={tab === 'tab-panel-account'}
+            data-testid="account-tab"
           >
             <NewKeyModal
               store={store}
@@ -204,6 +300,7 @@ class DeveloperKeysApp extends React.Component {
               developerKeysList={list}
               ctx={ctx}
               setFocus={this.focusDevKeyButton}
+              data-testid="dev-key-admin-table"
             />
             <View as="div" margin="small" padding="large" textAlign="center">
               {listDeveloperKeysPending ? <Spinner renderTitle={I18n.t('Loading')} /> : null}
@@ -216,41 +313,46 @@ class DeveloperKeysApp extends React.Component {
               elementRef={this.setInheritedTabRef}
               id="tab-panel-inherited"
               isSelected={tab === 'tab-panel-inherited'}
+              data-testid="inherited-tab"
             >
-              {parentInheritedList.length > 0 && (
-                <>
-                  <Heading margin="small" level="h2">
-                    {I18n.t('Consortium Parent Keys')}
-                  </Heading>
-                  <InheritedTable
-                    prefix="parent"
-                    label={I18n.t('Parent Inherited Developer Keys')}
-                    store={store}
-                    actions={actions}
-                    developerKeysList={parentInheritedList}
-                    ctx={ctx}
-                  />
-                  <Heading margin="small" level="h2">
-                    {I18n.t('Global Keys')}
-                  </Heading>
-                </>
-              )}
-              <InheritedTable
-                prefix="global"
-                label={I18n.t('Global Inherited Developer Keys')}
-                ref={this.setInheritedTableRef}
-                store={store}
-                actions={actions}
-                developerKeysList={globalInheritedList}
-                ctx={ctx}
-                setFocus={this.focusInheritedTab}
-              />
-              <View as="div" margin="small" padding="large" textAlign="center">
-                {listInheritedDeveloperKeysPending ? (
-                  <Spinner renderTitle={I18n.t('Loading')} />
-                ) : null}
-                {this.showMoreInheritedButton()}
-              </View>
+              <div data-testid="inherited-tab-content">
+                {parentInheritedList.length > 0 && (
+                  <>
+                    <Heading margin="small" level="h2">
+                      {I18n.t('Consortium Parent Keys')}
+                    </Heading>
+                    <InheritedTable
+                      prefix="parent"
+                      label={I18n.t('Parent Inherited Developer Keys')}
+                      store={store}
+                      actions={actions}
+                      developerKeysList={parentInheritedList}
+                      ctx={ctx}
+                      data-testid="dev-key-inherited-table"
+                    />
+                    <Heading margin="small" level="h2">
+                      {I18n.t('Global Keys')}
+                    </Heading>
+                  </>
+                )}
+                <InheritedTable
+                  prefix="global"
+                  label={I18n.t('Global Inherited Developer Keys')}
+                  ref={this.setInheritedTableRef}
+                  store={store}
+                  actions={actions}
+                  developerKeysList={globalInheritedList}
+                  ctx={ctx}
+                  setFocus={this.focusInheritedTab}
+                  data-testid="dev-key-inherited-table"
+                />
+                <View as="div" margin="small" padding="large" textAlign="center">
+                  {listInheritedDeveloperKeysPending ? (
+                    <Spinner renderTitle={I18n.t('Loading')} />
+                  ) : null}
+                  {this.showMoreInheritedButton()}
+                </View>
+              </div>
             </Tabs.Panel>
           )}
         </Tabs>

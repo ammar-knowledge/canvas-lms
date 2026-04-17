@@ -15,24 +15,31 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 import React from 'react'
 
 import CanvasMultiSelect from '@canvas/multi-select'
 import {capitalizeFirstLetter} from '@instructure/ui-utils'
-import difference from 'lodash/difference'
-import filter from 'lodash/filter'
+import {difference, filter} from 'es-toolkit/compat'
 
 import Placement from './Placement'
+import {LtiPlacements} from '../../model/LtiPlacements'
+import {filterPlacementsByFeatureFlags} from '@canvas/lti/model/LtiPlacementFilter'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 
 export default class Placements extends React.Component {
   constructor(props) {
     super(props)
+    const allPlacements = Object.values(LtiPlacements).filter(p => p !== 'default_placements')
+    const validPlacements = filterPlacementsByFeatureFlags(allPlacements)
+    const validPlacementNames = new Set(validPlacements)
+    const filteredPlacements = (props.placements || []).filter(p =>
+      validPlacementNames.has(p.placement),
+    )
     this.state = {
-      placements: this.props.placements,
+      placements: filteredPlacements,
     }
     this.placementRefs = {}
   }
@@ -48,6 +55,12 @@ export default class Placements extends React.Component {
   }
 
   placementDisplayName(p) {
+    if (p === LtiPlacements.ActivityAssetProcessor) {
+      return 'Assignment Document Processor'
+    }
+    if (p === LtiPlacements.ActivityAssetProcessorContribution) {
+      return 'Discussions Document Processor'
+    }
     return p
       .split('_')
       .map(n => capitalizeFirstLetter(n))
@@ -85,14 +98,15 @@ export default class Placements extends React.Component {
 
   render() {
     const {placements} = this.state
-    const {validPlacements} = this.props
+    const allPlacements = Object.values(LtiPlacements).filter(p => p !== 'default_placements')
+    const validPlacements = filterPlacementsByFeatureFlags(allPlacements)
 
     return (
       <>
         <CanvasMultiSelect
           label={I18n.t('Placements')}
           assistiveText={I18n.t(
-            'Select Placements. Type or use arrow keys to navigate. Multiple selections are allowed.'
+            'Select Placements. Type or use arrow keys to navigate. Multiple selections are allowed.',
           )}
           selectedOptionIds={this.placements(placements)}
           onChange={this.handlePlacementSelect}
@@ -120,15 +134,13 @@ export default class Placements extends React.Component {
 }
 
 Placements.propTypes = {
-  validPlacements: PropTypes.arrayOf(PropTypes.string),
   placements: PropTypes.arrayOf(
     PropTypes.shape({
       placement: PropTypes.string.isRequired,
-    })
+    }),
   ),
 }
 
 Placements.defaultProps = {
   placements: [{placement: 'account_navigation'}, {placement: 'link_selection'}],
-  validPlacements: [],
 }

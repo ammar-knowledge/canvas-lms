@@ -23,6 +23,7 @@ describe Api::V1::AssignmentOverride do
   let(:test_class) do
     Class.new do
       include Api::V1::AssignmentOverride
+
       attr_accessor :current_user
 
       def session
@@ -38,7 +39,7 @@ describe Api::V1::AssignmentOverride do
                    unlock_at: nil,
                    lock_at: nil }
       allow(subject).to receive(:api_find_all).and_return []
-      assignment = double(context: double(all_students: []))
+      assignment = instance_double(Assignment, context: instance_double(Course, all_students: []))
       result = subject.interpret_assignment_override_data(assignment, override, "ADHOC")
       expect(result.first[:due_at]).to be_nil
       expect(result.first[:unlock_at]).to be_nil
@@ -58,10 +59,121 @@ describe Api::V1::AssignmentOverride do
         override = { student_ids: [@student.global_id] }
 
         allow(subject).to receive(:api_find_all).and_return [@student]
-        assignment = double(context: double(all_students: []))
+        assignment = instance_double(Assignment, context: instance_double(Course, all_students: []))
         result = subject.interpret_assignment_override_data(assignment, override, "ADHOC")
         expect(result[1]).to be_nil
         expect(result.first[:students]).to eq [@student]
+      end
+    end
+
+    context "group overrides" do
+      describe "non collaborative group overrides" do
+        before :once do
+          course_with_teacher(active_all: true)
+          @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
+          @course.account.save!
+          @course.account.reload
+
+          @group_category = @course.group_categories.create!(name: "Diff Tag Group Set", non_collaborative: true)
+          @group_category.create_groups(2)
+          @differentiation_tag_group_1 = @group_category.groups.first
+          @differentiation_tag_group_2 = @group_category.groups.second
+        end
+
+        def returns_correct_hash(assignment, override)
+          allow(subject).to receive(:api_find_all).and_return [@differentiation_tag_group_1]
+          result = subject.interpret_assignment_override_data(assignment, override, nil)
+          expect(result.first[:group][:id]).to eq @differentiation_tag_group_1.id
+        end
+
+        it "returns the correct hash for wiki page override" do
+          wiki_page = @course.wiki_pages.create!(title: "Wiki Page 1")
+          override = { group_id: @differentiation_tag_group_1.id, wiki_page_id: wiki_page.id }
+          returns_correct_hash(wiki_page, override)
+        end
+
+        it "returns the correct hash for quiz override" do
+          quiz = @course.quizzes.create!(title: "Quiz 1")
+          override = { group_id: @differentiation_tag_group_1.id, quiz_id: quiz.id }
+          returns_correct_hash(quiz, override)
+        end
+
+        it "returns the correct hash for discussion topic override" do
+          discussion_topic = @course.discussion_topics.create!(title: "Discussion Topic 1")
+          override = { group_id: @differentiation_tag_group_1.id, discussion_topic_id: discussion_topic.id }
+          returns_correct_hash(discussion_topic, override)
+        end
+
+        it "returns the correct hash for assignment override" do
+          assignment = @course.assignments.create!(title: "Assignment 1")
+          override = { group_id: @differentiation_tag_group_1.id, assignment_id: assignment.id }
+          returns_correct_hash(assignment, override)
+        end
+
+        it "returns error if account setting is disabled" do
+          @course.account.settings[:allow_assign_to_differentiation_tags] = { value: false }
+          @course.account.save!
+          @course.account.reload
+
+          assignment = @course.assignments.create!(title: "Wiki Page 1")
+          override = { group_id: @differentiation_tag_group_1.id, assignment_id: assignment.id }
+          result = subject.interpret_assignment_override_data(assignment, override, nil)
+          expect(result).to eq [{}, ["group_id is not valid"]]
+        end
+      end
+
+      describe "collaborative group overrides" do
+        before :once do
+          course_with_teacher(active_all: true)
+
+          @group_category = @course.group_categories.create!(name: "Collaborative Group Set", non_collaborative: false)
+          @group_category.create_groups(2)
+          @collaborative_group_1 = @group_category.groups.first
+          @collaborative_group_1 = @group_category.groups.second
+        end
+
+        def returns_correct_hash(assignment, override)
+          allow(subject).to receive(:api_find_all).and_return [@collaborative_group_1]
+          result = subject.interpret_assignment_override_data(assignment, override, nil)
+          expect(result.first[:group][:id]).to eq @collaborative_group_1.id
+        end
+
+        it "returns the correct hash for group discussion topic" do
+          discussion_topic = @course.discussion_topics.create!(title: "Discussion Topic 1", group_category_id: @group_category.id)
+          override = { group_id: @collaborative_group_1.id, discussion_topic_id: discussion_topic.id }
+          returns_correct_hash(discussion_topic, override)
+        end
+
+        it "returns the correct hash for group assignment" do
+          assignment = @course.assignments.create!(title: "Assignment 1", group_category_id: @group_category.id)
+          override = { group_id: @collaborative_group_1.id, assignment_id: assignment.id }
+          returns_correct_hash(assignment, override)
+        end
+
+        it "returns error if group is not in the group category" do
+          group_cat = @course.group_categories.create!(name: "Another Group Category", non_collaborative: false)
+          collab_group = group_cat.groups.create!(name: "another collab group", non_collaborative: false, context: @course)
+          assignment = @course.assignments.create!(title: "Assignment 1", group_category_id: @group_category.id)
+          override = { group_id: collab_group.id, assignment_id: assignment.id }
+          allow(subject).to receive(:api_find_all).and_return [collab_group]
+          result = subject.interpret_assignment_override_data(assignment, override, nil)
+          expect(result).to eq [{}, ["group_id is not valid"]]
+        end
+
+        it "allows non collaborative group to be assigned to group assignment" do
+          @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
+          @course.account.save!
+          @course.account.reload
+
+          @group_category = @course.group_categories.create!(name: "Diff Tag Group Set", non_collaborative: true)
+          @group_category.create_groups(1)
+          @differentiation_tag_group_1 = @group_category.groups.first
+          assignment = @course.assignments.create!(title: "Assignment 1", group_category_id: @group_category.id)
+          override = { group_id: @differentiation_tag_group_1.id, assignment_id: assignment.id }
+          allow(subject).to receive(:api_find_all).and_return [@differentiation_tag_group_1]
+          result = subject.interpret_assignment_override_data(assignment, override, nil)
+          expect(result.first[:group][:id]).to eq @differentiation_tag_group_1.id
+        end
       end
     end
   end
@@ -176,7 +288,7 @@ describe Api::V1::AssignmentOverride do
         enrollment.save!
       end
 
-      context "#invisble_users_and_overrides_for_user" do
+      describe "#invisble_users_and_overrides_for_user" do
         before do
           @override.set_type = "ADHOC"
           @override_student = @override.assignment_override_students.build
@@ -220,7 +332,7 @@ describe Api::V1::AssignmentOverride do
         @student_visible = student_in_section(@section_visible, user: user_factory)
       end
 
-      context "#invisble_users_and_overrides_for_user" do
+      describe "#invisble_users_and_overrides_for_user" do
         before do
           @override.set_type = "ADHOC"
           @override_student = @override.assignment_override_students.build
@@ -236,7 +348,7 @@ describe Api::V1::AssignmentOverride do
           invisible_ids, _ = subject.invisible_users_and_overrides_for_user(
             @course, @teacher, @assignment.assignment_overrides.active
           )
-          expect(invisible_ids).to_not include(@student_invisible.id)
+          expect(invisible_ids).not_to include(@student_invisible.id)
         end
 
         it "returns no override ids in the second param" do
@@ -268,6 +380,78 @@ describe Api::V1::AssignmentOverride do
     it "delegates to AssignmentOverride.visible_enrollments_for" do
       expect(AssignmentOverride).to receive(:visible_enrollments_for).once.and_return(Enrollment.none)
       assignment_overrides_json
+    end
+
+    context "group module overrides" do
+      before do
+        @group = @course.groups.create!(name: "Group 1")
+        @context_module = ContextModule.create!(context: @course, name: "Module 1")
+        @group_override = AssignmentOverride.create!(
+          set_type: "Group",
+          set_id: @course.groups.first.id,
+          context_module_id: @context_module.id
+        )
+        @group_override.save!
+      end
+
+      it "correctly returns group overrides" do
+        expected_result = {
+          "id" => @group_override.id,
+          "context_module_id" => @context_module.id,
+          "group_id" => @group.id,
+          "group_category_id" => @group.group_category_id,
+          "non_collaborative" => false,
+          "title" => @group.name,
+          "unassign_item" => false
+        }
+        expect(test_class.new.assignment_overrides_json([@group_override], @teacher).first).to eq expected_result
+      end
+    end
+
+    context "differentiation tag overrides" do
+      before do
+        @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
+        @course.account.save!
+        @course.account.reload
+
+        @group_category = @course.group_categories.create!(name: "Diff Tag Group Set", non_collaborative: true)
+        @group_category.create_groups(2)
+        @differentiation_tag_group_1 = @group_category.groups.first
+        @differentiation_tag_group_2 = @group_category.groups.second
+      end
+
+      it "correctly includes differentiation tag overrides for an assignment" do
+        @assignment = @course.assignments.create!(title: "Assignment 1")
+        @override = @assignment.assignment_overrides.create!(set_type: "Group", set_id: @differentiation_tag_group_1.id)
+        expected_result = {
+          "id" => @override.id,
+          "assignment_id" => @assignment.id,
+          "group_id" => @differentiation_tag_group_1.id,
+          "group_category_id" => @group_category.id,
+          "non_collaborative" => true,
+          "title" => @differentiation_tag_group_1.name,
+          "unassign_item" => false
+        }
+        test = test_class.new
+        test.current_user = @teacher
+        expect(test.assignment_overrides_json([@override], @teacher).first).to eq expected_result
+      end
+
+      it "removes the 'title' of the override for users without differentiation tag read permissions" do
+        @assignment = @course.assignments.create!(title: "Assignment 1")
+        @override = @assignment.assignment_overrides.create!(set_type: "Group", set_id: @differentiation_tag_group_1.id)
+        expected_result = {
+          "id" => @override.id,
+          "assignment_id" => @assignment.id,
+          "group_id" => @differentiation_tag_group_1.id,
+          "group_category_id" => @group_category.id,
+          "non_collaborative" => true,
+          "unassign_item" => false
+        }
+        test = test_class.new
+        test.current_user = @student
+        expect(test.assignment_overrides_json([@override], @student).first).to eq expected_result
+      end
     end
 
     context "sharding" do
@@ -309,6 +493,410 @@ describe Api::V1::AssignmentOverride do
                                                           overrides_to_delete: [],
                                                           override_errors: []
                                                         })
+    end
+  end
+
+  describe "#assignment_override_json" do
+    subject(:assignment_override_json) { test_class.new.assignment_override_json(@override) }
+
+    before :once do
+      course_model
+      @assignment = assignment_model(course: @course)
+      @section = @course.course_sections.create!(name: "Test Section")
+    end
+
+    context "with parent_override_id" do
+      before :once do
+        @parent_override = @assignment.assignment_overrides.create!(
+          set: @section,
+          due_at: 1.week.from_now
+        )
+        @peer_review_sub_assignment = @assignment.peer_review_sub_assignment || @assignment.create_peer_review_sub_assignment!
+        @override = @peer_review_sub_assignment.assignment_overrides.create!(
+          set: @section,
+          due_at: 2.weeks.from_now,
+          parent_override: @parent_override
+        )
+      end
+
+      it "includes parent_override_id in the JSON response" do
+        json = assignment_override_json
+        expect(json[:parent_override_id]).to eq(@parent_override.id)
+      end
+
+      it "does not include parent_override_id when it is nil" do
+        override_without_parent = @assignment.assignment_overrides.create!(
+          set: @course.course_sections.create!(name: "Another Section"),
+          due_at: 3.weeks.from_now
+        )
+        json = test_class.new.assignment_override_json(override_without_parent)
+        expect(json).not_to have_key(:parent_override_id)
+      end
+    end
+
+    context "with include_child_peer_review_override_dates param" do
+      before :once do
+        @course = course_model
+        @teacher = teacher_in_course(course: @course, active_all: true).user
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+
+        @assignment = @course.assignments.create!(
+          title: "Assignment with Peer Review",
+          due_at: 1.week.from_now,
+          peer_reviews: true,
+          peer_reviews_assigned: true
+        )
+        @peer_review_sub = PeerReviewSubAssignment.create!(
+          parent_assignment: @assignment,
+          context: @course,
+          due_at: 1.week.from_now
+        )
+        @section = @course.course_sections.create!
+      end
+
+      it "includes child peer review override when param is true" do
+        parent_override = @assignment.assignment_overrides.create!(
+          set: @section,
+          due_at: 1.day.from_now
+        )
+
+        peer_review_override = @peer_review_sub.assignment_overrides.create!(
+          set: @section,
+          parent_override:,
+          due_at: 3.days.from_now,
+          unlock_at: 1.day.from_now,
+          lock_at: 4.days.from_now
+        )
+
+        test_instance = test_class.new
+        test_instance.instance_variable_set(:@current_user, @teacher)
+        json = test_instance.assignment_override_json(
+          parent_override,
+          nil,
+          student_names: nil,
+          module_names: nil,
+          include_child_override_due_dates: nil,
+          include_child_peer_review_override_dates: true,
+          peer_review_override:
+        )
+
+        expect(json).to have_key(:peer_review_dates)
+        expect(json[:peer_review_dates]).to be_present
+        expect(json[:peer_review_dates][:id]).to eq(peer_review_override.id)
+        expect(json[:peer_review_dates][:due_at]).to eq(peer_review_override.due_at)
+        expect(json[:peer_review_dates][:unlock_at]).to eq(peer_review_override.unlock_at)
+        expect(json[:peer_review_dates][:lock_at]).to eq(peer_review_override.lock_at)
+      end
+
+      it "does not include field when param is false" do
+        parent_override = @assignment.assignment_overrides.create!(
+          set: @section,
+          due_at: 1.day.from_now
+        )
+
+        peer_review_override = @peer_review_sub.assignment_overrides.create!(
+          set: @section,
+          parent_override:,
+          due_at: 3.days.from_now
+        )
+
+        test_instance = test_class.new
+        test_instance.instance_variable_set(:@current_user, @teacher)
+        json = test_instance.assignment_override_json(
+          parent_override,
+          nil,
+          student_names: nil,
+          module_names: nil,
+          include_child_override_due_dates: nil,
+          include_child_peer_review_override_dates: false,
+          peer_review_override:
+        )
+
+        expect(json).not_to have_key(:peer_review_dates)
+      end
+
+      it "includes field as null when no matching peer review override exists" do
+        parent_override = @assignment.assignment_overrides.create!(
+          set: @section,
+          due_at: 1.day.from_now
+        )
+
+        test_instance = test_class.new
+        test_instance.instance_variable_set(:@current_user, @teacher)
+        json = test_instance.assignment_override_json(
+          parent_override,
+          nil,
+          student_names: nil,
+          module_names: nil,
+          include_child_override_due_dates: nil,
+          include_child_peer_review_override_dates: true,
+          peer_review_override: nil
+        )
+
+        expect(json).to have_key(:peer_review_dates)
+        expect(json[:peer_review_dates]).to be_nil
+      end
+
+      it "only includes specified date fields" do
+        parent_override = @assignment.assignment_overrides.create!(
+          set: @section,
+          due_at: 1.day.from_now
+        )
+
+        peer_review_override = @peer_review_sub.assignment_overrides.create!(
+          set: @section,
+          parent_override:,
+          due_at: 3.days.from_now
+        )
+
+        test_instance = test_class.new
+        test_instance.instance_variable_set(:@current_user, @teacher)
+        json = test_instance.assignment_override_json(
+          parent_override,
+          nil,
+          student_names: nil,
+          module_names: nil,
+          include_child_override_due_dates: nil,
+          include_child_peer_review_override_dates: true,
+          peer_review_override:
+        )
+
+        pr_override_json = json[:peer_review_dates]
+        expect(pr_override_json.keys).to contain_exactly("id", "due_at", "unlock_at", "lock_at")
+      end
+    end
+  end
+
+  describe "#assignment_overrides_json N+1 query prevention" do
+    before :once do
+      @course = course_model
+      @teacher = teacher_in_course(course: @course, active_all: true).user
+      @course.enable_feature!(:peer_review_allocation_and_grading)
+
+      @assignment = @course.assignments.create!(
+        title: "Assignment with Peer Review",
+        due_at: 1.day.from_now,
+        peer_reviews: true,
+        peer_reviews_assigned: true
+      )
+
+      @peer_review_sub = PeerReviewSubAssignment.create!(
+        parent_assignment: @assignment,
+        context: @course,
+        due_at: 1.week.from_now
+      )
+
+      @sections = []
+      3.times do |i|
+        @sections << @course.course_sections.create!(name: "Section #{i + 1}")
+      end
+    end
+
+    it "avoids N+1 queries when loading peer review overrides for multiple parent overrides" do
+      parent_overrides = @sections.map do |section|
+        parent_override = @assignment.assignment_overrides.create!(
+          set: section,
+          due_at: 1.day.from_now
+        )
+
+        @peer_review_sub.assignment_overrides.create!(
+          set: section,
+          parent_override:,
+          due_at: 3.days.from_now
+        )
+
+        parent_override
+      end
+
+      test_instance = test_class.new
+      test_instance.instance_variable_set(:@current_user, @teacher)
+
+      peer_review_query_count = 0
+      subscription = ActiveSupport::Notifications.subscribe("sql.active_record") do |_name, _start, _finish, _id, payload|
+        if /SELECT.*FROM.*assignment_overrides.*WHERE.*assignment_overrides.*parent_override_id.*IN/im.match?(payload[:sql])
+          peer_review_query_count += 1
+        end
+      end
+
+      result = test_instance.assignment_overrides_json(
+        parent_overrides,
+        @teacher,
+        include_names: false,
+        include_child_override_due_dates: false,
+        include_child_peer_review_override_dates: true
+      )
+
+      ActiveSupport::Notifications.unsubscribe(subscription)
+
+      expect(result.length).to eq(3)
+      result.each do |override_json|
+        expect(override_json).to have_key(:peer_review_dates)
+        expect(override_json[:peer_review_dates]).to be_present
+        expect(override_json[:peer_review_dates]).to have_key(:id)
+        expect(override_json[:peer_review_dates]).to have_key(:due_at)
+      end
+
+      expect(peer_review_query_count).to eq(1)
+    end
+
+    it "makes single query for peer review overrides regardless of number of parent overrides" do
+      parent_overrides_with_pr = []
+      10.times do |i|
+        section = @course.course_sections.create!(name: "Section #{i + 1}")
+        parent_override = @assignment.assignment_overrides.create!(
+          set: section,
+          due_at: 1.day.from_now
+        )
+
+        @peer_review_sub.assignment_overrides.create!(
+          set: section,
+          parent_override:,
+          due_at: 3.days.from_now
+        )
+
+        parent_overrides_with_pr << parent_override
+      end
+
+      test_instance = test_class.new
+      test_instance.instance_variable_set(:@current_user, @teacher)
+
+      peer_review_query_count = 0
+      subscription = ActiveSupport::Notifications.subscribe("sql.active_record") do |_name, _start, _finish, _id, payload|
+        if /SELECT.*FROM.*assignment_overrides.*WHERE.*assignment_overrides.*parent_override_id.*IN/im.match?(payload[:sql])
+          peer_review_query_count += 1
+        end
+      end
+
+      test_instance.assignment_overrides_json(
+        parent_overrides_with_pr,
+        @teacher,
+        include_names: false,
+        include_child_override_due_dates: false,
+        include_child_peer_review_override_dates: true
+      )
+
+      ActiveSupport::Notifications.unsubscribe(subscription)
+
+      expect(peer_review_query_count).to eq(1)
+    end
+
+    it "does not query for peer review overrides when include_child_peer_review_override_dates is false" do
+      parent_overrides = @sections.map do |section|
+        parent_override = @assignment.assignment_overrides.create!(
+          set: section,
+          due_at: 1.day.from_now
+        )
+
+        @peer_review_sub.assignment_overrides.create!(
+          set: section,
+          parent_override:,
+          due_at: 3.days.from_now
+        )
+
+        parent_override
+      end
+
+      test_instance = test_class.new
+      test_instance.instance_variable_set(:@current_user, @teacher)
+
+      peer_review_query_count = 0
+      subscription = ActiveSupport::Notifications.subscribe("sql.active_record") do |_name, _start, _finish, _id, payload|
+        if /SELECT.*FROM.*assignment_overrides.*WHERE.*assignment_overrides.*parent_override_id.*IN/im.match?(payload[:sql])
+          peer_review_query_count += 1
+        end
+      end
+
+      test_instance.assignment_overrides_json(
+        parent_overrides,
+        @teacher,
+        include_names: false,
+        include_child_override_due_dates: false,
+        include_child_peer_review_override_dates: false
+      )
+
+      ActiveSupport::Notifications.unsubscribe(subscription)
+
+      expect(peer_review_query_count).to eq(0)
+    end
+
+    it "correctly maps peer review overrides to parent overrides" do
+      section1 = @sections[0]
+      section2 = @sections[1]
+
+      parent_override1 = @assignment.assignment_overrides.create!(
+        set: section1,
+        due_at: 1.day.from_now
+      )
+
+      peer_review_override1 = @peer_review_sub.assignment_overrides.create!(
+        set: section1,
+        parent_override: parent_override1,
+        due_at: 3.days.from_now
+      )
+
+      parent_override2 = @assignment.assignment_overrides.create!(
+        set: section2,
+        due_at: 2.days.from_now
+      )
+
+      peer_review_override2 = @peer_review_sub.assignment_overrides.create!(
+        set: section2,
+        parent_override: parent_override2,
+        due_at: 4.days.from_now
+      )
+
+      test_instance = test_class.new
+      test_instance.instance_variable_set(:@current_user, @teacher)
+      result = test_instance.assignment_overrides_json(
+        [parent_override1, parent_override2],
+        @teacher,
+        include_names: false,
+        include_child_override_due_dates: false,
+        include_child_peer_review_override_dates: true
+      )
+
+      override1_json = result.find { |o| o[:id] == parent_override1.id }
+      override2_json = result.find { |o| o[:id] == parent_override2.id }
+
+      expect(override1_json[:peer_review_dates][:id]).to eq(peer_review_override1.id)
+      expect(override2_json[:peer_review_dates][:id]).to eq(peer_review_override2.id)
+    end
+
+    it "handles parent overrides without peer review overrides" do
+      section1 = @sections[0]
+      section2 = @sections[1]
+
+      parent_override1 = @assignment.assignment_overrides.create!(
+        set: section1,
+        due_at: 1.day.from_now
+      )
+
+      @peer_review_sub.assignment_overrides.create!(
+        set: section1,
+        parent_override: parent_override1,
+        due_at: 3.days.from_now
+      )
+
+      parent_override2 = @assignment.assignment_overrides.create!(
+        set: section2,
+        due_at: 2.days.from_now
+      )
+
+      test_instance = test_class.new
+      test_instance.instance_variable_set(:@current_user, @teacher)
+      result = test_instance.assignment_overrides_json(
+        [parent_override1, parent_override2],
+        @teacher,
+        include_names: false,
+        include_child_override_due_dates: false,
+        include_child_peer_review_override_dates: true
+      )
+
+      override1_json = result.find { |o| o[:id] == parent_override1.id }
+      override2_json = result.find { |o| o[:id] == parent_override2.id }
+
+      expect(override1_json[:peer_review_dates]).to be_present
+      expect(override2_json[:peer_review_dates]).to be_nil
     end
   end
 end

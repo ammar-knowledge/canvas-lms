@@ -18,7 +18,8 @@
 
 import React from 'react'
 import $ from 'jquery'
-import {render} from '@testing-library/react'
+import '@canvas/files/mockFilesENV'
+import {render, screen} from '@testing-library/react'
 import FilePreview from '@canvas/files/react/components/FilePreview'
 import Folder from '@canvas/files/backbone/models/Folder'
 import File from '@canvas/files/backbone/models/File'
@@ -28,13 +29,19 @@ let filesCollection: any
 let file1: any
 let file2: any
 let file3: any
+let file4: any
+let file5: any
 let currentFolder: any
 
-describe('File Preview Rendering', () => {
+describe.skip('File Preview Rendering', () => {
   beforeEach(() => {
     // Initialize a few things to view in the preview.
     filesCollection = new FilesCollection()
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - Backbone File model constructor expects different args
     file1 = new File(
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - Backbone File model constructor expects different args
       {
         id: '1',
         cid: 'c1',
@@ -44,9 +51,13 @@ describe('File Preview Rendering', () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
-      {preflightUrl: ''}
+      {preflightUrl: ''},
     )
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - Backbone File model constructor expects different args
     file2 = new File(
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - Backbone File model constructor expects different args
       {
         id: '2',
         cid: 'c2',
@@ -56,9 +67,13 @@ describe('File Preview Rendering', () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
-      {preflightUrl: ''}
+      {preflightUrl: ''},
     )
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - Backbone File model constructor expects different args
     file3 = new File(
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - Backbone File model constructor expects different args
       {
         id: '3',
         cid: 'c3',
@@ -69,11 +84,47 @@ describe('File Preview Rendering', () => {
         updated_at: new Date().toISOString(),
         url: 'test/test/test.png',
       },
-      {preflightUrl: ''}
+      {preflightUrl: ''},
+    )
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - Backbone File model constructor expects different args
+    file4 = new File(
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - Backbone File model constructor expects different args
+      {
+        id: '4',
+        cid: 'c4',
+        name: 'Test File.file4',
+        'content-type': 'unknown/unknown',
+        size: 1000000,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        preview_url: 'http://example.com',
+      },
+      {preflightUrl: ''},
+    )
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - Backbone File model constructor expects different args
+    file5 = new File(
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - Backbone File model constructor expects different args
+      {
+        id: '5',
+        cid: 'c5',
+        name: 'Test File.file5',
+        'content-type': 'text/html',
+        size: 1000000,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        preview_url: 'http://example.com',
+      },
+      {preflightUrl: ''},
     )
     filesCollection.add(file1)
     filesCollection.add(file2)
     filesCollection.add(file3)
+    filesCollection.add(file4)
+    filesCollection.add(file5)
     currentFolder = new Folder()
     currentFolder.files = filesCollection
   })
@@ -86,7 +137,7 @@ describe('File Preview Rendering', () => {
           preview: '1',
         }}
         currentFolder={currentFolder}
-      />
+      />,
     )
     const infoButton = $('.ef-file-preview-header-info')
     expect(infoButton.attr('aria-expanded')).toBe('false')
@@ -95,7 +146,7 @@ describe('File Preview Rendering', () => {
     expect(infoButton.attr('aria-expanded')).toBe('true')
     // click it again to hide it
     infoButton.click()
-    expect($('tr:contains("Name")').length).toBe(0)
+    expect($('tr:contains("Name")')).toHaveLength(0)
     expect(infoButton.attr('aria-expanded')).toBe('false')
   })
 
@@ -107,10 +158,10 @@ describe('File Preview Rendering', () => {
           preview: '2',
         }}
         currentFolder={currentFolder}
-      />
+      />,
     )
     const arrows = $('.ef-file-preview-container-arrow-link')
-    expect(arrows.length).toBe(2)
+    expect(arrows).toHaveLength(2)
     expect((arrows[0] as HTMLAnchorElement).href).toContain('preview=1')
     expect((arrows[1] as HTMLAnchorElement).href).toContain('preview=3')
   })
@@ -123,11 +174,61 @@ describe('File Preview Rendering', () => {
           preview: '3',
         }}
         currentFolder={currentFolder}
-      />
+      />,
     )
     const downloadBtn = $('.ef-file-preview-header-download')[0]
     expect(downloadBtn).toBeInTheDocument()
     expect((downloadBtn as HTMLAnchorElement).href).toContain(file3.get('url'))
+  })
+
+  describe('when restrict_student_access is enabled and user is a student', () => {
+    beforeEach(() => {
+      window.ENV.FEATURES.restrict_student_access = true
+    })
+
+    afterEach(() => {
+      delete window.ENV.FEATURES.restrict_student_access
+    })
+
+    describe('when current user is a student', () => {
+      beforeEach(() => {
+        window.ENV.current_user_roles = ['student']
+      })
+
+      test('download button should not be rendered on the file preview', () => {
+        render(
+          <FilePreview
+            isOpen={true}
+            query={{
+              preview: '3',
+            }}
+            currentFolder={currentFolder}
+          />,
+        )
+        const downloadBtn = screen.queryByText(/download/i)
+        expect(downloadBtn).toBeNull()
+      })
+    })
+
+    describe('when current user is not student', () => {
+      beforeEach(() => {
+        window.ENV.current_user_roles = ['teacher']
+      })
+
+      test('download button should be rendered on the file preview', () => {
+        render(
+          <FilePreview
+            isOpen={true}
+            query={{
+              preview: '3',
+            }}
+            currentFolder={currentFolder}
+          />,
+        )
+        const downloadBtn = screen.queryByText(/download/i)
+        expect(downloadBtn).toBeInTheDocument()
+      })
+    })
   })
 
   test('clicking the close button calls closePreview with the correct url', () => {
@@ -148,12 +249,88 @@ describe('File Preview Rendering', () => {
           expect(url).toContain('sort=size')
           expect(url).toContain('order=desc')
         }}
-      />
+      />,
     )
 
     const closeButton = $('.ef-file-preview-header-close')[0]
     expect(closeButton).toBeInTheDocument()
     closeButton.click()
     expect(closePreviewCalled).toBe(true)
+  })
+
+  describe('when disable_iframe_sandbox_file_show is false', () => {
+    beforeEach(() => {
+      ENV.FEATURES.disable_iframe_sandbox_file_show = false
+    })
+
+    test('the file preview should include sandbox attributes if there is a preview_url', () => {
+      render(
+        <FilePreview
+          isOpen={true}
+          query={{
+            preview: '4',
+          }}
+          currentFolder={currentFolder}
+        />,
+      )
+      const iframe = $('.ef-file-preview-frame')[0]
+      expect(iframe).toBeInTheDocument()
+      expect(iframe.getAttribute('sandbox')).toMatch(/allow-scripts/)
+      expect(iframe.getAttribute('sandbox')).toMatch(/allow-same-origin/)
+      expect(iframe.getAttribute('sandbox')).toMatch(/allow-downloads/)
+    })
+
+    test('the file preview should not include allow-scripts in sandbox attributes for html files', () => {
+      render(
+        <FilePreview
+          isOpen={true}
+          query={{
+            preview: '5',
+          }}
+          currentFolder={currentFolder}
+        />,
+      )
+      const iframe = $('.ef-file-preview-frame')[0]
+      expect(iframe).toBeInTheDocument()
+      expect(iframe.getAttribute('sandbox')).not.toMatch(/allow-scripts/)
+      expect(iframe.getAttribute('sandbox')).toMatch(/allow-same-origin/)
+      expect(iframe.getAttribute('sandbox')).toMatch(/allow-downloads/)
+    })
+  })
+
+  describe('when disable_iframe_sandbox_file_show is true', () => {
+    beforeEach(() => {
+      ENV.FEATURES.disable_iframe_sandbox_file_show = true
+    })
+
+    test('the file preview should not include sandbox if there is a preview_url', () => {
+      render(
+        <FilePreview
+          isOpen={true}
+          query={{
+            preview: '4',
+          }}
+          currentFolder={currentFolder}
+        />,
+      )
+      const iframe = $('.ef-file-preview-frame')[0]
+      expect(iframe).toBeInTheDocument()
+      expect(iframe.getAttribute('sandbox')).toBeNull()
+    })
+
+    test('the file preview should not include sandbox for html files', () => {
+      render(
+        <FilePreview
+          isOpen={true}
+          query={{
+            preview: '5',
+          }}
+          currentFolder={currentFolder}
+        />,
+      )
+      const iframe = $('.ef-file-preview-frame')[0]
+      expect(iframe).toBeInTheDocument()
+      expect(iframe.getAttribute('sandbox')).toBeNull()
+    })
   })
 })

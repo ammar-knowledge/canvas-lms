@@ -16,461 +16,360 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useEffect, useRef, useState} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {colors} from '@instructure/canvas-theme'
-import {ScreenReaderContent} from '@instructure/ui-a11y-content'
+import React, {useEffect, useMemo, useRef, useState} from 'react'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Flex} from '@instructure/ui-flex'
 import {View} from '@instructure/ui-view'
-import {SimpleSelect} from '@instructure/ui-simple-select'
-import {Button, CloseButton} from '@instructure/ui-buttons'
-import {Text} from '@instructure/ui-text'
 import type {
   RubricAssessmentData,
-  RubricAssessmentSelect,
   RubricCriterion,
+  RubricSubmissionUser,
+  RubricRating,
   UpdateAssessmentData,
 } from '../types/rubric'
-import {ModernView} from './ModernView'
+import {ModernView, type ModernViewModes} from './ModernView'
 import {TraditionalView} from './TraditionalView'
-import {possibleString} from '../Points'
+import {findCriterionMatchingRatingIndex, isRubricComplete} from './utils/rubricUtils'
+import useLocalStorage from '@canvas/local-storage'
+import * as CONSTANTS from './constants'
+import {type ViewMode} from './ViewModeSelect'
+import {AssessmentHeader} from './AssessmentHeader'
+import {AssessmentFooter} from './AssessmentFooter'
 
-const I18n = useI18nScope('rubrics-assessment-tray')
+const I18n = createI18nScope('rubrics-assessment-tray')
 
-const MAX_TRADITIONAL_CRITERIA_RATINGS = 5
-
-export type ViewMode = 'horizontal' | 'vertical' | 'traditional'
-const {ash, shamrock} = colors
-
-type RubricAssessmentContainerProps = {
+export type RubricAssessmentContainerProps = {
+  buttonDisplay: string
   criteria: RubricCriterion[]
+  currentUserId: string
   hidePoints: boolean
   isPreviewMode: boolean
   isPeerReview: boolean
+  isSelfAssessment?: boolean
   isFreeFormCriterionComments: boolean
+  isStandaloneContainer?: boolean
   ratingOrder: string
   rubricTitle: string
+  pointsPossible?: number
   rubricAssessmentData: RubricAssessmentData[]
-  rubricAssessmentId: string
-  rubricAssessors: RubricAssessmentSelect
   rubricSavedComments?: Record<string, string[]>
-  selectedViewMode: ViewMode
-  onAccessorChange: (accessorId: string) => void
-  onViewModeChange: (viewMode: ViewMode) => void
+  selfAssessment?: RubricAssessmentData[] | null
+  selfAssessmentDate?: string
+  submissionUser?: RubricSubmissionUser
+  viewModeOverride?: ViewMode
+  onViewModeChange?: (viewMode: ViewMode) => void
   onDismiss: () => void
-  onSubmit?: () => void
-  onUpdateAssessmentData: (params: UpdateAssessmentData) => void
+  onSubmit?: (rubricAssessmentDraftData: RubricAssessmentData[]) => void
+  triggerValidationAndFocus?: number
 }
 export const RubricAssessmentContainer = ({
+  buttonDisplay,
   criteria,
+  currentUserId,
   hidePoints,
   isPreviewMode,
   isPeerReview,
+  isSelfAssessment = false,
   isFreeFormCriterionComments,
+  pointsPossible,
+  isStandaloneContainer = false,
   ratingOrder,
   rubricTitle,
   rubricAssessmentData,
-  rubricAssessmentId,
-  rubricAssessors,
   rubricSavedComments = {},
-  selectedViewMode,
-  onAccessorChange,
+  selfAssessment,
+  selfAssessmentDate,
+  submissionUser,
+  viewModeOverride,
   onDismiss,
   onSubmit,
   onViewModeChange,
-  onUpdateAssessmentData,
+  triggerValidationAndFocus = 0,
 }: RubricAssessmentContainerProps) => {
-  const isTraditionalView = selectedViewMode === 'traditional'
-  const instructorPoints = rubricAssessmentData.reduce((prev, curr) => prev + (curr.points ?? 0), 0)
-  const disableTraditionalView = criteria.some(
-    c => c.ratings.length > MAX_TRADITIONAL_CRITERIA_RATINGS
+  const [viewModeSelect, setViewModeSelect] = useLocalStorage<ViewMode>(
+    CONSTANTS.RUBRIC_VIEW_MODE_LOCALSTORAGE_KEY(currentUserId),
+    viewModeOverride ?? CONSTANTS.RUBRIC_VIEW_MODE_DEFAULT,
   )
 
-  const [distanceToBottom, setDistanceToBottom] = useState<number>(0)
-  const containerRef = useRef<HTMLElement>()
+  const [rubricAssessmentDraftData, setRubricAssessmentDraftData] = useState<
+    RubricAssessmentData[]
+  >([])
+  const [showSelfAssessment, setShowSelfAssessment] = useState<boolean>(false)
+  let viewMode = viewModeOverride ?? viewModeSelect
+  const isTraditionalView = viewMode === 'traditional'
+  const isVerticalView = viewModeSelect === 'vertical'
+  if (isVerticalView && isFreeFormCriterionComments) {
+    viewMode = 'horizontal'
+  }
+  const instructorPoints = rubricAssessmentDraftData.reduce(
+    (prev, curr) => prev + (!curr.ignoreForScoring && curr.points ? curr.points : 0),
+    0,
+  )
 
-  useEffect(() => {
-    const calculateDistance = () => {
-      if (containerRef.current) {
-        const rect = (containerRef.current as HTMLElement).getBoundingClientRect()
-        const isMasquerade = !!document.querySelector('body.is-masquerading-or-student-view')
-        const masqueradeHeight = isMasquerade ? 50 : 0
-        const distance = window.innerHeight - rect.bottom - masqueradeHeight
-        setDistanceToBottom(distance)
-      }
+  const [validationErrors, setValidationErrors] = useState<string[]>([])
+  const containerRef = useRef<HTMLElement | null>(null)
+  const submitButtonRef = useRef<HTMLButtonElement | null>(null)
+  const lastProcessedTriggerRef = useRef(0)
+
+  const selfAssessmentData: RubricAssessmentData[] = useMemo(() => {
+    if (!showSelfAssessment) {
+      return []
     }
 
-    calculateDistance()
-  }, [containerRef])
+    return (
+      selfAssessment?.map(entry => ({
+        id: entry.id,
+        points: entry.points,
+        criterionId: entry.criterionId,
+        comments: entry.comments,
+        commentsEnabled: entry.commentsEnabled,
+        description: entry.description,
+        updatedAt: selfAssessmentDate,
+      })) ?? []
+    )
+  }, [selfAssessment, showSelfAssessment, selfAssessmentDate])
+
+  useEffect(() => {
+    const updatedRubricAssessmentData = rubricAssessmentData.map(rubricAssessment => {
+      const matchingCriteria = criteria?.find(c => c.id === rubricAssessment.criterionId)
+      const ignoreForScoring = matchingCriteria?.ignoreForScoring || false
+
+      return {
+        ...rubricAssessment,
+        ignoreForScoring,
+      }
+    })
+
+    setRubricAssessmentDraftData(updatedRubricAssessmentData)
+  }, [rubricAssessmentData, criteria])
+
+  const preSubmitValidation = (): string[] => {
+    const errors = criteria.reduce((acc: string[], criterion: RubricCriterion) => {
+      const assessment = rubricAssessmentDraftData.find(data => data.criterionId === criterion.id)
+
+      const requiresComments = isFreeFormCriterionComments && hidePoints
+      const requiresPoints = !requiresComments
+
+      if (requiresComments && !assessment?.comments) {
+        acc.push(criterion.id)
+      }
+
+      if (requiresPoints && typeof assessment?.points !== 'number') {
+        acc.push(criterion.id)
+      }
+
+      return acc
+    }, [])
+
+    setValidationErrors(errors)
+    return errors
+  }
+
+  const validateOnSubmit = (rubricAssessmentDraftData: RubricAssessmentData[]) => {
+    if (isPeerReview) {
+      if (preSubmitValidation().length === 0) {
+        onSubmit?.(rubricAssessmentDraftData)
+      }
+    } else {
+      onSubmit?.(rubricAssessmentDraftData)
+    }
+  }
+
+  useEffect(() => {
+    if (!triggerValidationAndFocus || triggerValidationAndFocus === lastProcessedTriggerRef.current)
+      return
+    lastProcessedTriggerRef.current = triggerValidationAndFocus
+    const errors = preSubmitValidation()
+
+    if (errors.length === 0) {
+      submitButtonRef.current?.focus()
+      return
+    }
+
+    if (!containerRef.current) return
+    const container = containerRef.current
+    const firstErrorId = errors[0]
+    if (!hidePoints) {
+      const input = container.querySelector(
+        `[data-criterion-score-id="${firstErrorId}"]`,
+      ) as HTMLInputElement | null
+      input?.focus()
+    } else if (isFreeFormCriterionComments) {
+      const commentArea = container.querySelector(
+        `[data-criterion-comment-id="${firstErrorId}"]`,
+      ) as HTMLTextAreaElement | null
+      commentArea?.focus()
+    } else {
+      const ratingContainer = container.querySelector(
+        `[data-criterion-id="${firstErrorId}"]`,
+      ) as Element | null
+      const firstButton = ratingContainer?.querySelector('button') as HTMLButtonElement | null
+      firstButton?.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    triggerValidationAndFocus,
+    criteria,
+    rubricAssessmentDraftData,
+    isFreeFormCriterionComments,
+    hidePoints,
+  ])
 
   const renderViewContainer = () => {
-    if (isTraditionalView) {
+    if (isTraditionalView && !isSelfAssessment) {
       return (
         <TraditionalView
           criteria={criteria}
           hidePoints={hidePoints}
           ratingOrder={ratingOrder}
-          rubricAssessmentData={rubricAssessmentData}
+          rubricAssessmentData={rubricAssessmentDraftData}
           rubricTitle={rubricTitle}
           rubricSavedComments={rubricSavedComments}
           isPreviewMode={isPreviewMode}
           isPeerReview={isPeerReview}
           isFreeFormCriterionComments={isFreeFormCriterionComments}
+          selfAssessment={selfAssessmentData}
+          submissionUser={submissionUser}
           onUpdateAssessmentData={onUpdateAssessmentData}
+          validationErrors={validationErrors}
         />
       )
     }
 
     return (
       <ModernView
+        buttonDisplay={buttonDisplay}
         criteria={criteria}
         hidePoints={hidePoints}
         isPreviewMode={isPreviewMode}
         isPeerReview={isPeerReview}
+        isSelfAssessment={isSelfAssessment}
         ratingOrder={ratingOrder}
         rubricSavedComments={rubricSavedComments}
-        rubricAssessmentData={rubricAssessmentData}
-        selectedViewMode={selectedViewMode}
-        onUpdateAssessmentData={onUpdateAssessmentData}
+        rubricAssessmentData={rubricAssessmentDraftData}
+        selectedViewMode={viewMode as ModernViewModes}
         isFreeFormCriterionComments={isFreeFormCriterionComments}
+        validationErrors={validationErrors}
+        selfAssessment={selfAssessmentData}
+        onUpdateAssessmentData={onUpdateAssessmentData}
+        submissionUser={submissionUser}
       />
     )
   }
 
-  useEffect(() => {
-    if (selectedViewMode === 'traditional' && disableTraditionalView) {
-      onViewModeChange('vertical')
-    }
-  }, [criteria, disableTraditionalView, onViewModeChange, selectedViewMode])
-
   const rubricHeader = isPeerReview ? I18n.t('Peer Review') : I18n.t('Rubric')
 
+  const handleViewModeChange = (newViewMode: ViewMode) => {
+    setViewModeSelect(newViewMode)
+    onViewModeChange?.(newViewMode)
+  }
+
+  const onUpdateAssessmentData = (params: UpdateAssessmentData) => {
+    const {criterionId, points, comments = '', saveCommentsForLater, ratingId} = params
+    const existingAssessmentIndex = rubricAssessmentDraftData.findIndex(
+      a => a.criterionId === criterionId,
+    )
+    const matchingCriteria = criteria?.find(c => c.id === criterionId)
+    const ignoreForScoring = matchingCriteria?.ignoreForScoring || false
+    const criteriaRatings = matchingCriteria?.ratings ?? []
+    const matchingRating: RubricRating | undefined = ratingId
+      ? criteriaRatings.find(r => r.id === ratingId)
+      : criteriaRatings[
+          findCriterionMatchingRatingIndex(
+            matchingCriteria?.ratings ?? [],
+            points,
+            matchingCriteria?.criterionUseRange,
+          )
+        ]
+    const matchingRatingId = matchingRating?.id ?? ''
+    const ratingDescription = matchingRating?.description ?? ''
+    if (existingAssessmentIndex === -1) {
+      setRubricAssessmentDraftData([
+        ...rubricAssessmentDraftData,
+        {
+          criterionId,
+          points,
+          comments,
+          id: matchingRatingId,
+          ignoreForScoring,
+          commentsEnabled: true,
+          description: ratingDescription,
+          saveCommentsForLater,
+        },
+      ])
+    } else {
+      setRubricAssessmentDraftData(
+        rubricAssessmentDraftData.map(a =>
+          a.criterionId === criterionId
+            ? {
+                ...a,
+                comments,
+                id: matchingRatingId,
+                points,
+                ignoreForScoring,
+                description: ratingDescription,
+                saveCommentsForLater,
+              }
+            : a,
+        ),
+      )
+    }
+  }
+
+  const shouldShowFooter = isStandaloneContainer || (!isPreviewMode && onSubmit)
+
   return (
-    <View as="div" padding="medium medium 0 medium" themeOverride={{paddingMedium: '1rem'}}>
-      <Flex
-        as="div"
-        direction="column"
-        height={`${distanceToBottom}px`}
-        elementRef={elRef => {
-          if (elRef instanceof HTMLElement) {
-            containerRef.current = elRef
-          }
-        }}
-      >
+    <View
+      as="div"
+      data-testid="enhanced-rubric-assessment-container"
+      elementRef={(el: Element | null) => {
+        containerRef.current = el as HTMLElement | null
+      }}
+    >
+      <Flex as="div" direction="column">
         <Flex.Item as="header">
           <AssessmentHeader
-            disableTraditionalView={disableTraditionalView}
             hidePoints={hidePoints}
             instructorPoints={instructorPoints}
             isFreeFormCriterionComments={isFreeFormCriterionComments}
             isPreviewMode={isPreviewMode}
             isPeerReview={isPeerReview}
+            pointsPossible={pointsPossible}
+            isSelfAssessment={isSelfAssessment}
+            isStandaloneContainer={isStandaloneContainer}
             isTraditionalView={isTraditionalView}
-            onAccessorChange={onAccessorChange}
             onDismiss={onDismiss}
-            onViewModeChange={onViewModeChange}
-            rubricAssessmentId={rubricAssessmentId}
-            rubricAssessors={rubricAssessors}
+            onViewModeChange={handleViewModeChange}
             rubricHeader={rubricHeader}
-            selectedViewMode={selectedViewMode}
+            selectedViewMode={viewMode}
+            selfAssessmentEnabled={!!selfAssessment}
+            toggleSelfAssessment={() => setShowSelfAssessment(!showSelfAssessment)}
           />
         </Flex.Item>
-        <Flex.Item shouldGrow={true} shouldShrink={true} as="main">
+        <Flex.Item shouldGrow shouldShrink as="div" id="rubric-assessment-view-container">
           <View as="div" overflowY="auto">
             {renderViewContainer()}
           </View>
         </Flex.Item>
-        {!isPreviewMode && onSubmit && (
+        {shouldShowFooter && (
           <Flex.Item as="footer">
-            <AssessmentFooter onSubmit={onSubmit} />
+            <AssessmentFooter
+              isPreviewMode={isPreviewMode}
+              isStandAloneContainer={isStandaloneContainer}
+              isRubricComplete={isRubricComplete({
+                criteria,
+                isFreeFormCriterionComments,
+                hidePoints,
+                rubricAssessment: rubricAssessmentDraftData,
+              })}
+              onDismiss={onDismiss}
+              onSubmit={onSubmit ? () => validateOnSubmit(rubricAssessmentDraftData) : undefined}
+              onSubmitButtonRef={(el: HTMLButtonElement | null) => {
+                submitButtonRef.current = el
+              }}
+            />
           </Flex.Item>
         )}
-      </Flex>
-    </View>
-  )
-}
-
-type ViewModeSelectProps = {
-  disableTraditionalView: boolean
-  isFreeFormCriterionComments: boolean
-  selectedViewMode: ViewMode
-  onViewModeChange: (viewMode: ViewMode) => void
-}
-const ViewModeSelect = ({
-  disableTraditionalView,
-  isFreeFormCriterionComments,
-  selectedViewMode,
-  onViewModeChange,
-}: ViewModeSelectProps) => {
-  const handleSelect = (viewMode: string) => {
-    onViewModeChange(viewMode as ViewMode)
-  }
-
-  return (
-    <SimpleSelect
-      renderLabel={
-        <ScreenReaderContent>{I18n.t('Rubric Assessment View Mode')}</ScreenReaderContent>
-      }
-      width="10rem"
-      height="2.375rem"
-      value={selectedViewMode}
-      data-testid="rubric-assessment-view-mode-select"
-      onChange={(_e, {value}) => handleSelect(value as string)}
-    >
-      <SimpleSelect.Option
-        id="traditional"
-        value="traditional"
-        isDisabled={disableTraditionalView}
-        data-testid="traditional-view-option"
-      >
-        {I18n.t('Traditional')}
-      </SimpleSelect.Option>
-      <SimpleSelect.Option id="horizontal" value="horizontal" data-testid="horizontal-view-option">
-        {I18n.t('Horizontal')}
-      </SimpleSelect.Option>
-      {!isFreeFormCriterionComments && (
-        <SimpleSelect.Option id="vertical" value="vertical" data-testid="vertical-view-option">
-          {I18n.t('Vertical')}
-        </SimpleSelect.Option>
-      )}
-    </SimpleSelect>
-  )
-}
-
-type InstructorScoreProps = {
-  instructorPoints: number
-  isPeerReview: boolean
-  isPreviewMode: boolean
-}
-const InstructorScore = ({
-  instructorPoints = 0,
-  isPeerReview,
-  isPreviewMode,
-}: InstructorScoreProps) => {
-  return (
-    <Flex as="div" height="3rem" alignItems="center">
-      <Flex.Item as="div" width="13.813rem" align="center">
-        <div
-          style={{
-            lineHeight: '3rem',
-            width: '13.813rem',
-            height: '3rem',
-            backgroundColor: '#F5F5F5',
-            borderRadius: '.35rem 0 0 .35rem',
-          }}
-        >
-          <View as="span" margin="0 0 0 small">
-            <Text size="medium" weight="bold">
-              {isPeerReview ? I18n.t('Peer Review Score') : I18n.t('Instructor Score')}
-            </Text>
-          </View>
-        </div>
-      </Flex.Item>
-      <Flex.Item as="div" width="4.313rem" height="3rem">
-        <div
-          style={{
-            lineHeight: '3rem',
-            width: '4.313rem',
-            height: '3rem',
-            backgroundColor: isPreviewMode ? ash : shamrock,
-            borderRadius: '0 .35rem .35rem 0',
-            textAlign: 'center',
-          }}
-        >
-          <Text
-            size="medium"
-            weight="bold"
-            color="primary-inverse"
-            data-testid="rubric-assessment-instructor-score"
-          >
-            {possibleString(instructorPoints)}
-          </Text>
-        </div>
-      </Flex.Item>
-    </Flex>
-  )
-}
-
-type AccessorSelectProps = {
-  rubricAssessmentId: string
-  rubricAssessors: RubricAssessmentSelect
-  showLabel: boolean
-  onAccessorChange: (accessorId: string) => void
-}
-const AccessorSelect = ({
-  rubricAssessmentId,
-  rubricAssessors,
-  showLabel,
-  onAccessorChange,
-}: AccessorSelectProps) => {
-  const label = I18n.t('Select Rubric')
-  return (
-    <SimpleSelect
-      data-testid="rubric-assessment-accessor-select"
-      renderLabel={showLabel ? label : <ScreenReaderContent>{label}</ScreenReaderContent>}
-      value={rubricAssessmentId}
-      onChange={(e, {value}) => onAccessorChange((value ?? '') as string)}
-    >
-      {rubricAssessors.map(assessor => (
-        <SimpleSelect.Option key={assessor.id} id={assessor.id} value={assessor.id}>
-          {assessor.name ?? ''}
-        </SimpleSelect.Option>
-      ))}
-    </SimpleSelect>
-  )
-}
-
-type AssessmentHeaderProps = {
-  disableTraditionalView: boolean
-  hidePoints: boolean
-  instructorPoints: number
-  isFreeFormCriterionComments: boolean
-  isPreviewMode: boolean
-  isPeerReview: boolean
-  isTraditionalView: boolean
-  onDismiss: () => void
-  onViewModeChange: (viewMode: ViewMode) => void
-  onAccessorChange: (accessorId: string) => void
-  rubricAssessmentId: string
-  rubricAssessors: RubricAssessmentSelect
-  rubricHeader: string
-  selectedViewMode: ViewMode
-}
-const AssessmentHeader = ({
-  disableTraditionalView,
-  hidePoints,
-  instructorPoints,
-  isFreeFormCriterionComments,
-  isPreviewMode,
-  isPeerReview,
-  isTraditionalView,
-  onAccessorChange,
-  onDismiss,
-  onViewModeChange,
-  rubricAssessmentId,
-  rubricAssessors,
-  rubricHeader,
-  selectedViewMode,
-}: AssessmentHeaderProps) => {
-  return (
-    <View
-      as="div"
-      padding={isTraditionalView ? '0 0 medium 0' : '0'}
-      overflowX="hidden"
-      overflowY="hidden"
-    >
-      <Flex>
-        <Flex.Item align="end">
-          <Text weight="bold" size="large" data-testid="rubric-assessment-header">
-            {rubricHeader}
-          </Text>
-        </Flex.Item>
-        <Flex.Item align="end">
-          <CloseButton
-            placement="end"
-            offset="x-small"
-            screenReaderLabel="Close"
-            onClick={onDismiss}
-          />
-        </Flex.Item>
-      </Flex>
-
-      <View as="hr" margin="x-small 0 small" aria-hidden={true} />
-      <Flex>
-        <Flex.Item shouldGrow={true} shouldShrink={true}>
-          <ViewModeSelect
-            disableTraditionalView={disableTraditionalView}
-            isFreeFormCriterionComments={isFreeFormCriterionComments}
-            selectedViewMode={selectedViewMode}
-            onViewModeChange={onViewModeChange}
-          />
-        </Flex.Item>
-        {isTraditionalView && (
-          <>
-            {rubricAssessors.length > 0 && rubricAssessmentId && (
-              <Flex.Item>
-                <View as="div" margin="0 large 0 0" themeOverride={{marginLarge: '2.938rem'}}>
-                  <AccessorSelect
-                    rubricAssessmentId={rubricAssessmentId}
-                    rubricAssessors={rubricAssessors}
-                    showLabel={false}
-                    onAccessorChange={onAccessorChange}
-                  />
-                </View>
-              </Flex.Item>
-            )}
-            {!hidePoints && (
-              <Flex.Item>
-                <View as="div" margin="0 large 0 0" themeOverride={{marginLarge: '2.938rem'}}>
-                  <InstructorScore
-                    isPeerReview={isPeerReview}
-                    instructorPoints={instructorPoints}
-                    isPreviewMode={isPreviewMode}
-                  />
-                </View>
-              </Flex.Item>
-            )}
-          </>
-        )}
-        {/* <Flex.Item margin="0 0 0 small">
-          <IconButton disabled={isPreviewMode} screenReaderLabel="Print">
-            <IconPrinterLine />
-          </IconButton>
-        </Flex.Item>
-        <Flex.Item margin="0 0 0 small">
-          <IconButton disabled={isPreviewMode} screenReaderLabel="Download">
-            <IconDownloadLine />
-          </IconButton>
-        </Flex.Item> */}
-      </Flex>
-
-      {!isTraditionalView && (
-        <>
-          {rubricAssessors.length > 0 && rubricAssessmentId && (
-            <Flex.Item margin="0 0 0 small">
-              <AccessorSelect
-                rubricAssessmentId={rubricAssessmentId}
-                rubricAssessors={rubricAssessors}
-                showLabel={true}
-                onAccessorChange={onAccessorChange}
-              />
-            </Flex.Item>
-          )}
-
-          {!hidePoints && (
-            <Flex.Item margin="0 0 0 small">
-              <InstructorScore
-                isPeerReview={isPeerReview}
-                instructorPoints={instructorPoints}
-                isPreviewMode={isPreviewMode}
-              />
-            </Flex.Item>
-          )}
-
-          <View as="hr" margin="medium 0 medium 0" aria-hidden={true} />
-        </>
-      )}
-    </View>
-  )
-}
-
-type AssessmentFooterProps = {
-  onSubmit?: () => void
-}
-const AssessmentFooter = ({onSubmit}: AssessmentFooterProps) => {
-  return (
-    <View as="div" data-testid="rubric-assessment-footer">
-      <View as="hr" margin="0" />
-      <Flex justifyItems="end" margin="small 0">
-        <Flex.Item>
-          <Button
-            color="primary"
-            onClick={() => onSubmit?.()}
-            data-testid="save-rubric-assessment-button"
-          >
-            {I18n.t('Submit Assessment')}
-          </Button>
-        </Flex.Item>
       </Flex>
     </View>
   )

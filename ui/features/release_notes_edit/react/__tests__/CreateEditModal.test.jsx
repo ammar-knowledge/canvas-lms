@@ -31,14 +31,14 @@ describe('create modal', () => {
         currentNote={undefined}
         envs={['test']}
         langs={['en', 'es']}
-      />
+      />,
     )
     expect(getByText('Everyone')).toBeInTheDocument()
   })
 
-  // TODO unskip and finish these tests after upgrading jest/jsdom
+  // TODO unskip and finish these tests after upgrading vi/jsdom
   it.skip('It blocks submission unless the basic english fields are completed', async () => {
-    const onSubmit = jest.fn()
+    const onSubmit = vi.fn()
     const {getByLabelText, getByText} = render(
       <CreateEditModal
         open={true}
@@ -47,7 +47,7 @@ describe('create modal', () => {
         currentNote={undefined}
         envs={['test']}
         langs={['en', 'es']}
-      />
+      />,
     )
     expect(getByText('Save').closest('button')).toBeDisabled()
     await userEvent.type(getByLabelText('Title'), 'A great english title')
@@ -59,7 +59,7 @@ describe('create modal', () => {
   })
 
   it.skip('It submits the expected object', async () => {
-    const onSubmit = jest.fn()
+    const onSubmit = vi.fn()
     const {getByLabelText, getByText} = render(
       <CreateEditModal
         open={true}
@@ -68,7 +68,7 @@ describe('create modal', () => {
         currentNote={undefined}
         envs={['test']}
         langs={['en', 'es']}
-      />
+      />,
     )
     await userEvent.type(getByLabelText('Title'), 'A great english title')
     await userEvent.type(getByLabelText('Description'), 'A great english description')

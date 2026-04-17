@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 export const UPSERT_STANDARD_GRADING_STATUS_MUTATION = gql`
   mutation UpsertStandardGradingStatusMutation($id: ID, $color: String!, $name: String!) {
@@ -41,6 +41,7 @@ export const UPSERT_CUSTOM_GRADING_STATUS_MUTATION = gql`
         id: _id
         name
         color
+        icon
       }
       errors {
         attribute

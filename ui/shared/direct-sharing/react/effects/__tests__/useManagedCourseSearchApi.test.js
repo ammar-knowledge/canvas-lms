@@ -16,109 +16,149 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import fetchMock from 'fetch-mock'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 import {renderHook} from '@testing-library/react-hooks/dom'
+import {waitFor} from '@testing-library/react'
 import useManagedCourseSearchApi from '../useManagedCourseSearchApi'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
-function setupManagedCoursesResponse() {
-  const response = [
-    {
-      id: '1',
-      label: 'Board Game Basics',
-    },
-    {
-      id: '2',
-      label: 'Settlers of Catan 101',
-    },
-  ]
-  fetchMock.mock('path:/users/self/manageable_courses', response)
-  return response
-}
+const server = setupServer()
+
+const response = [
+  {
+    id: '1',
+    label: 'Board Game Basics',
+  },
+  {
+    id: '2',
+    label: 'Settlers of Catan 101',
+  },
+]
 
 const defaultEnv = {
   current_user_roles: ['user', 'teacher'],
+  current_user_is_admin: false,
 }
 
 describe('useManagedCourseSearchApi', () => {
+  let lastRequestUrl
+  let requestCount
+
+  beforeAll(() => server.listen())
+  afterAll(() => server.close())
+
   beforeEach(() => {
-    global.ENV = defaultEnv
+    // Setup fakeENV with default values
+    fakeENV.setup(defaultEnv)
+
+    lastRequestUrl = undefined
+    requestCount = 0
+
+    server.use(
+      http.get('/users/self/manageable_courses', ({request}) => {
+        lastRequestUrl = request.url
+        requestCount++
+        return HttpResponse.json(response)
+      }),
+    )
   })
 
   afterEach(() => {
-    global.ENV = {}
-    fetchMock.restore()
+    // Properly teardown fakeENV
+    fakeENV.teardown()
+    server.resetHandlers()
   })
 
   it('fetches and reports converted results', async () => {
-    setupManagedCoursesResponse()
-    const success = jest.fn()
-    const error = jest.fn()
+    const success = vi.fn()
+    const error = vi.fn()
     renderHook(() => useManagedCourseSearchApi({error, success, params: {term: 'game'}}))
-    await fetchMock.flush(true)
+    await waitFor(() => {
+      expect(success).toHaveBeenCalledWith([
+        expect.objectContaining({id: '1', name: 'Board Game Basics'}),
+        expect.objectContaining({id: '2', name: 'Settlers of Catan 101'}),
+      ])
+    })
     expect(error).not.toHaveBeenCalled()
-    expect(success).toHaveBeenCalledWith([
-      expect.objectContaining({id: '1', name: 'Board Game Basics'}),
-      expect.objectContaining({id: '2', name: 'Settlers of Catan 101'}),
-    ])
   })
 
   it('passes "enforce_manage_grant_filter" query param on the the xhr call', async () => {
-    setupManagedCoursesResponse()
     renderHook(() =>
       useManagedCourseSearchApi({
         params: {term: 'game', enforce_manage_grant_filter: true},
-      })
+      }),
     )
-    await fetchMock.flush(true)
-    expect(fetchMock.lastCall()[0]).toBe(
-      '/users/self/manageable_courses?term=game&enforce_manage_grant_filter=true'
-    )
+    await waitFor(() => {
+      expect(lastRequestUrl).toContain(
+        '/users/self/manageable_courses?term=game&enforce_manage_grant_filter=true',
+      )
+    })
   })
 
   it('does not pass an "include" query param in abscence of that param', async () => {
-    setupManagedCoursesResponse()
     renderHook(() => useManagedCourseSearchApi({params: {term: 'game'}}))
-    await fetchMock.flush(true)
-    expect(fetchMock.lastCall()[0]).toBe('/users/self/manageable_courses?term=game')
+    await waitFor(() => {
+      expect(lastRequestUrl).toContain('/users/self/manageable_courses?term=game')
+    })
   })
 
   it('passes "include" query param properly in addition to existing params', async () => {
     const params = {term: 'Course', include: 'concluded'}
-    setupManagedCoursesResponse()
     renderHook(() => useManagedCourseSearchApi({params}))
-    await fetchMock.flush(true)
-    expect(fetchMock.lastCall()[0]).toBe(
-      '/users/self/manageable_courses?term=Course&include=concluded'
-    )
+    await waitFor(() => {
+      expect(lastRequestUrl).toContain(
+        '/users/self/manageable_courses?term=Course&include=concluded',
+      )
+    })
   })
 
   describe('when user is a teacher', () => {
+    beforeEach(() => {
+      // Setup fakeENV with teacher role and ensure admin flag is false
+      fakeENV.setup({
+        current_user_roles: ['user', 'teacher'],
+        current_user_is_admin: false,
+      })
+
+      requestCount = 0
+    })
+
     it('makes network request when search term is not included', async () => {
-      setupManagedCoursesResponse()
-      renderHook(useManagedCourseSearchApi)
-      await fetchMock.flush(true)
-      expect(fetchMock.calls().length).toBe(1)
+      // Render the hook with no parameters
+      renderHook(() => useManagedCourseSearchApi())
+
+      // Wait for the request
+      await waitFor(() => {
+        expect(requestCount).toBe(1)
+        expect(lastRequestUrl).toContain('/users/self/manageable_courses')
+      })
     })
   })
 
   describe('when user is an admin', () => {
     beforeEach(() => {
-      global.ENV.current_user_roles.push('admin')
-      global.ENV.current_user_is_admin = true
+      // Setup fakeENV with admin role and flag
+      fakeENV.setup({
+        current_user_roles: ['user', 'teacher', 'admin'],
+        current_user_is_admin: true,
+      })
+
+      requestCount = 0
     })
 
     it('does not make network request if search term is not included', async () => {
-      setupManagedCoursesResponse()
       renderHook(useManagedCourseSearchApi)
-      await fetchMock.flush(true)
-      expect(fetchMock.calls().length).toBe(0)
+      // Give it some time to potentially make a request
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(requestCount).toBe(0)
     })
 
     it('does not make network request if search term is only one character', async () => {
-      setupManagedCoursesResponse()
       renderHook(() => useManagedCourseSearchApi({params: {term: 'a'}}))
-      await fetchMock.flush(true)
-      expect(fetchMock.calls().length).toBe(0)
+      // Give it some time to potentially make a request
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(requestCount).toBe(0)
     })
   })
 })

@@ -40,7 +40,7 @@ describe "MessageableUser" do
                          .where(id: @student)
                          .group(MessageableUser.connection.group_by(*MessageableUser::COLUMNS))
                          .first
-      expect(messageable_user.send(:read_attribute, :common_courses))
+      expect(messageable_user.read_attribute(:common_courses))
         .to eq "course_column:role_column"
     end
 
@@ -56,8 +56,23 @@ describe "MessageableUser" do
                          .where(id: @ta.id)
                          .group(MessageableUser.connection.group_by(*MessageableUser::COLUMNS))
                          .first
-      expect(messageable_user.send(:read_attribute, :common_courses).split(",").sort)
+      expect(messageable_user.read_attribute(:common_courses).split(",").sort)
         .to eq ["course:StudentEnrollment", "course:TaEnrollment"]
+    end
+
+    it "skips group_concat for common_courses when static_common_contexts is true" do
+      expect(MessageableUser.build_select(
+               common_course_column: "'course_column'",
+               common_role_column: "'role_column'",
+               static_common_contexts: true
+             )).to match(/'course_column'::text \|\| ':' \|\| 'role_column'::text AS common_courses/)
+    end
+
+    it "skips group_concat for common_groups when static_common_contexts is true" do
+      expect(MessageableUser.build_select(
+               common_group_column: "group_id",
+               static_common_contexts: true
+             )).to match(/group_id AS common_groups/)
     end
 
     it "combines multiple common_group_column values in common_groups" do
@@ -69,7 +84,7 @@ describe "MessageableUser" do
                          .where(id: @user)
                          .group(MessageableUser.connection.group_by(*MessageableUser::COLUMNS))
                          .first
-      expect(messageable_user.send(:read_attribute, :common_groups).split(",").map(&:to_i).sort)
+      expect(messageable_user.read_attribute(:common_groups).split(",").map(&:to_i).sort)
         .to eq [group1.id, group2.id].sort
     end
   end
@@ -102,6 +117,10 @@ describe "MessageableUser" do
     it "does not include literal common_group_column value in group by" do
       expect(group_scope(MessageableUser.prepped(common_group_column: 5)))
         .not_to match("5")
+    end
+
+    it "skips group by when static_common_contexts is true" do
+      expect(MessageableUser.prepped(static_common_contexts: true).group_values).to be_empty
     end
 
     it "orders by sortable_name before id" do

@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import getCookie from '@instructure/get-cookie'
+import {getCookie} from '@instructure/platform-get-cookie'
 
 interface BasicFileSystemObject {
   id: number | string
@@ -31,7 +31,7 @@ type UsageRightsFunc = (
   filesystemObject: BasicFileSystemObject[],
   usageRights: UsageRights,
   contextId: string,
-  contextType: string
+  contextType: string,
 ) => void
 
 /**
@@ -65,7 +65,7 @@ export const setUsageRights: UsageRightsFunc = async (
   filesystemObject,
   usageRights,
   contextId,
-  contextType
+  contextType,
 ) => {
   const folderIds: (number | string)[] = []
   const fileIds: (number | string)[] = []
@@ -98,7 +98,7 @@ export const setUsageRights: UsageRightsFunc = async (
     method: 'PUT',
     body: payload,
     headers: {
-      'X-CSRF-Token': getCookie('_csrf_token'),
+      'X-CSRF-Token': getCookie('_csrf_token') ?? '',
       'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
     },
   }

@@ -74,10 +74,10 @@ describe AssignmentOverrideApplicator do
     @module_override
   end
 
-  def create_assignment(*args)
+  def create_assignment(*)
     # need to make sure it doesn't invalidate the cache right away
     Timecop.freeze(5.seconds.ago) do
-      assignment_model(*args)
+      assignment_model(*)
     end
   end
 
@@ -246,7 +246,6 @@ describe AssignmentOverrideApplicator do
       end
 
       it "does not apply overrides if adhoc override is unassigned" do
-        Account.site_admin.enable_feature!(:selective_release_backend)
         @adhoc_override.unassign_item = true
         @adhoc_override.save!
 
@@ -254,17 +253,7 @@ describe AssignmentOverrideApplicator do
         expect(due_at).to eq @assignment.due_at
       end
 
-      it "applies unassigned overrides if flag is off" do
-        Account.site_admin.disable_feature!(:selective_release_backend)
-        @adhoc_override.unassign_item = true
-        @adhoc_override.save!
-
-        due_at = AssignmentOverrideApplicator.assignment_overridden_for(@assignment, @student).due_at
-        expect(due_at).to eq @adhoc_override.due_at
-      end
-
       it "applies adhoc override even if section override is unassigned" do
-        Account.site_admin.enable_feature!(:selective_release_backend)
         @section_override.unassign_item = true
         @section_override.save!
 
@@ -374,6 +363,20 @@ describe AssignmentOverrideApplicator do
         expect(@teachers_assignment.due_at.to_i).to eq section_due_at.to_i
         expect(@students_assignment.due_at.to_i).to eq section_due_at.to_i
       end
+
+      it "uses course override if there is no assignment.due_at" do
+        course_override_due_at = 5.days.from_now
+
+        @course_override = assignment_override_model(assignment: @assignment, due_at: course_override_due_at)
+        @course_override.set = @course
+        @course_override.save!
+
+        @assignment.update_attribute(:due_at, nil)
+        @teachers_assignment = AssignmentOverrideApplicator
+                               .assignment_overridden_for(@assignment, @teacher)
+
+        expect(@teachers_assignment.due_at.to_i).to eq course_override_due_at.to_i
+      end
     end
   end
 
@@ -407,7 +410,7 @@ describe AssignmentOverrideApplicator do
       end
 
       it "distinguishes cache by assignment version" do
-        Timecop.travel Time.now + 1.hour do
+        Timecop.travel 1.hour.from_now do
           @assignment.due_at = 7.days.from_now
           @assignment.save!
           expect(@assignment.versions.count).to eq 2
@@ -472,7 +475,6 @@ describe AssignmentOverrideApplicator do
       end
 
       it "orders section override before course overrides" do
-        Account.site_admin.enable_feature!(:selective_release_backend)
         @section_override = assignment_override_model(assignment: @assignment)
         @section_override.set = @course.default_section
         @section_override.save!
@@ -487,7 +489,56 @@ describe AssignmentOverrideApplicator do
         expect(overrides.last).to eq @course_override
       end
 
-      it "should order section overrides by position" # see TODO in implementation
+      context "differentiation tag overrides" do
+        before do
+          account = @course.account
+          account.tap do |a|
+            a.settings[:allow_assign_to_differentiation_tags] = { value: true }
+            a.save!
+          end
+
+          @diff_tag_category = @course.group_categories.create!(name: "Differentiation Tag Category", non_collaborative: true)
+          @diff_tag = @course.groups.create!(name: "Diff Tag 1", group_category: @diff_tag_category, non_collaborative: true)
+          @diff_tag.add_user(@student)
+        end
+
+        it "includes differentiation tag overrides if available" do
+          @section_override = assignment_override_model(assignment: @assignment)
+          @section_override.set = @course.default_section
+          @section_override.save!
+
+          @diff_tag_override = assignment_override_model(assignment: @assignment)
+          @diff_tag_override.set_type = "Group"
+          @diff_tag_override.set_id = @diff_tag.id
+          @diff_tag_override.save!
+
+          overrides = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @student)
+          expect(overrides.size).to eq 2
+          expect(overrides.first).to eq @diff_tag_override
+          expect(overrides.last).to eq @section_override
+        end
+
+        it "does not include differentiation tag overrides if account setting is disabled" do
+          @section_override = assignment_override_model(assignment: @assignment)
+          @section_override.set = @course.default_section
+          @section_override.save!
+
+          @diff_tag_override = assignment_override_model(assignment: @assignment)
+          @diff_tag_override.set_type = "Group"
+          @diff_tag_override.set_id = @diff_tag.id
+          @diff_tag_override.save!
+
+          # disable account setting for differentiation tags
+          @course.account.tap do |a|
+            a.settings[:allow_assign_to_differentiation_tags] = false
+            a.save!
+          end
+
+          overrides = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @student)
+          expect(overrides.size).to eq 1
+          expect(overrides.first).to eq @section_override
+        end
+      end
 
       context "sharding" do
         specs_require_sharding
@@ -541,7 +592,6 @@ describe AssignmentOverrideApplicator do
 
         it "includes context module overrides" do
           @override.destroy!
-          Account.site_admin.enable_feature!(:selective_release_backend)
           create_context_module_and_override_adhoc
 
           result = AssignmentOverrideApplicator.adhoc_override(@assignment, @student)
@@ -565,7 +615,6 @@ describe AssignmentOverrideApplicator do
         end
 
         it "includes context module overrides" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           create_context_module_and_override_adhoc
 
           overrides = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @teacher)
@@ -583,7 +632,6 @@ describe AssignmentOverrideApplicator do
 
         it "includes context module overrides" do
           @override.destroy!
-          Account.site_admin.enable_feature!(:selective_release_backend)
           course_with_observer({ course: @course, active_all: true })
           @course.enroll_user(@observer, "ObserverEnrollment", { associated_user_id: @student.id })
           create_context_module_and_override_adhoc
@@ -600,7 +648,6 @@ describe AssignmentOverrideApplicator do
         end
 
         it "includes context module overrides" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           account_admin_user
           create_context_module_and_override_adhoc
           overrides = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @admin)
@@ -683,6 +730,34 @@ describe AssignmentOverrideApplicator do
           expect(result).to eq [@override]
         end
 
+        it "returns group overrides for ungraded group discussions" do
+          @category = group_category(name: "ungraded_discussion_group")
+          @group = @category.groups.create!(context: @course)
+
+          @discussion_topic = @course.discussion_topics.create!(
+            message: "ungraded group discussion",
+            group_category_id: @category.id
+          )
+
+          @override = @discussion_topic.assignment_overrides.create!
+          @override.set = @group
+          @override.save!
+
+          @membership = @group.add_user(@student)
+
+          result = AssignmentOverrideApplicator.group_overrides(@discussion_topic, @student)
+          expect(result).to eq [@override]
+        end
+
+        it "returns nil for ungraded non group discussions" do
+          @discussion_topic = @course.discussion_topics.create!(
+            message: "ungraded discussion without groups"
+          )
+
+          result = AssignmentOverrideApplicator.group_overrides(@discussion_topic, @student)
+          expect(result).to be_nil
+        end
+
         it "does not include group override for groups other than the user's" do
           @override.set = @category.groups.create!(context: @course)
           @override.save!
@@ -733,6 +808,25 @@ describe AssignmentOverrideApplicator do
           result = AssignmentOverrideApplicator.group_overrides(@assignment, @teacher)
           expect(result).to eq [@override]
         end
+
+        it "works for ungraded group discussions" do
+          teacher_in_course
+
+          @category = group_category(name: "ungraded_discussion_group")
+          @group = @category.groups.create!(context: @course)
+
+          @discussion_topic = @course.discussion_topics.create!(
+            message: "ungraded group discussion",
+            group_category_id: @category.id
+          )
+
+          @override = @discussion_topic.assignment_overrides.create!
+          @override.set = @group
+          @override.save!
+
+          result = AssignmentOverrideApplicator.group_overrides(@discussion_topic, @teacher)
+          expect(result).to eq [@override]
+        end
       end
 
       describe "for observers" do
@@ -749,6 +843,26 @@ describe AssignmentOverrideApplicator do
           account_admin_user
           user_session(@admin)
           result = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @admin)
+          expect(result).to eq [@override]
+        end
+
+        it "works for ungraded group discussions" do
+          account_admin_user
+          user_session(@admin)
+
+          @category = group_category(name: "ungraded_discussion_group")
+          @group = @category.groups.create!(context: @course)
+
+          @discussion_topic = @course.discussion_topics.create!(
+            message: "ungraded group discussion",
+            group_category_id: @category.id
+          )
+
+          @override = @discussion_topic.assignment_overrides.create!
+          @override.set = @group
+          @override.save!
+
+          result = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@discussion_topic, @admin)
           expect(result).to eq [@override]
         end
       end
@@ -859,7 +973,6 @@ describe AssignmentOverrideApplicator do
         end
 
         it "includes context module overrides" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           create_section_context_module_override(@course.default_section)
           overrides = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @student)
           expect(overrides).to include(@module_override)
@@ -874,7 +987,6 @@ describe AssignmentOverrideApplicator do
         end
 
         it "includes context module overrides" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           teacher_in_course
           create_section_context_module_override(@course.default_section)
           result = AssignmentOverrideApplicator.section_overrides(@assignment, @teacher)
@@ -891,7 +1003,6 @@ describe AssignmentOverrideApplicator do
         end
 
         it "includes context module overrides" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           course_with_observer({ course: @course, active_all: true })
           @course.enroll_user(@observer, "ObserverEnrollment", { associated_user_id: @student2.id })
 
@@ -910,7 +1021,6 @@ describe AssignmentOverrideApplicator do
         end
 
         it "includes context module overrides" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           account_admin_user
           create_section_context_module_override(@section2)
           result = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @admin)
@@ -983,19 +1093,11 @@ describe AssignmentOverrideApplicator do
 
       describe "for students" do
         it "returns course overrides" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           result = AssignmentOverrideApplicator.course_overrides(@assignment, @student)
           expect(result.length).to eq 1
         end
 
-        it "doesn't include course overrides if flag is off" do
-          Account.site_admin.disable_feature!(:selective_release_backend)
-          result = AssignmentOverrideApplicator.course_overrides(@assignment, @student)
-          expect(result).to be_nil
-        end
-
         it "doesn't include course overrides for student not in course" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           course2 = course_factory
           student2 = student_in_course(course: course2)
           result = AssignmentOverrideApplicator.course_overrides(@assignment, student2.user)
@@ -1005,57 +1107,31 @@ describe AssignmentOverrideApplicator do
 
       describe "for teachers" do
         it "works" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           teacher_in_course
           result = AssignmentOverrideApplicator.course_overrides(@assignment, @teacher)
           expect(result).to include(@override)
-        end
-
-        it "doesn't include course overrides if flag is off" do
-          Account.site_admin.disable_feature!(:selective_release_backend)
-          teacher_in_course
-          result = AssignmentOverrideApplicator.course_overrides(@assignment, @teacher)
-          expect(result).to be_nil
         end
       end
 
       describe "for observers" do
         it "works" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           course_with_observer({ course: @course, active_all: true })
           @course.enroll_user(@observer, "ObserverEnrollment", { associated_user_id: @student.id })
           overrides = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @observer)
           expect(overrides).to eq [@override]
-        end
-
-        it "doesn't include course overrides if flag is off" do
-          Account.site_admin.disable_feature!(:selective_release_backend)
-          course_with_observer({ course: @course, active_all: true })
-          @course.enroll_user(@observer, "ObserverEnrollment", { associated_user_id: @student.id })
-          overrides = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @observer)
-          expect(overrides).to eq []
         end
       end
 
       describe "for admins" do
         it "works" do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           account_admin_user
           overrides = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @admin)
           expect(overrides).to eq [@override]
-        end
-
-        it "doesn't include course overrides if flag is off" do
-          Account.site_admin.disable_feature!(:selective_release_backend)
-          account_admin_user
-          overrides = AssignmentOverrideApplicator.overrides_for_assignment_and_user(@assignment, @admin)
-          expect(overrides).to eq []
         end
       end
 
       describe "for other types of learning objects" do
         before do
-          Account.site_admin.enable_feature!(:selective_release_backend)
           teacher_in_course(active_all: true)
           account_admin_user
           course_with_observer({ course: @course, active_all: true })
@@ -1110,7 +1186,7 @@ describe AssignmentOverrideApplicator do
       end
     end
 
-    context "#observer_overrides" do
+    describe "#observer_overrides" do
       it "returns all dates visible to observer" do
         @override = assignment_override_model(assignment: @assignment)
         @override_student = @override.assignment_override_students.build
@@ -1134,7 +1210,7 @@ describe AssignmentOverrideApplicator do
       end
     end
 
-    context "#has_invalid_args?" do
+    describe "#has_invalid_args?" do
       it "returns true with nil user" do
         result = AssignmentOverrideApplicator.has_invalid_args?(@assignment, nil)
         expect(result).to be_truthy
@@ -1156,7 +1232,6 @@ describe AssignmentOverrideApplicator do
       end
 
       it "returns false if the assignment has context module overrides" do
-        Account.site_admin.enable_feature!(:selective_release_backend)
         @module = @course.context_modules.create!(name: "Module 1")
         @assignment.context_module_tags.create! context_module: @module, context: @course, tag_type: "context_module"
 
@@ -1246,7 +1321,7 @@ describe AssignmentOverrideApplicator do
         expect(overrides.first).not_to be_deleted
       end
 
-      it "includes now-deleted overrides that weren't deleted yet as of the assignment version (with manage_courses permission)" do
+      it "includes now-deleted overrides that weren't deleted yet as of the assignment version (with manage_courses_admin permission)" do
         account_admin_user
 
         @override = assignment_override_model(assignment: @assignment)
@@ -1290,7 +1365,7 @@ describe AssignmentOverrideApplicator do
             # Assert that it won't call the "<=" method on nil
             expect do
               AssignmentOverrideApplicator.overrides_for_assignment_and_user(quiz.assignment, @student)
-            end.to_not raise_error
+            end.not_to raise_error
           end
         end
 
@@ -1321,7 +1396,7 @@ describe AssignmentOverrideApplicator do
             # Assert that it won't call the "<=" method on nil
             expect do
               AssignmentOverrideApplicator.overrides_for_assignment_and_user(quiz.assignment, @student)
-            end.to_not raise_error
+            end.not_to raise_error
           end
         end
       end
@@ -1457,7 +1532,7 @@ describe AssignmentOverrideApplicator do
 
     it "distinguishes cache by assignment updated_at" do
       @assignment = create_assignment
-      Timecop.travel Time.now + 1.hour do
+      Timecop.travel 1.hour.from_now do
         @assignment.due_at = 5.days.from_now
         @assignment.save!
         expect(@assignment.versions.count).to eq 2
@@ -1575,13 +1650,11 @@ describe AssignmentOverrideApplicator do
       end
 
       it "uses no override if the override is unassigned" do
-        Account.site_admin.enable_feature!(:selective_release_backend)
         @adhoc_override.unassign_item = true
         expect(due_at).to eq @assignment.due_at
       end
 
       it "uses adhoc override even if section override is unassigned" do
-        Account.site_admin.enable_feature!(:selective_release_backend)
         @section_override.unassign_item = true
         expect(due_at).to eq @adhoc_override.due_at
       end
@@ -1628,6 +1701,12 @@ describe AssignmentOverrideApplicator do
       expect(due_at).to eq @assignment.due_at
     end
 
+    it "does not fall back on assignment's due_at if only module overrides exist" do
+      @override.context_module_id = 123
+      due_at = AssignmentOverrideApplicator.overridden_due_at(@assignment, [@override])
+      expect(due_at).to eq @override.due_at
+    end
+
     it "recognizes overrides with overridden-but-nil due_at" do
       @override.override_due_at(nil)
       due_at = AssignmentOverrideApplicator.overridden_due_at(@assignment, [@override])
@@ -1635,7 +1714,6 @@ describe AssignmentOverrideApplicator do
     end
 
     it "uses no override with no adhoc override due_at and section override unassigned" do
-      Account.site_admin.enable_feature!(:selective_release_backend)
       @section_override = assignment_override_model(assignment: @assignment, set: @course.default_section)
       @section_override.override_due_at(7.days.from_now)
       @section_override.unassign_item = true
@@ -1655,7 +1733,6 @@ describe AssignmentOverrideApplicator do
     end
 
     it "uses no override if the override is unassigned" do
-      Account.site_admin.enable_feature!(:selective_release_backend)
       @override.override_unlock_at(7.days.from_now)
       @override.unassign_item = true
       unlock_at = AssignmentOverrideApplicator.overridden_unlock_at(@assignment, [@override])
@@ -1663,7 +1740,6 @@ describe AssignmentOverrideApplicator do
     end
 
     it "uses adhoc override even if section override is unassigned" do
-      Account.site_admin.enable_feature!(:selective_release_backend)
       @adhoc_override = @override
       @adhoc_override.override_unlock_at(7.days.from_now)
 
@@ -1769,7 +1845,6 @@ describe AssignmentOverrideApplicator do
     end
 
     it "uses no override if the override is unassigned" do
-      Account.site_admin.enable_feature!(:selective_release_backend)
       @override.override_lock_at(7.days.from_now)
       @override.unassign_item = true
       lock_at = AssignmentOverrideApplicator.overridden_lock_at(@assignment, [@override])
@@ -1777,7 +1852,6 @@ describe AssignmentOverrideApplicator do
     end
 
     it "uses adhoc override even if section override is unassigned" do
-      Account.site_admin.enable_feature!(:selective_release_backend)
       @adhoc_override = @override
       @adhoc_override.override_lock_at(7.days.from_now)
 
@@ -1858,6 +1932,46 @@ describe AssignmentOverrideApplicator do
       @override.override_lock_at(7.days.from_now)
       lock_at = AssignmentOverrideApplicator.overridden_lock_at(@wiki_page, [@override])
       expect(lock_at).to eq @override.lock_at
+    end
+
+    context "adhoc override prioritization for admins" do
+      before do
+        student_in_course(active_all: true)
+        teacher_in_course(active_all: true)
+        @assignment = create_assignment(course: @course, lock_at: 5.days.from_now)
+        @adhoc_override = assignment_override_model(assignment: @assignment)
+        @adhoc_override.assignment_override_students.create!(user: @student)
+        @adhoc_lock_at = 6.days.from_now
+        @adhoc_override.override_lock_at(@adhoc_lock_at)
+        @section_override = assignment_override_model(assignment: @assignment, set: @course.default_section)
+        @section_lock_at = 7.days.from_now
+        @section_override.override_lock_at(@section_lock_at)
+        @overrides = [@adhoc_override, @section_override]
+      end
+
+      it "uses the adhoc lock_at for students" do
+        lock_at = AssignmentOverrideApplicator.overridden_lock_at(@assignment, @overrides, @student)
+        expect(lock_at).to eq @adhoc_lock_at
+      end
+
+      it "uses the most lenient lock_at for teachers" do
+        lock_at = AssignmentOverrideApplicator.overridden_lock_at(@assignment, @overrides, @teacher)
+        expect(lock_at).to eq @section_lock_at
+      end
+
+      it "uses the most lenient adhoc lock_at for teachers with multiple adhoc overrides" do
+        student_in_course(active_all: true)
+        student2 = @student
+        adhoc_override2 = assignment_override_model(assignment: @assignment)
+        adhoc_override2.assignment_override_students.create!(user: student2)
+        adhoc_lock_at2 = 8.days.from_now
+        adhoc_override2.override_lock_at(adhoc_lock_at2)
+
+        all_overrides = @overrides + [adhoc_override2]
+
+        lock_at = AssignmentOverrideApplicator.overridden_lock_at(@assignment, all_overrides, @teacher)
+        expect(lock_at).to eq adhoc_lock_at2
+      end
     end
   end
 

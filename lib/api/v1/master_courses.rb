@@ -64,6 +64,8 @@ module Api::V1::MasterCourses
             show_media_attachment_tracks_url(attachment_id: asset.attachment, id: asset.id)
           when "Quizzes::Quiz"
             course_quiz_url(course_id: asset.context.id, id: asset.id)
+          when "SubAssignment"
+            course_assignment_url(course_id: asset.context.id, id: asset.parent_assignment_id)
           else
             polymorphic_url([asset.context, asset])
           end
@@ -111,6 +113,7 @@ module Api::V1::MasterCourses
     hash = api_json(course, @current_user, session, only: %w[id name course_code])
     hash["sis_course_id"] = course.sis_source_id if can_read_sis
     hash["term_name"] = course.enrollment_term.name
+    hash["concluded"] = course.concluded? if Account.site_admin.feature_enabled?(:ux_list_concluded_courses_in_bp)
     if opts[:include_teachers]
       if course.teacher_count
         hash["teacher_count"] = course.teacher_count

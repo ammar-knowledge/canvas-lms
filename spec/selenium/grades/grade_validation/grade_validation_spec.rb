@@ -20,8 +20,20 @@
 require_relative "../../common"
 require_relative "../pages/gradebook_page"
 
-describe "Gradebook frontend/backend calculators" do
+# NOTE: We are aware that we're duplicating some unnecessary testcases, but this was the
+# easiest way to review, and will be the easiest to remove after the feature flag is
+# permanently removed. Testing both flag states is necessary during the transition phase.
+shared_examples "Gradebook frontend/backend calculators" do |ff_enabled|
   include_context "in-process server selenium tests"
+
+  before :once do
+    # Set feature flag state for the test run - this affects how the gradebook data is fetched, not the data setup
+    if ff_enabled
+      Account.site_admin.enable_feature!(:performance_improvements_for_gradebook)
+    else
+      Account.site_admin.disable_feature!(:performance_improvements_for_gradebook)
+    end
+  end
 
   before :once do
     @unlucky1 = [95.86, 66.62, 76.98, 87.85, 68.32, 94.32, 62.6, 81.59, 92.21, 90.31, 82.26, 70.88, 83.24, 90.83, 65.74, 73.05, 94.16, 65.3, 78.92, 87.11]
@@ -97,6 +109,12 @@ describe "Gradebook frontend/backend calculators" do
     end
   end
 
+  before do
+    if ff_enabled
+      allow(Services::PlatformServiceGradebook).to receive(:use_graphql?).and_return(true)
+    end
+  end
+
   8.times do |i|
     it "final grades match with unlucky#{i} and course#{i}" do
       user_session(@teacher)
@@ -104,16 +122,23 @@ describe "Gradebook frontend/backend calculators" do
       course = @courses[i]
       f("#assignments-filter").send_keys(course.id.to_s)
       driver.action.send_keys(:enter).perform
-      @frontend_grades = Gradebook.scores_scraped
-      @backend_grades = Gradebook.scores_api(course)
-      @diff = @frontend_grades - @backend_grades
+      frontend_grades = Gradebook.scores_scraped
+      backend_grades = Gradebook.scores_api(course)
+      diff = frontend_grades - backend_grades
 
-      @diff.each do |entry|
-        puts "USER: #{entry[:user_id]} scores: #{@unlucky_group[i].map { |v| { score: v } }}"
-        puts "frontend grade: #{@frontend_grades.select { |user| user[:user_id] == entry[:user_id] }}"
-        puts "backend grade: #{@backend_grades.select { |user| user[:user_id] == entry[:user_id] }}"
-      end
-      expect(@diff).to be_empty
+      diff = diff.map do |entry|
+        <<~TEXT
+          USER: #{entry[:user_id]} scores: #{@unlucky_group[i].map { |v| { score: v } }}
+          frontend grade: #{frontend_grades.select { |user| user[:user_id] == entry[:user_id] }}
+          backend grade: #{backend_grades.select { |user| user[:user_id] == entry[:user_id] }}
+        TEXT
+      end.join("\n")
+      expect(diff).to be_empty
     end
   end
+end
+
+describe "Gradebook frontend/backend calculators" do
+  it_behaves_like "Gradebook frontend/backend calculators", true
+  it_behaves_like "Gradebook frontend/backend calculators", false
 end

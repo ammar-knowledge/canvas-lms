@@ -17,11 +17,11 @@
  */
 
 import {shape, string} from 'prop-types'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 export const ContextModule = {
   fragment: gql`
-    fragment ContextModule on Module {
+    fragment EditV2ContextModule on Module {
       _id
       id
       name

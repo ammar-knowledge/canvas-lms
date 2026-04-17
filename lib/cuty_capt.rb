@@ -60,6 +60,8 @@ class CutyCapt
     setting = setting.symbolize_keys
     @@config = CUTYCAPT_DEFAULTS.merge(setting).with_indifferent_access
     process_config
+    creds = Rails.application.credentials.config[:screencap_service]
+    @@config[:screencap_service] = creds if creds
     @@config = nil unless @@config[:path] || @@config[:screencap_service]
     @@config
   end
@@ -103,7 +105,7 @@ class CutyCapt
     addresses = Resolv.getaddresses(uri.host)
     return false if addresses.blank?
 
-    if config[:ip_blacklist] && addresses.any? { |address| config[:ip_blacklist].any? { |cidr| cidr.include?(address) rescue false } }
+    if config[:ip_blacklist] && addresses.any? { |address| config[:ip_blacklist].any? { |cidr| cidr.include?(address) } }
       logger.warn("Skipping url because of blacklisted IP address: #{url}")
       return false
     end
@@ -125,7 +127,7 @@ class CutyCapt
     img_file = tmp_file.path
     success = true
 
-    start = Time.now
+    start = Time.zone.now
     logger.info("Starting web capture of #{url}")
 
     if screencap_service
@@ -177,10 +179,10 @@ class CutyCapt
   def self.snapshot_attachment_for_url(url, **attachment_opts)
     attachment = nil
     snapshot_url(url) do |file_path|
-      # this is a really odd way to get Attachment the data it needs, which
-      # should probably be remedied at some point
-      attachment = Attachment.create!(uploaded_data: Canvas::UploadedFile.new(file_path, "image/png"),
-                                      **attachment_opts)
+      attachment = Attachment.build(**attachment_opts)
+      uploaded_data = Canvas::UploadedFile.new(file_path, "image/png")
+      Attachments::Storage.store_for_attachment(attachment, uploaded_data)
+      attachment.save!
     end
     attachment
   end

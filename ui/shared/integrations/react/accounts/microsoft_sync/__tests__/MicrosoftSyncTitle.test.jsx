@@ -31,25 +31,25 @@ describe('MicrosoftSyncTitle', () => {
   })
 
   it('calls the specified callback when clicked', () => {
-    const clickMock = jest.fn()
+    const clickMock = vi.fn()
     const container = setup({handleClick: clickMock})
 
     fireEvent.click(
       container.getByRole('checkbox', {
         name: /allows syncing of canvas course members to a microsoft team/i,
-      })
+      }),
     )
 
     expect(clickMock).toHaveBeenCalledTimes(1)
   })
 
   it('renders as checked or unchecked based on props', () => {
-    const container = setup({syncEnabled: true, handleClick: jest.fn()})
+    const container = setup({syncEnabled: true, handleClick: vi.fn()})
 
     expect(
       container.getByRole('checkbox', {
         name: /allows syncing of canvas course members to a microsoft team/i,
-      }).checked
+      }).checked,
     ).toBeTruthy()
   })
 
@@ -58,7 +58,7 @@ describe('MicrosoftSyncTitle', () => {
     expect(
       container.getByRole('checkbox', {
         name: /allows syncing of canvas course members to a microsoft team/i,
-      }).disabled
+      }).disabled,
     ).toBeTruthy()
   })
 })

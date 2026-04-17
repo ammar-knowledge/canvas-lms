@@ -20,13 +20,17 @@
 class FilePreviewsController < ApplicationController
   include AttachmentHelper
 
+  skip_before_action :require_user, only: [:show]
   before_action :get_context
-  before_action :check_limited_access_for_students, only: %i[show]
+
+  def token_auth_allowed?
+    params[:action] == "show"
+  end
 
   # renders (or redirects to) appropriate content for the file, such as
-  # canvadocs, crocodoc, inline image, etc.
+  # canvadocs, inline image, etc.
   def show
-    @file = @context.attachments.not_deleted.find_by(id: params[:file_id])
+    @file = @context.attachments.not_deleted.find_by(id: params[:file_id] || params[:id])
     css_bundle :react_files
     unless @file
       @headers = false
@@ -35,8 +39,9 @@ class FilePreviewsController < ApplicationController
                     status: :not_found,
                     formats: [:html]
     end
-    if read_allowed(@file, @current_user, session, params)
-      unless download_allowed(@file, @current_user, session, params)
+
+    if access_allowed(attachment: @file, user: @current_user, access_type: :read, no_error_on_failure: true)
+      unless access_allowed(attachment: @file, user: @current_user, access_type: :download, no_error_on_failure: true)
         @lock_info = @file.locked_for?(@current_user)
         return render template: "file_previews/lock_explanation", layout: false
       end
@@ -44,10 +49,8 @@ class FilePreviewsController < ApplicationController
       @file.context_module_action(@current_user, :read) if @current_user
       log_asset_access(@file, "files", "files")
       # redirect to or render content for the file according to its type
-      # crocodocs (if annotation requested)
-      # and canvadocs
-      if (Canvas::Plugin.value_to_boolean(params[:annotate]) && (url = @file.crocodoc_url(@current_user))) ||
-         (url = @file.canvadoc_url(@current_user))
+      # canvadocs
+      if (url = @file.canvadoc_url(@current_user))
         redirect_to url
       # google docs
       elsif GoogleDocsPreview.previewable?(@domain_root_account, @file)
@@ -58,7 +61,7 @@ class FilePreviewsController < ApplicationController
         render template: "file_previews/img_preview", layout: false
       # media files
       elsif %r{\A(audio|video)/}.match?(@file.content_type)
-        js_env NEW_FILES_PREVIEW: 1
+        js_env({ NEW_FILES_PREVIEW: 1 })
         js_bundle :file_preview
         render template: "file_previews/media_preview", layout: false
       # html files
@@ -69,20 +72,8 @@ class FilePreviewsController < ApplicationController
         @accessed_asset = nil # otherwise it will double-log when they download the file
         render template: "file_previews/no_preview", layout: false
       end
+    else
+      render "file_previews/unauthorized_preview", status: :unauthorized, layout: false
     end
-  end
-
-  def read_allowed(attachment, user, session, params)
-    if params[:verifier]
-      verifier_checker = Attachments::Verification.new(attachment)
-      return true if verifier_checker.valid_verifier_for_permission?(params[:verifier], :read, session)
-    end
-    authorized_action(attachment, user, :read)
-  end
-
-  def download_allowed(attachment, user, session, params)
-    verifier_checker = Attachments::Verification.new(attachment)
-    (params[:verifier] && verifier_checker.valid_verifier_for_permission?(params[:verifier], :download, session)) ||
-      attachment.grants_right?(user, session, :download)
   end
 end

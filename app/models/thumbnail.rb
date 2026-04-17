@@ -18,8 +18,8 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class Thumbnail < ActiveRecord::Base
-  belongs_to :attachment, foreign_key: "parent_id"
+class Thumbnail < ApplicationRecord
+  belongs_to :attachment, foreign_key: "parent_id", inverse_of: :thumbnails
 
   # the ":keep_profile => true" part is in here so that we tell mini_magic to not try to pass the command line option -strip.
   # this is because on the servers we are actually using graphics_magic not image_magic's mogrify and graphics_magick doesn't
@@ -35,18 +35,43 @@ class Thumbnail < ActiveRecord::Base
   )
 
   before_save :set_namespace
+
+  set_policy do
+    given { |user, session| attachment.grants_right?(user, session, :read) }
+    can :read
+
+    given { |user, session| attachment.grants_right?(user, session, :download) }
+    can :download
+
+    given { |user| attachment.grants_right?(user, :read) }
+    can :read
+
+    given { |user| attachment.grants_right?(user, :download) }
+    can :download
+
+    given { |user, session| attachment.grants_right?(user, session, :read_as_admin) }
+    can :read_as_admin
+  end
+
   def set_namespace
     self.namespace = attachment.namespace
   end
 
-  def local_storage_path
-    "#{HostUrl.context_host(attachment.context)}/images/thumbnails/show/#{id}/#{uuid}"
+  def local_storage_path(user: nil, ttl: nil, location: nil)
+    path = "#{HostUrl.context_host(attachment.context)}/images/thumbnails/show/#{id}"
+    if attachment.root_account.feature_enabled?(:file_association_access)
+      path = "#{path}?location=#{location}" if location
+    else
+      path = "#{path}/#{uuid}"
+    end
+    path
   end
 
   delegate :bucket, to: :attachment
 
-  def cached_s3_url
-    @cached_s3_url = authenticated_s3_url(expires_in: 144.hours)
+  def cached_s3_url(options: {})
+    opts = options.merge(expires_in: 144.hours)
+    @cached_s3_url = authenticated_s3_url(opts)
   end
 
   before_save :assign_uuid

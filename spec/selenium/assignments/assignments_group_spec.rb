@@ -97,7 +97,7 @@ describe "assignment groups" do
     f("#assignment_group_#{ag.id} .add_assignment").click
 
     wait_for_ajaximations
-    fj(".more_options:visible").click
+    f("[data-testid='more-options-button']").click
     wait_for_ajaximations
 
     expect(get_value("#assignment_group_id")).to eq ag.id.to_s
@@ -111,12 +111,9 @@ describe "assignment groups" do
     get "/courses/#{@course.id}/assignments"
     wait_for_ajaximations
 
-    f("#assignment_group_#{ag2.id} .add_assignment").click
-    wait_for_ajaximations
+    build_assignment_with_type("Assignment", assignment_group_id: ag2.id, name: "Do this", points: "13")
 
-    replace_content(f("#ag_#{ag2.id}_assignment_name"), "Do this")
-    replace_content(f("#ag_#{ag2.id}_assignment_points"), "13")
-    expect_new_page_load { fj(".more_options:visible").click }
+    expect_new_page_load { f("[data-testid='more-options-button']").click }
 
     expect(get_value("#assignment_name")).to eq "Do this"
     expect(get_value("#assignment_points_possible")).to eq "13"
@@ -136,19 +133,26 @@ describe "assignment groups" do
     # edit group grading rules
     f("#ag_#{assignment_group.id}_manage_link").click
     fj(".edit_group:visible:first").click
+    wait_for_ajaximations
     # change the name
-    f("#ag_#{assignment_group.id}_name").clear
-    f("#ag_#{assignment_group.id}_name").send_keys("name change")
+    replace_content(f("#ag_#{assignment_group.id}_name"), "name change")
     # set number of lowest scores to drop
-    f("#ag_#{assignment_group.id}_drop_lowest").clear
-    f("#ag_#{assignment_group.id}_drop_lowest").send_keys("1")
+    replace_content(f("#ag_#{assignment_group.id}_drop_lowest"), "1")
     # set number of highest scores to drop
-    f("#ag_#{assignment_group.id}_drop_highest").clear
-    f("#ag_#{assignment_group.id}_drop_highest").send_keys("2")
+    replace_content(f("#ag_#{assignment_group.id}_drop_highest"), "2")
     # set assignment to never drop
     fj(".add_never_drop:visible").click
-    expect(f(".never_drop_rule select")).to be
-    click_option(".never_drop_rule select", assignment.title)
+    select = f(".never_drop_rule select")
+    expect(select).not_to be_nil
+    # Use JavaScript to set the value and trigger change event for React controlled component
+    driver.execute_script(<<~JS, select, assignment.id.to_s)
+      var select = arguments[0];
+      var value = arguments[1];
+      select.value = value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    JS
+    # Wait for debounced re-render (100ms) to propagate the change through React/Backbone
+    sleep 0.15
     # save it
     fj(".create_group:visible").click
     wait_for_ajaximations
@@ -193,18 +197,52 @@ describe "assignment groups" do
     expect(f("#assignment_group_#{ag1.id} .ag-header-controls")).to include_text("10.11% of Total")
   end
 
+  it "shows error text if group weight is not a number" do
+    @course.update_attribute(:group_weighting_scheme, "percent")
+    ag1 = @course.assignment_groups.create!(name: "Test")
+
+    get "/courses/#{@course.id}/assignments"
+
+    f("#course_assignment_settings_link").click
+    f("#assignmentSettingsCog").click
+    wait_for_ajaximations
+
+    fj('input[name="Test_group_weight"]:visible').send_keys("abc")
+
+    fj('button[id="update-assignment-settings"]:visible').click
+
+    expect(f("#assignment_group_#{ag1.id}_weight_input")).to include_text("Must be a valid number")
+  end
+
+  it "hide errors when changing the input value" do
+    @course.update_attribute(:group_weighting_scheme, "percent")
+    ag1 = @course.assignment_groups.create!(name: "Test")
+
+    get "/courses/#{@course.id}/assignments"
+
+    f("#course_assignment_settings_link").click
+    f("#assignmentSettingsCog").click
+    wait_for_ajaximations
+
+    fj('input[name="Test_group_weight"]:visible').send_keys("abc")
+
+    fj('button[id="update-assignment-settings"]:visible').click
+
+    expect(f("#assignment_group_#{ag1.id}_weight_input")).to include_text("Must be a valid number")
+
+    fj('input[name="Test_group_weight"]:visible').send_keys("100")
+
+    expect(f("#assignment_group_#{ag1.id}_weight_input")).not_to include_text("Must be a valid number")
+  end
+
   # This feels like it would be better suited here than in QUnit
   it "does not remove new assignments when editing a group", priority: "1" do
     get "/courses/#{@course.id}/assignments"
     wait_for_ajaximations
     ag = @course.assignment_groups.first
 
-    f("#assignment_group_#{ag.id} .add_assignment").click
-    wait_for_animations
+    build_assignment_with_type("Assignment", assignment_group_id: ag.id, name: "Disappear", submit: true)
 
-    replace_content(f("#ag_#{ag.id}_assignment_name"), "Disappear")
-    fj(".create_assignment:visible").click
-    wait_for_ajaximations
     refresh_page
     expect(fj("#assignment_group_#{ag.id} .assignment:eq(1) .ig-title").text).to match "Disappear"
 
@@ -252,7 +290,7 @@ describe "assignment groups" do
 
     get "/courses/#{@course.id}/assignments"
     wait_for_ajaximations
-    drag_with_js("#assignment_group_#{ags[1].id} .sortable-handle", 0, 100)
+    drag_with_js("#assignment_group_#{ags[1].id} .sortable-handle", 0, 200)
     wait_for_ajaximations
 
     ags.each(&:reload)
@@ -274,16 +312,16 @@ describe "assignment groups" do
         get "/courses/#{@course.id}/assignments"
         wait_for_ajaximations
 
-        # Finds and click the Add Assignment button on an assignment group.
-        f("#assignment_group_#{assignment_group.id} .add_assignment").click
-        wait_for_ajaximations
-
-        # Enter in values for Name, Due, and Points, then clicks save.
-        replace_content(f("#ag_#{assignment_group.id}_assignment_name"), assignment_name)
-        replace_content(f("#ag_#{assignment_group.id}_assignment_due_at"), current_time)
-        replace_content(f("#ag_#{assignment_group.id}_assignment_points"), assignment_points)
-        fj(".create_assignment:visible").click
-        wait_for_ajaximations
+        # Create Assignment
+        build_assignment_with_type(
+          "Assignment",
+          assignment_group_id: assignment_group.id,
+          name: "Do this",
+          due_at: current_time,
+          due_time: "4:15 AM",
+          points: "13",
+          submit: true
+        )
       end
     end
 
@@ -296,7 +334,7 @@ describe "assignment groups" do
     it "reflects the new assignment in the Assignments Index page", priority: "1" do
       assignment = assignment_group.reload.assignments.last
       expect(ff("#assignment_group_#{assignment_group.id} .ig-title").last.text).to match assignment_name.to_s
-      expect(ff("#assignment_group_#{assignment_group.id} .assignment-date-due").last.text).to match current_time
+      expect(ff("#assignment_group_#{assignment_group.id} .assignment-date-due").last).to include_text(format_time_for_view(time, :short).to_s)
       expect(f("#assignment_#{assignment.id} .non-screenreader").text).to match "#{assignment_points} pts"
     end
 
@@ -319,16 +357,10 @@ describe "assignment groups" do
     get "/courses/#{@course.id}/assignments"
     wait_for_ajaximations
 
-    f("#assignment_group_#{ag.id} .add_assignment").click
-    wait_for_ajaximations
-
-    replace_content(f("#ag_#{ag.id}_assignment_name"), "Do this")
-    replace_content(f("#ag_#{ag.id}_assignment_points"), "13")
-    fj(".create_assignment:visible").click
-    wait_for_ajaximations
+    build_assignment_with_type("Assignment", assignment_group_id: ag.id, name: "Do this", points: "13", submit: true)
 
     f("#assignment_group_#{ag.id} .add_assignment").click
-    expect(f("#ag_#{ag.id}_assignment_name")).to be_displayed
+    expect(f("[data-testid='assignment-name-input']")).to be_displayed
   end
 
   it "adds group weights correctly", priority: "2" do
@@ -413,5 +445,48 @@ describe "assignment groups" do
     fj(".delete_group:visible").click
     wait_for_ajaximations
     expect(f("#ag-list")).not_to include_text(assignment.name)
+  end
+
+  context "move assignments to validations" do
+    before do
+      @group0 = @course.assignment_groups.create!(name: "Test Group")
+      @assignment0 = @course.assignments.create!(title: "Test Assignment", assignment_group: @group0)
+      get "/courses/#{@course.id}/assignments"
+
+      open_delete_dialog
+      wait_for_ajaximations
+
+      fj(".assignment_group_move:visible").click
+      fj(".delete_group:visible").click
+    end
+
+    def open_delete_dialog
+      f("#ag_#{@group0.id}_manage_link").click
+      f("#assignment_group_#{@group0.id} .delete_group").click
+    end
+
+    it "shows an error if move_assignments_to group is not selected" do
+      expect(fj("#ag_#{@group0.id}_move_assignments_to_errors:visible")).to include_text("Assignment group is required to move assignment")
+    end
+
+    it "hides error if delete its assignments is checked" do
+      expect(f("#ag_#{@group0.id}_move_assignments_to_errors")).to include_text("Assignment group is required to move assignment")
+      fj(".assignment_group_delete:visible").click
+      expect(fj("#ag_#{@group0.id}_move_assignments_to_errors:visible")).to include_text("")
+    end
+
+    it "hides error if move_assignments_to group is selected" do
+      expect(f("#ag_#{@group0.id}_move_assignments_to_errors")).to include_text("Assignment group is required to move assignment")
+      click_option(".group_select:visible", @assignment_group.id.to_s, :value)
+      expect(fj("#ag_#{@group0.id}_move_assignments_to_errors:visible")).to include_text("")
+    end
+
+    it "hides error if dialog is closed" do
+      expect(fj("#ag_#{@group0.id}_move_assignments_to_errors:visible")).to include_text("Assignment group is required to move assignment")
+      fj(".cancel_button:visible").click
+
+      open_delete_dialog
+      expect(fj("#ag_#{@group0.id}_move_assignments_to_errors:visible")).to include_text("")
+    end
   end
 end

@@ -14,11 +14,11 @@ module Canvas::OAuth
 
         @_token = @provider.token_for(@opts[:code])
         raise Canvas::OAuth::RequestError, :invalid_authorization_code unless @_token.is_for_valid_code?
-        raise Canvas::OAuth::RequestError, :incorrect_client unless [@_token.key.global_id, @_token.key.id].include? @_token.client_id
+        raise Canvas::OAuth::RequestError, :incorrect_client unless [@_token.key.global_id, @_token.key.id].include? @_token.client_id.to_i
       end
 
       def generate_token
-        @_token.create_access_token_if_needed(Canvas::Plugin.value_to_boolean(@opts[:replace_tokens]))
+        @_token.create_access_token_if_needed(replace_tokens: Canvas::Plugin.value_to_boolean(@opts[:replace_tokens]))
         Canvas::OAuth::Token.expire_code(@opts[:code])
         @_token
       end

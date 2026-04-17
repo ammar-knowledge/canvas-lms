@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {createRoot} from 'react-dom/client'
 import formatMessage from '../format-message'
 import {Spinner} from '@instructure/ui-spinner'
 import {getData, setData} from './jqueryish_funcs'
@@ -88,7 +88,7 @@ export function showLoadingImage($link, position = 'adjacent') {
 
     $imageHolder.setAttribute(
       'style',
-      `z-index: ${zIndex}; position: absolute; top: ${top}; left: ${left}; margin-inline-start: ${imageMarginInlineStart}; margin-top: ${imageMarginTop}`
+      `z-index: ${zIndex}; position: absolute; top: ${top}; left: ${left}; margin-inline-start: ${imageMarginInlineStart}; margin-top: ${imageMarginTop}`,
     )
     document.body.appendChild($imageHolder)
   } else {
@@ -96,11 +96,12 @@ export function showLoadingImage($link, position = 'adjacent') {
     const left = `${offsetLeft}px`
     $imageHolder.setAttribute(
       'style',
-      `z-index:${zIndex}; position: absolute; top: ${top}; left: ${left}; margin-inline-start:${imageMarginInlineStart}; margin-top: ${imageMarginTop}`
+      `z-index:${zIndex}; position: absolute; top: ${top}; left: ${left}; margin-inline-start:${imageMarginInlineStart}; margin-top: ${imageMarginTop}`,
     )
     $link.appendChild($imageHolder)
   }
-  ReactDOM.render(<Spinner size="x-small" renderTitle={formatMessage('Loading')} />, $imageHolder)
+  const root = createRoot($imageHolder)
+  root.render(<Spinner size="x-small" renderTitle={formatMessage('Loading')} />)
   return $link
 }
 
@@ -109,6 +110,10 @@ export function removeLoadingImage($link) {
   const list = getData($link, 'loading_images') || []
   list.forEach(item => {
     if (item) {
+      const root = item._reactRoot
+      if (root) {
+        root.unmount()
+      }
       item.remove()
     }
   })
@@ -138,34 +143,27 @@ export function loadDocPreview($container, options) {
     }
   }
 
-  if (opts.crocodoc_session_url) {
-    const sanitizedUrl = sanitizeUrl(opts.crocodoc_session_url)
-    const iframe = document.createElement('iframe')
-    iframe.setAttribute('src', sanitizedUrl)
-    iframe.setAttribute('width', opts.width)
-    iframe.setAttribute('height', opts.height)
-    iframe.setAttribute('allowfullscreen', '1')
-    iframe.id = opts.id
-    $container.appendChild(iframe)
-    iframe.load(() => {
-      tellAppIViewedThisInline('crocodoc')
-      if (typeof opts.ready === 'function') opts.ready()
-    })
-  } else if (opts.canvadoc_session_url) {
+  const iframeAriaLabel = opts.attachment_name
+    ? formatMessage('File preview for {fileName}', {fileName: opts.attachment_name})
+    : formatMessage('File preview')
+
+  if (opts.canvadoc_session_url) {
     const canvadocWrapper = document.createElement('div')
     canvadocWrapper.setAttribute(
       'style',
-      'overflow: auto; resize: vertical; border: 1px solid transparent; height: 100%;'
+      'overflow: auto; resize: vertical; border: 1px solid transparent; min-height: 500px;',
     )
     $container.appendChild(canvadocWrapper)
 
-    const minHeight = opts.iframe_min_height !== undefined ? opts.iframe_min_height : '800px'
+    const minHeight = opts.iframe_min_height !== undefined ? opts.iframe_min_height : '500px'
     const sanitizedUrl = sanitizeUrl(opts.canvadoc_session_url)
     const iframe = document.createElement('iframe')
+
     iframe.addEventListener('load', () => {
       tellAppIViewedThisInline('canvadocs')
       if (typeof opts.ready === 'function') opts.ready()
     })
+    iframe.setAttribute('aria-label', iframeAriaLabel)
     iframe.setAttribute('src', sanitizedUrl)
     iframe.setAttribute('width', opts.width)
     iframe.setAttribute('allowfullscreen', '1')
@@ -196,6 +194,7 @@ export function loadDocPreview($container, options) {
         iframe.setAttribute('src', googleDocPreviewUrl)
         iframe.setAttribute('height', opts.height)
         iframe.setAttribute('width', '100%')
+        iframe.setAttribute('aria-label', iframeAriaLabel)
         $container.appendChild(iframe)
       }
     }
@@ -216,7 +215,7 @@ export function loadDocPreview($container, options) {
         }
       }
       showLoadingImage($container, 'centered')
-      // eslint-disable-next-line promise/catch-or-return
+
       fetch(url)
         .then(response => {
           if (!response.ok) throw new Error(`${response.status}: ${response.statusText}`)
@@ -230,7 +229,6 @@ export function loadDocPreview($container, options) {
           }
         })
         .catch(ex => {
-          // eslint-disable-next-line no-console
           console.error(ex)
         })
         .finally(() => {
@@ -242,12 +240,13 @@ export function loadDocPreview($container, options) {
     const paragraph = document.createElement('p')
     if (opts.attachment_preview_processing) {
       paragraph.textContent = formatMessage(
-        'The document preview is currently being processed. Please try again later.'
+        'The document preview is currently being processed. Please try again later.',
       )
     } else {
       paragraph.textContent = formatMessage('This document cannot be displayed within Canvas.')
     }
-    $container.empty().append(paragraph)
+    $container.replaceChildren()
+    $container.appendChild(paragraph)
   }
 }
 
@@ -259,7 +258,7 @@ export function sanitizeUrl(url) {
   const defaultUrl = 'about:blank'
   try {
     const parsedUrl = new URL(url, window.location.origin)
-    // eslint-disable-next-line no-script-url
+
     if (parsedUrl.protocol === 'javascript:') {
       return defaultUrl
     }

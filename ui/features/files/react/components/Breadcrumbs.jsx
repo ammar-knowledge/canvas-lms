@@ -18,15 +18,19 @@
 
 import React from 'react'
 import createReactClass from 'create-react-class'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import Breadcrumbs from '../legacy/components/Breadcrumbs'
 import filesEnv from '@canvas/files/react/modules/filesEnv'
 import BreadcrumbCollapsedContainer from './BreadcrumbCollapsedContainer'
 import splitAssetString from '@canvas/util/splitAssetString'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 const MIN_CRUMB_WIDTH = 80
+
+Breadcrumbs.componentWillMount = function () {
+  this.breadcrumbsRef = React.createRef()
+}
 
 Breadcrumbs.renderSingleCrumb = function (folder, isLastCrumb, isRootCrumb) {
   const [contextType, contextId] = splitAssetString(this.props.contextAssetString, false)
@@ -43,7 +47,7 @@ Breadcrumbs.renderSingleCrumb = function (folder, isLastCrumb, isRootCrumb) {
       : folder && (folder.get('custom_name') || folder.get('name'))
 
   return (
-    <li key={name}>
+    <li key={name} aria-current={isLastCrumb ? 'page' : undefined}>
       <a
         href={
           isRootCrumb && isContextRoot
@@ -67,7 +71,7 @@ Breadcrumbs.renderSingleCrumb = function (folder, isLastCrumb, isRootCrumb) {
 Breadcrumbs.renderDynamicCrumbs = function () {
   if (this.props.showingSearchResults) {
     return [
-      this.renderSingleCrumb(null, !'isLastCrumb', !!'isRootCrumb'),
+      this.renderSingleCrumb(null, false, true),
       <li key="searchLink">
         <a href="/search">
           <span className="ellipsis">
@@ -86,7 +90,7 @@ Breadcrumbs.renderDynamicCrumbs = function () {
     // Formerly, in CoffeeScript [...foldersInMiddle, lastFolder] = this.props.rootTillCurrentFolder
     const foldersInMiddle = this.props.rootTillCurrentFolder.slice(
       0,
-      this.props.rootTillCurrentFolder.length - 1
+      this.props.rootTillCurrentFolder.length - 1,
     )
     const lastFolder = this.props.rootTillCurrentFolder[this.props.rootTillCurrentFolder.length - 1]
 
@@ -97,7 +101,7 @@ Breadcrumbs.renderDynamicCrumbs = function () {
     } else {
       return [
         <BreadcrumbCollapsedContainer foldersToContain={foldersInMiddle} />,
-        this.renderSingleCrumb(lastFolder, true),
+        this.renderSingleCrumb(lastFolder, true, false),
       ]
     }
   }
@@ -105,8 +109,13 @@ Breadcrumbs.renderDynamicCrumbs = function () {
 
 Breadcrumbs.render = function () {
   return (
-    <nav aria-label="breadcrumbs" role="navigation" id="breadcrumbs" ref="breadcrumbs">
-      <ul>
+    <nav
+      aria-label={I18n.t('breadcrumbs')}
+      role="navigation"
+      id="breadcrumbs"
+      ref={this.breadcrumbsRef}
+    >
+      <ol>
         <li className="home">
           <a href="/">
             <i className="icon-home standalone-icon" title={this.state.homeName}>
@@ -120,7 +129,7 @@ Breadcrumbs.render = function () {
           </a>
         </li>
         {this.renderDynamicCrumbs()}
-      </ul>
+      </ol>
     </nav>
   )
 }

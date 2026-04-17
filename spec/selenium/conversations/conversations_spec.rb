@@ -62,7 +62,7 @@ describe "conversations new" do
         expect(messages.count).to eq 2
         expect(messages[0].text).to include "#{@teacher.name}, #{@s[0].name}, #{@s[1].name}"
         f("span[data-testid='desktop-message-action-header'] button[data-testid='settings']").click
-        fj("li:contains('Forward')").click
+        fj("span[class*='-menuItem__label']:contains('Forward')").click
         f("input[aria-label='To']").click
         fj("div[data-testid='address-book-item']:contains('Users')").click
         fj("div[data-testid='address-book-item']:contains('#{@s[2].name}')").click
@@ -85,7 +85,7 @@ describe "conversations new" do
         expect(messages.count).to eq 2
         expect(messages[0].text).to include "#{@teacher.name}, #{@s[0].name}, #{@s[1].name}"
         f("button[data-testid='more-options']").click
-        fj("li:contains('Forward')").click
+        fj("span[class*='-menuItem__label']:contains('Forward')").click
 
         # Verify that the thread is being forwarded
         expect(fj("span:contains('second Message')")).to be_present
@@ -123,7 +123,7 @@ describe "conversations new" do
         expect(messages.count).to eq 2
         expect(messages[0].text).to include "#{@teacher.name}, #{@s[0].name}, #{@s[1].name}"
         f("button[data-testid='message-more-options']").click
-        fj("li:contains('Forward')").click
+        fj("span[class*='-menuItem__label']:contains('Forward')").click
 
         # Verify that only the selected message is shown as being forwarded
         expect(fj("span:contains('second Message')")).to be_present
@@ -159,7 +159,7 @@ describe "conversations new" do
         f("div[data-testid='conversation']").click
         wait_for_ajaximations
         f("button[data-testid='more-options']").click
-        fj("li:contains('Archive')").click
+        fj("span[class*='-menuItem__label']:contains('Archive')").click
         driver.switch_to.alert.accept
         wait_for_ajaximations
         expect(f("body")).not_to contain_jqcss "div[data-testid='conversation']"
@@ -169,7 +169,7 @@ describe "conversations new" do
         f("div[data-testid='conversation']").click
         wait_for_ajaximations
         f("button[data-testid='more-options']").click
-        fj("li:contains('Unarchive')").click
+        fj("span[class*='-menuItem__label']:contains('Unarchive')").click
         driver.switch_to.alert.accept
         wait_for_ajaximations
         expect(f("body")).not_to contain_jqcss "div[data-testid='conversation']"
@@ -180,7 +180,7 @@ describe "conversations new" do
         f("div[data-testid='conversation']").click
         wait_for_ajaximations
         f("button[data-testid='more-options']").click
-        fj("li:contains('Archive')").click
+        fj("span[class*='-menuItem__label']:contains('Archive')").click
         driver.switch_to.alert.accept
         wait_for_ajaximations
         expect(f("body")).not_to contain_jqcss "div[data-testid='conversation']"
@@ -207,12 +207,12 @@ describe "conversations new" do
         expect(f("button[data-testid='visible-not-starred']")).to be_present
 
         f("button[data-testid='more-options']").click
-        fj("li:contains('Star')").click
+        fj("span[class*='-menuItem__label']:contains('Star')").click
         wait_for_ajaximations
         expect(f("button[data-testid='visible-starred']")).to be_present
 
         f("button[data-testid='more-options']").click
-        fj("li:contains('Unstar')").click
+        fj("span[class*='-menuItem__label']:contains('Unstar')").click
         wait_for_ajaximations
         expect(f("button[data-testid='visible-not-starred']")).to be_present
       end
@@ -226,13 +226,14 @@ describe "conversations new" do
         fj("li:contains('Starred')").click
         f("div[data-testid='conversation']").click
         f("button[data-testid='more-options']").click
-        fj("li:contains('Archive')").click
+        fj("span[class*='-menuItem__label']:contains('Archive')").click
         driver.switch_to.alert.accept
-        expect(fj("span:contains('Message archived!')")).to be_present
         f("button[data-testid='more-options']").click
-        fj("li:contains('Unarchive')").click
+        expect(fj("span[class*='-menuItem__label']:contains('Unarchive')")).to be_present
+        fj("span[class*='-menuItem__label']:contains('Unarchive')").click
         driver.switch_to.alert.accept
-        expect(fj("span:contains('Message unarchived!')")).to be_present
+        f("button[data-testid='more-options']").click
+        expect(fj("span[class*='-menuItem__label']:contains('Archive')")).to be_present
       end
 
       it "hides selected message while loading" do
@@ -319,6 +320,7 @@ describe "conversations new" do
         expect(f("[data-testid='course-select']").attribute("value")).to eq @course.name
         force_click("[data-testid='delete-course-button'] > button")
         wait_for_ajaximations
+        # After reset, the input value is empty and placeholder shows "All Courses"
         expect(f("[data-testid='course-select']").attribute("value")).to eq ""
       end
     end
@@ -384,6 +386,21 @@ describe "conversations new" do
       it "does not shows the Manage labels button" do
         get "/conversations"
         expect(f("body")).not_to contain_jqcss('button[data-testid="manage-labels"]')
+      end
+    end
+
+    context "nutrition facts functionality" do
+      before do
+        @course.root_account.enable_feature!(:translate_inbox_messages)
+      end
+
+      context "translations feature flag is enabled" do
+        it "loads nutrition facts element in compose modal" do
+          get "/conversations"
+          f("button[data-testid='compose']").click
+          wait_for_ajaximations
+          expect(f("#nutrition_facts_trigger")).to be_present
+        end
       end
     end
   end

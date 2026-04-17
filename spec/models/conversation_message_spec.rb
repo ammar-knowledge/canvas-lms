@@ -131,56 +131,6 @@ describe ConversationMessage do
     end
   end
 
-  context "generate_user_note" do
-    context "when the deprecate_faculty_journal flag is disabled" do
-      before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-      it "adds a user note under nominal circumstances" do
-        Account.default.update_attribute :enable_user_notes, true
-        course_with_teacher(active_all: true)
-        student = student_in_course(active_all: true).user
-        conversation = @teacher.initiate_conversation([student])
-        conversation.add_message("reprimanded!", generate_user_note: true, root_account_id: Account.default.id)
-        expect(student.user_notes.size).to be(1)
-        note = student.user_notes.first
-        expect(note.creator).to eql(@teacher)
-        expect(note.title).to eql("Private message")
-        expect(note.note).to eql("reprimanded!")
-      end
-
-      it "allows user notes on more than one recipient" do
-        Account.default.update_attribute :enable_user_notes, true
-        course_with_teacher(active_all: true)
-        student1 = student_in_course(active_all: true).user
-        student2 = student_in_course(active_all: true).user
-        conversation = @teacher.initiate_conversation([student1, student2])
-        conversation.add_message("reprimanded!", generate_user_note: true, root_account_id: Account.default.id)
-        expect(student1.user_notes.size).to be(1)
-        expect(student2.user_notes.size).to be(1)
-      end
-    end
-
-    context "when the deprecate_faculty_journal flag is enabled" do
-      it "does not add a user note under nominal circumstances" do
-        Account.default.update_attribute :enable_user_notes, true
-        course_with_teacher(active_all: true)
-        student = student_in_course(active_all: true).user
-        conversation = @teacher.initiate_conversation([student])
-        conversation.add_message("reprimanded!", generate_user_note: true, root_account_id: Account.default.id)
-        expect(student.user_notes.size).to be(0)
-      end
-    end
-
-    it "fails if notes are disabled on the account" do
-      Account.default.update_attribute :enable_user_notes, false
-      course_with_teacher(active_all: true)
-      student = student_in_course(active_all: true).user
-      conversation = @teacher.initiate_conversation([student])
-      conversation.add_message("reprimanded!", generate_user_note: true, root_account_id: Account.default.id)
-      expect(student.user_notes.size).to be(0)
-    end
-  end
-
   context "stream_items" do
     before :once do
       course_with_teacher
@@ -231,8 +181,6 @@ describe ConversationMessage do
       message.destroy
       expect(StreamItem.count).to eql(old_count + 1)
     end
-
-    it "should delete the stream_item if the conversation is deleted" # not yet implemented
   end
 
   context "sharding" do
@@ -253,37 +201,6 @@ describe ConversationMessage do
       end
       @shard1.activate do
         expect(m.attachments).to match_array([a])
-      end
-    end
-
-    context "when the deprecate_faculty_journal flag is disabled" do
-      before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-      it "user_note uses the recipients shard" do
-        conversation = nil
-        acc = nil
-        @shard1.activate do
-          acc = Account.default
-          acc.enable_user_notes = true
-          acc.save!
-          course_with_teacher(active_all: true)
-        end
-        a = @teacher.shard.activate do
-          attachment_model(context: @teacher, folder: @teacher.conversation_attachments_folder)
-        end
-        m = nil
-        @shard2.activate do
-          student_in_course(active_all: true)
-          m = @teacher.initiate_conversation([@student]).add_message("test", attachment_ids: [a.id])
-          conversation = m.conversation
-        end
-        @shard1.activate do
-          allow(Account).to receive(:default) { acc }
-          conversation_participant = conversation.conversation_participants.where(user_id: @teacher.id).first
-          conversation_participant.add_message("reprimanded!", generate_user_note: true, root_account_id: acc)
-          conversation_participant.reload
-          expect(@student.user_notes.last.root_account_id).to eq(Shard.relative_id_for(acc.id, acc.shard, @student.shard))
-        end
       end
     end
 
@@ -351,7 +268,7 @@ describe ConversationMessage do
     it "sets has_attachments if there are attachments" do
       a = attachment_model(context: @teacher, folder: @teacher.conversation_attachments_folder)
       m = @teacher.initiate_conversation([@student]).add_message("ohai", attachment_ids: [a.id])
-      expect(m.read_attribute(:has_attachments)).to be_truthy
+      expect(m.has_attachments).to be_truthy
       expect(m.conversation.reload.has_attachments).to be_truthy
       expect(m.conversation.conversation_participants.all?(&:has_attachments?)).to be_truthy
     end
@@ -360,7 +277,7 @@ describe ConversationMessage do
       a = attachment_model(context: @teacher, folder: @teacher.conversation_attachments_folder)
       m1 = @teacher.initiate_conversation([user_factory]).add_message("ohai", attachment_ids: [a.id])
       m2 = @teacher.initiate_conversation([@student]).add_message("lulz", forwarded_message_ids: [m1.id])
-      expect(m2.read_attribute(:has_attachments)).to be_truthy
+      expect(m2.has_attachments).to be_truthy
       expect(m2.conversation.reload.has_attachments).to be_truthy
       expect(m2.conversation.conversation_participants.all?(&:has_attachments?)).to be_truthy
     end
@@ -372,7 +289,7 @@ describe ConversationMessage do
       mc.context = mc.user = @teacher
       mc.save
       m = @teacher.initiate_conversation([@student]).add_message("ohai", media_comment: mc)
-      expect(m.read_attribute(:has_media_objects)).to be_truthy
+      expect(m.has_media_objects).to be_truthy
       expect(m.conversation.reload.has_media_objects).to be_truthy
       expect(m.conversation.conversation_participants.all?(&:has_media_objects?)).to be_truthy
     end
@@ -385,7 +302,7 @@ describe ConversationMessage do
       mc.save
       m1 = @teacher.initiate_conversation([user_factory]).add_message("ohai", media_comment: mc)
       m2 = @teacher.initiate_conversation([@student]).add_message("lulz", forwarded_message_ids: [m1.id])
-      expect(m2.read_attribute(:has_media_objects)).to be_truthy
+      expect(m2.has_media_objects).to be_truthy
       expect(m2.conversation.reload.has_media_objects).to be_truthy
       expect(m2.conversation.conversation_participants.all?(&:has_media_objects?)).to be_truthy
     end
@@ -393,13 +310,13 @@ describe ConversationMessage do
 
   context "log_conversation_message_metrics" do
     it "logs inbox.message.created.react" do
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
 
       course_with_teacher(active_all: true)
       student1 = student_in_course(active_all: true).user
       conversation = @teacher.initiate_conversation([student1])
-      conversation.add_message("hello", generate_user_note: false, root_account_id: Account.default.id)
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.message.created.react").at_least(:once)
+      conversation.add_message("hello", root_account_id: Account.default.id)
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.message.created.react").at_least(:once)
     end
   end
 
@@ -637,6 +554,106 @@ describe ConversationMessage do
     end
   end
 
+  describe "set_policy" do
+    before do
+      course_with_teacher(active_all: true)
+      @student_with_access = student_in_course(active_all: true).user
+      @student_without_access = student_in_course(active_all: true).user
+      @conversation = @teacher.initiate_conversation([@student_with_access])
+      @attachment = attachment_model(context: @teacher)
+      @conversation.add_message("test", attachment_ids: [@attachment.id])
+    end
+
+    it "allow read access if the user can view the attachment when user participant is available for the convo" do
+      conversation_message = @conversation.conversation.conversation_messages.last
+      expect(conversation_message.grants_right?(@student_with_access, :read)).to be_truthy
+      expect(conversation_message.grants_right?(@teacher, :read)).to be_truthy
+      expect(conversation_message.grants_right?(@student_without_access, :read)).to be_falsey
+    end
+  end
+
+  describe "#attachment_associations_enabled?" do
+    before :once do
+      course_with_teacher(active_all: true)
+      student_in_course(active_all: true)
+    end
+
+    it "returns true when file_association_access_conversation is enabled" do
+      Account.default.enable_feature!(:file_association_access_conversation)
+      conversation = @teacher.initiate_conversation([@student])
+      message = conversation.add_message("test", root_account_id: Account.default.id)
+
+      expect(message.attachment_associations_enabled?).to be true
+    end
+
+    it "returns true on any root account with the flag enabled" do
+      account1 = Account.create!
+      account1.enable_feature!(:file_association_access_conversation)
+
+      conversation = @teacher.initiate_conversation([@student])
+      message = conversation.add_message("test", root_account_id: Account.default.id)
+      message.root_account_ids = "#{Account.default.id},#{account1.id}"
+
+      expect(message.attachment_associations_enabled?).to be true
+    end
+
+    it "returns false when feature is disabled" do
+      Account.default.disable_feature!(:file_association_access_conversation)
+      conversation = @teacher.initiate_conversation([@student])
+      message = conversation.add_message("test", root_account_id: Account.default.id)
+
+      expect(message.attachment_associations_enabled?).to be false
+    end
+
+    it "handles nil root_account_ids" do
+      conversation = @teacher.initiate_conversation([@student])
+      message = conversation.add_message("test", root_account_id: Account.default.id)
+      message.root_account_ids = nil
+
+      expect(message.attachment_associations_enabled?).to be false
+    end
+  end
+
+  describe "location-based attachment access" do
+    before :once do
+      course_with_teacher(active_all: true)
+      student_in_course(active_all: true)
+      Account.default.enable_feature!(:file_association_access_conversation)
+    end
+
+    let(:attachment) { attachment_model(context: @teacher, folder: @teacher.conversation_attachments_folder) }
+
+    it "allows access to attachments via location parameter" do
+      conversation = @teacher.initiate_conversation([@student])
+      message = conversation.add_message("test with attachment", attachment_ids: [attachment.id], root_account_id: Account.default.id)
+
+      expect(message.attachment_associations.count).to eq 1
+      association = message.attachment_associations.first
+      expect(association.attachment_id).to eq attachment.id
+
+      location_param = "conversation_message_#{message.id}"
+      expect(AttachmentAssociation.verify_access(location_param, attachment, @student)).to be_truthy
+    end
+
+    it "denies access when user is not a participant" do
+      other_user = user_factory(active_all: true)
+      conversation = @teacher.initiate_conversation([@student])
+      message = conversation.add_message("test with attachment", attachment_ids: [attachment.id], root_account_id: Account.default.id)
+
+      location_param = "conversation_message_#{message.id}"
+      expect(AttachmentAssociation.verify_access(location_param, attachment, other_user)).to be_falsey
+    end
+
+    it "denies access when feature flag is disabled" do
+      Account.default.disable_feature!(:file_association_access_conversation)
+      conversation = @teacher.initiate_conversation([@student])
+      message = conversation.add_message("test with attachment", attachment_ids: [attachment.id], root_account_id: Account.default.id)
+
+      location_param = "conversation_message_#{message.id}"
+      expect(AttachmentAssociation.verify_access(location_param, attachment, @student)).to be_falsey
+    end
+  end
+
   describe "reply_from" do
     before do
       course_with_teacher
@@ -805,6 +822,85 @@ describe ConversationMessage do
                     })
       cp2.reload
       expect(cp2.workflow_state).to eq "read"
+    end
+  end
+
+  describe "#exclude_pending_temporary_enrollment_recipients" do
+    before :once do
+      Account.default.enable_feature!(:temporary_enrollments)
+      @provider = user_factory(active_all: true)
+      @course = course_with_teacher(active_all: true, user: @provider).course
+      @pairing = TemporaryEnrollmentPairing.create!(root_account: Account.default, created_by: account_admin_user)
+
+      @active_student = user_factory(active_all: true)
+      @course.enroll_student(@active_student, enrollment_state: "active")
+
+      @future_recipient = user_factory(active_all: true)
+      temp_enrollment = @course.enroll_user(
+        @future_recipient,
+        "TeacherEnrollment",
+        {
+          role: teacher_role,
+          temporary_enrollment_source_user_id: @provider.id,
+          temporary_enrollment_pairing_id: @pairing.id,
+        }
+      )
+      temp_enrollment.update!(start_at: 1.day.from_now, end_at: 1.week.from_now)
+
+      [@provider, @active_student, @future_recipient].each do |user|
+        communication_channel(user, { username: "test_#{user.id}@test.com", active_cc: true })
+      end
+    end
+
+    it "excludes users with only future temporary enrollments from recipients" do
+      conversation = @provider.initiate_conversation([@active_student, @future_recipient])
+      message = conversation.add_message("test", root_account_id: Account.default.id)
+
+      recipient_ids = message.recipients.map(&:id)
+      expect(recipient_ids).to include(@active_student.id)
+      expect(recipient_ids).not_to include(@future_recipient.id)
+    end
+
+    it "does not exclude users whose temporary enrollment has already started" do
+      active_recipient = user_factory(active_all: true)
+      communication_channel(active_recipient, { username: "active_temp_#{active_recipient.id}@test.com", active_cc: true })
+      active_temp = @course.enroll_user(
+        active_recipient,
+        "TeacherEnrollment",
+        {
+          role: teacher_role,
+          temporary_enrollment_source_user_id: @provider.id,
+          temporary_enrollment_pairing_id: @pairing.id,
+        }
+      )
+      active_temp.update!(start_at: 1.day.ago, end_at: 1.week.from_now)
+
+      conversation = @provider.initiate_conversation([@active_student, active_recipient])
+      message = conversation.add_message("test", root_account_id: Account.default.id)
+
+      expect(message.recipients.map(&:id)).to include(active_recipient.id)
+    end
+
+    context "when feature flag is disabled" do
+      before { Account.default.disable_feature!(:temporary_enrollments) }
+      after { Account.default.enable_feature!(:temporary_enrollments) }
+
+      it "does not filter recipients" do
+        conversation = @provider.initiate_conversation([@active_student, @future_recipient])
+        message = conversation.add_message("test", root_account_id: Account.default.id)
+
+        expect(message.recipients.map(&:id)).to include(@future_recipient.id)
+      end
+    end
+
+    it "keeps users who have both a future temp enrollment and an active regular enrollment" do
+      # Give the future_recipient a regular active enrollment too
+      @course.enroll_student(@future_recipient, enrollment_state: "active")
+
+      conversation = @provider.initiate_conversation([@future_recipient])
+      message = conversation.add_message("test", root_account_id: Account.default.id)
+
+      expect(message.recipients.map(&:id)).to include(@future_recipient.id)
     end
   end
 end

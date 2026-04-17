@@ -16,29 +16,29 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* eslint-disable no-void */
-
 import {extend} from '@canvas/backbone/utils'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {render, rerender} from '@canvas/react'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ValidatedFormView from '@canvas/forms/backbone/views/ValidatedFormView'
-import _, {each, find, keys, includes, forEach, filter} from 'lodash'
+import {each, find, keys, includes, forEach, filter, pick} from 'es-toolkit/compat'
 import $, {param} from 'jquery'
 import pluralize from '@canvas/util/stringPluralize'
 import numberHelper from '@canvas/i18n/numberHelper'
 import round from '@canvas/round'
 import RichContentEditor from '@canvas/rce/RichContentEditor'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert} from '@instructure/platform-alerts'
 import EditViewTemplate from '../../jst/EditView.handlebars'
 import userSettings from '@canvas/user-settings'
 import TurnitinSettings from '@canvas/assignments/TurnitinSettings'
 import VeriCiteSettings from '@canvas/assignments/VeriCiteSettings'
 import File from '@canvas/files/backbone/models/File'
-import TurnitinSettingsDialog from './TurnitinSettingsDialog'
-import MissingDateDialog from '@canvas/due-dates/backbone/views/MissingDateDialogView'
+import TurnitinSettingsModal from '../../react/TurnitinSettingsModal'
+import MissingDateConfirmationModal from '../../react/MissingDateConfirmationModal'
 import AssignmentGroupSelector from '@canvas/assignments/backbone/views/AssignmentGroupSelector'
-import GroupCategorySelector from '@canvas/groups/backbone/views/GroupCategorySelector'
+import GroupCategorySelector, {
+  GROUP_CATEGORY_SELECT,
+} from '@canvas/groups/backbone/views/GroupCategorySelector'
 import ConditionalRelease from '@canvas/conditional-release-editor'
 import deparam from 'deparam'
 import SisValidationHelper from '@canvas/sis/SisValidationHelper'
@@ -49,24 +49,33 @@ import {AssignmentSubmissionTypeContainer} from '../../react/AssignmentSubmissio
 import DefaultToolForm from '../../react/DefaultToolForm'
 import UsageRightsSelectBox from '@canvas/files/react/components/UsageRightsSelectBox'
 import AssignmentExternalTools from '@canvas/assignments/react/AssignmentExternalTools'
+import {attach as assetProcessorsAttach} from '../../react/AssetProcessorsForAssignment'
 import ExternalToolModalLauncher from '@canvas/external-tools/react/components/ExternalToolModalLauncher'
 import * as returnToHelper from '@canvas/util/validateReturnToURL'
 import setUsageRights from '@canvas/files/util/setUsageRights'
-import 'jqueryui/dialog'
 import '@canvas/jquery/jquery.toJSON'
 import '@canvas/rails-flash-notifications'
 import '@canvas/common/activateTooltips'
 import {AnnotatedDocumentSelector} from '../../react/EditAssignment'
 import {selectContentDialog} from '@canvas/select-content-dialog'
 import {addDeepLinkingListener} from '@canvas/deep-linking/DeepLinking'
+import {queryClient} from '@instructure/platform-query'
+import YAML from 'yaml'
+import FormattedErrorMessage from '@canvas/assignments/react/FormattedErrorMessage'
+import {unfudgeDateForProfileTimezone} from '@instructure/moment-utils'
+import {getUrlWithHorizonParams} from '@canvas/horizon/utils'
+import {SETTING_MESSAGES} from '@canvas/assignments/react/hooks/useSettingDependency'
 
-const I18n = useI18nScope('assignment_editview')
+const I18n = createI18nScope('assignment_editview')
 
 const slice = [].slice
 
 const ASSIGNMENT_GROUP_SELECTOR = '#assignment_group_selector'
+const QUIZ_TYPE_SELECTOR = '#quiz_type_selector'
+const ANONYMOUS_SUBMISSION_SELECTOR = '#anonymous_submission_selector'
 const DESCRIPTION = '[name="description"]'
 const SUBMISSION_TYPE = '[name="submission_type"]'
+const SUBMISSION_TYPE_FIELDS = '#submission_type_fields'
 const ONLINE_SUBMISSION_TYPES = '#assignment_online_submission_types'
 const NAME = '[name="name"]'
 const ALLOW_FILE_UPLOADS = '#assignment_online_upload'
@@ -103,8 +112,10 @@ const EXTERNAL_TOOLS_CUSTOM_PARAMS = '#assignment_external_tool_tag_attributes_c
 const EXTERNAL_TOOLS_LINE_ITEM = '#assignment_external_tool_tag_attributes_line_item'
 const ASSIGNMENT_POINTS_POSSIBLE = '#assignment_points_possible'
 const ASSIGNMENT_POINTS_CHANGE_WARN = '#point_change_warning'
+const POINTS_TOOLTIP = '#points_tooltip'
 const SECURE_PARAMS = '#secure_params'
 const PEER_REVIEWS_BOX = '#assignment_peer_reviews'
+const PEER_REVIEWS_ALLOCATION_AND_GRADING_BOX = '#assignment_peer_reviews_checkbox'
 const POST_TO_SIS_BOX = '#assignment_post_to_sis'
 const INTRA_GROUP_PEER_REVIEWS = '#intra_group_peer_reviews_toggle'
 const GROUP_CATEGORY_BOX = '#has_group_category'
@@ -114,6 +125,7 @@ const ANONYMOUS_GRADING_BOX = '#assignment_anonymous_grading'
 const HIDE_ZERO_POINT_QUIZZES_BOX = '#assignment_hide_in_gradebook'
 const HIDE_ZERO_POINT_QUIZZES_OPTION = '#assignment_hide_in_gradebook_option'
 const OMIT_FROM_FINAL_GRADE_BOX = '#assignment_omit_from_final_grade'
+const SUPPRESS_FROM_GRADEBOOK = '#assignment_suppress_from_gradebook'
 const ASSIGNMENT_EXTERNAL_TOOLS = '#assignment_external_tools'
 const USAGE_RIGHTS_CONTAINER = '#annotated_document_usage_rights_container'
 const USAGE_RIGHTS_SELECTOR = '#usageRightSelector'
@@ -122,6 +134,22 @@ const CREATIVE_COMMONS_SELECTION = '#creativeCommonsSelection'
 const LTI_EXT_MASTERY_CONNECT = 'https://canvas.instructure.com/lti/mastery_connect_assessment'
 
 const DEFAULT_SUBMISSION_TYPE_SELECTION_CONTENT_TYPE = 'context_external_tool'
+
+const ASSIGNMENT_NAME_INPUT_NAME = 'name'
+const POINTS_POSSIBLE_INPUT_NAME = 'points_possible'
+const EXTERNAL_TOOL_URL_INPUT_NAME = 'external_tool_tag_attributes[url]'
+const ASSET_PROCESSORS_CONTAINER = '#asset_processors_container'
+const ALLOWED_EXTENSIONS_INPUT_NAME = 'allowed_extensions'
+const ONLINE_SUBMISSION_CHECKBOXES_GROUP = 'online_submission_types[online_text_entry]'
+const DEFAULT_TOOL_LAUNCH_BUTTON = 'default-tool-launch-button'
+const SUBMISSION_TYPE_SELECTION_LAUNCH_BUTTON = 'assignment_submission_type_selection_launch_button'
+const USAGE_RIGHTS_SELECT = 'usage_rights_use_justification'
+
+function syncRender(existingRoot, element, container) {
+  if (!existingRoot) return render(element, container, {sync: true})
+  rerender(existingRoot, element, {sync: true})
+  return existingRoot
+}
 
 /*
 xsslint safeString.identifier srOnly
@@ -139,7 +167,6 @@ function EditView() {
   this.handleModeratedGradingChanged = this.handleModeratedGradingChanged.bind(this)
   this._validateAllowedAttempts = this._validateAllowedAttempts.bind(this)
   this._validateExternalTool = this._validateExternalTool.bind(this)
-  this._validatePointsRequired = this._validatePointsRequired.bind(this)
   this._validatePointsPossible = this._validatePointsPossible.bind(this)
   this._validateAllowedExtensions = this._validateAllowedExtensions.bind(this)
   this._validateSubmissionTypes = this._validateSubmissionTypes.bind(this)
@@ -155,6 +182,7 @@ function EditView() {
   this.submit = this.submit.bind(this)
   this.saveFormData = this.saveFormData.bind(this)
   this.getFormData = this.getFormData.bind(this)
+  this.showGradedPeerReviewSettings = this.showGradedPeerReviewSettings.bind(this)
   this._datesDifferIgnoringSeconds = this._datesDifferIgnoringSeconds.bind(this)
   this._attachEditorToDescription = this._attachEditorToDescription.bind(this)
   this.toJSON = this.toJSON.bind(this)
@@ -169,6 +197,7 @@ function EditView() {
   this.handleRemoveResource = this.handleRemoveResource.bind(this)
   this.handleSubmissionTypeChange = this.handleSubmissionTypeChange.bind(this)
   this.handleGradingTypeChange = this.handleGradingTypeChange.bind(this)
+  this.handleQuizTypeChange = this.handleQuizTypeChange.bind(this)
   this.handleRestrictFileUploadsChange = this.handleRestrictFileUploadsChange.bind(this)
   this.renderDefaultExternalTool = this.renderDefaultExternalTool.bind(this)
   this.renderAssignmentSubmissionTypeContainer =
@@ -205,6 +234,8 @@ function EditView() {
   this.handleCancel = this.handleCancel.bind(this)
   this.handleMessageEvent = this.handleMessageEvent.bind(this)
   window.addEventListener('message', this.handleMessageEvent.bind(this))
+  this.hideErrors = this.hideErrors.bind(this)
+  this.errorRoots = {}
 
   return EditView.__super__.constructor.apply(this, arguments)
 }
@@ -219,6 +250,7 @@ EditView.prototype.els = {
     els['' + ASSIGNMENT_GROUP_SELECTOR] = '$assignmentGroupSelector'
     els['' + DESCRIPTION] = '$description'
     els['' + SUBMISSION_TYPE] = '$submissionType'
+    els['' + SUBMISSION_TYPE_FIELDS] = '$submissionTypeFields'
     els['' + ONLINE_SUBMISSION_TYPES] = '$onlineSubmissionTypes'
     els['' + NAME] = '$name'
     els['' + ALLOW_FILE_UPLOADS] = '$allowFileUploads'
@@ -258,9 +290,11 @@ EditView.prototype.els = {
     els['' + ANONYMOUS_GRADING_BOX] = '$anonymousGradingBox'
     els['' + POST_TO_SIS_BOX] = '$postToSisBox'
     els['' + ASSIGNMENT_EXTERNAL_TOOLS] = '$assignmentExternalTools'
+    els['' + ASSET_PROCESSORS_CONTAINER] = '$assetProcessorsContainer'
     els['' + HIDE_ZERO_POINT_QUIZZES_BOX] = '$hideZeroPointQuizzesBox'
     els['' + HIDE_ZERO_POINT_QUIZZES_OPTION] = '$hideZeroPointQuizzesOption'
     els['' + OMIT_FROM_FINAL_GRADE_BOX] = '$omitFromFinalGradeBox'
+    els['' + SUPPRESS_FROM_GRADEBOOK] = '$suppressAssignment'
     return els
   })(),
 }
@@ -283,10 +317,20 @@ EditView.prototype.events = {
     events['click ' + EXTERNAL_TOOLS_URL + '_find'] = 'showExternalToolsDialog'
     events['change #assignment_points_possible'] = 'handlePointsChange'
     events['change ' + PEER_REVIEWS_BOX] = 'togglePeerReviewsAndGroupCategoryEnabled'
+    events['change ' + PEER_REVIEWS_ALLOCATION_AND_GRADING_BOX] =
+      'togglePeerReviewsAndGroupCategoryEnabled'
     events['change ' + POST_TO_SIS_BOX] = 'handlePostToSisBoxChange'
     events['change ' + GROUP_CATEGORY_BOX] = 'handleGroupCategoryChange'
     events['change ' + ANONYMOUS_GRADING_BOX] = 'handleAnonymousGradingChange'
     events['change ' + HIDE_ZERO_POINT_QUIZZES_BOX] = 'handleHideZeroPointQuizChange'
+    events['change ' + SUPPRESS_FROM_GRADEBOOK] = 'handlesuppressFromGradebookChange'
+    events['input ' + `[name="${EXTERNAL_TOOL_URL_INPUT_NAME}"]`] = 'clearErrorsOnInput'
+    events['input ' + `[name="${ASSIGNMENT_NAME_INPUT_NAME}"]`] = 'validateInput'
+    events['input ' + `[name="${ALLOWED_EXTENSIONS_INPUT_NAME}"]`] = 'validateInput'
+    events['input ' + `[name="${POINTS_POSSIBLE_INPUT_NAME}"]`] = 'validateInput'
+    events['change #assignment_online_submission_types input[type="checkbox"]'] =
+      'handleOnlineSubmissionCheckboxToggle'
+    events['change #' + GROUP_CATEGORY_SELECT] = 'clearGroupSetErrors'
     if (ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED) {
       events.change = 'onChange'
     }
@@ -295,6 +339,12 @@ EditView.prototype.events = {
 }
 
 EditView.child('assignmentGroupSelector', '' + ASSIGNMENT_GROUP_SELECTOR)
+
+EditView.child('quizTypeSelector', '' + QUIZ_TYPE_SELECTOR)
+
+EditView.child('pointsTooltip', '' + POINTS_TOOLTIP)
+
+EditView.child('anonymousSubmissionSelector', '' + ANONYMOUS_SUBMISSION_SELECTOR)
 
 EditView.child('gradingTypeSelector', '' + GRADING_TYPE_SELECTOR)
 
@@ -307,21 +357,7 @@ EditView.prototype.initialize = function (options) {
   this.assignment = this.model
   this.setDefaultsIfNew()
   this.dueDateOverrideView = options.views['js-assignment-overrides']
-  if (ENV.FEATURES?.selective_release_ui_api) {
-    this.listenTo(this.dueDateOverrideView, 'tray:open', () =>
-      // Disables all Save, Save & Publish and Build buttons
-      this.$el
-        .find('.assignment__action-buttons button:not(".cancel_button")')
-        .prop('disabled', true)
-    )
-
-    this.listenTo(this.dueDateOverrideView, 'tray:close', () =>
-      // Enables all Save, Save & Publish and Build buttons
-      this.$el
-        .find('.assignment__action-buttons button:not(".cancel_button")')
-        .prop('disabled', false)
-    )
-  }
+  this.masteryPathToggleView = options.views['js-assignment-overrides-mastery-path']
 
   this.on(
     'success',
@@ -344,7 +380,7 @@ EditView.prototype.initialize = function (options) {
             usageRights,
             function () {},
             annotatedDocument.contextId,
-            annotatedDocument.contextType
+            annotatedDocument.contextType,
           ).always(function () {
             _this.unwatchUnload()
             return _this.redirectAfterSave()
@@ -354,11 +390,20 @@ EditView.prototype.initialize = function (options) {
           return _this.redirectAfterSave()
         }
       }
-    })(this)
+    })(this),
   )
   this.gradingTypeSelector.on('change:gradingType', this.handleGradingTypeChange)
   if (ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED) {
     this.gradingTypeSelector.on('change:gradingType', this.onChange)
+  }
+  if (this.quizTypeSelector) {
+    this.quizTypeSelector.on('change:quizType', this.handleQuizTypeChange)
+  }
+  if (this.anonymousSubmissionSelector) {
+    this.anonymousSubmissionSelector.on(
+      'change:anonymousSubmission',
+      this.handleAnonymousSubmissionChange,
+    )
   }
   this.lockedItems = options.lockedItems || {}
   return (this.cannotEditGrades = !options.canEditGrades)
@@ -378,15 +423,25 @@ EditView.prototype.settingsToCache = function () {
     'submission_types',
     'points_possible',
     'allowed_extensions',
-    'peer_reviews',
-    'peer_review_count',
-    'automatic_peer_reviews',
     'group_category_id',
     'grade_group_students_individually',
     'turnitin_enabled',
     'vericite_enabled',
     'allowed_attempts',
   ]
+}
+
+EditView.prototype.handleOnlineSubmissionCheckboxToggle = function (_e) {
+  const containerId = `${ONLINE_SUBMISSION_CHECKBOXES_GROUP}_errors`
+  this.errorRoots[containerId]?.unmount()
+  delete this.errorRoots[containerId]
+
+  document.getElementById('online_entry_options_asterisk')?.classList.remove('error-text')
+}
+
+EditView.prototype.clearGroupSetErrors = function (_e) {
+  const containerId = `${GROUP_CATEGORY_SELECT}_errors`
+  this.hideErrors(containerId)
 }
 
 EditView.prototype.handlePointsChange = function (ev) {
@@ -398,7 +453,7 @@ EditView.prototype.handlePointsChange = function (ev) {
   }
   if (this.assignment.hasSubmittedSubmissions()) {
     return this.$pointsChangeWarning.toggleAccessibly(
-      this.$assignmentPointsPossible.val() !== '' + this.assignment.pointsPossible()
+      this.$assignmentPointsPossible.val() !== '' + this.assignment.pointsPossible(),
     )
   }
   if (newPoints === 0) {
@@ -417,13 +472,14 @@ EditView.prototype.checkboxAccessibleAdvisory = function (box) {
     box === this.$peerReviewsBox ||
     box === this.$groupCategoryBox ||
     box === this.$anonymousGradingBox ||
-    box === this.$omitFromFinalGradeBox
+    box === this.$omitFromFinalGradeBox ||
+    box === this.$suppressAssignment
       ? ''
       : 'screenreader-only'
   advisory = label.find('div.accessible_label')
   if (!advisory.length) {
     advisory = $(
-      "<div class='" + srOnly + " accessible_label' style='font-size: 0.9em'></div>"
+      "<div class='" + srOnly + " accessible_label' style='font-size: 0.9em'></div>",
     ).appendTo(label)
   }
   return advisory
@@ -432,7 +488,7 @@ EditView.prototype.checkboxAccessibleAdvisory = function (box) {
 EditView.prototype.setImplicitCheckboxValue = function (box, value) {
   return $("input[type='hidden'][name='" + box.attr('name') + "']", box.parent()).attr(
     'value',
-    value
+    value,
   )
 }
 
@@ -466,7 +522,55 @@ EditView.prototype.enableCheckbox = function (box) {
   }
 }
 
+EditView.prototype.isPeerReviewChecked = function () {
+  if (this.showGradedPeerReviewSettings()) {
+    const peerReviewHidden = document.getElementById('assignment_peer_reviews_hidden')
+    if (peerReviewHidden) {
+      return peerReviewHidden.value === 'true'
+    }
+    return this.assignment.peerReviews() || false
+  }
+  return !!this.$peerReviewsBox.prop('checked')
+}
+
+// Disables the peer review checkbox AND unchecks it.
+// The React component (PeerReviewDetails) responds by setting both
+// peerReviewEnabled=false (disables interaction) and peerReviewChecked=false (unchecks).
+EditView.prototype.disablePeerReviewsCheckbox = function () {
+  window.top.postMessage({subject: SETTING_MESSAGES.TOGGLE_PEER_REVIEWS, enabled: false}, '*')
+}
+
+// Enables the peer review checkbox for interaction only.
+// Does NOT check the checkbox - the user must manually enable peer reviews.
+// The React component responds by setting peerReviewEnabled=true only.
+EditView.prototype.enablePeerReviewsCheckbox = function () {
+  window.top.postMessage({subject: SETTING_MESSAGES.TOGGLE_PEER_REVIEWS, enabled: true}, '*')
+}
+
+EditView.prototype.isExternalToolSubmissionType = function () {
+  const subVal = this.$submissionType.val()
+  return subVal === 'external_tool' || subVal.includes('external_tool_placement')
+}
+
+EditView.prototype.canEnablePeerReviews = function () {
+  if (this.assignment.moderatedGrading()) return false
+  if ($('#assignment_grading_type').val() === 'not_graded') return false
+  if (this.isExternalToolSubmissionType()) return false
+
+  return true
+}
+
+EditView.prototype.showGradedPeerReviewSettings = function () {
+  return ENV.PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED && !this.assignment.isLegacyPeerReview()
+}
+
+EditView.prototype.handlesuppressFromGradebookChange = function () {
+  return this.model.suppressAssignment(this.$suppressAssignment.prop('checked'))
+}
+
 EditView.prototype.handleGroupCategoryChange = function () {
+  // clear any errors
+  this.clearGroupSetErrors()
   const isGrouped = this.$groupCategoryBox.prop('checked')
   const isAnonymous = this.$anonymousGradingBox.prop('checked')
   if (isAnonymous) {
@@ -474,11 +578,11 @@ EditView.prototype.handleGroupCategoryChange = function () {
   } else if (isGrouped) {
     this.disableCheckbox(
       this.$allowAnnotatedDocument,
-      I18n.t('Student annotation assignments are not currently supported for group assignments')
+      I18n.t('Student annotation assignments are not currently supported for group assignments'),
     )
     this.disableCheckbox(
       this.$anonymousGradingBox,
-      I18n.t('Anonymous grading cannot be enabled for group assignments')
+      I18n.t('Anonymous grading cannot be enabled for group assignments'),
     )
   } else {
     this.enableCheckbox(this.$anonymousGradingBox)
@@ -498,13 +602,13 @@ EditView.prototype.handleAnonymousGradingChange = function () {
   } else if (this.assignment.anonymousGrading() || this.assignment.gradersAnonymousToGraders()) {
     return this.disableCheckbox(
       this.$groupCategoryBox,
-      I18n.t('Group assignments cannot be enabled for anonymously graded assignments')
+      I18n.t('Group assignments cannot be enabled for anonymously graded assignments'),
     )
   } else if (!this.assignment.moderatedGrading()) {
     if (isAnnotated) {
       return this.disableCheckbox(
         this.$groupCategoryBox,
-        I18n.t('Group assignments do not currently support student annotation assignments')
+        I18n.t('Group assignments do not currently support student annotation assignments'),
       )
     } else if (this.model.canGroup()) {
       return this.enableCheckbox(this.$groupCategoryBox)
@@ -513,11 +617,8 @@ EditView.prototype.handleAnonymousGradingChange = function () {
 }
 
 EditView.prototype.handlePostToSisBoxChange = function () {
-  if (ENV.FEATURES?.selective_release_ui_api) {
-    const postToSISChecked = this.$postToSisBox.prop('checked')
-    this.model.set('post_to_sis', postToSISChecked)
-    this.dueDateOverrideView.render()
-  }
+  const postToSISChecked = this.$postToSisBox.prop('checked')
+  this.model.set('post_to_sis', postToSISChecked)
 }
 
 EditView.prototype.handleHideZeroPointQuizChange = function () {
@@ -526,8 +627,8 @@ EditView.prototype.handleHideZeroPointQuizChange = function () {
     return this.disableCheckbox(
       this.$omitFromFinalGradeBox,
       I18n.t(
-        'This is enabled by default as assignments can not be withheld from the gradebook and still count towards it.'
-      )
+        'This is enabled by default as assignments can not be withheld from the gradebook and still count towards it.',
+      ),
     )
   } else {
     return this.enableCheckbox(this.$omitFromFinalGradeBox)
@@ -535,17 +636,27 @@ EditView.prototype.handleHideZeroPointQuizChange = function () {
 }
 
 EditView.prototype.togglePeerReviewsAndGroupCategoryEnabled = function () {
+  const isGradedPeerReviewInLegacyMode =
+    this.assignment.peerReviewSubAssignment() != null &&
+    !ENV.PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED
+
   if (this.assignment.moderatedGrading()) {
     this.disableCheckbox(
       this.$peerReviewsBox,
-      I18n.t('Peer reviews cannot be enabled for moderated assignments')
+      I18n.t('Peer reviews cannot be enabled for moderated assignments'),
     )
+    this.disablePeerReviewsCheckbox()
     this.disableCheckbox(
       this.$groupCategoryBox,
-      I18n.t('Group assignments cannot be enabled for moderated assignments')
+      I18n.t('Group assignments cannot be enabled for moderated assignments'),
     )
   } else {
-    this.enableCheckbox(this.$peerReviewsBox)
+    if (isGradedPeerReviewInLegacyMode) {
+      this.disablePeerReviewsCheckbox()
+    } else {
+      this.enableCheckbox(this.$peerReviewsBox)
+      this.enablePeerReviewsCheckbox()
+    }
     if (this.model.canGroup()) {
       this.enableCheckbox(this.$groupCategoryBox)
     }
@@ -580,7 +691,7 @@ EditView.prototype.setDefaultsIfNew = function () {
               return _this.assignment.set(setting, setting_from_cache)
             }
           }
-        })(this)
+        })(this),
       )
     }
     if (this.assignment.submissionTypes().length === 0) {
@@ -590,38 +701,50 @@ EditView.prototype.setDefaultsIfNew = function () {
 }
 
 EditView.prototype.cacheAssignmentSettings = function () {
-  // eslint-disable-next-line prefer-spread
-  const new_assignment_settings = _.pick.apply(
-    _,
-    [this.getFormData()].concat(slice.call(this.settingsToCache()))
-  )
+  const formData = this.getFormData()
+  const keys = slice.call(this.settingsToCache())
+  const new_assignment_settings = pick(formData, ...keys)
   return userSettings.contextSet('new_assignment_settings', new_assignment_settings)
 }
 
+EditView.prototype._ensureTurnitinModal = function () {
+  if (this._turnitinModalRef) return
+  this._turnitinModalRef = React.createRef()
+  const mountPoint = document.createElement('div')
+  document.body.appendChild(mountPoint)
+  const _this = this
+  render(
+    <TurnitinSettingsModal
+      ref={this._turnitinModalRef}
+      onSettingsChange={newSettings => {
+        if (_this.$vericiteEnabled.prop('checked'))
+          _this.assignment.set({
+            type: 'vericite',
+            settings: new VeriCiteSettings(newSettings),
+          })
+        else
+          _this.assignment.set({
+            type: 'turnitin',
+            settings: new TurnitinSettings(newSettings),
+          })
+      }}
+    />,
+    mountPoint,
+    {sync: true},
+  )
+}
+
 EditView.prototype.showTurnitinDialog = function (ev) {
-  let model, type
   ev.preventDefault()
-  type = 'turnitin'
-  model = this.assignment.get('turnitin_settings')
+  this._ensureTurnitinModal()
+  let type = 'turnitin'
+  let model = this.assignment.get('turnitin_settings')
   if (this.$vericiteEnabled.prop('checked')) {
     type = 'vericite'
     model = this.assignment.get('vericite_settings')
   }
-  const turnitinDialog = new TurnitinSettingsDialog(model, type)
-  return turnitinDialog.render().on(
-    'settings:change',
-    (function (_this) {
-      return function (settings) {
-        if (_this.$vericiteEnabled.prop('checked')) {
-          _this.assignment.set('vericite_settings', new VeriCiteSettings(settings))
-        } else {
-          _this.assignment.set('turnitin_settings', new TurnitinSettings(settings))
-        }
-        turnitinDialog.off()
-        return turnitinDialog.remove()
-      }
-    })(this)
-  )
+  const settings = typeof model.toJSON === 'function' ? model.toJSON() : model
+  this._turnitinModalRef.current.open(type, settings)
 }
 
 EditView.prototype.handleAssignmentSelectionSubmit = function (data) {
@@ -642,7 +765,9 @@ EditView.prototype.handleAssignmentSelectionSubmit = function (data) {
       height: data['item[iframe][height]'],
     },
     lineItem: tryJsonParse(data['item[line_item]']),
-    'https://canvas.instructure.com/lti/preserveExistingAssignmentName': tryJsonParse(data['item[preserveExistingAssignmentName]']),
+    'https://canvas.instructure.com/lti/preserveExistingAssignmentName': tryJsonParse(
+      data['item[preserveExistingAssignmentName]'],
+    ),
   }
   this.handleContentItem(contentItem)
 }
@@ -666,20 +791,16 @@ EditView.prototype.handleContentItem = function (item) {
   const lineItem = item.lineItem
   if (lineItem) {
     this.$externalToolsLineItem.val(JSON.stringify(lineItem))
-    if ('scoreMaximum' in lineItem) {
-      this.$assignmentPointsPossible.val(lineItem.scoreMaximum)
-    }
+    if ('scoreMaximum' in lineItem) this.$assignmentPointsPossible.val(lineItem.scoreMaximum)
   }
 
-  const newAssignmentName = (lineItem && 'label' in lineItem) ? lineItem.label : item.title
-  const replaceAssignmentName = !item['https://canvas.instructure.com/lti/preserveExistingAssignmentName']
-  if (newAssignmentName && (replaceAssignmentName || this.$name.val() === '')) {
+  const newAssignmentName = lineItem && 'label' in lineItem ? lineItem.label : item.title
+  const replaceAssignmentName =
+    !item['https://canvas.instructure.com/lti/preserveExistingAssignmentName']
+  if (newAssignmentName && (replaceAssignmentName || this.$name.val() === ''))
     this.$name.val(newAssignmentName)
-  }
 
-  if (item.text) {
-    RichContentEditor.callOnRCE(this.$description, 'set_code', item.text)
-  }
+  if (item.text) RichContentEditor.callOnRCE(this.$description, 'set_code', item.text)
 
   this.renderAssignmentSubmissionTypeContainer()
 
@@ -687,14 +808,11 @@ EditView.prototype.handleContentItem = function (item) {
 }
 
 EditView.prototype.setDefaultSubmissionTypeSelectionContentType = function () {
-  return this.$externalToolsContentType.val(
-    DEFAULT_SUBMISSION_TYPE_SELECTION_CONTENT_TYPE
-  )
+  return this.$externalToolsContentType.val(DEFAULT_SUBMISSION_TYPE_SELECTION_CONTENT_TYPE)
 }
 
 EditView.prototype.submissionTypeSelectionHasResource = function () {
-  return this.$externalToolsContentType.val() !==
-    DEFAULT_SUBMISSION_TYPE_SELECTION_CONTENT_TYPE
+  return this.$externalToolsContentType.val() !== DEFAULT_SUBMISSION_TYPE_SELECTION_CONTENT_TYPE
 }
 
 // used when loading an existing assignment with a resource link. otherwise
@@ -731,27 +849,41 @@ function tryJsonParse(jsonStr) {
 }
 
 EditView.prototype.showExternalToolsDialog = function () {
+  const onClose = () => {
+    $('#assignment_external_tool_tag_attributes_url_find').focus()
+  }
+
   return selectContentDialog({
     dialog_title: I18n.t('select_external_tool_dialog_title', 'Configure External Tool'),
     select_button_text: I18n.t('buttons.select_url', 'Select'),
     no_name_input: true,
+    ariaModal: 'true',
     submit: data => {
       this.handleAssignmentSelectionSubmit(data)
     },
+    close: onClose,
   })
 }
 
+EditView.prototype.clearAllowedExtensionsAndErrors = function () {
+  this.getElement(ALLOWED_EXTENSIONS_INPUT_NAME).value = ''
+  this.hideErrors('allowed_extensions_errors')
+}
+
 EditView.prototype.toggleRestrictFileUploads = function () {
-  return this.$restrictFileUploadsOptions.toggleAccessibly(this.$allowFileUploads.prop('checked'))
+  const fileUploadsAllowed = this.$allowFileUploads.prop('checked')
+  if (fileUploadsAllowed) this.clearAllowedExtensionsAndErrors()
+  return this.$restrictFileUploadsOptions.toggleAccessibly(fileUploadsAllowed)
 }
 
 EditView.prototype.toggleAnnotatedDocument = function () {
+  this.hideErrors('online_submission_types[student_annotation]_errors')
   const isAnonymous = this.$anonymousGradingBox.prop('checked')
   this.$annotatedDocumentOptions.toggleAccessibly(this.$allowAnnotatedDocument.prop('checked'))
   if (this.$allowAnnotatedDocument.prop('checked')) {
     this.disableCheckbox(
       this.$groupCategoryBox,
-      I18n.t('Group assignments do not currently support student annotation assignments')
+      I18n.t('Group assignments do not currently support student annotation assignments'),
     )
     this.renderAnnotatedDocumentSelector()
     if (this.shouldRenderUsageRights()) {
@@ -762,7 +894,7 @@ EditView.prototype.toggleAnnotatedDocument = function () {
     if (isAnonymous) {
       this.disableCheckbox(
         this.$groupCategoryBox,
-        I18n.t('Group assignments cannot be enabled for anonymously graded assignments')
+        I18n.t('Group assignments cannot be enabled for anonymously graded assignments'),
       )
     } else if (this.model.canGroup()) {
       this.enableCheckbox(this.$groupCategoryBox)
@@ -782,11 +914,8 @@ EditView.prototype.getAnnotatedDocumentContainer = function () {
 EditView.prototype.setAnnotatedDocument = function (file) {
   const $annotatableAttachmentInput = document.getElementById('annotatable_attachment_id')
   this.annotatedDocument = file
-  if (this.annotatedDocument === null) {
-    return ($annotatableAttachmentInput.value = '')
-  } else {
-    return ($annotatableAttachmentInput.value = this.annotatedDocument.id)
-  }
+  if (this.annotatedDocument === null) return ($annotatableAttachmentInput.value = '')
+  else return ($annotatableAttachmentInput.value = this.annotatedDocument.id)
 }
 
 EditView.prototype.getAnnotatedDocument = function () {
@@ -794,6 +923,7 @@ EditView.prototype.getAnnotatedDocument = function () {
 }
 
 EditView.prototype.renderAnnotatedDocumentSelector = function () {
+  this.hideErrors('online_submission_types[student_annotation]_errors')
   const props = {
     attachment: this.getAnnotatedDocument(),
     defaultUploadFolderId: ENV.ROOT_FOLDER_ID,
@@ -802,7 +932,7 @@ EditView.prototype.renderAnnotatedDocumentSelector = function () {
         $.screenReaderFlashMessageExclusive(
           I18n.t('removed %{filename}', {
             filename: fileInfo.name,
-          })
+          }),
         )
         _this.setAnnotatedDocument(null)
         _this.renderAnnotatedDocumentSelector()
@@ -816,7 +946,7 @@ EditView.prototype.renderAnnotatedDocumentSelector = function () {
         $.screenReaderFlashMessageExclusive(
           I18n.t('selected %{filename}', {
             filename: fileInfo.name,
-          })
+          }),
         )
         const match = fileInfo.src.match(/\/(\w+)\/(\d+)\/files\/.*/)
         _this.setAnnotatedDocument({
@@ -833,12 +963,13 @@ EditView.prototype.renderAnnotatedDocumentSelector = function () {
     })(this),
   }
   const element = React.createElement(AnnotatedDocumentSelector, props)
-  // eslint-disable-next-line react/no-render-return-value
-  return ReactDOM.render(element, this.getAnnotatedDocumentContainer())
+  const container = this.getAnnotatedDocumentContainer()
+  this.annotatedDocumentRoot = syncRender(this.annotatedDocumentRoot, element, container)
 }
 
 EditView.prototype.unmountAnnotatedDocumentSelector = function () {
-  ReactDOM.unmountComponentAtNode(this.getAnnotatedDocumentContainer())
+  this.annotatedDocumentRoot?.unmount()
+  this.annotatedDocumentRoot = null
   return this.setAnnotatedDocument(null)
 }
 
@@ -859,7 +990,7 @@ EditView.prototype.setAnnotatedDocumentUsageRights = function (usageRights) {
     .dispatchEvent(
       new Event('change', {
         bubbles: true,
-      })
+      }),
     )
   if ($(CREATIVE_COMMONS_SELECTION).length) {
     $(CREATIVE_COMMONS_SELECTION).val(this.annotatedDocumentUsageRights.license)
@@ -900,13 +1031,17 @@ EditView.prototype.renderAnnotatedDocumentUsageRightsSelectBox = function () {
   if (annotatedDocument) {
     contextType = annotatedDocument.contextType
     contextId = annotatedDocument.contextId
-    ReactDOM.render(
-      React.createElement(UsageRightsSelectBox, {
-        contextType,
-        contextId,
-      }),
-      document.querySelector(USAGE_RIGHTS_CONTAINER)
-    )
+    const clearUsageRightsErrors = () => {
+      $(document).trigger('validateUsageRightsSelectedValue', {error: false})
+      this.hideErrors('usage_rights_use_justification_errors')
+    }
+    const element = React.createElement(UsageRightsSelectBox, {
+      contextType,
+      contextId,
+      hideErrors: clearUsageRightsErrors,
+    })
+    const container = document.querySelector(USAGE_RIGHTS_CONTAINER)
+    this.usageRightsRoot = syncRender(this.usageRightsRoot, element, container)
     $(USAGE_RIGHTS_CONTAINER + ' .UsageRightsSelectBox__container').addClass('edit-view')
     self = this
     return this.fetchAttachmentFile(
@@ -918,7 +1053,7 @@ EditView.prototype.renderAnnotatedDocumentUsageRightsSelectBox = function () {
         const message = I18n.t('Failed to load student annotation file data.')
         $.flashError(message)
         return $.screenReaderFlashMessage(message)
-      }
+      },
     )
   } else if (this.shouldRenderUsageRights()) {
     return this.unmountAnnotatedDocumentUsageRightsSelectBox()
@@ -926,14 +1061,15 @@ EditView.prototype.renderAnnotatedDocumentUsageRightsSelectBox = function () {
 }
 
 EditView.prototype.unmountAnnotatedDocumentUsageRightsSelectBox = function () {
-  ReactDOM.unmountComponentAtNode(document.querySelector(USAGE_RIGHTS_CONTAINER))
+  this.usageRightsRoot?.unmount()
+  this.usageRightsRoot = null
   return this.setAnnotatedDocumentUsageRights(null)
 }
 
 EditView.prototype.toggleAdvancedTurnitinSettings = function (ev) {
   ev.preventDefault()
   return this.$advancedTurnitinSettings.toggleAccessibly(
-    this.$turnitinEnabled.prop('checked') || this.$vericiteEnabled.prop('checked')
+    this.$turnitinEnabled.prop('checked') || this.$vericiteEnabled.prop('checked'),
   )
 }
 
@@ -958,21 +1094,63 @@ EditView.prototype.renderDefaultExternalTool = function () {
     toolButtonText: ENV.DEFAULT_ASSIGNMENT_TOOL_BUTTON_TEXT,
     toolInfoMessage: ENV.DEFAULT_ASSIGNMENT_TOOL_INFO_MESSAGE,
     previouslySelected: this.assignment.defaultToolSelected(),
+    hideErrors: this.hideErrors,
   }
-  // eslint-disable-next-line react/no-render-return-value
-  return ReactDOM.render(
-    React.createElement(DefaultToolForm, props),
-    document.querySelector('[data-component="DefaultToolForm"]')
-  )
+  const element = React.createElement(DefaultToolForm, props)
+  const container = document.querySelector('[data-component="DefaultToolForm"]')
+  this.defaultToolFormRoot = syncRender(this.defaultToolFormRoot, element, container)
 }
 
 EditView.prototype.handleRestrictFileUploadsChange = function () {
-  return this.$allowedExtensions.toggleAccessibly(this.$restrictFileUploads.prop('checked'))
+  const fileUploadsRestricted = this.$restrictFileUploads.prop('checked')
+  if (fileUploadsRestricted) this.clearAllowedExtensionsAndErrors()
+  return this.$allowedExtensions.toggleAccessibly(fileUploadsRestricted)
 }
 
 EditView.prototype.handleGradingTypeChange = function (gradingType) {
-  this.$gradedAssignmentFields.toggleAccessibly(gradingType !== 'not_graded')
+  const isNotGraded = gradingType === 'not_graded'
+  this.$gradedAssignmentFields.toggleAccessibly(!isNotGraded)
+
+  this.$peerReviewsFields.toggleAccessibly(!isNotGraded)
+  if (isNotGraded) {
+    if (this.$peerReviewsBox.prop('checked')) {
+      this.$peerReviewsBox.prop('checked', false)
+    }
+    this.disablePeerReviewsCheckbox()
+    $('#peer_reviews_details')?.toggleAccessibly(false)
+  } else if (!this.assignment.moderatedGrading()) {
+    this.enablePeerReviewsCheckbox()
+  }
+
+  this.renderModeratedGradingFormFieldGroup()
   return this.handleSubmissionTypeChange(null)
+}
+
+EditView.prototype.handleQuizTypeChange = function (quizType) {
+  // Hide points field when ungraded survey is selected
+  const isUngradedSurvey = quizType === 'ungraded_survey'
+  this.$assignmentPointsPossible.closest('.control-group').toggleAccessibly(!isUngradedSurvey)
+
+  // Set points to 0 for ungraded surveys
+  if (isUngradedSurvey) {
+    this.$assignmentPointsPossible.val('0')
+  }
+
+  const isGradedSurvey = quizType === 'graded_survey'
+  const isSurvey = isUngradedSurvey || isGradedSurvey
+
+  this.$assignmentGroupSelector.toggleAccessibly(!isUngradedSurvey)
+  this.$gradingTypeSelector.toggleAccessibly(!isSurvey)
+  this.$submissionTypeFields.toggleAccessibly(!isSurvey)
+  this.$gradedAssignmentFields.toggleAccessibly(!isSurvey)
+  this.anonymousSubmissionSelector.$el.closest('.control-group').toggleAccessibly(isSurvey)
+
+  this.pointsTooltip.updateComponent(quizType)
+}
+
+EditView.prototype.handleAnonymousSubmissionChange = function (isAnonymous) {
+  // Store the value in the model
+  this.assignment.newQuizzesAnonymousSubmission(isAnonymous)
 }
 
 EditView.prototype.hasMasteryConnectData = function () {
@@ -983,10 +1161,24 @@ EditView.prototype.hasMasteryConnectData = function () {
 }
 
 EditView.prototype.handleSubmissionTypeChange = function (_ev) {
+  if (this.$submissionType.length === 0) return
   const subVal = this.$submissionType.val()
   this.$onlineSubmissionTypes.toggleAccessibly(subVal === 'online')
   this.$externalToolSettings.toggleAccessibly(subVal === 'external_tool')
   const isPlacementTool = subVal.includes('external_tool_placement')
+
+  if (this.isExternalToolSubmissionType()) {
+    if (this.isPeerReviewChecked()) {
+      if (!this.showGradedPeerReviewSettings()) {
+        this.$peerReviewsBox.prop('checked', false)
+        this.togglePeerReviewsAndGroupCategoryEnabled()
+      }
+      this.disablePeerReviewsCheckbox()
+      $('#peer_reviews_details')?.toggleAccessibly(false)
+    }
+  } else if (this.showGradedPeerReviewSettings() && this.canEnablePeerReviews()) {
+    this.enablePeerReviewsCheckbox()
+  }
   this.$externalToolPlacementLaunchContainer.toggleAccessibly(isPlacementTool)
 
   if (isPlacementTool) {
@@ -1001,17 +1193,16 @@ EditView.prototype.handleSubmissionTypeChange = function (_ev) {
     this.selectedTool = undefined
   }
   this.$groupCategorySelector.toggleAccessibly(subVal !== 'external_tool' && !isPlacementTool)
-  this.$peerReviewsFields.toggleAccessibly(subVal !== 'external_tool' && !isPlacementTool)
-  this.$similarityDetectionTools.toggleAccessibly(
-    subVal === 'online' && ENV.PLAGIARISM_DETECTION_PLATFORM
+  const gradingType = $('#assignment_grading_type').val()
+  const isNotGraded = gradingType === 'not_graded'
+  this.$peerReviewsFields.toggleAccessibly(
+    subVal !== 'external_tool' && !isPlacementTool && !isNotGraded,
   )
   this.$defaultExternalToolContainer.toggleAccessibly(subVal === 'default_external_tool')
   this.$allowedAttemptsContainer.toggleAccessibly(
-    subVal === 'online' || subVal === 'external_tool' || isPlacementTool
+    subVal === 'online' || subVal === 'external_tool' || isPlacementTool,
   )
-  if (subVal === 'online') {
-    this.handleOnlineSubmissionTypeChange()
-  }
+  this.handleOnlineSubmissionTypeChange()
   return this.$externalToolNewTabContainer.toggleAccessibly(subVal.includes('external_tool'))
 }
 
@@ -1075,10 +1266,9 @@ EditView.prototype.handlePlacementExternalToolSelect = function (selection) {
 }
 
 EditView.prototype.renderAssignmentSubmissionTypeContainer = function () {
-   const resource=
-    this.submissionTypeSelectionHasResource() ?
-    {title: this.$externalToolsTitle.val() } :
-    undefined;
+  const resource = this.submissionTypeSelectionHasResource()
+    ? {title: this.$externalToolsTitle.val()}
+    : undefined
 
   const props = {
     tool: this.selectedTool,
@@ -1087,13 +1277,18 @@ EditView.prototype.renderAssignmentSubmissionTypeContainer = function () {
     onLaunchButtonClick: this.handleSubmissionTypeSelectionLaunch,
   }
 
-  ReactDOM.render(
-    React.createElement(AssignmentSubmissionTypeContainer, props),
-    document.querySelector('[data-component="AssignmentSubmissionTypeContainer"]')
+  const element = React.createElement(AssignmentSubmissionTypeContainer, props)
+  const container = document.querySelector('[data-component="AssignmentSubmissionTypeContainer"]')
+  this.submissionTypeContainerRoot = syncRender(
+    this.submissionTypeContainerRoot,
+    element,
+    container,
   )
 }
 
 EditView.prototype.handleSubmissionTypeSelectionLaunch = function () {
+  // clear any errors
+  this.hideErrors(`${SUBMISSION_TYPE_SELECTION_LAUNCH_BUTTON}_errors`)
   const removeListener = addDeepLinkingListener(event => {
     if (event.data.content_items?.length >= 1) {
       this.handleContentItem(event.data.content_items[0])
@@ -1132,10 +1327,13 @@ EditView.prototype.renderSubmissionTypeSelectionDialog = function (open) {
     launchType: 'submission_type_selection',
     onExternalContentReady: this.handleExternalContentReady,
   }
-  const mountPoint = document.querySelector('#assignment_submission_type_selection_tool_dialog')
-  const dialog = React.createElement(ExternalToolModalLauncher, props)
-  // eslint-disable-next-line react/no-render-return-value
-  return ReactDOM.render(dialog, mountPoint)
+  const container = document.querySelector('#assignment_submission_type_selection_tool_dialog')
+  const element = React.createElement(ExternalToolModalLauncher, props)
+  this.submissionTypeSelectionDialogRoot = syncRender(
+    this.submissionTypeSelectionDialogRoot,
+    element,
+    container,
+  )
 }
 
 EditView.prototype.handleExternalContentReady = function (data) {
@@ -1167,7 +1365,7 @@ EditView.prototype.handleExternalContentReady = function (data) {
       },
       {
         count: mc_ext.studentCount,
-      }
+      },
     )
     $('#mc_external_data_students').text(student_count_text)
     return showFlashAlert({
@@ -1178,11 +1376,20 @@ EditView.prototype.handleExternalContentReady = function (data) {
 }
 
 EditView.prototype.handleOnlineSubmissionTypeChange = function (_env) {
+  const showAssetProcessors =
+    window.ENV?.FEATURES?.lti_asset_processor &&
+    this.$submissionType.val() === 'online' &&
+    (this.$onlineSubmissionTypes.find(ALLOW_FILE_UPLOADS).prop('checked') ||
+      this.$onlineSubmissionTypes.find(ALLOW_TEXT_ENTRY).prop('checked'))
+  this.$assetProcessorsContainer.toggleAccessibly(showAssetProcessors)
+
   const showConfigTools =
-    this.$onlineSubmissionTypes.find(ALLOW_FILE_UPLOADS).prop('checked') ||
-    this.$onlineSubmissionTypes.find(ALLOW_TEXT_ENTRY).prop('checked')
+    ENV.PLAGIARISM_DETECTION_PLATFORM &&
+    this.$submissionType.val() === 'online' &&
+    (this.$onlineSubmissionTypes.find(ALLOW_FILE_UPLOADS).prop('checked') ||
+      this.$onlineSubmissionTypes.find(ALLOW_TEXT_ENTRY).prop('checked'))
   return this.$similarityDetectionTools.toggleAccessibly(
-    showConfigTools && ENV.PLAGIARISM_DETECTION_PLATFORM
+    showConfigTools && ENV.PLAGIARISM_DETECTION_PLATFORM,
   )
 }
 
@@ -1195,23 +1402,42 @@ EditView.prototype.afterRender = function () {
   this.renderAllowedAttempts()
   this.$graderCommentsVisibleToGradersBox = $('#assignment_grader_comment_visibility')
   this.$gradersAnonymousToGradersLabel = $('label[for="assignment_graders_anonymous_to_graders"]')
-  this.similarityDetectionTools = SimilarityDetectionTools.attach(
-    this.$similarityDetectionTools.get(0),
-    parseInt(ENV.COURSE_ID, 10),
-    this.$secureParams.val(),
-    parseInt(ENV.SELECTED_CONFIG_TOOL_ID, 10),
-    ENV.SELECTED_CONFIG_TOOL_TYPE,
-    ENV.REPORT_VISIBILITY_SETTING
-  )
-  this.AssignmentExternalTools = AssignmentExternalTools.attach(
-    this.$assignmentExternalTools.get(0),
-    'assignment_edit',
-    parseInt(ENV.COURSE_ID, 10),
-    parseInt(this.assignment.id, 10)
-  )
+  if (this.$similarityDetectionTools.length > 0) {
+    this.similarityDetectionTools = SimilarityDetectionTools.attach(
+      this.$similarityDetectionTools.get(0),
+      parseInt(ENV.COURSE_ID, 10),
+      this.$secureParams.val(),
+      parseInt(ENV.SELECTED_CONFIG_TOOL_ID, 10),
+      ENV.SELECTED_CONFIG_TOOL_TYPE,
+      ENV.REPORT_VISIBILITY_SETTING,
+    )
+  }
+  if (this.$assignmentExternalTools.length > 0) {
+    this.AssignmentExternalTools = AssignmentExternalTools.attach(
+      this.$assignmentExternalTools.get(0),
+      'assignment_edit',
+      parseInt(ENV.COURSE_ID, 10),
+      parseInt(this.assignment.id, 10),
+    )
+  }
+  if (
+    window.ENV?.FEATURES?.lti_asset_processor &&
+    window.ENV?.FEATURES?.lti_asset_processor_course &&
+    this.$assetProcessorsContainer.length > 0
+  ) {
+    assetProcessorsAttach({
+      container: this.$assetProcessorsContainer.get(0),
+      courseId: ENV.COURSE_ID,
+      secureParams: this.$secureParams.val(),
+      initialAttachedProcessors: ENV.ASSET_PROCESSORS || [],
+      hideErrors: () => {
+        this.hideErrors('asset_processors_errors')
+      },
+    })
+  }
+
   this._attachEditorToDescription()
   this.togglePeerReviewsAndGroupCategoryEnabled()
-  this.handleOnlineSubmissionTypeChange()
   this.handleSubmissionTypeChange()
   this.handleGroupCategoryChange()
   this.handleAnonymousGradingChange()
@@ -1240,7 +1466,8 @@ EditView.prototype.afterRender = function () {
     this.conditionalReleaseEditor = ConditionalRelease.attach(
       this.$conditionalReleaseTarget.get(0),
       I18n.t('assignment'),
-      ENV.CONDITIONAL_RELEASE_ENV
+      ENV.CONDITIONAL_RELEASE_ENV,
+      !!this.lockedItems.content,
     )
   }
   if (this.assignment.inClosedGradingPeriod()) {
@@ -1249,11 +1476,34 @@ EditView.prototype.afterRender = function () {
   if (this.defaultExternalToolEnabled()) {
     this.renderDefaultExternalTool()
   }
+
+  // Show/hide fields based on survey type on initial load
+  if (this.quizTypeSelector) {
+    const currentQuizType = this.assignment.newQuizzesType() || 'graded_quiz'
+    const isGradedSurvey = currentQuizType === 'graded_survey'
+    const isUngradedSurvey = currentQuizType === 'ungraded_survey'
+
+    if (isGradedSurvey || isUngradedSurvey) {
+      this.$assignmentGroupSelector.toggleAccessibly(isGradedSurvey)
+      this.$gradingTypeSelector.toggleAccessibly(false)
+      this.$submissionTypeFields.toggleAccessibly(false)
+      // Hide graded assignment fields for surveys
+      this.$gradedAssignmentFields.toggleAccessibly(false)
+      this.anonymousSubmissionSelector.$el.closest('.control-group').toggleAccessibly(true)
+    }
+
+    if (isUngradedSurvey) {
+      this.$assignmentPointsPossible.closest('.control-group').toggleAccessibly(false)
+      this.$assignmentPointsPossible.val('0')
+    }
+  }
+
   return this
 }
 
 EditView.prototype.toJSON = function () {
   const data = this.assignment.toView()
+
   return Object.assign(data, {
     assignment_attempts:
       typeof ENV !== 'undefined' && ENV !== null ? ENV.assignment_attempts_enabled : void 0,
@@ -1268,6 +1518,12 @@ EditView.prototype.toJSON = function () {
       (typeof ENV !== 'undefined' && ENV !== null
         ? ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED
         : void 0) || false,
+    coursePaceWithMasteryPath:
+      (typeof ENV !== 'undefined' && ENV !== null
+        ? ENV.IN_PACED_COURSE &&
+          ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED &&
+          ENV.FEATURES.course_pace_pacing_with_mastery_paths
+        : void 0) || false,
     lockedItems: this.lockedItems,
     cannotEditGrades: this.cannotEditGrades,
     anonymousGradingEnabled:
@@ -1280,7 +1536,11 @@ EditView.prototype.toJSON = function () {
       (typeof ENV !== 'undefined' && ENV !== null
         ? ENV.ANONYMOUS_INSTRUCTOR_ANNOTATIONS_ENABLED
         : void 0) || false,
-    differentiatedModulesEnabled: ENV.FEATURES?.selective_release_ui_api,
+    is_horizon_course: !!ENV.horizon_course,
+    showAnonymousSubmissionSelector:
+      this.assignment.isQuizLTIAssignment() &&
+      (this.assignment.newQuizzesType() === 'graded_survey' ||
+        this.assignment.newQuizzesType() === 'ungraded_survey'),
   })
 }
 
@@ -1336,7 +1596,10 @@ EditView.prototype.getFormData = function () {
   data = this._filterAllowedExtensions(data)
   data = this._unsetGroupsIfExternalTool(data)
   data.ab_guid = this.assignment.get('ab_guid')
-  if (!(typeof ENV !== 'undefined' && ENV !== null ? ENV.IS_LARGE_ROSTER : void 0)) {
+  if (
+    this.groupCategorySelector &&
+    !(typeof ENV !== 'undefined' && ENV !== null ? ENV.IS_LARGE_ROSTER : void 0)
+  ) {
     data = this.groupCategorySelector.filterFormData(data)
   }
   if (!data.post_to_sis) {
@@ -1352,12 +1615,25 @@ EditView.prototype.getFormData = function () {
     data.lock_at = null
     data.unlock_at = null
   }
-  data.only_visible_to_overrides = this.dueDateOverrideView.setOnlyVisibleToOverrides()
-  data.assignment_overrides = this.dueDateOverrideView.getOverrides()
+
+  if (data.peer_reviews_assign_at) {
+    data.peer_reviews_assign_at = unfudgeDateForProfileTimezone(data.peer_reviews_assign_at)
+  }
+
+  if (ENV.COURSE_PACE_ENABLED && ENV.FEATURES.course_pace_pacing_with_mastery_paths) {
+    data.assignment_overrides = this.masteryPathToggleView.getOverrides()
+    data.only_visible_to_overrides = this.masteryPathToggleView.setOnlyVisibleToOverrides()
+  } else {
+    data.assignment_overrides = this.dueDateOverrideView.getOverrides()
+    data.only_visible_to_overrides = this.dueDateOverrideView.setOnlyVisibleToOverrides()
+  }
+
   if (this.shouldPublish) {
     data.published = true
   }
-  data.points_possible = round(numberHelper.parse(data.points_possible), 2)
+  if (data.points_possible) {
+    data.points_possible = round(numberHelper.parse(data.points_possible), 2)
+  }
   if (data.peer_review_count) {
     data.peer_review_count = numberHelper.parse(data.peer_review_count)
   }
@@ -1366,17 +1642,86 @@ EditView.prototype.getFormData = function () {
   // actual JSON object, so we have to convert.
   if (data.external_tool_tag_attributes.custom_params.trim()) {
     data.external_tool_tag_attributes.custom_params = tryJsonParse(
-      data.external_tool_tag_attributes.custom_params
+      data.external_tool_tag_attributes.custom_params,
     )
   }
   if (data.external_tool_tag_attributes.line_item.trim()) {
     data.external_tool_tag_attributes.line_item = tryJsonParse(
-      data.external_tool_tag_attributes.line_item
+      data.external_tool_tag_attributes.line_item,
     )
   }
+
+  // Important to set to empty array if not present so the APs are cleared
+  data.asset_processors = data.asset_processors?.map(tryJsonParse) || []
+
   if ($grader_count.length > 0) {
     data.grader_count = numberHelper.parse($grader_count[0].value)
   }
+  if (this.showGradedPeerReviewSettings()) {
+    const peerReviewHidden = document.getElementById('assignment_peer_reviews_hidden')
+    data.peer_reviews = peerReviewHidden?.value === 'true'
+
+    // Read from hidden inputs to preserve values when Advanced Configuration is collapsed
+    const withinGroupsHidden = document.getElementById('peer_reviews_within_groups_checkbox_hidden')
+    data.intra_group_peer_reviews = withinGroupsHidden?.value === 'true'
+
+    const anonymityHidden = document.getElementById('peer_reviews_anonymity_checkbox_hidden')
+    data.anonymous_peer_reviews = anonymityHidden?.value === 'true'
+
+    const peerReviewCountHidden = document.getElementById('assignment_peer_reviews_count_hidden')
+    if (peerReviewCountHidden?.value) {
+      const reviewsCount = numberHelper.parse(peerReviewCountHidden.value)
+      if (!isNaN(reviewsCount)) {
+        data.peer_review_count = reviewsCount
+      }
+    }
+
+    const reviewsRequiredHidden = document.getElementById('assignment_peer_reviews_count_hidden')
+    const pointsPerReviewHidden = document.getElementById(
+      'assignment_peer_reviews_max_input_hidden',
+    )
+
+    const acrossSectionsInput = document.getElementById(
+      'peer_reviews_across_sections_checkbox_hidden',
+    )
+    data.peer_review_across_sections = acrossSectionsInput?.value === 'true'
+
+    const passFailHidden = document.getElementById('peer_reviews_pass_fail_grading_checkbox_hidden')
+
+    if (reviewsRequiredHidden && pointsPerReviewHidden) {
+      const reviewsRequired = numberHelper.parse(reviewsRequiredHidden.value)
+      const pointsPerReview = numberHelper.parse(pointsPerReviewHidden.value)
+
+      if (!isNaN(reviewsRequired) && !isNaN(pointsPerReview)) {
+        data.peer_review = {
+          points_possible: round(reviewsRequired * pointsPerReview, 2),
+          grading_type: passFailHidden?.value === 'true' ? 'pass_fail' : 'points',
+        }
+      }
+    }
+
+    const submissionRequiredHidden = document.getElementById(
+      'peer_reviews_submission_required_checkbox_hidden',
+    )
+    data.peer_review_submission_required = submissionRequiredHidden?.value === 'true'
+
+    // Add peer review due dates and overrides
+    const storedPeerReviewData = this.assignment.get('peer_review_data')
+    if (data.peer_reviews) {
+      data.peer_review = {
+        ...(data.peer_review || {}),
+        ...(storedPeerReviewData || {}),
+      }
+      // Auto-set peer review available/until from assignment dates
+      data.peer_review.unlock_at = data.due_at
+      data.peer_review.lock_at = data.lock_at
+      // JSON.stringify strips undefined but preserves null, so
+      // convert to ensure the API receives an explicit null when
+      // dates are cleared
+      data.peer_review.due_at = data.peer_review.due_at ?? null
+    }
+  }
+
   return data
 }
 
@@ -1392,41 +1737,43 @@ EditView.prototype.saveFormData = function () {
             },
             function (err) {
               return new $.Deferred().reject(xhr, err).promise()
-            }
+            },
           )
         }
-      })(this)
+      })(this),
     )
   } else {
     return EditView.__super__.saveFormData.apply(this, arguments)
   }
 }
 
+EditView.prototype._ensureMissingDateModal = function () {
+  if (this._missingDateModalRef) return
+  this._missingDateModalRef = React.createRef()
+  const mountPoint = document.createElement('div')
+  document.body.appendChild(mountPoint)
+  const _this = this
+  render(
+    <MissingDateConfirmationModal
+      ref={this._missingDateModalRef}
+      onContinue={() => ValidatedFormView.prototype.submit.call(_this)}
+    />,
+    mountPoint,
+    {sync: true},
+  )
+}
+
 EditView.prototype.submit = function (event) {
-  let missingDateDialog, sections
   event.preventDefault()
   event.stopPropagation()
   this.cacheAssignmentSettings()
-  if (this.dueDateOverrideView.containsSectionsWithoutOverrides()) {
-    sections = this.dueDateOverrideView.sectionsWithoutOverrides()
-    missingDateDialog = new MissingDateDialog({
-      validationFn() {
-        return sections
-      },
-      labelFn(section) {
-        return section.get('name')
-      },
-      success: (function (_this) {
-        return function (dateDialog) {
-          dateDialog.dialog('close').remove()
-          return ValidatedFormView.prototype.submit.call(_this)
-        }
-      })(this),
-    })
-    missingDateDialog.cancel = function (_e) {
-      return missingDateDialog.$dialog.dialog('close').remove()
-    }
-    return missingDateDialog.render()
+  if (
+    (ENV.ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS ||
+      !this.dueDateOverrideView.containsDiffTagOverrides()) &&
+    this.dueDateOverrideView.containsSectionsWithoutOverrides()
+  ) {
+    this._ensureMissingDateModal()
+    this._missingDateModalRef.current.open()
   } else {
     return EditView.__super__.submit.apply(this, arguments)
   }
@@ -1460,6 +1807,14 @@ EditView.prototype.handleSave = function (event) {
 EditView.prototype.onSaveFail = function (xhr) {
   this.shouldPublish = false
   this.disableWhileLoadingOpts = {}
+
+  if (xhr?.responseJSON?.errors && typeof xhr.responseJSON.errors === 'string') {
+    showFlashAlert({
+      message: xhr.responseJSON.errors,
+      type: 'error',
+    })
+  }
+
   return EditView.__super__.onSaveFail.call(this, xhr)
 }
 
@@ -1483,7 +1838,8 @@ EditView.prototype._inferSubmissionTypes = function (assignmentData) {
 EditView.prototype._filterAllowedExtensions = function (data) {
   const restrictFileExtensions = data.restrict_file_extensions
   delete data.restrict_file_extensions
-  if (restrictFileExtensions === '1') {
+  const allowFileUploads = this.$allowFileUploads.prop('checked')
+  if (restrictFileExtensions === '1' && allowFileUploads) {
     data.allowed_extensions = filter(data.allowed_extensions.split(','), function (ext) {
       return $.trim(ext.toString()).length > 0
     })
@@ -1512,10 +1868,102 @@ EditView.prototype.fieldSelectors = Object.assign(
   },
   {
     usage_rights_legal_copyright: COPYRIGHT_HOLDER,
-  }
+  },
+  {
+    asset_processors: '#asset_processors_container',
+  },
 )
 
 EditView.prototype.showErrors = function (errors) {
+  errors = this.sortErrorsByVerticalScreenPosition(errors)
+  let shouldFocus = true
+  Object.entries(errors).forEach(([key, value]) => {
+    if (key === 'peer_review_details') {
+      if (this.showGradedPeerReviewSettings() && shouldFocus) {
+        const peerReviewDetailsEl = document.getElementById(
+          'peer_reviews_allocation_and_grading_details',
+        )
+        if (peerReviewDetailsEl && typeof peerReviewDetailsEl.focusOnFirstError === 'function') {
+          peerReviewDetailsEl.focusOnFirstError()
+          shouldFocus = false
+        }
+      }
+      delete errors[key]
+      return
+    }
+
+    // For this to function properly
+    // the error containers must have an ID formatted as ${key}_errors.
+    const errorsContainerID = `${key}_errors`
+    const errorsContainer = document.getElementById(errorsContainerID)
+    if (errorsContainer) {
+      const noMargin = [
+        'allowed_attempts',
+        'final_grader_id',
+        'grader_count',
+        ONLINE_SUBMISSION_CHECKBOXES_GROUP,
+        SUBMISSION_TYPE_SELECTION_LAUNCH_BUTTON,
+      ].includes(key)
+      const marginTop = [
+        EXTERNAL_TOOL_URL_INPUT_NAME,
+        ASSIGNMENT_NAME_INPUT_NAME,
+        POINTS_POSSIBLE_INPUT_NAME,
+        ALLOWED_EXTENSIONS_INPUT_NAME,
+        GROUP_CATEGORY_SELECT,
+        DEFAULT_TOOL_LAUNCH_BUTTON,
+      ].includes(key)
+      const errorElement = (
+        <FormattedErrorMessage
+          message={value[0].message}
+          margin={noMargin ? '0' : marginTop ? 'xx-small 0 0 0' : '0 0 0 medium'}
+          iconMargin={value[0].longMessage ? '0 xx-small medium 0' : '0 xx-small xxx-small 0'}
+        />
+      )
+      this.errorRoots[errorsContainerID] = syncRender(
+        this.errorRoots[errorsContainerID],
+        errorElement,
+        errorsContainer,
+      )
+      delete errors[key]
+      const element = this.getElement(key)
+      if (element) {
+        element.setAttribute('aria-describedby', errorsContainerID)
+
+        if (
+          [
+            EXTERNAL_TOOL_URL_INPUT_NAME,
+            ASSIGNMENT_NAME_INPUT_NAME,
+            POINTS_POSSIBLE_INPUT_NAME,
+            ALLOWED_EXTENSIONS_INPUT_NAME,
+            GROUP_CATEGORY_SELECT,
+            DEFAULT_TOOL_LAUNCH_BUTTON,
+            SUBMISSION_TYPE_SELECTION_LAUNCH_BUTTON,
+            USAGE_RIGHTS_SELECT,
+          ].includes(key)
+        ) {
+          const selector =
+            key === EXTERNAL_TOOL_URL_INPUT_NAME
+              ? 'assignment_external_tool_tag_attributes_url_container'
+              : key
+          this.getElement(selector)?.classList.add('error-outline')
+        }
+
+        if (shouldFocus) {
+          element.focus()
+          shouldFocus = false
+        }
+      }
+
+      if (key === ASSIGNMENT_NAME_INPUT_NAME) {
+        document.getElementById('assignment_name_asterisk')?.classList.add('error-text')
+      }
+
+      if (key === ONLINE_SUBMISSION_CHECKBOXES_GROUP) {
+        document.getElementById('online_entry_options_asterisk')?.classList.add('error-text')
+      }
+    }
+  })
+
   // override view handles displaying override errors, remove them
   // before calling super
   delete errors.assignmentOverrides
@@ -1528,6 +1976,81 @@ EditView.prototype.showErrors = function (errors) {
   }
 }
 
+EditView.prototype.sortErrorsByVerticalScreenPosition = function (errors) {
+  return Object.entries(errors)
+    .map(([errorKey, errorMessage]) => {
+      let errorElement = this.getElement(errorKey)
+
+      if (!errorElement && errorKey === 'peer_review_details') {
+        errorElement = document.getElementById('peer_reviews_allocation_and_grading_details')
+      }
+
+      if (!errorElement) return null
+
+      const elementRect = errorElement.getBoundingClientRect()
+      const verticalPosition = elementRect.top + window.scrollY
+      return {errorKey, errorMessage, verticalPosition}
+    })
+    .filter(errorEntry => errorEntry !== null)
+    .sort((firstError, secondError) => firstError.verticalPosition - secondError.verticalPosition)
+    .reduce((sortedErrors, errorEntry) => {
+      sortedErrors[errorEntry.errorKey] = errorEntry.errorMessage
+      return sortedErrors
+    }, {})
+}
+
+EditView.prototype.getElement = function (key) {
+  const byId = document.getElementById(key)
+  if (byId) return byId
+
+  // This check is necessary because some elements may share the same name attribute
+  // but have the `hidden` attribute set.
+  // These hidden elements should be excluded from the selection to ensure
+  // we only target visible elements in the DOM.
+  const byName = document.querySelector(`[name="${key}"]:not([type="hidden"])`)
+  if (byName) return byName
+
+  const byCustomSelector = document.querySelector(EditView.prototype.fieldSelectors[key])
+  if (byCustomSelector) return byCustomSelector
+
+  return null
+}
+
+EditView.prototype.clearErrorsOnInput = function (event) {
+  const key = event.target.name
+  this.hideErrors(`${key}_errors`)
+}
+
+EditView.prototype.hideErrors = function (containerId) {
+  if (containerId) {
+    this.errorRoots[containerId]?.unmount()
+    delete this.errorRoots[containerId]
+
+    const key = containerId.replace(/_errors$/, '')
+    if (
+      [
+        EXTERNAL_TOOL_URL_INPUT_NAME,
+        ASSIGNMENT_NAME_INPUT_NAME,
+        POINTS_POSSIBLE_INPUT_NAME,
+        ALLOWED_EXTENSIONS_INPUT_NAME,
+        GROUP_CATEGORY_SELECT,
+        SUBMISSION_TYPE_SELECTION_LAUNCH_BUTTON,
+        USAGE_RIGHTS_SELECT,
+      ].includes(key)
+    ) {
+      const selector =
+        key === EXTERNAL_TOOL_URL_INPUT_NAME
+          ? 'assignment_external_tool_tag_attributes_url_container'
+          : key
+      const element = this.getElement(selector)
+      element?.classList.remove('error-outline')
+    }
+    if (key === ASSIGNMENT_NAME_INPUT_NAME) {
+      document.getElementById('assignment_name_asterisk')?.classList.remove('error-text')
+    }
+  }
+}
+
 EditView.prototype.validateBeforeSave = function (data, errors) {
   let crErrors
   errors = this._validateTitle(data, errors)
@@ -1536,11 +2059,13 @@ EditView.prototype.validateBeforeSave = function (data, errors) {
   errors = this.assignmentGroupSelector.validateBeforeSave(data, errors)
   Object.assign(errors, this.validateFinalGrader(data))
   Object.assign(errors, this.validateGraderCount(data))
-  if (!(typeof ENV !== 'undefined' && ENV !== null ? ENV.IS_LARGE_ROSTER : void 0)) {
+  if (
+    this.groupCategorySelector &&
+    !(typeof ENV !== 'undefined' && ENV !== null ? ENV.IS_LARGE_ROSTER : void 0)
+  ) {
     errors = this.groupCategorySelector.validateBeforeSave(data, errors)
   }
   errors = this._validatePointsPossible(data, errors)
-  errors = this._validatePointsRequired(data, errors)
   errors = this._validateExternalTool(data, errors)
   errors = this._validateAllowedAttempts(data, errors)
   const data2 = {
@@ -1554,6 +2079,35 @@ EditView.prototype.validateBeforeSave = function (data, errors) {
       errors.conditional_release = crErrors
     }
   }
+  const sectionViewRef = document.getElementById(
+    'manage-assign-to-container',
+  )?.reactComponentInstance
+
+  const invalidInput = sectionViewRef?.focusErrors()
+  if (invalidInput) {
+    errors.invalid_card = {$input: null, showError: this.showError}
+  } else {
+    delete errors.invalid_card
+  }
+
+  if (this.showGradedPeerReviewSettings()) {
+    const peerReviewHidden = document.getElementById('assignment_peer_reviews_hidden')
+    if (peerReviewHidden && peerReviewHidden.value === 'true') {
+      const peerReviewDetailsEl = document.getElementById(
+        'peer_reviews_allocation_and_grading_details',
+      )
+      if (
+        peerReviewDetailsEl &&
+        typeof peerReviewDetailsEl.validatePeerReviewDetails === 'function'
+      ) {
+        const isValid = peerReviewDetailsEl.validatePeerReviewDetails()
+        if (!isValid) {
+          errors.peer_review_details = true
+        }
+      }
+    }
+  }
+
   return errors
 }
 
@@ -1562,9 +2116,10 @@ EditView.prototype.validateFinalGrader = function (data) {
   if (data.moderated_grading === 'on' && !data.final_grader_id) {
     errors.final_grader_id = [
       {
-        message: I18n.t('Grader is required'),
+        message: I18n.t('Must select a grader'),
       },
     ]
+    $(document).trigger('validateFinalGraderSelectedValue', {error: true})
   }
   return errors
 }
@@ -1574,28 +2129,48 @@ EditView.prototype.validateGraderCount = function (data) {
   if (data.moderated_grading !== 'on') {
     return errors
   }
+  let message
   if (!data.grader_count) {
-    errors.grader_count = [
-      {
-        message: I18n.t('Grader count is required'),
-      },
-    ]
-  } else if (data.grader_count === '0') {
-    errors.grader_count = [
-      {
-        message: I18n.t('Grader count cannot be 0'),
-      },
-    ]
-  } else if (parseInt(data.grader_count, 10) > ENV.MODERATED_GRADING_GRADER_LIMIT) {
-    errors.grader_count = [
-      {
-        message: I18n.t('Only a maximum of %{max} graders can be assigned', {
-          max: ENV.MODERATED_GRADING_GRADER_LIMIT,
-        }),
-      },
-    ]
+    message = I18n.t('Must have at least one grader')
+  } else if (data.grader_count > ENV.MODERATED_GRADING_GRADER_LIMIT) {
+    message = I18n.t('Only a maximum of %{max} graders can be assigned', {
+      max: ENV.MODERATED_GRADING_GRADER_LIMIT,
+    })
+  }
+
+  if (message) {
+    errors.grader_count = [{message}]
+    $(document).trigger('validateGraderCountNumber', {error: true})
   }
   return errors
+}
+
+EditView.prototype.validateInput = function (e) {
+  const inputValue = e.target.value
+  if (inputValue) {
+    const data = this.getFormData()
+    let errors = {}
+    switch (e.target.name) {
+      case ASSIGNMENT_NAME_INPUT_NAME:
+        errors = this._validateTitle(data, {})
+        break
+      case ALLOWED_EXTENSIONS_INPUT_NAME:
+        errors = this._validateAllowedExtensions(data, {})
+        break
+      case POINTS_POSSIBLE_INPUT_NAME:
+        errors = this._validatePointsPossible(data, {})
+        break
+      default:
+        break
+    }
+    if (Object.keys(errors).length > 0) {
+      this.showErrors(errors)
+    } else {
+      this.hideErrors(`${e.target.name}_errors`)
+    }
+  } else {
+    this.hideErrors(`${e.target.name}_errors`)
+  }
 }
 
 EditView.prototype._validateTitle = function (data, errors) {
@@ -1604,7 +2179,7 @@ EditView.prototype._validateTitle = function (data, errors) {
     return errors
   }
   const post_to_sis = data.post_to_sis === '1'
-  max_name_length = 256
+  max_name_length = 255
   if (
     post_to_sis &&
     ENV.MAX_NAME_LENGTH_REQUIRED_FOR_ACCOUNT &&
@@ -1621,13 +2196,16 @@ EditView.prototype._validateTitle = function (data, errors) {
   if (!data.name || $.trim(data.name.toString()).length === 0) {
     errors.name = [
       {
-        message: I18n.t('name_is_required', 'Name is required!'),
+        message: I18n.t('name_is_required', 'Name is required'),
       },
     ]
-  } else if (validationHelper.nameTooLong()) {
+  } else if (
+    (post_to_sis && validationHelper.nameTooLong()) ||
+    (!post_to_sis && data.name.length > max_name_length)
+  ) {
     errors.name = [
       {
-        message: I18n.t('Name is too long, must be under %{length} characters', {
+        message: I18n.t('Must be fewer than %{length} characters', {
           length: max_name_length + 1,
         }),
       },
@@ -1639,11 +2217,11 @@ EditView.prototype._validateTitle = function (data, errors) {
 EditView.prototype._validateSubmissionTypes = function (data, errors) {
   let allow_vericite, annotatedDocumentUsageRights, ref, ref1
   if (data.submission_type === 'online' && data.submission_types.length === 0) {
-    errors['online_submission_types[online_text_entry]'] = [
+    errors[ONLINE_SUBMISSION_CHECKBOXES_GROUP] = [
       {
         message: I18n.t(
           'at_least_one_submission_type',
-          'Please choose at least one submission type'
+          'Please choose at least one submission type',
         ),
       },
     ]
@@ -1656,11 +2234,11 @@ EditView.prototype._validateSubmissionTypes = function (data, errors) {
           data.submission_types[k] === 'online_text_entry')
     })
     if (!allow_vericite) {
-      errors['online_submission_types[online_text_entry]'] = [
+      errors[ONLINE_SUBMISSION_CHECKBOXES_GROUP] = [
         {
           message: I18n.t(
             'vericite_submission_types_validation',
-            'VeriCite only supports file submissions and text entry'
+            'VeriCite only supports file submissions and text entry',
           ),
         },
       ]
@@ -1671,7 +2249,7 @@ EditView.prototype._validateSubmissionTypes = function (data, errors) {
   ) {
     errors['online_submission_types[student_annotation]'] = [
       {
-        message: I18n.t('You must attach a file'),
+        message: I18n.t('This submission type requires a file upload'),
       },
     ]
   } else if (
@@ -1681,25 +2259,29 @@ EditView.prototype._validateSubmissionTypes = function (data, errors) {
   ) {
     annotatedDocumentUsageRights = this.getAnnotatedDocumentUsageRights()
     if (annotatedDocumentUsageRights.use_justification === 'choose') {
-      errors.usage_rights_use_justification = [
+      errors[USAGE_RIGHTS_SELECT] = [
         {
-          message: I18n.t('You must set document usage rights'),
+          message: I18n.t('Identifying the usage rights is required'),
         },
       ]
+      $(document).trigger('validateUsageRightsSelectedValue', {error: true})
     }
   }
   return errors
 }
 
 EditView.prototype._validateAllowedExtensions = function (data, errors) {
-  if (
-    data.allowed_extensions &&
-    includes(data.submission_types, 'online_upload') &&
-    data.allowed_extensions.length === 0
-  ) {
+  const shouldValidate = data.allowed_extensions && includes(data.submission_types, 'online_upload')
+  if (shouldValidate && data.allowed_extensions.length === 0) {
     errors.allowed_extensions = [
       {
         message: I18n.t('at_least_one_file_type', 'Please specify at least one allowed file type'),
+      },
+    ]
+  } else if (shouldValidate && YAML.stringify(data.allowed_extensions)?.length > 255) {
+    errors.allowed_extensions = [
+      {
+        message: I18n.t('allowed_extensions_max', 'Must be fewer than 256 characters'),
       },
     ]
   }
@@ -1707,38 +2289,33 @@ EditView.prototype._validateAllowedExtensions = function (data, errors) {
 }
 
 EditView.prototype._validatePointsPossible = function (data, errors) {
-  if (includes(this.model.frozenAttributes(), 'points_possible')) {
+  if (
+    includes(this.model.frozenAttributes(), 'points_possible') ||
+    this.lockedItems.points ||
+    data.grading_type === 'not_graded'
+  ) {
     return errors
   }
   if (this.lockedItems.points) {
     return errors
   }
-  // eslint-disable-next-line no-restricted-globals
-  if (typeof data.points_possible !== 'number' || isNaN(data.points_possible)) {
+
+  if ([undefined, '', null].includes(data.points_possible) || data.points_possible < 0) {
     errors.points_possible = [
       {
-        message: I18n.t('points_possible_number', 'Points possible must be a number'),
+        message: I18n.t('points_possible_positive', 'Points value must be 0 or greater'),
       },
     ]
-  }
-  return errors
-}
-
-// Require points possible > 0
-// if grading type === percent || letter_grade || gpa_scale
-EditView.prototype._validatePointsRequired = function (data, errors) {
-  if (!['percent', 'letter_grade', 'gpa_scale'].includes(data.grading_type)) {
-    return errors
-  }
-  if (
-    typeof data.points_possible !== 'number' ||
-    data.points_possible < 0 ||
-    // eslint-disable-next-line no-restricted-globals
-    isNaN(data.points_possible)
-  ) {
+  } else if (typeof data.points_possible !== 'number' || isNaN(data.points_possible)) {
     errors.points_possible = [
       {
-        message: I18n.t('Points possible must be 0 or more for selected grading type'),
+        message: I18n.t('points_possible_number', 'Points value must be a number'),
+      },
+    ]
+  } else if (data.points_possible > 999999999) {
+    errors.points_possible = [
+      {
+        message: I18n.t('points_possible_max', 'Points value must be 999999999 or less'),
       },
     ]
   }
@@ -1750,20 +2327,26 @@ EditView.prototype._validateExternalTool = function (data, errors) {
     return errors
   }
 
-  let ref, ref1
-  if (
-    data.grading_type !== 'not_graded' &&
-    $.trim(
-      (ref = data.external_tool_tag_attributes) != null
-        ? (ref1 = ref.url) != null
-          ? ref1.toString()
-          : void 0
-        : void 0
-    ).length === 0
-  ) {
-    const message = I18n.t('External Tool URL cannot be left blank')
-    errors['external_tool_tag_attributes[url]'] = [{message}]
-    errors['default-tool-launch-button'] = [{message}]
+  let message
+  let longMessage = false
+  const toolUrl = data.external_tool_tag_attributes?.url?.toString()?.trim() || ''
+  if (data.grading_type !== 'not_graded' && !toolUrl) {
+    message = I18n.t('External Tool URL cannot be left blank')
+  } else {
+    // We are moving the url input validation to this method so we can display our own
+    // errors instead of the native browser tooltip error.
+    try {
+      new URL(toolUrl)
+      // do nothing if it is a valid url
+    } catch {
+      message = I18n.t('Enter a valid URL or use "Find" button to search for an external tool')
+      longMessage = true
+    }
+  }
+
+  if (message) {
+    errors[EXTERNAL_TOOL_URL_INPUT_NAME] = [{message, longMessage}]
+    errors[DEFAULT_TOOL_LAUNCH_BUTTON] = [{message, longMessage}]
   }
 
   // This can happen when:
@@ -1778,8 +2361,8 @@ EditView.prototype._validateExternalTool = function (data, errors) {
     data.external_tool_tag_attributes.content_type ===
       DEFAULT_SUBMISSION_TYPE_SELECTION_CONTENT_TYPE
   ) {
-    const message = I18n.t('Please click below to launch the tool and select a resource.')
-    errors.assignment_submission_container = [{message}]
+    message = I18n.t('Please click above to launch the tool and select a resource.')
+    errors[SUBMISSION_TYPE_SELECTION_LAUNCH_BUTTON] = [{message, longMessage: true}]
   }
 
   return errors
@@ -1793,13 +2376,19 @@ EditView.prototype._validateAllowedAttempts = function (data, errors) {
     return errors
   }
   const value = parseInt(data.allowed_attempts, 10)
-  if (!(value > 0 || value === -1)) {
-    errors.allowed_attempts = [
-      {
-        message: I18n.t('Number of attempts must be a number greater than 0'),
-      },
-    ]
+
+  let message
+  if (isNaN(value) || !(value > 0 || value === -1)) {
+    message = I18n.t('Number of attempts must be a number greater than 0')
+  } else if (value > 100) {
+    message = I18n.t('Number of attempts must be less than or equal to 100')
   }
+
+  if (message) {
+    errors.allowed_attempts = [{message}]
+    $(document).trigger('validateAllowedAttempts', {error: true})
+  }
+
   return errors
 }
 
@@ -1815,12 +2404,28 @@ EditView.prototype.locationAfterSave = function (params) {
   if (useCancelLocation) {
     return this.locationAfterCancel(deparam())
   }
-  const htmlUrl = this.model.get('html_url')
-  if (this.assignment.showBuildButton()) {
-    return htmlUrl + '?display=full_width'
-  } else {
-    return htmlUrl
+
+  try {
+    queryClient.invalidateQueries({
+      queryKey: ['assignment-self-assessment-settings', this.assignment.id],
+      exact: false,
+    })
+  } catch (error) {
+    console.error('Error invalidating query, error:', error)
   }
+
+  const htmlUrl = this.model.get('html_url')
+
+  const additionalParams = {}
+  if (this.assignment.showBuildButton()) {
+    let displayType = 'full_width'
+    if (ENV.FEATURES.new_quizzes_navigation_updates) {
+      displayType = 'full_width_with_nav'
+    }
+    additionalParams.display = displayType
+  }
+
+  return getUrlWithHorizonParams(htmlUrl, additionalParams)
 }
 
 EditView.prototype.redirectAfterCancel = function () {
@@ -1876,7 +2481,7 @@ EditView.prototype.disableFields = function () {
   this.$el.find(':checkbox:' + ignoreFilter).each(function () {
     return self.disableCheckbox(
       $(this),
-      I18n.t('Cannot be edited for assignments in closed grading periods')
+      I18n.t('Cannot be edited for assignments in closed grading periods'),
     )
   })
   this.$el.find(':radio:' + ignoreFilter).click(this.ignoreClickHandler)
@@ -1927,6 +2532,15 @@ EditView.prototype.renderModeratedGradingFormFieldGroup = function () {
   if (!ENV.MODERATED_GRADING_ENABLED || this.assignment.isQuizLTIAssignment()) {
     return
   }
+  const clearNumberInputErrors = () => {
+    $(document).trigger('validateGraderCountNumber', {error: false})
+    this.hideErrors('grader_count_errors')
+  }
+  const clearFinalGraderSelectErrors = () => {
+    $(document).trigger('validateFinalGraderSelectedValue', {error: false})
+    this.hideErrors('final_grader_id_errors')
+  }
+  const isPeerReviewChecked = this.isPeerReviewChecked()
   const props = {
     availableModerators: ENV.AVAILABLE_MODERATORS,
     currentGraderCount: this.assignment.get('grader_count'),
@@ -1935,20 +2549,25 @@ EditView.prototype.renderModeratedGradingFormFieldGroup = function () {
     graderNamesVisibleToFinalGrader: !!this.assignment.get('grader_names_visible_to_final_grader'),
     gradedSubmissionsExist: ENV.HAS_GRADED_SUBMISSIONS,
     isGroupAssignment: !!this.$groupCategoryBox.prop('checked'),
-    isPeerReviewAssignment: !!this.$peerReviewsBox.prop('checked'),
+    isPeerReviewAssignment: isPeerReviewChecked,
     locale: ENV.LOCALE,
     moderatedGradingEnabled: this.assignment.moderatedGrading(),
     availableGradersCount: ENV.MODERATED_GRADING_MAX_GRADER_COUNT,
     onGraderCommentsVisibleToGradersChange: this.handleGraderCommentsVisibleToGradersChanged,
     onModeratedGradingChange: this.handleModeratedGradingChanged,
+    hideNumberInputErrors: clearNumberInputErrors,
+    hideFinalGraderErrors: clearFinalGraderSelectErrors,
   }
-  const formFieldGroup = React.createElement(ModeratedGradingFormFieldGroup, props)
-  const mountPoint = document.querySelector("[data-component='ModeratedGradingFormFieldGroup']")
-  // eslint-disable-next-line react/no-render-return-value
-  return ReactDOM.render(formFieldGroup, mountPoint)
+  const element = React.createElement(ModeratedGradingFormFieldGroup, props)
+  const container = document.querySelector("[data-component='ModeratedGradingFormFieldGroup']")
+  this.moderatedGradingRoot = syncRender(this.moderatedGradingRoot, element, container)
 }
 
 EditView.prototype.renderAllowedAttempts = function () {
+  const clearErrors = () => {
+    $(document).trigger('validateAllowedAttempts', {error: false})
+    this.hideErrors('allowed_attempts_errors')
+  }
   if (!(typeof ENV !== 'undefined' && ENV !== null ? ENV.assignment_attempts_enabled : void 0)) {
     return
   }
@@ -1956,10 +2575,11 @@ EditView.prototype.renderAllowedAttempts = function () {
     limited: this.model.get('allowed_attempts') > 0,
     attempts: this.model.get('allowed_attempts'),
     locked: !!this.lockedItems.settings,
+    onHideErrors: clearErrors,
   }
-  const mountPoint = document.querySelector('#allowed-attempts-target')
-  // eslint-disable-next-line react/no-render-return-value
-  return ReactDOM.render(React.createElement(AllowedAttemptsWithState, props), mountPoint)
+  const element = React.createElement(AllowedAttemptsWithState, props)
+  const container = document.querySelector('#allowed-attempts-target')
+  this.allowedAttemptsRoot = syncRender(this.allowedAttemptsRoot, element, container)
 }
 
 export default EditView

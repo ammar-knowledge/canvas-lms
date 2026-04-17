@@ -18,9 +18,9 @@
 
 import React from 'react'
 import createReactClass from 'create-react-class'
-import {indexOf} from 'lodash'
+import {indexOf} from 'es-toolkit/compat'
 import classnames from 'classnames'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ShowFolder from '../legacy/components/ShowFolder'
 import File from '@canvas/files/backbone/models/File'
 import FilePreview from '@canvas/files/react/components/FilePreview'
@@ -32,13 +32,21 @@ import ColumnHeaders from './ColumnHeaders'
 import LoadingIndicator from './LoadingIndicator'
 import page from 'page'
 import FocusStore from '../legacy/modules/FocusStore'
+import filesEnv from '@canvas/files/react/modules/filesEnv'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 ShowFolder.getInitialState = function () {
   return {
     hideToggleAll: true,
   }
+}
+
+ShowFolder.componentWillMount = function () {
+  this.folderEmptyRef = React.createRef()
+  this.emptyDivRef = React.createRef()
+  this.accessibilityMessageRef = React.createRef()
+  this.columnHeadersRef = React.createRef()
 }
 
 ShowFolder.closeFilePreview = function (url) {
@@ -69,7 +77,7 @@ ShowFolder.renderFilePreview = function () {
 ShowFolder.renderFolderChildOrEmptyContainer = function () {
   if (this.props.currentFolder.isEmpty()) {
     return (
-      <div ref="folderEmpty" className="muted">
+      <div ref={this.folderEmptyRef} className="muted">
         {I18n.t('this_folder_is_empty', 'This folder is empty')}
       </div>
     )
@@ -118,7 +126,7 @@ ShowFolder.render = function () {
   }
 
   if (!this.props.currentFolder) {
-    return <div ref="emptyDiv" />
+    return <div ref={this.emptyDivRef} />
   }
 
   const foldersNextPageOrFilesNextPage =
@@ -132,6 +140,8 @@ ShowFolder.render = function () {
   const hasLoadedAll = !!(
     this.props.currentFolder.folders.loadedAll && this.props.currentFolder.files.loadedAll
   )
+
+  const isAccessRestricted = filesEnv.userFileAccessRestricted
 
   // We have to put the "select all" checkbox out here because VO won't read the table properly
   // if it's in the table header, and won't read it at all if it's outside the table but inside
@@ -153,26 +163,26 @@ ShowFolder.render = function () {
       <div role="grid" style={{flex: '1 1 auto'}}>
         {this.props.userCanEditFilesForContext && (
           <div
-            ref="accessibilityMessage"
+            ref={this.accessibilityMessageRef}
             className="ShowFolder__accessbilityMessage col-xs"
             // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
             tabIndex={0}
           >
             {I18n.t(
-              'Warning: For improved accessibility in moving files, please use the Move To Dialog option found in the menu.'
+              'Warning: For improved accessibility in moving files, please use the Move To Dialog option found in the menu.',
             )}
           </div>
         )}
         {hasLoadedAll && (
           <>
-            {this.props.userCanAddFilesForContext && (
+            {this.props.userCanAddFilesForContext && !isAccessRestricted && (
               <FileUpload
                 currentFolder={this.props.currentFolder}
                 filesDirectoryRef={this.props.filesDirectoryRef}
               />
             )}
             <ColumnHeaders
-              ref="columnHeaders"
+              ref={this.columnHeadersRef}
               query={this.props.query}
               pathname={this.props.pathname}
               areAllItemsSelected={this.props.areAllItemsSelected}

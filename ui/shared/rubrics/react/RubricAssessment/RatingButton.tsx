@@ -17,31 +17,38 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {colors} from '@instructure/canvas-theme'
 import {View} from '@instructure/ui-view'
 import {IconButton} from '@instructure/ui-buttons'
 import {Text} from '@instructure/ui-text'
+import {rubricSelectedAriaLabel} from './utils/rubricUtils'
 
-const I18n = useI18nScope('rubrics-assessment-tray')
+const I18n = createI18nScope('rubrics-assessment-tray')
 
-const {licorice, tiara} = colors
 type RatingButtonProps = {
-  buttonDisplay: string
+  ariaLabel?: string
+  buttonLabel: string
   isPreviewMode: boolean
   isSelected: boolean
+  isSelfAssessmentSelected: boolean
   selectedArrowDirection: 'up' | 'right'
   onClick: () => void
 }
 export const RatingButton = ({
-  buttonDisplay,
+  ariaLabel,
+  buttonLabel,
   isPreviewMode,
   isSelected,
+  isSelfAssessmentSelected,
   selectedArrowDirection,
   onClick,
 }: RatingButtonProps) => {
-  const unselectedColor = isPreviewMode ? tiara : licorice
-  const selectedText = isSelected ? I18n.t('Selected') : ''
+  const unselectedColor = isPreviewMode ? colors.contrasts.grey1214 : colors.contrasts.green4570
+  const selectedText = rubricSelectedAriaLabel(isSelected, isSelfAssessmentSelected)
+  const screenReaderLabel = ariaLabel
+    ? `${ariaLabel} ${selectedText}`.trim()
+    : I18n.t('Rating Button %{buttonLabel} %{selectedText}', {buttonLabel, selectedText})
 
   return (
     <View
@@ -54,23 +61,27 @@ export const RatingButton = ({
     >
       <View as="div" position="relative">
         <IconButton
-          screenReaderLabel={I18n.t('Rating Button %{buttonDisplay} %{selectedText}', {
-            buttonDisplay,
-            selectedText,
-          })}
+          screenReaderLabel={screenReaderLabel}
+          aria-label={ariaLabel ? screenReaderLabel : undefined}
           size="large"
           color="primary-inverse"
           onClick={onClick}
           readOnly={isPreviewMode}
+          data-testid={`rubric-rating-button-${buttonLabel}`}
           cursor={isPreviewMode ? 'not-allowed' : 'pointer'}
           themeOverride={{
             largeFontSize: '1rem',
             borderWidth: isSelected ? '3px' : '1px',
-            primaryInverseBorderColor: isSelected ? licorice : 'rgb(219, 219, 219)',
-            primaryInverseColor: isSelected ? licorice : unselectedColor,
+            primaryInverseBorderColor: isSelected
+              ? colors.contrasts.green4570
+              : 'rgb(219, 219, 219)',
+            primaryInverseColor: isSelected ? colors.contrasts.green4570 : unselectedColor,
           }}
         >
-          <Text size="medium">{buttonDisplay}</Text>
+          <Text size="medium" data-testid={`rubric-rating-button-label`}>
+            {buttonLabel}
+          </Text>
+          {isSelfAssessmentSelected && <SelectedSelfAssessment buttonLabel={buttonLabel} />}
         </IconButton>
         {isSelected && <SelectedRatingArrow direction={selectedArrowDirection} />}
       </View>
@@ -99,7 +110,7 @@ const SelectedRatingArrow = ({direction}: SelectedRatingArrowProps) => {
     outerTriangleStyle.right = '0px'
     outerTriangleStyle.borderTop = '6px solid transparent'
     outerTriangleStyle.borderBottom = '6px solid transparent'
-    outerTriangleStyle.borderLeft = `6px solid ${licorice}`
+    outerTriangleStyle.borderLeft = `6px solid ${colors.contrasts.green4570}`
     outerTriangleStyle.transform = 'translateY(-50%)'
     innerTriangleSmallStyle.top = '50%'
     innerTriangleSmallStyle.right = '4px'
@@ -112,7 +123,7 @@ const SelectedRatingArrow = ({direction}: SelectedRatingArrowProps) => {
     outerTriangleStyle.top = '-5px'
     outerTriangleStyle.borderLeft = '6px solid transparent'
     outerTriangleStyle.borderRight = '6px solid transparent'
-    outerTriangleStyle.borderBottom = `6px solid ${licorice}`
+    outerTriangleStyle.borderBottom = `6px solid ${colors.contrasts.green4570}`
     outerTriangleStyle.transform = 'translateX(-50%)'
     innerTriangleSmallStyle.left = '46%'
     innerTriangleSmallStyle.top = '-1px'
@@ -127,5 +138,21 @@ const SelectedRatingArrow = ({direction}: SelectedRatingArrowProps) => {
       <div style={outerTriangleStyle} data-testid="rubric-rating-button-selected" />
       <div style={innerTriangleSmallStyle} />
     </>
+  )
+}
+
+const SelectedSelfAssessment = ({buttonLabel}: {buttonLabel: string}) => {
+  return (
+    <div
+      data-testid={`rubric-rating-button-self-assessment-selected-${buttonLabel}`}
+      style={{
+        position: 'absolute',
+        inset: '6px',
+        backgroundColor: 'transparent',
+        border: `2px dashed ${colors.contrasts.green4570}`,
+        borderRadius: '4px',
+        pointerEvents: 'none',
+      }}
+    />
   )
 }

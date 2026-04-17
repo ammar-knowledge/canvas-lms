@@ -36,18 +36,18 @@ describe('ZipFileOptionsForm', () => {
   test('creates a display message based on fileOptions', () => {
     const props = {
       fileOptions: {file: {name: 'neat_file'}},
-      onZipOptionsResolved: jest.fn(),
+      onZipOptionsResolved: vi.fn(),
     }
     render(<ZipFileOptionsForm {...props} />)
     expect(
       screen.getByText(
-        /Would you like to expand the contents of "neat_file" into the current folder, or upload the zip file as is?/
-      )
+        /Would you like to expand the contents of "neat_file" into the current folder, or upload the zip file as is?/,
+      ),
     ).toBeInTheDocument()
   })
 
   test('handleExpandClick expands zip', () => {
-    const onZipOptionsResolved = jest.fn()
+    const onZipOptionsResolved = vi.fn()
     const props = {
       fileOptions: {file: 'the_file_obj'},
       onZipOptionsResolved,

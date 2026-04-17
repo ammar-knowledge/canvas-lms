@@ -47,7 +47,6 @@ module SpeedGrader
         score
         points_deducted
         assignment_id
-        submission_comments
         grading_period_id
         excused
         updated_at
@@ -56,6 +55,7 @@ module SpeedGrader
         resource_link_lookup_uuid
         redo_request
         cached_due_date
+        sticker
       ]
 
       submission_json_fields <<
@@ -88,7 +88,7 @@ module SpeedGrader
         workflow_state
       ]
 
-      if !assignment.anonymize_students? || course.account_membership_allows(current_user)
+      if !anonymize_students? || course.account_membership_allows(current_user)
         attachment_json_fields << :viewed_at
       end
 
@@ -101,7 +101,8 @@ module SpeedGrader
         )
 
       res["context"]["concluded"] = assignment.context.concluded?
-      res["anonymize_students"] = assignment.anonymize_students?
+      res["anonymize_students"] = anonymize_students?
+      res["anonymous_participants"] = assignment.anonymous_participants?
       res["anonymize_graders"] = !assignment.can_view_other_grader_identities?(current_user)
       res["post_manually"] = assignment.post_manually?
 
@@ -123,9 +124,13 @@ module SpeedGrader
           ignore_student_visibility: true
         ) { |rep, others| others.each { |s| res[:context][:rep_for_student][s.id] = rep.id } }
 
-      unless assignment.anonymize_students?
-        # Ensure that any test students are sorted last
-        students = students.sort_by { |r| (r.preferences[:fake_student] == true) ? 1 : 0 }
+      unless anonymize_students?
+        num_students = students.length
+        students = students.sort_by.with_index do |student, idx|
+          # Ensure that any test students are sorted last. sort_by is not stable,
+          # so return idx for real students to preserve their original order.
+          (student.preferences[:fake_student] == true) ? num_students + idx : idx
+        end
       end
 
       enrollments =
@@ -141,6 +146,8 @@ module SpeedGrader
           current_user,
           provisional_grader: provisional_grader_or_moderator?
         ) || []
+
+      rubric_assessments_by_user_id = current_user_rubric_assessments.group_by(&:user_id)
 
       # include all the rubric assessments if a moderator
       all_provisional_rubric_assessments =
@@ -160,25 +167,22 @@ module SpeedGrader
         :user,
         :attachment_associations,
         :assignment,
-        :originality_reports
+        { originality_reports: :lti_link }
       ]
-      includes << {
-        all_submission_comments: {
-          submission: {
-            assignment: {
-              context: :root_account
-            }
-          }
-        }
-      }
+      includes << (assignment.grade_as_group? ? :all_submission_comments_for_groups : :all_submission_comments)
       submissions = assignment.submissions.where(user_id: students).preload(*includes)
 
       student_json_fields =
         if anonymous_students?(current_user:, assignment:)
           []
         else
-          %i[name id sortable_name]
+          %i[name id sortable_name uuid]
         end
+
+      # yes, this will arbitrarily pick the first enrollment in the course for the user,
+      # but it mirrors what CoursesHelper#user_type does, which we're now passing this value to
+      # in order to avoid an N+1 query problem
+      current_user_enrollments = { current_user.id => course.enrollments.find_by(user: current_user) }
 
       res[:context][:students] =
         students.map do |student|
@@ -207,10 +211,7 @@ module SpeedGrader
           end
           json[:rubric_assessments] =
             rubric_assessments_to_json(
-              rubric_assessments:
-                current_user_rubric_assessments.select do |assessment|
-                  assessment.user_id == student.id
-                end,
+              rubric_assessments: rubric_assessments_by_user_id.fetch(student.id, []),
               submissions:
             )
           json[:fake_student] = !!student.preferences[:fake_student]
@@ -241,7 +242,7 @@ module SpeedGrader
       res[:context][:quiz] =
         assignment.quiz.as_json(include_root: false, only: [:anonymous_submissions])
 
-      attachment_includes = %i[crocodoc_document canvadoc root_attachment]
+      attachment_includes = %i[canvadoc root_attachment last_attachment_upload_status folder]
 
       # Preload attachments for later looping
       attachments_for_submission =
@@ -278,6 +279,10 @@ module SpeedGrader
         end
       end
 
+      if assignment.submission_types.include?("discussion_topic")
+        res[:student_entries] = assignment.discussion_topic.discussion_entries.pluck(:user_id, :id).group_by(&:first).transform_values { |entries| entries.map(&:last) }
+      end
+
       res[:submissions] =
         submissions.map do |sub|
           submission_methods = %i[
@@ -290,6 +295,7 @@ module SpeedGrader
             missing
             late_policy_status
             word_count
+            partially_submitted?
           ]
           json =
             sub
@@ -306,19 +312,17 @@ module SpeedGrader
             json.merge! provisional_grade_to_json(provisional_grade)
           end
 
-          json[:has_postable_comments] =
-            sub.all_submission_comments.any?(&:allows_posting_submission?)
-
+          submission_comments = sub.visible_submission_comments_for(current_user)
           json[:submission_comments] =
             anonymous_moderated_submission_comments_json(
               assignment:,
               course:,
               current_user:,
               avatars: display_avatars?,
-              submission_comments: sub.visible_submission_comments_for(current_user),
+              submission_comments:,
               submissions:
             )
-
+          json[:has_postable_comments] = sub.postable_comments?
           json[:proxy_submitter] = sub.proxy_submitter&.short_name
           json[:proxy_submitter_id] = sub.proxy_submitter_id
 
@@ -336,21 +340,16 @@ module SpeedGrader
             enable_annotations:
               !provisional_grader_or_moderator? ||
               assignment.can_be_moderated_grader?(current_user),
-            moderated_grading_allow_list:
-              sub.moderated_grading_allow_list(
-                current_user,
-                loaded_attachments: attachments_for_submission[sub]
-              ),
             submission_id: sub.id
           }
 
           if url_opts[:enable_annotations]
             url_opts[:disable_annotation_notifications] = assignment.post_manually? && !sub.posted?
-            url_opts[:enrollment_type] = canvadocs_user_role(course, current_user)
+            url_opts[:enrollment_type] = canvadocs_user_role(course, current_user, current_user_enrollments)
           end
 
           if quizzes_next_submission?
-            quiz_lti_submission = BasicLTI::QuizzesNextVersionedSubmission.new(assignment, sub.user)
+            quiz_lti_submission = BasicLTI::QuizzesNextVersionedSubmission.new(assignment, sub.user, submission: sub)
             json["submission_history"] =
               quiz_lti_submission.grade_history.map { |submission| { submission: } }
           elsif json["submission_history"] && (assignment.quiz.nil? || too_many)
@@ -372,7 +371,7 @@ module SpeedGrader
                     version_json["submission"]["has_originality_report"] =
                       version.has_originality_report?
                     version_json["submission"]["has_plagiarism_tool"] =
-                      version.assignment.assignment_configuration_tool_lookup_ids.present?
+                      version.assignment.has_non_migrated_tool?
                     version_json["submission"]["has_originality_score"] =
                       version.originality_reports_for_display.any? do |o|
                         o.originality_score.present?
@@ -384,7 +383,7 @@ module SpeedGrader
 
                     # Fill in the parent's anonymous ID if this version was serialized
                     # without it
-                    if assignment.anonymize_students? &&
+                    if anonymize_students? &&
                        version_json["submission"]["anonymous_id"].blank?
                       version_json["submission"]["anonymous_id"] = sub.anonymous_id
                     end
@@ -410,14 +409,9 @@ module SpeedGrader
                                 view_inline_ping_url:
                                   assignment_file_inline_view_path(assignment.id, a.id),
                                 canvadoc_url: a.canvadoc_url(current_user, url_opts),
-                                crocodoc_url: a.crocodoc_url(current_user, url_opts),
-                                submitted_to_crocodoc: a.crocodoc_document.present?,
-                                hijack_crocodoc_session:
-                                  a.crocodoc_document.present? && migrate_to_canvadocs?,
                                 upload_status: AttachmentUploadStatus.upload_status(a)
                               }
                             )
-                            a.set_word_count if a.word_count.nil? && a.word_count_supported?
                             attachment_json[:attachment][:word_count] = a.word_count
                           end
                       end
@@ -486,10 +480,30 @@ module SpeedGrader
         end
 
       res[:GROUP_GRADING_MODE] = assignment.grade_as_group?
+      res[:HAS_GROUPS] = assignment.has_groups?
       res[:quiz_lti] = assignment.quiz_lti?
+
       StringifyIds.recursively_stringify_ids(res)
     ensure
       Attachment.skip_thumbnails = nil
+    end
+
+    # We can't update the existing assignment.anonymize_students? method because
+    # it is used outside speedgrader context.
+    def anonymize_students?
+      if assignment.quiz_lti?
+        assignment.new_quizzes_anonymous_participants?
+      else
+        assignment.anonymize_students?
+      end
+    end
+
+    # The same reason as anonymize_students? - we can't modify the SubmissionComment.anonymous_students? method directly,
+    # because it is used outside speedgrader context.
+    def anonymous_students?(current_user:, assignment:)
+      return @anonymous_students if defined? @anonymous_students
+
+      @anonymous_students = anonymize_students? || !assignment.context.grants_any_right?(current_user, :manage_grades, :view_all_grades)
     end
 
     def quizzes_next_submission?
@@ -528,11 +542,6 @@ module SpeedGrader
 
     def course
       assignment.context
-    end
-
-    def migrate_to_canvadocs?
-      account_context = course.try(:account) || course.try(:root_account)
-      account_context.present? && account_context.migrate_to_canvadocs?
     end
 
     def rubric_assessments_to_json(rubric_assessments:, submissions:)
@@ -604,18 +613,22 @@ module SpeedGrader
       return nil unless course.filter_speed_grader_by_student_group?
 
       group_id =
-        current_user
-        .get_preference(:gradebook_settings, course.global_id)
-        &.dig("filter_rows_by", "student_group_id")
+        current_user.get_latest_preference_setting_by_key(:gradebook_settings, course.global_id, "filter_rows_by", "student_group_ids")
 
       # If we selected a group that is now deleted, don't use it
       Group.active.where(id: group_id).exists? ? group_id : nil
     end
 
     def section_id_filter
-      current_user
-        .get_preference(:gradebook_settings, course.global_id)
-        &.dig("filter_rows_by", "section_id")
+      if Account.site_admin.feature_enabled?(:multiselect_gradebook_filters)
+        current_user
+          .get_preference(:gradebook_settings, course.global_id)
+          &.dig("filter_rows_by", "section_ids")
+      else
+        current_user
+          .get_preference(:gradebook_settings, course.global_id)
+          &.dig("filter_rows_by", "section_id")
+      end
     end
   end
 end

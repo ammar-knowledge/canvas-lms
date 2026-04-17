@@ -16,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {bool} from 'prop-types'
 import React, {useEffect, useState, useRef} from 'react'
 import doFetchApi from '@canvas/do-fetch-api-effect'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
-import {colors as hcmColors} from '@instructure/canvas-high-contrast-theme'
+import {showFlashAlert} from '@instructure/platform-alerts'
+import {canvasHighContrast} from '@instructure/ui-themes'
 import {View} from '@instructure/ui-view'
 import {Text} from '@instructure/ui-text'
 import {Spinner} from '@instructure/ui-spinner'
@@ -30,24 +30,24 @@ import {Checkbox} from '@instructure/ui-checkbox'
 import {IconButton} from '@instructure/ui-buttons'
 import {IconInfoLine} from '@instructure/ui-icons'
 
-const I18n = useI18nScope('ProfileTray')
-
-const {porcelain, licorice, shamrock, brand} = hcmColors.values
+const I18n = createI18nScope('ProfileTray')
 
 // The checkbox toggle is the only thing we have to worry about here,
 // as all the other page elements are just primary-color text, which is
 // the same in both the normal Canvas theme and the Canvas High Contrast
 // theme.
+const hcmColors = canvasHighContrast?.colors
+
 const checkboxThemeOverrides = {
-  color: porcelain,
-  toggleBackground: porcelain,
-  labelColor: licorice,
-  background: licorice,
-  borderColor: licorice,
-  uncheckedIconColor: licorice,
-  checkedBackground: shamrock,
-  checkedIconColor: shamrock,
-  focusOutlineColor: brand,
+  color: hcmColors?.contrasts?.grey1111,
+  toggleBackground: hcmColors?.contrasts?.grey1111,
+  labelColor: hcmColors?.contrasts?.grey125125,
+  background: hcmColors?.contrasts?.grey125125,
+  borderColor: hcmColors?.contrasts?.grey125125,
+  uncheckedIconColor: hcmColors?.contrasts?.grey125125,
+  checkedBackground: hcmColors?.contrasts?.green4570,
+  checkedIconColor: hcmColors?.contrasts?.green4570,
+  focusOutlineColor: hcmColors?.contrasts?.blue4570,
 }
 
 type HighContrastLabelProps = {
@@ -147,14 +147,14 @@ export default function HighContrastModeToggle({isMobile}: HighContrastModeToggl
     const newState = enabled ? 'off' : 'on'
     setLoading(true)
     try {
-      const {json} = await doFetchApi({
+      const {json} = await doFetchApi<{feature: string; state: string}>({
         path,
         method: 'PUT',
         body: {feature: 'high_contrast', state: newState},
       })
-      if (json.feature !== 'high_contrast') throw new Error('Unexpected response from API call')
+      if (json?.feature !== 'high_contrast') throw new Error('Unexpected response from API call')
       setEnabled(json.state === 'on')
-      ENV.use_high_contrast = json.state === 'on'
+      ;(ENV as {use_high_contrast: boolean}).use_high_contrast = json.state === 'on'
     } catch (err) {
       if (err instanceof Error) {
         showFlashAlert({
@@ -170,7 +170,7 @@ export default function HighContrastModeToggle({isMobile}: HighContrastModeToggl
   // By definition this control for turning on HCM has to be in HCM all the time,
   // regardless of the global theme, so we have to apply some overrides.
   return (
-    <View as="div" margin={margins}>
+    <View as="div" margin={margins} data-testid="high-contrast-toggle">
       <Checkbox
         themeOverride={checkboxThemeOverrides}
         variant="toggle"
@@ -179,9 +179,10 @@ export default function HighContrastModeToggle({isMobile}: HighContrastModeToggl
         checked={enabled}
         readOnly={loading}
         onChange={toggleHiContrast}
+        aria-describedby={changed ? 'high-contrast-toggle-explainer' : undefined}
       />
       {changed && (
-        <Text size="small">
+        <Text id="high-contrast-toggle-explainer" size="small">
           {I18n.t('Reload the page or navigate to a new page for this change to take effect.')}
         </Text>
       )}

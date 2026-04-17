@@ -49,7 +49,7 @@ class Quizzes::QuizExtension
       sub_manager = Quizzes::SubmissionManager.new(quiz)
       ext_params.map do |params|
         student    = students.find(params[:user_id])
-        submission = sub_manager.find_or_create_submission(student, nil, "settings_only")
+        submission = sub_manager.find_or_create_submission(student, state: "settings_only")
         extension  = new(submission, params)
         yield extension if block_given? # use yielded block to check permissions
         extensions << extension
@@ -83,7 +83,7 @@ class Quizzes::QuizExtension
     if quiz_submission.extendable? && time_params.to_i > 0
       if ext_params[:extend_from_now].to_i > 0
         from_now = [ext_params[:extend_from_now].to_i, 1440].min
-        quiz_submission.end_at = Time.now + from_now.minutes
+        quiz_submission.end_at = Time.zone.now + from_now.minutes
       elsif ext_params[:extend_from_end_at].to_i > 0
         from_end_at = [ext_params[:extend_from_end_at].to_i, 1440].min
         quiz_submission.end_at += from_end_at.minutes

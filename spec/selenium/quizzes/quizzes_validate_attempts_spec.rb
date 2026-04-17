@@ -44,23 +44,12 @@ describe "quizzes question creation with attempts" do
       expect(f("#quiz_allowed_attempts")).to have_attribute("value", expected_attempt_text)
     end
 
-    it "does not allow quiz attempts that are entered with letters", priority: "2" do
-      skip("fragile")
-      fill_out_attempts_and_validate("abc", "Quiz attempts can only be specified in numbers", "")
-    end
-
-    it "does not allow quiz attempts that are more than 3 digits long", priority: "2" do
-      skip("fragile")
-      fill_out_attempts_and_validate("12345", "Quiz attempts are limited to 3 digits, if you would like to give your students unlimited attempts, do not check Allow Multiple Attempts box to the left", "")
-    end
-
-    it "does not allow quiz attempts that are letters and numbers mixed", priority: "2" do
-      skip("fragile")
-      fill_out_attempts_and_validate("31das", "Quiz attempts can only be specified in numbers", "")
-    end
-
     it "allows a 3 digit number for a quiz attempt", priority: "2" do
       attempts = "123"
+      click_questions_tab
+      question = fj(".question_form:visible")
+      submit_form(question)
+      wait_for_ajaximations
       click_settings_tab
       f("#multiple_attempts_option").click
       f("#limit_attempts_option").click

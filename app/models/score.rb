@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class Score < ActiveRecord::Base
+class Score < ApplicationRecord
   include Canvas::SoftDeletable
 
   belongs_to :enrollment, inverse_of: :scores
@@ -57,7 +57,7 @@ class Score < ActiveRecord::Base
   end
 
   def destroy
-    score_metadata.destroy if score_metadata.present?
+    score_metadata&.destroy
     super
   end
 
@@ -67,7 +67,7 @@ class Score < ActiveRecord::Base
   end
 
   def undestroy
-    score_metadata.undestroy if score_metadata.present?
+    score_metadata&.undestroy
     super
   end
 
@@ -121,9 +121,7 @@ class Score < ActiveRecord::Base
   end
 
   def set_course_score
-    gpid = read_attribute(:grading_period_id)
-    agid = read_attribute(:assignment_group_id)
-    write_attribute(:course_score, (gpid || agid).nil?)
+    self.course_score = (grading_period_id || assignment_group_id).nil?
     true
   end
 

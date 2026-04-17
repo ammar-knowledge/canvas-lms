@@ -16,13 +16,13 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import RichContentEditor from '@canvas/rce/RichContentEditor'
 import '@canvas/jquery/jquery.instructure_forms'
 import '@canvas/jquery/jquery.instructure_misc_plugins'
 
-const I18n = useI18nScope('account_settings')
+const I18n = createI18nScope('account_settings')
 
 // optimization so user isn't waiting on RCS to
 // respond when they hit announcements
@@ -74,7 +74,10 @@ export default {
           title_el.focus()
         }, 100)
 
-        RichContentEditor.loadNewEditor(message_el)
+        const rceExists = RichContentEditor.callOnRCE(message_el, 'exists?')
+        if (!rceExists) {
+          RichContentEditor.loadNewEditor(message_el)
+        }
       }
     })
 
@@ -120,38 +123,32 @@ export default {
       }
 
       const source_start_at_disp_el = $(source_form_id).find(
-        '#account_notification_start_at_' + announcement_id
+        '#account_notification_start_at_' + announcement_id,
       )
       const target_start_at_disp_el = $(target_form_id).find('#account_notification_start_at')
       const target_start_at_value_el = target_start_at_disp_el
         .parent()
         .find('input[name="account_notification[start_at]"]')
       target_start_at_disp_el.val(source_start_at_disp_el.val())
-      if (source_start_at_disp_el.is('[readonly]')) {
-        target_start_at_value_el.val(source_start_at_disp_el.attr('data-initial-value'))
-      } else {
-        const source_start_at_value_el = source_start_at_disp_el
-          .parent()
-          .find('input[name="account_notification[start_at]"]')
-        target_start_at_value_el.val(source_start_at_value_el.val())
-      }
+
+      const source_start_at_value_el = source_start_at_disp_el
+        .parent()
+        .find('input[name="account_notification[start_at]"]')
+      target_start_at_value_el.val(source_start_at_value_el.val())
 
       const source_end_at_disp_el = $(source_form_id).find(
-        '#account_notification_end_at_' + announcement_id
+        '#account_notification_end_at_' + announcement_id,
       )
       const target_end_at_disp_el = $(target_form_id).find('#account_notification_end_at')
       const target_end_at_value_el = target_end_at_disp_el
         .parent()
         .find('input[name="account_notification[end_at]"]')
       target_end_at_disp_el.val(source_end_at_disp_el.val())
-      if (source_end_at_disp_el.is('[readonly]')) {
-        target_end_at_value_el.val(source_end_at_disp_el.attr('data-initial-value'))
-      } else {
-        const source_end_at_value_el = source_end_at_disp_el
-          .parent()
-          .find('input[name="account_notification[end_at]"]')
-        target_end_at_value_el.val(source_end_at_value_el.val())
-      }
+
+      const source_end_at_value_el = source_end_at_disp_el
+        .parent()
+        .find('input[name="account_notification[end_at]"]')
+      target_end_at_value_el.val(source_end_at_value_el.val())
 
       const send_message = $(source_form_id)
         .find('#account_notification_send_message_' + announcement_id)
@@ -164,7 +161,10 @@ export default {
         target_title_el.focus()
       }, 100)
 
-      RichContentEditor.loadNewEditor(target_message_el)
+      const rceExists = RichContentEditor.callOnRCE(target_message_el, 'exists?')
+      if (!rceExists) {
+        RichContentEditor.loadNewEditor(target_message_el)
+      }
     })
 
     $('.edit_notification_toggle_focus').on('click', function () {
@@ -176,7 +176,11 @@ export default {
           $('#account_notification_subject_' + id).focus()
         }, 100)
       }
-      RichContentEditor.loadNewEditor($(`${form_id} textarea`))
+      const $textarea = $(`${form_id} textarea`)
+      const rceExists = RichContentEditor.callOnRCE($textarea, 'exists?')
+      if (!rceExists) {
+        RichContentEditor.loadNewEditor($textarea)
+      }
     })
 
     $('.add_notification_cancel_focus').on('click', () => {
@@ -193,7 +197,7 @@ export default {
       const $confirmation = $this.find('#confirm_global_announcement:visible:not(:checked)')
       if ($confirmation.length > 0) {
         $confirmation.errorBox(
-          I18n.t('confirms.global_announcement', 'You must confirm the global announcement')
+          I18n.t('confirms.global_announcement', 'You must confirm the global announcement'),
         )
         return false
       }
@@ -235,7 +239,7 @@ export default {
         url: $link.attr('data-url'),
         message: I18n.t(
           'confirms.delete_announcement',
-          'Are you sure you want to delete this announcement?'
+          'Are you sure you want to delete this announcement?',
         ),
         success() {
           $(this).slideUp(function () {

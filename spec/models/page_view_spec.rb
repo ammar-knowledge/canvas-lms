@@ -22,7 +22,7 @@ describe PageView do
   before do
     # sets both @user and @course (@user is a teacher in @course)
     course_model(account: Account.default.manually_created_courses_account)
-    @page_view = PageView.new { |p| p.assign_attributes({ created_at: Time.now, url: "http://test.one/", session_id: "phony", context: @course, controller: "courses", action: "show", user_request: true, render_time: 0.01, user_agent: "None", account_id: Account.default.id, request_id: "abcde", interaction_seconds: 5, user: @user }) }
+    @page_view = PageView.new { |p| p.assign_attributes({ created_at: Time.zone.now, url: "http://test.one/", session_id: "phony", context: @course, controller: "courses", action: "show", user_request: true, render_time: 0.01, user_agent: "None", account_id: Account.default.id, request_id: "abcde", interaction_seconds: 5, user: @user }) }
   end
 
   describe "sharding" do
@@ -74,7 +74,7 @@ describe PageView do
       it "does nothing if not enabled" do
         Setting.set("page_views_store_active_user_counts", "false")
         expect(@page_view.store).to be_truthy
-        expect(Canvas.redis.smembers(PageView.user_count_bucket_for_time(Time.now))).to eq []
+        expect(Canvas.redis.smembers(PageView.user_count_bucket_for_time(Time.zone.now))).to eq []
       end
 
       it "stores if enabled" do
@@ -135,7 +135,7 @@ describe PageView do
 
     let(:params) { { action: "path", controller: "some" } }
     let(:session) { { id: "42" } }
-    let(:request) { double(url: @url || "host.com/some/path", path_parameters: params, user_agent: "Mozilla", session_options: session, method: :get, remote_ip: "0.0.0.0", request_method: "GET") }
+    let(:request) { instance_double(ActionDispatch::Request, url: @url || "host.com/some/path", path_parameters: params, user_agent: "Mozilla", session_options: session, method: :get, remote_ip: "0.0.0.0", request_method: "GET") }
     let(:user) { User.new }
     let(:attributes) { { real_user: user, user: } }
 
@@ -223,11 +223,11 @@ describe PageView do
       pv = PageView.generate(request, attributes)
       pv.update_attribute(:url, "http://canvas.example.com/api/v1/courses/1?access_token=SUPERSECRET")
       pv.reload
-      expect(pv.url).to eq  "http://canvas.example.com/api/v1/courses/1?access_token=[FILTERED]"
+      expect(pv.url).to eq "http://canvas.example.com/api/v1/courses/1?access_token=[FILTERED]"
     end
 
     it "forces encoding on string fields" do
-      request = double(url: @url || "host.com/some/path", path_parameters: params, user_agent: "Mozilla", session_options: session, method: :get, remote_ip: "0.0.0.0".encode(Encoding::US_ASCII), request_method: "GET")
+      request = instance_double(ActionDispatch::Request, url: @url || "host.com/some/path", path_parameters: params, user_agent: "Mozilla", session_options: session, method: :get, remote_ip: "0.0.0.0".encode(Encoding::US_ASCII), request_method: "GET")
       pv = PageView.generate(request, attributes)
 
       expect(pv.remote_ip.encoding).to eq Encoding::UTF_8
@@ -347,6 +347,37 @@ describe PageView do
     end
   end
 
+  describe ".app_name" do
+    specs_require_sharding
+
+    before do
+      @attributes = valid_page_view_attributes.stringify_keys
+    end
+
+    it "when developer_key_id obtained return app name" do
+      @attributes["developer_key_id"] = "10000000000001"
+      pv = PageView.from_attributes(@attributes)
+      allow(DeveloperKey).to receive(:find_cached).and_return(instance_double(DeveloperKey, name: "Test App"))
+
+      expect(pv.app_name).to eq "Test App"
+    end
+
+    it "when developer_key_id not obtained return nil" do
+      @attributes["developer_key_id"] = nil
+      pv = PageView.from_attributes(@attributes)
+
+      expect(pv.app_name).to be_nil
+    end
+
+    it "when non-existing developer_key_id obtained return the key id" do
+      @attributes["developer_key_id"] = "99000000000001"
+      pv = PageView.from_attributes(@attributes)
+      allow(DeveloperKey).to receive(:find_cached).and_raise(ActiveRecord::RecordNotFound)
+
+      expect(pv.app_name).to eq "99000000000001"
+    end
+  end
+
   context "pv4" do
     before do
       allow(PageView).to receive_messages(pv4?: true, page_view_method: :pv4)
@@ -369,7 +400,7 @@ describe PageView do
 
     it "find_for_update returns a dummy record" do
       pv = PageView.find_for_update("someuuid")
-      expect(pv).to_not be_nil
+      expect(pv).not_to be_nil
       expect(pv.id).to eq "someuuid"
     end
   end

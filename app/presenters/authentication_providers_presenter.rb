@@ -21,20 +21,21 @@ class AuthenticationProvidersPresenter
   include ActionView::Helpers::FormTagHelper
   include ActionView::Helpers::FormOptionsHelper
 
-  attr_reader :account
+  attr_reader :account, :user
 
-  def initialize(acc)
-    @account = acc
+  def initialize(account = nil, user = nil)
+    @account = account
+    @user = user
   end
 
   def configs
-    @configs ||= account.authentication_providers.active.to_a
+    @configs ||= account.authentication_providers.active.select { |ap| ap.visible_to?(user) }
   end
 
   def new_auth_types
     AuthenticationProvider.valid_auth_types.filter_map do |auth_type|
       klass = AuthenticationProvider.find_sti_class(auth_type)
-      next unless klass.enabled?(account)
+      next unless klass.enabled?(account, user)
       next if klass.singleton? && configs.any?(klass)
 
       klass
@@ -49,7 +50,11 @@ class AuthenticationProvidersPresenter
     options = { controller: "login/#{aac.auth_type}", action: :new }
     if !aac.is_a?(AuthenticationProvider::LDAP) &&
        configs.many? { |other| other.auth_type == aac.auth_type }
-      options[:id] = aac
+      if aac.is_a?(AuthenticationProvider::OpenIDConnect) && aac.issuer.present?
+        options[:iss] = aac.issuer
+      else
+        options[:id] = aac
+      end
     end
     options
   end
@@ -67,15 +72,15 @@ class AuthenticationProvidersPresenter
   end
 
   def ldap_configs
-    configs.select { |c| c.is_a?(AuthenticationProvider::LDAP) }
+    configs.grep(AuthenticationProvider::LDAP)
   end
 
   def saml_configs
-    configs.select { |c| c.is_a?(AuthenticationProvider::SAML) }
+    configs.grep(AuthenticationProvider::SAML)
   end
 
   def cas_configs
-    configs.select { |c| c.is_a?(AuthenticationProvider::CAS) }
+    configs.grep(AuthenticationProvider::CAS)
   end
 
   def sso_options
@@ -89,7 +94,7 @@ class AuthenticationProvidersPresenter
 
   def position_options(config)
     position_options = (1..configs.length).map { |i| [i, i] }
-    config.new_record? ? [["Last", nil]] + position_options : position_options
+    config.new_record? ? [[I18n.t("Last"), nil]] + position_options : position_options
   end
 
   def saml_identifiers
@@ -105,7 +110,7 @@ class AuthenticationProvidersPresenter
   def saml_authn_contexts(base = SAML2::AuthnStatement::Classes.constants.map { |const| SAML2::AuthnStatement::Classes.const_get(const, false) })
     return [] unless saml_enabled?
 
-    [["No Value", nil]] + base.sort
+    [[I18n.t("No Value"), nil]] + base.sort
   end
 
   def saml_enabled?
@@ -151,4 +156,6 @@ class AuthenticationProvidersPresenter
     suf += "_#{aac.id}" unless aac.new_record?
     suf
   end
+
+  delegate :discovery_page_active?, to: :account
 end

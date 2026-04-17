@@ -33,7 +33,7 @@ describe "Announcements API", type: :request do
     @anns = []
 
     1.upto(5) do |i|
-      ann = @course1.announcements.build title: "Accountment 1.#{i}", message: i
+      ann = @course1.announcements.build title: "Announcement 1.#{i}", message: i
       ann.posted_at = (7 - i).days.ago # To make them more recent each time
       ann.save!
 
@@ -45,11 +45,19 @@ describe "Announcements API", type: :request do
     @course2 = @course
     @ann2 = @course2.announcements.build title: "Announcement 2", message: "2"
     @ann2.workflow_state = "post_delayed"
-    @ann2.posted_at = Time.now
+    @ann2.posted_at = Time.zone.now
     @ann2.delayed_post_at = 21.days.from_now
     @ann2.save!
 
     @params = { controller: "announcements_api", action: "index", format: "json" }
+  end
+
+  def test_with_expiring_announcements
+    # Setting up for expiration check on home page
+    0.upto(4) do |i|
+      @anns[i].update_attribute(:lock_at, (5 + (-2 * i)).days.ago)
+    end
+    yield
   end
 
   context "as teacher" do
@@ -266,6 +274,22 @@ describe "Announcements API", type: :request do
         expect(json.length).to be 2
         expect(json.pluck("id")).to include(@anns.last[:id], @ann3[:id])
       end
+
+      it "won't exclude expired announcements on home page" do
+        test_with_expiring_announcements do
+          json = api_call_as_user(@teacher,
+                                  :get,
+                                  "/api/v1/announcements",
+                                  @params.merge(context_codes: ["course_#{@course1.id}", "course_#{@course2.id}"],
+                                                start_date: 10.days.ago.iso8601,
+                                                end_date: Time.now.utc.iso8601,
+                                                available_after: Time.now.utc.iso8601,
+                                                active_only: true,
+                                                page: 1,
+                                                per_page: 6))
+          expect(json.length).to eq 6
+        end
+      end
     end
   end
 
@@ -273,7 +297,6 @@ describe "Announcements API", type: :request do
     before :once do
       @observer = observer_in_course(name: "bob's mom", course: @course, active_all: true).user
       observer_in_course(user: @observer, associated_user_id: @student, course: @course1, active_all: true)
-      Account.site_admin.enable_feature!(:selective_release_backend)
     end
 
     it "orders by reverse chronological order" do
@@ -328,6 +351,25 @@ describe "Announcements API", type: :request do
                                             end_date:))
       expect(json.length).to eq 6
       expect(json.pluck("id")).to eq @anns.map(&:id).reverse << @ann1.id
+    end
+
+    it "excludes expired announcements on home page" do
+      test_with_expiring_announcements do
+        json = api_call_as_user(@student,
+                                :get,
+                                "/api/v1/announcements",
+                                @params.merge(context_codes: ["course_#{@course1.id}", "course_#{@course2.id}"],
+                                              start_date: 10.days.ago.iso8601,
+                                              end_date: Time.now.utc.iso8601,
+                                              available_after: Time.now.utc.iso8601,
+                                              active_only: true,
+                                              page: 1,
+                                              per_page: 6))
+        0.upto(2) do |i|
+          expect(json[i]["lock_at"] > Time.now.utc.iso8601).to be_truthy unless json[i]["lock_at"].nil?
+        end
+        expect(json.length).to eq 3
+      end
     end
 
     it "excludes courses not in the context_ids list" do
@@ -470,6 +512,182 @@ describe "Announcements API", type: :request do
                               })
 
       expect(json.count).to eq(0)
+    end
+  end
+
+  describe "POST accessibility_scan" do
+    before :once do
+      course_with_teacher(active_all: true)
+      @student = student_in_course(active_all: true).user
+      @announcement = @course.announcements.create!(
+        title: "Test Announcement",
+        message: "<h1>Title</h1><p>Content</p>"
+      )
+    end
+
+    def accessibility_scan_request(user, announcement_id, expected_status: 200)
+      url = "/api/v1/courses/#{@course.id}/announcements/#{announcement_id}/accessibility/scan"
+      path = {
+        controller: "announcements_api",
+        action: "accessibility_scan",
+        format: "json",
+        course_id: @course.id.to_s,
+        announcement_id:
+      }
+      api_call_as_user(user, :post, url, path, {}, {}, { expected_status: })
+    end
+
+    context "when a11y_checker feature is enabled" do
+      before do
+        @course.account.enable_feature!(:a11y_checker)
+        @course.enable_feature!(:a11y_checker_eap)
+      end
+
+      it "requires update permissions" do
+        accessibility_scan_request(@student, @announcement.id.to_s, expected_status: 403)
+      end
+
+      it "runs a synchronous accessibility scan and returns scan results" do
+        json = accessibility_scan_request(@teacher, @announcement.id.to_s)
+
+        expect(json["id"]).to be_present
+        expect(json["resource_id"]).to eq(@announcement.id)
+        expect(json["resource_type"]).to eq("Announcement")
+        expect(json["resource_name"]).to eq("Test Announcement")
+        expect(json["workflow_state"]).to eq("completed")
+        expect(json["issue_count"]).to be >= 0
+        expect(json["issues"]).to be_an(Array)
+      end
+
+      it "returns 404 for non-existent announcement" do
+        accessibility_scan_request(@teacher, "999999", expected_status: 404)
+      end
+
+      it "calls ResourceScannerService with the announcement" do
+        service_double = instance_double(Accessibility::ResourceScannerService)
+        scan_double = instance_double(AccessibilityResourceScan,
+                                      id: 1,
+                                      context: @announcement,
+                                      resource_name: "Test Announcement",
+                                      resource_workflow_state: "active",
+                                      resource_updated_at: Time.zone.now,
+                                      context_url: "/courses/#{@course.id}/discussion_topics/#{@announcement.id}",
+                                      resource_scan_path: nil,
+                                      workflow_state: "completed",
+                                      error_message: nil,
+                                      issue_count: 0,
+                                      accessibility_issues: double(select: []))
+
+        expect(Accessibility::ResourceScannerService).to receive(:new)
+          .with(resource: @announcement)
+          .and_return(service_double)
+        expect(service_double).to receive(:call_sync).and_return(scan_double)
+
+        accessibility_scan_request(@teacher, @announcement.id.to_s)
+      end
+    end
+
+    context "when a11y_checker feature is disabled" do
+      before do
+        @course.account.disable_feature!(:a11y_checker)
+        @course.disable_feature!(:a11y_checker_eap)
+      end
+
+      it "returns forbidden even for teachers" do
+        accessibility_scan_request(@teacher, @announcement.id.to_s, expected_status: 403)
+      end
+
+      it "returns forbidden for students" do
+        accessibility_scan_request(@student, @announcement.id.to_s, expected_status: 403)
+      end
+    end
+  end
+
+  describe "POST accessibility_queue_scan" do
+    before :once do
+      course_with_teacher(active_all: true)
+      @student = student_in_course(active_all: true).user
+      @announcement = @course.announcements.create!(
+        title: "Test Announcement",
+        message: "<h1>Title</h1><p>Content</p>"
+      )
+    end
+
+    def accessibility_queue_scan_request(user, announcement_id, expected_status: 200)
+      url = "/api/v1/courses/#{@course.id}/announcements/#{announcement_id}/accessibility/queue_scan"
+      path = {
+        controller: "announcements_api",
+        action: "accessibility_queue_scan",
+        format: "json",
+        course_id: @course.id.to_s,
+        announcement_id:
+      }
+      api_call_as_user(user, :post, url, path, {}, {}, { expected_status: })
+    end
+
+    context "when a11y_checker feature is enabled" do
+      before do
+        @course.account.enable_feature!(:a11y_checker)
+        @course.enable_feature!(:a11y_checker_eap)
+      end
+
+      it "requires update permissions" do
+        accessibility_queue_scan_request(@student, @announcement.id.to_s, expected_status: 403)
+      end
+
+      it "queues an accessibility scan and returns scan results" do
+        json = accessibility_queue_scan_request(@teacher, @announcement.id.to_s)
+
+        expect(json["id"]).to be_present
+        expect(json["resource_id"]).to eq(@announcement.id)
+        expect(json["resource_type"]).to eq("Announcement")
+        expect(json["resource_name"]).to eq("Test Announcement")
+        expect(json["workflow_state"]).to be_in(%w[queued running completed])
+        expect(json).to have_key("issue_count")
+        expect(json).to have_key("issues")
+      end
+
+      it "returns 404 for non-existent announcement" do
+        accessibility_queue_scan_request(@teacher, "999999", expected_status: 404)
+      end
+
+      it "calls ResourceScannerService with the announcement" do
+        service_double = instance_double(Accessibility::ResourceScannerService)
+        scan_double = instance_double(AccessibilityResourceScan,
+                                      id: 1,
+                                      context: @announcement,
+                                      resource_name: "Test Announcement",
+                                      resource_workflow_state: "active",
+                                      resource_updated_at: Time.zone.now,
+                                      context_url: "/courses/#{@course.id}/discussion_topics/#{@announcement.id}",
+                                      resource_scan_path: nil,
+                                      workflow_state: "queued",
+                                      error_message: nil,
+                                      issue_count: nil,
+                                      accessibility_issues: double(select: []))
+
+        expect(Accessibility::ResourceScannerService).to receive(:new)
+          .with(resource: @announcement)
+          .and_return(service_double)
+        expect(service_double).to receive(:call).and_return(scan_double)
+
+        accessibility_queue_scan_request(@teacher, @announcement.id.to_s)
+      end
+    end
+
+    context "when a11y_checker feature is disabled" do
+      before do
+        @course.account.disable_feature!(:a11y_checker)
+        @course.disable_feature!(:a11y_checker_eap)
+      end
+
+      it "returns forbidden even for teachers" do
+        accessibility_queue_scan_request(@teacher, @announcement.id.to_s, expected_status: 403)
+      end
+
+      it "returns forbidden for students" do
+        accessibility_queue_scan_request(@student, @announcement.id.to_s, expected_status: 403)
+      end
     end
   end
 end

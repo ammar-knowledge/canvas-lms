@@ -24,22 +24,22 @@ import {RCEBlock, type RCEBlockProps} from '..'
 
 let props: Partial<RCEBlockProps>
 
-const mockSetProp = jest.fn((callback: (props: Record<string, any>) => void) => {
+const mockSetProp = vi.fn((callback: (props: Record<string, any>) => void) => {
   callback(props)
 })
 
 let isSelected = false
 
-jest.mock('@craftjs/core', () => {
-  const originalModule = jest.requireActual('@craftjs/core')
+vi.mock('@craftjs/core', async () => {
+  const originalModule = await vi.importActual('@craftjs/core')
   return {
     ...originalModule,
-    useNode: jest.fn(_node => {
+    useNode: vi.fn(_node => {
       return {
         actions: {setProp: mockSetProp},
         connectors: {
-          connect: jest.fn(),
-          drag: jest.fn(),
+          connect: vi.fn(),
+          drag: vi.fn(),
         },
         id: 'xyzzy',
         selected: isSelected,
@@ -57,7 +57,7 @@ const renderBlock = (enabled: boolean, props: Partial<RCEBlockProps> = {}) => {
           <RCEBlock {...props} />
         </Frame>
       </Editor>
-    </div>
+    </div>,
   )
 }
 
@@ -99,7 +99,7 @@ describe('RCEBlock', () => {
           expect(container.querySelector('.rce-wrapper')).toHaveTextContent('This is text')
         })
         const rcetextarea = container.querySelector(
-          `#rceblock_text-${props.id}`
+          `#rceblock_text-${props.id}`,
         ) as HTMLTextAreaElement
         expect(rcetextarea).toHaveValue('This is text')
       })

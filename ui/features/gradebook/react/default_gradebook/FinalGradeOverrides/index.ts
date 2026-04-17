@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2018 - present Instructure, Inc.
  *
@@ -17,13 +16,15 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {showFlashAlert} from '@instructure/platform-alerts'
 import {updateFinalGradeOverride} from '@canvas/grading/FinalGradeOverrideApi'
+import type GradeOverrideInfo from '@canvas/grading/GradeEntry/GradeOverrideInfo'
+import type {FinalGradeOverrideMap} from '@canvas/grading/grading.d'
 import FinalGradeOverrideDatastore from './FinalGradeOverrideDatastore'
 import type Gradebook from '../Gradebook'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 export default class FinalGradeOverrides {
   _gradebook: Gradebook
@@ -35,7 +36,7 @@ export default class FinalGradeOverrides {
     this._datastore = new FinalGradeOverrideDatastore()
   }
 
-  getGradeForUser(userId) {
+  getGradeForUser(userId: string) {
     let gradingPeriodId: null | string = null
     if (this._gradebook.isFilteringColumnsByGradingPeriod()) {
       gradingPeriodId = this._gradebook.gradingPeriodId
@@ -53,7 +54,7 @@ export default class FinalGradeOverrides {
     return this._datastore.getPendingGradeInfo(userId, gradingPeriodId)
   }
 
-  setGrades(gradeOverrides) {
+  setGrades(gradeOverrides: FinalGradeOverrideMap) {
     this._datastore.setGrades(gradeOverrides)
     const studentIds = Object.keys(gradeOverrides)
     studentIds.forEach(userId => {
@@ -61,7 +62,7 @@ export default class FinalGradeOverrides {
     })
   }
 
-  updateGrade(userId: string, gradeOverrideInfo) {
+  updateGrade(userId: string, gradeOverrideInfo: GradeOverrideInfo) {
     const [enrollment] = this._gradebook.student(userId).enrollments
 
     let gradingPeriodId: null | string = null
@@ -73,8 +74,12 @@ export default class FinalGradeOverrides {
     this._gradebook.gradebookGrid?.updateRowCell(userId, 'total_grade_override')
 
     if (gradeOverrideInfo.valid) {
-      updateFinalGradeOverride(enrollment.id, gradingPeriodId, gradeOverrideInfo.grade)
-        .then(grade => {
+      updateFinalGradeOverride(
+        String(enrollment.id),
+        gradingPeriodId ?? undefined,
+        (gradeOverrideInfo.grade as {percentage: number} | null) ?? undefined,
+      )
+        .then((grade: {percentage: number | null; customGradeStatusId: string | null} | null) => {
           this._datastore.removePendingGradeInfo(userId, gradingPeriodId)
           this._datastore.updateGrade(userId, gradingPeriodId, grade)
           this._gradebook.gradebookGrid?.updateRowCell(userId, 'total_grade_override')
@@ -95,7 +100,7 @@ export default class FinalGradeOverrides {
     } else {
       showFlashAlert({
         message: I18n.t(
-          'You have entered an invalid grade for this student. Check the value and the grading type and try again.'
+          'You have entered an invalid grade for this student. Check the value and the grading type and try again.',
         ),
         type: 'error',
         err: null,

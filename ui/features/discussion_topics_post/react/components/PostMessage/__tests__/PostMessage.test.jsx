@@ -18,23 +18,32 @@
 
 import {PostMessage} from '../PostMessage'
 import React from 'react'
-import {render, screen, act} from '@testing-library/react'
+import {render, screen, act, cleanup} from '@testing-library/react'
 import {SearchContext} from '../../../utils/constants'
 import {User} from '../../../../graphql/User'
 import {responsiveQuerySizes} from '../../../utils'
+import {ObserverContext} from '../../../utils/ObserverContext'
 
-jest.mock('../../../utils')
+vi.mock('../../../utils')
+
+const mediaQueryMock = {
+  matches: true,
+  media: '',
+  onchange: null,
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+}
 
 beforeAll(() => {
-  window.matchMedia = jest.fn().mockImplementation(() => {
-    return {
-      matches: true,
-      media: '',
-      onchange: null,
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
-    }
-  })
+  window.matchMedia = vi.fn().mockImplementation(query => ({...mediaQueryMock, media: query}))
+})
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
 })
 
 beforeEach(() => {
@@ -45,73 +54,77 @@ beforeEach(() => {
 
 const setup = (props, {searchTerm = ''} = {}) => {
   return render(
-    <SearchContext.Provider value={{searchTerm}}>
-      <PostMessage
-        author={User.mock()}
-        timingDisplay="Jan 1 2000"
-        message="Posts are fun"
-        title="Thoughts"
-        {...props}
-      />
-    </SearchContext.Provider>
+    <ObserverContext.Provider
+      value={{observerRef: {current: undefined}, nodesRef: {current: new Map()}}}
+    >
+      <SearchContext.Provider value={{searchTerm}}>
+        <PostMessage
+          author={User.mock()}
+          timingDisplay="Jan 1 2000"
+          message="Posts are fun"
+          title="Thoughts"
+          {...props}
+        />
+      </SearchContext.Provider>
+    </ObserverContext.Provider>,
   )
 }
 
 describe('PostMessage', () => {
   it('displays the title', () => {
-    const {queryByText} = setup()
-    expect(queryByText('Thoughts')).toBeTruthy()
+    const {getByText} = setup()
+    expect(getByText('Thoughts')).toBeInTheDocument()
   })
 
-  it('displays the title h2', () => {
-    const {queryByText} = setup()
-    const screenReaderText = queryByText('Discussion Topic: Thoughts')
+  it('displays the title with screen reader text', () => {
+    const {getByText} = setup()
+    const screenReaderText = getByText('Discussion Topic: Thoughts')
 
-    expect(screenReaderText).toBeTruthy()
-    expect(screenReaderText.parentElement.parentElement.parentElement.tagName).toBe('H2')
+    expect(screenReaderText).toBeInTheDocument()
+    expect(screenReaderText.parentElement.parentElement.parentElement.tagName).toBe('SPAN')
   })
 
   it('displays the message', () => {
-    const {queryByText} = setup()
-    expect(queryByText('Posts are fun')).toBeTruthy()
+    const {getByText} = setup()
+    expect(getByText('Posts are fun')).toBeInTheDocument()
   })
 
   it('displays the children', () => {
-    const {queryByText} = setup({
+    const {getByText} = setup({
       children: <span>Smol children</span>,
     })
-    expect(queryByText('Smol children')).toBeTruthy()
+    expect(getByText('Smol children')).toBeInTheDocument()
   })
 
   describe('search highlighting', () => {
     it('should not highlight text if no search term is present', () => {
       const {queryAllByTestId} = setup()
-      expect(queryAllByTestId('highlighted-search-item').length).toBe(0)
+      expect(queryAllByTestId('highlighted-search-item')).toHaveLength(0)
     })
 
     it('should highlight search terms in message', () => {
       const {queryAllByTestId} = setup({}, {searchTerm: 'Posts'})
-      expect(queryAllByTestId('highlighted-search-item').length).toBe(1)
+      expect(queryAllByTestId('highlighted-search-item')).toHaveLength(1)
     })
 
     it('should highlight multiple terms in postmessage', () => {
       const {queryAllByTestId} = setup(
         {message: 'a longer message with multiple highlights here and here'},
-        {searchTerm: 'here'}
+        {searchTerm: 'here'},
       )
-      expect(queryAllByTestId('highlighted-search-item').length).toBe(2)
+      expect(queryAllByTestId('highlighted-search-item')).toHaveLength(2)
     })
 
     it('highlighting should be case-insensitive', () => {
       const {queryAllByTestId} = setup(
         {message: 'a longer message with multiple highlights Here and here'},
-        {searchTerm: 'here'}
+        {searchTerm: 'here'},
       )
-      expect(queryAllByTestId('highlighted-search-item').length).toBe(2)
+      expect(queryAllByTestId('highlighted-search-item')).toHaveLength(2)
     })
 
     it('updates the displayed message when the message prop changes', async () => {
-      const { rerender } = setup({ message: 'Initial message' })
+      const {rerender} = setup({message: 'Initial message'})
 
       // Check initial render
       expect(screen.getByText('Initial message')).toBeInTheDocument()
@@ -119,14 +132,18 @@ describe('PostMessage', () => {
       // Rerender with new props
       await act(async () => {
         rerender(
-          <SearchContext.Provider value={{ searchTerm: '' }}>
-            <PostMessage
-              author={User.mock()}
-              timingDisplay="Jan 1 2000"
-              message="Updated message"
-              title="Thoughts"
-            />
-          </SearchContext.Provider>
+          <ObserverContext.Provider
+            value={{observerRef: {current: undefined}, nodesRef: {current: new Map()}}}
+          >
+            <SearchContext.Provider value={{searchTerm: ''}}>
+              <PostMessage
+                author={User.mock()}
+                timingDisplay="Jan 1 2000"
+                message="Updated message"
+                title="Thoughts"
+              />
+            </SearchContext.Provider>
+          </ObserverContext.Provider>,
         )
       })
 

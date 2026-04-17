@@ -67,13 +67,21 @@ require "json_token"
 require "will_paginate/active_record"
 
 module BookmarkedCollection
+  class InvalidPage < ArgumentError
+    def response_status
+      400
+    end
+  end
+
   require "bookmarked_collection/collection"
   require "bookmarked_collection/composite_collection"
   require "bookmarked_collection/proxy"
   require "bookmarked_collection/composite_proxy"
   require "bookmarked_collection/concat_collection"
   require "bookmarked_collection/concat_proxy"
+  require "bookmarked_collection/sync_concat_proxy"
   require "bookmarked_collection/filter_proxy"
+  require "bookmarked_collection/sync_filter_proxy"
   require "bookmarked_collection/merge_proxy"
   require "bookmarked_collection/simple_bookmarker"
   require "bookmarked_collection/wrap_proxy"
@@ -156,6 +164,11 @@ module BookmarkedCollection
   # base_scope is the ActiveRecord scope to wrap. options and block act on the
   # base_scope as in association.with_each_shard.
   #
+  # count_total_entries performs a .count on the scope to determine when the end
+  # of the collection is reached; set to false to skip this count. this may speed
+  # up pagination of large collections, at the expense of possibly getting an empty
+  # page at the end of the collection.
+  #
   # Example:
   #
   #   module UserBookmarker
@@ -192,8 +205,8 @@ module BookmarkedCollection
   #   bookmarked_collection = BookmarkedCollection.wrap(UserBookmarker, User.active)
   #   Api.paginate(bookmarked_collection, ...)
   #
-  def self.wrap(bookmarker, base_scope, &)
-    BookmarkedCollection::WrapProxy.new(bookmarker, base_scope, &)
+  def self.wrap(bookmarker, base_scope, count_total_entries: true, &)
+    BookmarkedCollection::WrapProxy.new(bookmarker, base_scope, count_total_entries:, &)
   end
 
   # Combines multiple named bookmarked collections into a single collection
@@ -260,14 +273,25 @@ module BookmarkedCollection
   #     ['courses', courses],
   #     ['users', users])
   #
-  def self.concat(*collections)
-    BookmarkedCollection::ConcatProxy.new(collections)
+  def self.concat(*collections, sync: false)
+    if sync
+      BookmarkedCollection::SyncConcatProxy.new(collections)
+    else
+      BookmarkedCollection::ConcatProxy.new(collections)
+    end
   end
 
   # Filters the results of a collection to only include rows that the
-  # filter_proc returns true for.
-  def self.filter(collection, &)
-    BookmarkedCollection::FilterProxy.new(collection, &)
+  # filter_proc returns true for. if `sync` is true, the subpager will
+  # be kept in sync with the pager to allow for filtering collections
+  # that must be retrieved sequentially, at the expense of returning
+  # fewer items than the requested per_page.
+  def self.filter(collection, sync: false, &)
+    if sync
+      BookmarkedCollection::SyncFilterProxy.new(collection, &)
+    else
+      BookmarkedCollection::FilterProxy.new(collection, &)
+    end
   end
 
   # Transform the results of a collection using the transform_proc

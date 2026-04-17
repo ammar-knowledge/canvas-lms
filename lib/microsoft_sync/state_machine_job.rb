@@ -180,7 +180,7 @@ module MicrosoftSync
     # Mostly used for debugging. May use sleep!
     def run_synchronously(initial_mem_state = nil)
       run_with_delay(initial_mem_state:, synchronous: true)
-    rescue IRB::Abort => e
+    rescue AbortExceptionMatcher => e
       update_state_record_to_errored_and_cleanup(error: e, step: nil)
       raise
     end
@@ -191,7 +191,7 @@ module MicrosoftSync
 
     private
 
-    def run(step, initial_mem_state, synchronous = false)
+    def run(step, initial_mem_state, synchronous: false)
       job_state = job_state_record.job_state
 
       # Record has been deleted since we were enqueued:
@@ -311,7 +311,7 @@ module MicrosoftSync
 
     def statsd_increment(bucket, step, error = nil)
       tags = { category: error&.class&.name&.tr(":", "_"), microsoft_sync_step: step.to_s }.compact
-      InstStatsd::Statsd.increment("#{STATSD_PREFIX}.#{bucket}", tags:)
+      InstStatsd::Statsd.distributed_increment("#{STATSD_PREFIX}.#{bucket}", tags:)
     end
 
     def log(&)
@@ -328,7 +328,7 @@ module MicrosoftSync
 
       if synchronous
         sleep delay_amount if delay_amount
-        run(step, initial_mem_state, true)
+        run(step, initial_mem_state, synchronous: true)
         return
       end
 
@@ -340,8 +340,10 @@ module MicrosoftSync
       error_report_id = capture && capture_exception(capture)[:error_report]
       error_msg = MicrosoftSync::Errors.serialize(error, step:)
       job_state_record&.update_unless_deleted(
-        workflow_state: :errored, job_state: nil,
-        last_error: error_msg, last_error_report_id: error_report_id
+        workflow_state: :errored,
+        job_state: nil,
+        last_error: error_msg,
+        last_error_report_id: error_report_id
       )
       steps_object.after_failure
     end

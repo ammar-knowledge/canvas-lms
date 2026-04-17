@@ -20,7 +20,7 @@
 
 module Factories
   def rubric_model(opts = {})
-    @rubric = factory_with_protected_attributes(Rubric, valid_rubric_attributes.merge(opts))
+    @rubric = Rubric.create!(valid_rubric_attributes.merge(opts))
   end
 
   def valid_rubric_attributes
@@ -104,6 +104,40 @@ module Factories
           { description: "F", points: 0, id: "rat3", criterion_id: "crit8" }
         ] },
     ]
+  end
+
+  def deleted_rubric_for_course
+    @deleted_rubric = Rubric.new(title: "My Rubric", context: @course, workflow_state: "deleted")
+    @deleted_rubric.data = [
+      {
+        points: 3,
+        description: "First row",
+        long_description: "The first row in the rubric",
+        id: 1,
+        ratings: [
+          {
+            points: 3,
+            description: "Rockin'",
+            criterion_id: 1,
+            id: 2
+          },
+          {
+            points: 2,
+            description: "Rockin'",
+            criterion_id: 1,
+            id: 3
+          },
+          {
+            points: 0,
+            description: "Lame",
+            criterion_id: 1,
+            id: 4
+          }
+        ]
+      }
+    ]
+    @deleted_rubric.save!
+    @deleted_rubric
   end
 
   def rubric_for_course

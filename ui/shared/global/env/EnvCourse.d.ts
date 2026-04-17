@@ -25,6 +25,7 @@ export type EnvCourse = EnvCourseCommon & Partial<EnvCourseCommon>
  */
 export interface EnvCourseCommon {
   COURSE: Course
+  course?: Course
 
   /**
    * From CoursesController#index
@@ -46,6 +47,7 @@ export interface EnvCourseCommon {
  * From CoursesController#settings
  */
 export interface EnvCourseSettings {
+  CAN_EDIT_RESTRICT_QUANTITATIVE_DATA: boolean
   COURSE_ID: string
   /**
    * From "/api/v1/courses/#{@context.id}/users"
@@ -88,7 +90,7 @@ export interface EnvCourseSettings {
         permissions: Record<string, boolean>
       }
     >
-    groups: Record<string, {}>
+    groups: Record<string, object>
     sections: Record<
       string,
       {
@@ -116,7 +118,8 @@ export interface EnvCourseSettings {
     edit_course_availability: boolean
 
     can_allow_course_admin_actions: boolean
-    manage_admin_users: boolean
+
+    manage_course_content_edit: boolean
 
     add_tool_manually: boolean
     edit_tool_manually: boolean

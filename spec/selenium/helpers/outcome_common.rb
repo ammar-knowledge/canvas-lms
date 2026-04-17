@@ -284,7 +284,7 @@ module OutcomeCommon
     expect(f("#content")).not_to contain_css(".learning_outcome")
   end
 
-  def should_validate_decaying_average_range
+  def should_validate_decaying_average_range(text = "Must be between 1 and 99")
     get outcome_url
     f(".add_outcome_link").click
     wait_for_tiny(f(".outcomes-content textarea[name=description]"))
@@ -296,16 +296,16 @@ module OutcomeCommon
     replace_content(f("input[name=calculation_int]"), below_range)
     f(".submit_button").click
     wait_for_ajaximations
-    error_box = f(".errorBox:not(#error_box_template)")
+    error_box = f("#calculation_int_container [class$=formFieldMessages] > span:last-child")
     expect(error_box).to be_present
-    expect(error_box).to include_text("'#{below_range}' is not a valid value")
+    expect(error_box).to include_text(text)
     # enter invalid number above range
     replace_content(f("input[name=calculation_int]"), above_range)
     f(".submit_button").click
     wait_for_ajaximations
-    error_box = f(".errorBox:not(#error_box_template)")
+    error_box = f("#calculation_int_container [class$=formFieldMessages] > span:last-child")
     expect(error_box).to be_present
-    expect(error_box).to include_text("'#{above_range}' is not a valid value")
+    expect(error_box).to include_text(text)
   end
 
   def should_validate_n_mastery_range
@@ -320,16 +320,16 @@ module OutcomeCommon
     replace_content(f("input[name=calculation_int]"), below_range)
     f(".submit_button").click
     wait_for_ajaximations
-    error_box = f(".errorBox:not(#error_box_template)")
+    error_box = f("#calculation_int_container [class$=formFieldMessages] > span:last-child")
     expect(error_box).to be_present
-    expect(error_box).to include_text("'#{below_range}' is not a valid value")
+    expect(error_box).to include_text("Must be between 1 and 10")
     # enter invalid number above range
     replace_content(f("input[name=calculation_int]"), above_range)
     f(".submit_button").click
     wait_for_ajaximations
-    error_box = f(".errorBox:not(#error_box_template)")
+    error_box = f("#calculation_int_container [class$=formFieldMessages] > span:last-child")
     expect(error_box).to be_present
-    expect(error_box).to include_text("'#{above_range}' is not a valid value")
+    expect(error_box).to include_text("Must be between 1 and 10")
   end
 
   def should_create_an_outcome_group_root_level
@@ -368,7 +368,7 @@ module OutcomeCommon
     # submit
     f(".submit_button").click
     wait_for_ajaximations
-    dismiss_flash_messages_if_present
+    dismiss_flash_messages
 
     # create nested group
     f(".add_outcome_group").click

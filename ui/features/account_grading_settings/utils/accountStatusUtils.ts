@@ -17,11 +17,11 @@
  */
 
 import {defaultColors} from '@canvas/grading-status-list-item'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import type {GradeStatus} from '@canvas/grading/accountGradingStatus'
 import type {GradingStatusQueryResult} from '../types/accountStatusQueries'
 
-const I18n = useI18nScope('account_grading_settings')
+const I18n = createI18nScope('account_grading_settings')
 
 export const statusesTitleMap: {
   late: string
@@ -40,19 +40,20 @@ export const statusesTitleMap: {
 } as const
 
 export const mapCustomStatusQueryResults = (
-  customStatuses: GradingStatusQueryResult[]
+  customStatuses: GradingStatusQueryResult[],
 ): GradeStatus[] => {
   return customStatuses.map((status: GradingStatusQueryResult) => ({
     id: status.id,
     name: status.name,
     color: status.color,
     type: 'custom',
+    icon: status.icon,
   }))
 }
 
 export const mapStandardStatusQueryResults = (
   standardStatuses: GradingStatusQueryResult[],
-  isExtendedStatusEnabled?: boolean
+  isExtendedStatusEnabled?: boolean,
 ): GradeStatus[] => {
   const defaultStandardStatuses = {...DefaultStandardStatusesMap}
 

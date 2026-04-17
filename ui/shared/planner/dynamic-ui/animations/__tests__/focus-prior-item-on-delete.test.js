@@ -22,12 +22,12 @@ import {deletedPlannerItem} from '../../../actions'
 import {specialFallbackFocusId} from '../../util'
 
 // it uses a timer to work around an inst ui bug. See code in uiDidUpdate
-jest.useFakeTimers()
+vi.useFakeTimers()
 function prepareAnimation(animation) {
   animation.acceptAction(deletedPlannerItem({uniqueId: 'doomed-item'}))
   animation.uiWillUpdate()
   animation.uiDidUpdate()
-  jest.runAllTimers()
+  vi.runAllTimers()
 }
 
 it('sets focus to the item prior to the deleted item', () => {
@@ -54,7 +54,7 @@ it('sets focus to the fallback item focus if deleted index is 0', () => {
   ]
   registry.getAllItemsSorted.mockReturnValueOnce(mockRegistryEntries)
   registry.getComponent.mockReturnValueOnce(
-    mockRegistryEntry([specialFallbackFocusId('item')], 'fb')
+    mockRegistryEntry([specialFallbackFocusId('item')], 'fb'),
   )
   prepareAnimation(animation)
   expect(registry.getComponent).toHaveBeenCalledWith('item', specialFallbackFocusId('item'))

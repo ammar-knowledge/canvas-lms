@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2020 - present Instructure, Inc.
  *
@@ -25,24 +24,24 @@
 
 import type {PerformanceControlValues} from './gradebook.d'
 
-const DEFAULTS = {
+const DEFAULTS: Record<string, number> = {
   activeRequestLimit: 12,
   apiMaxPerPage: 100,
   submissionsChunkSize: 10,
 }
 
-const MINIMUMS = {
+const MINIMUMS: Record<string, number> = {
   activeRequestLimit: 1,
   perPage: 1,
 }
 
-const MAXIMUMS = {
+const MAXIMUMS: Record<string, number> = {
   activeRequestLimit: 100,
   apiMaxPerPage: 500,
 }
 
-function integerBetween(value, min: number, max: number, defaultValue: number) {
-  const integer = Number.parseInt(value, 10)
+function integerBetween(value: unknown, min: number, max: number, defaultValue: number) {
+  const integer = Number.parseInt(String(value), 10)
   const assuredValue = Number.isNaN(integer) ? defaultValue : integer
   const atMostMax = Math.min(max, assuredValue)
   return Math.max(min, atMostMax)
@@ -96,12 +95,12 @@ export default class PerformanceControls {
 
   // PRIVATE
 
-  __getInteger(name: string): number {
+  __getInteger(name: keyof PerformanceControlValues): number {
     return integerBetween(
       this._values[name],
       MINIMUMS[name] || MINIMUMS.perPage,
       MAXIMUMS[name] || this.apiMaxPerPage,
-      DEFAULTS[name] || DEFAULTS.apiMaxPerPage
+      DEFAULTS[name] || DEFAULTS.apiMaxPerPage,
     )
   }
 }

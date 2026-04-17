@@ -16,9 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('fuzzy-relative-time')
+const I18n = createI18nScope('fuzzy-relative-time')
 
 declare const ENV: {readonly LOCALES: string[]}
 
@@ -62,7 +62,7 @@ function buildTime(msec: number): Units {
 
 function timeDistance(
   times: Units,
-  opts: {locale?: string | string[]; [k: string]: unknown}
+  opts: {locale?: string | string[]; [k: string]: unknown},
 ): string {
   const {locale, ...intlOpts} = opts
   const neg = times.negative ? -1 : 1
@@ -95,14 +95,18 @@ function timeDistance(
 
 export function fromNow(date: unknown, opts = {}) {
   const now = Date.now()
-  let thence
-  if (date instanceof Date) {
+  let thence: number
+  if (typeof date === 'string') {
+    thence = Date.parse(date)
+    if (thence === null || Number.isNaN(thence))
+      throw new RangeError('argument string could not be parsed as Date')
+  } else if (date instanceof Date) {
     thence = date.getTime()
-    if (Number.isNaN(thence)) throw new RangeError('argument Date is invalid')
+    if (thence === null || Number.isNaN(thence)) throw new RangeError('argument Date is invalid')
   } else if (typeof date === 'number') {
     thence = date
   } else {
-    throw new RangeError('argument must be Date object or numeric msec')
+    throw new RangeError('argument must be Date object, parseable string, or numeric msec')
   }
   return timeDistance(buildTime(thence - now), opts)
 }

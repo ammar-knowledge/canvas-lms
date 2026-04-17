@@ -28,7 +28,7 @@ const scope = {
 }
 
 const defaultProps = props => ({
-  onChange: jest.fn(),
+  onChange: vi.fn(),
   checked: false,
   scope,
   ...props,
@@ -45,7 +45,7 @@ describe('DeveloperKeyScope', () => {
     expect(
       screen.getByRole('checkbox', {
         name: /disable scope/i,
-      })
+      }),
     ).toBeChecked()
   })
 
@@ -55,7 +55,7 @@ describe('DeveloperKeyScope', () => {
     expect(
       screen.getByRole('checkbox', {
         name: /enable scope/i,
-      })
+      }),
     ).not.toBeChecked()
   })
 

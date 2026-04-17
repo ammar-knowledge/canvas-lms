@@ -24,7 +24,7 @@ import CalendarNavigator from './CalendarNavigator'
 import {publish, subscribe} from 'jquery-tinypubsub'
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender} from '@canvas/react'
 import CalendarHeaderComponent from '../../react/CalendarHeaderComponent'
 
 extend(CalendarHeader, Backbone.View)
@@ -62,6 +62,14 @@ CalendarHeader.prototype.events = {
 CalendarHeader.prototype.initialize = function () {
   CalendarHeader.__super__.initialize.apply(this, arguments)
   return this.render()
+}
+
+CalendarHeader.prototype._isUserStudent = function () {
+  return ENV.current_user_roles && ENV.current_user_roles.includes('student')
+}
+
+CalendarHeader.prototype._shouldShowCreateEventLink = function () {
+  return !(ENV?.FEATURES?.restrict_student_access && this._isUserStudent())
 }
 
 CalendarHeader.prototype.connectEvents = function () {
@@ -104,7 +112,14 @@ CalendarHeader.prototype.moveToCalendarViewButton = function (direction) {
 
 CalendarHeader.prototype.showNavigator = function () {
   this.$navigator.show()
-  return this.$createNewEventLink.show()
+
+  if (this.$createNewEventLink) {
+    if (this._shouldShowCreateEventLink()) {
+      this.$createNewEventLink.show()
+    } else {
+      this.$createNewEventLink.hide()
+    }
+  }
 }
 
 CalendarHeader.prototype._showVisualAgendaRecommendation = function () {
@@ -154,7 +169,7 @@ CalendarHeader.prototype._selectAgenda = function (_event) {
 CalendarHeader.prototype._triggerWeek = function (_event) {
   if (ENV.FEATURES?.instui_header) {
     document.dispatchEvent(
-      new CustomEvent('calendar:header:select_view', {detail: {viewName: 'week'}})
+      new CustomEvent('calendar:header:select_view', {detail: {viewName: 'week'}}),
     )
   }
 
@@ -164,7 +179,7 @@ CalendarHeader.prototype._triggerWeek = function (_event) {
 CalendarHeader.prototype._triggerMonth = function (_event) {
   if (ENV.FEATURES?.instui_header) {
     document.dispatchEvent(
-      new CustomEvent('calendar:header:select_view', {detail: {viewName: 'month'}})
+      new CustomEvent('calendar:header:select_view', {detail: {viewName: 'month'}}),
     )
   }
 
@@ -174,7 +189,7 @@ CalendarHeader.prototype._triggerMonth = function (_event) {
 CalendarHeader.prototype._triggerAgenda = function (_event) {
   if (ENV.FEATURES?.instui_header) {
     document.dispatchEvent(
-      new CustomEvent('calendar:header:select_view', {detail: {viewName: 'agenda'}})
+      new CustomEvent('calendar:header:select_view', {detail: {viewName: 'agenda'}}),
     )
   }
 
@@ -183,6 +198,9 @@ CalendarHeader.prototype._triggerAgenda = function (_event) {
 
 CalendarHeader.prototype._triggerCreateNewEvent = function (event) {
   event.preventDefault()
+  if (!this._shouldShowCreateEventLink()) {
+    return false
+  }
   this.trigger('createNewEvent')
   return publish('CalendarHeader/createNewEvent')
 }
@@ -222,7 +240,7 @@ CalendarHeader.prototype.afterRender = function () {
     return this._loadObjects()
   }
 
-  ReactDOM.render(
+  legacyRender(
     <CalendarHeaderComponent
       bridge={{
         onLoadReady: options => {
@@ -231,7 +249,9 @@ CalendarHeader.prototype.afterRender = function () {
           this.$calendarViewButtons = this.$el.find('.calendar_view_buttons')
           this.$recommendAgenda = this.$el.find('.recommend_agenda')
           this.$navigator = this.$el.find('.calendar_navigator')
-          this.$createNewEventLink = this.$el.find('#create_new_event_link')
+          if (this._shouldShowCreateEventLink()) {
+            this.$createNewEventLink = this.$el.find('#create_new_event_link')
+          }
           this.$refreshCalendarLink = this.$el.find('#refresh_calendar_link')
 
           this._loadObjects(options)
@@ -239,7 +259,7 @@ CalendarHeader.prototype.afterRender = function () {
         onChangeSelectViewMode: viewName => this.selectView(viewName),
       }}
     />,
-    this.$el.find('#calendar_header_component')[0]
+    this.$el.find('#calendar_header_component')[0],
   )
 }
 

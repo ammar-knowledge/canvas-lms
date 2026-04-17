@@ -42,7 +42,7 @@ describe "courses/settings" do
       view_context(@course, @user)
       assign(:current_user, @user)
       render
-      expect(response).to_not have_tag("input#course_hide_sections_on_course_users_page")
+      expect(response).not_to have_tag("input#course_hide_sections_on_course_users_page")
     end
 
     it "displays checkbox for teacher when there is more than one section" do
@@ -51,6 +51,40 @@ describe "courses/settings" do
       assign(:current_user, @user)
       render
       expect(response).to have_tag("input#course_hide_sections_on_course_users_page")
+    end
+  end
+
+  describe "crosslisted sections" do
+    it "does not display anything related to crosslisted sections" do
+      @course.course_sections.create!
+      view_context(@course, @user)
+      assign(:current_user, @user)
+      render
+      expect(response).not_to have_tag("div.course_section_crosslist")
+    end
+
+    it "display info on crosslisted sections" do
+      @subaccount.courses.create!
+      @course.course_sections.create!
+      @course.course_sections.last.update(nonxlist_course_id: @subaccount.courses.last.id)
+      view_context(@course, @user)
+      assign(:current_user, @user)
+      render
+
+      expect(response).to have_tag("div.course_section_crosslist")
+      expect(response).to include "Section Crosslisted From:"
+    end
+
+    it "display read only info for section in original course" do
+      @subaccount.courses.create!
+      @course.course_sections.create!
+      CourseSection.last.update(course_id: @subaccount.courses.last.id, nonxlist_course_id: @course.id)
+      view_context(@course, @user)
+      assign(:current_user, @user)
+      render
+
+      expect(response).to have_tag("div.course_section_crosslist")
+      expect(response).to include "Section Crosslisted To:"
     end
   end
 
@@ -82,7 +116,7 @@ describe "courses/settings" do
 
     it "does not show to subaccount admin" do
       role = custom_account_role("CustomAdmin", account: @course.root_account)
-      admin = account_admin_user_with_role_changes(account: @subaccount, role_changes: { "manage_sis" => true, "manage_courses" => true }, role:)
+      admin = account_admin_user_with_role_changes(account: @subaccount, role_changes: { "manage_sis" => true, "manage_courses_admin" => true }, role:)
       view_context(@course, admin)
       assign(:current_user, admin)
       render
@@ -95,8 +129,9 @@ describe "courses/settings" do
       assign(:current_user, admin)
       assign(:publishing_enabled, true)
       render
-      expect(response.body).to match(/<a href="#tab-grade-publishing" id="tab-grade-publishing-link">/)
-      expect(response.body).to match(/<div id="tab-grade-publishing">/)
+      html = Nokogiri::HTML(response.body)
+      expect(html.at_css("#tab-grade-publishing-mount")["id"]).to eq("tab-grade-publishing-mount")
+      expect(html.at_css("div#tab-grade-publishing-mount")).not_to be_nil
     end
 
     it "does not show grade export when disabled" do
@@ -105,8 +140,9 @@ describe "courses/settings" do
       assign(:current_user, admin)
       assign(:publishing_enabled, false)
       render
-      expect(response.body).not_to match(/<a href="#tab-grade-publishing" id="tab-grade-publishing-link">/)
-      expect(response.body).not_to match(/<div id="tab-grade-publishing">/)
+      html = Nokogiri::HTML(response.body)
+      expect(html.at_css("#tab-grade-publishing")).to be_nil
+      expect(html.at_css("#tab-grade-publishing-mount")).to be_nil
     end
   end
 
@@ -185,23 +221,6 @@ describe "courses/settings" do
 
   context "account_id selection" do
     it "lets sub-account admins see other accounts within their sub-account as options" do
-      Account.default.disable_feature!(:granular_permissions_manage_courses)
-      @user = account_admin_user(account: @subaccount, active_user: true)
-      expect(Account.default.grants_right?(@user, :manage_courses)).to be_falsey
-      view_context(@course, @user)
-
-      render
-      doc = Nokogiri::HTML5(response.body)
-      select = doc.at_css("select#course_account_id")
-      expect(select).not_to be_nil
-      # select.children.count.should == 3
-
-      option_ids = select.search("option").map { |c| c.attributes["value"].value.to_i rescue c.to_s }
-      expect(option_ids.sort).to eq [@subaccount.id, @sub_subaccount1.id, @sub_subaccount2.id].sort
-    end
-
-    it "lets sub-account admins see other accounts within their sub-account as options (granular permissions)" do
-      Account.default.enable_feature!(:granular_permissions_manage_courses)
       @user = account_admin_user(account: @subaccount, active_user: true)
       expect(Account.default.grants_right?(@user, :manage_courses_admin)).to be_falsey
       view_context(@course, @user)
@@ -238,42 +257,32 @@ describe "courses/settings" do
   end
 
   context "course template checkbox" do
-    it "is not visible if the feature isn't enabled" do
+    it "is visible" do
       render
       doc = Nokogiri::HTML5(response.body)
-      expect(doc.at_css("div#course_template_details")).to be_nil
+      expect(doc.at_css("div#course_template_details")).not_to be_nil
     end
 
-    context "with the feature enabled" do
-      before { @course.root_account.enable_feature!(:course_templates) }
+    it "is editable if you have permission" do
+      @user = site_admin_user
+      view_context(@course, @user)
+      # have to remove the teacher
+      @course.enrollments.each(&:destroy)
 
-      it "is visible" do
-        render
-        doc = Nokogiri::HTML5(response.body)
-        expect(doc.at_css("div#course_template_details")).not_to be_nil
-      end
+      render
+      doc = Nokogiri::HTML5(response.body)
+      placeholder_div = doc.at_css("div#course_template_details")
+      expect(placeholder_div["data-is-editable"]).to eq "true"
+    end
 
-      it "is editable if you have permission" do
-        @user = site_admin_user
-        view_context(@course, @user)
-        # have to remove the teacher
-        @course.enrollments.each(&:destroy)
+    it "is not editable even if you have permission, but it's not possible" do
+      @user = site_admin_user
+      view_context(@course, @user)
 
-        render
-        doc = Nokogiri::HTML5(response.body)
-        placeholder_div = doc.at_css("div#course_template_details")
-        expect(placeholder_div["data-is-editable"]).to eq "true"
-      end
-
-      it "is not editable even if you have permission, but it's not possible" do
-        @user = site_admin_user
-        view_context(@course, @user)
-
-        render
-        doc = Nokogiri::HTML5(response.body)
-        placeholder_div = doc.at_css("div#course_template_details")
-        expect(placeholder_div["data-is-editable"]).to eq "false"
-      end
+      render
+      doc = Nokogiri::HTML5(response.body)
+      placeholder_div = doc.at_css("div#course_template_details")
+      expect(placeholder_div["data-is-editable"]).to eq "false"
     end
   end
 
@@ -283,6 +292,86 @@ describe "courses/settings" do
       expect(Course::CUSTOMIZABLE_PERMISSIONS["files"][:get_setting_name]).to receive(:call).once.and_call_original
       view_context(@course, @user)
       render
+    end
+  end
+
+  describe "manage_course_content_edit permission" do
+    before :once do
+      RoleOverride.create!(context: @course.account, permission: "manage_course_content_edit", role: teacher_role, enabled: false)
+    end
+
+    before do
+      view_context(@course, @user)
+      assign(:current_user, @user)
+    end
+
+    it "disables the course form when user lacks manage_course_content_edit" do
+      render
+      doc = Nokogiri::HTML5(response.body)
+      form = doc.at_css("form#course_form")
+      expect(form["disabled"]).to eq "disabled"
+    end
+
+    it "does not show the save button when user lacks manage_course_content_edit" do
+      render
+      doc = Nokogiri::HTML5(response.body)
+      expect(doc.at_css("footer.sticky-footer button[type=submit]")).to be_nil
+    end
+
+    it "disables visibility controls when user lacks manage_course_content_edit" do
+      render
+      doc = Nokogiri::HTML5(response.body)
+      visibility_select = doc.at_css("select#course_course_visibility")
+      expect(visibility_select["disabled"]).to eq "disabled"
+    end
+
+    it "disables grading scheme checkbox when user lacks manage_course_content_edit" do
+      render
+      doc = Nokogiri::HTML5(response.body)
+      checkbox = doc.at_css("input#course_course_grading_standard_enabled")
+      expect(checkbox["disabled"]).to eq "disabled"
+    end
+  end
+
+  describe "course pacing setting" do
+    context "with course_pace_enable_from_account_setting ff off" do
+      it "is visible" do
+        render
+        doc = Nokogiri::HTML5(response.body)
+        expect(doc.at_css("input#course_enable_course_paces")).not_to be_nil
+      end
+    end
+
+    context "with course_pace_enable_from_account_setting ff on" do
+      before do
+        @course.root_account.enable_feature!(:course_pace_enable_from_account_setting)
+        @course.reload
+      end
+
+      it "is visible when account setting is enabled" do
+        @course.root_account.update(settings: { enable_course_paces: { value: true, locked: false } })
+
+        render
+        doc = Nokogiri::HTML5(response.body)
+        expect(doc.at_css("input#course_enable_course_paces")).not_to be_nil
+      end
+
+      it "is hidden when account setting is disabled" do
+        @course.root_account.update(settings: { enable_course_paces: { value: false, locked: false } })
+
+        render
+        doc = Nokogiri::HTML5(response.body)
+        expect(doc.at_css("input#course_enable_course_paces")).to be_nil
+      end
+
+      it "is visible when account setting is disabled but already using course pacing" do
+        @course.update(settings: { enable_course_paces: true })
+        @course.root_account.update(settings: { enable_course_paces: { value: false, locked: false } })
+
+        render
+        doc = Nokogiri::HTML5(response.body)
+        expect(doc.at_css("input#course_enable_course_paces")).not_to be_nil
+      end
     end
   end
 end

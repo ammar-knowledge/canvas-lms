@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../spec_helper"
-
 module Services
   describe ScreencapService do
     include WebMock::API
@@ -41,7 +39,7 @@ module Services
       }
     end
 
-    context ".snapshot_url_to_file" do
+    describe ".snapshot_url_to_file" do
       it "calls the provided url" do
         @stub = stub_request(:get, config[:url])
                 .with(query: { url: "https://www.example.com" })

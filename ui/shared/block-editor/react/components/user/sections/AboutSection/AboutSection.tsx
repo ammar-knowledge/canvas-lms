@@ -24,7 +24,6 @@ import {AboutTextHalf} from './AboutTextHalf'
 import {ImageBlock} from '../../blocks/ImageBlock'
 import {NoSections} from '../../common'
 import {useClassNames, getContrastingColor} from '../../../../utils'
-import {SectionMenu} from '../../../editor/SectionMenu'
 import {SectionToolbar} from '../../common/SectionToolbar'
 
 type AboutSectionProps = {
@@ -36,13 +35,7 @@ export const AboutSection = ({background}: AboutSectionProps) => {
     enabled: state.options.enabled,
   }))
   const [cid] = useState<string>('about-section')
-  const clazz = useClassNames(enabled, {empty: false}, [
-    'section',
-    'columns-section',
-    'about-section',
-    'fixed',
-    'columns-2',
-  ])
+  const clazz = useClassNames(enabled, {empty: false}, ['section', 'about-section'])
 
   const backgroundColor = background || AboutSection.craft.defaultProps.background
   const textColor = getContrastingColor(backgroundColor)
@@ -53,29 +46,31 @@ export const AboutSection = ({background}: AboutSectionProps) => {
   // Or maybe we don't want to let the user drop any new things in here and just edit
   // what's already there.
   return (
-    <Container className={clazz} background={backgroundColor}>
-      <Element
-        id={`${cid}_about-nosection1`}
-        is={NoSections}
-        canvas={true}
-        className="about-section__inner-end"
-      >
+    <div tabIndex={-1}>
+      <Container className={clazz} background={backgroundColor}>
         <Element
-          id={`${cid}_image`}
-          is={ImageBlock}
-          constraint="contain"
-          src="/images/block_editor/default_about_image.svg"
-        />
-      </Element>
-      <Element
-        id={`${cid}_about-no-section2`}
-        is={NoSections}
-        canvas={true}
-        className="about-section__inner-start"
-      >
-        <Element id={`${cid}_text`} is={AboutTextHalf} color={textColor} />
-      </Element>
-    </Container>
+          id={`${cid}_about-nosection1`}
+          is={NoSections}
+          canvas={true}
+          className="about-section__inner-end"
+        >
+          <Element
+            id={`${cid}_image`}
+            is={ImageBlock}
+            constraint="contain"
+            src="/images/block_editor/default_about_image.svg"
+          />
+        </Element>
+        <Element
+          id={`${cid}_about-no-section2`}
+          is={NoSections}
+          canvas={true}
+          className="about-section__inner-start"
+        >
+          <Element id={`${cid}_text`} is={AboutTextHalf} color={textColor} />
+        </Element>
+      </Container>
+    </div>
   )
 }
 
@@ -88,7 +83,6 @@ AboutSection.craft = {
     isSection: true,
   },
   related: {
-    sectionMenu: SectionMenu,
     toolbar: SectionToolbar,
   },
 }

@@ -18,7 +18,7 @@
 
 import React from 'react'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import axios from '@canvas/axios'
 import {Button} from '@instructure/ui-buttons'
 import {TextArea} from '@instructure/ui-text-area'
@@ -26,8 +26,9 @@ import {TextInput} from '@instructure/ui-text-input'
 import Modal from '@canvas/instui-bindings/react/InstuiModal'
 import {FormField} from '@instructure/ui-form-field'
 import {Alert} from '@instructure/ui-alerts'
+import {htmlDecode} from '@canvas/util/TextHelper'
 
-const I18n = useI18nScope('shared_message_students')
+const I18n = createI18nScope('shared_message_students')
 
 class MessageStudents extends React.Component {
   static propTypes = {
@@ -94,7 +95,7 @@ class MessageStudents extends React.Component {
       ? [
           {
             text: this.state.errors[field],
-            type: 'error',
+            type: 'newError',
           },
         ]
       : null
@@ -122,7 +123,7 @@ class MessageStudents extends React.Component {
     const fields = ['subject', 'body']
     const errors = {}
     fields.forEach(field => {
-      if (data[field].length === 0) {
+      if (data[field].trim().length === 0) {
         errors[field] = I18n.t('Please provide a %{field}', {
           field,
         })
@@ -165,7 +166,7 @@ class MessageStudents extends React.Component {
       },
       () => {
         this.props.onRequestClose()
-      }
+      },
     )
   }
 
@@ -174,10 +175,20 @@ class MessageStudents extends React.Component {
     const data = this.composeRequestData()
     const errors = this.validationErrors(data)
     if (Object.keys(errors).length > 0) {
-      this.setState({
-        errors,
-        hideAlert: false,
-      })
+      this.setState(
+        {
+          errors,
+          hideAlert: false,
+        },
+        () => {
+          // Focus the topmost errored input for screen reader users
+          if (errors.subject && this._subjectInput) {
+            this._subjectInput.focus()
+          } else if (errors.body && this._bodyInput) {
+            this._bodyInput.focus()
+          }
+        },
+      )
     } else {
       this.sendMessage(data)
     }
@@ -203,10 +214,15 @@ class MessageStudents extends React.Component {
 
   handleResponseSuccess = () => {
     setTimeout(() => {
-      this.setState({
-        ...this.initialState,
-        open: false,
-      })
+      this.setState(
+        {
+          ...this.initialState,
+          open: false,
+        },
+        () => {
+          this.props.onRequestClose()
+        },
+      )
     }, 2500)
     this.setState({
       hideAlert: false,
@@ -247,7 +263,7 @@ class MessageStudents extends React.Component {
       const displayName = recipient.displayName || recipient.email
       return (
         <li key={recipient.id} className="ac-token">
-          {displayName}
+          {htmlDecode(displayName)}
         </li>
       )
     })
@@ -267,17 +283,12 @@ class MessageStudents extends React.Component {
             {this.renderAlert(
               I18n.t('Your message was sent!'),
               'success',
-              () => this.state.success
+              () => this.state.success,
             )}
             {this.renderAlert(
               I18n.t("We're sending your message..."),
               'info',
-              () => this.state.sending
-            )}
-            {this.renderAlert(
-              I18n.t('There was a problem sending your message.'),
-              'error',
-              () => Object.keys(this.state.errors).length > 0
+              () => this.state.sending,
             )}
             <form onSubmit={this.handleSubmit} className="MessageStudents__Form">
               <div className="MessageStudents__FormField">
@@ -289,33 +300,46 @@ class MessageStudents extends React.Component {
               </div>
               <div className="MessageStudents__FormField">
                 <TextInput
+                  isRequired={true}
                   renderLabel={I18n.t('Subject')}
                   defaultValue={this.props.subject}
                   onChange={onTextChange('subject')}
                   messages={this.errorMessagesFor('subject')}
                   interaction={this.state.sending || this.state.success ? 'disabled' : 'enabled'}
+                  ref={el => {
+                    this._subjectInput = el
+                  }}
                 />
               </div>
               <div className="MessageStudents__FormField">
                 <TextArea
+                  required={true}
                   label={I18n.t('Body')}
                   defaultValue={this.props.body}
                   onChange={onTextChange('body')}
                   messages={this.errorMessagesFor('body')}
                   disabled={this.state.sending || this.state.success}
+                  ref={el => {
+                    this._bodyInput = el
+                  }}
                 />
               </div>
             </form>
           </Modal.Body>
           <Modal.Footer>
-            <Button disabled={this.state.sending || this.state.success} onClick={this.handleClose}>
+            <Button
+              data-testid="message-students-cancel"
+              disabled={this.state.sending || this.state.success}
+              onClick={this.handleClose}
+            >
               {I18n.t('Close')}
             </Button>
             &nbsp;
             <Button
-              disabled={this.state.sending || this.state.success}
-              onClick={this.handleSubmit}
+              data-testid="message-students-submit"
               color="primary"
+              onClick={this.handleSubmit}
+              disabled={this.state.sending || this.state.success}
             >
               {I18n.t('Send Message')}
             </Button>

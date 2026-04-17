@@ -31,8 +31,12 @@ module Services
     class << self
       private
 
+      Canvas::Reloader.on_reload do
+        @config = nil
+      end
+
       def config
-        @config ||= DynamicSettings.find("analytics_hub", tree: :private) || {}
+        @config ||= YAML.safe_load(DynamicSettings.find(tree: :private)["analytics_hub.yml", failsafe: nil] || "{}")
       end
     end
   end

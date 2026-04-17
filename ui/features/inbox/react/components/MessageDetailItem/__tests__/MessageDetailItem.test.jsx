@@ -20,10 +20,20 @@ import {render, fireEvent} from '@testing-library/react'
 import React from 'react'
 import {responsiveQuerySizes} from '../../../../util/utils'
 import {MessageDetailItem} from '../MessageDetailItem'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
-jest.mock('../../../../util/utils', () => ({
-  ...jest.requireActual('../../../../util/utils'),
-  responsiveQuerySizes: jest.fn(),
+vi.mock('../../../../util/utils', async () => {
+  const actual = await vi.importActual('../../../../util/utils')
+  return {
+    ...actual,
+    responsiveQuerySizes: vi.fn(),
+  }
+})
+
+vi.mock('@canvas/canvas-studio-player', () => ({
+  default: props => {
+    return <div>Player with media_id: {props.media_id}</div>
+  },
 }))
 
 const defaultProps = {
@@ -44,15 +54,28 @@ const setup = props => {
 }
 
 describe('MessageDetailItem', () => {
+  beforeEach(() => {
+    fakeENV.setup({
+      CONVERSATIONS: {
+        ATTACHMENTS_FOLDER_ID: '1',
+      },
+      inbox_translation_enabled: true,
+    })
+  })
+
+  afterEach(() => {
+    fakeENV.teardown()
+  })
+
   beforeAll(() => {
     // Add appropriate mocks for responsive
-    window.matchMedia = jest.fn().mockImplementation(() => {
+    window.matchMedia = vi.fn().mockImplementation(() => {
       return {
         matches: true,
         media: '',
         onchange: null,
-        addListener: jest.fn(),
-        removeListener: jest.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
       }
     })
 
@@ -97,7 +120,7 @@ describe('MessageDetailItem', () => {
     expect(getByText('Apr 20, 2021 at 2:31pm')).toBeInTheDocument()
   })
 
-  it('renders with an xss attempt', () => {
+  it('renders and xss attempt gets sanitized', () => {
     const props = {
       conversationMessage: {
         author: {name: 'Tom Thompson', shortName: 'Tom Thompson'},
@@ -106,16 +129,69 @@ describe('MessageDetailItem', () => {
           {name: 'Billy Harris', shortName: 'Billy Harris'},
         ],
         createdAt: 'Tue, 20 Apr 2021 14:31:25 UTC +00:00',
-        body: "<script>alert('XSS')</script>",
+        body: "Attempting to attack!<script>alert('XSS')</script>",
+        htmlBody: "<p>Attempting to attack!<script>alert('XSS')</script></p>",
       },
       contextName: 'Fake Course 1',
     }
 
-    const {getByText} = render(<MessageDetailItem {...props} />)
+    const {container, getByText} = render(<MessageDetailItem {...props} />)
 
     expect(getByText('Tom Thompson')).toBeInTheDocument()
     expect(getByText(', Billy Harris')).toBeInTheDocument()
-    expect(getByText("<script>alert('XSS')</script>")).toBeInTheDocument()
+    expect(container.querySelector('script')).not.toBeInTheDocument()
+    expect(getByText('Attempting to attack!')).toBeInTheDocument()
+    expect(getByText('Fake Course 1')).toBeInTheDocument()
+    expect(getByText('Apr 20, 2021 at 2:31pm')).toBeInTheDocument()
+  })
+
+  it('renders and does not display html tags', () => {
+    const props = {
+      conversationMessage: {
+        author: {name: 'Tom Thompson', shortName: 'Tom Thompson'},
+        recipients: [
+          {name: 'Tom Thompson', shortName: 'Tom Thompson'},
+          {name: 'Billy Harris', shortName: 'Billy Harris'},
+        ],
+        createdAt: 'Tue, 20 Apr 2021 14:31:25 UTC +00:00',
+        body: 'Formatted text',
+        htmlBody: '<p>Formatted text</p>',
+      },
+      contextName: 'Fake Course 1',
+    }
+
+    const {queryByText, getByText} = render(<MessageDetailItem {...props} />)
+
+    expect(getByText('Tom Thompson')).toBeInTheDocument()
+    expect(getByText(', Billy Harris')).toBeInTheDocument()
+    expect(queryByText('<p>Formatted text</p>')).not.toBeInTheDocument()
+    expect(getByText('Formatted text')).toBeInTheDocument()
+    expect(getByText('Fake Course 1')).toBeInTheDocument()
+    expect(getByText('Apr 20, 2021 at 2:31pm')).toBeInTheDocument()
+  })
+
+  it('renders and preserves new lines', () => {
+    const props = {
+      conversationMessage: {
+        author: {name: 'Tom Thompson', shortName: 'Tom Thompson'},
+        recipients: [
+          {name: 'Tom Thompson', shortName: 'Tom Thompson'},
+          {name: 'Billy Harris', shortName: 'Billy Harris'},
+        ],
+        createdAt: 'Tue, 20 Apr 2021 14:31:25 UTC +00:00',
+        body: 'Text\nOn a new line',
+        htmlBody: 'Text\nOn a new line',
+      },
+      contextName: 'Fake Course 1',
+    }
+
+    const {container, getByText} = render(<MessageDetailItem {...props} />)
+
+    expect(getByText('Tom Thompson')).toBeInTheDocument()
+    expect(getByText(', Billy Harris')).toBeInTheDocument()
+    // replaces \n with <br>
+    expect(container.querySelector('br')).toBeInTheDocument()
+    expect(getByText(/Text\s*On a new line/)).toBeInTheDocument()
     expect(getByText('Fake Course 1')).toBeInTheDocument()
     expect(getByText('Apr 20, 2021 at 2:31pm')).toBeInTheDocument()
   })
@@ -130,9 +206,11 @@ describe('MessageDetailItem', () => {
         ],
         createdAt: 'Tue, 20 Apr 2021 14:31:25 UTC +00:00',
         body: 'This is the body text for the message.',
-        attachmentsConnection: {
-          nodes: [{id: '1', displayName: 'attachment1.jpeg', url: 'testingurl'}],
-        },
+        htmlBody: 'This is the body text for the message.',
+        attachments: [{id: '1', displayName: 'attachment1.jpeg', url: 'testingurl'}],
+        // attachmentsConnection: {
+        //   nodes: [{id: '1', displayName: 'attachment1.jpeg', url: 'testingurl'}],
+        // },
       },
       contextName: 'Fake Course 1',
     }
@@ -141,7 +219,7 @@ describe('MessageDetailItem', () => {
     expect(getByText('attachment1.jpeg')).toBeInTheDocument()
   })
 
-  it('shows media attachment link if it exists', () => {
+  it('shows media player if it exists', () => {
     const props = {
       conversationMessage: {
         author: {name: 'Tom Thompson', shortName: 'Tom Thompson'},
@@ -151,6 +229,7 @@ describe('MessageDetailItem', () => {
         ],
         createdAt: 'Tue, 20 Apr 2021 14:31:25 UTC +00:00',
         body: 'This is the body text for the message.',
+        htmlBody: 'This is the body text for the message.',
         mediaComment: {
           _id: '123',
           title: 'Course Video',
@@ -168,7 +247,7 @@ describe('MessageDetailItem', () => {
     }
 
     const {getByText} = render(<MessageDetailItem {...props} />)
-    expect(getByText('Course Video')).toBeInTheDocument()
+    expect(getByText('Player with media_id: 123')).toBeInTheDocument()
   })
 
   it('does not render the reply or reply all options when function is not provided', () => {
@@ -181,6 +260,7 @@ describe('MessageDetailItem', () => {
         ],
         createdAt: 'Tue, 20 Apr 2021 14:31:25 UTC +00:00',
         body: 'This is the body text for the message.',
+        htmlBody: 'This is the body text for the message.',
       },
       contextName: 'Fake Course 1',
       onReply: null,
@@ -191,7 +271,7 @@ describe('MessageDetailItem', () => {
 
     const moreOptionsButton = getByRole(
       (role, element) =>
-        role === 'button' && element.textContent === 'More options for message from Tom Thompson'
+        role === 'button' && element.textContent === 'More options for message from Tom Thompson',
     )
 
     fireEvent.click(moreOptionsButton)
@@ -209,12 +289,13 @@ describe('MessageDetailItem', () => {
         ],
         createdAt: 'Tue, 20 Apr 2021 14:31:25 UTC +00:00',
         body: 'This is the body text for the message.',
+        htmlBody: 'This is the body text for the message.',
       },
       contextName: 'Fake Course 1',
-      onReply: jest.fn(),
-      onReplyAll: jest.fn(),
-      onDelete: jest.fn(),
-      onForward: jest.fn(),
+      onReply: vi.fn(),
+      onReplyAll: vi.fn(),
+      onDelete: vi.fn(),
+      onForward: vi.fn(),
     }
 
     const {getByTestId, getByText} = render(<MessageDetailItem {...props} />)
@@ -243,14 +324,13 @@ describe('MessageDetailItem', () => {
         const {queryByText} = setup()
         expect(queryByText('he/him')).not.toBeInTheDocument()
       })
-
     })
     describe('can_add_pronouns enabled', () => {
       beforeEach(() => {
         ENV = {
           SETTINGS: {
-            can_add_pronouns: true
-          }
+            can_add_pronouns: true,
+          },
         }
       })
 
@@ -269,6 +349,7 @@ describe('MessageDetailItem', () => {
             ],
             createdAt: 'Tue, 20 Apr 2021 14:31:25 UTC +00:00',
             body: 'This is the body text for the message.',
+            htmlBody: 'This is the body text for the message.',
           },
           contextName: 'Fake Course 1',
         }
@@ -286,7 +367,7 @@ describe('MessageDetailItem', () => {
         }))
       })
 
-      it('Should emite correct Mobile Test Id', async () => {
+      it('Should emit correct Mobile Test Id', async () => {
         const {findByTestId} = setup()
         const item = await findByTestId('message-detail-item-mobile')
         expect(item).toBeTruthy()
@@ -300,7 +381,7 @@ describe('MessageDetailItem', () => {
         }))
       })
 
-      it('Should emite correct Tablet Test Id', async () => {
+      it('Should emit correct Tablet Test Id', async () => {
         const {findByTestId} = setup()
         const item = await findByTestId('message-detail-item-tablet')
         expect(item).toBeTruthy()
@@ -314,7 +395,7 @@ describe('MessageDetailItem', () => {
         }))
       })
 
-      it('Should emite correct Desktop Test Id', async () => {
+      it('Should emit correct Desktop Test Id', async () => {
         const {findByTestId} = setup()
         const item = await findByTestId('message-detail-item-desktop')
         expect(item).toBeTruthy()

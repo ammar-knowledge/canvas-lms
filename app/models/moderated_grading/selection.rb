@@ -17,10 +17,11 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-class ModeratedGrading::Selection < ActiveRecord::Base
+class ModeratedGrading::Selection < ApplicationRecord
   belongs_to :provisional_grade,
              foreign_key: :selected_provisional_grade_id,
-             class_name: "ModeratedGrading::ProvisionalGrade"
+             class_name: "ModeratedGrading::ProvisionalGrade",
+             inverse_of: :selection
   belongs_to :assignment, inverse_of: :moderated_grading_selections, class_name: "AbstractAssignment"
   belongs_to :student, class_name: "User"
 

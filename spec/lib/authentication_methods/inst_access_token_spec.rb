@@ -90,8 +90,6 @@ describe AuthenticationMethods::InstAccessToken do
     describe "#tag_identifier" do
       subject { AuthenticationMethods::InstAccessToken::Authentication.new(request).tag_identifier }
 
-      before { Account.site_admin.enable_feature! :site_admin_service_auth }
-
       let(:service_user) { user_model }
       let(:root_account) { account_model }
       let(:user_agent) { "inst-service-ninety-nine/1234567890ABCDEF" }
@@ -105,12 +103,10 @@ describe AuthenticationMethods::InstAccessToken do
       end
 
       let(:request) do
-        double(
-          ActionDispatch::Request,
-          authorization:,
-          user_agent:,
-          GET: {}
-        )
+        instance_double(ActionDispatch::Request,
+                        authorization:,
+                        user_agent:,
+                        GET: {})
       end
 
       shared_examples_for "contexts that do not return a tag identifier" do
@@ -139,7 +135,7 @@ describe AuthenticationMethods::InstAccessToken do
         end
 
         context "and the header is standard access token string" do
-          let(:authorization) { "Bearer #{AccessToken.create!(user: service_user).full_token}" }
+          let(:authorization) { "Bearer #{AccessToken.create!(user: service_user, purpose: "Test Access Token").full_token}" }
 
           it_behaves_like "contexts that do not return a tag identifier"
         end
@@ -195,12 +191,6 @@ describe AuthenticationMethods::InstAccessToken do
             expect(subject).to eq key.global_id.to_s
           end
 
-          context "but the feature flag is disabled" do
-            before { Account.site_admin.disable_feature! :site_admin_service_auth }
-
-            it_behaves_like "contexts that do not return a tag identifier"
-          end
-
           context "but the user agent does not match an instructure service" do
             let(:user_agent) { "Chrome/115.0.0.0" }
 
@@ -212,8 +202,6 @@ describe AuthenticationMethods::InstAccessToken do
 
     describe "#blocked?" do
       subject { AuthenticationMethods::InstAccessToken::Authentication.new(request).blocked? }
-
-      before { Account.site_admin.enable_feature! :site_admin_service_auth }
 
       let(:service_user) { user_model }
       let(:root_account) { account_model }
@@ -228,12 +216,10 @@ describe AuthenticationMethods::InstAccessToken do
       end
 
       let(:request) do
-        double(
-          ActionDispatch::Request,
-          authorization:,
-          user_agent:,
-          GET: {}
-        )
+        instance_double(ActionDispatch::Request,
+                        authorization:,
+                        user_agent:,
+                        GET: {})
       end
 
       shared_examples_for "contexts that do not block" do
@@ -262,7 +248,7 @@ describe AuthenticationMethods::InstAccessToken do
         end
 
         context "and the header is standard access token string" do
-          let(:authorization) { "Bearer #{AccessToken.create!(user: service_user).full_token}" }
+          let(:authorization) { "Bearer #{AccessToken.create!(user: service_user, purpose: "Test Access Token").full_token}" }
 
           it_behaves_like "contexts that do not block"
         end
@@ -299,12 +285,6 @@ describe AuthenticationMethods::InstAccessToken do
             end
 
             it { is_expected.to be true }
-
-            context "but the feature flag is disabled" do
-              before { Account.site_admin.disable_feature! :site_admin_service_auth }
-
-              it_behaves_like "contexts that do not block"
-            end
           end
         end
       end
@@ -353,6 +333,320 @@ describe AuthenticationMethods::InstAccessToken do
         end
 
         it { is_expected.to be false }
+      end
+    end
+  end
+
+  describe ".settings" do
+    before do
+      described_class.instance_variable_set(:@settings, nil)
+    end
+
+    after do
+      described_class.instance_variable_set(:@settings, nil)
+    end
+
+    it "loads settings from DynamicSettings" do
+      allow(DynamicSettings).to receive(:find).and_call_original
+      allow(DynamicSettings).to receive(:find)
+        .with(tree: :private)
+        .and_return(DynamicSettings::FallbackProxy.new({
+                                                         "inst_access_token.yml" => {
+                                                           "log_tenant_mismatches" => true
+                                                         }.to_yaml
+                                                       }))
+
+      settings = described_class.settings
+      expect(settings["log_tenant_mismatches"]).to be true
+    end
+
+    it "caches the settings result" do
+      allow(DynamicSettings).to receive(:find).and_call_original
+      allow(DynamicSettings).to receive(:find)
+        .with(tree: :private)
+        .and_return(DynamicSettings::FallbackProxy.new({
+                                                         "inst_access_token.yml" => {
+                                                           "log_tenant_mismatches" => false
+                                                         }.to_yaml
+                                                       }))
+
+      described_class.settings
+      described_class.settings
+
+      expect(DynamicSettings).to have_received(:find).with(tree: :private).once
+    end
+
+    it "returns empty hash when yml is nil" do
+      allow(DynamicSettings).to receive(:find).and_call_original
+      allow(DynamicSettings).to receive(:find)
+        .with(tree: :private)
+        .and_return(DynamicSettings::FallbackProxy.new({}))
+
+      settings = described_class.settings
+      expect(settings).to eq({})
+    end
+
+    it "parses YAML correctly" do
+      allow(DynamicSettings).to receive(:find).and_call_original
+      allow(DynamicSettings).to receive(:find)
+        .with(tree: :private)
+        .and_return(DynamicSettings::FallbackProxy.new({
+                                                         "inst_access_token.yml" => {
+                                                           "log_tenant_mismatches" => true,
+                                                           "other_setting" => "value"
+                                                         }.to_yaml
+                                                       }))
+
+      settings = described_class.settings
+      expect(settings["log_tenant_mismatches"]).to be true
+      expect(settings["other_setting"]).to eq("value")
+    end
+  end
+
+  describe ".reload" do
+    before do
+      allow(DynamicSettings).to receive(:find).and_call_original
+      allow(DynamicSettings).to receive(:find)
+        .with(tree: :private)
+        .and_return(DynamicSettings::FallbackProxy.new({
+                                                         "inst_access_token.yml" => {
+                                                           "log_tenant_mismatches" => true
+                                                         }.to_yaml
+                                                       }))
+    end
+
+    after do
+      described_class.instance_variable_set(:@settings, nil)
+    end
+
+    it "clears the cached settings" do
+      described_class.settings
+      expect(described_class.instance_variable_get(:@settings)).not_to be_nil
+
+      described_class.reload
+      expect(described_class.instance_variable_get(:@settings)).to be_nil
+    end
+
+    it "allows settings to be reloaded" do
+      described_class.settings
+
+      allow(DynamicSettings).to receive(:find)
+        .with(tree: :private)
+        .and_return(DynamicSettings::FallbackProxy.new({
+                                                         "inst_access_token.yml" => {
+                                                           "log_tenant_mismatches" => false
+                                                         }.to_yaml
+                                                       }))
+
+      described_class.reload
+      new_settings = described_class.settings
+
+      expect(new_settings["log_tenant_mismatches"]).to be false
+    end
+  end
+
+  describe ".token_matches_tenant?" do
+    specs_require_sharding
+
+    subject { described_class.token_matches_tenant?(token, account) }
+
+    let(:account) { Account.create!(name: "Test Account") }
+    let(:user) { user_model }
+
+    context "when token account_uuid matches domain root account uuid" do
+      let(:token) do
+        InstAccess::Token.for_user(
+          user_uuid: user.uuid,
+          account_uuid: account.uuid
+        )
+      end
+
+      it { is_expected.to be true }
+
+      it "does not send an InstStatsd event" do
+        expect(InstStatsd::Statsd).not_to receive(:event)
+        subject
+      end
+    end
+
+    context "when token account_uuid does NOT match domain root account" do
+      let(:different_account) { Account.create!(name: "Different Account") }
+      let(:token) do
+        InstAccess::Token.for_user(
+          user_uuid: user.uuid,
+          account_uuid: different_account.uuid
+        )
+      end
+
+      context "with feature flag DISABLED (shadow mode)" do
+        before do
+          Account.site_admin.feature_flags.where(feature: :enforce_service_token_tenant_matching).destroy_all
+          described_class.instance_variable_set(:@settings, nil)
+        end
+
+        after do
+          described_class.instance_variable_set(:@settings, nil)
+        end
+
+        context "when log_tenant_mismatches is true" do
+          before do
+            allow(DynamicSettings).to receive(:find).and_call_original
+            allow(DynamicSettings).to receive(:find)
+              .with(tree: :private)
+              .and_return(DynamicSettings::FallbackProxy.new({
+                                                               "inst_access_token.yml" => {
+                                                                 "log_tenant_mismatches" => true
+                                                               }.to_yaml
+                                                             }))
+          end
+
+          it "returns true (allows authentication)" do
+            expect(subject).to be true
+          end
+
+          it "sends an InstStatsd event for monitoring" do
+            expect(InstStatsd::Statsd).to receive(:event).with(
+              "Service user authorization tenant mismatch",
+              "Token account UUID #{different_account.uuid} does not match domain root account UUID #{account.uuid} for client ",
+              hash_including(
+                type: "tenant_mismatch",
+                alert_type: :error
+              )
+            )
+            subject
+          end
+
+          it "includes shard tags in the event" do
+            expect(InstStatsd::Statsd).to receive(:event).with(
+              anything,
+              anything,
+              hash_including(:tags)
+            )
+            subject
+          end
+
+          context "when token has a client_id" do
+            let(:developer_key) { DeveloperKey.create!(name: "key", account:) }
+            let(:token) do
+              InstAccess::Token.for_user(
+                user_uuid: user.uuid,
+                account_uuid: different_account.uuid,
+                client_id: developer_key.global_id
+              )
+            end
+
+            it "includes client_id in the event message" do
+              expect(InstStatsd::Statsd).to receive(:event).with(
+                anything,
+                "Token account UUID #{different_account.uuid} does not match domain root account UUID #{account.uuid} for client #{developer_key.global_id}",
+                anything
+              )
+              subject
+            end
+
+            it "still returns true in shadow mode" do
+              expect(subject).to be true
+            end
+          end
+        end
+
+        context "when log_tenant_mismatches is false" do
+          before do
+            allow(DynamicSettings).to receive(:find).and_call_original
+            allow(DynamicSettings).to receive(:find)
+              .with(tree: :private)
+              .and_return(DynamicSettings::FallbackProxy.new({
+                                                               "inst_access_token.yml" => {
+                                                                 "log_tenant_mismatches" => false
+                                                               }.to_yaml
+                                                             }))
+          end
+
+          it "returns true (allows authentication)" do
+            expect(subject).to be true
+          end
+
+          it "does not send an InstStatsd event" do
+            expect(InstStatsd::Statsd).not_to receive(:event)
+            subject
+          end
+        end
+
+        context "when log_tenant_mismatches is nil" do
+          before do
+            allow(DynamicSettings).to receive(:find).and_call_original
+            allow(DynamicSettings).to receive(:find)
+              .with(tree: :private)
+              .and_return(DynamicSettings::FallbackProxy.new({
+                                                               "inst_access_token.yml" => {}.to_yaml
+                                                             }))
+          end
+
+          it "returns true (allows authentication)" do
+            expect(subject).to be true
+          end
+
+          it "does not send an InstStatsd event" do
+            expect(InstStatsd::Statsd).not_to receive(:event)
+            subject
+          end
+        end
+
+        context "when settings yml is missing" do
+          before do
+            allow(DynamicSettings).to receive(:find).and_call_original
+            allow(DynamicSettings).to receive(:find)
+              .with(tree: :private)
+              .and_return(DynamicSettings::FallbackProxy.new({}))
+          end
+
+          it "returns true (allows authentication)" do
+            expect(subject).to be true
+          end
+
+          it "does not send an InstStatsd event" do
+            expect(InstStatsd::Statsd).not_to receive(:event)
+            subject
+          end
+        end
+      end
+
+      context "with feature flag ENABLED (enforcing)" do
+        before do
+          Account.site_admin.feature_flags.create!(
+            feature: :enforce_service_token_tenant_matching,
+            state: "on"
+          )
+        end
+
+        it "returns false (blocks authentication)" do
+          expect(subject).to be false
+        end
+
+        it "does not send an InstStatsd event" do
+          expect(InstStatsd::Statsd).not_to receive(:event)
+          subject
+        end
+
+        context "when token has a client_id" do
+          let(:developer_key) { DeveloperKey.create!(name: "key", account:) }
+          let(:token) do
+            InstAccess::Token.for_user(
+              user_uuid: user.uuid,
+              account_uuid: different_account.uuid,
+              client_id: developer_key.global_id
+            )
+          end
+
+          it "returns false" do
+            expect(subject).to be false
+          end
+
+          it "does not send an event when enforcing" do
+            expect(InstStatsd::Statsd).not_to receive(:event)
+            subject
+          end
+        end
       end
     end
   end

@@ -18,11 +18,13 @@
 
 // based on https://github.com/thlorenz/parse-link-header/blob/master/index.js (MIT)
 
-type LinkInfo = {
+export type LinkInfo = {
   [key: string]: string
+  url: string
+  rel: string
 }
 
-type Links = {
+export type Links = {
   first?: LinkInfo
   prev?: LinkInfo
   current?: LinkInfo
@@ -42,7 +44,7 @@ function parseQueryParams(linkUrl: string): {[key: string]: string} {
   return queryParams
 }
 
-function parseLink(link: string): LinkInfo | null {
+function parseLink(link: string): Record<string, string> | null {
   try {
     const linkMatch = link.match(/<([^>]*)>\s*(.*)/)
     if (!linkMatch) {
@@ -52,7 +54,7 @@ function parseLink(link: string): LinkInfo | null {
     const [, linkUrl, partsString] = linkMatch
     const parts = partsString.split(';').map(part => part.trim())
 
-    const info: LinkInfo = {url: linkUrl}
+    const info: Record<string, string> = {url: linkUrl}
 
     parts.forEach(part => {
       const partMatch = part.match(/(.+)\s*=\s*"?([^"]+)"?/)
@@ -68,8 +70,8 @@ function parseLink(link: string): LinkInfo | null {
   }
 }
 
-function hasRel(x: LinkInfo | null): x is LinkInfo {
-  return x !== null && 'rel' in x
+function isLinkInfo(x: Record<string, string> | null): x is LinkInfo {
+  return x !== null && 'rel' in x && 'url' in x
 }
 
 function intoRels(acc: Links, x: LinkInfo): Links {
@@ -97,7 +99,7 @@ function intoRels(acc: Links, x: LinkInfo): Links {
   return acc
 }
 
-const PARSE_LINK_HEADER_MAXLEN = 2000
+const PARSE_LINK_HEADER_MAXLEN = 4000
 const PARSE_LINK_HEADER_THROW_ON_MAXLEN_EXCEEDED =
   process.env.PARSE_LINK_HEADER_THROW_ON_MAXLEN_EXCEEDED != null
 
@@ -107,7 +109,7 @@ function checkHeader(linkHeader: string | undefined): boolean {
   if (linkHeader.length > PARSE_LINK_HEADER_MAXLEN) {
     if (PARSE_LINK_HEADER_THROW_ON_MAXLEN_EXCEEDED) {
       throw new Error(
-        `Input string too long, it should be under ${PARSE_LINK_HEADER_MAXLEN} characters.`
+        `Input string too long, it should be under ${PARSE_LINK_HEADER_MAXLEN} characters.`,
       )
     } else {
       return false
@@ -122,6 +124,6 @@ export default function parseLinkHeader(linkHeader: string): Links | null {
   return linkHeader
     .split(/,\s*(?=<)/)
     .map(parseLink)
-    .filter(hasRel)
+    .filter(isLinkInfo)
     .reduce(intoRels, {})
 }

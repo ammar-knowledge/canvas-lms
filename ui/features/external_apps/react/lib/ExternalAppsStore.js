@@ -16,14 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $, {type} from 'jquery'
-import {map, sortBy, filter, forEach, find} from 'lodash'
+import {sortBy, map, filter, forEach, find} from 'es-toolkit/compat'
 import createStore from './createStoreJestCompatible'
 import parseLinkHeader from 'link-header-parsing/parseLinkHeaderFromXHR'
 import '@canvas/rails-flash-notifications'
 
-const I18n = useI18nScope('external_tools')
+const I18n = createI18nScope('external_tools')
 
 const PER_PAGE = 50
 
@@ -84,7 +84,7 @@ store.fetchWithDetails = function (tool) {
         's/' +
         tool.context_id +
         '/external_tools/' +
-        tool.app_id
+        tool.app_id,
     )
   } else {
     // DOES NOT EXIST YET
@@ -103,7 +103,7 @@ store.togglePlacements = function ({tool, placements, onSuccess = () => {}, onEr
   }
 
   $.ajax({
-    url: `/api/v1/${tool.context.toLowerCase()}s/${tool.context_id}/external_tools/${tool.app_id}`,
+    url: `/api/v1${ENV.CONTEXT_BASE_URL}/external_tools/${tool.app_id}`,
     data,
     type: 'PUT',
     success: onSuccess.bind(this),
@@ -117,7 +117,7 @@ store.save = function (configurationType, data, success, error) {
   const params = this._generateParams(configurationType, data)
 
   // Don't send shared secret if it hasn't changed //
-  if (params.shared_secret === 'N/A') {
+  if (params.shared_secret === 'N/A' && data.app_id) {
     delete params.shared_secret
   }
 

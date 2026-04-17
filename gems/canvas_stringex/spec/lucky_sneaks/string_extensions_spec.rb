@@ -16,8 +16,6 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require "spec_helper"
-
 describe "StringExtensions" do
   it "to_url" do
     {
@@ -112,7 +110,7 @@ describe "StringExtensions" do
       expect(plain).to eq whitespaced.replace_whitespace
     end
 
-    expect("now-with-more-hyphens").to eq "now with more hyphens".replace_whitespace("-")
+    expect("now with more hyphens".replace_whitespace("-")).to eq("now-with-more-hyphens")
   end
 
   it "collapse" do
@@ -123,6 +121,6 @@ describe "StringExtensions" do
       expect(plain).to eq uncollapsed.collapse
     end
 
-    expect("now-with-hyphens").to eq "----now---------with-hyphens--------".collapse("-")
+    expect("----now---------with-hyphens--------".collapse("-")).to eq("now-with-hyphens")
   end
 end

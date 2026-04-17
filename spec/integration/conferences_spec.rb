@@ -42,11 +42,10 @@ describe ConferencesController do
       @conference = WebConference.first
       expect(Set.new(Message.all.map(&:user))).to eq Set.new([@teacher, @student1, @student2])
 
-      @student3 = student_in_course(active_all: true, user: user_with_pseudonym(username: "student3@example.com")).user
+      @student3 = user_with_pseudonym(username: "student3@example.com")
       @student3.register!
       @student3.email_channel.confirm!
-      put "/courses/#{@course.id}/conferences/#{@conference.id}", params: { web_conference: { "title" => "moar" }, user: { @student3.id => "1" } }
-      expect(response).to be_redirect
+      student_in_course(user: @student3, active_all: true)
       expect(Set.new(Message.all.map(&:user))).to eq Set.new([@teacher, @student1, @student2, @student3])
     end
 
@@ -69,8 +68,8 @@ describe ConferencesController do
     @group = @course.groups.create!(name: "some group")
     @group.add_user(@user)
 
-    course_conference = @course.web_conferences.create!(conference_type: "Wimba", user: @user) { |c| c.start_at = Time.now }
-    group_conference = @group.web_conferences.create!(conference_type: "Wimba", user: @user) { |c| c.start_at = Time.now }
+    course_conference = @course.web_conferences.create!(conference_type: "Wimba", user: @user) { |c| c.start_at = Time.zone.now }
+    group_conference = @group.web_conferences.create!(conference_type: "Wimba", user: @user) { |c| c.start_at = Time.zone.now }
     course_conference.add_initiator(@user)
     group_conference.add_initiator(@user)
 
@@ -111,7 +110,7 @@ describe ConferencesController do
       course_with_teacher(active_all: true)
       @course.enroll_student(@student).accept!
 
-      course_conference = @course.web_conferences.create!(conference_type: "Wimba", user: @teacher) { |c| c.start_at = Time.now }
+      course_conference = @course.web_conferences.create!(conference_type: "Wimba", user: @teacher) { |c| c.start_at = Time.zone.now }
       course_conference.add_invitee(@student)
 
       user_session(@student)

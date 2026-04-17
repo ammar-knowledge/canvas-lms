@@ -110,7 +110,7 @@ describe AvatarHelper do
       end
 
       it "returns a fallback avatar if the user doesn't have one" do
-        request = instance_double("ActionDispatch::Request",
+        request = instance_double(ActionDispatch::Request,
                                   host: "somedomain",
                                   protocol: "http://",
                                   port: 80,
@@ -119,7 +119,7 @@ describe AvatarHelper do
       end
 
       it "returns null if use_fallback is false" do
-        request = instance_double("ActionDispatch::Request",
+        request = instance_double(ActionDispatch::Request,
                                   host: "somedomain",
                                   protocol: "http://",
                                   port: 80,
@@ -128,7 +128,7 @@ describe AvatarHelper do
       end
 
       it "returns null if params[no_avatar_fallback] is set" do
-        request = instance_double("ActionDispatch::Request",
+        request = instance_double(ActionDispatch::Request,
                                   host: "somedomain",
                                   protocol: "http://",
                                   port: 80,
@@ -137,7 +137,7 @@ describe AvatarHelper do
       end
 
       it "returns a frd avatar url if one exists" do
-        request = instance_double("ActionDispatch::Request",
+        request = instance_double(ActionDispatch::Request,
                                   host: "somedomain",
                                   protocol: "http://",
                                   port: 80,
@@ -147,7 +147,7 @@ describe AvatarHelper do
       end
 
       it "does not prepend the request base if avatar url is an empty string" do
-        request = instance_double("ActionDispatch::Request",
+        request = instance_double(ActionDispatch::Request,
                                   host: "somedomain",
                                   protocol: "http://",
                                   port: 80,
@@ -194,6 +194,68 @@ describe AvatarHelper do
 
     it "returns full URIs for groups" do
       expect(avatar_url_for_group).to match(%r{\Ahttps?://})
+    end
+
+    describe "cross-domain thumbnail URLs" do
+      before do
+        Account.default.enable_service(:avatars)
+        Account.default.save!
+      end
+
+      it "uses the domain from the request when avatar host belongs to the same account" do
+        request = instance_double(ActionDispatch::Request,
+                                  host: "university.instructure.com",
+                                  protocol: "https://",
+                                  port: 443,
+                                  base_url: "https://university.instructure.com",
+                                  params: {})
+        user_with_avatar = user_model(
+          avatar_image_url: "https://canvas.university.edu/images/thumbnails/123/abc",
+          avatar_image_source: "attachment",
+          avatar_state: "approved"
+        )
+        allow(Account).to receive(:find_by_domain)
+          .with("canvas.university.edu")
+          .and_return(Account.default)
+
+        expect(AvatarHelper.avatar_url_for_user(user_with_avatar, request, root_account: Account.default, use_fallback: false))
+          .to eq "https://university.instructure.com/images/thumbnails/123/abc"
+      end
+
+      it "retains the original domain for non-thumbnail avatar URLs" do
+        request = instance_double(ActionDispatch::Request,
+                                  host: "university.instructure.com",
+                                  protocol: "https://",
+                                  port: 443,
+                                  params: {})
+        user_with_avatar = user_model(
+          avatar_image_url: "https://secure.gravatar.com/avatar/abc123",
+          avatar_image_source: "gravatar",
+          avatar_state: "approved"
+        )
+        expect(AvatarHelper.avatar_url_for_user(user_with_avatar, request, use_fallback: false))
+          .to eq "https://secure.gravatar.com/avatar/abc123"
+      end
+
+      it "retains the original domain when avatar host belongs to a different account (Trust/Consortium)" do
+        request = instance_double(ActionDispatch::Request,
+                                  host: "school-a.instructure.com",
+                                  protocol: "https://",
+                                  port: 443,
+                                  params: {})
+        user_with_avatar = user_model(
+          avatar_image_url: "https://school-b.instructure.com/images/thumbnails/123/abc",
+          avatar_image_source: "attachment",
+          avatar_state: "approved"
+        )
+        other_account = account_model
+        allow(Account).to receive(:find_by_domain)
+          .with("school-b.instructure.com")
+          .and_return(other_account)
+
+        expect(AvatarHelper.avatar_url_for_user(user_with_avatar, request, root_account: Account.default, use_fallback: false))
+          .to eq "https://school-b.instructure.com/images/thumbnails/123/abc"
+      end
     end
 
     context "from other shard" do

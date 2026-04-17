@@ -15,7 +15,8 @@
       "file.compound_documents.html" => "Compound Documents",
       "file.file_uploads.html" => "File Uploads",
       "file.endpoint_attributes.html" => "API Endpoint Attributes",
-      "file.masquerading.html" => "Masquerading"
+      "file.masquerading.html" => "Masquerading",
+      "file.permissions.html" => "Permissions",
     } %>
     <input name="header" class="ac-input" id="sidebar-basics" type="checkbox"
       <%= if @basics_file_list.key?(options[:object]) || @all_checked then 'checked' end %>
@@ -72,7 +73,7 @@
         <% options[:resources].each do |(resource, controllers)| %>
           <%
             next if resource.include?('Plagiarism')
-            link = url_for("#{topicize resource}.html")
+            link = url_for("#{DocumentationHelpers.topicize resource}.html")
             klass = []
             klass << "current" if resource == options[:object]
           %>
@@ -102,6 +103,7 @@
     <div class="ac-text">
       <div class="ac-sub">
         <a href="<%= url_for("file.group_category_csv.html") %>" class="<%= 'current' if options[:object] == 'file.group_category_csv.html' %>">Group Categories CSV Format</a>
+        <a href="<%= url_for("file.differentiation_tags_csv.html") %>" class="<%= 'current' if options[:object] == 'file.differentiation_tags_csv.html' %>">Differentiation Tags CSV Format</a>
       </div>
     </div>
   </div>
@@ -123,12 +125,15 @@
     <% @lti_file_list = {
       "file.tools_intro.html" => "Introduction",
       "file.registration.html" => "Registration",
+      "file.lti_launch_overview.html" => "Launch Overview",
       "file.lti_dev_key_config.html" => "Configuring",
       "file.tools_variable_substitutions.html" => "Variable Substitutions",
       "file.content_item.html" => "Deep Linking",
       "file.assignment_tools.html" => "Grading",
       "file.provisioning.html" => "Provisioning",
-      "file.lti_window_post_message.html" => "PostMessage"
+      "file.lti_window_post_message.html" => "PostMessage",
+      "file.pns.html" => "Platform Notification Service",
+      "file.document_processor.html" => "Document Processor",
     } %>
 
     <% @placements_file_list = {
@@ -219,7 +224,7 @@
           <a href="<%= url_for("file.plagiarism_platform.html") %>" class="<%= 'current' if options[:object] == 'file.plagiarism_platform.html' %>">Overview</a>
           <% options[:resources].each do |(resource, controllers)| %>
             <% next if resource.exclude?('Plagiarism')
-              link = url_for("#{topicize resource}.html")
+              link = url_for("#{DocumentationHelpers.topicize resource}.html")
               klass = "current" if resource == options[:object]
             %>
             <a class="<%= klass %>" href="<%= link %>"><%= resource %></a>

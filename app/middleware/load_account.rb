@@ -26,8 +26,8 @@ class LoadAccount
       MultiCache.fetch("schema_cache", expires_in: 1.week) do
         reflection = ActiveRecord::Base.connection_pool.schema_reflection
         cache = reflection.send(:empty_cache)
-        cache.add_all(ActiveRecord::Base.connection)
-        reflection.set_schema_cache(cache)
+        cache.add_all(ActiveRecord::Base.connection_pool)
+        reflection.instance_variable_set(:@cache, cache)
         cache
       end
     end
@@ -56,9 +56,13 @@ class LoadAccount
     Account.default
   end
 
+  def self.infer_shard(_hostname)
+    Shard.current
+  end
+
   def clear_caches
-    Canvas::Reloader.reload! if Canvas::Reloader.pending_reload
-    ::Account.clear_special_account_cache!(::LoadAccount.force_special_account_reload)
+    Canvas::Reloader.reload
+    ::Account.clear_special_account_cache!(force: ::LoadAccount.force_special_account_reload)
     ::LoadAccount.clear_shard_cache
     Account.current_domain_root_account = nil
   end

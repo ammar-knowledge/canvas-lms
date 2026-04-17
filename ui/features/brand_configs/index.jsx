@@ -17,15 +17,16 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender} from '@canvas/react'
 import CollectionView from './react/CollectionView'
 import ready from '@instructure/ready'
 import {initializeTopNavPortal} from '@canvas/top-navigation/react/TopNavPortal'
 
 ready(() => {
   initializeTopNavPortal()
-  ReactDOM.render(
+
+  legacyRender(
     <CollectionView {...window.ENV.brandConfigStuff} />,
-    document.getElementById('content')
+    document.getElementById('content'),
   )
 })

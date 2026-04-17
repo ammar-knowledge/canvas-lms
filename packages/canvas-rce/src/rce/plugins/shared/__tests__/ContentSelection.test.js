@@ -16,24 +16,25 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import FakeEditor from '../../../__tests__/FakeEditor'
 import {
-  LINK_TYPE,
-  FILE_LINK_TYPE,
-  IMAGE_EMBED_TYPE,
-  NONE_TYPE,
-  TEXT_TYPE,
-  DISPLAY_AS_LINK,
+  asAudioElement,
+  asVideoElement,
   DISPLAY_AS_DOWNLOAD_LINK,
+  DISPLAY_AS_LINK,
+  FILE_LINK_TYPE,
   getContentFromEditor,
   getContentFromElement,
   getLinkContentFromEditor,
+  IMAGE_EMBED_TYPE,
+  isAudioElement,
   isFileLink,
   isImageEmbed,
   isVideoElement,
-  isAudioElement,
-  findMediaPlayerIframe,
+  LINK_TYPE,
+  NONE_TYPE,
+  TEXT_TYPE,
 } from '../ContentSelection'
-import FakeEditor from '../../../__tests__/FakeEditor'
 
 describe('RCE > Plugins > Shared > Content Selection', () => {
   let $container
@@ -78,7 +79,7 @@ describe('RCE > Plugins > Shared > Content Selection', () => {
 
       it('includes the url of the link', () => {
         expect(getContentFromElement($element, editor).url).toEqual(
-          'http://example.instructure.com/files/3201/download?download_frd=1'
+          'http://example.instructure.com/files/3201/download?download_frd=1',
         )
       })
 
@@ -122,6 +123,12 @@ describe('RCE > Plugins > Shared > Content Selection', () => {
         expect(getContentFromElement($element, editor).isPreviewable).toEqual(false)
         $element.setAttribute('data-canvas-previewable', true)
         expect(getContentFromElement($element, editor).isPreviewable).toEqual(true)
+      })
+
+      it('does not indicate the link is previewable if the "data-canvas-previewable" attribute is false', () => {
+        expect(getContentFromElement($element, editor).isPreviewable).toEqual(false)
+        $element.setAttribute('data-canvas-previewable', false)
+        expect(getContentFromElement($element, editor).isPreviewable).toEqual(false)
       })
 
       it('indicates the link is previewable if it contains the "instructure_scribd_file" class name', () => {
@@ -200,7 +207,7 @@ describe('RCE > Plugins > Shared > Content Selection', () => {
       describe('.altText', () => {
         it('is the alt text of the image when present', () => {
           expect(getContentFromElement($element, editor).altText).toEqual(
-            'The ineffable Bill Murray'
+            'The ineffable Bill Murray',
           )
         })
 
@@ -236,7 +243,7 @@ describe('RCE > Plugins > Shared > Content Selection', () => {
 
       it('sets the url to the src of the image', () => {
         expect(getContentFromElement($element, editor).url).toEqual(
-          'https://www.fillmurray.com/200/200'
+          'https://www.fillmurray.com/200/200',
         )
       })
     })
@@ -319,34 +326,6 @@ describe('RCE > Plugins > Shared > Content Selection', () => {
     })
   })
 
-  describe('findMediaPlayerIframe', () => {
-    let wrapper, mediaIframe, shim
-    beforeEach(() => {
-      wrapper = document.createElement('span')
-      mediaIframe = document.createElement('iframe')
-      shim = document.createElement('span')
-      shim.setAttribute('class', 'mce-shim')
-      wrapper.appendChild(mediaIframe)
-      wrapper.appendChild(shim)
-    })
-    it('returns the iframe if given the video iframe', () => {
-      const result = findMediaPlayerIframe(mediaIframe)
-      expect(result).toEqual(mediaIframe)
-    })
-    it('returns the iframe if given the tinymce wrapper span', () => {
-      const result = findMediaPlayerIframe(wrapper)
-      expect(result).toEqual(mediaIframe)
-    })
-    it('returns the iframe if given the shim', () => {
-      const result = findMediaPlayerIframe(shim)
-      expect(result).toEqual(mediaIframe)
-    })
-    it('does not error if given null', () => {
-      const result = findMediaPlayerIframe(null)
-      expect(result).toEqual(null)
-    })
-  })
-
   describe('predicates', () => {
     it('detect a canvas file link', () => {
       const $selectedNode = document.createElement('a')
@@ -409,6 +388,104 @@ describe('RCE > Plugins > Shared > Content Selection', () => {
       expect(isImageEmbed($selectedNode)).toBeFalsy()
       expect(isVideoElement($selectedNode)).toBeFalsy()
       expect(isAudioElement($selectedNode)).toBeFalsy()
+    })
+
+    it('detect a video element with only media_attachments_iframe src', () => {
+      const $selectedNode = document.createElement('span')
+      $selectedNode.setAttribute(
+        'data-mce-p-src',
+        'http://example.instructure.com/media_attachments_iframe/12345678',
+      )
+      $selectedNode.setAttribute('data-mce-p-data-media-type', 'video')
+      $selectedNode.innerHTML = '<iframe/>'
+      editor.setSelectedNode($selectedNode)
+      expect(isFileLink($selectedNode, editor)).toBeFalsy()
+      expect(isImageEmbed($selectedNode)).toBeFalsy()
+      expect(isVideoElement($selectedNode)).toBeTruthy()
+      expect(isAudioElement($selectedNode)).toBeFalsy()
+    })
+
+    it('detect an audio element with only media_attachments_iframe src', () => {
+      const $selectedNode = document.createElement('span')
+      $selectedNode.setAttribute(
+        'data-mce-p-src',
+        'http://example.instructure.com/media_attachments_iframe/12345678',
+      )
+      $selectedNode.setAttribute('data-mce-p-data-media-type', 'audio')
+      $selectedNode.innerHTML = '<iframe/>'
+      editor.setSelectedNode($selectedNode)
+      expect(isFileLink($selectedNode, editor)).toBeFalsy()
+      expect(isImageEmbed($selectedNode)).toBeFalsy()
+      expect(isVideoElement($selectedNode)).toBeFalsy()
+      expect(isAudioElement($selectedNode)).toBeTruthy()
+    })
+  })
+
+  describe('asVideoElement', () => {
+    it('includes viewerRestrictions from contentWindow', () => {
+      const $span = document.createElement('span')
+      $span.setAttribute('data-mce-p-data-media-id', 'm-id')
+      $span.setAttribute('data-mce-p-data-media-type', 'video')
+      const $iframe = document.createElement('iframe')
+      $span.appendChild($iframe)
+      Object.defineProperty($iframe, 'contentWindow', {
+        value: {
+          ['env'.toUpperCase()]: {
+            media_object: {
+              viewer_restrictions: {
+                show_rolling_transcript: true
+              }
+            }
+          }
+        },
+        writable: true,
+      })
+      const result = asVideoElement($span)
+      expect(result.viewerRestrictions).toEqual({show_rolling_transcript: true})
+    })
+
+    it('defaults viewerRestrictions to {} when contentWindow is absent', () => {
+      const $span = document.createElement('span')
+      $span.setAttribute('data-mce-p-data-media-id', 'm-id')
+      $span.setAttribute('data-mce-p-data-media-type', 'video')
+      const $iframe = document.createElement('iframe')
+      $span.appendChild($iframe)
+      const result = asVideoElement($span)
+      expect(result.viewerRestrictions).toEqual({})
+    })
+  })
+
+  describe('asAudioElement', () => {
+    it('includes viewerRestrictions from contentWindow', () => {
+      const $span = document.createElement('span')
+      $span.setAttribute('data-mce-p-data-media-id', 'm-id')
+      const $iframe = document.createElement('iframe')
+      $iframe.setAttribute('src', '/media_objects_iframe/m-id')
+      $span.appendChild($iframe)
+      Object.defineProperty($iframe, 'contentWindow', {
+        value: {
+          ['env'.toUpperCase()]: {
+            media_object: {
+              viewer_restrictions: {
+                show_rolling_transcript: true
+              }
+            }
+          }
+        },
+        writable: true,
+      })
+      const result = asAudioElement($span)
+      expect(result.viewerRestrictions).toEqual({show_rolling_transcript: true})
+    })
+
+    it('defaults viewerRestrictions to {} when contentWindow is absent', () => {
+      const $span = document.createElement('span')
+      $span.setAttribute('data-mce-p-data-media-id', 'm-id')
+      const $iframe = document.createElement('iframe')
+      $iframe.setAttribute('src', '/media_objects_iframe/m-id')
+      $span.appendChild($iframe)
+      const result = asAudioElement($span)
+      expect(result.viewerRestrictions).toEqual({})
     })
   })
 })

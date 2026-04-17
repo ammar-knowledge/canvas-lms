@@ -64,6 +64,18 @@ module CanvasCache
       # rubocop:enable Style/ArgumentsForwarding
     end
 
+    module TaggedRingConfig
+      def initialize(*, **kwargs)
+        @ring_tag = kwargs.delete(:_ring_tag)
+
+        super
+      end
+
+      def ring_tag
+        @ring_tag
+      end
+    end
+
     module Distributed
       def initialize(addresses, options = {})
         options[:ring] ||= HashRing.new([], options[:replicas], options[:digest])
@@ -74,6 +86,14 @@ module CanvasCache
         return super(...) unless key
 
         node_for(key).pipelined(...)
+      end
+
+      %i[xacck xackdel xadd xautoclaim xclaim xdel xdelex xlen xpending xrange xrevrange xsetid xtrim].each do |method|
+        class_eval <<~RUBY, __FILE__, __LINE__ + 1
+          def #{method}(key, ...)              # def xadd(key, ...)
+            node_for(key).#{method}(key, ...)  #   node_for(key).xadd(key, ...)
+          end                                  # end
+        RUBY
       end
     end
 
@@ -158,7 +178,7 @@ module CanvasCache
         # Redis::Distributed manually wraps every command, and not all of those
         # wrappers support kwargs, so we have to add the failsafe here
         ::Redis::Distributed.instance_methods.each do |m|
-          next unless ::Redis::Commands.instance_methods.include?(m)
+          next unless ::Redis::Commands.method_defined?(m)
           next if ::Redis::Distributed.instance_method(m).parameters.any? { |type, _name| type == :keyrest }
 
           def_failsafe_method(Distributed, m)
@@ -168,6 +188,7 @@ module CanvasCache
         ::Redis.prepend(Redis)
         ::Redis.prepend(IgnorePipelinedKey)
         ::RedisClient.prepend(Client)
+        ::RedisClient::Config.prepend(TaggedRingConfig)
         ::Redis::Cluster::Client.prepend(Cluster)
         ::RedisClient::Cluster.prepend(IgnorePipelinedKey)
         ::Redis::Client.prepend(Client)

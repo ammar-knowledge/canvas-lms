@@ -28,7 +28,7 @@ require_relative "../helpers/wiki_and_tiny_common"
 require_relative "pages/rce_next_page"
 require_relative "pages/rcs_sidebar_page"
 
-# rubocop:disable Specs/NoNoSuchElementError, Specs/NoExecuteScript
+# rubocop:disable Specs/NoExecuteScript
 
 describe "RCE next tests" do
   include_context "in-process server selenium tests"
@@ -46,7 +46,7 @@ describe "RCE next tests" do
     end
 
     def menu_bar_button(title)
-      element_exists?("//*[contains(concat(\" \",normalize-space(@class),\" \"),\" tox-menubar \")]//*[contains(text(), '#{title}')]", true)
+      element_exists?("//*[contains(concat(\" \",normalize-space(@class),\" \"),\" tox-menubar \")]//*[contains(text(), '#{title}')]", xpath: true)
     end
 
     def toolbar_selector(title)
@@ -58,7 +58,7 @@ describe "RCE next tests" do
     end
 
     def toolbar_button(toolbar_title, button_title)
-      element_exists?("//*[@title='#{toolbar_title}']//*[@aria-label='#{button_title}']", true)
+      element_exists?("//*[@title='#{toolbar_title}']//*[@aria-label='#{button_title}']", xpath: true)
     end
 
     def status_bar
@@ -75,10 +75,6 @@ describe "RCE next tests" do
     end
 
     context "Full RCE" do
-      before do
-        Account.site_admin.enable_feature!(:buttons_and_icons_root_account)
-      end
-
       it "has all the UI" do
         create_wiki_page(@course, "full")
 
@@ -167,7 +163,8 @@ describe "RCE next tests" do
         expect(toolbar_button("Lists", "Ordered and Unordered Lists")).to be_truthy
         expect(toolbar_button("Lists", "Increase Indent")).to be_falsey
 
-        expect(toolbar("Miscellaneous")).to be_falsey
+        expect(toolbar("Miscellaneous")).to be_truthy
+        expect(toolbar_button("Miscellaneous", "Insert Math Equation")).to be_truthy
 
         expect(element_exists?('[data-testid="RCEStatusBar"]')).to be true
         expect(status_bar_button("View keyboard shortcuts")).to be_truthy
@@ -226,4 +223,4 @@ describe "RCE next tests" do
   # there is an rce variant 'no-controls', but I don't think it's useful and will probably be removed
 end
 
-# rubocop:enable Specs/NoNoSuchElementError, Specs/NoExecuteScript
+# rubocop:enable Specs/NoExecuteScript

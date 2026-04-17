@@ -23,12 +23,15 @@
     js_bundle(:navigation_header) unless @headers == false
 
     provide :head, include_common_stylesheets
-    js_env notices: flash_notices()
+    js_env({ notices: flash_notices() })
 
     body_classes << 'Underline-All-Links__enabled' if @current_user && @current_user.feature_enabled?(:underline_all_links)
 
     -%>
     <%= render :partial => "layouts/head" %>
+    <%= render :partial => 'shared/static_notices' %>
+    <%= render :partial => 'shared/flash_notices' %>
+
     <body class="<%= (body_classes).uniq.join(" ") %>">
         <div id="content" class="ic-Layout-contentMain" role="main">
             <%= yield %>

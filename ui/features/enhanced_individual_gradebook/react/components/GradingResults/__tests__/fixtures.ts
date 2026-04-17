@@ -46,6 +46,7 @@ export const defaultStudentSubmissions: GradebookUserSubmissionDetails = {
   enteredGrade: '95',
   gradeMatchesCurrentSubmission: true,
   customGradeStatus: '',
+  sticker: null,
 }
 
 export const defaultAssignment: AssignmentConnection = {
@@ -65,6 +66,7 @@ export const defaultAssignment: AssignmentConnection = {
   name: 'Missing Assignment 1',
   omitFromFinalGrade: false,
   pointsPossible: 10,
+  position: 1,
   postManually: false,
   submissionTypes: ['online_text_entry', 'online_upload'],
   published: true,
@@ -73,7 +75,24 @@ export const defaultAssignment: AssignmentConnection = {
   inClosedGradingPeriod: false,
 }
 
+export const checkpointedAssignment: AssignmentConnection = {
+  ...defaultAssignment,
+  pointsPossible: 20,
+  submissionTypes: ['discussion_topic'],
+  checkpoints: [
+    {
+      tag: 'reply_to_topic',
+      pointsPossible: 5,
+    },
+    {
+      tag: 'reply_to_entry',
+      pointsPossible: 15,
+    },
+  ],
+}
+
 export const defaultGradebookOptions: GradebookOptions = {
+  assignmentEnhancementsEnabled: false,
   contextUrl: '/courses/1',
   sortOrder: GradebookSortOrder.Alphabetical,
   changeGradeUrl: 'testUrl',
@@ -88,6 +107,7 @@ export const defaultGradebookOptions: GradebookOptions = {
   gradingStandardScalingFactor: 1,
   gradingStandardPointsBased: false,
   proxySubmissionEnabled: false,
+  stickersEnabled: false,
 }
 
 export const gradingResultsDefaultProps: GradingResultsComponentProps = {

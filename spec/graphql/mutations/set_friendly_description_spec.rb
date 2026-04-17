@@ -18,7 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
 require_relative "../graphql_spec_helper"
 
 describe Mutations::SetFriendlyDescription do
@@ -177,12 +176,12 @@ describe Mutations::SetFriendlyDescription do
         }
       GQL
       result = execute_query(mutation_str, ctx)
-      expect(result["errors"].pluck("message")).to eql([
-                                                         "Argument 'description' on InputObject 'SetFriendlyDescriptionInput' is required. Expected type String!",
-                                                         "Argument 'outcomeId' on InputObject 'SetFriendlyDescriptionInput' is required. Expected type ID!",
-                                                         "Argument 'contextId' on InputObject 'SetFriendlyDescriptionInput' is required. Expected type ID!",
-                                                         "Argument 'contextType' on InputObject 'SetFriendlyDescriptionInput' is required. Expected type String!"
-                                                       ])
+      expect(result["errors"].pluck("message")).to match_array([
+                                                                 "Argument 'description' on InputObject 'SetFriendlyDescriptionInput' is required. Expected type String!",
+                                                                 "Argument 'outcomeId' on InputObject 'SetFriendlyDescriptionInput' is required. Expected type ID!",
+                                                                 "Argument 'contextId' on InputObject 'SetFriendlyDescriptionInput' is required. Expected type ID!",
+                                                                 "Argument 'contextType' on InputObject 'SetFriendlyDescriptionInput' is required. Expected type String!"
+                                                               ])
     end
 
     it "returns error when pass invalid context type" do

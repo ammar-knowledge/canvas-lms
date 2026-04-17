@@ -3,22 +3,22 @@
 set -o errexit -o errtrace -o nounset -o pipefail -o xtrace
 
 # Pull all docker images that are used for rspec / selenium in advance of
-# running docker-compose up for protection against flakey network requests.
+# running docker compose up for protection against flakey network requests.
 # Always pull all images, even if the rspec job does not use them, so that
 # the image cache is completely fulfilled and subsequent builds don't need
 # to load them. This helps our build times to remain more consistent.
 
-REGISTRY_BASE=starlord.inscloudgate.net/jenkins
+REGISTRY_BASE=948781806214.dkr.ecr.us-east-1.amazonaws.com/canvas-builds
+ECR_BASE=948781806214.dkr.ecr.us-east-1.amazonaws.com/docker.io
 
 DOCKER_IMAGES=(
   $PATCHSET_TAG
-  $CASSANDRA_IMAGE_TAG
   $DYNAMODB_IMAGE_TAG
   $POSTGRES_IMAGE_TAG
-  $REGISTRY_BASE/canvas-rce-api
-  $REGISTRY_BASE/redis:alpine
-  $REGISTRY_BASE/selenium-node-chrome:"${CHROME_VERSION:-120.0}"
-  $REGISTRY_BASE/selenium-hub:"${HUB_VERSION:-4.16}"
+  $ECR_BASE/instructure/canvas-rce-api
+  $ECR_BASE/library/redis:alpine
+  $ECR_BASE/selenium/node-chromium:"${CHROME_VERSION:-145.0}"
+  $ECR_BASE/selenium/hub:"${HUB_VERSION:-4.41.0}"
 )
 
 echo "${DOCKER_IMAGES[@]}" | xargs -P0 -n1 ./build/new-jenkins/docker-with-flakey-network-protection.sh pull &

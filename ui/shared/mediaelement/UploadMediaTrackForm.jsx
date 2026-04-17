@@ -15,28 +15,33 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import template from './jst/UploadMediaTrackForm.handlebars'
-// eslint-disable-next-line import/no-cycle
-import mejs from './index'
+import {languageCodes} from './mediaLanguageCodes'
 import $ from 'jquery'
-import {map} from 'lodash'
+import {map} from 'es-toolkit/compat'
 
 import CopyToClipboard from '@canvas/copy-to-clipboard'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render} from '@canvas/react'
 
-const I18n = useI18nScope('UploadMediaTrackForm')
+const I18n = createI18nScope('UploadMediaTrackForm')
 
 export default class UploadMediaTrackForm {
   // video url needs to be the url to mp4 version of the video.
-  constructor(mediaCommentId, video_url, attachmentId = null, lockedMediaAttachment = false) {
+  constructor(
+    mediaCommentId,
+    video_url,
+    attachmentId = null,
+    lockedMediaAttachment = false,
+    zIndex = 1000,
+  ) {
     this.mediaCommentId = mediaCommentId
     this.video_url = video_url
     this.attachmentId = attachmentId
     this.lockedMediaAttachment = lockedMediaAttachment
     const templateVars = {
-      languages: map(mejs.language.codes, (name, code) => ({name, code})),
+      languages: map(languageCodes, (name, code) => ({name, code})),
       video_url: this.video_url,
       is_amazon_url: this.video_url.search(/.mp4/) !== -1,
     }
@@ -60,12 +65,12 @@ export default class UploadMediaTrackForm {
           },
         ],
         modal: true,
-        zIndex: 1000,
+        zIndex,
       })
 
-    ReactDOM.render(
+    render(
       <CopyToClipboard interaction="readonly" name="video_url" value={video_url} />,
-      document.getElementById('media-track-video-url-container')
+      document.getElementById('media-track-video-url-container'),
     )
   }
 
@@ -84,10 +89,9 @@ export default class UploadMediaTrackForm {
 
         if (!params.content || !params.locale) return submitDfd.reject()
 
-        const url =
-          ENV.FEATURES.media_links_use_attachment_id && this.attachmentId
-            ? `/media_attachments/${this.attachmentId}/media_tracks`
-            : `/media_objects/${this.mediaCommentId}/media_tracks`
+        const url = this.attachmentId
+          ? `/media_attachments/${this.attachmentId}/media_tracks`
+          : `/media_objects/${this.mediaCommentId}/media_tracks`
         return $.ajaxJSON(
           url,
           'POST',
@@ -98,13 +102,13 @@ export default class UploadMediaTrackForm {
             $.flashMessage(
               I18n.t(
                 'track_uploaded_successfully',
-                'Track uploaded successfully; please refresh your browser.'
-              )
+                'Track uploaded successfully; please refresh your browser.',
+              ),
             )
           },
           () => {
             submitDfd.reject()
-          }
+          },
         )
       })
   }

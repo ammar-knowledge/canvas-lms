@@ -20,20 +20,21 @@ import numberFormat from '../numberFormat'
 import I18n from '@canvas/i18n'
 
 describe('numberFormat _format', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
   afterEach(() => {
-    if (I18n.n.restore) {
-      I18n.n.restore()
-    }
+    vi.restoreAllMocks()
   })
 
   test('passes through non-numbers', () => {
     expect(numberFormat._format('foo')).toBe('foo')
-    // eslint-disable-next-line no-restricted-globals
+
     expect(isNaN(numberFormat._format(NaN))).toBe(true)
   })
 
   test('proxies to I18n for numbers', () => {
-    jest.spyOn(I18n, 'n').mockReturnValue('1,23')
+    vi.spyOn(I18n, 'n').mockReturnValue('1,23')
     expect(numberFormat._format(1.23, {foo: 'bar'})).toBe('1,23')
     expect(I18n.n).toHaveBeenCalledWith(1.23, {foo: 'bar'})
   })

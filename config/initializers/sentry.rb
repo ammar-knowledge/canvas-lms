@@ -55,7 +55,10 @@ Rails.configuration.to_prepare do
 
       filter = ActiveSupport::ParameterFilter.new(Rails.application.config.filter_parameters)
       config.before_send = lambda do |event, _|
-        filter.filter(event.to_hash)
+        if event.request&.data.is_a?(Hash)
+          event.request.data = filter.filter(event.request.data)
+        end
+        event
       end
 
       # this array should only contain exceptions that are intentionally
@@ -63,6 +66,8 @@ Rails.configuration.to_prepare do
       # are login/auth exceptions.  Exceptions that are simply noisy/inconvenient
       # should probably be caught and solved...
       config.excluded_exceptions += %w[
+        AuthenticationMethods::RevokedAccessTokenError
+        AuthenticationMethods::ExpiredAccessTokenError
         AuthenticationMethods::AccessTokenError
         AuthenticationMethods::AccessTokenScopeError
         AuthenticationMethods::LoggedOutError

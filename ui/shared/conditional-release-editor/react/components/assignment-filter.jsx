@@ -18,13 +18,13 @@
 
 import React from 'react'
 import PropTypes from 'prop-types'
-import _ from 'lodash'
+import {debounce} from 'es-toolkit/compat'
 
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import categories from '../categories'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('conditional_release')
+const I18n = createI18nScope('conditional_release')
 
 const {func, string} = PropTypes
 
@@ -40,7 +40,7 @@ class AssignmentFilter extends React.Component {
   constructor() {
     super()
 
-    this.filterByName = _.debounce(this.filterByName.bind(this), 250)
+    this.filterByName = debounce(this.filterByName.bind(this), 250)
     this.filterByCategory = this.filterByCategory.bind(this)
     this.nameFilterRef = React.createRef()
   }

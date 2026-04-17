@@ -16,23 +16,24 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useCallback, useEffect, useRef, useState} from 'react'
+import React, {useCallback, useContext, useEffect, useRef, useState} from 'react'
 import {DateTimeInput} from '@instructure/ui-date-time-input'
 import {AccessibleContent, ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {CondensedButton} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
-import WithBreakpoints from '@canvas/with-breakpoints'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import type {Breakpoints} from '@canvas/with-breakpoints'
+import {Text} from '@instructure/ui-text'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {WithBreakpoints, Breakpoints} from '@instructure/platform-with-breakpoints'
 import type {FormMessage} from '@instructure/ui-form-field'
+import {AlertManagerContext} from '@instructure/platform-alerts'
 
-const I18n = useI18nScope('differentiated_modules')
+const I18n = createI18nScope('differentiated_modules')
 
 function useElementResize(
-  onResize: (element: Element) => void
+  onResize: (element: Element) => void,
 ): [(element: Element | null) => void] {
   const observer = useRef(
-    new ResizeObserver(entries => entries.forEach(entry => onResize(entry.target)))
+    new ResizeObserver(entries => entries.forEach(entry => onResize(entry.target))),
   )
 
   const listenElement = (element: Element | null) => {
@@ -65,6 +66,7 @@ export interface ClearableDateTimeInputProps {
   dateInputRef?: (el: HTMLInputElement | null) => void
   timeInputRef?: (el: HTMLInputElement | null) => void
   clearButtonAltLabel: string
+  setStatusMessage?: (message: string) => void
 }
 
 function ClearableDateTimeInput({
@@ -85,25 +87,62 @@ function ClearableDateTimeInput({
   timeInputRef,
   clearButtonAltLabel,
 }: ClearableDateTimeInputProps) {
-  const [hasErrorBorder, setHasErrorBorder] = useState(false)
+  const {setOnSuccess} = useContext(AlertManagerContext)
+
   const clearButtonContainer = useRef<HTMLElement | null>()
+  const [validationError, setValidationError] = useState<FormMessage | null>(null)
 
   const handleResize = useCallback((element: Element) => {
-    // Selector for the date time input that is affected by the red border and padding
-    const container = element.querySelector('fieldset > span > span:first-child > span > span')
-    if (!container) return
-    // If padding is cero means that the error border does not exist
-    setHasErrorBorder(getComputedStyle(container).padding !== '0px')
+    const dateInput = element.querySelector('input')
+    if (!dateInput || !clearButtonContainer.current) return
+    const containerTop = element.getBoundingClientRect().top
+    const inputTop = dateInput.getBoundingClientRect().top - containerTop
+    const newPadding = `${Math.max(0, inputTop)}px`
+    if (clearButtonContainer.current.style.paddingTop !== newPadding) {
+      clearButtonContainer.current.style.paddingTop = newPadding
+    }
   }, [])
 
-  // We used this instead of checking messages since we can't control internal error messages
   const [listenElement] = useElementResize(handleResize)
 
-  useEffect(() => {
-    if (!clearButtonContainer.current) return
-    // labels + labels margins + 0.5rem (padding when the date time input has errors)
-    clearButtonContainer.current.style.paddingTop = hasErrorBorder ? '2.75rem' : '2.25rem'
-  }, [hasErrorBorder])
+  const renderDateLabel = <Text>{dateRenderLabel}</Text>
+
+  const renderTimeLabel = <Text>{I18n.t('Time')}</Text>
+
+  const handleChange = (event: React.SyntheticEvent, newValue: string | undefined) => {
+    // Clear any existing validation error first
+    setValidationError(null)
+
+    // If the value is being cleared or is undefined, allow it
+    if (!newValue) {
+      onChange(event, newValue)
+      return
+    }
+
+    // Parse the date to check the year
+    const selectedDate = new Date(newValue)
+
+    // Check if the date is valid and if the year is before 1980
+    if (!isNaN(selectedDate.getTime()) && selectedDate.getFullYear() < 1980) {
+      setValidationError({
+        text: I18n.t('Please select a date in the year 1980 or later'),
+        type: 'newError',
+      })
+      return
+    }
+
+    // Date is valid, proceed with the original onChange
+    onChange(event, newValue)
+  }
+
+  const handleClear = () => {
+    setValidationError(null)
+    onClear()
+    setTimeout(() => {
+      setOnSuccess(I18n.t('Cleared successfully'))
+    }, 500)
+  }
+
   return (
     <Flex
       data-testid="clearable-date-time-input"
@@ -124,18 +163,18 @@ function ClearableDateTimeInput({
           colSpacing="small"
           dateFormat="ll"
           description={<ScreenReaderContent>{description}</ScreenReaderContent>}
-          dateRenderLabel={dateRenderLabel}
-          timeRenderLabel={I18n.t('Time')}
+          dateRenderLabel={renderDateLabel}
+          timeRenderLabel={renderTimeLabel}
           invalidDateTimeMessage={I18n.t('Invalid date')}
           prevMonthLabel={I18n.t('Previous month')}
           nextMonthLabel={I18n.t('Next month')}
           value={value ?? undefined}
           layout="columns"
-          messages={messages}
+          messages={validationError ? [validationError] : messages}
           showMessages={showMessages}
           locale={locale}
           timezone={timezone}
-          onChange={onChange}
+          onChange={handleChange}
           onBlur={onBlur}
           dateInputRef={dateInputRef}
           timeInputRef={timeInputRef}
@@ -147,12 +186,15 @@ function ClearableDateTimeInput({
         margin="0 0 0 small"
         elementRef={e => (clearButtonContainer.current = e as HTMLElement)}
       >
-        <CondensedButton interaction={disabled ? 'disabled' : 'enabled'} onClick={onClear}>
+        <CondensedButton
+          data-testid={`${id}_clear_button`}
+          interaction={disabled ? 'disabled' : 'enabled'}
+          onClick={handleClear}
+        >
           <AccessibleContent alt={clearButtonAltLabel}>{I18n.t('Clear')}</AccessibleContent>
         </CondensedButton>
       </Flex.Item>
     </Flex>
   )
 }
-
 export default WithBreakpoints(ClearableDateTimeInput)

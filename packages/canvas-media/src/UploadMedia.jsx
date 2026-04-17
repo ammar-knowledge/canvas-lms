@@ -15,29 +15,25 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import {bool, element, func, instanceOf, oneOfType, shape, string} from 'prop-types'
-import React, {Suspense, useEffect, useState} from 'react'
-import ReactDOM from 'react-dom'
-import {isEqual} from 'lodash'
 
 import {Button, CloseButton} from '@instructure/ui-buttons'
 import {Heading} from '@instructure/ui-heading'
 import {Modal} from '@instructure/ui-modal'
-import {Tabs} from '@instructure/ui-tabs'
-import {px} from '@instructure/ui-utils'
 import {ProgressBar} from '@instructure/ui-progress'
+import {Tabs} from '@instructure/ui-tabs'
 import {Text} from '@instructure/ui-text'
-
-import formatMessage from './format-message'
+import {px} from '@instructure/ui-utils'
+import {isEqual} from 'es-toolkit/compat'
+import {bool, element, func, instanceOf, oneOfType, shape, string} from 'prop-types'
+import React, {Suspense, useEffect, useState} from 'react'
+import ReactDOM from 'react-dom'
 import {ACCEPTED_FILE_TYPES} from './acceptedMediaFileTypes'
-import LoadingIndicator from './shared/LoadingIndicator'
-import saveMediaRecording, {
-  saveClosedCaptions,
-  saveClosedCaptionsForAttachment,
-} from './saveMediaRecording'
-import translationShape from './translationShape'
+import formatMessage from './format-message'
 import getTranslations from './getTranslations'
+import saveMediaRecording, {saveClosedCaptionsForAttachment} from './saveMediaRecording'
 import {CC_FILE_MAX_BYTES, mediaExtension} from './shared/constants'
+import LoadingIndicator from './shared/LoadingIndicator'
+import translationShape from './translationShape'
 
 const fileExtensionRegex = /\.\S/
 const DEFAULT_EXTENSION = 'webm'
@@ -97,14 +93,12 @@ export class UploadMediaModal extends React.Component {
       upload: bool,
     }),
     uploadMediaTranslations: translationShape,
-    media_links_use_attachment_id: bool,
     // for testing
     computerFile: instanceOf(File),
     userLocale: string,
   }
 
   static defaultProps = {
-    media_links_use_attachment_id: false,
     disableSubmitWhileUploading: false,
     userLocale: 'en',
   }
@@ -130,6 +124,12 @@ export class UploadMediaModal extends React.Component {
     }
 
     this.modalBodyRef = React.createRef()
+    this.computerPanelRef = React.createRef()
+  }
+
+  onRecordingSave = file => {
+    if (this.state.uploading) return
+    this.setState({recordedFile: file}, this.handleSubmit)
   }
 
   inferSelectedPanel = tabs => {
@@ -144,43 +144,30 @@ export class UploadMediaModal extends React.Component {
     return selectedPanel
   }
 
-  isReady = () => {
-    if (this.props.disableSubmitWhileUploading && this.state.uploading) {
-      return false
-    }
-
-    switch (this.state.selectedPanel) {
-      case PANELS.COMPUTER:
-        return !!this.state.computerFile
-      case PANELS.RECORD:
-        return !!this.state.recordedFile
-      default:
-        return false
-    }
-  }
-
   handleSubmit = () => {
     switch (this.state.selectedPanel) {
-      case PANELS.COMPUTER:
-        this.uploadFile(this.state.computerFile)
+      case PANELS.COMPUTER: {
+        const {computerFile} = this.state
+        this.computerPanelRef.current?.updateValidationMessages(computerFile)
+        if (computerFile?.title?.trim()) {
+          this.uploadFile(computerFile)
+        }
         break
-      case PANELS.RECORD:
+      }
+      case PANELS.RECORD: {
         const button = document.getElementById('media_capture_save_button')
         if (button) button.disabled = true
         this.uploadFile(this.state.recordedFile)
         break
-      default:
+      }
+      default: {
         throw new Error('Selected Panel is invalid') // Should never get here
+      }
     }
   }
 
   submitEnabled = () => {
-    switch (this.state.selectedPanel) {
-      case PANELS.COMPUTER:
-        return this.isReady() && !!this.state.computerFile?.title
-      default:
-        return this.isReady()
-    }
+    return !this.props.disableSubmitWhileUploading || !this.state.uploading
   }
 
   uploadFile(file) {
@@ -190,13 +177,15 @@ export class UploadMediaModal extends React.Component {
       file.userEnteredTitle ||= file.name
       if (!fileExtensionRegex.test(file.userEnteredTitle)) {
         const extension = mediaExtension(file.type) || DEFAULT_EXTENSION
-        file.userEnteredTitle +=  file.userEnteredTitle.endsWith('.') ? `${extension}` : `.${extension}`
+        file.userEnteredTitle += file.userEnteredTitle.endsWith('.')
+          ? `${extension}`
+          : `.${extension}`
       }
       saveMediaRecording(
         file,
         this.props.rcsConfig,
         this.saveMediaCallback,
-        this.onSaveMediaProgress
+        this.onSaveMediaProgress,
       )
     })
   }
@@ -206,8 +195,9 @@ export class UploadMediaModal extends React.Component {
   }
 
   saveMediaCallback = async (err, data) => {
-    const {onUploadComplete, onDismiss, rcsConfig, media_links_use_attachment_id} = this.props
+    const {onUploadComplete, onDismiss, rcsConfig} = this.props
     const {selectedPanel, subtitles} = this.state
+    this.setState({uploading: false})
     if (err) {
       onUploadComplete?.(err, data)
     } else {
@@ -215,28 +205,21 @@ export class UploadMediaModal extends React.Component {
         const {media_object} = data.mediaObject
         let captions
         if (selectedPanel === PANELS.COMPUTER && subtitles.length > 0) {
-          captions = media_links_use_attachment_id
-            ? await saveClosedCaptionsForAttachment(
-                media_object.attachment_id,
-                subtitles,
-                rcsConfig,
-                CC_FILE_MAX_BYTES
-              )
-            : await saveClosedCaptions(
-                media_object.media_id,
-                subtitles,
-                rcsConfig,
-                CC_FILE_MAX_BYTES
-              )
+          captions = await saveClosedCaptionsForAttachment(
+            media_object.attachment_id,
+            subtitles,
+            rcsConfig,
+            CC_FILE_MAX_BYTES,
+          )
         }
         onUploadComplete?.(null, data, captions?.data)
       } catch (ex) {
         onUploadComplete?.(ex, null)
       }
     }
-      onDismiss?.()
-      const button = document.getElementById('media_capture_save_button')
-      if (button) button.disabled = false
+    onDismiss?.()
+    const button = document.getElementById('media_capture_save_button')
+    if (button) button.disabled = false
   }
 
   componentDidMount() {
@@ -316,6 +299,7 @@ export class UploadMediaModal extends React.Component {
           >
             <Suspense fallback={LoadingIndicator(LOADING_MEDIA)}>
               <ComputerPanel
+                ref={this.computerPanelRef}
                 theFile={this.state.computerFile}
                 setFile={file => this.setState({computerFile: file})}
                 hasUploadedFile={this.state.hasUploadedFile}
@@ -346,7 +330,7 @@ export class UploadMediaModal extends React.Component {
               <MediaRecorder
                 MediaCaptureStrings={this.props.uploadMediaTranslations.MediaCaptureStrings}
                 errorMessage={MEDIA_RECORD_NOT_AVAILABLE}
-                onSave={file => this.setState({recordedFile: file}, this.handleSubmit)}
+                onSave={this.onRecordingSave}
               />
             </Suspense>
           </Tabs.Panel>

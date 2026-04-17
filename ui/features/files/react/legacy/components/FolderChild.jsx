@@ -17,15 +17,18 @@
  */
 
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ReactDOM from 'react-dom'
+import React from 'react'
+import {legacyUnmountComponentAtNode} from '@canvas/react'
 import BackboneMixin from '@canvas/files/react/mixins/BackboneMixin'
 import Folder from '@canvas/files/backbone/models/Folder'
 import FocusStore from '../modules/FocusStore'
 import classnames from 'classnames'
 import '@canvas/rails-flash-notifications'
+import filesEnv from '@canvas/files/react/modules/filesEnv'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 export default {
   displayName: 'FolderChild',
@@ -33,6 +36,11 @@ export default {
   mixins: [BackboneMixin('model')],
 
   getInitialState() {
+    this.publishButtonRef = React.createRef()
+    this.newNameRef = React.createRef()
+    this.nameLinkRef = React.createRef()
+    this.folderChildRef = React.createRef()
+
     return {
       editing: this.props.model.isNew(),
       hideKeyboardCheck: true,
@@ -61,11 +69,11 @@ export default {
     // This is an edge case that ensures focus remains in context of whats being edited, in this case, the nameLink
     this.previouslyFocusedElement =
       document.activeElement.nodeName === 'BODY'
-        ? ReactDOM.findDOMNode(this.refs.nameLink)
+        ? ReactDOM.findDOMNode(this.nameLinkRef.current)
         : document.activeElement
 
     setTimeout(() => {
-      const input = this.refs.newName
+      const input = this.newNameRef.current
       if (input) {
         const ext = input.value.lastIndexOf('.')
         input.setSelectionRange(0, ext < 0 ? input.value.length : ext)
@@ -76,14 +84,14 @@ export default {
 
   focusNameLink() {
     setTimeout(() => {
-      const ref = ReactDOM.findDOMNode(this.refs.nameLink)
+      const ref = ReactDOM.findDOMNode(this.nameLinkRef.current)
       if (ref) ref.focus()
     }, 100)
   },
 
   saveNameEdit() {
     this.setState({editing: false}, this.focusNameLink)
-    const newName = ReactDOM.findDOMNode(this.refs.newName).value
+    const newName = ReactDOM.findDOMNode(this.newNameRef.current).value
     return this.props.model.save(
       {name: newName},
       {
@@ -93,10 +101,12 @@ export default {
         error: (model, response) => {
           if (response.status === 409)
             $.flashError(
-              I18n.t('A file named %{itemName} already exists in this folder.', {itemName: newName})
+              I18n.t('A file named %{itemName} already exists in this folder.', {
+                itemName: newName,
+              }),
             )
         },
-      }
+      },
     )
   },
 
@@ -112,22 +122,30 @@ export default {
       activeDragTarget: this.state.isActiveDragTarget,
     })
 
+    const isAccessRestricted = filesEnv.userFileAccessRestricted
+
     const attrs = {
       onClick: this.props.toggleSelected,
       className: classNameString,
       role: 'row',
       'aria-selected': this.props.isSelected,
-      draggable: !this.state.editing,
-      ref: 'FolderChild',
+      draggable: !this.state.editing && !isAccessRestricted,
+      ref: this.folderChildRef,
       onDragStart: event => {
         if (!this.props.isSelected) {
           this.props.toggleSelected()
         }
-        return this.props.dndOptions.onItemDragStart(event)
+        if (!isAccessRestricted) {
+          return this.props.dndOptions.onItemDragStart(event)
+        }
       },
     }
 
-    if (this.props.model instanceof Folder && !this.props.model.get('for_submissions')) {
+    if (
+      this.props.model instanceof Folder &&
+      !this.props.model.get('for_submissions') &&
+      !isAccessRestricted
+    ) {
       const toggleActive = setActive => {
         if (this.state.isActiveDragTarget !== setActive)
           this.setState({isActiveDragTarget: setActive})
@@ -142,7 +160,9 @@ export default {
         this.props.dndOptions.onItemDrop(event, this.props.model, ({success}) => {
           toggleActive(false)
           if (success)
-            ReactDOM.unmountComponentAtNode(ReactDOM.findDOMNode(this.refs.FolderChild).parentNode)
+            legacyUnmountComponentAtNode(
+              ReactDOM.findDOMNode(this.folderChildRef.current).parentNode,
+            )
         })
     }
     return attrs
@@ -159,7 +179,7 @@ export default {
   },
 
   handleFileLinkClick() {
-    FocusStore.setItemToFocus(ReactDOM.findDOMNode(this.refs.nameLink))
+    FocusStore.setItemToFocus(ReactDOM.findDOMNode(this.nameLinkRef.current))
     return this.props.previewItem()
   },
 }

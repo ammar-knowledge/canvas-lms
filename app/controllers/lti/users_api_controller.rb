@@ -19,12 +19,12 @@
 
 module Lti
   # @API Plagiarism Detection Platform Users
-  # **Plagiarism Detection Platform API for Users (Must use <a href="jwt_access_tokens.html">JWT access tokens</a> with this API).**
+  # **Plagiarism Detection Platform API for Users (Must use <a href="file.jwt_access_tokens.html">JWT access tokens</a> with this API).**
   class UsersApiController < ApplicationController
     include Lti::IMS::AccessTokenHelper
     include Api::V1::User
 
-    skip_before_action :load_user
+    skip_before_action :load_user, :require_user
     before_action :authorized_lti2_tool
     before_action :user_in_context, only: :show
     before_action :tool_in_context, only: :group_index

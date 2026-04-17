@@ -42,7 +42,7 @@ describe Quizzes::OutstandingQuizSubmissionsController, type: :request do
       course_factory
       @student = student_in_course.user
       @quiz = @course.quizzes.create!(title: "Outstanding")
-      @submission = Quizzes::SubmissionManager.new(@quiz).find_or_create_submission(@student, false)
+      @submission = Quizzes::SubmissionManager.new(@quiz).find_or_create_submission(@student, temporary: false)
       @submission.submission_data = {}
       @submission.end_at = 20.minutes.ago
       @submission.save!
@@ -50,7 +50,7 @@ describe Quizzes::OutstandingQuizSubmissionsController, type: :request do
 
     it "denies unprivileged access" do
       api_index(raw: true)
-      assert_status(401)
+      assert_forbidden
     end
 
     context "with privileged access" do
@@ -90,7 +90,7 @@ describe Quizzes::OutstandingQuizSubmissionsController, type: :request do
       course_factory
       @quiz = @course.quizzes.create!(title: "Outstanding")
       @quiz.save
-      @submission = Quizzes::SubmissionManager.new(@quiz).find_or_create_submission(@user, false)
+      @submission = Quizzes::SubmissionManager.new(@quiz).find_or_create_submission(@user, temporary: false)
       @submission.submission_data = {}
       @submission.end_at = 20.minutes.ago
       @submission.save!
@@ -99,13 +99,13 @@ describe Quizzes::OutstandingQuizSubmissionsController, type: :request do
     it "denies unprivileged access" do
       student_in_course
       api_grade({ raw: true }, { quiz_submission_ids: [@submission.id] })
-      assert_status 401
+      assert_forbidden
     end
 
     context "with privileged access" do
       before :once do
         student_in_course(active_all: true)
-        @submission2 = Quizzes::SubmissionManager.new(@quiz).find_or_create_submission(@user, false)
+        @submission2 = Quizzes::SubmissionManager.new(@quiz).find_or_create_submission(@user, temporary: false)
         @submission2.submission_data = {}
         @submission2.end_at = 20.minutes.ago
         @submission2.save!

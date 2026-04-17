@@ -72,8 +72,18 @@ module Types
 
     argument :for_attempt, Integer, <<~MD, required: false, default_value: nil
       What submission attempt the rubric assessment should be returned for. If not
-      specified, it will return the rubric assessment for the current submisssion
+      specified, it will return the rubric assessment for the current submission
       or submission history.
+    MD
+    argument :for_all_attempts, Boolean, <<~MD, required: false, default_value: nil
+      it will return all rubric assessments for the current submission
+      or submission history.
+    MD
+    argument :include_provisional_assessments, Boolean, <<~MD, required: false, default_value: false
+      When true, provisional rubric assessments that the current user has permission to see will be returned.
+      The Moderator has permission to see all provisional rubric assessments.
+      Provisional Graders only have permission to view their own provisional rubric assessments.
+      Default behavior is to omit provisional assessments entirely.
     MD
   end
 
@@ -82,12 +92,6 @@ module Types
     value "asc", value: :asc
     value "desc", value: :desc
   end
-end
-
-module Interfaces::SubmissionInterface
-  include Interfaces::BaseInterface
-
-  description "Types for submission or submission history"
 
   class LatePolicyStatusType < Types::BaseEnum
     graphql_name "LatePolicyStatusType"
@@ -96,6 +100,13 @@ module Interfaces::SubmissionInterface
     value "extended"
     value "none"
   end
+end
+
+module Interfaces::SubmissionInterface
+  include Interfaces::BaseInterface
+  include GraphQLHelpers::AnonymousGrading
+
+  description "Types for submission or submission history"
 
   def submission
     object
@@ -109,7 +120,9 @@ module Interfaces::SubmissionInterface
   end
   private :protect_submission_grades
 
-  field :assignment, Types::AssignmentType, null: true
+  field :anonymous_id, ID, null: true
+
+  field :assignment, Types::AssignmentType, null: false
   def assignment
     load_association(:assignment)
   end
@@ -140,14 +153,12 @@ module Interfaces::SubmissionInterface
 
   field :has_unread_rubric_assessment, Boolean, null: false
   def has_unread_rubric_assessment
-    load_association(:content_participations).then do
-      submission.content_participations.where(workflow_state: "unread", content_item: "rubric").exists?
-    end
+    Loaders::SubmissionLoaders::HasUnreadRubricAssessmentLoader.load(submission.id)
   end
 
   field :user, Types::UserType, null: true
   def user
-    load_association(:user)
+    unless_hiding_user_for_anonymous_grading { load_association(:user) }
   end
 
   field :attempt, Integer, null: false
@@ -155,28 +166,82 @@ module Interfaces::SubmissionInterface
     submission.attempt || 0 # Nil in database, make it 0 here for easier api
   end
 
-  field :comments_connection, Types::SubmissionCommentType.connection_type, null: true do
+  field :comments_connection, Types::SubmissionCommentType.connection_type, null: false do
     argument :filter, Types::SubmissionCommentFilterInputType, required: false, default_value: {}
     argument :sort_order,
              Types::SubmissionCommentsSortOrderType,
              required: false,
              default_value: nil
     argument :include_draft_comments, Boolean, required: false, default_value: false
+    argument :include_drafts_from_others, Boolean, <<~MD, required: false, default_value: false
+      When true and include_draft_comments is true, draft comments from other teachers will be included.
+      Only applies to users with grading permissions (teachers, TAs, etc).
+      When false, only the current user's draft comments are included.
+      Students never see draft comments from others regardless of this setting.
+    MD
+    argument :include_provisional_comments, Boolean, <<~MD, required: false, default_value: false
+      When true, provisional comments that the current user has permission to see will be returned.
+      The Moderator has permission to see all provisional comments.
+      Provisional Graders can see each other's comments if "Graders can view each other's comments" is enabled.
+      Otherwise, Provisional Graders can only see their own comments.
+      Students cannot see provisional comments.
+    MD
   end
-  def comments_connection(filter:, sort_order:, include_draft_comments:)
+  def comments_connection(filter:, sort_order:, include_draft_comments:, include_drafts_from_others:, include_provisional_comments:)
     filter = filter.to_h
-    all_comments, for_attempt, peer_review = filter.values_at(:all_comments, :for_attempt, :peer_review)
+    filter => all_comments:, for_attempt:, peer_review:, status:
+    use_visible_comments = status&.include?("ALL") || (include_draft_comments && include_drafts_from_others)
+
+    # Preload provisional comments only when needed (not using visible_submission_comments_for
+    # which already includes provisional comments via all_submission_comments)
+    provisional_comments_promise = if include_provisional_comments && !use_visible_comments
+                                     Loaders::AssociationLoader
+                                       .for(Submission, :provisional_grades)
+                                       .load(submission)
+                                       .then do |provisional_grades|
+                                         if provisional_grades.present?
+                                           SubmissionComment
+                                             .where(provisional_grade_id: provisional_grades.map(&:id))
+                                             .preload(:author, :provisional_grade)
+                                             .then do |provisional_comments|
+                                               provisional_comments
+                                             end
+                                         else
+                                           Promise.resolve([])
+                                         end
+                                       end
+                                   else
+                                     Promise.resolve([])
+                                   end
 
     load_association(:assignment).then do
       load_association(:submission_comments).then do
-        comments = include_draft_comments ? submission.comments_including_drafts_for(current_user) : submission.comments_excluding_drafts_for(current_user)
+        provisional_comments_promise.then do |provisional_comments|
+          comments = if use_visible_comments
+                       submission.visible_submission_comments_for(current_user)
+                     elsif include_draft_comments
+                       submission.comments_including_drafts_for(current_user)
+                     else
+                       submission.comments_excluding_drafts_for(current_user)
+                     end
+          comments = comments.to_a
 
-        comments = comments.select { |comment| comment.attempt.in?(attempt_filter(for_attempt)) } unless all_comments
-        comments = comments.select { |comment| comment.author == current_user } if peer_review && !all_comments
-        comments = comments.sort_by { |comment| [comment.created_at.to_i, comment.id] } if sort_order.present?
-        comments.reverse! if sort_order.to_s.casecmp("desc").zero?
+          if include_provisional_comments && !use_visible_comments
+            comments.concat(submission.visible_provisional_comments(current_user, provisional_comments:))
+          end
 
-        comments.select { |comment| comment.grants_right?(current_user, :read) }
+          comments = comments.select { |comment| comment.attempt.in?(attempt_filter(for_attempt)) } unless all_comments
+          comments = comments.select { |comment| comment.author == current_user } if peer_review && !all_comments
+          comments = comments.sort_by { |comment| [comment.created_at.to_i, comment.id] } if sort_order.present?
+          comments.reverse! if sort_order.to_s.casecmp("desc").zero?
+
+          if use_visible_comments
+            # Permissions checks are already applied in visible_submission_comments_for
+            comments
+          else
+            comments.select { |comment| comment.grants_right?(current_user, :read) }
+          end
+        end
       end
     end
   end
@@ -230,14 +295,19 @@ module Interfaces::SubmissionInterface
         method: :excused?,
         null: true
 
-  field :submitted_at, Types::DateTimeType, null: true
-  field :graded_at, Types::DateTimeType, null: true
-  field :posted_at, Types::DateTimeType, null: true
   field :cached_due_date, Types::DateTimeType, null: true
-  field :seconds_late, Float, null: true
+  field :graded_at, Types::DateTimeType, null: true
   field :posted, Boolean, method: :posted?, null: false
-  field :state, Types::SubmissionStateType, method: :workflow_state, null: false
+  field :posted_at, Types::DateTimeType, null: true
   field :redo_request, Boolean, null: true
+  field :seconds_late, Float, null: true
+  field :state, Types::SubmissionStateType, method: :workflow_state, null: false
+  field :submitted_at, Types::DateTimeType, null: true
+
+  field :has_postable_comments, Boolean, null: false
+  def has_postable_comments
+    Loaders::HasPostableCommentsLoader.load(submission.id)
+  end
 
   field :grade_hidden, Boolean, null: false
   def grade_hidden
@@ -256,14 +326,67 @@ module Interfaces::SubmissionInterface
     end
   end
 
+  field :auto_grade_result_present, Boolean, null: false, description: "Indicates whether an auto-grading result exists for the submission."
+  def auto_grade_result_present
+    Loaders::HasAutoGradeResultsLoader.load(submission)
+  end
+
+  field :ai_grade_result, Types::AiGradeResultType, null: true, description: "The AI grading result for the current submission attempt, if any."
+  def ai_grade_result
+    load_association(:course).then do |course|
+      next nil unless course.grants_any_right?(current_user, session, :manage_grades, :view_all_grades)
+
+      load_association(:auto_grade_results).then do |results|
+        results.find { |r| r.attempt == (object.attempt || 1) }
+      end
+    end
+  end
+
+  field :has_sub_assignment_submissions, Boolean, null: true
+  def has_sub_assignment_submissions
+    load_association(:assignment).then do
+      next false unless object.assignment.checkpoints_parent?
+
+      result = Checkpoints::SubAssignmentSubmissionSerializer.serialize(assignment: object.assignment, user_id: submission.user_id)
+      result[:has_active_submissions]
+    end
+  end
+
+  field :sub_assignment_submissions, [Types::SubAssignmentSubmissionType], null: true
+  def sub_assignment_submissions
+    load_association(:assignment).then do
+      next nil unless object.assignment.checkpoints_parent?
+
+      Loaders::AssociationLoader.for(Assignment, :sub_assignments).load(object.assignment).then do |sub_assignments|
+        sub_assignments&.filter_map do |sub_assignment|
+          sub_assignment_submission = Checkpoints::SubAssignmentSubmissionSerializer.find_single_sub_assignment_submission(sub_assignment, submission.user_id)
+
+          if sub_assignment_submission.presence
+            sub_assignment_submission
+          else
+            nil
+          end
+        end
+      end
+    end
+  end
+
   field :grading_status, Types::SubmissionGradingStatusType, null: true
-  field :late_policy_status, LatePolicyStatusType, null: true
-  field :late, Boolean, method: :late?, null: true
-  field :missing, Boolean, method: :missing?, null: true
+  field :last_commented_by_user_at, Types::DateTimeType, null: true
+  def last_commented_by_user_at
+    Loaders::LastCommentedByUserAtLoader.for(current_user:).load(submission.id)
+  end
+
   field :grade_matches_current_submission,
         Boolean,
         "was the grade given on the current submission (resubmission)",
         null: true
+  field :late, Boolean, method: :late?
+  field :late_policy_status, Types::LatePolicyStatusType, null: true
+  field :missing, Boolean
+  def missing
+    load_association(:assignment).then { object.missing? }
+  end
   field :submission_type, Types::AssignmentSubmissionType, null: true
 
   field :attachment, Types::FileType, null: true
@@ -299,7 +422,11 @@ module Interfaces::SubmissionInterface
                     in_app: context[:in_app],
                     request: context[:request],
                     preloaded_attachments:,
-                    user: current_user
+                    user: current_user,
+                    options: {
+                      domain_root_account: context[:domain_root_account],
+                    },
+                    location: object.asset_string
                   )
                 end
             end
@@ -307,9 +434,31 @@ module Interfaces::SubmissionInterface
       end
   end
 
+  field :custom_grade_status_id, ID, null: true
+
   field :custom_grade_status, String, null: true
   def custom_grade_status
-    submission.custom_grade_status&.name.to_s
+    load_association(:custom_grade_status).then do |status|
+      status&.name.to_s
+    end
+  end
+
+  field :status, String, null: false
+  def status
+    Promise.all([load_association(:assignment), load_association(:custom_grade_status)]).then do
+      Loaders::AssociationLoader.for(Assignment, :external_tool_tag).load(object.assignment).then do
+        object.status
+      end
+    end
+  end
+
+  field :status_tag, Types::SubmissionStatusTagType, null: false
+  def status_tag
+    load_association(:assignment).then do
+      Loaders::AssociationLoader.for(Assignment, :external_tool_tag).load(object.assignment).then do
+        object.status_tag
+      end
+    end
   end
 
   field :media_object, Types::MediaObjectType, null: true
@@ -317,38 +466,98 @@ module Interfaces::SubmissionInterface
     Loaders::MediaObjectLoader.load(object.media_comment_id)
   end
 
+  field :has_originality_report, Boolean, null: false
+  def has_originality_report
+    if submission.submitted_at.nil?
+      false
+    else
+      load_association(:originality_reports).then do |originality_reports|
+        originality_reports.any? { |o| submission.originality_report_matches_current_version?(o) }
+      end
+    end
+  end
+
+  field :vericite_data, [Types::VericiteDataType], null: true
+  def vericite_data
+    load_association(:assignment).then do
+      next nil unless object.vericite_data(lookup_data: false).present? &&
+                      object.grants_right?(current_user, :view_vericite_report) &&
+                      object.assignment.vericite_enabled
+
+      object.vericite_data(lookup_data: false)
+            .except(
+              :provider,
+              :last_processed_attempt,
+              :webhook_info,
+              :eula_agreement_timestamp,
+              :assignment_error,
+              :student_error,
+              :status
+            )
+            .map do |asset_string, data|
+        # For submission asset strings, use current submission object instead of loading
+        # OriginalityReport#asset_key appends ISO8601 timestamp to submission asset strings
+        target_promise = if asset_string.to_s.start_with?("submission_")
+                           Promise.resolve(object)
+                         else
+                           Loaders::AssetStringLoader.load(asset_string.to_s)
+                         end
+
+        target_promise.then do |target|
+          next if target.nil?
+
+          {
+            target:,
+            asset_string:,
+            report_url: data[:report_url],
+            score: data[:similarity_score],
+            status: data[:status],
+            state: data[:state],
+          }
+        end
+      end
+    end
+  end
+
   field :turnitin_data, [Types::TurnitinDataType], null: true
   def turnitin_data
-    return nil if object.turnitin_data.empty?
+    load_association(:assignment).then do
+      next nil unless object.grants_right?(current_user, :view_turnitin_report)
 
-    promises =
-      object
-      .turnitin_data
-      .except(
-        :last_processed_attempt,
-        :webhook_info,
-        :eula_agreement_timestamp,
-        :assignment_error,
-        :provider,
-        :student_error,
-        :status
-      )
-      .map do |asset_string, data|
-        Loaders::AssetStringLoader
-          .load(asset_string)
-          .then do |turnitin_context|
-            next if turnitin_context.nil?
+      Promise.all(
+        [
+          load_association(:originality_reports),
+          Loaders::AssociationLoader.for(Assignment, :assignment_configuration_tool_lookups).load(object.assignment)
+        ]
+      ).then do
+        next nil unless object.originality_data.present?
+
+        # matching Api:V1:Submission#submission_attempt_json
+        promises = object.originality_data.map do |asset_string, data|
+          # For submission asset strings, use current submission object instead of loading
+          # OriginalityReport#asset_key appends ISO8601 timestamp to submission asset strings
+          target_promise = if asset_string.to_s.start_with?("submission_")
+                             Promise.resolve(object)
+                           else
+                             Loaders::AssetStringLoader.load(asset_string.to_s)
+                           end
+
+          target_promise.then do |target|
+            next if target.nil?
 
             {
-              target: turnitin_context,
-              reportUrl: data[:report_url],
+              target:,
+              asset_string:,
+              report_url: data[:report_url],
               score: data[:similarity_score],
               status: data[:status],
               state: data[:state]
             }
           end
+        end
+        Promise.all(promises).then(&:compact)
       end
-    Promise.all(promises).then(&:compact)
+    end
   end
 
   field :originality_data, GraphQL::Types::JSON, null: true
@@ -366,7 +575,7 @@ module Interfaces::SubmissionInterface
     end
   end
 
-  field :rubric_assessments_connection, Types::RubricAssessmentType.connection_type, null: true do
+  field :rubric_assessments_connection, Types::RubricAssessmentType.connection_type, null: false do
     argument :filter,
              Types::SubmissionRubricAssessmentFilterInputType,
              required: false,
@@ -374,36 +583,85 @@ module Interfaces::SubmissionInterface
   end
   def rubric_assessments_connection(filter:)
     filter = filter.to_h
-    target_attempt = filter[:for_attempt] || object.attempt
+    target_attempt = filter[:for_all_attempts] ? nil : (filter[:for_attempt] || object.attempt)
+    include_provisional = filter.fetch(:include_provisional_assessments, false)
 
     Promise
       .all([load_association(:assignment), load_association(:rubric_assessments)])
-      .then do
-        assessments_needing_versions_loaded =
-          submission.rubric_assessments.reject { |ra| ra.artifact_attempt == target_attempt }
+      .then do |assignment_and_assessments|
+        assignment = assignment_and_assessments[0]
 
-        versionable_loader_promise =
-          if assessments_needing_versions_loaded.empty?
-            Promise.resolve(nil)
-          else
-            Loaders::AssociationLoader
-              .for(RubricAssessment, :versions)
-              .load_many(assessments_needing_versions_loaded)
-          end
+        moderation_graders_promise = if assignment&.moderated_grading?
+                                       Loaders::AssignmentLoaders::OrderedModerationGradersWithSlotTakenLoader
+                                         .load(assignment.id)
+                                     else
+                                       Promise.resolve([])
+                                     end
 
-        Promise
-          .all(
-            [
-              versionable_loader_promise,
+        moderation_graders_promise.then do |moderation_graders|
+          assignment.instance_variable_set(:@ordered_moderation_graders_with_slot_taken, moderation_graders) if assignment&.moderated_grading?
+
+          assessments_needing_versions_loaded = if target_attempt.nil?
+                                                  []
+                                                else
+                                                  submission.rubric_assessments.reject { |ra| ra.artifact_attempt == target_attempt }
+                                                end
+
+          versionable_loader_promise =
+            if assessments_needing_versions_loaded.empty?
+              Promise.resolve(nil)
+            else
               Loaders::AssociationLoader
-                .for(Assignment, :rubric_association)
-                .load(submission.assignment),
-              Loaders::AssociationLoader
-                .for(RubricAssessment, :rubric_association)
-                .load_many(submission.rubric_assessments)
-            ]
-          )
-          .then { submission.visible_rubric_assessments_for(current_user, attempt: target_attempt) }
+                .for(RubricAssessment, :versions)
+                .load_many(assessments_needing_versions_loaded)
+            end
+
+          provisional_loader_promise = if include_provisional
+                                         Loaders::AssociationLoader
+                                           .for(Submission, :provisional_grades)
+                                           .load(submission)
+                                           .then do |provisional_grades|
+                                             if provisional_grades.present?
+                                               RubricAssessment
+                                                 .where(
+                                                   artifact_type: "ModeratedGrading::ProvisionalGrade",
+                                                   artifact_id: provisional_grades.map(&:id)
+                                                 )
+                                                 .preload(:rubric_association, :assessor, :user)
+                                                 .then do |provisional_rubric_assessments|
+                                                   provisional_rubric_assessments
+                                                 end
+                                             else
+                                               Promise.resolve(nil)
+                                             end
+                                           end
+                                       else
+                                         Promise.resolve(nil)
+                                       end
+
+          Promise
+            .all(
+              [
+                versionable_loader_promise,
+                Loaders::AssociationLoader
+                  .for(Assignment, :rubric_association)
+                  .load(submission.assignment),
+                Loaders::AssociationLoader
+                  .for(RubricAssessment, :rubric_association)
+                  .load_many(submission.rubric_assessments),
+                provisional_loader_promise
+              ]
+            )
+            .then do |results|
+              provisional_assessments = results.last || []
+              submission.visible_rubric_assessments_for(
+                current_user,
+                attempt: target_attempt,
+                include_provisional:,
+                provisional_assessments:
+              )
+            end
+        end
       end
   end
 
@@ -427,6 +685,8 @@ module Interfaces::SubmissionInterface
 
   field :assignment_id, ID, null: false
 
+  field :external_tool_url, String, null: true
+
   field :group_id, ID, null: true
   def group_id
     # Unfortunately, we can't use submissions.group_id, since that value is
@@ -437,33 +697,47 @@ module Interfaces::SubmissionInterface
 
   field :preview_url, String, "This field is currently under development and its return value is subject to change.", null: true
   def preview_url
-    load_association(:assignment).then do |assignment|
-      if submission.not_submitted?
-        nil
-      elsif submission.submission_type == "basic_lti_launch"
+    return nil if submission.not_submitted? && !submission.partially_submitted?
+
+    Loaders::AssociationLoader.for(Submission, :assignment).load(submission).then do |assignment|
+      # Legacy submission versions serialized before course_id was added to the
+      # submissions table will have course_id: nil. Fall back to the assignment's
+      # context_id, which is always the course for standard assignments.
+      course_id = submission.course_id || assignment.context_id
+      if submission.submission_type == "basic_lti_launch"
         GraphQLHelpers::UrlHelpers.retrieve_course_external_tools_url(
-          submission.course_id,
+          course_id,
           assignment_id: submission.assignment_id,
           url: submission.external_tool_url(query_params: submission.tool_default_query_params(current_user)),
           display: "borderless",
-          host: context[:request].host_with_port
-        )
-      elsif submission.submission_type == "discussion_topic"
-        GraphQLHelpers::UrlHelpers.course_discussion_topic_url(
-          submission.course_id,
-          assignment.discussion_topic.id,
+          new_quizzes_native_experience_sessionless: false,
           host: context[:request].host_with_port,
-          embed: true
+          resource_link_lookup_uuid: submission.resource_link_lookup_uuid
         )
       else
-        GraphQLHelpers::UrlHelpers.course_assignment_submission_url(
-          submission.course_id,
-          submission.assignment_id,
-          submission.user_id,
-          host: context[:request].host_with_port,
-          preview: 1,
-          version: version_query_param(submission)
-        )
+        is_discussion_topic = submission.submission_type == "discussion_topic" || submission.partially_submitted?
+        show_full_discussion = is_discussion_topic ? { show_full_discussion_immediately: true } : {}
+        if assignment.anonymize_students?
+          GraphQLHelpers::UrlHelpers.course_assignment_anonymous_submission_url(
+            course_id,
+            submission.assignment_id,
+            submission.anonymous_id,
+            host: context[:request].host_with_port,
+            preview: 1,
+            version: version_query_param(submission),
+            **show_full_discussion
+          )
+        else
+          GraphQLHelpers::UrlHelpers.course_assignment_submission_url(
+            course_id,
+            submission.assignment_id,
+            submission.user_id,
+            host: context[:request].host_with_port,
+            preview: 1,
+            version: version_query_param(submission),
+            **show_full_discussion
+          )
+        end
       end
     end
   end
@@ -476,8 +750,18 @@ module Interfaces::SubmissionInterface
   field :word_count, Float, null: true
   delegate :word_count, to: :object
 
+  field :has_provisional_grade_by_current_user, Boolean, null: false, description: "Whether the current user has provided a provisional grade with a non-null score for this submission"
+  def has_provisional_grade_by_current_user
+    load_association(:assignment).then do |assignment|
+      return false unless assignment&.moderated_grading?
+      return false if assignment.grades_published_at.present?
+
+      Loaders::SubmissionLoaders::HasProvisionalGradeByCurrentUserLoader.for(current_user.id).load(submission.id)
+    end
+  end
+
   def version_query_param(submission)
-    if submission.attempt.present? && submission.attempt > 0
+    if submission.attempt.present? && submission.attempt > 0 && submission.submission_type != "online_quiz"
       submission.attempt - 1
     else
       submission.attempt

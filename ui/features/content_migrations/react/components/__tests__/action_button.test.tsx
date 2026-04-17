@@ -17,12 +17,13 @@
  */
 
 import React from 'react'
-import {render, screen} from '@testing-library/react'
+import {render, screen, waitFor} from '@testing-library/react'
 import userEvent, {PointerEventsCheckLevel} from '@testing-library/user-event'
-import doFetchApi from '@canvas/do-fetch-api-effect'
 import {ActionButton} from '../action_button'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 
-jest.mock('@canvas/do-fetch-api-effect')
+const server = setupServer()
 
 const generateMigrationIssues = (length: number) => {
   const data = []
@@ -49,11 +50,16 @@ const renderComponent = (overrideProps?: any) =>
       migration_issues_count={1}
       migration_issues_url="https://mock.issues.url"
       {...{...overrideProps}}
-    />
+    />,
   )
 
 describe('ActionButton', () => {
-  afterEach(() => jest.clearAllMocks())
+  beforeAll(() => server.listen())
+  afterAll(() => server.close())
+  afterEach(() => {
+    server.resetHandlers()
+    vi.clearAllMocks()
+  })
 
   it('renders button when issues count is greater than zero', () => {
     renderComponent()
@@ -66,27 +72,32 @@ describe('ActionButton', () => {
   })
 
   describe('modal', () => {
-    beforeEach(() =>
-      doFetchApi.mockReturnValue(Promise.resolve({json: generateMigrationIssues(1)}))
-    )
-
-    afterEach(() => {
-      jest.clearAllMocks()
-      jest.resetAllMocks()
+    beforeEach(() => {
+      server.use(
+        http.get('https://mock.issues.url', () => HttpResponse.json(generateMigrationIssues(1))),
+      )
     })
 
     it('opens on click', async () => {
       renderComponent()
       await userEvent.click(screen.getByRole('button', {name: 'View Issues'}))
       expect(
-        screen.getByRole('heading', {name: 'Canvas Cartridge Importer Issues'})
+        screen.getByRole('heading', {name: 'Canvas Cartridge Importer Issues'}),
       ).toBeInTheDocument()
     })
 
     it('fetch issues list', async () => {
+      let requestMade = false
+      server.use(
+        http.get('https://mock.issues.url', () => {
+          requestMade = true
+          return HttpResponse.json(generateMigrationIssues(1))
+        }),
+      )
+
       renderComponent()
       await userEvent.click(screen.getByRole('button', {name: 'View Issues'}))
-      expect(doFetchApi).toHaveBeenCalled()
+      await waitFor(() => expect(requestMade).toBe(true))
     })
 
     it('shows issues list', async () => {
@@ -102,9 +113,18 @@ describe('ActionButton', () => {
         const issues = generateMigrationIssues(15)
         const page1 = issues.slice(0, 10)
         const page2 = issues.slice(10, 15)
-        doFetchApi
-          .mockReturnValueOnce(Promise.resolve({json: page1}))
-          .mockReturnValueOnce(Promise.resolve({json: page2}))
+        let callCount = 0
+        server.use(
+          http.get('https://mock.issues.url/*', ({request}) => {
+            callCount++
+            const url = new URL(request.url)
+            const page = url.searchParams.get('page')
+            if (page === '2') {
+              return HttpResponse.json(page2)
+            }
+            return HttpResponse.json(page1)
+          }),
+        )
       })
 
       it('shows "Show More" button', async () => {
@@ -114,14 +134,24 @@ describe('ActionButton', () => {
       })
 
       it('"Show More" button calls fetch', async () => {
+        let page2Requested = false
+        server.use(
+          http.get('https://mock.issues.url/*', ({request}) => {
+            const url = new URL(request.url)
+            const page = url.searchParams.get('page')
+            if (page === '2') {
+              page2Requested = true
+              return HttpResponse.json(generateMigrationIssues(15).slice(10, 15))
+            }
+            return HttpResponse.json(generateMigrationIssues(15).slice(0, 10))
+          }),
+        )
+
         renderComponent({migration_issues_count: 15})
         await userEvent.click(screen.getByRole('button', {name: 'View Issues'}))
         await userEvent.click(await screen.findByRole('button', {name: 'Show More'}))
 
-        expect(doFetchApi).toHaveBeenCalledWith({
-          path: 'https://mock.issues.url/?page=2&per_page=10',
-          method: 'GET',
-        })
+        await waitFor(() => expect(page2Requested).toBe(true))
       })
 
       it('"Show More" updates issues list', async () => {
@@ -147,23 +177,37 @@ describe('ActionButton', () => {
       })
 
       it('shows alert if fetch fails', async () => {
-        doFetchApi.mockReset()
-        doFetchApi
-          .mockReturnValueOnce(Promise.resolve({json: generateMigrationIssues(10)}))
-          .mockImplementationOnce(() => Promise.reject())
+        let callCount = 0
+        server.use(
+          http.get('https://mock.issues.url/*', ({request}) => {
+            callCount++
+            if (callCount === 1) {
+              return HttpResponse.json(generateMigrationIssues(10))
+            }
+            return new HttpResponse(null, {status: 500})
+          }),
+        )
         renderComponent({migration_issues_count: 15})
         await userEvent.click(screen.getByRole('button', {name: 'View Issues'}))
         await userEvent.click(await screen.findByRole('button', {name: 'Show More'}))
 
         expect(
-          await screen.findByText('Failed to fetch migration issues data.')
+          await screen.findByText('Failed to fetch migration issues data.'),
         ).toBeInTheDocument()
       })
 
-      it.skip('shows spinner when loading more issues', async () => {
-        doFetchApi
-          .mockReturnValueOnce(Promise.resolve({json: generateMigrationIssues(10)}))
-          .mockReturnValueOnce(new Promise(resolve => setTimeout(resolve, 5000)))
+      it('shows spinner when loading more issues', async () => {
+        let callCount = 0
+        server.use(
+          http.get('https://mock.issues.url/*', async () => {
+            callCount++
+            if (callCount === 1) {
+              return HttpResponse.json(generateMigrationIssues(10))
+            }
+            await new Promise(resolve => setTimeout(resolve, 5000))
+            return HttpResponse.json(generateMigrationIssues(5))
+          }),
+        )
         renderComponent({migration_issues_count: 15})
         await userEvent.click(screen.getByRole('button', {name: 'View Issues'}))
         await userEvent.click(await screen.findByRole('button', {name: 'Show More'}))
@@ -172,7 +216,7 @@ describe('ActionButton', () => {
     })
 
     it('shows alert if fetch fails', async () => {
-      doFetchApi.mockImplementation(() => Promise.reject())
+      server.use(http.get('https://mock.issues.url', () => new HttpResponse(null, {status: 500})))
       renderComponent()
       await userEvent.click(screen.getByRole('button', {name: 'View Issues'}))
 
@@ -180,7 +224,12 @@ describe('ActionButton', () => {
     })
 
     it('shows spinner when loading', async () => {
-      doFetchApi.mockReturnValue(new Promise(resolve => setTimeout(resolve, 5000)))
+      server.use(
+        http.get(
+          'https://mock.issues.url',
+          () => new Promise(resolve => setTimeout(resolve, 5000)),
+        ),
+      )
       renderComponent()
       await userEvent.click(screen.getByRole('button', {name: 'View Issues'}))
 
@@ -194,9 +243,11 @@ describe('ActionButton', () => {
       const xButton = screen.queryAllByText('Close')[0]
       await user.click(xButton)
 
-      expect(
-        screen.queryByRole('heading', {name: 'Canvas Cartridge Importer Issues'})
-      ).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('heading', {name: 'Canvas Cartridge Importer Issues'}),
+        ).not.toBeInTheDocument()
+      })
     })
 
     it('closes with close button', async () => {
@@ -206,9 +257,11 @@ describe('ActionButton', () => {
       const closeButton = screen.queryAllByText('Close')[1]
       await user.click(closeButton)
 
-      expect(
-        screen.queryByRole('heading', {name: 'Canvas Cartridge Importer Issues'})
-      ).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('heading', {name: 'Canvas Cartridge Importer Issues'}),
+        ).not.toBeInTheDocument()
+      })
     })
   })
 })

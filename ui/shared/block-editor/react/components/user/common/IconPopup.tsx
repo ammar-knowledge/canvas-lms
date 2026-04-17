@@ -22,9 +22,9 @@ import {Button} from '@instructure/ui-buttons'
 import {Popover} from '@instructure/ui-popover'
 import {IconPicker} from '../blocks/IconBlock'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('block-editor/icon-popup')
+const I18n = createI18nScope('block-editor')
 
 export type IconPopupProps = {
   iconName?: string
@@ -49,8 +49,9 @@ const IconPopup = ({iconName}: IconPopupProps) => {
     (newIconName: string) => {
       setSelectedIcon(newIconName)
       setProp((prps: {iconName: string}) => (prps.iconName = newIconName))
+      handleHideContent()
     },
-    [setProp]
+    [handleHideContent, setProp],
   )
 
   return (
@@ -72,7 +73,7 @@ const IconPopup = ({iconName}: IconPopupProps) => {
       shouldReturnFocus={true}
       shouldCloseOnDocumentClick={true}
     >
-      <IconPicker iconName={selectedIcon} onSelect={handleSelectIcon} />
+      <IconPicker iconName={selectedIcon} onSelect={handleSelectIcon} onClose={handleHideContent} />
     </Popover>
   )
 }

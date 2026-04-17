@@ -31,15 +31,15 @@ unless defined? BASE_FIXTURE_DIR
   HTML_SANITIZATION_FIXTURE_DIR = BASE_FIXTURE_DIR + "html_sanitization/"
 end
 
-def get_question_hash(dir, name, delete_answer_ids: true, **opts)
-  hash = get_quiz_data(dir, name, **opts).first.first
+def get_question_hash(dir, name, delete_answer_ids: true, **)
+  hash = get_quiz_data(dir, name, **).first.first
   hash[:answers].each { |a| a.delete(:id) } if delete_answer_ids
   hash
 end
 
-def get_quiz_data(dir, name, **opts)
+def get_quiz_data(dir, name, **)
   File.open(File.join(dir, "%s.xml" % name), "r") do |file|
-    Qti.convert_xml(file.read, **opts)
+    Qti.convert_xml(file.read, **)
   end
 end
 
@@ -57,12 +57,12 @@ def get_manifest_node(question, opts = {})
   s["value"] = "237.0"
   allow(manifest_node).to receive(:at_css).with("instructureField[name=max_score]").and_return(s)
 
-  it = nil
+  interaction = nil
   if opts[:interaction_type]
-    it = Object.new
-    allow(it).to receive(:text).and_return(opts[:interaction_type])
+    interaction = Object.new
+    allow(interaction).to receive(:text).and_return(opts[:interaction_type])
   end
-  allow(manifest_node).to receive(:at_css).with("interactionType").and_return(it)
+  allow(manifest_node).to receive(:at_css).with("interactionType").and_return(interaction)
 
   bbqt = nil
   if opts[:bb_question_type]

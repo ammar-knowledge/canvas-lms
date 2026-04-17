@@ -20,6 +20,75 @@ import {render} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import CustomEmojiDenyList from '../CustomEmojiDenyList'
 
+let mockPickerOpen = false
+vi.mock('@canvas/emoji', () => ({
+  EmojiPicker: ({insertEmoji, excludedEmojis = []}) => {
+    const [showPicker, setShowPicker] = React.useState(mockPickerOpen)
+    const availableEmojis = [
+      {id: 'kissing_heart', name: 'Face Throwing a Kiss', emoji: '😘'},
+      {
+        id: 'stuck_out_tongue_closed_eyes',
+        name: 'Face With Stuck-Out Tongue and Tightly-Closed Eyes',
+        emoji: '😝',
+      },
+    ]
+    const filteredEmojis = availableEmojis.filter(emoji => !excludedEmojis.includes(emoji.id))
+
+    const handleToggle = () => {
+      const newValue = !showPicker
+      setShowPicker(newValue)
+      mockPickerOpen = newValue
+    }
+
+    const handleEmojiClick = emoji => {
+      insertEmoji({id: emoji.id, name: emoji.name})
+      setShowPicker(false)
+      mockPickerOpen = false
+    }
+
+    return (
+      <>
+        <button onClick={handleToggle}>Open emoji menu</button>
+        {showPicker &&
+          filteredEmojis.map(emoji => (
+            <button key={emoji.id} onClick={() => handleEmojiClick(emoji)}>
+              {emoji.emoji}, {emoji.id}
+            </button>
+          ))}
+      </>
+    )
+  },
+}))
+
+vi.mock('emoji-mart', () => ({
+  Emoji: () => 'emoji',
+}))
+
+vi.mock('emoji-mart/data/all.json', () => {
+  const emojis = {
+    middle_finger: {
+      name: 'Reversed Hand with Middle Finger Extended',
+      id: 'middle_finger',
+    },
+    eggplant: {
+      name: 'Aubergine',
+      id: 'eggplant',
+    },
+    kissing_heart: {
+      name: 'Face Throwing a Kiss',
+      id: 'kissing_heart',
+    },
+    stuck_out_tongue_closed_eyes: {
+      name: 'Face With Stuck-Out Tongue and Tightly-Closed Eyes',
+      id: 'stuck_out_tongue_closed_eyes',
+    },
+  }
+  return {
+    default: {emojis},
+    emojis,
+  }
+})
+
 describe('CustomEmojiDenyList', () => {
   let originalENV
 
@@ -31,13 +100,14 @@ describe('CustomEmojiDenyList', () => {
   afterEach(() => {
     window.ENV = originalENV
     localStorage.clear()
+    mockPickerOpen = false
   })
 
   it('renders a tag for each emoji in the deny list', () => {
     window.ENV.EMOJI_DENY_LIST = 'middle_finger,eggplant'
     const {getByRole} = render(<CustomEmojiDenyList />)
     expect(
-      getByRole('button', {name: /Remove emoji "Reversed Hand with Middle Finger Extended"/})
+      getByRole('button', {name: /Remove emoji "Reversed Hand with Middle Finger Extended"/}),
     ).toBeInTheDocument()
     expect(getByRole('button', {name: /Remove emoji "Aubergine"/})).toBeInTheDocument()
   })
@@ -51,14 +121,14 @@ describe('CustomEmojiDenyList', () => {
     expect(queryByRole('button', tagCriteria)).not.toBeInTheDocument()
   })
 
-  it.skip('adds a tag to the list when an emoji is clicked', async () => {
+  it('adds a tag to the list when an emoji is clicked', async () => {
     const {getByRole} = render(<CustomEmojiDenyList />)
     await userEvent.click(getByRole('button', {name: /Open emoji menu/}))
     await userEvent.click(getByRole('button', {name: /😘, kissing_heart/}))
     expect(getByRole('button', {name: /Remove emoji "Face Throwing a Kiss"/})).toBeInTheDocument()
   })
 
-  it.skip('maintains the deny list value in a hidden input', async () => {
+  it('maintains the deny list value in a hidden input', async () => {
     const {getByRole, getByTestId} = render(<CustomEmojiDenyList />)
     const button = getByRole('button', {name: /Open emoji menu/})
     await userEvent.click(button)

@@ -16,9 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('planner')
+const I18n = createI18nScope('planner')
 
 let externalConversion
 
@@ -40,6 +40,8 @@ export function assignmentType(itemType) {
       return I18n.t('Quiz')
     case 'Discussion':
       return I18n.t('Discussion')
+    case 'Discussion Checkpoint':
+      return I18n.t('Discussion')
     case 'Assignment':
       return I18n.t('Assignment')
     case 'Page':
@@ -51,6 +53,8 @@ export function assignmentType(itemType) {
     case 'Calendar Event':
       return I18n.t('Calendar Event')
     case 'Peer Review':
+      return I18n.t('Peer Review')
+    case 'Peer Review Sub Assignment':
       return I18n.t('Peer Review')
     default:
       return I18n.t('Task')

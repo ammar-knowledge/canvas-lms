@@ -19,9 +19,9 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 import classNames from 'classnames'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('conditional_release')
+const I18n = createI18nScope('conditional_release')
 
 const {bool, func, object} = PropTypes
 
@@ -33,6 +33,7 @@ export default class ConditionToggle extends React.Component {
       isDisabled: bool,
       path: object,
       handleToggle: func,
+      readOnly: bool,
     }
   }
 
@@ -50,8 +51,8 @@ export default class ConditionToggle extends React.Component {
     return this.props.isDisabled
       ? I18n.t('Splitting disabled: reached maximum of three assignment groups in a scoring range')
       : this.props.isAnd
-      ? I18n.t('Click to split set here')
-      : I18n.t('Click to merge sets here')
+        ? I18n.t('Click to split set here')
+        : I18n.t('Click to merge sets here')
   }
 
   handleToggle() {
@@ -67,20 +68,25 @@ export default class ConditionToggle extends React.Component {
       'cr-condition-toggle__or': !this.props.isAnd,
       'cr-condition-toggle__fake': this.props.isFake,
       'cr-condition-toggle__disabled': this.props.isDisabled,
+      'cr-condition-toggle__read-only': this.props.readOnly,
     })
 
     return (
       <div className={toggleClasses}>
-        <button
-          type="button"
-          className="cr-condition-toggle__button"
-          title={this.renderAriaLabel()}
-          aria-label={this.renderAriaLabel()}
-          aria-disabled={this.props.isDisabled}
-          onClick={this.handleToggle}
-        >
-          {this.renderLabel()}
-        </button>
+        {this.props.readOnly ? (
+          <div className="cr-condition-toggle__button">{this.renderLabel()}</div>
+        ) : (
+          <button
+            type="button"
+            className="cr-condition-toggle__button"
+            title={this.renderAriaLabel()}
+            aria-label={this.renderAriaLabel()}
+            aria-disabled={this.props.isDisabled}
+            onClick={this.handleToggle}
+          >
+            {this.renderLabel()}
+          </button>
+        )}
       </div>
     )
   }

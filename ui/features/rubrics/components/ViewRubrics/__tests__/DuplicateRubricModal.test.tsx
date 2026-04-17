@@ -18,34 +18,48 @@
 import React from 'react'
 import Router from 'react-router'
 import {BrowserRouter} from 'react-router-dom'
-import {render, waitFor} from '@testing-library/react'
-import {QueryProvider} from '@canvas/query'
+import {render, waitFor, cleanup} from '@testing-library/react'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
 import {DuplicateRubricModal} from '../DuplicateRubricModal'
 import * as ViewRubricQueries from '../../../queries/ViewRubricQueries'
+import fakeENV from '@canvas/test-utils/fakeENV'
+import {destroyContainer as destroyFlashAlertContainer} from '@instructure/platform-alerts'
 
-jest.mock('react-router', () => ({
-  ...jest.requireActual('react-router'),
-  useParams: jest.fn(),
-}))
-const onDismiss = jest.fn()
-const setPopoverIsOpen = jest.fn()
-const duplicateRubricMock = jest.fn()
-jest.mock('../../../queries/ViewRubricQueries', () => ({
-  ...jest.requireActual('../../../queries/ViewRubricQueries'),
-  duplicateRubric: () => duplicateRubricMock,
-}))
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual<typeof import('react-router')>('react-router')
+  return {
+    ...actual,
+    default: actual,
+    useParams: vi.fn(),
+  }
+})
+const onDismiss = vi.fn()
+const setPopoverIsOpen = vi.fn()
+const duplicateRubricMock = vi.fn()
+vi.mock('../../../queries/ViewRubricQueries', async () => {
+  const actual = await vi.importActual('../../../queries/ViewRubricQueries')
+  return {
+    ...actual,
+    duplicateRubric: () => duplicateRubricMock,
+  }
+})
 
 describe('RubricForm Tests', () => {
   beforeEach(() => {
-    jest.spyOn(Router, 'useParams').mockReturnValue({accountId: '1', rubricId: '1'})
+    fakeENV.setup()
+    vi.spyOn(Router, 'useParams').mockReturnValue({accountId: '1', rubricId: '1'})
   })
+
   afterEach(() => {
-    jest.resetAllMocks()
+    cleanup()
+    destroyFlashAlertContainer()
+    fakeENV.teardown()
+    vi.resetAllMocks()
   })
 
   const renderComponent = (isOpen = true) => {
     return render(
-      <QueryProvider>
+      <MockedQueryProvider>
         <BrowserRouter>
           <DuplicateRubricModal
             id="1"
@@ -109,11 +123,11 @@ describe('RubricForm Tests', () => {
             ratingOrder="ascending"
           />
         </BrowserRouter>
-      </QueryProvider>
+      </MockedQueryProvider>,
     )
   }
 
-  const getSRAlert = () => document.querySelector('#flash_screenreader_holder')?.textContent
+  const getSRAlert = () => document.querySelector('#flash_screenreader_holder')?.textContent?.trim()
 
   it('renders the DuplicateRubricModal component', () => {
     const {getByText} = renderComponent()
@@ -140,13 +154,13 @@ describe('RubricForm Tests', () => {
   })
 
   it('duplicates the rubric when the duplicate button is clicked', async () => {
-    jest
-      .spyOn(ViewRubricQueries, 'duplicateRubric')
-      .mockImplementation(() => Promise.resolve({id: '1', title: 'Rubric 1', pointsPossible: 10}))
+    vi.spyOn(ViewRubricQueries, 'duplicateRubric').mockImplementation(() =>
+      Promise.resolve({id: '1', title: 'Rubric 1', pointsPossible: 10}),
+    )
     const {getByTestId} = renderComponent()
     const duplicateButton = getByTestId('duplicate-rubric-modal-button')
     duplicateButton?.click()
     await new Promise(resolve => setTimeout(resolve, 0))
-    expect(getSRAlert()).toEqual('Rubric duplicated successfully')
+    expect(getSRAlert()).toContain('Rubric duplicated successfully')
   })
 })

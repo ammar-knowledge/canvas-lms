@@ -16,11 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* eslint-disable no-void */
-
 import $ from 'jquery'
-import {without} from 'lodash'
-import htmlEscape, {raw} from '@instructure/html-escape'
+import {without} from 'es-toolkit/compat'
+import {htmlEscape, raw} from '@instructure/html-escape'
 import '@canvas/jquery/jquery.toJSON'
 import '@canvas/jquery/jquery.disableWhileLoading'
 import '../../jquery/jquery.instructure_forms'
@@ -106,14 +104,13 @@ export default {
       $input = field.element || this.findField(fieldName, useGlobalSelector)
       html =
         field.message ||
-        // eslint-disable-next-line no-loop-func
         function () {
           let i, len, ref_
           const results1 = []
           for (i = 0, len = field.length; i < len; i++) {
             message = field[i].message
             results1.push(
-              htmlEscape(((ref_ = this.translations) != null ? ref_[message] : void 0) || message)
+              htmlEscape(((ref_ = this.translations) != null ? ref_[message] : void 0) || message),
             )
           }
           return results1
@@ -138,7 +135,7 @@ export default {
       'aria-describedby',
       errorDescriptionField.description.attr('id') +
         ' ' +
-        errorDescriptionField.originalDescriptionIds
+        errorDescriptionField.originalDescriptionIds,
     )
   },
   findOrCreateDescriptionField($input) {

@@ -16,14 +16,17 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import fetchMock from 'fetch-mock'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 import fetchOutcomes, {fetchUrl} from '../fetchOutcomes'
 import NaiveFetchDispatch from '../NaiveFetchDispatch'
 
+const server = setupServer()
+
 describe('fetchOutcomes', () => {
-  afterEach(() => {
-    fetchMock.restore()
-  })
+  beforeAll(() => server.listen())
+  afterAll(() => server.close())
+  afterEach(() => server.resetHandlers())
 
   const defaultResponses = () => ({
     groupsResponse: [
@@ -125,6 +128,46 @@ describe('fetchOutcomes', () => {
         },
       ],
     },
+    assignmentsResponse: [
+      {
+        id: 1,
+        course_id: 1,
+        rubric: [
+          {
+            points: 5,
+            ratings: [
+              {
+                points: 5,
+                description: 'Full Marks',
+              },
+              {
+                points: 0,
+                description: 'No Marks',
+              },
+            ],
+          },
+          {
+            points: 5,
+            description: 'Outcome 1',
+            ratings: [
+              {
+                points: 5,
+                description: 'Exceeds Expectations',
+              },
+              {
+                points: 3,
+                description: 'Meets Expectations',
+              },
+              {
+                points: 0,
+                description: 'Does Not Meet Expectations',
+              },
+            ],
+            outcome_id: 1,
+          },
+        ],
+      },
+    ],
   })
 
   const expectedOutcomes = [
@@ -170,74 +213,94 @@ describe('fetchOutcomes', () => {
     rollupsResponse,
     resultsResponses,
     alignmentsResponse,
+    assignmentsResponse,
     fullResponse = false,
   }) => {
-    fetchMock.mock('/api/v1/courses/1/outcome_groups?per_page=100', groupsResponse)
-    fetchMock.mock(
-      '/api/v1/courses/1/outcome_group_links?outcome_style=full&per_page=100',
-      linksResponse
+    server.use(
+      http.get('/api/v1/courses/1/outcome_groups', () => {
+        return HttpResponse.json(groupsResponse)
+      }),
+      http.get('/api/v1/courses/1/outcome_group_links', () => {
+        return HttpResponse.json(linksResponse)
+      }),
+      http.get('/api/v1/courses/1/outcome_rollups', () => {
+        return HttpResponse.json(rollupsResponse)
+      }),
+      http.get('/api/v1/courses/1/outcome_alignments', () => {
+        return HttpResponse.json(alignmentsResponse)
+      }),
+      http.get('/api/v1/courses/1/outcome_results', ({request}) => {
+        const urlStr = request.url
+        // Match both encoded (%5B%5D) and unencoded ([]) versions
+        const outcomeIdPattern = /outcome_ids(?:%5B%5D|\[\])=(\d+)/g
+        const ids = []
+        let match
+        while ((match = outcomeIdPattern.exec(urlStr))) {
+          ids.push(match[1])
+        }
+        const results = {outcome_results: [], linked: {assignments: []}}
+        if (fullResponse) {
+          Object.values(resultsResponses).forEach(result => {
+            results.outcome_results.push(...result.outcome_results)
+            results.linked.assignments.push(...result.linked.assignments)
+          })
+        } else {
+          ids.forEach(id => {
+            const response = resultsResponses[id] || {
+              outcome_results: [],
+              linked: {assignments: []},
+            }
+            results.outcome_results.push(...response.outcome_results)
+            results.linked.assignments.push(...response.linked.assignments)
+          })
+        }
+        return HttpResponse.json(results)
+      }),
+      http.get('/api/v1/courses/1/assignments', () => {
+        return HttpResponse.json(assignmentsResponse)
+      }),
     )
-    fetchMock.mock('/api/v1/courses/1/outcome_rollups?user_ids[]=2&per_page=100', rollupsResponse)
-    fetchMock.mock('/api/v1/courses/1/outcome_alignments?student_id=2', alignmentsResponse)
-    fetchMock.mock('begin:/api/v1/courses/1/outcome_results', url => {
-      const outcomeIdPattern = /outcome_ids\[\]=(\d+)/g
-      const ids = []
-      let match
-      while ((match = outcomeIdPattern.exec(url))) {
-        ids.push(match[1])
-      }
-      const results = {outcome_results: [], linked: {assignments: []}}
-      if (fullResponse) {
-        Object.values(resultsResponses).forEach(result => {
-          results.outcome_results.push(...result.outcome_results)
-          results.linked.assignments.push(...result.linked.assignments)
-        })
-      } else {
-        ids.forEach(id => {
-          const response = resultsResponses[id] || {outcome_results: [], linked: {assignments: []}}
-          results.outcome_results.push(...response.outcome_results)
-          results.linked.assignments.push(...response.linked.assignments)
-        })
-      }
-      return results
-    })
   }
 
-  it('throws error if http throws error', done => {
-    fetchMock.mock('*', 500)
-    fetchOutcomes(1, 1)
-      .then(() => done.fail())
-      .catch(() => done())
+  it('throws error if http throws error', async () => {
+    server.use(
+      http.get('*', () => {
+        return new HttpResponse(null, {status: 500})
+      }),
+    )
+    await expect(fetchOutcomes(1, 1)).rejects.toThrow()
   })
 
-  it('handles complete request', () => {
+  it('handles complete request', async () => {
     const responses = defaultResponses()
     mockAll(responses)
-    return fetchOutcomes(1, 2).then(({outcomeGroups, outcomes}) => {
-      expect(outcomeGroups).toMatchObject(responses.groupsResponse)
-      expect(outcomes).toMatchObject(expectedOutcomes)
-    })
+    const {outcomeGroups, outcomes} = await fetchOutcomes(1, 2)
+    expect(outcomeGroups).toMatchObject(responses.groupsResponse)
+    expect(outcomes).toMatchObject(expectedOutcomes)
+    const testResults = outcomes.map(outcome => outcome.results[0])
+    expect(testResults[0].outcomeRatingsFromRubric).toMatchObject(
+      responses.assignmentsResponse[0].rubric[1].ratings,
+    )
+    expect(testResults[1].outcomeRatingsFromRubric).toBeUndefined()
   })
 
-  it('removes hidden results', () => {
+  it('removes hidden results', async () => {
     const responses = defaultResponses()
     responses.resultsResponses['1'].outcome_results[1].hidden = true
     mockAll(responses)
-    return fetchOutcomes(1, 2).then(({outcomes}) => {
-      expect(outcomes[0].results).toHaveLength(2)
-    })
+    const {outcomes} = await fetchOutcomes(1, 2)
+    expect(outcomes[0].results).toHaveLength(2)
   })
 
-  it('removes empty outcome groups', () => {
+  it('removes empty outcome groups', async () => {
     const responses = defaultResponses()
     responses.linksResponse = responses.linksResponse.slice(0, 1)
     mockAll(responses)
-    return fetchOutcomes(1, 2).then(({outcomeGroups}) => {
-      expect(outcomeGroups).toHaveLength(1)
-    })
+    const {outcomeGroups} = await fetchOutcomes(1, 2)
+    expect(outcomeGroups).toHaveLength(1)
   })
 
-  it('handles multiple results requests', () => {
+  it('handles multiple results requests', async () => {
     const responses = defaultResponses()
     for (let i = 3; i <= 20; i++) {
       responses.linksResponse.push({
@@ -249,12 +312,11 @@ describe('fetchOutcomes', () => {
       })
     }
     mockAll(responses)
-    return fetchOutcomes(1, 2).then(({outcomes}) => {
-      expect(outcomes).toHaveLength(20)
-      expect(outcomes.find(o => o.id === 12).results).toHaveLength(1)
-    })
+    const {outcomes} = await fetchOutcomes(1, 2)
+    expect(outcomes).toHaveLength(20)
+    expect(outcomes.find(outcome => outcome.id === 12).results).toHaveLength(1)
   })
-  it('handles an unexpected outcome result', () => {
+  it('handles an unexpected outcome result', async () => {
     /* the idea here is to simulate an outcome_results response
        with elements not currently in the 'outcomeResultsByOutcomeId' variable
        so that the array adds the inexisting index before pushing the data */
@@ -269,9 +331,8 @@ describe('fetchOutcomes', () => {
       })
     }
     mockAll(responses)
-    return fetchOutcomes(1, 2).then(({outcomes}) => {
-      expect(outcomes).toHaveLength(10)
-    })
+    const {outcomes} = await fetchOutcomes(1, 2)
+    expect(outcomes).toHaveLength(10)
   })
   describe('fetchUrl', () => {
     let dispatch
@@ -281,60 +342,62 @@ describe('fetchOutcomes', () => {
     })
 
     const mockRequests = (first, second, third) => {
-      fetchMock.mock('/first', {
-        body: first,
-        headers: {
-          link: '</current>; rel="current",</second>; rel="next",</first>; rel="first",</last>; rel="last"',
-        },
-      })
-      fetchMock.mock('/second', {
-        body: second,
-        headers: !third
-          ? null
-          : {
-              link: '</current>; rel="current",</third>; rel="next",</first>; rel="first",</last>; rel="last"',
+      server.use(
+        http.get('/first', () => {
+          return HttpResponse.json(first, {
+            headers: {
+              link: '</current>; rel="current",</second>; rel="next",</first>; rel="first",</last>; rel="last"',
             },
-      })
+          })
+        }),
+        http.get('/second', () => {
+          const headers = !third
+            ? {}
+            : {
+                link: '</current>; rel="current",</third>; rel="next",</first>; rel="first",</last>; rel="last"',
+              }
+          return HttpResponse.json(second, {headers})
+        }),
+      )
       if (third) {
-        fetchMock.mock('/third', {
-          body: third,
-          headers: {
-            link: '</current>; rel="current",</first>; rel="first",</last>; rel="last"',
-          },
-        })
+        server.use(
+          http.get('/third', () => {
+            return HttpResponse.json(third, {
+              headers: {
+                link: '</current>; rel="current",</first>; rel="first",</last>; rel="last"',
+              },
+            })
+          }),
+        )
       }
     }
 
-    it('combines result arrays', () => {
+    it('combines result arrays', async () => {
       mockRequests([1, 'hello world', {foo: 'bar'}], [2, 'goodbye', {baz: 'bat'}])
-      return fetchUrl('/first', dispatch).then(resp => {
-        expect(resp).toEqual([1, 'hello world', {foo: 'bar'}, 2, 'goodbye', {baz: 'bat'}])
-      })
+      const resp = await fetchUrl('/first', dispatch)
+      expect(resp).toEqual([1, 'hello world', {foo: 'bar'}, 2, 'goodbye', {baz: 'bat'}])
     })
 
-    it('combines result objects', () => {
+    it('combines result objects', async () => {
       mockRequests({a: 'b', c: ['d', 'e', 'f']}, {g: 'h', c: ['i', 'j', 'k']})
-      return fetchUrl('/first', dispatch).then(resp => {
-        expect(resp).toEqual({a: 'b', c: ['d', 'e', 'f', 'i', 'j', 'k'], g: 'h'})
-      })
+      const resp = await fetchUrl('/first', dispatch)
+      expect(resp).toEqual({a: 'b', c: ['d', 'e', 'f', 'i', 'j', 'k'], g: 'h'})
     })
 
-    it('handles three requests', () => {
+    it('handles three requests', async () => {
       mockRequests({a: 'b', c: ['d', 'e', 'f']}, {g: 'h', c: ['i', 'j', 'k']}, {a: 'x'})
-      return fetchUrl('/first', dispatch).then(resp => {
-        expect(resp).toEqual({a: 'x', c: ['d', 'e', 'f', 'i', 'j', 'k'], g: 'h'})
-      })
+      const resp = await fetchUrl('/first', dispatch)
+      expect(resp).toEqual({a: 'x', c: ['d', 'e', 'f', 'i', 'j', 'k'], g: 'h'})
     })
 
-    it('handles deeply nested objects', () => {
+    it('handles deeply nested objects', async () => {
       mockRequests(
         {a: {b: {c: {d: ['e', 'f'], g: ['h', 'i'], j: 'k'}}}},
-        {a: {b: {c: {d: ['e2', 'f2'], g: ['h2', 'i2'], j: 'k2'}}}}
+        {a: {b: {c: {d: ['e2', 'f2'], g: ['h2', 'i2'], j: 'k2'}}}},
       )
-      return fetchUrl('/first', dispatch).then(resp => {
-        expect(resp).toEqual({
-          a: {b: {c: {d: ['e', 'f', 'e2', 'f2'], g: ['h', 'i', 'h2', 'i2'], j: 'k2'}}},
-        })
+      const resp = await fetchUrl('/first', dispatch)
+      expect(resp).toEqual({
+        a: {b: {c: {d: ['e', 'f', 'e2', 'f2'], g: ['h', 'i', 'h2', 'i2'], j: 'k2'}}},
       })
     })
   })

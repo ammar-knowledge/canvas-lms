@@ -1,4 +1,3 @@
-// @ts-nocheck
 //
 // Copyright (C) 2023 - present Instructure, Inc.
 //
@@ -16,10 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-export default function preventDefault(fn) {
-  return function (event: Event) {
+export default function preventDefault<T extends (...args: unknown[]) => unknown>(fn: T) {
+  return function (this: unknown, event: Event, ...args: unknown[]) {
     if (event) event.preventDefault()
-    // @ts-expect-error
-    return fn.apply(this, arguments)
+    return fn.apply(this, [event, ...args])
   }
 }

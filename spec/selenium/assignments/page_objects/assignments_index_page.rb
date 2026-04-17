@@ -115,7 +115,7 @@ module AssignmentsIndexPage
   end
 
   def bulk_edit_tr_rows
-    ff("#bulkEditRoot [role='table'] [role='row']")
+    ff("[data-testid='bulk-edit-table-row']")
   end
 
   def bulk_edit_loading_spinner
@@ -176,6 +176,22 @@ module AssignmentsIndexPage
 
   def assessment_request(index, assignment_name)
     f("a[aria-label='Required Peer Review #{index} for #{assignment_name}']")
+  end
+
+  def show_by_date_button
+    f("#show_by_date")
+  end
+
+  def show_by_type_button
+    f("#show_by_type")
+  end
+
+  def assignment_group_by_id(group_id)
+    f("#assignment_group_#{group_id}")
+  end
+
+  def peer_review_sub_assignment(assignment_name)
+    fj("li:contains('#{assignment_name} Peer Reviews')")
   end
 
   #------------------------------ Actions --------------------------------

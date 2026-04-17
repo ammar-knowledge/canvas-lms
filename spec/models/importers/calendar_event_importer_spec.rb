@@ -76,9 +76,9 @@ describe Importers::CalendarEventImporter do
       uuid = "8233ffdc-9067-4eaf-a726-19c3718dab29"
       rrule = "FREQ=DAILY;INTERVAL=1;UNTIL=20241001T055959Z"
       data = { "calendar_events" => [
-        { "migration_id" => "whatvs1", "series_uuid" => uuid, "series_head" => true, "rrule" => rrule },
-        { "migration_id" => "whatvs2", "series_uuid" => uuid, "series_head" => nil, "rrule" => rrule },
-        { "migration_id" => "whatvs3", "series_uuid" => uuid, "series_head" => nil, "rrule" => rrule }
+        { "migration_id" => "whatvs1", "series_uuid" => uuid, "series_head" => true, "rrule" => rrule, "blackout_date" => false },
+        { "migration_id" => "whatvs2", "series_uuid" => uuid, "series_head" => nil, "rrule" => rrule, "blackout_date" => false },
+        { "migration_id" => "whatvs3", "series_uuid" => uuid, "series_head" => nil, "rrule" => rrule, "blackout_date" => false }
       ] }
       Importers::CalendarEventImporter.process_migration(data, migration)
       imported_events = migration_course.calendar_events
@@ -87,27 +87,44 @@ describe Importers::CalendarEventImporter do
       expect(imported_events.where.not(series_uuid: nil).where(rrule:, series_head: nil).count).to eq 2
       expect(imported_events.pluck(:series_uuid)).not_to include(uuid)
     end
+
+    it "migrate blackout days for course pace" do
+      data = { "calendar_events" => [
+        { "migration_id" => "whatvs1", "blackout_date" => true },
+        { "migration_id" => "whatvs2", "blackout_date" => false },
+        { "migration_id" => "whatvs3", "blackout_date" => true }
+      ] }
+      Importers::CalendarEventImporter.process_migration(data, migration)
+      imported_events = migration_course.calendar_events
+      expect(imported_events.count).to eq 3
+      expect(imported_events.where(blackout_date: true).count).to eq 2
+      expect(imported_events.where(blackout_date: false).count).to eq 1
+    end
   end
 
   describe ".import_from_migration" do
     it "initializes a calendar event based on hash data" do
+      aa_test_data = AttachmentAssociationsSpecHelper.new(migration_course.account, migration_course)
+      migration.user = @teacher
       event = migration_course.calendar_events.build
       hash = {
         migration_id: "42",
         title: "event title",
-        description: "the event description",
-        start_at: Time.now,
-        end_at: Time.now + 2.hours,
+        description: aa_test_data.base_html,
+        start_at: Time.zone.now,
+        end_at: 2.hours.from_now,
         attachment_type: "external_url",
-        attachment_value: "http://example.com"
+        attachment_value: "http://example.com",
+        blackout_date: true
       }
       Importers::CalendarEventImporter.import_from_migration(hash, migration_course, migration, event)
       expect(event).not_to be_new_record
       expect(event.imported).to be_truthy
       expect(event.migration_id).to eq "42"
       expect(event.title).to eq "event title"
-      expect(event.description).to match("the event description")
+      expect(event.description).to match(aa_test_data.base_html)
       expect(event.description).to match("example.com")
+      expect(event.blackout_date).to be_truthy
     end
   end
 

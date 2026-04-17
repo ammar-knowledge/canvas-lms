@@ -44,7 +44,7 @@ class QuestionBanksController < ApplicationController
   end
 
   def questions
-    find_bank(params[:question_bank_id], params[:inherited] == "1") do
+    find_bank(params[:question_bank_id], check_context_chain: params[:inherited] == "1") do
       @questions = @bank.assessment_questions.active
       url = polymorphic_url([@context, :question_bank_questions], question_bank_id: @bank)
       @questions = Api.paginate(@questions, self, url, default_per_page: 50)
@@ -62,18 +62,18 @@ class QuestionBanksController < ApplicationController
 
   def show
     @bank = @context.assessment_question_banks.find(params[:id])
-    js_env(
-      CONTEXT_URL_ROOT: polymorphic_path([@context]),
-      ROOT_OUTCOME_GROUP: outcome_group_json(@context.root_outcome_group, @current_user, session),
-      OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION: @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation)
-    )
+    js_env({
+             CONTEXT_URL_ROOT: polymorphic_path([@context]),
+             ROOT_OUTCOME_GROUP: outcome_group_json(@context.root_outcome_group, @current_user, session),
+             OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION: @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation)
+           })
     mastery_scales_js_env
     rce_js_env
 
     add_crumb(@bank.title)
 
     if params[:fixup_quiz_math_questions] == "1" && @bank.grants_right?(@current_user, session, :update)
-      InstStatsd::Statsd.increment("fixingup_quiz_math_banks")
+      InstStatsd::Statsd.distributed_increment("fixingup_quiz_math_banks")
       @bank = fixup_quiz_questions_with_bad_math(@bank, question_bank: true)
     end
 
@@ -92,7 +92,7 @@ class QuestionBanksController < ApplicationController
     @new_bank = AssessmentQuestionBank.find(params[:assessment_question_bank_id])
     if authorized_action(@bank, @current_user, :update) && authorized_action(@new_bank, @current_user, :manage)
       unless params[:questions].present?
-        return render json: { error: "must specify questions to move" }, status: :unprocessable_entity
+        return render json: { error: "must specify questions to move" }, status: :unprocessable_content
       end
 
       ids = []
@@ -103,14 +103,11 @@ class QuestionBanksController < ApplicationController
       if params[:move] == "1"
         @questions.update_all(assessment_question_bank_id: @new_bank.id)
       else
-        attributes = @questions.columns.map(&:name) - %w[id created_at updated_at assessment_question_bank_id]
-        connection = @questions.connection
-        attributes = attributes.map { |attr| connection.quote_column_name(attr) }
-        now = connection.quote(Time.now.utc)
-        connection.insert(
-          "INSERT INTO #{AssessmentQuestion.quoted_table_name} (#{(%w[assessment_question_bank_id created_at updated_at] + attributes).join(", ")})" +
-          @questions.select(([@new_bank.id, now, now] + attributes).join(", ")).to_sql
-        )
+        @questions.each do |question|
+          new_attributes = question.attributes.except("id", "created_at", "updated_at", "assessment_question_bank_id")
+          new_attributes["assessment_question_bank_id"] = @new_bank.id
+          AssessmentQuestion.create!(new_attributes)
+        end
       end
 
       [@bank, @new_bank].each(&:touch)
@@ -141,7 +138,7 @@ class QuestionBanksController < ApplicationController
     @bank = AssessmentQuestionBank.find(params[:question_bank_id])
 
     if params[:unbookmark] == "1"
-      render json: @bank.bookmark_for(@current_user, false)
+      render json: @bank.bookmark_for(@current_user, do_bookmark: false)
     elsif authorized_action(@bank, @current_user, :update)
       render json: @bank.bookmark_for(@current_user)
     end

@@ -17,8 +17,6 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require_relative "../../../spec_helper"
-
 class SisAssignmentHarness
   include Api::V1::SisAssignment
 end
@@ -26,7 +24,7 @@ end
 describe Api::V1::SisAssignment do
   subject(:generator) { SisAssignmentHarness.new }
 
-  context "#sis_assignments_json" do
+  describe "#sis_assignments_json" do
     let(:course_1) { course_factory }
     let(:assignment_1) { assignment_model(course: course_factory) }
 
@@ -81,8 +79,7 @@ describe Api::V1::SisAssignment do
 
       allow(course_sections).to receive_messages(
         loaded?: true,
-        active_course_sections: course_sections,
-        association: OpenStruct.new(loaded?: true)
+        active_course_sections: course_sections
       )
     end
 

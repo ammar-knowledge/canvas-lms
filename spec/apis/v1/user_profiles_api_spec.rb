@@ -24,6 +24,7 @@ require_relative "../../helpers/k5_common"
 # FIXME: don't copy paste
 class TestUserApi
   include Api::V1::UserProfile
+
   attr_accessor :services_enabled, :context, :current_user
 
   def service_enabled?(service)
@@ -48,10 +49,10 @@ describe "User Profile API", type: :request do
 
   before :once do
     @admin = account_admin_user
-    @admin_lti_user_id = Lti::Asset.opaque_identifier_for(@admin)
+    @admin_lti_user_id = Lti::V1p1::Asset.opaque_identifier_for(@admin)
     course_with_student(user: user_with_pseudonym(name: "Student", username: "pvuser@example.com"))
     @student.pseudonym.update_attribute(:sis_user_id, "sis-user-id")
-    Lti::Asset.opaque_identifier_for(@student)
+    Lti::V1p1::Asset.opaque_identifier_for(@student)
     @user = @admin
     Account.default.tap { |a| a.enable_service(:avatars) }.save
     user_with_pseudonym(user: @user)
@@ -226,20 +227,17 @@ describe "User Profile API", type: :request do
                  action: "settings",
                  user_id: @admin.to_param,
                  format: "json")
-    assert_status(401)
+    assert_forbidden
   end
 
   context "user_services" do
     before :once do
-      @student.user_services.create! service: "skype", service_user_name: "user", service_user_id: "user", visible: false
+      @student.user_services.create! service: "diigo", service_user_name: "diigo_user", service_user_id: "diigo_user", visible: false
       @student.user_services.create! service: "somethingthatdoesntexistanymore", service_user_name: "user", service_user_id: "user", visible: true
     end
 
-    before do
-      allow(Twitter::Connection).to receive(:config).and_return({ some_hash: "fullofstuff" })
-    end
-
     it "returns user_services, if requested" do
+      allow(Diigo::Connection).to receive(:config).and_return(true)
       @user = @student
       json = api_call(:get,
                       "/api/v1/users/#{@student.id}/profile?include[]=user_services",
@@ -249,7 +247,7 @@ describe "User Profile API", type: :request do
                       format: "json",
                       include: ["user_services"])
       expect(json["user_services"]).to eq [
-        { "service" => "skype", "visible" => false, "service_user_link" => "skype:user?add" }
+        { "service" => "diigo", "visible" => false, "service_user_link" => "http://www.diigo.com/user/diigo_user" }
       ]
     end
 
@@ -273,7 +271,7 @@ describe "User Profile API", type: :request do
 
   context "canvas for elementary" do
     it "returns k5_user false if not a k5 user" do
-      toggle_k5_setting(@course.account, false)
+      toggle_k5_setting(@course.account, enable: false)
 
       @user = @student
       json = api_call(:get,
@@ -288,7 +286,7 @@ describe "User Profile API", type: :request do
 
     context "k5 mode on" do
       before(:once) do
-        toggle_k5_setting(@course.account, true)
+        toggle_k5_setting(@course.account)
       end
 
       it "returns k5_user true for current_user" do

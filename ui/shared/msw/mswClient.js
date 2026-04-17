@@ -16,11 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {ApolloClient} from 'apollo-client'
-import {InMemoryCache} from 'apollo-cache-inmemory'
-import {HttpLink} from 'apollo-link-http'
+import {ApolloClient, HttpLink} from '@apollo/client'
+import {createCache} from '@canvas/apollo-v3'
 
-const cache = new InMemoryCache()
+const cache = createCache()
 
 const link = new HttpLink({
   uri: 'http://localhost:3000/graphql',

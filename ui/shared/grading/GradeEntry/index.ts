@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2018 - present Instructure, Inc.
  *
@@ -48,19 +47,23 @@ export default class GradeEntry {
     return !!this.options.restrictPointsBasedInput && !!this.gradingScheme?.pointsBased
   }
 
-  formatGradeInfoForDisplay(_gradeInfo) {
+  formatGradeInfoForDisplay(_gradeInfo: GradeOverrideInfo | null) {
     return null
   }
 
-  formatGradeInfoForInput(_gradeInfo) {
+  formatGradeInfoForInput(_gradeInfo: GradeOverrideInfo | null) {
     return null
   }
 
-  hasGradeChanged(_assignedGradeInfo, _currentGradeInfo, _previousGradeInfo) {
+  hasGradeChanged(
+    _assignedGradeInfo: GradeOverrideInfo | null,
+    _currentGradeInfo: GradeOverrideInfo | null,
+    _previousGradeInfo: GradeOverrideInfo | null,
+  ): boolean {
     return false
   }
 
-  parseValue(_value): GradeOverrideInfo | null {
+  parseValue(_value: unknown): GradeOverrideInfo | null {
     return null
   }
 }

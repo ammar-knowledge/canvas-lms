@@ -15,9 +15,9 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import type {Card, ActivityStreamSummary} from './types'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import type {Card, ActivityStreamSummary} from '../types.d'
+import {showFlashAlert} from '@instructure/platform-alerts'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 interface HasPosition {
   position: number | undefined
@@ -31,8 +31,10 @@ export function sortByPosition(a: HasPosition, b: HasPosition) {
 }
 
 export function mapDashboardResponseToCard(data: any): Card[] {
-  return (
-    data?.legacyNode?.favoriteCoursesConnection?.nodes
+  // Handle GraphQL response structure
+  const nodes = data?.legacyNode?.favoriteCoursesConnection?.nodes
+  if (nodes && Array.isArray(nodes)) {
+    return nodes
       .map((node: any) => {
         const course_id = node._id
         const card = node.dashboardCard
@@ -67,17 +69,30 @@ export function mapDashboardResponseToCard(data: any): Card[] {
           longName: card.longName,
         }
       })
-      .filter((card: any) => card !== null) || []
-  )
+      .filter((card): card is Card => card !== null)
+  }
+
+  // Handle REST API response structure (array of cards)
+  if (Array.isArray(data)) {
+    return data
+  }
+
+  return []
 }
 
 // This is used as a selector in the useFetchDashboardCards hook
 export function processDashboardCards(data: any): Card[] {
+  // If data is already an array (REST API response), return it directly
+  if (Array.isArray(data)) {
+    return data.sort(sortByPosition)
+  }
+
+  // Otherwise, try to map GraphQL response
   const mapped = mapDashboardResponseToCard(data)
   return mapped.sort(sortByPosition)
 }
 
-const dashboard_I18n = useI18nScope('load_card_dashboard')
+const dashboard_I18n = createI18nScope('load_card_dashboard')
 
 export const handleDashboardCardError = (e: Error) => {
   showFlashAlert({message: dashboard_I18n.t('Failed loading course cards'), err: e, type: 'error'})

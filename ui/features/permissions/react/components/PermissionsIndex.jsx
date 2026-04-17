@@ -16,11 +16,11 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {useEffect, useState} from 'react'
 import {func, arrayOf} from 'prop-types'
 import {connect} from 'react-redux'
-import {isEqual} from 'lodash'
+import {isEqual} from 'es-toolkit/compat'
 import {useDebounce} from 'use-debounce'
 import $ from 'jquery'
 import '@canvas/rails-flash-notifications'
@@ -48,7 +48,7 @@ import {ConnectedPermissionTray} from './PermissionTray'
 import {ConnectedRoleTray} from './RoleTray'
 import {ConnectedAddTray} from './AddTray'
 
-const I18n = useI18nScope('permissions_v2')
+const I18n = createI18nScope('permissions_v2')
 
 function setDiff(minuend, subtrahend) {
   const difference = new Set(minuend)
@@ -138,7 +138,7 @@ export default function PermissionsIndex(props) {
     options.push(
       <CanvasMultiSelect.Option key={ALL_ROLES_VALUE} id={ALL_ROLES_VALUE} value={ALL_ROLES_VALUE}>
         {ALL_ROLES_LABEL}
-      </CanvasMultiSelect.Option>
+      </CanvasMultiSelect.Option>,
     )
     return options
   }
@@ -149,8 +149,8 @@ export default function PermissionsIndex(props) {
     return (
       <div className="permissions-v2__header_container">
         <View display="block">
-          <Flex alignItems="end">
-            <Flex.Item size="20%">
+          <Flex alignItems="end" gap="small" wrap="wrap">
+            <Flex.Item size="190px" shouldShrink={false} shouldGrow={true}>
               <TextInput
                 renderLabel={
                   <ScreenReaderContent>{I18n.t('Search Permissions')}</ScreenReaderContent>
@@ -165,28 +165,28 @@ export default function PermissionsIndex(props) {
                 name="permission_search"
               />
             </Flex.Item>
-            <Flex.Item shouldShrink={true} shouldGrow={true} padding="0 small">
+            {/* InstUI Flex components doesn't support setting flexGrow. For better UX we are falling back to using a div with inline styles */}
+            <div style={{flexShrink: 1, flexGrow: 20}}>
               <CanvasMultiSelect
                 id="permissions-role-filter"
                 label={I18n.t('Permission role filter')}
                 assistiveText={I18n.t(
-                  'Filter Roles. Type or use arrow keys to navigate. Multiple selections are allowed.'
+                  'Filter Roles. Type or use arrow keys to navigate. Multiple selections are allowed.',
                 )}
                 onChange={onRoleFilterChange}
                 selectedOptionIds={selectedIds}
               >
                 {optionsToRender()}
               </CanvasMultiSelect>
-            </Flex.Item>
-            <Flex.Item shouldShrink={true} justifyItems="end">
-              <Flex justifyItems="end">
-                <Flex.Item>
-                  <Button id="add_role" color="primary" onClick={props.setAndOpenAddTray}>
-                    {I18n.t('Add Role')}
-                  </Button>
-                </Flex.Item>
-              </Flex>
-            </Flex.Item>
+            </div>
+            <Button
+              id="add_role"
+              color="primary"
+              onClick={props.setAndOpenAddTray}
+              margin="0 0 0 auto"
+            >
+              {I18n.t('Add Role')}
+            </Button>
           </Flex>
         </View>
       </div>
@@ -251,5 +251,5 @@ const mapDispatchToProps = {
 
 export const ConnectedPermissionsIndex = connect(
   mapStateToProps,
-  mapDispatchToProps
+  mapDispatchToProps,
 )(PermissionsIndex)

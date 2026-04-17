@@ -67,7 +67,11 @@ module AnnouncementsCommon
     expect(ff(".toggleSelected")).to have_size(what_to_create.count)
     (filter_type == :css) ? fj(filter).click : replace_content(f("#searchTerm"), filter)
     expect(ff(".ic-announcement-row").count).to eq expected_results
-    (expected_results > 1) ? ff(".ic-announcement-row").each { |topic| expect(topic).to include_text(expected_text) } : (expect(f(".discussionTopicIndexList .discussion-topic")).to include_text(expected_text))
+    if expected_results > 1
+      expect(ff(".ic-announcement-row")).to all(include_text(expected_text))
+    else
+      expect(f(".discussionTopicIndexList .discussion-topic")).to include_text(expected_text)
+    end
   end
 
   def add_attachment_and_validate
@@ -76,7 +80,7 @@ module AnnouncementsCommon
     type_in_tiny("textarea[name=message]", "file attachement discussion")
     expect_new_page_load { submit_form(".form-actions") }
     wait_for_ajaximations
-    expect(f(".zip")).to include_text(filename)
+    expect(fln(filename)).to be_displayed
   end
 
   def edit_announcement(title, message)
@@ -84,7 +88,8 @@ module AnnouncementsCommon
     replace_content(f("input[name=title]"), title)
     type_in_tiny("textarea[name=message]", message)
     expect_new_page_load { submit_form(".form-actions") }
-    expect(f("#discussion_topic .discussion-title").text).to eq title
+    # Not equal just include because of the screen reader text
+    expect(f('[data-testid="message_title"]').text).to include(title)
   end
 
   # DRY method that checks that a group member can see all announcements created within a group
@@ -101,13 +106,13 @@ module AnnouncementsCommon
 
   # Clicks edit button on Announcement show page
   def click_edit_btn
-    f(".edit-btn").click
-    wait_for_ajaximations
+    f('[data-testid="discussion-post-menu-trigger"]').click
+    expect_new_page_load { f('[data-testid="discussion-thread-menuitem-edit"]').click }
   end
 
   # sets the course setting checkbox for 'Disable comments on announcements'
-  def disable_comments_on_announcements(set = true)
-    @course.lock_all_announcements = set
+  def disable_comments_on_announcements
+    @course.lock_all_announcements = true
     @course.save!
   end
 end

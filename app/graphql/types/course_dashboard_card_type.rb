@@ -124,7 +124,7 @@ module Types
 
     field :can_manage, Boolean, null: true
     def can_manage
-      course.grants_any_right?(current_user, :manage_content, :manage_course_content_edit)
+      course.grants_right?(current_user, :manage_course_content_edit)
     end
 
     field :can_read_announcements, Boolean, null: true
@@ -143,7 +143,7 @@ module Types
     field :position, Integer, null: true
     def position
       position = current_user.dashboard_positions[course.asset_string]
-      position.present? ? position.to_i : nil
+      position.presence&.to_i
     end
 
     field :published, Boolean, null: true
@@ -170,7 +170,7 @@ module Types
 
     field :can_change_course_publish_state, Boolean, null: true
     def can_change_course_publish_state
-      course.grants_any_right?(current_user, :change_course_state, :manage_courses_publish)
+      course.grants_right?(current_user, :manage_courses_publish)
     end
 
     field :default_view, String, null: true

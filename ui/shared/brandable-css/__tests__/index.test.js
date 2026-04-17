@@ -15,6 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
+// Unmock the module since it's globally mocked in setup-vitests.tsx
+vi.unmock('@canvas/brandable-css')
+
 import BrandableCSS from '..'
 import stubEnv from '@canvas/stub-env'
 
@@ -30,7 +33,7 @@ describe('@canvas/brandable-css#loadStylesheet', () => {
     BrandableCSS.loadStylesheet(bundleId, {combinedChecksum: fingerprint})
 
     expect(document.head.querySelector('link[rel="stylesheet"]:last-of-type').href).toEqual(
-      `http://cdn.example.com/dist/brandable_css/new_styles_normal_contrast/${bundleId}-${fingerprint}.css`
+      `http://cdn.example.com/dist/brandable_css/new_styles_normal_contrast/${bundleId}-${fingerprint}.css`,
     )
   })
 })
@@ -41,15 +44,15 @@ describe('@canvas/brandable-css#loadStylesheetForJST', () => {
   let loadStylesheet
 
   beforeEach(() => {
-    loadStylesheet = jest.spyOn(BrandableCSS, 'loadStylesheet').mockImplementation(() => null)
+    loadStylesheet = vi.spyOn(BrandableCSS, 'loadStylesheet').mockImplementation(() => null)
   })
 
   afterEach(() => {
-    jest.restoreAllMocks()
+    vi.restoreAllMocks()
   })
 
   it('works', () => {
-    jest.spyOn(BrandableCSS, 'getHandlebarsIndex').mockImplementation(() => [
+    vi.spyOn(BrandableCSS, 'getHandlebarsIndex').mockImplementation(() => [
       ['first_variant', 'second_variant'],
       {
         fa0: ['xxx'],
@@ -66,10 +69,11 @@ describe('@canvas/brandable-css#loadStylesheetForJST', () => {
   })
 
   it('resolves references', () => {
-    jest.spyOn(BrandableCSS, 'getCssVariant').mockImplementation(() => 'second_variant')
-    jest
-      .spyOn(BrandableCSS, 'getHandlebarsIndex')
-      .mockImplementation(() => [['first_variant', 'second_variant'], {fa0: ['xxx', 0]}])
+    vi.spyOn(BrandableCSS, 'getCssVariant').mockImplementation(() => 'second_variant')
+    vi.spyOn(BrandableCSS, 'getHandlebarsIndex').mockImplementation(() => [
+      ['first_variant', 'second_variant'],
+      {fa0: ['xxx', 0]},
+    ])
 
     subject({id: 'fa0', bundle: 'asdfasdf'})
 
@@ -77,15 +81,16 @@ describe('@canvas/brandable-css#loadStylesheetForJST', () => {
       expect.any(String),
       expect.objectContaining({
         combinedChecksum: 'xxx',
-      })
+      }),
     )
   })
 
   it('marks as "includesNoVariables" if only one checksum is provided', () => {
-    jest.spyOn(BrandableCSS, 'getCssVariant').mockImplementation(() => 'second_variant')
-    jest
-      .spyOn(BrandableCSS, 'getHandlebarsIndex')
-      .mockImplementation(() => [['first_variant', 'second_variant'], {fa0: ['xxx']}])
+    vi.spyOn(BrandableCSS, 'getCssVariant').mockImplementation(() => 'second_variant')
+    vi.spyOn(BrandableCSS, 'getHandlebarsIndex').mockImplementation(() => [
+      ['first_variant', 'second_variant'],
+      {fa0: ['xxx']},
+    ])
 
     subject({id: 'fa0', bundle: 'asdfasdf'})
 
@@ -93,13 +98,13 @@ describe('@canvas/brandable-css#loadStylesheetForJST', () => {
       expect.any(String),
       expect.objectContaining({
         includesNoVariables: true,
-      })
+      }),
     )
   })
 
   it('throws if bundle has no mapping', () => {
     expect(() => subject({id: 'asdfasdf', bundle: 'asdfasdf'})).toThrow(
-      /requested to load stylesheet for template.*but no mapping is available/
+      /requested to load stylesheet for template.*but no mapping is available/,
     )
   })
 })
@@ -112,7 +117,7 @@ describe('@canvas/brandable-css#urlFor', () => {
 
   test('should have right default', () => {
     expect(subject(bundleId, {combinedChecksum: fingerprint})).toEqual(
-      `/dist/brandable_css/new_styles_normal_contrast/${bundleId}-${fingerprint}.css`
+      `/dist/brandable_css/new_styles_normal_contrast/${bundleId}-${fingerprint}.css`,
     )
   })
 
@@ -121,7 +126,7 @@ describe('@canvas/brandable-css#urlFor', () => {
       subject(bundleId, {
         combinedChecksum: fingerprint,
         includesNoVariables: true,
-      })
+      }),
     ).toEqual(`/dist/brandable_css/no_variables/${bundleId}-${fingerprint}.css`)
   })
 
@@ -130,7 +135,7 @@ describe('@canvas/brandable-css#urlFor', () => {
     env.use_high_contrast = false
 
     expect(subject(bundleId, {combinedChecksum: fingerprint})).toEqual(
-      `http://cdn.example.com/dist/brandable_css/new_styles_normal_contrast/${bundleId}-${fingerprint}.css`
+      `http://cdn.example.com/dist/brandable_css/new_styles_normal_contrast/${bundleId}-${fingerprint}.css`,
     )
   })
 
@@ -139,7 +144,7 @@ describe('@canvas/brandable-css#urlFor', () => {
     env.use_high_contrast = true
 
     expect(subject(bundleId, {combinedChecksum: fingerprint})).toEqual(
-      `http://cdn.example.com/dist/brandable_css/new_styles_high_contrast/${bundleId}-${fingerprint}.css`
+      `http://cdn.example.com/dist/brandable_css/new_styles_high_contrast/${bundleId}-${fingerprint}.css`,
     )
   })
 })

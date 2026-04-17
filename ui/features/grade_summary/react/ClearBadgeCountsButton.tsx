@@ -17,13 +17,13 @@
  */
 
 import React, {useState} from 'react'
-import {showFlashError, showFlashSuccess} from '@canvas/alerts/react/FlashAlert'
+import {showFlashError, showFlashSuccess} from '@instructure/platform-alerts'
 import {Button} from '@instructure/ui-buttons'
 import {IconAlertsSolid} from '@instructure/ui-icons'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import axios from '@canvas/axios'
 
-const I18n = useI18nScope('grade_summary')
+const I18n = createI18nScope('grade_summary')
 type ClearBadgeCountsButtonProps = {
   userId: string
   courseId: string
@@ -31,7 +31,7 @@ type ClearBadgeCountsButtonProps = {
 
 function ClearBadgeCountsButton({courseId, userId}: ClearBadgeCountsButtonProps) {
   const [interaction, setInteraction] = useState<'enabled' | 'disabled' | 'readonly' | undefined>(
-    'enabled'
+    'enabled',
   )
   const handleClick = async () => {
     setInteraction('disabled')
@@ -56,7 +56,7 @@ function ClearBadgeCountsButton({courseId, userId}: ClearBadgeCountsButtonProps)
       color="primary"
       margin="small"
       onClick={handleClick}
-      renderIcon={IconAlertsSolid}
+      renderIcon={<IconAlertsSolid />}
       interaction={interaction}
     >
       {I18n.t('Clear Badge Counts')}

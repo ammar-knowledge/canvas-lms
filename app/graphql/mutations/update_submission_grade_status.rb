@@ -20,6 +20,7 @@
 class Mutations::UpdateSubmissionGradeStatus < Mutations::BaseMutation
   graphql_name "UpdateSubmissionsGradeStatus"
 
+  argument :checkpoint_tag, String, required: false
   argument :custom_grade_status_id, ID, required: false
   argument :late_policy_status, String, required: false
   argument :submission_id, ID, required: true
@@ -27,26 +28,31 @@ class Mutations::UpdateSubmissionGradeStatus < Mutations::BaseMutation
   field :submission, Types::SubmissionType, null: true
   def resolve(input:)
     submission = Submission.find(input[:submission_id])
-    errors = {}
-
-    if submission.grants_right?(current_user, :grade)
-      if input[:custom_grade_status_id]
-        submission.update(custom_grade_status_id: input[:custom_grade_status_id])
-      elsif input[:late_policy_status] && input[:late_policy_status] != "none"
-        if input[:late_policy_status] == "excused"
-          submission.update(late_policy_status: nil, custom_grade_status_id: nil, excused: true)
-        else
-          submission.update(late_policy_status: input[:late_policy_status])
-        end
-      elsif (input[:custom_grade_status_id].nil? && input[:late_policy_status].nil?) || input[:late_policy_status] == "none"
-        submission.update(custom_grade_status_id: nil, late_policy_status: nil)
-      end
-    else
-      errors[submission.id.to_s] = "Not authorized to set submission status"
+    if input[:checkpoint_tag].present? && submission.course.discussion_checkpoints_enabled?
+      submission = submission.effective_checkpoint_submission(input[:checkpoint_tag])
     end
-    response = {}
-    response[:submission] = submission unless errors.any?
-    response[:errors] = errors if errors.any?
-    response
+
+    return { errors: { submission.id => "Not authorized to set submission status" } } unless submission.grants_right?(current_user, :grade)
+
+    if input[:custom_grade_status_id]
+      submission.update(custom_grade_status_id: input[:custom_grade_status_id], grader: current_user)
+    elsif input[:late_policy_status] && input[:late_policy_status] != "none"
+      if input[:late_policy_status] == "excused"
+        submission.assignment.grade_student(
+          submission.user,
+          {
+            grader: current_user,
+            excused: true,
+          }
+        )
+        submission.reload
+      else
+        submission.update(late_policy_status: input[:late_policy_status], grader: current_user)
+      end
+    elsif (input[:custom_grade_status_id].nil? && input[:late_policy_status].nil?) || input[:late_policy_status] == "none"
+      submission.update(custom_grade_status_id: nil, late_policy_status: input[:late_policy_status], excused: false, grader: current_user)
+    end
+
+    { submission: }
   end
 end

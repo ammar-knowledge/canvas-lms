@@ -23,7 +23,7 @@ RSpec.shared_context "services JWT wrapper" do
   def build_wrapped_token(user_id, real_user_id: nil, encoding_secret: fake_signing_secret)
     payload = { sub: user_id }
     payload[:masq_sub] = real_user_id if real_user_id
-    crypted_token = CanvasSecurity::ServicesJwt.generate(payload, false, symmetric: true)
+    crypted_token = CanvasSecurity::ServicesJwt.generate(payload, base64: false, symmetric: true)
     payload = {
       iss: "some other service",
       user_token: crypted_token
@@ -48,7 +48,7 @@ RSpec.shared_context "JWT setup" do
   end
 
   before do
-    allow(Rails).to receive(:application).and_return(instance_double("Rails::Application", credentials: {})) unless Rails.application.present?
+    allow(Rails).to receive(:application).and_return(instance_double(Rails::Application, credentials: {})) unless Rails.application.present?
 
     allow(Rails.application.credentials).to receive(:dig).and_call_original
     allow(Rails.application.credentials).to receive(:dig).with(:canvas_security, :encryption_secret).and_return(fake_encryption_secret)
@@ -74,7 +74,7 @@ RSpec.shared_context "JWT setup with deprecated secret" do
   let(:fake_signing_secret_deprecated) { "nowiknowmyabcsnexttimewontyou..." }
 
   before do
-    allow(Rails).to receive(:application).and_return(instance_double("Rails::Application", credentials: {})) unless Rails.application.present?
+    allow(Rails).to receive(:application).and_return(instance_double(Rails::Application, credentials: {})) unless Rails.application.present?
 
     allow(Rails.application.credentials).to receive(:dig).and_call_original
     allow(Rails.application.credentials).to receive(:dig).with(:canvas_security, :encryption_secret).and_return(fake_encryption_secret)

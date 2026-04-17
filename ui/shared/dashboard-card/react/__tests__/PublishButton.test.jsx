@@ -22,7 +22,7 @@ import * as apiClient from '@canvas/courses/courseAPIClient'
 import {waitFor} from '@testing-library/dom'
 import {render} from '@testing-library/react'
 
-jest.mock('@canvas/courses/courseAPIClient')
+vi.mock('@canvas/courses/courseAPIClient')
 
 function createMockProps(opts = {}) {
   return {
@@ -30,7 +30,7 @@ function createMockProps(opts = {}) {
     pagesUrl: '',
     defaultView: 'modules',
     frontPageTitle: '',
-    courseNickname: 'nickname',
+    courseNickname: 'the_course_nickname',
     onSuccess: null,
     ...opts,
   }
@@ -38,8 +38,8 @@ function createMockProps(opts = {}) {
 
 describe('PublishButton', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
-    jest.spyOn($, 'flashError').mockImplementation()
+    vi.clearAllMocks()
+    vi.spyOn($, 'flashError').mockImplementation()
     apiClient.getModules.mockReturnValue(Promise.resolve({data: []}))
     expect.hasAssertions()
   })
@@ -64,7 +64,7 @@ describe('PublishButton', () => {
     })
 
     it('publishes when modules do exist calling onSuccess callback', async () => {
-      const onSuccess = jest.fn()
+      const onSuccess = vi.fn()
       const wrapper = render(<PublishButton {...createMockProps({onSuccess})} />)
       apiClient.getModules.mockReturnValue(Promise.resolve({data: ['module1']}))
       await wrapper.getByText('Publish').click()
@@ -78,7 +78,7 @@ describe('PublishButton', () => {
       await wrapper.getByText('Publish').click()
       await waitFor(() => {
         expect($.flashError).toHaveBeenCalledWith(
-          'An error ocurred while fetching course details. Please try again.'
+          'An error ocurred while fetching course details. Please try again.',
         )
       })
     })
@@ -93,9 +93,9 @@ describe('PublishButton', () => {
     })
 
     it('calls publishCourse immediately with onSuccess callback', async () => {
-      const onSuccess = jest.fn()
+      const onSuccess = vi.fn()
       const wrapper = render(
-        <PublishButton {...createMockProps({defaultView: 'assignments', onSuccess})} />
+        <PublishButton {...createMockProps({defaultView: 'assignments', onSuccess})} />,
       )
       await wrapper.getByText('Publish').click()
       expect(apiClient.getModules).not.toHaveBeenCalled()

@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import getCookie from '@instructure/get-cookie'
+import {getCookie} from '@instructure/platform-get-cookie'
 
 declare global {
   interface Window {
@@ -84,7 +84,7 @@ export function clearPrefetchedXHRs() {
  */
 export function asAxios<T>(
   fetchRequest: Promise<Response>,
-  type: 'json' | 'text' = 'json'
+  type: 'json' | 'text' = 'json',
 ):
   | Promise<{
       data: T
@@ -104,7 +104,7 @@ export function asAxios<T>(
           data,
           headers: {link: res.headers.get('Link')},
         }
-      })
+      }),
   )
 }
 
@@ -124,6 +124,16 @@ export function asText(fetchRequest: Promise<Response>) {
   return fetchRequest.then(checkStatus).then(res => res.clone().text())
 }
 
+export class FetchError extends Error {
+  response: Response
+
+  constructor(message: string, response: Response) {
+    super(message)
+    this.response = response
+    this.name = 'FetchError'
+  }
+}
+
 /**
  * filter a response to raise an error on a 400+ status
  */
@@ -131,27 +141,41 @@ export function checkStatus(response: Response) {
   if (response.status < 400) {
     return response
   } else {
-    const error = new Error(response.statusText)
-    // @ts-expect-error
-    error.response = response
-    throw error
+    throw new FetchError(response.statusText, response)
   }
 }
 
-const csrfToken = getCookie('_csrf_token')
+type DefaultFetchOptionsOptions = {
+  headers?: Record<string, string>
+}
 
-// these are duplicated in application_helper.rb#prefetch_xhr
-// because we don't have a good pattern for sharing them yet.
-// If you change these defaults, you should probably cascade that change
-// to that ruby location
-export const defaultFetchOptions = (): {
-  credentials: 'include' | 'omit' | 'same-origin'
+/**
+ * Provides default options for fetch requests iin Canvas,
+ * include these in any fetch request to ensure that it is
+ * properly authenticated and has the correct headers.
+ *
+ * @param options optionally provide additional headers to include
+ * @returns
+ */
+export const defaultFetchOptions = (
+  options: DefaultFetchOptionsOptions = {},
+): {
+  credentials: RequestCredentials
   headers: Record<string, string>
-} => ({
-  credentials: 'same-origin',
-  headers: {
-    Accept: 'application/json+canvas-string-ids, application/json',
-    'X-Requested-With': 'XMLHttpRequest',
-    'X-CSRF-Token': csrfToken,
-  },
-})
+} => {
+  // these are duplicated in application_helper.rb#prefetch_xhr
+  // because we don't have a good pattern for sharing them yet.
+  // If you change these defaults, you should probably cascade that change
+  // to that ruby location
+  const csrfToken = getCookie('_csrf_token') ?? ''
+
+  return {
+    credentials: 'same-origin' as RequestCredentials,
+    headers: {
+      Accept: 'application/json+canvas-string-ids, application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRF-Token': csrfToken,
+      ...options.headers,
+    },
+  }
+}

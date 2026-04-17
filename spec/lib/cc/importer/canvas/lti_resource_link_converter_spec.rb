@@ -36,18 +36,19 @@ describe CC::Importer::Canvas::LtiResourceLinkConverter do
   let(:lti_resource_links) { subject.convert_lti_resource_links }
 
   describe "#convert_lti_resource_links" do
-    it "extract custom params and lookup_uuid" do
+    it "extracts custom params and lookup_uuid" do
       expect(lti_resource_links).to include(
         a_hash_including(
           custom: {
             param1: "some string",
-            param2: 1,
-            param3: 2.56,
+            param2: "1",
+            param3: "2.56",
             param4: true,
             param5: false,
             param6: "a12.5",
             param7: "5d781f15-c6b0-4901-a1f7-2a77e7bf4982",
             param8: "+1(855)552-2338",
+            param9: "0011",
           },
           lookup_uuid: "1b302c1e-c0a2-42dc-88b6-c029699a7c7a",
           launch_url: "http://lti13testtool.docker/launch"
@@ -61,13 +62,13 @@ describe CC::Importer::Canvas::LtiResourceLinkConverter do
           a_hash_including(
             custom: {
               param1: "some string",
-              param2: 1,
-              param3: 2.56,
+              param2: "1",
+              param3: "2.56",
               param4: true,
               param5: false,
               param6: "a12.5",
               param7: "5d781f15-c6b0-4901-a1f7-2a77e7bf4982",
-              param8: "+1(855)552-2338",
+              param8: "+1(855)552-2338"
             },
             lookup_uuid: "123412345c1e-c0a2-42dc-88b6-c029699a7c7a",
             launch_url: "https://lti13testtool.docker/launch/secure"
@@ -81,6 +82,14 @@ describe CC::Importer::Canvas::LtiResourceLinkConverter do
     expect(lti_resource_links).not_to include(
       a_hash_including(
         lookup_uuid: "567812345c1e-c0a2-42dc-88b6-c029699a7c7a"
+      )
+    )
+  end
+
+  it "retrieves the assignment_migration_id from the resource link" do
+    expect(lti_resource_links).to include(
+      a_hash_including(
+        assignment_migration_id: "76cf9398-0f63-4be2-a196-8e21d44716de"
       )
     )
   end

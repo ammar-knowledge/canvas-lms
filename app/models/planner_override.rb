@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class PlannerOverride < ActiveRecord::Base
+class PlannerOverride < ApplicationRecord
   include Workflow
 
   CONTENT_TYPES = PlannerHelper::PLANNABLE_TYPES.values
@@ -28,6 +28,8 @@ class PlannerOverride < ActiveRecord::Base
   belongs_to :plannable, polymorphic:
     [:announcement,
      :assignment,
+     :sub_assignment,
+     :peer_review_sub_assignment,
      :discussion_topic,
      :planner_note,
      :wiki_page,

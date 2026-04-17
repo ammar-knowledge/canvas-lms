@@ -21,10 +21,6 @@ require "active_support/hash_with_indifferent_access"
 
 module BroadcastPolicy
   module InstanceMethods
-    def just_created
-      saved_changes? && id_before_last_save.nil?
-    end
-
     # Some flags for auditing policy matching
     def messages_sent
       @messages_sent ||= {}
@@ -52,7 +48,7 @@ module BroadcastPolicy
           @changed_attributes[key] = value if value != attributes[key]
         end
 
-        if defined?(ActiveRecord)
+        if defined?(ActiveRecord) && is_a?(ActiveRecord::Base)
           frd_mutations_before_last_save = @mutations_before_last_save
           other_attributes = other.instance_variable_get(:@attributes).deep_dup
           @attributes.send(:attributes).each_key do |key|
@@ -71,11 +67,14 @@ module BroadcastPolicy
             end
           end
           @mutations_before_last_save = ActiveModel::AttributeMutationTracker.new(other_attributes)
+          previously_new_record = @previously_new_record
+          @previously_new_record = !new_record? && other.new_record?
         end
         yield
       ensure
         @changed_attributes = frd_changed_attributes
         @mutations_before_last_save = frd_mutations_before_last_save
+        @previously_new_record = previously_new_record
       end
     end
 

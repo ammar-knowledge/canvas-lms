@@ -18,13 +18,15 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../lti_1_3_spec_helper"
+require_relative "../../lti_1_3_tool_configuration_spec_helper"
 
 RSpec.describe Lti::ToolConfigurationsApiController do
   subject { response }
 
-  include_context "lti_1_3_spec_helper"
+  include_context "lti_1_3_tool_configuration_spec_helper"
 
+  let_once(:developer_key) { lti_developer_key_model(account:) }
+  let_once(:tool_configuration) { lti_tool_configuration_model(developer_key:, lti_registration: developer_key.lti_registration) }
   let_once(:sub_account) { account_model(root_account: account) }
   let_once(:admin) { account_admin_user(account:) }
   let_once(:student) do
@@ -53,18 +55,20 @@ RSpec.describe Lti::ToolConfigurationsApiController do
   let(:params) do
     {
       developer_key: dev_key_params,
-      account_id: sub_account.id,
+      account_id: account.id,
       developer_key_id: dev_key_id,
       tool_configuration: {
         privacy_level:,
-        settings:
+        settings: canvas_lti_configuration
       }
     }.compact
   end
 
   before do
     user_session(admin)
-    settings["extensions"][0]["privacy_level"] = privacy_level
+    canvas_lti_configuration["extensions"][0]["privacy_level"] = privacy_level || extension_privacy_level
+    request.accept = "application/json"
+    request.content_type = "application/json"
   end
 
   shared_examples_for "an action that requires manage developer keys" do |skip_404|
@@ -75,7 +79,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
     context "when the user is not an admin" do
       before { user_session(student) }
 
-      it { is_expected.to be_unauthorized }
+      it { is_expected.to be_forbidden }
     end
 
     unless skip_404
@@ -95,8 +99,9 @@ RSpec.describe Lti::ToolConfigurationsApiController do
 
   shared_examples_for "an endpoint that accepts a settings_url" do
     let(:ok_response) do
-      double(
-        :body => settings.to_json,
+      instance_double(
+        Net::HTTPSuccess,
+        :body => canvas_lti_configuration.to_json,
         :is_a? => true,
         "[]" => "application/json"
       )
@@ -106,7 +111,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
     let(:params) do
       {
         developer_key: dev_key_params,
-        account_id: sub_account.id,
+        account_id: account.id,
         developer_key_id: developer_key.id,
         tool_configuration: {
           settings_url: url,
@@ -125,19 +130,30 @@ RSpec.describe Lti::ToolConfigurationsApiController do
 
       it "uses the tool configuration JSON from the settings_url" do
         subject
-        expect(config_from_response.settings["target_link_uri"]).to eq settings["target_link_uri"]
+        expect(config_from_response.target_link_uri).to eq canvas_lti_configuration["target_link_uri"]
       end
 
-      it 'sets the "disabled_placements"' do
+      context "when developer_key.redirect_uris is a blank string" do
+        let(:dev_key_params) { super().merge(redirect_uris: "") }
+
+        it "does not overwrite the URL's redirect uris with a blank string redirect uri" do
+          subject
+
+          expect(config_from_response.developer_key.redirect_uris).to eq [canvas_lti_configuration["target_link_uri"]]
+        end
+      end
+
+      it "disables placements" do
         subject
-        expect(config_from_response.disabled_placements).to match_array(
-          params.dig(:tool_configuration, :disabled_placements)
-        )
+        config = config_from_response.lti_registration.internal_lti_configuration(context: account)
+        params.dig(:tool_configuration, :disabled_placements).each do |placement|
+          expect(config[:placements].find { |p| p[:placement] == placement }[:enabled]).to be false
+        end
       end
 
       it 'sets the "custom_fields"' do
         subject
-        expect(config_from_response.settings["custom_fields"]).to eq(
+        expect(config_from_response.custom_fields).to eq(
           "foo" => "bar",
           "key" => "value",
           "has_expansion" => "$Canvas.user.id",
@@ -151,7 +167,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
 
           subject
 
-          expect(config_from_response.developer_key.redirect_uris).to eq [settings["target_link_uri"]]
+          expect(config_from_response.developer_key.redirect_uris).to eq [canvas_lti_configuration["target_link_uri"]]
         end
       end
 
@@ -162,6 +178,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
           subject
 
           expect(config_from_response.developer_key.redirect_uris).to eq redirect_uris
+          expect(config_from_response.redirect_uris).to eq redirect_uris
         end
       end
     end
@@ -171,7 +188,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
         allow(CanvasHttp).to receive(:get).and_raise(Timeout::Error)
       end
 
-      it { is_expected.to have_http_status :unprocessable_entity }
+      it { is_expected.to have_http_status :unprocessable_content }
 
       it "responds with helpful error message" do
         subject
@@ -182,7 +199,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
     context "when the response is not a success" do
       subject { json_parse["errors"].first["message"] }
 
-      let(:stubbed_response) { double }
+      let(:stubbed_response) { instance_double(Net::HTTPResponse) }
 
       before do
         allow(stubbed_response).to receive(:is_a?).with(Net::HTTPSuccess).and_return false
@@ -266,8 +283,13 @@ RSpec.describe Lti::ToolConfigurationsApiController do
       expect(subject.redirect_uris).to eq dev_key_params[:redirect_uris].split
     end
 
+    it "sets the tool config redirect_uris" do
+      subject
+      expect(config_from_response.redirect_uris).to eq dev_key_params[:redirect_uris].split
+    end
+
     it "sets the developer key oidc_initiation_url" do
-      expect(subject.oidc_initiation_url).to eq oidc_initiation_url
+      expect(subject.oidc_initiation_url).to eq canvas_lti_configuration["oidc_initiation_url"]
     end
 
     context "when scopes are invalid" do
@@ -299,34 +321,36 @@ RSpec.describe Lti::ToolConfigurationsApiController do
         "use" => "sig"
       }
     end
-    let(:settings) do
+    let(:canvas_lti_configuration) do
       s = super()
       s["public_jwk_url"] = "https://test.com"
       s
     end
 
+    before do
+      tool_configuration.update!(public_jwk: tool_config_public_jwk)
+    end
+
     context "when the public jwk is missing" do
-      let(:public_jwk) { nil }
+      before do
+        canvas_lti_configuration.delete("public_jwk")
+      end
 
       it { is_expected.to be_nil }
     end
 
     context "when the public jwk url is missing" do
-      let(:settings) do
-        s = super()
-        s.delete("public_jwk_url")
-        s
+      before do
+        canvas_lti_configuration.delete("public_jwk_url")
       end
 
       it { is_expected.to be_nil }
     end
 
     context "when both the public jwk and public jwk url are missing" do
-      let(:public_jwk) { nil }
-      let(:settings) do
-        s = super()
-        s.delete("public_jwk_url")
-        s
+      before do
+        canvas_lti_configuration.delete("public_jwk")
+        canvas_lti_configuration.delete("public_jwk_url")
       end
 
       it { is_expected.to be_present }
@@ -339,6 +363,10 @@ RSpec.describe Lti::ToolConfigurationsApiController do
           "n" => "2YGluUtCi62Ww_TWB38OE6wTaN...",
           "kid" => "2018-09-18T21:55:18Z"
         }
+      end
+
+      before do
+        canvas_lti_configuration["public_jwk"] = public_jwk
       end
 
       it { is_expected.to be_present }
@@ -356,6 +384,10 @@ RSpec.describe Lti::ToolConfigurationsApiController do
         }
       end
 
+      before do
+        canvas_lti_configuration["public_jwk"] = public_jwk
+      end
+
       it { is_expected.to be_present }
     end
 
@@ -369,6 +401,10 @@ RSpec.describe Lti::ToolConfigurationsApiController do
           "alg" => "RS256",
           "use" => "sig"
         }
+      end
+
+      before do
+        canvas_lti_configuration["public_jwk"] = public_jwk
       end
 
       it { is_expected.to be_present }
@@ -390,7 +426,48 @@ RSpec.describe Lti::ToolConfigurationsApiController do
       it "creates a developer key on the correct account" do
         subject
         key = DeveloperKey.find(json_parse.dig("tool_configuration", "developer_key_id"))
-        expect(key.account).to eq sub_account
+        expect(key.account).to eq account
+      end
+
+      it "creates default account bindings" do
+        subject
+        key = DeveloperKey.find(json_parse.dig("tool_configuration", "developer_key_id"))
+        registration = key.lti_registration
+        expect(key.account_binding_for(account)).to be_present
+        expect(registration.account_binding_for(account)).to be_present
+      end
+
+      it "doesn't create the configuration if something goes wrong creating the bindings" do
+        allow_any_instance_of(Lti::RegistrationAccountBinding).to receive(:save!).and_raise(ActiveRecord::RecordInvalid)
+        expect { subject }.not_to change { Lti::ToolConfiguration.count }
+      end
+
+      context "with no scopes provided" do
+        before do
+          params.dig(:tool_configuration, :settings)[:scopes] = nil
+          dev_key_params[:scopes] = nil
+        end
+
+        it "defaults scopes to an empty array" do
+          expect(subject).to be_successful
+
+          expect(config_from_response.developer_key.scopes).to eql([])
+          expect(config_from_response.scopes).to eql([])
+        end
+      end
+
+      context "with an attempt at mass assignment" do
+        let(:params) do
+          p = super()
+          p.dig(:tool_configuration, :settings, :extensions, 0)[:updated_at] = updated_at
+          p
+        end
+        let(:updated_at) { 1.hour.from_now }
+
+        it "filters out the parameter" do
+          subject
+          expect(Lti::ToolConfiguration.last.updated_at).not_to be_within(1.minute).of(updated_at)
+        end
       end
     end
 
@@ -403,27 +480,46 @@ RSpec.describe Lti::ToolConfigurationsApiController do
     end
 
     it_behaves_like "an endpoint that accepts developer key parameters" do
-      let(:bad_scope_params) { { account_id: sub_account.id, developer_key: dev_key_params.merge(scopes: ["invalid scope"]) } }
+      let(:bad_scope_params) { { account_id: account.id, developer_key: dev_key_params.merge(scopes: ["invalid scope"]) } }
       let(:make_request) { post :create, params: params.merge({ developer_key: dev_key_params }) }
       let(:bad_scope_request) { post :create, params: params.merge(bad_scope_params) }
     end
 
-    context "without a redirect_uri present" do
+    context "with manual_custom_fields present" do
+      let(:params) do
+        p = super()
+        p[:tool_configuration][:custom_fields] = "unique_key=unique_value\nneato=mydude"
+        p
+      end
+
+      it "merges them with the custom fields on the tool configuration" do
+        expect(subject).to be_ok
+        expect(config_from_response.internal_lti_configuration[:custom_fields])
+          .to include({ "unique_key" => "unique_value", "neato" => "mydude" })
+      end
+    end
+
+    context "without redirect_uris present" do
       let(:dev_key_params) { super().merge(redirect_uris: nil) }
 
-      it "returns a 400" do
-        expect(post(:create, params:)).to have_http_status :bad_request
+      it "infers the redirect_uris from the settings" do
+        expect(post(:create, params:)).to be_ok
+        expect(config_from_response.developer_key.redirect_uris).to eq(config_from_response.redirect_uris)
       end
+    end
+
+    it "sets the right name on the Registration" do
+      subject
+      expect(config_from_response.lti_registration.name).to eq dev_key_params[:name]
     end
   end
 
   describe "#update" do
     subject { put :update, params: }
 
-    let(:target_link_uri) { new_url }
-
     before do
       tool_configuration
+      canvas_lti_configuration["target_link_uri"] = new_url
     end
 
     context do
@@ -431,13 +527,27 @@ RSpec.describe Lti::ToolConfigurationsApiController do
 
       it "updates the tool configuration" do
         subject
-        new_settings = config_from_response.settings
-        expect(new_settings["target_link_uri"]).to eq new_url
+        expect(config_from_response.target_link_uri).to eq new_url
       end
 
       it "sets the privacy level" do
         subject
         expect(config_from_response.privacy_level).to eq "public"
+      end
+
+      it "sets the right name on the Registration" do
+        subject
+        expect(config_from_response.lti_registration.name).to eq dev_key_params[:name]
+      end
+    end
+
+    context "when privacy_level is nil" do
+      let(:extension_privacy_level) { "email_only" }
+      let(:privacy_level) { nil }
+
+      it "updates the tool configuration without setting privacy level" do
+        subject
+        expect(config_from_response.privacy_level).to eq "email_only"
       end
     end
 
@@ -446,9 +556,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
         subject { installed_tool.reload.workflow_state }
 
         let(:installed_tool) do
-          t = tool_configuration.new_external_tool(context)
-          t.save!
-          t
+          tool_configuration.lti_registration.new_external_tool(context)
         end
         let(:context) { raise "set in examples" }
         let(:privacy_level) { "anonymous" }
@@ -475,10 +583,6 @@ RSpec.describe Lti::ToolConfigurationsApiController do
       end
     end
 
-    it_behaves_like "an endpoint that validates public_jwk and public_jwk_url" do
-      let(:make_request) { put :update, params: }
-    end
-
     it_behaves_like "an action that requires manage developer keys"
 
     it_behaves_like "an endpoint that accepts developer key parameters" do
@@ -492,14 +596,14 @@ RSpec.describe Lti::ToolConfigurationsApiController do
     subject { get :show, params: params.except(:tool_configuration) }
 
     before do
-      tool_configuration
+      developer_key
       account.developer_key_account_bindings
              .find_by(developer_key:)
              .update!(workflow_state: "on")
     end
 
     context "when tool configuration does not exist" do
-      let(:tool_configuration) { nil }
+      before { tool_configuration.destroy! }
 
       it_behaves_like "an endpoint that requires an existing tool configuration"
     end
@@ -514,7 +618,7 @@ RSpec.describe Lti::ToolConfigurationsApiController do
       end
     end
 
-    context 'when the current user does not have "lti_add_edit"' do
+    context 'when the current user does not have "manage_lti_add"' do
       let(:student) { student_in_course(active_all: true).user }
 
       before { user_session(student) }
@@ -525,10 +629,65 @@ RSpec.describe Lti::ToolConfigurationsApiController do
       end
     end
 
-    context "when the tool configuration exists and key is enabled" do
-      it "renders the tool configuration" do
+    it "returns the right tool configuration" do
+      subject
+      expect(config_from_response).to eq tool_configuration
+    end
+
+    it "includes the config in canvas LtiConfiguration format" do
+      subject
+      canvas_config = tool_configuration.lti_registration.canvas_configuration(context: account).with_indifferent_access
+      expect(json_parse.dig("tool_configuration", "settings").with_indifferent_access).to eq canvas_config
+    end
+
+    it "includes the developer key JSON" do
+      subject
+      expect(json_parse["developer_key"]).to include "id" => developer_key.global_id
+    end
+
+    context "when the tool configuration is an Lti::IMS::Registration" do
+      let(:ims_registration) do
+        lti_ims_registration_model(
+          redirect_uris: ["http://example.com"],
+          initiate_login_uri: "http://example.com/login",
+          client_name: "Example Tool",
+          jwks_uri: "http://example.com/jwks",
+          logo_uri: "http://example.com/logo.png",
+          client_uri: "http://example.com/",
+          tos_uri: "http://example.com/tos",
+          policy_uri: "http://example.com/policy",
+          lti_tool_configuration: {
+            target_link_uri: "https://example.com/launch",
+            domain: "example.com",
+            messages: [],
+            claims: [
+              "name",
+              "email"
+            ]
+          },
+          scopes: [],
+          developer_key:,
+          lti_registration: developer_key.lti_registration
+        )
+      end
+
+      let(:overlay) do
+        Lti::Overlay.create!(updated_by: account_admin_user,
+                             registration: developer_key.lti_registration,
+                             account:,
+                             data: { privacy_level: "anonymous" })
+      end
+
+      before do
+        ims_registration
+        overlay
+      end
+
+      it "returns the registration with its overlay applied" do
         subject
-        expect(config_from_response).to eq tool_configuration
+        expect(json_parse.with_indifferent_access
+          .dig(:tool_configuration, :settings, :extensions)[0][:privacy_level])
+          .to eq "anonymous"
       end
     end
   end
@@ -537,24 +696,155 @@ RSpec.describe Lti::ToolConfigurationsApiController do
     subject { delete :destroy, params: params.except(:tool_configuration) }
 
     before do
-      tool_configuration
+      developer_key
     end
 
     it_behaves_like "an action that requires manage developer keys"
 
     context do
-      let(:tool_configuration) { nil }
+      before { tool_configuration.destroy! }
 
       it_behaves_like "an endpoint that requires an existing tool configuration"
     end
 
     context "when the tool configuration exists" do
-      it "destroys the tool configuration" do
+      it "soft deletes the tool configuration" do
         subject
-        expect(Lti::ToolConfiguration.find_by(id: tool_configuration.id)).to be_nil
+        expect(tool_configuration.reload).to be_deleted
       end
 
       it { is_expected.to be_no_content }
+    end
+  end
+
+  describe "modify_site_admin_developer_keys permission" do
+    let(:site_admin_admin) { account_admin_user(account: Account.site_admin) }
+    let(:site_admin_without_permission) do
+      user = user_model
+      role = custom_account_role("limited_admin", account: Account.site_admin)
+      # Grant manage_developer_keys but not modify_site_admin_developer_keys
+      Account.site_admin.role_overrides.create!(
+        permission: :manage_developer_keys,
+        role:,
+        enabled: true
+      )
+      Account.site_admin.account_users.create!(user:, role:)
+      user
+    end
+    let(:site_admin_params) do
+      {
+        developer_key: dev_key_params,
+        account_id: Account.site_admin.id,
+        tool_configuration: {
+          settings: canvas_lti_configuration
+        }
+      }
+    end
+
+    describe "POST 'create'" do
+      subject { post :create, params: site_admin_params, format: :json }
+
+      context "when user has modify_site_admin_developer_keys permission" do
+        before { user_session(site_admin_admin) }
+
+        it "allows creating a site admin tool configuration" do
+          subject
+          expect(response).to be_successful
+          key = DeveloperKey.find(json_parse.dig("developer_key", "id"))
+          expect(key.account).to be_nil
+        end
+      end
+
+      context "when user lacks modify_site_admin_developer_keys permission" do
+        before { user_session(site_admin_without_permission) }
+
+        it "returns forbidden" do
+          subject
+          expect(response).to be_forbidden
+          expect(json_parse["errors"].first["message"]).to include("Site Admin developer keys")
+        end
+
+        context "when modify_site_admin_developer_keys_permission FF is off" do
+          before { Account.site_admin.disable_feature!(:modify_site_admin_developer_keys_permission) }
+
+          it "allows creating a site admin tool configuration" do
+            subject
+            expect(response).to be_successful
+            key = DeveloperKey.find(json_parse.dig("developer_key", "id"))
+            expect(key.account).to be_nil
+          end
+        end
+      end
+    end
+
+    describe "PUT 'update'" do
+      subject { put :update, params: update_params, format: :json }
+
+      let(:site_admin_key) { lti_developer_key_model(account: Account.site_admin) }
+      let(:site_admin_tool_config) { lti_tool_configuration_model(developer_key: site_admin_key, lti_registration: site_admin_key.lti_registration) }
+      let(:update_params) do
+        {
+          developer_key_id: site_admin_key.id,
+          developer_key: { name: "Updated Name" },
+          tool_configuration: {
+            settings: canvas_lti_configuration
+          }
+        }
+      end
+
+      before { site_admin_tool_config }
+
+      context "when user has modify_site_admin_developer_keys permission" do
+        before { user_session(site_admin_admin) }
+
+        it "allows updating a site admin tool configuration" do
+          subject
+          expect(response).to be_successful
+        end
+      end
+
+      context "when user lacks modify_site_admin_developer_keys permission" do
+        before { user_session(site_admin_without_permission) }
+
+        it "returns forbidden" do
+          subject
+          expect(response).to be_forbidden
+          expect(json_parse["errors"].first["message"]).to include("Site Admin developer keys")
+        end
+      end
+    end
+
+    describe "DELETE 'destroy'" do
+      subject { delete :destroy, params: destroy_params, format: :json }
+
+      let(:site_admin_key) { lti_developer_key_model(account: Account.site_admin) }
+      let(:site_admin_tool_config) { lti_tool_configuration_model(developer_key: site_admin_key, lti_registration: site_admin_key.lti_registration) }
+      let(:destroy_params) do
+        {
+          developer_key_id: site_admin_key.id
+        }
+      end
+
+      before { site_admin_tool_config }
+
+      context "when user has modify_site_admin_developer_keys permission" do
+        before { user_session(site_admin_admin) }
+
+        it "allows deleting a site admin tool configuration" do
+          subject
+          expect(response).to be_no_content
+        end
+      end
+
+      context "when user lacks modify_site_admin_developer_keys permission" do
+        before { user_session(site_admin_without_permission) }
+
+        it "returns forbidden" do
+          subject
+          expect(response).to be_forbidden
+          expect(json_parse["errors"].first["message"]).to include("Site Admin developer keys")
+        end
+      end
     end
   end
 end

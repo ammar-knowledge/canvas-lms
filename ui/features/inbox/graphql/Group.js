@@ -16,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {bool, shape, string} from 'prop-types'
 
 export const Group = {
   fragment: gql`
-    fragment Group on Group {
+    fragment InboxGroup on Group {
       _id
       contextName: name
       assetString

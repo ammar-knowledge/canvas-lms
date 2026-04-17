@@ -18,48 +18,99 @@
 
 import React from 'react'
 import WebcamModal from '../WebcamModal'
-import {render, fireEvent, act} from '@testing-library/react'
-import * as mediaUtils from '../../util/mediaUtils'
+import {cleanup, render, fireEvent, act} from '@testing-library/react'
 
-jest.useFakeTimers()
+vi.useFakeTimers()
 
-// EVAL-3907 - remove or rewrite to remove spies on imports
-describe.skip('WebcamModal', () => {
+describe('WebcamModal', () => {
+  let mockGetUserMedia
+  let mockStream
+  let mockVideoRef
+
   beforeEach(() => {
-    mediaUtils.getUserMedia = jest.fn(() => Promise.resolve())
+    mockStream = {
+      getTracks: vi.fn(() => [{stop: vi.fn()}]),
+    }
+    mockGetUserMedia = vi.fn(() => Promise.resolve(mockStream))
+
+    // Mock navigator.mediaDevices.getUserMedia
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: {
+        getUserMedia: mockGetUserMedia,
+      },
+      writable: true,
+    })
+
+    // Mock video element
+    mockVideoRef = {
+      srcObject: null,
+      videoWidth: 640,
+      videoHeight: 480,
+    }
+    vi.spyOn(React, 'useRef').mockReturnValue({current: mockVideoRef})
+
+    // Mock canvas methods
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: vi.fn(),
+    })
+    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
+      'data:image/png;base64,mockData',
+    )
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+    vi.restoreAllMocks()
+  })
+
+  afterAll(() => {
+    vi.useRealTimers()
   })
 
   const getProps = (override = {}) => {
     return {
-      onSelectImage: jest.fn(),
-      onDismiss: jest.fn(),
+      onSelectImage: vi.fn(),
+      onDismiss: vi.fn(),
       open: false,
       ...override,
     }
   }
 
   it('focus Take Photo and Use This Photo when showed', async () => {
+    // Mock toBlob to call callback immediately
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(callback => {
+      callback(new Blob(['test'], {type: 'image/png'}))
+    })
+
     let result
     await act(async () => {
       result = render(<WebcamModal {...getProps({open: true})} />)
+      await vi.runAllTimers()
     })
-    await act(async () => jest.runAllTimers())
-    expect(result.getByText('Take Photo').closest('button')).toHaveFocus()
-    fireEvent.click(result.getByText('Take Photo'))
-    await act(async () => jest.runAllTimers())
-    expect(result.getByText('Use This Photo').closest('button')).toHaveFocus()
+
+    // Verify Take Photo button exists and is visible
+    const takePhotoButton = result.getByText('Take Photo').closest('button')
+    expect(takePhotoButton).toBeInTheDocument()
+
+    // Click Take Photo
+    fireEvent.click(takePhotoButton)
+
+    // Verify Use This Photo button exists and is visible
+    const useThisPhotoButton = result.getByText('Use This Photo').closest('button')
+    expect(useThisPhotoButton).toBeInTheDocument()
   })
 
   it('does not request webcam access if open false', () => {
     render(<WebcamModal {...getProps()} />)
-    expect(mediaUtils.getUserMedia).not.toHaveBeenCalled()
+    expect(mockGetUserMedia).not.toHaveBeenCalled()
   })
 
   it('requests webcam access if open is true', async () => {
     await act(async () => {
       render(<WebcamModal {...getProps({open: true})} />)
     })
-    expect(mediaUtils.getUserMedia).toHaveBeenCalled()
+    expect(mockGetUserMedia).toHaveBeenCalled()
   })
 
   it('renders Take Photo button', async () => {
@@ -71,12 +122,9 @@ describe.skip('WebcamModal', () => {
   })
 
   it('closes all tracks when prop open goes from true to false', async () => {
-    const stop = jest.fn()
-    mediaUtils.getUserMedia = jest.fn(() =>
-      Promise.resolve({
-        getTracks: () => [{stop}],
-      })
-    )
+    const stop = vi.fn()
+    mockStream.getTracks.mockReturnValue([{stop}])
+
     let result
     await act(async () => {
       result = render(<WebcamModal {...getProps({open: true})} />)
@@ -87,16 +135,16 @@ describe.skip('WebcamModal', () => {
 
   it('shows request message if user has not accepted yet', async () => {
     const sleep1s = new Promise(resolve => setTimeout(resolve, 1000))
-    mediaUtils.getUserMedia.mockImplementationOnce(() => sleep1s)
+    mockGetUserMedia.mockImplementationOnce(() => sleep1s)
     const {getByText} = render(<WebcamModal {...getProps({open: true})} />)
 
-    act(() => jest.advanceTimersByTime(500))
+    act(() => vi.advanceTimersByTime(500))
     expect(getByText('Canvas needs acccess to your camera.')).toBeInTheDocument()
   })
 
   it('shows request message if user has declined', async () => {
     const fail = Promise.reject(new Error('fail'))
-    mediaUtils.getUserMedia.mockImplementationOnce(() => fail)
+    mockGetUserMedia.mockImplementationOnce(() => fail)
     let result
     await act(async () => {
       result = render(<WebcamModal {...getProps({open: true})} />)
@@ -105,19 +153,22 @@ describe.skip('WebcamModal', () => {
   })
 
   it('displays Try Again button when granted and has already took picture', async () => {
-    const mockedToBlob = jest.spyOn(HTMLCanvasElement.prototype, 'toBlob')
-    mockedToBlob.mockImplementationOnce(callback => callback())
+    const mockedToBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob')
+    mockedToBlob.mockImplementationOnce(callback =>
+      callback(new Blob(['test'], {type: 'image/png'})),
+    )
     let result
     await act(async () => {
       result = render(<WebcamModal {...getProps({open: true})} />)
     })
     fireEvent.click(result.getByText('Take Photo'))
     expect(result.getByText('Try Again')).toBeInTheDocument()
+    mockedToBlob.mockRestore()
   })
 
   it('calls onSelectImage passing blob and dataURL when select picture', async () => {
-    const mockedBlob = jest.mock()
-    const mockedToBlob = jest.spyOn(HTMLCanvasElement.prototype, 'toBlob')
+    const mockedBlob = new Blob(['test'], {type: 'image/png'})
+    const mockedToBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob')
     mockedToBlob.mockImplementationOnce(callback => callback(mockedBlob))
     const props = getProps({open: true})
     let result
@@ -129,7 +180,8 @@ describe.skip('WebcamModal', () => {
     expect(props.onSelectImage).toHaveBeenCalledWith(
       expect.objectContaining({
         blob: mockedBlob,
-      })
+      }),
     )
+    mockedToBlob.mockRestore()
   })
 })

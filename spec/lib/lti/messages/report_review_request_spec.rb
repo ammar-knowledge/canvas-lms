@@ -1,0 +1,139 @@
+# frozen_string_literal: true
+
+# Copyright (C) 2025 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+IMS_CLAIM_PREFIX = "https://purl.imsglobal.org/spec/lti/claim"
+INST_CLAIM_PREFIX = "https://canvas.instructure.com"
+
+describe Lti::Messages::ReportReviewRequest do
+  subject { report_review.to_cached_hash[:post_payload] }
+
+  let(:context) { course_model }
+  let(:expander) do
+    Lti::VariableExpander.new(
+      context.root_account,
+      context,
+      nil,
+      {
+        current_user: user,
+        tool:
+      }
+    )
+  end
+  let(:user) { student_in_course(course: context).user }
+  let(:opts) { {} }
+  let(:return_url) { nil }
+  let(:tool) { external_tool_1_3_model(context:) }
+  let(:assignment) { assignment_model }
+  let(:asset_processor) { lti_asset_processor_model(tool:, assignment:) }
+  let(:asset_report) { lti_asset_report_model(asset_processor:) }
+  let(:report_review) do
+    Lti::Messages::ReportReviewRequest.new(
+      tool:,
+      context:,
+      user:,
+      expander:,
+      return_url:,
+      asset_report:,
+      opts:
+    )
+  end
+
+  it "includes activity claim" do
+    expect(subject["#{IMS_CLAIM_PREFIX}/activity"]["id"]).to eq(assignment.lti_context_id)
+  end
+
+  it "includes submissions claim" do
+    expect(subject["#{IMS_CLAIM_PREFIX}/submission"]["id"]).to eq(asset_report.asset.submission.lti_attempt_id)
+  end
+
+  context "when asset is a discussion entry" do
+    let(:submission) { submission_model(assignment:) }
+    let(:topic) { assignment.context.discussion_topics.create! }
+    let(:entry) { topic.discussion_entries.create!(message: "hello", user: submission.user) }
+    let(:dev) { entry.discussion_entry_versions.first }
+    let(:asset) { lti_asset_model(submission:, discussion_entry_version: dev) }
+    let(:asset_report) { lti_asset_report_model(asset_processor:, asset:) }
+
+    it "uses discussion submission claim format matching contribution notice" do
+      expected = "#{submission.lti_id}:#{dev.id}:#{entry.attachment_id}"
+      expect(subject["#{IMS_CLAIM_PREFIX}/submission"]["id"]).to eq(expected)
+    end
+  end
+
+  it "includes assetreport type claim" do
+    expect(subject["#{IMS_CLAIM_PREFIX}/assetreport_type"]).to eq(asset_report.report_type)
+  end
+
+  it "includes for user claim" do
+    expect(subject["#{IMS_CLAIM_PREFIX}/for_user"]["user_id"]).to eq(user.lti_id)
+  end
+
+  it "includes asset claim" do
+    expect(subject["#{IMS_CLAIM_PREFIX}/asset"]["id"]).to eq(asset_report.asset.uuid)
+  end
+
+  it "includes certain base claims" do
+    expect(subject.keys).to include(
+      "#{IMS_CLAIM_PREFIX}/deployment_id",
+      "#{IMS_CLAIM_PREFIX}/context",
+      "#{IMS_CLAIM_PREFIX}/target_link_uri",
+      "#{IMS_CLAIM_PREFIX}/version",
+      "#{IMS_CLAIM_PREFIX}/roles"
+    )
+  end
+
+  it "includes custom params claim" do
+    expect(subject["#{IMS_CLAIM_PREFIX}/custom"]).to eq({
+                                                          "customkey" => "report_overrided",
+                                                          "raid2" => asset_processor.root_account_id.to_s,
+                                                          "raid" => asset_processor.root_account_id.to_s
+                                                        })
+  end
+
+  context "when asset_report is nil" do
+    let(:asset_report) { nil }
+
+    it "message is invalid" do
+      expect { subject }.to raise_error(ArgumentError)
+    end
+  end
+
+  describe "legacy_custom_sourcedid extension" do
+    context "when extensions does not contain custom_sourcedid" do
+      before do
+        asset_report.update!(extensions: { "https://example.com/other" => "value" })
+      end
+
+      it "does not include legacy_custom_sourcedid extension" do
+        extension_key = "https://www.instructure.com/legacy_custom_sourcedid"
+        expect(subject).not_to have_key(extension_key)
+      end
+    end
+
+    context "when extensions contains custom_sourcedid" do
+      before do
+        asset_report.update!(extensions: { "https://www.instructure.com/legacy_custom_sourcedid" => "test-sourcedid-123" })
+      end
+
+      it "includes legacy_custom_sourcedid extension" do
+        extension_key = "https://www.instructure.com/legacy_custom_sourcedid"
+        expect(subject[extension_key]).to eq("test-sourcedid-123")
+      end
+    end
+  end
+end

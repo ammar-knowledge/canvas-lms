@@ -18,7 +18,8 @@
 
 import React from 'react'
 import {render, fireEvent, act} from '@testing-library/react'
-import fetchMock from 'fetch-mock'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 import useManagedCourseSearchApi from '@canvas/direct-sharing/react/effects/useManagedCourseSearchApi'
 import useModuleCourseSearchApi, {
   useCourseModuleItemApi,
@@ -26,13 +27,16 @@ import useModuleCourseSearchApi, {
 import CourseImportPanel from '../CourseImportPanel'
 import {mockShare} from './test-utils'
 
-jest.mock('@canvas/direct-sharing/react/effects/useManagedCourseSearchApi')
-jest.mock('@canvas/direct-sharing/react/effects/useModuleCourseSearchApi')
+vi.mock('@canvas/direct-sharing/react/effects/useManagedCourseSearchApi')
+vi.mock('@canvas/direct-sharing/react/effects/useModuleCourseSearchApi')
+
+const server = setupServer()
 
 describe('CourseImportPanel', () => {
   let ariaLive
 
   beforeAll(() => {
+    server.listen()
     ariaLive = document.createElement('div')
     ariaLive.id = 'flash_screenreader_holder'
     ariaLive.setAttribute('role', 'alert')
@@ -40,11 +44,12 @@ describe('CourseImportPanel', () => {
   })
 
   afterAll(() => {
+    server.close()
     if (ariaLive) ariaLive.remove()
   })
 
   beforeEach(() => {
-    useManagedCourseSearchApi.mockImplementationOnce(({success}) => {
+    vi.mocked(useManagedCourseSearchApi).mockImplementationOnce(({success}) => {
       success([
         {id: 'abc', name: 'abc'},
         {id: 'cde', name: 'cde'},
@@ -53,13 +58,14 @@ describe('CourseImportPanel', () => {
   })
 
   afterEach(() => {
-    fetchMock.restore()
+    server.resetHandlers()
+    vi.clearAllMocks()
   })
 
   it('does not include concluded courses', () => {
     render(<CourseImportPanel contentShare={mockShare()} />)
-    expect(useManagedCourseSearchApi).toHaveBeenCalledTimes(2)
-    expect(useManagedCourseSearchApi.mock.calls[0][0].params.include).toBe(undefined)
+    const hookCalls = useManagedCourseSearchApi.mock.calls
+    expect(hookCalls.every(call => !call[0].params.include)).toBe(true)
   })
 
   it('disables the import button initially', () => {
@@ -67,50 +73,60 @@ describe('CourseImportPanel', () => {
     expect(
       getByText(/import/i)
         .closest('button')
-        .getAttribute('disabled')
+        .getAttribute('disabled'),
     ).toBe('')
   })
 
   it('enables the import button when a course is selected', async () => {
-    fetchMock.getOnce('path:/api/v1/courses/abc/modules', [])
+    server.use(http.get('/api/v1/courses/abc/modules', () => HttpResponse.json([])))
     const {getByText} = render(<CourseImportPanel contentShare={mockShare()} />)
     fireEvent.click(getByText(/select a course/i))
     fireEvent.click(getByText('abc'))
-    await act(() => fetchMock.flush(true))
     const copyButton = getByText(/import/i).closest('button')
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
     expect(copyButton.getAttribute('disabled')).toBe(null)
   })
 
   it('disables the import button again when a course search is initiated', async () => {
-    fetchMock.getOnce('path:/api/v1/courses/abc/modules', [])
+    server.use(http.get('/api/v1/courses/abc/modules', () => HttpResponse.json([])))
     const {getByText, getByLabelText} = render(<CourseImportPanel contentShare={mockShare()} />)
     const input = getByLabelText(/select a course/i)
     fireEvent.click(input)
     fireEvent.click(getByText('abc'))
-    await act(() => fetchMock.flush(true))
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
     fireEvent.change(input, {target: {value: 'foo'}})
     expect(
       getByText(/import/i)
         .closest('button')
-        .getAttribute('disabled')
+        .getAttribute('disabled'),
     ).toBe('')
   })
 
   it('starts an import operation and reports status', async () => {
     const share = mockShare()
-    const onImport = jest.fn()
-    fetchMock.postOnce('path:/api/v1/courses/abc/content_migrations', {
-      id: '8',
-      workflow_state: 'running',
-    })
-    useModuleCourseSearchApi.mockImplementationOnce(({success}) => {
+    const onImport = vi.fn()
+    let capturedRequest = null
+    server.use(
+      http.post('/api/v1/courses/abc/content_migrations', async ({request}) => {
+        capturedRequest = await request.json()
+        return HttpResponse.json({
+          id: '8',
+          workflow_state: 'running',
+        })
+      }),
+    )
+    vi.mocked(useModuleCourseSearchApi).mockImplementationOnce(({success}) => {
       success([
         {id: '1', name: 'Module 1'},
         {id: '2', name: 'Module 2'},
       ])
     })
     const {getByText, getAllByText, getByLabelText, queryByText} = render(
-      <CourseImportPanel contentShare={share} onImport={onImport} />
+      <CourseImportPanel contentShare={share} onImport={onImport} />,
     )
     fireEvent.click(getByLabelText(/select a course/i))
     fireEvent.click(getByText('abc'))
@@ -119,14 +135,14 @@ describe('CourseImportPanel', () => {
     fireEvent.click(getByText(/import/i))
     expect(queryByText('Import')).toBeNull()
     expect(getByText('Close')).toBeInTheDocument()
-    const [, fetchOptions] = fetchMock.lastCall()
-    expect(fetchOptions.method).toBe('POST')
-    expect(JSON.parse(fetchOptions.body)).toMatchObject({
+    expect(getAllByText(/start/i)).not.toHaveLength(0)
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(capturedRequest).toMatchObject({
       migration_type: 'canvas_cartridge_importer',
       settings: {content_export_id: share.content_export.id, insert_into_module_id: '1'},
     })
-    expect(getAllByText(/start/i)).not.toHaveLength(0)
-    await act(() => fetchMock.flush(true))
     expect(getByText(/success/)).toBeInTheDocument()
     expect(queryByText('Import')).toBeNull()
     expect(getByText('Close')).toBeInTheDocument()
@@ -137,54 +153,63 @@ describe('CourseImportPanel', () => {
 
   it('deletes the module and removes the position selector when a new course is selected', () => {
     const share = mockShare()
-    useModuleCourseSearchApi.mockImplementationOnce(({success}) => {
+    vi.mocked(useModuleCourseSearchApi).mockImplementationOnce(({success}) => {
       success([
         {id: '1', name: 'Module 1'},
         {id: '2', name: 'Module 2'},
       ])
     })
     const {getByText, getByLabelText, queryByText} = render(
-      <CourseImportPanel contentShare={share} />
+      <CourseImportPanel contentShare={share} />,
     )
     const courseSelector = getByText(/select a course/i)
     fireEvent.click(courseSelector)
     fireEvent.click(getByText('abc'))
     fireEvent.click(getByText(/select a module/i))
     fireEvent.click(getByText(/Module 1/))
-    expect(getByText(/Position/)).toBeInTheDocument()
-    useManagedCourseSearchApi.mockImplementationOnce(({success}) => {
+    expect(getByText(/Place/)).toBeInTheDocument()
+    vi.mocked(useManagedCourseSearchApi).mockImplementationOnce(({success}) => {
       success([{id: 'ghi', name: 'foo'}])
     })
-    useCourseModuleItemApi.mockClear()
+    vi.mocked(useCourseModuleItemApi).mockClear()
     const input = getByLabelText(/select a course/i)
     fireEvent.change(input, {target: {value: 'f'}})
     fireEvent.click(getByText('foo'))
-    expect(queryByText(/Position/)).not.toBeInTheDocument()
+    expect(queryByText(/Place/)).not.toBeInTheDocument()
     expect(useCourseModuleItemApi).not.toHaveBeenCalled()
   })
 
   describe('errors', () => {
+    let consoleErrorSpy
+
     beforeEach(() => {
-      jest.spyOn(console, 'error').mockImplementation()
+      consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation()
     })
 
     afterEach(() => {
-      console.error.mockRestore() // eslint-disable-line no-console
+      consoleErrorSpy.mockRestore()
     })
 
     it('reports an error if the fetch fails', async () => {
-      fetchMock.postOnce('path:/api/v1/courses/abc/content_migrations', 400)
-      fetchMock.getOnce('path:/api/v1/courses/abc/modules', [])
+      server.use(
+        http.post(
+          '/api/v1/courses/abc/content_migrations',
+          () => new HttpResponse(null, {status: 400}),
+        ),
+        http.get('/api/v1/courses/abc/modules', () => HttpResponse.json([])),
+      )
       const share = mockShare()
-      const onImport = jest.fn()
+      const onImport = vi.fn()
       const {getByText, getByLabelText, queryByText} = render(
-        <CourseImportPanel contentShare={share} onImport={onImport} />
+        <CourseImportPanel contentShare={share} onImport={onImport} />,
       )
       const input = getByLabelText(/select a course/i)
       fireEvent.click(input)
       fireEvent.click(getByText('abc'))
       fireEvent.click(getByText('Import'))
-      await act(() => fetchMock.flush(true))
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
       expect(getByText(/problem/i)).toBeInTheDocument()
       expect(queryByText('Import')).toBeNull()
       expect(getByText('Close')).toBeInTheDocument()

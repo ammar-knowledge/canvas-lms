@@ -17,8 +17,6 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require "spec_helper"
-
 describe "Exporters::ZipExporter" do
   describe "#export" do
     let(:course) { Course.create!(workflow_state: "available") }
@@ -26,6 +24,26 @@ describe "Exporters::ZipExporter" do
     let(:student) { course.enroll_student(User.create!).user }
     let(:teacher) { course.enroll_teacher(User.create!).user }
     let(:settings) { {} }
+
+    describe "with InstFS enabled" do
+      before do
+        allow(InstFS).to receive(:enabled?).and_return(true)
+      end
+
+      it "uses InstFS to store the file" do
+        expect(InstFS).to receive(:direct_upload).and_return("got-u")
+        content_export = course.content_exports.create!(
+          user: teacher,
+          workflow_state: "created",
+          selected_content: { folders: { "folder_#{folder.id}": "1" } }
+        )
+
+        content_export.save!
+
+        export_file = Exporters::ZipExporter.new(content_export).export
+        expect(export_file.instfs_uuid).to eq "got-u"
+      end
+    end
 
     shared_examples_for "exports for users with file access" do
       it "includes the course attachment" do
@@ -36,7 +54,7 @@ describe "Exporters::ZipExporter" do
         let(:settings) { { time_zone: "America/Denver" } }
 
         it "uses the time zone to calculate the user's local time using TZInfo::Timezone" do
-          expect(TZInfo::Timezone).to receive(:get).with("America/Denver").and_return(double("LocalTime", now: Time.now))
+          expect(TZInfo::Timezone).to receive(:get).with("America/Denver").and_return(instance_double(TZInfo::Timezone, now: Time.zone.now))
           subject
         end
       end

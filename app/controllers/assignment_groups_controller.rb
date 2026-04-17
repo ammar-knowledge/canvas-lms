@@ -95,6 +95,7 @@
 #
 class AssignmentGroupsController < ApplicationController
   before_action :require_context
+  skip_before_action :require_user, only: :index
 
   include Api::V1::AssignmentGroup
 
@@ -103,12 +104,13 @@ class AssignmentGroupsController < ApplicationController
   # Returns the paginated list of assignment groups for the current context.
   # The returned groups are sorted by their position field.
   #
-  # @argument include[] [String, "assignments"|"discussion_topic"|"all_dates"|"assignment_visibility"|"overrides"|"submission"|"observed_users"|"can_edit"|"score_statistics"]
+  # @argument include[] [String, "assignments"|"discussion_topic"|"all_dates"|"assignment_visibility"|"overrides"|"submission"|"observed_users"|"can_edit"|"score_statistics"|"peer_review"]
   #  Associations to include with the group. "discussion_topic", "all_dates", "can_edit",
   #  "assignment_visibility" & "submission" are only valid if "assignments" is also included.
   #  "score_statistics" requires that the "assignments" and "submission" options are included.
   #  The "assignment_visibility" option additionally requires that the Differentiated Assignments course feature be turned on.
   #  If "observed_users" is passed along with "assignments" and "submission", submissions for observed users will also be included as an array.
+  #  The "peer_review" option requires that the Peer Review Grading course feature be turned on and that "assignments" is included.
   #
   # @argument assignment_ids[] [String]
   #  If "assignments" are included, optionally return only assignments having their ID in this array. This argument may also be passed as
@@ -204,7 +206,7 @@ class AssignmentGroupsController < ApplicationController
       groups.touch_all
       groups.each { |assignment_group| AssignmentGroup.notify_observers(:assignments_changed, assignment_group) }
       ids = @group.active_assignments.map(&:id)
-      @context.recompute_student_scores rescue nil
+      @context.recompute_student_scores
       render json: { reorder: true, order: ids }, status: :ok
     end
   end
@@ -321,9 +323,10 @@ class AssignmentGroupsController < ApplicationController
 
   def assignment_includes
     includes = [:context, :external_tool_tag, { quiz: :context }]
-    includes += [:rubric, :rubric_association] unless assignment_excludes.include?("rubric")
+    includes += [:rubric_association] if !assignment_excludes.include?("rubric") || include_params.include?("has_rubric")
+    includes += [:rubric] unless assignment_excludes.include?("rubric")
     includes << :discussion_topic if include_params.include?("discussion_topic")
-    includes << :assignment_overrides if include_overrides?
+    includes << :active_assignment_overrides if include_overrides?
     includes
   end
 
@@ -347,25 +350,30 @@ class AssignmentGroupsController < ApplicationController
 
   def assignment_visibilities(course, assignments)
     if include_visibility?
-      if Account.site_admin.feature_enabled?(:selective_release_backend)
-        AssignmentVisibility::AssignmentVisibilityService.assignments_with_user_visibilities(course, assignments)
-      else
-        AssignmentStudentVisibility.assignments_with_user_visibilities(course, assignments)
-      end
+      DatesOverridable.preload_override_data_for_objects(assignments)
+      AssignmentVisibility::AssignmentVisibilityService.assignments_with_user_visibilities(course, assignments)
     else
       params.fetch(:include, []).delete("assignment_visibility")
-      AssignmentStudentVisibility.none
+      {}
     end
   end
 
-  def index_groups_json(context, current_user, groups, assignments, submissions = [])
+  def index_groups_json(context, current_user, groups, assignments, submissions = {})
     current_user_is_student = context.respond_to?(:user_is_student?) && context.user_is_student?(current_user)
-    can_include_assessment_requests = current_user_is_student && context.respond_to?(:feature_enabled?) && context.feature_enabled?(:peer_reviews_for_a2)
+    can_include_assessment_requests = current_user_is_student && context.respond_to?(:feature_enabled?) && context.feature_enabled?(:assignments_2_student)
+    all_submissions = submissions&.values&.flatten || []
+    unless all_submissions.empty?
+      preloaded_enrollments_by_user_id = context.enrollments
+                                                .select(:user_id, :type)
+                                                .where(user_id: all_submissions.map(&:user_id).uniq)
+                                                .index_by(&:user_id)
+    end
 
     include_overrides = include_params.include?("overrides")
     include_score_statistics = include_params.include?("score_statistics")
     include_assessment_requests = can_include_assessment_requests && include_params.include?("assessment_requests")
 
+    assignments = assignments.to_a # just to be clear that we don't want to load this multiple times somehow
     assignments_by_group = assignments.group_by(&:assignment_group_id)
     preloaded_attachments = user_content_attachments(assignments, context)
 
@@ -379,6 +387,22 @@ class AssignmentGroupsController < ApplicationController
 
     overwritten_includes = Array(params[:include])
     overwritten_includes -= ["assessment_requests"] unless can_include_assessment_requests
+
+    ActiveRecord::Associations.preload(assignments, :post_policy)
+    Assignment.preload_unposted_anonymous_submissions(assignments)
+
+    if include_params.include?("score_statistics")
+      ActiveRecord::Associations.preload(assignments, :score_statistic)
+    end
+
+    if include_params.include?("checkpoints")
+      ActiveRecord::Associations.preload(assignments, :sub_assignments)
+    end
+
+    unless assignment_excludes.include?("attachments")
+      Submission.bulk_load_attachments_and_previews(all_submissions)
+    end
+    ActiveRecord::Associations.preload(all_submissions, :originality_reports)
 
     groups.map do |group|
       group.context = context
@@ -396,7 +420,8 @@ class AssignmentGroupsController < ApplicationController
         submissions:,
         closed_grading_period_hash:,
         master_course_status: mc_status,
-        include_assessment_requests:
+        include_assessment_requests:,
+        preloaded_enrollments_by_user_id:
       }
 
       assignment_group_json(group, current_user, session, overwritten_includes, options)
@@ -434,7 +459,7 @@ class AssignmentGroupsController < ApplicationController
       groups,
       includes: assignment_includes,
       assignment_ids:
-    )
+    ).where("COALESCE(settings->'new_quizzes'->>'type', '') != 'ungraded_survey'")
 
     if value_to_boolean(params[:hide_zero_point_quizzes])
       assignments = assignments.not_hidden_in_gradebook

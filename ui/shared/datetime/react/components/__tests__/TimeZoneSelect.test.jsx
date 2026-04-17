@@ -19,7 +19,7 @@
 import React from 'react'
 import TimeZoneSelect from '../TimeZoneSelect'
 import {render} from '@testing-library/react'
-import isEqual from 'lodash/isEqual'
+import {isEqual} from 'es-toolkit/compat'
 
 let liveRegion = null
 beforeAll(() => {
@@ -66,7 +66,7 @@ describe('TimeZoneSelect', () => {
         value="Mountain"
         timezones={timezones}
         priority_zones={priorityZones}
-      />
+      />,
     )
 
     expect(getByDisplayValue('Mountain localized')).toBeInTheDocument()
@@ -80,7 +80,7 @@ describe('TimeZoneSelect', () => {
         value="Mountain"
         timezones={timezones}
         priority_zones={priorityZones}
-      />
+      />,
     )
 
     // open the select dropdown
@@ -88,37 +88,37 @@ describe('TimeZoneSelect', () => {
     label.click()
 
     const priorityOptions = document.querySelectorAll(
-      '[data-testid="Group:Common Timezones"] span[role="option"]'
+      '[data-testid="Group:Common Timezones"] span[role="option"]',
     )
     isEqual(
       Array.from(priorityOptions).map(e => ({
         name: e.getAttribute('value'),
         localized_name: e.textContent,
       })),
-      priorityZones
+      priorityZones,
     )
 
     const allOptions = document.querySelectorAll(
-      '[data-testid="Group:All Timezones"] span[role="option"]'
+      '[data-testid="Group:All Timezones"] span[role="option"]',
     )
     isEqual(
       Array.from(allOptions).map(e => ({
         name: e.getAttribute('value'),
         localized_name: e.textContent,
       })),
-      timezones
+      timezones,
     )
   })
 
   it('calls onChange on a selection', () => {
-    const onChangeTZ = jest.fn()
+    const onChangeTZ = vi.fn()
     const {getByText} = render(
       <TimeZoneSelect
         label="the label"
         onChange={onChangeTZ}
         timezones={timezones}
         priority_zones={priorityZones}
-      />
+      />,
     )
 
     // open the select dropdown

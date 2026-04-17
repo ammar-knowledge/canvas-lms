@@ -19,7 +19,6 @@
 #
 
 require "redis/cluster"
-require "spec_helper"
 require "timecop"
 
 describe CanvasCache::Redis do
@@ -41,7 +40,7 @@ describe CanvasCache::Redis do
 
     it "is false when config-less" do
       allow(ConfigFile).to receive(:load).with("redis").and_return(nil)
-      expect(CanvasCache::Redis).to_not be_enabled
+      expect(CanvasCache::Redis).not_to be_enabled
     end
   end
 
@@ -63,8 +62,8 @@ describe CanvasCache::Redis do
         expect(r).to eq(redis_client)
         CanvasCache::Redis.disconnect!
         r2 = CanvasCache::Redis.redis
-        expect(r2).to_not be_nil
-        expect(r2).to_not eq(r)
+        expect(r2).not_to be_nil
+        expect(r2).not_to eq(r)
       end
     end
 
@@ -133,7 +132,7 @@ describe CanvasCache::Redis do
 
         it "does not fail cache.write" do
           override_cache(cache) do
-            expect(Rails.cache.write("blah", "someval")).to be false
+            expect(Rails.cache.write("blah", "someval")).to be_falsey
           end
         end
 
@@ -329,7 +328,7 @@ describe CanvasCache::Redis do
       end
     end
 
-    include_examples "disconnect_if_idle"
+    it_behaves_like "disconnect_if_idle"
 
     context "with a cluster" do
       let(:redis) do
@@ -350,7 +349,7 @@ describe CanvasCache::Redis do
         router.find_node(router.find_node_key(""))
       end
 
-      include_examples "disconnect_if_idle"
+      it_behaves_like "disconnect_if_idle"
     end
 
     it "works with a cluster that hasn't connected yet" do

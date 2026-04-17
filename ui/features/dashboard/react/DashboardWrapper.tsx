@@ -17,7 +17,7 @@
  */
 
 import React, {useEffect, useState} from 'react'
-// eslint-disable-next-line import/no-named-as-default
+
 import DashboardHeader, {observerMode} from './DashboardHeader'
 
 import {useFetchDashboardCards} from '../../../shared/dashboard-card/dashboardCardQueries'
@@ -54,7 +54,7 @@ const DashboardWrapper = ({
   const [cards, setCards] = useState<Card[]>([])
 
   const observedUserID =
-    observerMode() && ENV.OBSERVED_USERS_LIST.length > 0 ? savedObservedId(userID) : null
+    observerMode() && (ENV.OBSERVED_USERS_LIST?.length ?? 0) > 0 ? savedObservedId(userID) : null
 
   const {
     data: dashCardData,

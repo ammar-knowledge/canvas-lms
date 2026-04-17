@@ -18,12 +18,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../spec_helper"
-
 describe AuthenticationProvider::PluginSettings do
   let(:klass) do
     Class.new(AuthenticationProvider) do
       include AuthenticationProvider::PluginSettings
+
       self.plugin = :custom_plugin
 
       def noninherited_method
@@ -54,14 +53,15 @@ describe AuthenticationProvider::PluginSettings do
     context "with plugin config" do
       it "returns nothing" do
         allow(plugin).to receive(:enabled?).and_return(true)
-        expect(klass.recognized_params).to eq %i[mfa_required skip_internal_mfa otp_via_sms]
+        expect(klass.recognized_params).to include(*%i[mfa_required skip_internal_mfa otp_via_sms])
+        expect(klass.recognized_params).not_to include(*%i[auth_host noninherited_method])
       end
     end
 
     context "without plugin config" do
       it "returns plugin params" do
         allow(plugin).to receive(:enabled?).and_return(false)
-        expect(klass.recognized_params).to eq %i[auth_host noninherited_method mfa_required skip_internal_mfa otp_via_sms]
+        expect(klass.recognized_params).to include(*%i[auth_host noninherited_method mfa_required skip_internal_mfa otp_via_sms])
       end
     end
   end

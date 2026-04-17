@@ -54,6 +54,7 @@ function formatHistoryItems(data) {
         gradingType: assignments[item.links.assignment].grading_type,
         muted: assignments[item.links.assignment].muted,
         name: assignments[item.links.assignment].name,
+        subAssignmentTag: assignments[item.links.assignment].sub_assignment_tag,
       }
     } else {
       assignment = {}
@@ -70,10 +71,10 @@ function formatHistoryItems(data) {
       gradeBefore: item.grade_before || '',
       gradeCurrent: item.grade_current || '',
       id: item.id,
-      pointsPossibleAfter: item.points_possible_after ? item.points_possible_after.toString() : '–',
-      pointsPossibleBefore: item.points_possible_before
-        ? item.points_possible_before.toString()
-        : '–',
+      pointsPossibleAfter:
+        item.points_possible_after != null ? item.points_possible_after.toString() : '–',
+      pointsPossibleBefore:
+        item.points_possible_before != null ? item.points_possible_before.toString() : '–',
       pointsPossibleCurrent: pointsPossibleCurrent(assignments, item),
       student: users[item.links.student] ? users[item.links.student].name : '',
     }

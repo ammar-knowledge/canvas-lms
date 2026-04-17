@@ -32,31 +32,31 @@ describe('Button', () => {
   })
 
   it('should call onChange when typing occurs', () => {
-    const onChangeMock = jest.fn()
+    const onChangeMock = vi.fn()
     const {subjectInput} = setup({
       onChange: onChangeMock,
     })
     fireEvent.change(subjectInput, {target: {value: '42'}})
-    expect(onChangeMock.mock.calls.length).toBe(1)
+    expect(onChangeMock.mock.calls).toHaveLength(1)
   })
 
   it('should call onBlur when blur event triggered', () => {
-    const onBlurMock = jest.fn()
+    const onBlurMock = vi.fn()
     const {subjectInput} = setup({
       onBlur: onBlurMock,
     })
     fireEvent.focus(subjectInput)
     fireEvent.blur(subjectInput)
-    expect(onBlurMock.mock.calls.length).toBe(1)
+    expect(onBlurMock.mock.calls).toHaveLength(1)
   })
 
   it('should call onFocus when focus event triggered', () => {
-    const onFocusMock = jest.fn()
+    const onFocusMock = vi.fn()
     const {subjectInput} = setup({
       onFocus: onFocusMock,
     })
     fireEvent.focus(subjectInput)
     fireEvent.blur(subjectInput)
-    expect(onFocusMock.mock.calls.length).toBe(1)
+    expect(onFocusMock.mock.calls).toHaveLength(1)
   })
 })

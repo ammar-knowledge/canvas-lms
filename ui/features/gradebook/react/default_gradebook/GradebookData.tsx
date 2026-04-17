@@ -17,7 +17,7 @@
  */
 
 import React, {useRef, useEffect, useCallback} from 'react'
-import shallow from 'zustand/shallow'
+import {useShallow} from 'zustand/react/shallow'
 import {camelizeProperties} from '@canvas/convert-case'
 import PostGradesStore from '../SISGradePassback/PostGradesStore'
 import Gradebook from './Gradebook'
@@ -26,6 +26,8 @@ import type {GradebookOptions} from './gradebook.d'
 import PerformanceControls from './PerformanceControls'
 import {RequestDispatch} from '@canvas/network'
 import useStore from './stores/index'
+import {shouldUseGraphQL} from './utils/forceGqlParam'
+import {addCorrelationIdToUrl} from './utils/urlHelpers'
 
 type Props = {
   actionMenuNode: HTMLSpanElement
@@ -46,22 +48,22 @@ type Props = {
 
 export default function GradebookData(props: Props) {
   const performanceControls = useRef(
-    new PerformanceControls(camelizeProperties(props.gradebookEnv.performance_controls))
+    new PerformanceControls(camelizeProperties(props.gradebookEnv.performance_controls)),
   )
   const dispatch = useRef(
     new RequestDispatch({
       activeRequestLimit: performanceControls.current.activeRequestLimit,
-    })
+    }),
   )
   const postGradesStore = useRef(
     PostGradesStore({
       course: {id: props.gradebookEnv.context_id, sis_id: props.gradebookEnv.context_sis_id},
-    })
+    }),
   )
   const courseId = props.gradebookEnv.context_id
   const flashMessages = useStore(state => state.flashMessages)
 
-  const appliedFilters = useStore(state => state.appliedFilters, shallow)
+  const appliedFilters = useStore(useShallow(state => state.appliedFilters))
   const isFiltersLoading = useStore(state => state.isFiltersLoading)
   const initializeAppliedFilters = useStore(state => state.initializeAppliedFilters)
   const initializeStagedFilters = useStore(state => state.initializeStagedFilters)
@@ -71,7 +73,7 @@ export default function GradebookData(props: Props) {
   const isModulesLoading = useStore(state => state.isModulesLoading)
   const fetchModules = useStore(state => state.fetchModules)
 
-  const customColumns = useStore(state => state.customColumns, shallow)
+  const customColumns = useStore(useShallow(state => state.customColumns))
   const isCustomColumnsLoaded = useStore(state => state.isCustomColumnsLoaded)
   const fetchCustomColumns = useStore(state => state.fetchCustomColumns)
   const loadDataForCustomColumn = useStore(state => state.loadDataForCustomColumn)
@@ -82,7 +84,7 @@ export default function GradebookData(props: Props) {
   const finalGradeOverrides = useStore(state => state.finalGradeOverrides)
   const fetchFinalGradeOverrides = useStore(state => state.fetchFinalGradeOverrides)
 
-  const studentIds = useStore(state => state.studentIds, shallow)
+  const studentIds = useStore(useShallow(state => state.studentIds))
   const isStudentIdsLoading = useStore(state => state.isStudentIdsLoading)
   const recentlyLoadedStudents = useStore(state => state.recentlyLoadedStudents)
   const recentlyLoadedSubmissions = useStore(state => state.recentlyLoadedSubmissions)
@@ -103,6 +105,7 @@ export default function GradebookData(props: Props) {
 
   const currentGradingPeriodId = findFilterValuesOfType('grading-period', appliedFilters)[0]
   const gradingPeriodSet = props.gradebookEnv.grading_period_set
+  const useGraphQL = shouldUseGraphQL(props.gradebookEnv.performance_improvements_for_gradebook)
 
   // Initial state
   useEffect(() => {
@@ -113,14 +116,19 @@ export default function GradebookData(props: Props) {
       hasModules: props.gradebookEnv.has_modules,
       allowFinalGradeOverride: props.gradebookEnv.course_settings.allow_final_grade_override,
       reorderCustomColumnsUrl: props.gradebookEnv.reorder_custom_columns_url,
+      useQueueForRateLimiting: props.gradebookEnv.use_queue_for_rate_limiting_gradebook_requests,
     })
+
+    // Add correlationId to URL for Referer header tracking
+    addCorrelationIdToUrl(useStore.getState().correlationId)
+
     initializeAppliedFilters(
       props.gradebookEnv.settings.filter_rows_by || {},
       props.gradebookEnv.settings.filter_columns_by || {},
       props.gradebookEnv.custom_grade_statuses_enabled
         ? props.gradebookEnv.custom_grade_statuses
         : [],
-      props.gradebookEnv.multiselect_gradebook_filters_enabled
+      props.gradebookEnv.multiselect_gradebook_filters_enabled,
     )
   }, [
     courseId,
@@ -134,6 +142,7 @@ export default function GradebookData(props: Props) {
     props.gradebookEnv.custom_grade_statuses_enabled,
     props.gradebookEnv.custom_grade_statuses,
     props.gradebookEnv.multiselect_gradebook_filters_enabled,
+    props.gradebookEnv.use_queue_for_rate_limiting_gradebook_requests,
   ])
 
   // Data loading logic goes here
@@ -151,7 +160,7 @@ export default function GradebookData(props: Props) {
       fetchSisOverrides()
     }
     fetchCustomColumns()
-    loadStudentData()
+    loadStudentData(useGraphQL)
   }, [
     fetchCustomColumns,
     fetchFilters,
@@ -166,18 +175,23 @@ export default function GradebookData(props: Props) {
     props.gradebookEnv.post_grades_feature,
     props.gradebookEnv.settings.filter_columns_by,
     props.gradebookEnv.settings.filter_rows_by,
+    useGraphQL,
   ])
 
   useEffect(() => {
     if (gradingPeriodSet) {
-      // eslint-disable-next-line promise/catch-or-return
       fetchGradingPeriodAssignments().then(() => {
-        if (currentGradingPeriodId !== '0') {
-          loadAssignmentGroups(props.gradebookEnv.hide_zero_point_quizzes, currentGradingPeriodId)
-        }
+        loadAssignmentGroups({
+          useGraphQL,
+          hideZeroPointQuizzes: props.gradebookEnv.hide_zero_point_quizzes,
+          currentGradingPeriodId,
+        })
       })
     } else {
-      loadAssignmentGroups(props.gradebookEnv.hide_zero_point_quizzes)
+      loadAssignmentGroups({
+        useGraphQL,
+        hideZeroPointQuizzes: props.gradebookEnv.hide_zero_point_quizzes,
+      })
     }
   }, [
     gradingPeriodSet,
@@ -185,11 +199,12 @@ export default function GradebookData(props: Props) {
     fetchGradingPeriodAssignments,
     loadAssignmentGroups,
     props.gradebookEnv.hide_zero_point_quizzes,
+    useGraphQL,
   ])
 
   const reloadStudentData = useCallback(() => {
-    loadStudentData()
-  }, [loadStudentData])
+    loadStudentData(useGraphQL)
+  }, [loadStudentData, useGraphQL])
 
   return (
     <Gradebook

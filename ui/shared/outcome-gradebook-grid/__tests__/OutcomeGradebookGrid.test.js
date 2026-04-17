@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import {isEqual} from 'lodash'
+import {isEqual} from 'es-toolkit/compat'
 import Grid from '..'
 import fakeENV from '@canvas/test-utils/fakeENV'
 
@@ -43,7 +43,7 @@ describe('OutcomeGradebookGrid', () => {
       scores: [{score: '3', hide_points: true, links: {outcome: '2'}}],
     }
     expect(
-      isEqual(Grid.Util._toRow([rollup], null).outcome_2, {score: '3', hide_points: true})
+      isEqual(Grid.Util._toRow([rollup], null).outcome_2, {score: '3', hide_points: true}),
     ).toBe(true)
   })
 
@@ -60,7 +60,9 @@ describe('OutcomeGradebookGrid', () => {
 
   test('Grid.View.masteryDetails', () => {
     const outcome = {mastery_points: 5, points_possible: 10}
-    const spy = jest.spyOn(Grid.View, 'legacyMasteryDetails')
+    // Ensure Grid.ratings is empty to force using legacyMasteryDetails
+    Grid.ratings = []
+    const spy = vi.spyOn(Grid.View, 'legacyMasteryDetails')
     Grid.View.masteryDetails(10, outcome)
     expect(spy).toHaveBeenCalledTimes(1)
     Grid.ratings = [
@@ -103,27 +105,27 @@ describe('OutcomeGradebookGrid', () => {
     const outcome = {mastery_points: 5}
     expect(Grid.View.legacyMasteryDetails(8, outcome)).toEqual([
       'rating_0',
-      '#127A1B',
+      '#02672D',
       'Exceeds Mastery',
     ])
     expect(Grid.View.legacyMasteryDetails(5, outcome)).toEqual([
       'rating_1',
-      '#0B874B',
+      '#03893D',
       'Meets Mastery',
     ])
     expect(Grid.View.legacyMasteryDetails(7, outcome)).toEqual([
       'rating_1',
-      '#0B874B',
+      '#03893D',
       'Meets Mastery',
     ])
     expect(Grid.View.legacyMasteryDetails(3, outcome)).toEqual([
       'rating_2',
-      '#FC5E13',
+      '#F06E26',
       'Near Mastery',
     ])
     expect(Grid.View.legacyMasteryDetails(1, outcome)).toEqual([
       'rating_3',
-      '#E0061F',
+      '#E62429',
       'Well Below Mastery',
     ])
   })

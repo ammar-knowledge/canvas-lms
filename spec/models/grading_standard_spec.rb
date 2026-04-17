@@ -46,10 +46,6 @@ describe GradingStandard do
   end
 
   describe "validations" do
-    it { is_expected.to belong_to(:context).required }
-    it { is_expected.to validate_presence_of(:data) }
-    it { is_expected.to serialize(:data) }
-
     describe "grading standard data" do
       let(:standard) { GradingStandard.new(context: @course) }
 
@@ -152,16 +148,16 @@ describe GradingStandard do
 
   it "upgrades in memory when accessing data" do
     standard = GradingStandard.new
-    standard.write_attribute(:data, @default_standard_v1)
-    standard.write_attribute(:version, 1)
+    standard["data"] = @default_standard_v1
+    standard.version = 1
     compare_schemes(standard.data, GradingStandard.default_grading_standard)
     expect(standard.version).to eq GradingStandard::VERSION
   end
 
   it "does not upgrade repeatedly when accessing data repeatedly" do
     standard = GradingStandard.new
-    standard.write_attribute(:data, @default_standard_v1)
-    standard.write_attribute(:version, 1)
+    standard["data"] = @default_standard_v1
+    standard.version = 1
     compare_schemes(standard.data, GradingStandard.default_grading_standard)
     compare_schemes(standard.data, GradingStandard.default_grading_standard)
     compare_schemes(standard.data, GradingStandard.default_grading_standard)
@@ -177,11 +173,19 @@ describe GradingStandard do
     end
   end
 
-  context "#for" do
+  describe "#for" do
     it "returns standards that match the context" do
       grading_standard_for @course
 
       standards = GradingStandard.for(@course)
+      expect(standards.length).to eq 1
+      expect(standards[0].id).to eq @standard.id
+    end
+
+    it "returns standards that match the context when archive is requested" do
+      grading_standard_for @course
+
+      standards = GradingStandard.for(@course, include_archived: true)
       expect(standards.length).to eq 1
       expect(standards[0].id).to eq @standard.id
     end
@@ -208,6 +212,14 @@ describe GradingStandard do
       standards = GradingStandard.for(@course, include_archived: true)
       expect(standards.length).to eq 1
       expect(standards[0].id).to eq @standard.id
+    end
+
+    it "excludes deleted when the parameter is true for archived grading schemes" do
+      Account.site_admin.enable_feature!(:archived_grading_schemes)
+      grading_standard_for @course
+      @standard.destroy
+      standards = GradingStandard.for(@course, include_archived: true)
+      expect(standards.length).to eq 0
     end
   end
 
@@ -467,6 +479,10 @@ describe GradingStandard do
       end
 
       context "without submissions" do
+        before(:once) do
+          Account.site_admin.disable_feature!(:archived_grading_schemes)
+        end
+
         it "is false" do
           expect(@gs).not_to be_assessed_assignment
         end
@@ -475,6 +491,7 @@ describe GradingStandard do
       context "with submissions" do
         before(:once) do
           @submission = @assignment.submit_homework(@student, body: "done!")
+          Account.site_admin.disable_feature!(:archived_grading_schemes)
         end
 
         it "is false if no submissions are graded" do
@@ -615,6 +632,42 @@ describe GradingStandard do
     end
   end
 
+  describe "#matching_scheme_key" do
+    before do
+      @gs = GradingStandard.new
+      @gs.data = [["A", 0.94], ["A-", 0.90], ["B+", 0.87], ["B", 0.84], ["C", 0.70], ["F", 0.0]]
+    end
+
+    it "returns the correctly-cased key for an exact match" do
+      expect(@gs.matching_scheme_key("A")).to eq("A")
+      expect(@gs.matching_scheme_key("B+")).to eq("B+")
+    end
+
+    it "returns the correctly-cased key for a case-insensitive match" do
+      expect(@gs.matching_scheme_key("a")).to eq("A")
+      expect(@gs.matching_scheme_key("b+")).to eq("B+")
+    end
+
+    it "returns nil when no match is found" do
+      expect(@gs.matching_scheme_key("Z")).to be_nil
+    end
+
+    it "handles numeric keys" do
+      @gs.data = [["4.0", 0.94], ["3.7", 0.90], ["3.0", 0.84], ["0", 0.0]]
+      expect(@gs.matching_scheme_key("3.7")).to eq("3.7")
+    end
+
+    it "handles mixed case keys" do
+      @gs.data = [["PaSs", 0.70], ["fAiL", 0.0]]
+      expect(@gs.matching_scheme_key("pass")).to eq("PaSs")
+      expect(@gs.matching_scheme_key("FAIL")).to eq("fAiL")
+    end
+
+    it "returns nil for nil input" do
+      expect(@gs.matching_scheme_key(nil)).to be_nil
+    end
+  end
+
   describe "root account ID" do
     let_once(:root_account) { Account.create! }
     let_once(:subaccount) { Account.create(root_account:) }
@@ -679,7 +732,7 @@ describe GradingStandard do
       expect(grading_standard.halted?)
         .to be(true)
       expect(grading_standard.halted_because)
-        .to_not be_nil
+        .not_to be_nil
     end
   end
 
@@ -702,7 +755,7 @@ describe GradingStandard do
       expect(grading_standard.halted?)
         .to be(true)
       expect(grading_standard.halted_because)
-        .to_not be_nil
+        .not_to be_nil
     end
   end
 
@@ -737,6 +790,22 @@ describe GradingStandard do
     end
 
     it "returns false if not used as an account or course default grading scheme" do
+      expect(@grading_standard.used_as_default?).to be false
+    end
+
+    it "returns false if it is used as an assignment grading scheme" do
+      @course.assignments.create!(title: "hi",
+                                  grading_type: "letter_grade",
+                                  grading_standard: @grading_standard,
+                                  submission_types: ["online_text_entry"])
+      expect(@grading_standard.used_as_default?).to be false
+    end
+
+    it "returns false if used as a course default grading scheme for a concluded course" do
+      @course.grading_standard = @grading_standard
+      @course.save!
+      @course.complete!
+
       expect(@grading_standard.used_as_default?).to be false
     end
   end

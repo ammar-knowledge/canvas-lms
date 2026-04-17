@@ -16,18 +16,18 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import _ from 'lodash'
+import {find, sortBy, findIndex, last, isNil} from 'es-toolkit/compat'
 import $ from 'jquery'
 import React from 'react'
 import classNames from 'classnames'
 import PropTypes from 'prop-types'
 import {Text} from '@instructure/ui-text'
 import {Flex} from '@instructure/ui-flex'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import {ratingShape, tierShape} from './types'
 
-const I18n = useI18nScope('edit_rubricRatings')
+const I18n = createI18nScope('edit_rubricRatings')
 
 const pointString = (points, endOfRangePoints) => {
   if (endOfRangePoints !== null) {
@@ -79,16 +79,15 @@ export const Rating = props => {
   return (
     // eslint is unhappy here because it's not smart enough to understand that
     // when this is interact-able (via tabIndex), it will always have a role
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+
     <div
       className={classes}
       onClick={assessing ? onClick : null}
       onKeyPress={e => (e.key === 'Enter' ? onClick() : null)}
       role={assessing ? 'button' : null}
-      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
       tabIndex={assessing ? 0 : null}
     >
-      {hidePoints || ENV['restrict_quantitative_data'] ? null : ratingPoints()}
+      {hidePoints || ENV.restrict_quantitative_data ? null : ratingPoints()}
       <div className="rating-description">
         <Text size="small" lineHeight="condensed" weight="bold">
           {description}
@@ -110,14 +109,14 @@ export const Rating = props => {
 }
 
 const getCustomColor = (points, pointsPossible, customRatings) => {
-  const sortedRatings = _.sortBy(customRatings, 'points').reverse()
+  const sortedRatings = sortBy(customRatings, 'points').reverse()
   const scaledPoints =
     pointsPossible > 0 ? points * (sortedRatings[0].points / pointsPossible) : points
-  const selectedRating = _.find(sortedRatings, rating => scaledPoints >= rating.points)
+  const selectedRating = find(sortedRatings, rating => scaledPoints >= rating.points)
   if (selectedRating) {
     return `#${selectedRating.color}`
   } else {
-    return `#${_.last(sortedRatings).color}`
+    return `#${last(sortedRatings).color}`
   }
 }
 
@@ -133,7 +132,7 @@ Rating.propTypes = {
 Rating.defaultProps = {
   footer: null,
   selected: false,
-  endOfRangePoints: null, // eslint-disable-line react/default-props-match-prop-types
+  endOfRangePoints: null,
   hidePoints: false,
   shaderClass: null,
 }
@@ -161,9 +160,9 @@ const Ratings = props => {
 
   const currentIndex = () => {
     if (selectedRatingId) {
-      return _.findIndex(
+      return findIndex(
         tiers,
-        tier => tier.id === selectedRatingId && (useRange || tier.points === points)
+        tier => tier.id === selectedRatingId && (useRange || tier.points === points),
       )
     } else {
       return pairs.findIndex(({current, next}) => {
@@ -273,7 +272,7 @@ const Ratings = props => {
   )
 
   const fullFooter = () =>
-    isSummary || _.isNil(footer) ? null : <div className="rating-all-footer">{footer}</div>
+    isSummary || isNil(footer) ? null : <div className="rating-all-footer">{footer}</div>
 
   return (
     <div>

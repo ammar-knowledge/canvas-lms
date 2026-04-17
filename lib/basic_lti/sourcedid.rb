@@ -57,7 +57,7 @@ module BasicLTI
 
       tag = assignment.external_tool_tag
       raise Errors::InvalidSourceId.new("Assignment is no longer associated with this tool", :assignment_tool_mismatch) unless tag &&
-                                                                                                                               (tool.matches_url?(tag.url, false) || tool.matches_tool_domain?(tag.url)) &&
+                                                                                                                               (tool.matches_url?(tag.url, match_queries_exactly: false) || tool.matches_tool_domain?(tag.url)) &&
                                                                                                                                tool.workflow_state != "deleted"
     end
 
@@ -67,7 +67,7 @@ module BasicLTI
       token = load_from_legacy_sourcedid!(sourcedid_string) ||
               token_from_sourcedid!(sourcedid_string)
 
-      tool = ContextExternalTool.find_by(id: token[:tool_id])
+      tool = Lti::ToolFinder.find_by(id: token[:tool_id])
       course = Course.active.find_by(id: token[:course_id])
       if course
         user = course.student_enrollments.active.find_by(user_id: token[:user_id])&.user
@@ -83,7 +83,7 @@ module BasicLTI
       token = nil
       md = sourcedid.match(SOURCE_ID_REGEX)
       if md
-        tool = ContextExternalTool.find_by(id: md[1])
+        tool = Lti::ToolFinder.find_by(id: md[1])
         raise Errors::InvalidSourceId.new("Tool is invalid", :tool_invalid) unless tool
 
         new_encoding = [md[1], md[2], md[3], md[4]].join("-")

@@ -18,18 +18,19 @@
 
 import React, {useRef} from 'react'
 import {GradingStatusListItem} from '@canvas/grading-status-list-item'
+import {Grid} from '@instructure/ui-grid'
 import type {GradeStatus} from '@canvas/grading/accountGradingStatus'
-import {showConfirmationDialog} from '@canvas/feature-flags/react/ConfirmationDialog'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {showConfirmationDialog} from '@canvas/dialogs/react/ConfirmationDialog'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {IconButton} from '@instructure/ui-buttons'
 import {IconTrashSolid} from '@instructure/ui-icons'
 import {Text} from '@instructure/ui-text'
 import {TruncateText} from '@instructure/ui-truncate-text'
 import {View} from '@instructure/ui-view'
 import {EditStatusPopover} from './EditStatusPopover'
-import {Flex} from '@instructure/ui-flex'
+import {STATUS_ICONS} from '@canvas/grading/gradingStatus'
 
-const I18n = useI18nScope('account_grading_status')
+const I18n = createI18nScope('account_grading_status')
 
 type CustomStatusItemProps = {
   editable: boolean
@@ -52,7 +53,7 @@ export const CustomStatusItem = ({
   const confirmStatusDelete = async () => {
     const confirmed = await showConfirmationDialog({
       body: I18n.t(
-        'Are you sure you want to delete this custom status? This action cannot be undone. All submissions and scores currently marked with this custom status will have their status removed.'
+        'Are you sure you want to delete this custom status? This action cannot be undone. All submissions and scores currently marked with this custom status will have their status removed.',
       ),
       confirmColor: 'danger',
       confirmText: I18n.t('Delete'),
@@ -64,6 +65,8 @@ export const CustomStatusItem = ({
       handleStatusDelete(id)
     }
   }
+  const icon = gradeStatus.icon && STATUS_ICONS?.[gradeStatus.icon]
+
   return (
     <View
       as="div"
@@ -79,38 +82,41 @@ export const CustomStatusItem = ({
           }
         }}
       >
-        <Flex>
-          <Flex.Item shouldGrow={true} shouldShrink={true} size="11rem">
-            <Text weight="bold">
-              <TruncateText position="middle">{name}</TruncateText>
-            </Text>
-          </Flex.Item>
-          {editable && (
-            <Flex.Item>
-              <EditStatusPopover
-                currentColor={color}
-                customStatusName={name}
-                editButtonLabel={`${I18n.t('Custom Status')} ${name}`}
-                handleEditSave={handleEditSave}
-                isCustomStatus={true}
-                isOpen={isEditOpen}
-                handleEditStatusToggle={handleEditStatusToggle}
-                positionTarget={customStatusItemRef.current}
-              />
+        <Grid vAlign="middle">
+          <Grid.Row>
+            <Grid.Col width="auto">{icon && <img src={icon} alt="" title={name} />}</Grid.Col>
+            <Grid.Col>
+              <Text weight="bold">
+                <TruncateText position="middle">{name}</TruncateText>
+              </Text>
+            </Grid.Col>
+            {editable && (
+              <Grid.Col width="auto">
+                <EditStatusPopover
+                  currentColor={color}
+                  customStatusName={name}
+                  editButtonLabel={`${I18n.t('Custom Status')} ${name}`}
+                  handleEditSave={handleEditSave}
+                  isCustomStatus={true}
+                  isOpen={isEditOpen}
+                  handleEditStatusToggle={handleEditStatusToggle}
+                  positionTarget={customStatusItemRef.current}
+                />
 
-              <IconButton
-                size="small"
-                withBackground={false}
-                withBorder={false}
-                screenReaderLabel={I18n.t('Delete Status %{name}', {name})}
-                onClick={confirmStatusDelete}
-                data-testid="delete-custom-status-button"
-              >
-                <IconTrashSolid />
-              </IconButton>
-            </Flex.Item>
-          )}
-        </Flex>
+                <IconButton
+                  size="small"
+                  withBackground={false}
+                  withBorder={false}
+                  screenReaderLabel={I18n.t('Delete Status %{name}', {name})}
+                  onClick={confirmStatusDelete}
+                  data-testid="delete-custom-status-button"
+                >
+                  <IconTrashSolid />
+                </IconButton>
+              </Grid.Col>
+            )}
+          </Grid.Row>
+        </Grid>
       </GradingStatusListItem>
     </View>
   )

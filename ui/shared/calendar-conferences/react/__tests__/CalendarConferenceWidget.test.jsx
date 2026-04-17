@@ -24,7 +24,7 @@ import CalendarConferenceWidget from '../CalendarConferenceWidget'
 // we use RichContentEditor.preloadRemoteModule() to consolidate the import of
 // tinymce in the code, but since dynamic loading takes time during tests, we do
 // a static import here and mock out the dynamic
-jest.mock('@canvas/rce/RichContentEditor')
+vi.mock('@canvas/rce/RichContentEditor')
 
 describe('CalendarConferenceWidget', () => {
   const conferenceTypes = [
@@ -56,7 +56,7 @@ describe('CalendarConferenceWidget', () => {
 
   it('does not show a selector if conference is present and single types is available', () => {
     const {queryByText} = render(
-      <CalendarConferenceWidget {...makeParams({conferenceTypes: conferenceTypes.slice(0, 1)})} />
+      <CalendarConferenceWidget {...makeParams({conferenceTypes: conferenceTypes.slice(0, 1)})} />,
     )
     expect(queryByText('Select Conference Provider')).toBeNull()
   })
@@ -68,7 +68,7 @@ describe('CalendarConferenceWidget', () => {
 
   it('does not show a selector if setConference is not defined', () => {
     const {queryByText} = render(
-      <CalendarConferenceWidget {...makeParams({setConference: null})} />
+      <CalendarConferenceWidget {...makeParams({setConference: null})} />,
     )
     expect(queryByText('Select Conference Provider')).toBeNull()
   })

@@ -74,13 +74,13 @@ module Types
       object[:loader].load(:read_as_admin)
     end
 
-    field :manage_content, Boolean, null: true
-    def manage_content
+    field :view_group_pages, Boolean, null: true
+    def view_group_pages
       Loaders::PermissionsLoader.for(
         object[:discussion_topic].context,
         current_user:,
         session:
-      ).load(:manage_content)
+      ).load(:view_group_pages)
     end
 
     field :manage_course_content_add, Boolean, null: true

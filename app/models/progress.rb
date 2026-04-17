@@ -18,20 +18,24 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class Progress < ActiveRecord::Base
-  belongs_to :context, polymorphic:
-      [:content_migration,
-       :course,
-       :account,
-       :group_category,
-       :content_export,
-       :assignment,
-       :attachment,
-       :epub_export,
-       :sis_batch,
-       :course_pace,
-       :context_external_tool,
-       { context_user: "User", quiz_statistics: "Quizzes::QuizStatistics" }]
+class Progress < ApplicationRecord
+  belongs_to :context, polymorphic: [
+    :content_migration,
+    :course,
+    :account,
+    :group_category,
+    :content_export,
+    :assignment,
+    :submission,
+    :attachment,
+    :epub_export,
+    :sis_batch,
+    :course_pace,
+    :context_external_tool,
+    :course_report,
+    { context_user: "User", quiz_statistics: "Quizzes::QuizStatistics" },
+  ] + (defined?(DsrRequest) ? [:dsr_request] : [])
+
   belongs_to :user
   belongs_to :delayed_job, class_name: "::Delayed::Job", optional: true
 
@@ -42,9 +46,10 @@ class Progress < ActiveRecord::Base
   serialize :results
   attr_reader :total
 
-  scope :is_pending, -> { where(workflow_state: ["queued", "running"]) }
+  scope :is_pending, -> { where(workflow_state: %w[queued running waiting_for_external_tool]) }
 
   include Workflow
+
   workflow do
     state :queued do
       event :start, transitions_to: :running
@@ -52,6 +57,11 @@ class Progress < ActiveRecord::Base
       event :cancel, transitions_to: :canceled
     end
     state :running do
+      event(:complete, transitions_to: :completed) { self.completion = 100 }
+      event :fail, transitions_to: :failed
+      event :wait_for_external_tool, transitions_to: :waiting_for_external_tool
+    end
+    state :waiting_for_external_tool do
       event(:complete, transitions_to: :completed) { self.completion = 100 }
       event :fail, transitions_to: :failed
     end
@@ -101,7 +111,7 @@ class Progress < ActiveRecord::Base
   end
 
   def pending?
-    queued? || running?
+    queued? || running? || waiting_for_external_tool?
   end
 
   # Tie this Progress model to a delayed job. Rather than `obj.delay.long_method`, use:
@@ -136,9 +146,9 @@ class Progress < ActiveRecord::Base
 
   # (private)
   class Work < Delayed::PerformableMethod
-    def initialize(progress, *args, **kwargs)
+    def initialize(progress, *, **)
       @progress = progress
-      super(*args, **kwargs)
+      super(*, **)
     end
 
     def perform

@@ -18,7 +18,7 @@
 
 import $ from 'jquery'
 import PaginatedCollection from '@canvas/pagination/backbone/collections/PaginatedCollection'
-import {extend as lodashExtend, each} from 'lodash'
+import {each, extend as lodashExtend} from 'es-toolkit/compat'
 import deparam from 'deparam'
 import File from '../models/File'
 
@@ -31,7 +31,7 @@ export default class FilesCollection extends PaginatedCollection {
   fetch(options = {}) {
     options.data = lodashExtend(
       {content_types: this.parentFolder != null ? this.parentFolder.contentTypes : undefined},
-      options.data || {}
+      options.data || {},
     )
     if (this.parentFolder != null ? this.parentFolder.useVerifiers : undefined) {
       options.data.use_verifiers = 1
@@ -47,7 +47,7 @@ export default class FilesCollection extends PaginatedCollection {
         file =>
           (file.rce_preview_url = previewUrl
             ? previewUrl.replace('{{id}}', file.id.toString())
-            : file.url)
+            : file.url),
       )
     }
     return super.parse(...arguments)

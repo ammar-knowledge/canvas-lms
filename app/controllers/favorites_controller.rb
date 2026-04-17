@@ -44,7 +44,6 @@
 #     }
 #
 class FavoritesController < ApplicationController
-  before_action :require_user
   before_action :check_defaults, only: [:remove_favorite_course]
   after_action :touch_user, only: %i[add_favorite_course remove_favorite_course reset_course_favorites]
 
@@ -149,10 +148,7 @@ class FavoritesController < ApplicationController
     fave = nil
 
     @current_user.shard.activate do
-      Favorite.unique_constraint_retry do
-        fave = @current_user.favorites.where(context_type: "Course", context_id: course).first
-        fave ||= @current_user.favorites.create!(context: course)
-      end
+      fave = Favorite.create_or_find_by(user: @current_user, context: course)
     end
 
     render json: favorite_json(fave, @current_user, session)
@@ -179,10 +175,7 @@ class FavoritesController < ApplicationController
     fave = nil
 
     @current_user.shard.activate do
-      Favorite.unique_constraint_retry do
-        fave = @current_user.favorites.where(context_type: "Group", context_id: group).first
-        fave ||= @current_user.favorites.create!(context: group)
-      end
+      fave = Favorite.create_or_find_by(user: @current_user, context: group)
     end
 
     render json: favorite_json(fave, @current_user, session)

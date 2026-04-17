@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
-
 describe LtiOutbound::LTITool do
   it_behaves_like "it has a proc attribute setter and getter for", :consumer_key
   it_behaves_like "it has a proc attribute setter and getter for", :privacy_level
@@ -68,6 +66,21 @@ describe LtiOutbound::LTITool do
       expect(subject.public?).to be false
       subject.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_ANONYMOUS
       expect(subject.public?).to be false
+    end
+  end
+
+  describe "#anonymous?" do
+    it "returns true IFF the privacy level is anonymous" do
+      subject.privacy_level = :something
+      expect(subject.anonymous?).to be false
+      subject.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_PUBLIC
+      expect(subject.anonymous?).to be false
+      subject.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_NAME_ONLY
+      expect(subject.anonymous?).to be false
+      subject.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_EMAIL_ONLY
+      expect(subject.anonymous?).to be false
+      subject.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_ANONYMOUS
+      expect(subject.anonymous?).to be true
     end
   end
 

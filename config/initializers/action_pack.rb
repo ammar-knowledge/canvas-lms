@@ -29,10 +29,10 @@ module TimeZoneFormImprovements
       return result unless zone
 
       unfriendly_zone = "".html_safe
-      unfriendly_zone.safe_concat options_for_select([["#{selected} (#{zone.formatted_offset})", selected]], selected)
-      unfriendly_zone.safe_concat content_tag("option", "-------------", value: "", disabled: true)
-      unfriendly_zone.safe_concat "\n"
-      unfriendly_zone.safe_concat result
+      unfriendly_zone << options_for_select([["#{selected} (#{zone.formatted_offset})", selected]], selected)
+      unfriendly_zone << content_tag("option", "-------------", value: "", disabled: true)
+      unfriendly_zone << "\n"
+      unfriendly_zone << result
       result = unfriendly_zone
     end
 
@@ -68,3 +68,17 @@ end
 ActionDispatch::Request::Session.include(FileAccessUserOnSession)
 
 Autoextend.hook(:"ActionController::TestSession", FileAccessUserOnSession)
+
+module ValidateCallbackArgs
+  module ClassMethods
+    private
+
+    def _insert_callbacks(callbacks, block = nil)
+      options = callbacks.extract_options!
+      options.assert_valid_keys(:if, :unless, :prepend, :only, :except, :raise, :with)
+      callbacks << options
+      super
+    end
+  end
+end
+ActionController::Base.singleton_class.include(ValidateCallbackArgs::ClassMethods)

@@ -120,6 +120,21 @@ describe Types::ConversationType do
       expect(result[0][0]).to eq(@attachment.display_name)
     end
 
+    it "filters out nil attachments from orphaned attachment associations" do
+      # Simulate orphaned attachment association by deleting attachment without callbacks
+      Attachment.where(id: @attachment.id).delete_all
+
+      # Should not crash and should return empty array instead of [nil]
+      result = conversation_type.resolve("conversationMessagesConnection { nodes { attachments { displayName } } }")
+      expect(result).to be_an(Array)
+      expect(result).not_to include(nil)
+
+      # Also test attachmentsConnection
+      result = conversation_type.resolve("conversationMessagesConnection { nodes { attachmentsConnection { nodes { displayName } } } }")
+      expect(result).to be_an(Array)
+      expect(result).not_to include(nil)
+    end
+
     it "returns media comments" do
       result = conversation_type.resolve("conversationMessagesConnection { nodes { mediaComment { title } } }")
       expect(result[0]).to eq(@media_object.title)
@@ -163,6 +178,17 @@ describe Types::ConversationType do
       participant.save(validate: false)
       result = conversation_type.resolve("conversationMessagesConnection { nodes { body } }")
       expect(result).to match_array(@conversation.conversation.conversation_messages.pluck(:body))
+    end
+
+    it "returns the recipients of the message" do
+      result = conversation_type.resolve("conversationMessagesConnection { nodes { recipients { name } } }")
+      expect(result[0]).to include(@student.name)
+    end
+
+    it "returns the recipients even if they delete the conversation" do
+      @conversation.conversation.conversation_messages[0].conversation_message_participants.where(user_id: @student.id).first.update!(workflow_state: "deleted")
+      result = conversation_type.resolve("conversationMessagesConnection { nodes { recipients { name } } }")
+      expect(result[0]).to include(@student.name)
     end
   end
 

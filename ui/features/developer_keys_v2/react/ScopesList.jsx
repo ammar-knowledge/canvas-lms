@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import LazyLoad from 'react-lazy-load'
 import PropTypes from 'prop-types'
 import React from 'react'
@@ -27,7 +27,7 @@ import {Checkbox} from '@instructure/ui-checkbox'
 import ScopesGroup from './ScopesGroup'
 import ScopesMethod from './ScopesMethod'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 
 export default class ScopesList extends React.Component {
   constructor(props) {
@@ -146,25 +146,35 @@ export default class ScopesList extends React.Component {
             <Flex.Item shouldGrow={true} shouldShrink={true}>
               {this.state.availableScopes.map(scopeGroup => {
                 return Object.keys(scopeGroup).reduce((result, key) => {
-                  if (
-                    this.noFilter() ||
-                    key.toLowerCase().indexOf(this.props.filter.toLowerCase()) > -1
-                  ) {
+                  const groupMatchesFilter =
+                    this.noFilter() || key.toLowerCase().includes(this.props.filter.toLowerCase())
+                  const scopeMatchesFilter = scopeGroup[key].some(s =>
+                    s.scope.toLowerCase().includes(this.props.filter.toLowerCase()),
+                  )
+                  const filteredScopes =
+                    this.noFilter() || groupMatchesFilter
+                      ? scopeGroup[key]
+                      : scopeGroup[key].filter(s =>
+                          s.scope.toLowerCase().includes(this.props.filter.toLowerCase()),
+                        )
+                  const expanded = !this.noFilter() && scopeMatchesFilter
+                  if (groupMatchesFilter || filteredScopes.length > 0) {
                     result.push(
                       <LazyLoad
                         offset={1000}
                         debounce={false}
                         height={50}
                         width="100%"
-                        key={`${key}-scope-group`}
+                        key={`${key}-scope-group-${expanded ? 'expanded' : ''}`}
                       >
                         <ScopesGroup
-                          scopes={this.props.availableScopes[key]}
+                          scopes={filteredScopes}
                           name={key}
+                          expanded={expanded}
                           selectedScopes={this.state.selectedScopes}
                           setSelectedScopes={this.setSelectedScopes}
                         />
-                      </LazyLoad>
+                      </LazyLoad>,
                     )
                   }
                   return result
@@ -186,8 +196,8 @@ ScopesList.propTypes = {
       PropTypes.shape({
         resource: PropTypes.string,
         scope: PropTypes.string,
-      })
-    )
+      }),
+    ),
   ).isRequired,
   filter: PropTypes.string.isRequired,
   selectedScopes: PropTypes.arrayOf(PropTypes.string),

@@ -165,10 +165,19 @@ describe TabsController, type: :request do
           "type" => "internal"
         },
         {
+          "id" => "ai_experiences",
+          "html_url" => "/courses/#{@course.id}/ai_experiences",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@course)}/courses/#{@course.id}/ai_experiences",
+          "position" => 14,
+          "visibility" => "public",
+          "label" => "AI Experiences",
+          "type" => "internal"
+        },
+        {
           "id" => "settings",
           "html_url" => "/courses/#{@course.id}/settings",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@course)}/courses/#{@course.id}/settings",
-          "position" => 14,
+          "position" => 15,
           "visibility" => "admins",
           "label" => "Settings",
           "type" => "internal"
@@ -187,6 +196,24 @@ describe TabsController, type: :request do
                       {},
                       { expected_status: 200 })
       expect(json.pluck("id")).to include "home"
+    end
+
+    it "includes nav menu links" do
+      course_with_teacher(active_all: true)
+
+      link = NavMenuLink.create!(context: @course, course_nav: true, label: "Test Link", url: "https://example.com")
+      @course.tab_configuration = [{ "id" => "nav_menu_link_#{link.id}" }]
+      @course.save!
+
+      json = api_call(:get,
+                      "/api/v1/courses/#{@course.id}/tabs",
+                      { controller: "tabs", action: "index", course_id: @course.to_param, format: "json" },
+                      { include: ["external"] })
+
+      tab = json.find { |t| t["id"] == "nav_menu_link_#{link.id}" }
+      expect(tab["type"]).to eq "external"
+      expect(tab["html_url"]).to eq "https://example.com"
+      expect(tab).not_to have_key("url") # Should not have sessionless_launch url
     end
 
     it "includes external tools" do
@@ -356,11 +383,20 @@ describe TabsController, type: :request do
           "type" => "internal"
         },
         {
+          "id" => "account_reports",
+          "html_url" => "/accounts/#{@account.id}/reports",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/reports",
+          "label" => "Reports",
+          "position" => 4,
+          "visibility" => "public",
+          "type" => "internal"
+        },
+        {
           "id" => "permissions",
           "html_url" => "/accounts/#{@account.id}/permissions",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/permissions",
           "label" => "Permissions",
-          "position" => 4,
+          "position" => 5,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -369,7 +405,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/outcomes",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/outcomes",
           "label" => "Outcomes",
-          "position" => 5,
+          "position" => 6,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -378,7 +414,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/rubrics",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/rubrics",
           "label" => "Rubrics",
-          "position" => 6,
+          "position" => 7,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -387,7 +423,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/grading_standards",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/grading_standards",
           "label" => "Grading",
-          "position" => 7,
+          "position" => 8,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -396,7 +432,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/question_banks",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/question_banks",
           "label" => "Question Banks",
-          "position" => 8,
+          "position" => 9,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -405,7 +441,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/sub_accounts",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/sub_accounts",
           "label" => "Sub-Accounts",
-          "position" => 9,
+          "position" => 10,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -414,7 +450,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/calendar_settings",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/calendar_settings",
           "label" => "Account Calendars",
-          "position" => 10,
+          "position" => 11,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -423,7 +459,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/terms",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/terms",
           "label" => "Terms",
-          "position" => 11,
+          "position" => 12,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -432,7 +468,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/authentication_providers",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/authentication_providers",
           "label" => "Authentication",
-          "position" => 12,
+          "position" => 13,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -441,7 +477,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/sis_import",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/sis_import",
           "label" => "SIS Import",
-          "position" => 13,
+          "position" => 14,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -450,7 +486,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/brand_configs",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/brand_configs",
           "label" => "Themes",
-          "position" => 14,
+          "position" => 15,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -459,7 +495,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/developer_keys",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/developer_keys",
           "label" => "Developer Keys",
-          "position" => 15,
+          "position" => 16,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -468,7 +504,16 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/analytics_hub",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/analytics_hub",
           "label" => "Analytics Hub",
-          "position" => 16,
+          "position" => 17,
+          "visibility" => "public",
+          "type" => "internal"
+        },
+        {
+          "id" => "apps",
+          "html_url" => "/accounts/#{@account.id}/apps",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/apps",
+          "label" => "Apps",
+          "position" => 18,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -477,7 +522,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/admin_tools",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/admin_tools",
           "label" => "Admin Tools",
-          "position" => 17,
+          "position" => 19,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -486,7 +531,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/eportfolio_moderation",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/eportfolio_moderation",
           "label" => "ePortfolio Moderation",
-          "position" => 18,
+          "position" => 20,
           "visibility" => "public",
           "type" => "internal"
         },
@@ -495,7 +540,7 @@ describe TabsController, type: :request do
           "html_url" => "/accounts/#{@account.id}/settings",
           "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/settings",
           "label" => "Settings",
-          "position" => 19,
+          "position" => 21,
           "visibility" => "admins",
           "type" => "internal"
         }
@@ -535,6 +580,7 @@ describe TabsController, type: :request do
                                     a_hash_including({ "id" => "home" }),
                                     a_hash_including({ "id" => "syllabus" }),
                                     a_hash_including({ "id" => "people" }),
+                                    a_hash_including({ "id" => "ai_experiences" }),
                                   ])
     end
 
@@ -549,6 +595,7 @@ describe TabsController, type: :request do
                         "/api/v1/courses/#{@course.id}/tabs",
                         { controller: "tabs", action: "index", course_id: @course.to_param, format: "json" },
                         { include: ["course_subject_tabs"] })
+        # AI Experiences is excluded from subject tabs
         expect(json).to eq [
           {
             "id" => "home",
@@ -719,10 +766,19 @@ describe TabsController, type: :request do
             "type" => "internal"
           },
           {
+            "id" => "ai_experiences",
+            "html_url" => "/courses/#{@course.id}/ai_experiences",
+            "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@course)}/courses/#{@course.id}/ai_experiences",
+            "position" => 13,
+            "visibility" => "public",
+            "label" => "AI Experiences",
+            "type" => "internal"
+          },
+          {
             "id" => "settings",
             "html_url" => "/courses/#{@course.id}/settings",
             "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@course)}/courses/#{@course.id}/settings",
-            "position" => 13,
+            "position" => 14,
             "visibility" => "admins",
             "label" => "Settings",
             "type" => "internal"
@@ -734,7 +790,7 @@ describe TabsController, type: :request do
     describe "teacher in a course" do
       before :once do
         course_with_teacher(active_all: true)
-        @tab_ids = [0, 1, 3, 8, 5, 6, 14, 2, 11, 15, 18, 4, 10, 13]
+        @tab_ids = [0, 1, 3, 8, 5, 6, 14, 2, 11, 15, 18, 4, 10, 16, 25, 13]
         @tab_lookup = {}.with_indifferent_access
         @course.tabs_available(@teacher, api: true).each do |t|
           t = t.with_indifferent_access
@@ -743,14 +799,20 @@ describe TabsController, type: :request do
       end
 
       it "has the correct position" do
-        tab_order = [0, 1, 3, 8, 5, 6, 14, 2, 11, 15, 18, 4, 10, 13]
+        # Exclude TAB_AI_EXPERIENCES (25) since it's dynamically inserted
+        tab_order = [0, 1, 3, 8, 5, 6, 14, 2, 11, 15, 18, 4, 10, 16, 13]
         @course.tab_configuration = tab_order.map { |n| { "id" => n } }
         @course.save
         json = api_call(:get, "/api/v1/courses/#{@course.id}/tabs", { controller: "tabs",
                                                                       action: "index",
                                                                       course_id: @course.to_param,
                                                                       format: "json" })
-        json.each { |t| expect(t["position"]).to eq tab_order.find_index(@tab_lookup[t["id"]]) + 1 }
+        json.each do |t|
+          # Skip AI Experiences - it's inserted dynamically before Settings
+          next if t["id"] == "ai_experiences"
+
+          expect(t["position"]).to eq tab_order.find_index(@tab_lookup[t["id"]]) + 1
+        end
       end
 
       it "correctly labels navigation items as unused" do
@@ -791,7 +853,7 @@ describe TabsController, type: :request do
 
       it "correctly sets visibility" do
         hidden_tabs = [3, 8, 5]
-        public_visibility = %w[home people syllabus]
+        public_visibility = %w[home people syllabus ai_experiences]
         admins_visibility = %w[announcements assignments pages files outcomes rubrics quizzes modules settings discussions grades]
         @course.tab_configuration = @tab_ids.map do |n|
           hash = { "id" => n }
@@ -1041,7 +1103,7 @@ describe TabsController, type: :request do
                                                                                     tab_id:,
                                                                                     format: "json",
                                                                                     position: 4 })
-      expect(result).to eq 401
+      expect(result).to eq 403
     end
 
     it "allows updating tabs to a new LTI position when the penultimate tab is hidden" do

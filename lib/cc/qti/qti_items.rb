@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-# rubocop:disable comments of Style/SymbolProc in this file are because the
+# disablings of Style/SymbolProc in this file are because the
 # builder DSL uses method_missing and blocks to define nested XML elements, and
 # a symbol proc confuses that use of the block
 module CC
@@ -70,7 +70,7 @@ module CC
       def add_cc_question(node, question)
         return false unless CC_SUPPORTED_TYPES.member?(question["question_type"])
 
-        add_question(node, question, true)
+        add_question(node, question, for_cc: true)
         true
       end
 
@@ -96,7 +96,7 @@ module CC
         create_key("assessment_question_#{aq_id}")
       end
 
-      def add_question(node, question, for_cc = false)
+      def add_question(node, question, for_cc: false)
         question["migration_id"] = question[:is_quiz_question] ? qq_mig_id(question) : aq_mig_id(question)
         question["answers"] ||= []
 
@@ -118,6 +118,9 @@ module CC
                 meta_field(qm_node, "question_type", question["question_type"])
                 meta_field(qm_node, "points_possible", question["points_possible"])
                 meta_field(qm_node, "original_answer_ids", question["answers"].pluck("id").join(","))
+                if question["question_type"] == "text_only_question"
+                  meta_field(qm_node, "passage", "true")
+                end
                 if question[:is_quiz_question]
                   meta_field(qm_node, "assessment_question_identifierref", aq_mig_id(question))
                 end

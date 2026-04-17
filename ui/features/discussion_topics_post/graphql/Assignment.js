@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {arrayOf, bool, number, shape, string} from 'prop-types'
 
 import {AssignmentOverride} from './AssignmentOverride'
@@ -27,7 +27,7 @@ import {Checkpoint} from './Checkpoint'
 
 export const Assignment = {
   fragment: gql`
-    fragment Assignment on Assignment {
+    fragment DiscussionPostAssignment on Assignment {
       id
       _id
       dueAt(applyOverrides: false)
@@ -38,7 +38,7 @@ export const Assignment = {
       restrictQuantitativeData(checkExtraPermissions: true)
       assignmentOverrides {
         nodes {
-          ...AssignmentOverride
+          ...DiscussionPostAssignmentOverride
         }
       }
       checkpoints {
@@ -46,11 +46,11 @@ export const Assignment = {
       }
       mySubAssignmentSubmissionsConnection {
         nodes {
-          ...Submission
+          ...DiscussionSubmission
         }
       }
       assessmentRequestsForCurrentUser {
-        ...AssessmentRequest
+        ...DiscussionPostAssessmentRequest
       }
       peerReviews {
         ...PeerReviews

@@ -218,9 +218,7 @@ class ReleaseNote
     @langs[lang] ||= fetch_i18n(lang)
   end
 
-  def []=(lang, translations)
-    @langs[lang] = translations
-  end
+  delegate :[]=, to: :@langs
 
   def langs
     load_all_langs
@@ -340,8 +338,8 @@ class ReleaseNote
     end
 
     def load_raw_records(records, include_langs: false)
-      ret = records.map { |it| ReleaseNote.new(it) }
-      ret.each { |it| it.send(:load_all_langs) } if include_langs
+      ret = records.map { ReleaseNote.new(it) }
+      ret.each { it.send(:load_all_langs) } if include_langs
 
       ret
     end

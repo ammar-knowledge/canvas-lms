@@ -23,7 +23,7 @@ import ConfirmActionButtonBar from '../ConfirmActionButtonBar'
 describe('ConfirmActionButtonBar', () => {
   it('can render both buttons', () => {
     const {getByText} = render(
-      <ConfirmActionButtonBar primaryLabel="primary" secondaryLabel="secondary" />
+      <ConfirmActionButtonBar primaryLabel="primary" secondaryLabel="secondary" />,
     )
     expect(getByText('primary')).toBeInTheDocument()
     expect(getByText('secondary')).toBeInTheDocument()
@@ -43,15 +43,15 @@ describe('ConfirmActionButtonBar', () => {
   })
 
   it('invokes callbacks', () => {
-    const primaryClick = jest.fn()
-    const secondaryClick = jest.fn()
+    const primaryClick = vi.fn()
+    const secondaryClick = vi.fn()
     const {getByText} = render(
       <ConfirmActionButtonBar
         primaryLabel="primary"
         secondaryLabel="secondary"
         onPrimaryClick={primaryClick}
         onSecondaryClick={secondaryClick}
-      />
+      />,
     )
     fireEvent.click(getByText('primary'))
     expect(primaryClick).toHaveBeenCalled()
@@ -61,7 +61,7 @@ describe('ConfirmActionButtonBar', () => {
 
   it('can disable the primary button', () => {
     const {getByText} = render(
-      <ConfirmActionButtonBar primaryLabel="primary" primaryDisabled={true} />
+      <ConfirmActionButtonBar primaryLabel="primary" primaryDisabled={true} />,
     )
     expect(getByText('primary').closest('button').getAttribute('disabled')).toBe('')
   })

@@ -17,10 +17,12 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
+require_relative "test_file_manager"
+
 module OtherHelperMethods
   def stub_kaltura
     # trick kaltura into being activated
-    kal = double("CanvasKaltura::ClientV3")
+    kal = instance_double(CanvasKaltura::ClientV3)
     allow(kal).to receive(:startSession).and_return "new_session_id_here"
     allow(CanvasKaltura::ClientV3).to receive_messages(
       config: {
@@ -56,7 +58,7 @@ module OtherHelperMethods
 
     page_view.summarized = summarized
     page_view.request_id = SecureRandom.hex(10)
-    page_view.created_at = opts[:created_at] || Time.now
+    page_view.created_at = opts[:created_at] || Time.zone.now
 
     if opts[:participated]
       page_view.participated = true
@@ -92,14 +94,35 @@ module OtherHelperMethods
     "empty_file.txt" => File.read(File.expand_path(File.dirname(__FILE__) + "/../../../fixtures/files/empty_file.txt")),
   }.freeze
 
+  # Creates a temporary file that won't be garbage collected during test execution
+  # Returns: [filename, fullpath, data, tempfile_object]
+  # The file will be automatically cleaned up when the Ruby process exits,
+  # or when cleanup_temp_files is explicitly called
   def get_file(filename, data = nil)
     data ||= TEST_FILE_UUIDS[filename]
-    @file = Tempfile.new(filename.split(/(?=\.)/))
-    @file.write data
-    @file.close
-    fullpath = @file.path
-    filename = File.basename(@file.path)
-    [filename, fullpath, data, @file]
+    temp_file = Tempfile.new(filename.split(/(?=\.)/))
+    temp_file.write data
+    temp_file.close
+    fullpath = temp_file.path
+    filename = File.basename(temp_file.path)
+
+    # Store in file manager to prevent garbage collection
+    TestFileManager.instance.add_file(temp_file)
+
+    [filename, fullpath, data, temp_file]
+  end
+
+  # Clean up all temporary files - call this in after(:all) blocks or teardown methods
+  # Will automatically be called when the Ruby process exits if not called explicitly
+  def cleanup_temp_files
+    TestFileManager.instance.cleanup if defined?(TestFileManager)
+  end
+
+  def get_permanent_file(filename)
+    @file = File.new(filename)
+    fullpath = File.path(@file)
+    filename = File.basename(@file)
+    [filename, fullpath, @file]
   end
 
   module EncryptedCookieStoreTestSecret
@@ -141,6 +164,18 @@ module OtherHelperMethods
 
   def clear_local_storage
     driver.execute_script "localStorage.clear();"
+  end
+
+  def set_local_storage(key, value)
+    driver.execute_script("localStorage.setItem(arguments[0], arguments[1]);", key, value)
+  end
+
+  def clear_session_storage
+    driver.execute_script "sessionStorage.clear();"
+  end
+
+  def set_session_storage(key, value)
+    driver.execute_script("sessionStorage.setItem('#{key}', '#{value}');")
   end
 
   def scroll_height

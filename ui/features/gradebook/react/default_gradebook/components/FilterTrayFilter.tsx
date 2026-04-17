@@ -17,9 +17,9 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {SimpleSelect} from '@instructure/ui-simple-select'
-import CanvasDateInput from '@canvas/datetime/react/components/DateInput'
+import CanvasDateInput2 from '@canvas/datetime/react/components/DateInput2'
 import type {MomentInput} from 'moment-timezone'
 import * as tz from '@instructure/moment-utils'
 import {isoDateFromInput} from '../../../util/DateUtils'
@@ -35,9 +35,11 @@ import type {
 } from '../../../../../api.d'
 import natcompare from '@canvas/util/natcompare'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 const {Option, Group: OptionGroup} = SimpleSelect as any
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - tz.format's third argument (zone) is optional at runtime but required by tsgo
 const formatDate = (date: Date) => tz.format(date, 'date.formats.medium') as string
 const dateLabels = {'start-date': I18n.t('Start Date'), 'end-date': I18n.t('End Date')}
 
@@ -107,7 +109,7 @@ export default function ({
       items = [blankItem].concat(
         sections
           .sort((s1, s2) => natcompare.strings(s1.name, s2.name))
-          .map(({id, name}) => [id, name])
+          .map(({id, name}) => [id, name]),
       )
       break
     }
@@ -115,7 +117,7 @@ export default function ({
       items = [blankItem]
       itemGroups = Object.values(studentGroupCategories)
         .sort((c1: StudentGroupCategory, c2: StudentGroupCategory) =>
-          natcompare.strings(c1.name, c2.name)
+          natcompare.strings(c1.name, c2.name),
         )
         .map((c: StudentGroupCategory) => [
           c.id,
@@ -177,8 +179,7 @@ export default function ({
         </SimpleSelect>
       )}
       {['start-date', 'end-date'].includes(filter.type || '') && (
-        <CanvasDateInput
-          size="small"
+        <CanvasDateInput2
           dataTestid={`${filter.type}-input`}
           renderLabel={dateLabels[filter.type as 'start-date' | 'end-date']}
           selectedDate={filter.value}

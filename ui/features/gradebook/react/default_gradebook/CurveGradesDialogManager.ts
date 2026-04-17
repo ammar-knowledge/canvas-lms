@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -18,17 +17,24 @@
  */
 
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import '@canvas/rails-flash-notifications'
 import type {Assignment, StudentMap} from '../../../../api.d'
 
 import AsyncComponents from './AsyncComponents'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 const CurveGradesDialogManager = {
   createCurveGradesAction(
-    assignment: Assignment,
+    assignment: Pick<
+      Assignment,
+      | 'grading_type'
+      | 'points_possible'
+      | 'grades_published'
+      | 'inClosedGradingPeriod'
+      | 'checkpoints'
+    >,
     students: StudentMap,
     {
       isAdmin,
@@ -38,28 +44,38 @@ const CurveGradesDialogManager = {
       isAdmin?: boolean
       contextUrl?: string
       submissionsLoaded?: boolean
-    } = {}
+    } = {},
   ) {
-    const {grading_type: gradingType, points_possible: pointsPossible} = assignment
+    const {
+      grading_type: gradingType,
+      points_possible: pointsPossible,
+      grades_published: gradesPublished,
+      checkpoints,
+    } = assignment
     return {
       isDisabled:
         !submissionsLoaded ||
         gradingType === 'pass_fail' ||
         pointsPossible == null ||
         pointsPossible === 0 ||
-        !assignment.grades_published,
+        !gradesPublished ||
+        checkpoints?.length > 0,
 
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore Legacy method callback not typed
       async onSelect(onClose) {
         if (!isAdmin && assignment.inClosedGradingPeriod) {
           return $.flashError(
             I18n.t(
               'Unable to curve grades because this assignment is due in a closed ' +
-                'grading period for at least one student'
-            )
+                'grading period for at least one student',
+            ),
           )
         }
 
         const CurveGradesDialog = await AsyncComponents.loadCurveGradesDialog()
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore Legacy dialog class not typed
         const dialog = new CurveGradesDialog({assignment, students, context_url: contextUrl})
         dialog.show(onClose)
       },

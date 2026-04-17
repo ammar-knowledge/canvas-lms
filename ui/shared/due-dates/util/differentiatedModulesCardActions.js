@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {chain, difference, find, isEmpty, union} from 'lodash'
+import {difference, isEmpty, union, find} from 'es-toolkit/compat'
 import AssignmentOverride from '@canvas/assignments/backbone/models/AssignmentOverride'
 
 const CardActions = {
@@ -69,6 +69,7 @@ const CardActions = {
       group_id: assignee.group_id,
       group_category_id: assignee.group_category_id,
       title: assignee.name,
+      non_collaborative: assignee.non_collaborative,
     })
 
     return union(overridesFromRow, [newOverride])
@@ -88,14 +89,17 @@ const CardActions = {
     const existingStudentIds = existingOverride.student_ids
     const newStudentIds = existingStudentIds.concat(assignee.id)
 
-    const newOverride = {...existingOverride, student_ids: newStudentIds}
+    const existingStudents = existingOverride.students
+    const newStudents = existingStudents.concat(assignee)
+
+    const newOverride = {...existingOverride, student_ids: newStudentIds, students: newStudents}
     delete newOverride.title
 
-    return chain(overridesFromRow).difference([existingOverride]).union([newOverride]).value()
+    return union(difference(overridesFromRow, [existingOverride]), [newOverride])
   },
 
   createNewAdhocOverrideForRow(assignee, overridesFromRow) {
-    const freshOverride = this.newOverrideForCard({student_ids: []})
+    const freshOverride = this.newOverrideForCard({student_ids: [], students: []})
     return this.addStudentToExistingAdhocOverride(assignee, freshOverride, overridesFromRow)
   },
 
@@ -151,7 +155,7 @@ const CardActions = {
     }
     const overrideToRemove = find(
       overridesFromRow,
-      override => override[selector] == assigneeToRemove[selector]
+      override => override[selector] == assigneeToRemove[selector],
     )
     return difference(overridesFromRow, [overrideToRemove])
   },
@@ -169,10 +173,16 @@ const CardActions = {
       return difference(overridesFromRow, [adhocOverride])
     }
 
-    const newOverride = {...adhocOverride, student_ids: newStudentIds}
+    const newOverride = {
+      ...adhocOverride,
+      student_ids: newStudentIds,
+      students: adhocOverride.students.filter(
+        student => student.id !== assigneeToRemove.student_id,
+      ),
+    }
     delete newOverride.title
 
-    return chain(overridesFromRow).difference([adhocOverride]).union([newOverride]).value()
+    return union(difference(overridesFromRow, [adhocOverride]), [newOverride])
   },
 
   setOverrideInitializer(rowKey, dates) {
@@ -189,6 +199,9 @@ const CardActions = {
       reply_to_topic_due_at_overridden: !!dates.reply_to_topic_due_at,
       required_replies_due_at: dates.required_replies_due_at,
       required_replies_due_at_overridden: !!dates.required_replies_due_at,
+      peer_review_due_at: dates.peer_review_due_at,
+      peer_review_available_from: dates.peer_review_available_from,
+      peer_review_available_to: dates.peer_review_available_to,
       rowKey,
     }
 

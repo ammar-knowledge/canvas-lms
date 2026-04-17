@@ -18,17 +18,18 @@
 
 import $ from 'jquery'
 import addLinkRow from '../../jst/addLinkRow.handlebars'
-import AvatarWidget from '@canvas/avatar-dialog-view'
+import AvatarModal from '@canvas/avatar-dialog-view/react/AvatarModal'
 import Backbone from '@canvas/backbone'
 import '@canvas/jquery/jquery.instructure_forms'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {showConfirmationDialog} from '@canvas/feature-flags/react/ConfirmationDialog'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {showConfirmationDialog} from '@canvas/dialogs/react/ConfirmationDialog'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import {Alert} from '@instructure/ui-alerts'
+import {render, rerender} from '@canvas/react'
+import {showFlashAlert} from '@instructure/platform-alerts'
 
-const I18n = useI18nScope('user_profile')
+const I18n = createI18nScope('user_profile')
 
+let avatarRoot = null
 export default class ProfileShow extends Backbone.View {
   static initClass() {
     this.prototype.el = document.body
@@ -46,22 +47,32 @@ export default class ProfileShow extends Backbone.View {
   initialize() {
     super.initialize(...arguments)
     this.displayAlertOnSave()
-    return new AvatarWidget('.profile-link')
+
+    const avatarModalMount = document.getElementById('avatar-modal-mount')
+    let profilePicLinks = [
+      document.getElementById('profile-edit-link'),
+      document.querySelector('#main .profile_pic_link'), // don't add event handler to side nav avatar
+    ]
+    profilePicLinks = profilePicLinks.filter(link => link !== null)
+    if (avatarModalMount && profilePicLinks.length > 0) {
+      profilePicLinks.forEach(profilePicLink => {
+        profilePicLink.addEventListener('click', event => {
+          event.preventDefault()
+          if (avatarRoot === null) {
+            avatarRoot = render(
+              <AvatarModal onClose={() => rerender(avatarRoot, null)} />,
+              avatarModalMount,
+            )
+          } else {
+            rerender(avatarRoot, <AvatarModal onClose={() => rerender(avatarRoot, null)} />)
+          }
+        })
+      })
+    }
   }
 
-  renderAlert(message, container, variant) {
-    ReactDOM.render(
-      <Alert
-        variant={variant}
-        liveRegionPoliteness="assertive"
-        liveRegion={() => document.getElementById('flash_screenreader_holder')}
-        margin="small"
-        timeout={5000}
-      >
-        {message}
-      </Alert>,
-      this.$el.find(container)[0]
-    )
+  renderAlert(message, variant) {
+    showFlashAlert({message, type: variant, timeout: 5000, politeness: 'assertive'})
   }
 
   displayAlertOnSave() {
@@ -71,13 +82,9 @@ export default class ProfileShow extends Backbone.View {
     const saveFailedDiv = this.$el.find(saveFailedContainer)
 
     if (saveSuccessDiv.length > 0) {
-      this.renderAlert(
-        I18n.t('Profile has been saved successfully'),
-        saveSuccessContainer,
-        'success'
-      )
+      this.renderAlert(I18n.t('Profile has been saved successfully'), 'success')
     } else if (saveFailedDiv.length > 0) {
-      this.renderAlert(I18n.t('Profile save was unsuccessful'), saveFailedContainer, 'error')
+      this.renderAlert(I18n.t('Profile save was unsuccessful'), 'error')
     }
   }
 
@@ -100,7 +107,7 @@ export default class ProfileShow extends Backbone.View {
         $('.avatar').css('background-image', 'url()')
         link.remove()
       },
-      _data => $.flashError(I18n.t('Failed to remove the image, please try again.'))
+      _data => $.flashError(I18n.t('Failed to remove the image, please try again.')),
     )
   }
 
@@ -110,7 +117,7 @@ export default class ProfileShow extends Backbone.View {
     const result = await showConfirmationDialog({
       label: I18n.t('Report Profile Picture'),
       body: I18n.t(
-        'Reported profile pictures will be sent to administrators for review. You will not be able to undo this action.'
+        'Reported profile pictures will be sent to administrators for review. You will not be able to undo this action.',
       ),
     })
     if (!result) {
@@ -124,7 +131,7 @@ export default class ProfileShow extends Backbone.View {
         $.flashMessage(I18n.t('The profile picture has been reported.'))
         link.remove()
       },
-      _data => $.flashError(I18n.t('Failed to report the image, please try again.'))
+      _data => $.flashError(I18n.t('Failed to report the image, please try again.')),
     )
   }
 
@@ -225,6 +232,13 @@ export default class ProfileShow extends Backbone.View {
           }
         },
       },
+    }
+    if ($('input[name="user[short_name]"]').length > 0) {
+      validations['property_validations']['user[short_name]'] = function (value) {
+        if (!value || value.trim() === '') {
+          return I18n.t('user_short_name_required', 'Please add your full name')
+        }
+      }
     }
     if (!$(event.target).validateForm(validations)) {
       return event.preventDefault()

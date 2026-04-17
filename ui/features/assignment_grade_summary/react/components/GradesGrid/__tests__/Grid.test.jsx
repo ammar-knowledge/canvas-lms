@@ -19,17 +19,15 @@
 import React from 'react'
 import {render, screen, within} from '@testing-library/react'
 
-import {speedGraderUrl} from '../../../assignment/AssignmentApi'
 import Grid from '../Grid'
-import GridRow from '../GridRow'
+import {speedGraderUrl} from '../../../assignment/AssignmentApi'
 import {STARTED, SUCCESS} from '../../../grades/GradeActions'
 
-const ActualGridRow = jest.requireActual('../GridRow').default
-jest.mock('../GridRow', props => {
-  return jest.fn(properties => {
-    return <ActualGridRow {...properties} />
-  })
-})
+const MockGridRow = vi.hoisted(() => vi.fn())
+
+vi.mock('../GridRow', () => ({
+  default: MockGridRow,
+}))
 
 describe('GradeSummary Grid', () => {
   let props
@@ -38,11 +36,13 @@ describe('GradeSummary Grid', () => {
     return speedGraderUrl('1201', '2301', {anonymousStudents: false, studentId})
   }
 
-  afterEach(() => {
-    jest.clearAllMocks()
-  })
-
   beforeEach(() => {
+    MockGridRow.mockClear()
+    MockGridRow.mockImplementation(({row}) => (
+      <tr data-testid={`grid-row-${row.studentId}`}>
+        <td>{row.studentName}</td>
+      </tr>
+    ))
     props = {
       horizontalScrollRef: () => {},
       disabledCustomGrade: false,
@@ -94,7 +94,7 @@ describe('GradeSummary Grid', () => {
           },
         },
       },
-      onGradeSelect: jest.fn(),
+      onGradeSelect: vi.fn(),
       rows: [
         {speedGraderUrl: speedGraderUrlFor('1111'), studentId: '1111', studentName: 'Adam Jones'},
         {speedGraderUrl: speedGraderUrlFor('1112'), studentId: '1112', studentName: 'Betty Ford'},
@@ -118,8 +118,8 @@ describe('GradeSummary Grid', () => {
     expect(
       screen
         .getAllByRole('columnheader')
-        .filter(header => header.textContent.match(/Miss Frizzle|Mr. Keating/)).length
-    ).toBe(2)
+        .filter(header => header.textContent.match(/Miss Frizzle|Mr. Keating/)),
+    ).toHaveLength(2)
   })
 
   test('includes a column header for the final grade column', () => {
@@ -138,61 +138,60 @@ describe('GradeSummary Grid', () => {
   test('includes a GridRow for each student', () => {
     render(<Grid {...props} />)
     const rows = within(screen.getAllByRole('rowgroup')[1]).getAllByRole('row')
-    expect(rows.length).toBe(4)
+    expect(rows).toHaveLength(4)
   })
 
   test('sends disabledCustomGrade to each GridRow', () => {
     render(<Grid {...props} />)
-    const rowCalls = GridRow.mock.calls.filter(call => !call[0].disabledCustomGrade)
-    expect(rowCalls.length).toBe(4)
+    const calls = MockGridRow.mock.calls.filter(call => call?.[0] && typeof call[0] === 'object')
+    const rowCalls = calls.filter(call => call[0].disabledCustomGrade === false)
+    expect(rowCalls).toHaveLength(4)
   })
 
   test('sends finalGrader to each GridRow', () => {
     render(<Grid {...props} />)
-    const rowCalls = GridRow.mock.calls.filter(call => !!call[0].finalGrader)
-    expect(rowCalls.length).toBe(4)
+    const calls = MockGridRow.mock.calls.filter(call => call?.[0] && typeof call[0] === 'object')
+    const rowCalls = calls.filter(call => !!call[0].finalGrader)
+    expect(rowCalls).toHaveLength(4)
   })
 
   test('sends graders to each GridRow', () => {
     render(<Grid {...props} />)
-    const rowCalls = GridRow.mock.calls
-    expect(
-      rowCalls.map(row => row[0].graders.map(grader => grader.graderName)).flat()
-    ).toStrictEqual([
-      'Miss Frizzle',
-      'Mr. Keating',
-      'Miss Frizzle',
-      'Mr. Keating',
-      'Miss Frizzle',
-      'Mr. Keating',
-      'Miss Frizzle',
-      'Mr. Keating',
-    ])
+    const calls = MockGridRow.mock.calls.filter(call => call?.[0] && typeof call[0] === 'object')
+    expect(calls).toHaveLength(4)
+    calls.forEach(call => {
+      expect(call[0].graders).toEqual([
+        {graderId: '1101', graderName: 'Miss Frizzle'},
+        {graderId: '1102', graderName: 'Mr. Keating'},
+      ])
+    })
   })
 
   test('sends onGradeSelect to each GridRow', () => {
     render(<Grid {...props} />)
-    const rowCalls = GridRow.mock.calls.filter(call => !!call[0].onGradeSelect)
-    expect(rowCalls.length).toBe(4)
+    const calls = MockGridRow.mock.calls.filter(call => call?.[0] && typeof call[0] === 'object')
+    const rowCalls = calls.filter(call => !!call[0].onGradeSelect)
+    expect(rowCalls).toHaveLength(4)
   })
 
   test('sends student-specific grades to each GridRow', () => {
     render(<Grid {...props} />)
-    const firstStudentGrade = GridRow.mock.calls[0][0].grades
+    const calls = MockGridRow.mock.calls.filter(call => call?.[0] && typeof call[0] === 'object')
+    const firstStudentGrade = calls[0][0].grades
     expect(Object.keys(firstStudentGrade)).toStrictEqual(['1101', '1102'])
   })
 
   test('sends student-specific select provisional grade statuses to each GridRow', () => {
     render(<Grid {...props} />)
-    const rowCalls = GridRow.mock.calls.filter(
-      call => call[0].selectProvisionalGradeStatus == STARTED
-    )
-    expect(rowCalls.length).toBe(1)
+    const calls = MockGridRow.mock.calls.filter(call => call?.[0] && typeof call[0] === 'object')
+    const rowCalls = calls.filter(call => call[0].selectProvisionalGradeStatus == STARTED)
+    expect(rowCalls).toHaveLength(1)
   })
 
   test('sends the related row to each GridRow', () => {
     render(<Grid {...props} />)
-    const rowCalls = GridRow.mock.calls.filter(call => !!call[0].row)
-    expect(rowCalls.length).toBe(4)
+    const calls = MockGridRow.mock.calls.filter(call => call?.[0] && typeof call[0] === 'object')
+    const rowCalls = calls.filter(call => !!call[0].row)
+    expect(rowCalls).toHaveLength(4)
   })
 })

@@ -17,17 +17,18 @@
  */
 
 import $ from 'jquery'
-import _, {isEmpty} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {isEmpty, groupBy, zip, forEach} from 'es-toolkit/compat'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {windowAlert} from '@canvas/util/globalUtils'
 import '@canvas/jquery/jquery.ajaxJSON'
 
-const I18n = useI18nScope('gradebook_upload')
+const I18n = createI18nScope('gradebook_upload')
 
 const successMessage = I18n.t(
   'You will be redirected to Gradebook while your file is being uploaded. ' +
     'If you have a large CSV file, your changes may take a few minutes to update. ' +
     'To prevent overwriting any data, please confirm the upload has completed and ' +
-    'Gradebook is correct before making additional changes.'
+    'Gradebook is correct before making additional changes.',
 )
 
 function overrideScoreHasChanged(score) {
@@ -66,7 +67,7 @@ const ProcessGradebookUpload = {
     }
 
     const overrideScoresOrStatusesExist = gradebook.students.some(
-      student => student.override_scores?.length > 0 || student.override_statuses?.length > 0
+      student => student.override_scores?.length > 0 || student.override_statuses?.length > 0,
     )
 
     if (overrideScoresOrStatusesExist && ENV.bulk_update_override_scores_path != null) {
@@ -94,7 +95,7 @@ const ProcessGradebookUpload = {
 
     return $.when(...deferreds).then(() => {
       if (uploadingBulkData) {
-        alert(successMessage) // eslint-disable-line no-alert
+        windowAlert(successMessage)
       }
       this.goToGradebook()
     })
@@ -109,7 +110,7 @@ const ProcessGradebookUpload = {
       return accumulator
     }, {})
 
-    if (!_.isEmpty(customColumnData)) {
+    if (!isEmpty(customColumnData)) {
       const parsedData = this.parseCustomColumnData(customColumnData)
       return this.submitCustomColumnData(parsedData)
     }
@@ -136,7 +137,7 @@ const ProcessGradebookUpload = {
       JSON.stringify({column_data: data}),
       null,
       null,
-      {contentType: 'application/json'}
+      {contentType: 'application/json'},
     )
   },
 
@@ -170,9 +171,9 @@ const ProcessGradebookUpload = {
     // with the default gradebook export but could happen if someone uploads a
     // CSV with multiple "Override Score" columns--send off one request to the
     // endpoint for each grading period.
-    const scoresByGradingPeriod = _.groupBy(
+    const scoresByGradingPeriod = groupBy(
       changedOverrideScores,
-      score => score.grading_period_id || 'course'
+      score => score.grading_period_id || 'course',
     )
     const customStatuses = ENV.custom_grade_statuses ?? []
     const customStatusesMap = customStatuses.reduce((accumulator, status) => {
@@ -214,7 +215,7 @@ const ProcessGradebookUpload = {
       JSON.stringify(params),
       null,
       null,
-      {contentType: 'application/json'}
+      {contentType: 'application/json'},
     )
   },
 
@@ -241,7 +242,7 @@ const ProcessGradebookUpload = {
       }),
       null,
       null,
-      {contentType: 'application/json'}
+      {contentType: 'application/json'},
     )
   },
 
@@ -256,7 +257,7 @@ const ProcessGradebookUpload = {
 
     const gradeData = {}
     gradebook.students.forEach(student =>
-      this.populateGradeDataPerStudent(student, assignmentMap, gradeData)
+      this.populateGradeDataPerStudent(student, assignmentMap, gradeData),
     )
     return gradeData
   },
@@ -271,13 +272,12 @@ const ProcessGradebookUpload = {
 
     const assignmentMap = {}
 
-    _(newAssignments)
-      .zip(responsesLists)
-      .forEach(fakeAndCreated => {
-        const [assignmentStub, response] = fakeAndCreated
-        const [createdAssignment] = response
-        assignmentMap[assignmentStub.id] = createdAssignment.id
-      })
+    const zipped = zip(newAssignments, responsesLists)
+    forEach(zipped, fakeAndCreated => {
+      const [assignmentStub, response] = fakeAndCreated
+      const [createdAssignment] = response
+      assignmentMap[assignmentStub.id] = createdAssignment.id
+    })
 
     return assignmentMap
   },
@@ -313,7 +313,7 @@ const ProcessGradebookUpload = {
       JSON.stringify({grade_data: gradeData}),
       null,
       null,
-      {contentType: 'application/json'}
+      {contentType: 'application/json'},
     )
   },
 

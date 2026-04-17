@@ -23,7 +23,7 @@ import {Spinner} from '@instructure/ui-spinner'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 import {InstUISettingsProvider} from '@instructure/emotion'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ManageOutcomesView from './ManageOutcomesView'
 import ManageOutcomesFooter from './ManageOutcomesFooter'
 import TreeBrowser from './TreeBrowser'
@@ -50,7 +50,7 @@ import {getOutcomeGroupAncestorsWithSelf} from '../../helpers/getOutcomeGroupAnc
 import {ROOT_GROUP} from '@canvas/outcomes/react/hooks/useOutcomesImport'
 import {Heading} from '@instructure/ui-heading'
 
-const I18n = useI18nScope('OutcomeManagement')
+const I18n = createI18nScope('OutcomeManagement')
 
 const OutcomeManagementPanel = ({
   importNumber,
@@ -63,13 +63,15 @@ const OutcomeManagementPanel = ({
   importsTargetGroup,
   setImportsTargetGroup,
 }) => {
-  const {isCourse, isMobileView, canManage} = useCanvasContext()
+  const {isCourse, isMobileView, canManage, contextType, contextId} = useCanvasContext()
   const {setContainerRef, setLeftColumnRef, setDelimiterRef, setRightColumnRef, onKeyDownHandler} =
     useResize()
   const [scrollContainer, setScrollContainer] = useState(null)
   const [rhsGroupIdsToRefetch, setRhsGroupIdsToRefetch] = useState([])
   const [lhsGroupIdsToRefetch, setLhsGroupIdsToRefetch] = useState([])
   const [parentsToUnload, setParentsToUnload] = useState([])
+  const [pendingOutcomeId, setPendingOutcomeId] = useState(null)
+  const [hasProcessedUrlParam, setHasProcessedUrlParam] = useState(false)
   const {
     selectedOutcomeIds,
     selectedOutcomesCount,
@@ -108,12 +110,55 @@ const OutcomeManagementPanel = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Handle drill-down to specific outcome from URL parameter
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const outcomeId = params.get('outcome_id')
+    const groupId = params.get('group_id')
+
+    // Only process if we have an outcome_id and haven't processed it yet
+    // Wait for rootId to be a valid non-zero value (0 is just a placeholder)
+    if (!outcomeId || hasProcessedUrlParam || !rootId || rootId === '0' || rootId === 0) {
+      return
+    }
+
+    // Mark as processed immediately to prevent infinite loop
+    setHasProcessedUrlParam(true)
+
+    // Clean up URL params immediately
+    const newUrl = new URL(window.location)
+    newUrl.searchParams.delete('outcome_id')
+    newUrl.searchParams.delete('group_id')
+    window.history.replaceState({}, '', newUrl.toString())
+
+    // Set the pending outcome ID
+    setPendingOutcomeId(outcomeId)
+
+    if (groupId && collections[groupId]) {
+      // Efficient path: We have the group_id, directly select that group
+      // Get ancestor path and load all parent groups
+      const ancestorPath = getOutcomeGroupAncestorsWithSelf(collections, groupId)
+
+      // Load ancestors from parent to child, ending with the group containing the outcome
+      ancestorPath.reverse().forEach(ancestorId => {
+        queryCollections({id: ancestorId, shouldLoad: true})
+      })
+    } else {
+      // Fallback: No group_id provided, use search approach
+      // Create a fake event object since onSearchChangeHandler expects event.target.value
+      onSearchChangeHandler({target: {value: outcomeId}})
+
+      // Select the root group to load its outcomes
+      queryCollections({id: rootId, shouldLoad: true})
+    }
+  }, [hasProcessedUrlParam, rootId, collections, onSearchChangeHandler, queryCollections])
+
   useEffect(() => {
     if (createdOutcomeGroupIds.length > 0 && Object.keys(collections).length > 0) {
       for (let i = createdOutcomeGroupIds.length - 1; i >= 0; i--) {
         if (collections[createdOutcomeGroupIds[i]]) {
           setParentsToUnload(
-            getOutcomeGroupAncestorsWithSelf(collections, createdOutcomeGroupIds[i])
+            getOutcomeGroupAncestorsWithSelf(collections, createdOutcomeGroupIds[i]),
           )
           break
         }
@@ -130,11 +175,11 @@ const OutcomeManagementPanel = ({
             targetGroupId === ROOT_GROUP
               ? [...acc, rootId]
               : [...acc, ...getOutcomeGroupAncestorsWithSelf(collections, targetGroupId)],
-          []
-        )
+          [],
+        ),
       )
       const lhsTargetGroupIdsToRefetch = targetGroupIdsToRefetch.map(gid =>
-        gid === ROOT_GROUP ? rootId : gid
+        gid === ROOT_GROUP ? rootId : gid,
       )
       setLhsGroupIdsToRefetch(lhsTargetGroupIdsToRefetch)
       setRhsGroupIdsToRefetch(ids => [...new Set([...ids, ...groupIdsToRefetch])])
@@ -160,6 +205,29 @@ const OutcomeManagementPanel = ({
   const selectedOutcomes = readLearningOutcomes(selectedOutcomeIds)
   const [showOutcomesView, setShowOutcomesView] = useState(false)
   const [showGroupOptions, setShowGroupOptions] = useState(false)
+
+  // Open modal when group data is loaded and we have a pending outcome ID
+  useEffect(() => {
+    if (!pendingOutcomeId || !group?.outcomes?.edges || loading) {
+      return
+    }
+
+    const edge = group.outcomes.edges.find(e => e.node._id === pendingOutcomeId)
+
+    if (edge) {
+      const parentGroup = edge.group
+      setSelectedOutcome({
+        linkId: edge._id,
+        canUnlink: edge.canUnlink,
+        parentGroupId: parentGroup._id,
+        parentGroupTitle: parentGroup.title,
+        ...edge.node,
+      })
+      openOutcomeEditModal()
+      setPendingOutcomeId(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group?.outcomes?.edges, pendingOutcomeId, loading])
 
   useEffect(() => {
     if (onLhsSelectedGroupIdChanged) {
@@ -253,7 +321,7 @@ const OutcomeManagementPanel = ({
       openGroupMoveModal,
       openGroupRemoveModal,
       openImportOutcomesModal,
-    ]
+    ],
   )
 
   const outcomeMenuHandler = useCallback(
@@ -279,7 +347,7 @@ const OutcomeManagementPanel = ({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [group]
+    [group],
   )
 
   // set the initial target group as the lhs group

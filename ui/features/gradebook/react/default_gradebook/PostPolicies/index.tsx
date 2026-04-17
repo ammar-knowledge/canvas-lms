@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2019 - present Instructure, Inc.
@@ -19,8 +20,8 @@
 
 import * as tz from '@instructure/moment-utils'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import {getAssignmentColumnId} from '../Gradebook.utils'
+import {legacyRender, legacyUnmountComponentAtNode} from '@canvas/react'
+import {getAssignmentColumnId, postPolicyChangeable} from '../Gradebook.utils'
 import AsyncComponents from '../AsyncComponents'
 import type Gradebook from '../Gradebook'
 
@@ -62,7 +63,7 @@ export default class PostPolicies {
       'post-assignment-grades-tray',
     ].forEach(id => {
       const node = document.getElementById(id)
-      if (node) ReactDOM.unmountComponentAtNode(node)
+      if (node) legacyUnmountComponentAtNode(node)
     })
   }
 
@@ -104,9 +105,9 @@ export default class PostPolicies {
     const bindAssignmentPolicyTray = ref => {
       tray = ref
     }
-    ReactDOM.render(
+    legacyRender(
       <AssignmentPostingPolicyTray ref={bindAssignmentPolicyTray} />,
-      $assignmentPolicyContainer
+      $assignmentPolicyContainer,
     )
 
     tray.show({
@@ -128,7 +129,7 @@ export default class PostPolicies {
     const {anonymous_grading, grades_published, id, name} = assignment
     const sections = this._gradebook.getSections()
     const studentsWithVisibility = Object.values(
-      this._gradebook.studentsThatCanSeeAssignment(assignment.id)
+      this._gradebook.studentsThatCanSeeAssignment(assignment.id),
     )
     const submissions = studentsWithVisibility.map(student => getSubmission(student, assignment.id))
 
@@ -139,7 +140,7 @@ export default class PostPolicies {
     const bindHideTray = ref => {
       tray = ref
     }
-    ReactDOM.render(<HideAssignmentGradesTray ref={bindHideTray} />, $hideContainer)
+    legacyRender(<HideAssignmentGradesTray ref={bindHideTray} />, $hideContainer)
 
     tray.show({
       assignment: {
@@ -160,7 +161,7 @@ export default class PostPolicies {
     const {anonymous_grading, grades_published, id, name} = assignment
     const sections = this._gradebook.getSections()
     const studentsWithVisibility = Object.values(
-      this._gradebook.studentsThatCanSeeAssignment(assignment.id)
+      this._gradebook.studentsThatCanSeeAssignment(assignment.id),
     )
     const submissions = studentsWithVisibility.map(student => getSubmission(student, assignment.id))
 
@@ -171,7 +172,7 @@ export default class PostPolicies {
     const bindPostTray = ref => {
       tray = ref
     }
-    ReactDOM.render(<PostAssignmentGradesTray ref={bindPostTray} />, $postContainer)
+    legacyRender(<PostAssignmentGradesTray ref={bindPostTray} />, $postContainer)
 
     tray.show({
       assignment: {
@@ -206,13 +207,12 @@ export default class PostPolicies {
     this._coursePostPolicy = {postManually}
   }
 
-  setAssignmentPostPolicies({assignmentPostPoliciesById}) {
-    Object.keys(assignmentPostPoliciesById).forEach(id => {
-      const assignment = this._gradebook.getAssignment(id)
-      if (assignment != null) {
-        assignment.post_manually = assignmentPostPoliciesById[id].postManually
+  setAssignmentPostPolicies(postManually: boolean) {
+    for (const assignment of Object.values(this._gradebook.assignments)) {
+      if (postPolicyChangeable(assignment)) {
+        assignment.post_manually = postManually
       }
-    })
+    }
 
     // The changed assignments may not all be visible, so update all column
     // headers rather than worrying about which ones are or aren't shown

@@ -17,12 +17,13 @@
  */
 import React from 'react'
 import {DiscussionEdit} from '../DiscussionEdit'
-import {render, fireEvent} from '@testing-library/react'
+import {render, fireEvent, waitFor} from '@testing-library/react'
 import $ from '@canvas/rails-flash-notifications'
 import injectGlobalAlertContainers from '@canvas/util/react/testing/injectGlobalAlertContainers'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 injectGlobalAlertContainers()
-jest.mock('@canvas/rce/react/CanvasRce')
+vi.mock('@canvas/rce/react/CanvasRce')
 
 const setup = props => {
   return render(<DiscussionEdit {...props} />)
@@ -31,12 +32,13 @@ const setup = props => {
 const defaultProps = ({
   show = undefined,
   value = undefined,
-  onCancel = jest.fn(),
-  onSubmit = jest.fn(),
+  onCancel = vi.fn(),
+  onSubmit = vi.fn(),
   isEdit = false,
   canReplyAnonymously = false,
   discussionAnonymousState = null,
   isAnnouncement = false,
+  quotedEntry = {message: 'quoted message'},
 } = {}) => ({
   show,
   value,
@@ -46,13 +48,12 @@ const defaultProps = ({
   canReplyAnonymously,
   discussionAnonymousState,
   isAnnouncement,
+  quotedEntry,
 })
 
 describe('DiscussionEdit', () => {
-  const oldEnv = window.ENV
-
   afterEach(() => {
-    window.ENV = oldEnv
+    fakeENV.teardown()
   })
 
   describe('Rendering', () => {
@@ -72,56 +73,73 @@ describe('DiscussionEdit', () => {
       const container = getByTestId('DiscussionEdit-container')
       expect(container.style.display).toBe('')
     })
+
+    it('should add trackable attribute correctly', () => {
+      const {getByTestId} = setup(defaultProps({quotedEntry: {message: 'message'}}))
+      const button = getByTestId('quotedReplyToggle')
+      expect(button).toHaveAttribute('data-action-state', 'excludeQuotedReply')
+    })
+
+    describe('with quoted reply turned off', () => {
+      it('should add trackable attribute correctly', async () => {
+        const {getByTestId} = setup(defaultProps())
+        const button = getByTestId('quotedReplyToggle')
+        fireEvent.click(button)
+
+        await waitFor(() => expect(button).not.toBeChecked())
+        expect(button).toHaveAttribute('data-action-state', 'includeQuotedReply')
+      })
+    })
   })
 
   describe('Callbacks', () => {
     it('should fire onCancel when clicked', () => {
-      const onCancelMock = jest.fn()
+      const onCancelMock = vi.fn()
       const {getByTestId} = setup(defaultProps({onCancel: onCancelMock}))
       const cancelButton = getByTestId('DiscussionEdit-cancel')
       fireEvent.click(cancelButton)
-      expect(onCancelMock.mock.calls.length).toBe(1)
+      expect(onCancelMock.mock.calls).toHaveLength(1)
     })
 
     it('should fire onSubmit when clicked', () => {
-      const onSubmitMock = jest.fn()
+      const onSubmitMock = vi.fn()
       const {getByTestId} = setup(defaultProps({onSubmit: onSubmitMock}))
       const submitButton = getByTestId('DiscussionEdit-submit')
       fireEvent.click(submitButton)
-      expect(onSubmitMock.mock.calls.length).toBe(1)
+      expect(onSubmitMock.mock.calls).toHaveLength(1)
     })
 
     it('should trigger error on submit when value is too long', () => {
-      const flashStub = jest.spyOn($, 'flashError')
-      window.ENV.DISCUSSION_ENTRY_SIZE_LIMIT = 10
-      const onSubmitMock = jest.fn()
+      const flashStub = vi.spyOn($, 'flashError')
+      fakeENV.setup({DISCUSSION_ENTRY_SIZE_LIMIT: 10})
+      const onSubmitMock = vi.fn()
       const {getByTestId} = setup(defaultProps({onSubmit: onSubmitMock, value: '<p>1234</p>'}))
       const submitButton = getByTestId('DiscussionEdit-submit')
       fireEvent.click(submitButton)
       expect(flashStub).toHaveBeenCalledWith(
         'The message size has exceeded the maximum text length.',
-        2000
+        2000,
       )
-      expect(onSubmitMock.mock.calls.length).toBe(0)
+      expect(onSubmitMock.mock.calls).toHaveLength(0)
     })
   })
 
   describe('Anonymous Response Selector', () => {
     beforeEach(() => {
-      ENV.current_user = {display_name: 'Ronald Weasley', avatar_image_url: ''}
+      fakeENV.setup({current_user: {display_name: 'Ronald Weasley', avatar_image_url: ''}})
     })
 
     describe('Topic is anonymous', () => {
       it('should render when can reply anonymously', () => {
         const container = setup(
-          defaultProps({canReplyAnonymously: true, discussionAnonymousState: 'full_anonymity'})
+          defaultProps({canReplyAnonymously: true, discussionAnonymousState: 'full_anonymity'}),
         )
         expect(container.queryByTestId('anonymous-response-selector')).toBeTruthy()
       })
 
       it('should not render when cannot reply anonymously', () => {
         const container = setup(
-          defaultProps({canReplyAnonymously: false, discussionAnonymousState: 'full_anonymity'})
+          defaultProps({canReplyAnonymously: false, discussionAnonymousState: 'full_anonymity'}),
         )
         expect(container.queryByTestId('anonymous-response-selector')).toBeNull()
       })
@@ -146,7 +164,7 @@ describe('DiscussionEdit', () => {
             canReplyAnonymously: true,
             discussionAnonymousState: 'partial_anonymity',
             isEdit: true,
-          })
+          }),
         )
         expect(container.queryByTestId('anonymous-response-selector')).toBeNull()
       })

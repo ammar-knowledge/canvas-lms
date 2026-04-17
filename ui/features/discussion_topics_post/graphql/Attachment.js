@@ -16,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {shape, string} from 'prop-types'
 
 export const Attachment = {
   fragment: gql`
-    fragment Attachment on File {
+    fragment DiscussionPostAttachment on File {
       id
       _id
       displayName

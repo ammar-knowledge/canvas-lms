@@ -21,6 +21,7 @@ require_relative "../shared_examples_common"
 
 shared_examples_for "settings basic tests" do
   include SharedExamplesCommon
+
   include_context "in-process server selenium tests"
 
   before do
@@ -48,7 +49,7 @@ shared_examples_for "settings basic tests" do
 
     before do
       get "/accounts/#{account.id}/settings"
-      f("#tab-users-link").click
+      f("#tab-users").click
     end
 
     it "adds an account admin", priority: "1" do
@@ -87,7 +88,7 @@ shared_examples_for "settings basic tests" do
     end
 
     it "changes the default quotas", priority: "1" do
-      f("#tab-quotas-link").click
+      f("#tab-quotas").click
 
       # update the quotas
       course_quota = account.default_storage_quota_mb
@@ -103,7 +104,7 @@ shared_examples_for "settings basic tests" do
       group_quota += 42
       replace_content(group_quota_input, group_quota.to_s)
 
-      submit_form("#default-quotas")
+      submit_form("[aria-label='Default Account Quotas form']")
       wait_for_ajax_requests
 
       # ensure the account was updated properly
@@ -120,24 +121,25 @@ shared_examples_for "settings basic tests" do
     end
 
     it "manually changes a course quota", priority: "1" do
-      f("#tab-quotas-link").click
+      f("#tab-quotas").click
 
-      # find the course by id
-      click_option("#manual_quotas_type", "course", :value)
-      id_input = f("#manual_quotas_id")
+      search_form_selector = "[aria-label='Manually Settable Quotas search form']"
+      click_option("#{search_form_selector} [name=resource]", "Course ID")
+      id_input = f("#{search_form_selector} [name=id]")
       replace_content(id_input, @course.id.to_s)
-      f("#manual_quotas_find_button").click
+      f("#{search_form_selector} [type=submit]").click
 
       wait_for_ajaximations
 
-      link = f("#manual_quotas_link")
+      update_form_selector = "[aria-label='Manually Settable Quotas update form']"
+      link = f("#{update_form_selector} a[href='/courses/#{@course.id}']")
       expect(link).to include_text(@course.name)
 
-      quota_input = f("#manual_quotas_quota")
+      quota_input = f("#{update_form_selector} [name=storage_quota_mb]")
       expect(quota_input).to have_value(@course.storage_quota_mb.to_s)
       replace_content(quota_input, "42")
 
-      f("#manual_quotas_submit_button").click
+      f("#{update_form_selector} [type=submit]").click
 
       wait_for_ajax_requests
 
@@ -147,24 +149,25 @@ shared_examples_for "settings basic tests" do
     end
 
     it "manually changes a group quota", priority: "1" do
-      f("#tab-quotas-link").click
+      f("#tab-quotas").click
 
-      # find the course by id
-      click_option("#manual_quotas_type", "group", :value)
-      id_input = f("#manual_quotas_id")
+      search_form_selector = "[aria-label='Manually Settable Quotas search form']"
+      click_option("#{search_form_selector} [name=resource]", "Group ID")
+      id_input = f("#{search_form_selector} [name=id]")
       replace_content(id_input, @group.id.to_s)
-      f("#manual_quotas_find_button").click
+      f("#{search_form_selector} [type=submit]").click
 
       wait_for_ajaximations
 
-      link = f("#manual_quotas_link")
+      update_form_selector = "[aria-label='Manually Settable Quotas update form']"
+      link = f("#{update_form_selector} a[href='/groups/#{@group.id}']")
       expect(link).to include_text(@group.name)
 
-      quota_input = f("#manual_quotas_quota")
+      quota_input = f("#{update_form_selector} [name=storage_quota_mb]")
       expect(quota_input).to have_value(@group.storage_quota_mb.to_s)
       replace_content(quota_input, "42")
 
-      f("#manual_quotas_submit_button").click
+      f("#{update_form_selector} [type=submit]").click
 
       wait_for_ajax_requests
 

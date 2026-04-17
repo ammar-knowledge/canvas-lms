@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 import {Assignment} from './Assignment'
 import {ExternalTool} from './ExternalTool'
@@ -24,7 +24,7 @@ import {Rubric} from './Rubric'
 import {RubricAssessment} from './RubricAssessment'
 import {RubricAssociation} from './RubricAssociation'
 import {Submission} from './Submission'
-import {SubmissionComment} from './SubmissionComment'
+import {SubmissionHtmlComment} from './SubmissionComment'
 import {SubmissionHistory} from './SubmissionHistory'
 import {UserGroups} from './UserGroups'
 
@@ -60,20 +60,10 @@ export const RUBRIC_QUERY = gql`
     }
     submission(id: $submissionID) {
       id
+      autoGradeResultPresent
       rubricAssessmentsConnection(filter: {forAttempt: $submissionAttempt}) {
         nodes {
           ...RubricAssessment
-        }
-      }
-    }
-    course(id: $courseID) {
-      account {
-        outcomeProficiency {
-          proficiencyRatingsConnection {
-            nodes {
-              ...ProficiencyRating
-            }
-          }
         }
       }
     }
@@ -81,19 +71,41 @@ export const RUBRIC_QUERY = gql`
   ${Rubric.fragment}
   ${RubricAssessment.fragment}
   ${RubricAssociation.fragment}
+`
+
+export const COURSE_PROFICIENCY_RATINGS_QUERY = gql`
+  query GetCourseProficiencyRatings($courseID: ID!, $cursor: String) {
+    course(id: $courseID) {
+      outcomeProficiency {
+        proficiencyRatingsConnection (after: $cursor) {
+          pageInfo {
+            endCursor
+            hasNextPage
+          }
+          nodes {
+            ...ProficiencyRating
+          }
+        }
+      }
+    }
+  }
   ${ProficiencyRating.fragment}
 `
 
 export const STUDENT_VIEW_QUERY = gql`
-  query GetAssignment($assignmentLid: ID!, $submissionID: ID!) {
+  query GetStudentAssignment($assignmentLid: ID!, $submissionID: ID!) {
     assignment(id: $assignmentLid) {
-      ...Assignment
+      ...StudentAssignment
       rubric {
         ...Rubric
       }
+      rubricAssociation {
+        _id
+        hidePoints
+      }
     }
     submission(id: $submissionID) {
-      ...Submission
+      ...StudentAssignmentSubmission
     }
   }
   ${Assignment.fragment}
@@ -102,18 +114,22 @@ export const STUDENT_VIEW_QUERY = gql`
 `
 
 export const STUDENT_VIEW_QUERY_WITH_REVIEWER_SUBMISSION = gql`
-  query GetAssignment($assignmentLid: ID!, $submissionID: ID!, $reviewerSubmissionID: ID!) {
+  query GetStudentAssignmentWithReviewerSubmission($assignmentLid: ID!, $submissionID: ID!, $reviewerSubmissionID: ID!) {
     assignment(id: $assignmentLid) {
-      ...Assignment
+      ...StudentAssignment
       rubric {
         ...Rubric
       }
+      rubricAssociation {
+        _id
+        hidePoints
+      }
     }
     submission(id: $submissionID) {
-      ...Submission
+      ...StudentAssignmentSubmission
     }
     reviewerSubmission: submission(id: $reviewerSubmissionID) {
-      ...Submission
+      ...StudentAssignmentSubmission
     }
   }
   ${Assignment.fragment}
@@ -122,9 +138,9 @@ export const STUDENT_VIEW_QUERY_WITH_REVIEWER_SUBMISSION = gql`
 `
 
 export const LOGGED_OUT_STUDENT_VIEW_QUERY = gql`
-  query GetAssignment($assignmentLid: ID!) {
+  query GetStudentAssignmentLoggedOut($assignmentLid: ID!) {
     assignment(id: $assignmentLid) {
-      ...Assignment
+      ...StudentAssignment
       rubric {
         ...Rubric
       }
@@ -135,7 +151,7 @@ export const LOGGED_OUT_STUDENT_VIEW_QUERY = gql`
 `
 
 export const SUBMISSION_COMMENT_QUERY = gql`
-  query GetSubmissionComments(
+  query GetStudentSubmissionComments(
     $submissionId: ID!
     $submissionAttempt: Int!
     $cursor: String
@@ -153,20 +169,20 @@ export const SUBMISSION_COMMENT_QUERY = gql`
             hasPreviousPage
           }
           nodes {
-            ...SubmissionComment
+            ...SubmissionHtmlComment
           }
         }
       }
     }
   }
-  ${SubmissionComment.fragment}
+  ${SubmissionHtmlComment.fragment}
 `
 
 export const SUBMISSION_HISTORIES_QUERY = gql`
   query NextSubmission($submissionID: ID!) {
     node(id: $submissionID) {
       ... on Submission {
-        submissionHistoriesConnection(filter: {includeCurrentSubmission: false}) {
+        submissionHistoriesConnection(filter: {includeCurrentSubmission: false}, first: 100) {
           nodes {
             ...SubmissionHistory
           }

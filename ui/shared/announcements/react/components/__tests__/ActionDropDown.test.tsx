@@ -17,8 +17,7 @@
  */
 import React from 'react'
 import {render, screen, fireEvent} from '@testing-library/react'
-import '@testing-library/jest-dom/extend-expect'
-import {ActionDropDown, ActionObject} from '../ActionDropDown'
+import {ActionDropDown, type ActionObject} from '../ActionDropDown'
 import {IconTrashLine, IconLockLine} from '@instructure/ui-icons'
 
 describe('ActionDropDown', () => {
@@ -29,14 +28,14 @@ describe('ActionDropDown', () => {
       label: 'Delete',
       screenReaderLabel: 'Delete Item',
       icon: IconTrashLine,
-      action: jest.fn(),
+      action: vi.fn(),
       disabled: false,
     },
     {
       label: 'Lock',
       screenReaderLabel: 'Lock Item',
       icon: IconLockLine,
-      action: jest.fn(),
+      action: vi.fn(),
       disabled: true,
     },
   ]

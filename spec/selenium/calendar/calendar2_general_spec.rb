@@ -149,24 +149,8 @@ describe "calendar2" do
         expect(f(".more_options_link")["href"]).to match(original_more_options)
       end
 
-      it "makes an assignment undated if you delete the start date" do
-        skip_if_chrome("can not replace content")
-        create_middle_day_assignment("undate me")
-        f(".fc-event:not(.event_pending)").click
-        hover_and_click ".popover-links-holder .edit_event_link"
-        expect(f(".ui-dialog #assignment_due_at")).to be_displayed
-
-        replace_content(f(".ui-dialog #assignment_due_at"), "")
-        submit_form("#edit_assignment_form")
-        wait_for_ajax_requests
-        f("#undated-events-button").click
-        expect(f("#content")).not_to contain_css(".fc-event")
-        expect(f(".undated_event_title")).to include_text("undate me")
-      end
-
       it "course pacing calendars' assignments should not appear on teachers' calendars" do
         Account.site_admin.enable_feature! :account_level_blackout_dates
-        Account.site_admin.enable_feature! :course_paces
         @course.enable_course_paces = true
         @course.save!
         @course.active_assignments.create!(name: "cp assignment", due_at: Time.zone.now)
@@ -193,7 +177,7 @@ describe "calendar2" do
         wait_for_ajaximations
 
         expect(ag.reload.appointments.first.description).to eq description
-        expect(f(".fc-event")).to be
+        expect(f(".fc-event")).not_to be_nil
       end
 
       it "allows moving events between calendars" do
@@ -205,6 +189,24 @@ describe "calendar2" do
         wait_for_ajaximations
         expect(event.reload.context).to eq @course
         expect(f(".fc-event")).to have_class "group_course_#{@course.id}"
+      end
+
+      it "does not allow saving events without participants" do
+        skip("VICE-5309 - flaky 2025-05-30")
+        create_appointment_group
+        ag = AppointmentGroup.first
+        student_in_course(course: @course, active_all: true)
+        ag.appointments.first.reserve_for(@user, @user)
+
+        get "/calendar2"
+
+        open_edit_event_dialog
+        f("[type=checkbox][name=max_participants_option]").click
+        replace_content f("[name=max_participants]"), 0
+        fj(".ui-button:contains(Update)").click
+        wait_for_ajaximations
+
+        expect(f(".error-message").text).to include "Please enter a value greater or equal to 1"
       end
     end
 
@@ -288,7 +290,7 @@ describe "calendar2" do
 
     it "tests the today button" do
       get "/calendar2"
-      current_month_num = Time.now.month
+      current_month_num = Time.zone.now.month
       current_month = Date::MONTHNAMES[current_month_num]
 
       change_calendar
@@ -302,7 +304,7 @@ describe "calendar2" do
       unrelated_course = Course.create!(account: Account.default, name: "unrelated course")
       # make the user an admin so they can view the course's calendar without an enrollment
       Account.default.account_users.create!(user: @user)
-      CalendarEvent.create!(title: "from unrelated one", start_at: Time.now, end_at: 5.hours.from_now) { |c| c.context = unrelated_course }
+      CalendarEvent.create!(title: "from unrelated one", start_at: Time.zone.now, end_at: 5.hours.from_now) { |c| c.context = unrelated_course }
       keep_trying_until { expect(CalendarEvent.last.title).to eq "from unrelated one" }
       get "/courses/#{unrelated_course.id}/settings"
       expect(f("#course_calendar_link")["href"]).to match(/course_#{Course.last.id}/)
@@ -323,38 +325,6 @@ describe "calendar2" do
       term.save!
       refresh_page
       expect(f(".coming_up")).to include_text("Nothing for the next week")
-    end
-
-    it "graded discussion appears on all calendars", priority: "1" do
-      skip("LS-3479 -- flay about 16% of the time for no apparent reason")
-      create_graded_discussion
-
-      # Even though graded discussion overwrites its assignment's title, less fragile to grab discussion's title
-      assert_views(@gd.title, @assignment.due_at)
-    end
-
-    it "event appears on all calendars", priority: "1" do
-      skip("LS-3421 -- flaky about 20% of the time")
-      title = "loom"
-      due_time = 5.minutes.from_now
-      @course.calendar_events.create!(title:, start_at: due_time)
-
-      assert_views(title, due_time)
-    end
-
-    it "assignment appears on all calendars", priority: "1" do
-      title = "Zak McKracken"
-      due_time = 5.minutes.from_now
-      @assignment = @course.assignments.create!(name: title, due_at: due_time)
-
-      assert_views(title, due_time)
-    end
-
-    it "quiz appears on all calendars", priority: "1" do
-      skip("LS-3626 -- flaky about 20% of the time -- probably related to the others above")
-      create_quiz
-
-      assert_views(@quiz.title, @quiz.due_at)
     end
   end
 

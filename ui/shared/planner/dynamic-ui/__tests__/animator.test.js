@@ -19,13 +19,13 @@
 import {Animator} from '../animator'
 
 function mockVelocity(_opts = {}) {
-  return jest.fn()
+  return vi.fn()
 }
 
 function mockElement(opts = {}) {
   return {
-    getBoundingClientRect: jest.fn(),
-    focus: jest.fn(),
+    getBoundingClientRect: vi.fn(),
+    focus: vi.fn(),
     ...opts,
   }
 }
@@ -34,7 +34,7 @@ function mockWindow(_opts = {}) {
   const queue = []
   return {
     queue,
-    scroll: jest.fn(),
+    scroll: vi.fn(),
     requestAnimationFrame: fn => queue.push(fn),
     runAnimationFrames: () => {
       queue.forEach(fn => fn())
@@ -46,7 +46,7 @@ function mockWindow(_opts = {}) {
 function mockDocument(opts = {}) {
   return {
     documentElement: opts.documentElement || {
-      getBoundingClientRect: jest.fn(),
+      getBoundingClientRect: vi.fn(),
       clientHeight: 100,
     },
   }
@@ -127,7 +127,7 @@ it('does focus action before other operations', () => {
   elt.getBoundingClientRect.mockReturnValue({top: 10, left: 0, bottom: 20, right: 42})
   animator.scrollTo(elt, 42)
   animator.focusElement(elt)
-  expect(mocks.window.queue.length).toBe(2)
+  expect(mocks.window.queue).toHaveLength(2)
   expect(elt.focus).not.toHaveBeenCalled()
   mocks.window.queue[0]()
   expect(elt.focus).toHaveBeenCalled()

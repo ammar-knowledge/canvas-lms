@@ -19,14 +19,14 @@
 import api from '../ContextModuleApi'
 import ModuleSequenceFooter from '@canvas/module-sequence-footer'
 
-jest.mock('@canvas/module-sequence-footer')
+vi.mock('@canvas/module-sequence-footer')
 
 describe('ContextModuleApi', () => {
   let footerInstance
 
   describe('getContextModuleData', () => {
     beforeEach(() => {
-      footerInstance = {fetch: jest.fn(() => Promise.resolve(footerInstance))}
+      footerInstance = {fetch: vi.fn(() => Promise.resolve(footerInstance))}
 
       ModuleSequenceFooter.mockClear()
       ModuleSequenceFooter.mockImplementation(() => footerInstance)
@@ -39,7 +39,7 @@ describe('ContextModuleApi', () => {
         expect.objectContaining({
           assetID: '3456',
           courseID: '1234',
-        })
+        }),
       )
     })
 
@@ -57,7 +57,7 @@ describe('ContextModuleApi', () => {
         return Promise.resolve(footerInstance)
       })
       await expect(api.getContextModuleData('1', '2')).resolves.toEqual(
-        expect.objectContaining({previous: {url: '/previous'}, next: {url: '/next'}})
+        expect.objectContaining({previous: {url: '/previous'}, next: {url: '/next'}}),
       )
     })
 

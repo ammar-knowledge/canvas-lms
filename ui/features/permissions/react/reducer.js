@@ -39,7 +39,7 @@ const apiBusy = handleActions(
     },
     [actionTypes.API_COMPLETE](state, action) {
       const idx = state.findIndex(
-        elt => elt.id === action.payload.id && elt.name === action.payload.name
+        elt => elt.id === action.payload.id && elt.name === action.payload.name,
       )
       if (idx < 0) return state
       const newState = [...state]
@@ -47,7 +47,7 @@ const apiBusy = handleActions(
       return newState
     },
   },
-  []
+  [],
 )
 
 const permissions = handleActions(
@@ -71,7 +71,7 @@ const permissions = handleActions(
       })
     },
   },
-  []
+  [],
 )
 
 const roles = handleActions(
@@ -132,12 +132,12 @@ const roles = handleActions(
     [actionTypes.DELETE_ROLE_SUCCESS]: (state, action) =>
       state.filter(role => action.payload.id !== role.id),
   },
-  []
+  [],
 )
 
 const selectedRolesReducer = handleActions(
   {
-    [actionTypes.UPDATE_SELECTED_ROLES]: (state, action) => action.payload,
+    [actionTypes.UPDATE_SELECTED_ROLES]: (_state, action) => action.payload,
     [actionTypes.FILTER_NEW_ROLE]: (state, action) => {
       if (allRolesSelected(state)) return state
       const newState = state.slice()
@@ -150,7 +150,7 @@ const selectedRolesReducer = handleActions(
       return result
     },
   },
-  []
+  [],
 )
 
 export default combineReducers({
@@ -159,8 +159,10 @@ export default combineReducers({
   activeAddTray: activeAddTrayReducer,
   activePermissionTray: activePermissionTrayReducer,
   contextId: (state, _action) => state || '',
+  isSiteAdmin: (state, _action) => state || false,
   nextFocus: setFocusReducer,
   permissions,
+  permissionGroups: (state, _action) => state || {},
   roles,
   apiBusy,
 })

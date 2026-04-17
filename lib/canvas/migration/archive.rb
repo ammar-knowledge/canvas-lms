@@ -32,7 +32,11 @@ module Canvas::Migration
 
     def zip_file
       unless defined?(@zip_file)
-        @zip_file = Zip::File.open(file) rescue nil
+        @zip_file = begin
+          Zip::File.open(file)
+        rescue
+          nil
+        end
       end
       @zip_file
     end
@@ -85,13 +89,15 @@ module Canvas::Migration
         File.open(@settings[:export_archive_path], "rb")
       elsif @settings[:course_archive_download_url].present?
         _, uri = CanvasHttp.validate_url(@settings[:course_archive_download_url], check_host: true)
-        CanvasHttp.get(@settings[:course_archive_download_url]) do |http_response|
-          raise CanvasHttp::InvalidResponseCodeError, http_response.code.to_i unless http_response.code.to_i == 200
+        InstrumentTLSCiphers.without_tls_metrics do
+          CanvasHttp.get(@settings[:course_archive_download_url]) do |http_response|
+            raise CanvasHttp::InvalidResponseCodeError, http_response.code.to_i unless http_response.code.to_i == 200
 
-          tmpfile = CanvasHttp.tempfile_for_uri(uri)
-          http_response.read_body(tmpfile)
-          tmpfile.rewind
-          return tmpfile
+            tmpfile = CanvasHttp.tempfile_for_uri(uri)
+            http_response.read_body(tmpfile)
+            tmpfile.rewind
+            return tmpfile
+          end
         end
       elsif @settings[:attachment_id]
         att = Attachment.find(@settings[:attachment_id])

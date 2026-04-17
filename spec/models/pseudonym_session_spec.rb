@@ -66,56 +66,56 @@ describe PseudonymSession do
     end
 
     context "when audit_login returns :remaining_attempts_2" do
-      let(:attempted_record) { double("AttemptedRecord", audit_login: :remaining_attempts_2) }
+      let(:attempted_record) { instance_double(Pseudonym, audit_login: :remaining_attempts_2) }
 
       it "adds a warning message to errors" do
         session.validate_by_password
-        expect(session.errors.messages[:password]).to include("Please verify your username or password and try again. After 2 more attempt(s), your account will be locked.")
+        expect(session.errors[:password]).to include("Please verify your username or password and try again. After 2 more attempt(s), your account will be locked.")
       end
     end
 
     context "when audit_login returns :remaining_attempts_1" do
-      let(:attempted_record) { double("AttemptedRecord", audit_login: :remaining_attempts_1) }
+      let(:attempted_record) { instance_double(Pseudonym, audit_login: :remaining_attempts_1) }
 
       it "adds a warning message to errors" do
         session.validate_by_password
-        expect(session.errors.messages[:password]).to include("Please verify your username or password and try again. After 1 more attempt(s), your account will be locked.")
+        expect(session.errors[:password]).to include("Please verify your username or password and try again. After 1 more attempt(s), your account will be locked.")
       end
     end
 
     context "when audit_login returns :final_attempt" do
-      let(:attempted_record) { double("AttemptedRecord", audit_login: :final_attempt) }
+      let(:attempted_record) { instance_double(Pseudonym, audit_login: :final_attempt) }
 
       it "adds a lock message to errors" do
         session.validate_by_password
-        expect(session.errors.messages[:password]).to include("We've received several incorrect username or password entries. To protect your account, it has been locked. Please contact your system administrator.")
+        expect(session.errors[:password]).to include("We've received several incorrect username or password entries. To protect your account, it has been locked. Please contact your system administrator.")
       end
     end
 
     context "when audit_login returns :too_many_attempts" do
-      let(:attempted_record) { double("AttemptedRecord", audit_login: :too_many_attempts) }
+      let(:attempted_record) { instance_double(Pseudonym, audit_login: :too_many_attempts) }
 
       it "adds a max attempts message to errors" do
         session.validate_by_password
-        expect(session.errors.messages[:password]).to include("Too many failed login attempts. Please try again later or contact your system administrator.")
+        expect(session.errors[:password]).to include("Too many failed login attempts. Please try again later or contact your system administrator.")
       end
     end
 
     context "when audit_login returns :too_recent_login" do
-      let(:attempted_record) { double("AttemptedRecord", audit_login: :too_recent_login) }
+      let(:attempted_record) { instance_double(Pseudonym, audit_login: :too_recent_login) }
 
       it "adds a rapid attempts message to errors" do
         session.validate_by_password
-        expect(session.errors.messages[:password]).to include("You have recently logged in multiple times too quickly. Please wait a few seconds and try again.")
+        expect(session.errors[:password]).to include("You have recently logged in multiple times too quickly. Please wait a few seconds and try again.")
       end
     end
 
     context "when audit_login returns an unexpected value" do
-      let(:attempted_record) { double("AttemptedRecord", audit_login: :unexpected_value) }
+      let(:attempted_record) { instance_double(Pseudonym, audit_login: :unexpected_value) }
 
       it "adds a generic error message to errors" do
         session.validate_by_password
-        expect(session.errors.messages[:password]).to include("Login has been denied for security reasons. Please try again later or contact your system administrator.")
+        expect(session.errors[:password]).to include("Login has been denied for security reasons. Please try again later or contact your system administrator.")
       end
     end
   end

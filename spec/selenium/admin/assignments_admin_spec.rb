@@ -41,12 +41,6 @@ describe "assignments" do
 
       f(".submit_assignment_link").click
       expect(f("#content")).not_to contain_css("#submit_google_doc_form")
-
-      # navigate off the page and dismiss the alert box to avoid problems
-      # with other selenium tests
-      f("#section-tabs .home").click
-      driver.switch_to.alert.accept
-      driver.switch_to.default_content
     end
 
     it "shows the submit button if admin is enrolled as student" do
@@ -70,18 +64,7 @@ describe "assignments" do
       assignment_model(course: @course, submission_types: "online_upload", title: "Assignment 1")
     end
 
-    it "does not kersplode on the index without the `manage_courses` permission" do
-      @course.root_account.disable_feature!(:granular_permissions_manage_courses)
-      account_admin_user_with_role_changes(role_changes: { manage_courses: false })
-      user_session(@user)
-
-      get "/courses/#{@course.id}/assignments"
-      wait_for_ajaximations
-      expect(f("#assignment_#{@assignment.id}").text).to include(@assignment.title)
-    end
-
-    it "does not kersplode on the index without the `manage_courses_admin` permission (granular permissions)" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
+    it "does not kersplode on the index without the `manage_courses_admin` permission" do
       account_admin_user_with_role_changes(role_changes: { manage_courses_admin: false })
       user_session(@user)
 
@@ -90,8 +73,8 @@ describe "assignments" do
       expect(f("#assignment_#{@assignment.id}").text).to include(@assignment.title)
     end
 
-    it "does not kersplode on the index without the `manage_assignments` permission" do
-      account_admin_user_with_role_changes(role_changes: { manage_assignments: false })
+    it "does not kersplode on the index without the `manage_assignments_edit` permission" do
+      account_admin_user_with_role_changes(role_changes: { manage_assignments_edit: false })
       user_session(@user)
 
       get "/courses/#{@course.id}/assignments"

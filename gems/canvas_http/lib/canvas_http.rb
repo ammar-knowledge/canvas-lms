@@ -22,10 +22,12 @@ require "ipaddr"
 require "resolv"
 require "canvas_http/circuit_breaker"
 require "logger"
+require "active_support/core_ext/object/blank"
 
 module CanvasHttp
   OPEN_TIMEOUT = 5
   READ_TIMEOUT = 30
+  WRITE_TIMEOUT = 10
 
   def self.blocked_ip_ranges
     @blocked_ip_ranges || [
@@ -71,6 +73,9 @@ module CanvasHttp
 
   class ResponseTooLargeError < CanvasHttp::Error; end
 
+  UPSTREAM_HTTP_ERRORS = [Timeout::Error, SocketError, SystemCallError, OpenSSL::SSL::SSLError].freeze
+  ALL_HTTP_ERRORS = [CanvasHttp::Error, *UPSTREAM_HTTP_ERRORS].freeze
+
   def self.put(...)
     CanvasHttp.request(Net::HTTP::Put, ...)
   end
@@ -107,8 +112,17 @@ module CanvasHttp
   # parameter, which is the redirect response.
   #
   # Eventually it may be expanded to optionally do cert verification as well.
-  def self.request(request_class, url_str, other_headers = {}, redirect_limit: 3, form_data: nil, multipart: false,
-                   streaming: false, body: nil, content_type: nil, redirect_spy: nil, max_response_body_length: nil)
+  def self.request(request_class,
+                   url_str,
+                   other_headers = {},
+                   redirect_limit: 3,
+                   form_data: nil,
+                   multipart: false,
+                   streaming: false,
+                   body: nil,
+                   content_type: nil,
+                   redirect_spy: nil,
+                   max_response_body_length: nil)
     last_scheme = nil
     last_host = nil
     current_host = nil
@@ -291,6 +305,7 @@ module CanvasHttp
     http.use_ssl = (uri.scheme == "https")
     http.ssl_timeout = http.open_timeout = OPEN_TIMEOUT
     http.read_timeout = READ_TIMEOUT
+    http.write_timeout = WRITE_TIMEOUT
     # Don't rely on net/http's internal retries, since they swallow errors in a
     # way that can't be detected when streaming responses, leading to duplicate
     # data
@@ -323,10 +338,11 @@ module CanvasHttp
   # returns a tempfile with a filename based on the uri (same extension, if
   # there was an extension)
   def self.tempfile_for_uri(uri)
-    basename = File.basename(uri.path)
-    basename, ext = basename.split(".", 2)
-    basename = basename.slice(0, 100)
-    tmpfile = if ext
+    ext = File.extname(uri.path || "")
+    basename = File.basename(uri.path || "", ext)
+    basename = (basename || "").slice(0, 100)
+
+    tmpfile = if ext.present?
                 Tempfile.new([basename, ext])
               else
                 Tempfile.new(basename)

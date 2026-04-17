@@ -20,7 +20,6 @@ function mouseover($el) {
   const event = new MouseEvent('mouseover', {
     bubbles: true,
     cancelable: true,
-    view: window,
   })
   $el.dispatchEvent(event)
 }
@@ -31,7 +30,7 @@ function getMenuItemWithLabel($parent, label) {
 }
 
 function getFlyoutWithLabel($parent, label) {
-  const $children = [...$parent.querySelectorAll('[role="button"]')]
+  const $children = [...$parent.querySelectorAll('[role="menuitem"]')]
   return $children.find($child => $child.textContent.trim() === label)
 }
 

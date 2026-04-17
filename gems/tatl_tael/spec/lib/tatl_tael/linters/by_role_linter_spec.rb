@@ -16,11 +16,9 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require "spec_helper"
-
 BYROLE_FIXTURE_BASE = File.expand_path("fixtures/by_role_linter/__tests__/", __dir__)
 VALID_FILES = %w[valid.js valid.ts valid.tsx valid.jsx].map { |f| BYROLE_FIXTURE_BASE + "/" + f }
-CHANGE_LINE_NUMBERS = [25, 29, 33, 37, 41, 45].freeze
+CHANGE_LINE_NUMBERS = [26, 30, 34, 38, 42, 46].freeze
 
 describe TatlTael::Linters::ByRoleLinter do
   let(:config) do
@@ -34,7 +32,7 @@ describe TatlTael::Linters::ByRoleLinter do
       { path: fixture_path, path_from_root: fixture_path, status: }
     end
   end
-  let(:changes) { raw_changes.map { |c| double(c) } }
+  let(:changes) { raw_changes.map { |c| double("DrDiff::Change", **c) } } # rubocop:disable RSpec/VerifiedDoubles
   let(:diff) do
     diff = {}
     VALID_FILES.map do |file|

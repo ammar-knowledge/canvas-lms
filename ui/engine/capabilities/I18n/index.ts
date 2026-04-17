@@ -19,7 +19,7 @@
 import IntlPolyfills from '../IntlPolyfills'
 import type {Capability} from '@instructure/updown'
 import {oncePerPage} from '@instructure/updown'
-import {useTranslations} from '@canvas/i18n'
+import {registerTranslations} from '@canvas/i18n'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 import fallbacks from 'translations/en.json'
 import {captureException} from '@sentry/browser'
@@ -28,7 +28,7 @@ declare const ENV: {
   RAILS_ENVIRONMENT: 'development' | 'test' | 'production'
   LOCALE?: string
   readonly LOCALE_TRANSLATION_FILE: string
-  readonly LOCALES: string[] // array of the current locale and then all its fallbacks
+  readonly LOCALES: string[]
   [propName: string]: unknown
 }
 
@@ -50,27 +50,29 @@ const LocaleBackfill: Capability = {
 // load the string translation file for this locale
 const Translations: Capability = {
   up: oncePerPage('translations', async () => {
-    if (ENV.RAILS_ENVIRONMENT === 'test') {
-      useTranslations(ENV.LOCALE, fallbacks)
-      return
-    }
-    try {
-      const {json} = await doFetchApi({path: ENV.LOCALE_TRANSLATION_FILE})
-      useTranslations(ENV.LOCALE, json)
-    } catch {
-      // We need to fall back to the bare bones English fallbacks so that things
-      // like dates and times and community links can still translate; without
-      // them the Canvas front end will not start at all. Using only the
-      // fallbacks will result in an odd mix of the "correct" language (from
-      // the Rails-rendered stuff) and English (from JS-rendered stuff), but
-      // loading Canvas this way is better than just rendering a blank page
-      // because none of the front-end code could start.
-      useTranslations(ENV.LOCALE, fallbacks)
-      // eslint-disable-next-line no-console
-      console.error(
-        `CAUTION could not load translations for "${ENV.LOCALE}", falling back to US English`
-      )
-      captureException(new Error(`Could not load translations for "${ENV.LOCALE}"`))
+    const locale = ENV.LOCALE || navigator.language || 'en'
+
+    if (ENV.RAILS_ENVIRONMENT === 'test' || locale === 'en') {
+      registerTranslations(locale, fallbacks)
+    } else {
+      try {
+        // This file should have already been put as a preload tag in <head>
+        // so this request will typically resolve almost immediately.
+        const {json} = await doFetchApi({
+          path: ENV.LOCALE_TRANSLATION_FILE,
+          includeCSRFToken: false,
+        })
+        if (typeof json === 'object' && json !== null) {
+          registerTranslations(locale, json)
+        }
+      } catch {
+        registerTranslations(locale, fallbacks)
+
+        console.error(
+          `CAUTION could not load translations for "${ENV.LOCALE}", falling back to US English`,
+        )
+        captureException(new Error(`Could not load translations for "${ENV.LOCALE}"`))
+      }
     }
   }),
   requires: [LocaleBackfill],

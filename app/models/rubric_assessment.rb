@@ -21,9 +21,10 @@
 # Associates an artifact with a rubric while offering an assessment and
 # scoring using the rubric.  Assessments are grouped together in one
 # RubricAssociation, which may or may not have an association model.
-class RubricAssessment < ActiveRecord::Base
+class RubricAssessment < ApplicationRecord
   include TextHelper
   include HtmlTextHelper
+  include Trackable
 
   belongs_to :rubric
   belongs_to :rubric_association
@@ -50,8 +51,9 @@ class RubricAssessment < ActiveRecord::Base
   def track_outcomes
     outcome_ids = aligned_outcome_ids
     peer_review = assessment_type == "peer_review"
+    self_assessment = assessment_type == "self_assessment"
     provisional_grade = artifact_type == "ModeratedGrading::ProvisionalGrade"
-    update_outcomes = outcome_ids.present? && !peer_review && !provisional_grade
+    update_outcomes = outcome_ids.present? && !peer_review && !provisional_grade && !self_assessment
     delay_if_production.update_outcomes_for_assessment(outcome_ids) if update_outcomes
   end
 
@@ -183,6 +185,16 @@ class RubricAssessment < ActiveRecord::Base
       a.attributes = { rubric_assessment: self, assessor: }
       a.complete
     end
+
+    # Use a separate loop as all ARs must be completed before checking the PRs threshold
+    requests.each do |a| # rubocop:disable Style/CombinableLoops
+      next unless a.peer_review_sub_assignment
+
+      PeerReview::SubmissionCreatorService.new(
+        parent_assignment: a.asset.assignment,
+        assessor: a.assessor
+      ).call
+    end
   end
   protected :update_assessment_requests
 
@@ -200,7 +212,9 @@ class RubricAssessment < ActiveRecord::Base
     case artifact_type
     when "Submission"
       assignment = rubric_association.association_object
-      return unless assignment.grants_right?(assessor, :grade)
+      # as part of the initial checkpoints release, we will not respect use for grading for checkpoints
+      # use for grading will be respected, when support for rubrics on checkpoints has been fleshed-out
+      return if !assignment.grants_right?(assessor, :grade) || assignment.checkpoints_parent?
 
       assignment.grade_student(
         artifact.student,
@@ -240,7 +254,7 @@ class RubricAssessment < ActiveRecord::Base
 
     given do |user, session|
       rubric_association&.grants_right?(user, session, :manage) &&
-        (rubric_association.association_object.context.grants_right?(assessor, :manage_rubrics) rescue false)
+        rubric_association.association_object.try(:context)&.grants_right?(assessor, :manage_rubrics)
     end
     can :update
 
@@ -272,20 +286,20 @@ class RubricAssessment < ActiveRecord::Base
   end
 
   def assessor_name
-    assessor.short_name rescue t("unknown_user", "Unknown User")
+    assessor&.short_name || t("unknown_user", "Unknown User")
   end
 
   def assessment_url
-    artifact.url rescue nil
+    artifact.try(:url)
   end
 
   def can_read_assessor_name?(user, session)
-    assessment_type == "grading" ||
-      !considered_anonymous? ||
-      assessor_id == user.id ||
-      rubric_association.association_object.context.grants_right?(
-        user, session, :view_all_grades
-      )
+    return true if assessor_id == user.id
+    return false if provisional_grader_names_hidden?
+    return true if assessment_type == "grading"
+    return true unless considered_anonymous?
+
+    rubric_association.association_object.context.grants_right?(user, session, :view_all_grades)
   end
 
   def considered_anonymous?
@@ -293,6 +307,13 @@ class RubricAssessment < ActiveRecord::Base
 
     rubric_association.association_type == "Assignment" &&
       rubric_association.association_object.anonymous_peer_reviews?
+  end
+
+  def provisional_grader_names_hidden?
+    return false unless active_rubric_association?
+    return false unless rubric_association.association_type == "Assignment"
+
+    !rubric_association.association_object.grader_names_visible_to_final_grader?
   end
 
   def ratings
@@ -306,7 +327,7 @@ class RubricAssessment < ActiveRecord::Base
         submission = rubric_association.association_object.find_asset_for_assessment(rubric_association, student).first
         { submission:,
           rubric_assessments: submission.rubric_assessments
-                                        .where.not(rubric_association: nil)
+                              .where.not(rubric_association: nil)
                                         .map { |ra| ra.as_json(methods: :assessor_name) } }
       end
     else

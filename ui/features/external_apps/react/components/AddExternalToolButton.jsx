@@ -17,7 +17,7 @@
  */
 
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import Modal from '@canvas/instui-bindings/react/InstuiModal'
 import store from '../lib/ExternalAppsStore'
@@ -31,12 +31,13 @@ import '@canvas/rails-flash-notifications'
 import fetchToolConfiguration from '../lib/fetchToolConfiguration'
 import toolConfigurationError from '../lib/toolConfigurationError'
 import install13Tool from '../lib/install13Tool'
+import {showFlashAlert} from '@instructure/platform-alerts'
 import {IconAddLine} from '@instructure/ui-icons'
 import {View} from '@instructure/ui-view'
 import {Button} from '@instructure/ui-buttons'
 import {AccessibleContent} from '@instructure/ui-a11y-content'
 
-const I18n = useI18nScope('external_tools')
+const I18n = createI18nScope('external_tools')
 
 export default class AddExternalToolButton extends React.Component {
   static propTypes = {
@@ -103,7 +104,7 @@ export default class AddExternalToolButton extends React.Component {
     if (toolData.status === 'failure') {
       this.setState({modalIsOpen: false}, () => {
         $.flashErrorSafe(
-          toolData.message || I18n.t('There was an unknown error registering the tool')
+          toolData.message || I18n.t('There was an unknown error registering the tool'),
         )
       })
     } else {
@@ -127,7 +128,7 @@ export default class AddExternalToolButton extends React.Component {
         $.flashMessage(I18n.t('The app was added'))
         store.reset()
         store.fetch()
-      }
+      },
     )
   }
 
@@ -186,7 +187,7 @@ export default class AddExternalToolButton extends React.Component {
       return fetchToolConfiguration(
         data.client_id,
         ENV.TOOL_CONFIGURATION_SHOW_URL,
-        toolConfigurationError
+        toolConfigurationError,
       ).then(toolConfiguration => {
         this.setState({
           type: 'byClientId',
@@ -204,7 +205,7 @@ export default class AddExternalToolButton extends React.Component {
         configurationType,
         data,
         this._successHandler.bind(this),
-        this._errorHandler.bind(this)
+        this._errorHandler.bind(this),
       )
       this.throttleCreation = true
     }
@@ -218,9 +219,19 @@ export default class AddExternalToolButton extends React.Component {
           this.closeModal()
         },
         response => {
+          if (response.response?.status === 403) {
+            showFlashAlert({
+              type: 'error',
+              message: I18n.t(
+                'This app has been locked by an administrator and is not available for installation.',
+              ),
+            })
+            this.closeModal()
+            return
+          }
           const errors = response.response.data.errors
           this._duplicate_check_error(errors)
-        }
+        },
       )
       .catch(() => {
         $.flashError(I18n.t('We were unable to add the app.'))
@@ -261,7 +272,7 @@ export default class AddExternalToolButton extends React.Component {
           onConfirm={() => this.create13Tool()}
           message={I18n.t(
             'Tool "%{toolName}" found for client ID %{clientId}. Would you like to install it?',
-            {toolName, clientId}
+            {toolName, clientId},
           )}
           confirmLabel={I18n.t('Install')}
         />

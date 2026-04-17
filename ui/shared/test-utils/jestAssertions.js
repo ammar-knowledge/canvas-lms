@@ -17,7 +17,7 @@
  */
 
 import {expect} from '@jest/globals'
-import {reject} from 'lodash'
+import {reject} from 'es-toolkit/compat'
 import axe from 'axe-core'
 
 export function isVisible($el) {
@@ -59,7 +59,7 @@ export function isAccessible($el, done, options = {}) {
     const violations = reject(result.violations, violation => ignores.indexOf(violation.id) >= 0)
 
     const err = violations.map(violation =>
-      [`[${violation.id}] ${violation.help}`, `${violation.helpUrl}\n`].join('\n')
+      [`[${violation.id}] ${violation.help}`, `${violation.helpUrl}\n`].join('\n'),
     )
 
     if (violations.length) {

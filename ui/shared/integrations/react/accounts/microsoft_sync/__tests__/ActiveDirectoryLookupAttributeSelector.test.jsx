@@ -32,13 +32,13 @@ describe('RemoteLookupFieldSelector', () => {
   })
 
   it('calls the passed in callback on input', () => {
-    const callbackMock = jest.fn()
+    const callbackMock = vi.fn()
     const container = setup({
       fieldChangedHandler: callbackMock,
     })
 
     fireEvent.click(
-      container.getByRole('combobox', {name: /active directory lookup attribute selector/i})
+      container.getByRole('combobox', {name: /active directory lookup attribute selector/i}),
     )
     fireEvent.click(container.getByText(/user principal name \(upn\)/i))
 
@@ -53,7 +53,7 @@ describe('RemoteLookupFieldSelector', () => {
     expect(
       container.getByRole('combobox', {
         name: /active directory lookup attribute selector/i,
-      }).value
+      }).value,
     ).toMatch(/email alias \(mailNickname\)/i)
   })
 })

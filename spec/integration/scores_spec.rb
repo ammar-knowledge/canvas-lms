@@ -108,7 +108,6 @@ module Lti::IMS
         before do
           allow(InstFS).to receive_messages(enabled?: true, jwt_secrets: ["jwt signing key"])
           @token = Canvas::Security.create_jwt({}, nil, InstFS.jwt_secret)
-          Account.root_accounts.first.enable_feature! :ags_scores_multiple_files
         end
 
         it "creates a new submission" do
@@ -122,7 +121,7 @@ module Lti::IMS
           # get params sent to instfs for easier mocking of the instfs return request
           expect(CanvasHttp).to receive(:post) do |*args|
             upload_url, upload_params, _ = args
-            double(class: Net::HTTPCreated, code: 201, body: {})
+            instance_double(Net::HTTPCreated, code: 201, body: {})
           end
           post("/api/lti/courses/#{context.id}/line_items/#{line_item_id}/scores", params: line_item_params.to_json, headers:)
           # instfs return url posting

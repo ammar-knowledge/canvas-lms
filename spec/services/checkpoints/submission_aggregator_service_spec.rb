@@ -21,7 +21,7 @@ describe Checkpoints::SubmissionAggregatorService do
   describe ".call" do
     before(:once) do
       @course = course_model
-      @course.root_account.enable_feature!(:discussion_checkpoints)
+      @course.account.enable_feature!(:discussion_checkpoints)
       @student = student_in_course(course: @course, active_all: true).user
       @topic = DiscussionTopic.create_graded_topic!(course: @course, title: "graded topic")
       @topic.create_checkpoints(reply_to_topic_points: 3, reply_to_entry_points: 7)
@@ -49,7 +49,7 @@ describe Checkpoints::SubmissionAggregatorService do
       end
 
       it "returns false when checkpoint discussions are disabled" do
-        @course.root_account.disable_feature!(:discussion_checkpoints)
+        @course.account.disable_feature!(:discussion_checkpoints)
         expect(service_call).to be false
       end
 
@@ -59,6 +59,38 @@ describe Checkpoints::SubmissionAggregatorService do
     end
 
     describe "score" do
+      it "creates a parent submission when none exists and correctly aggregates a single checkpoint score" do
+        @course2 = course_model
+        assignment_without_submissions = @course2.assignments.create!(title: "My Assignment")
+        assignment_without_submissions.sub_assignments.create!(title: "sub assignment", context: assignment_without_submissions.context, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+        assignment_without_submissions.reload
+        enrollment_params = { enrollment_state: "active", type: "StudentEnrollment", return_type: :record }
+        create_enrollments(@course2, [@student], enrollment_params)
+
+        expect(assignment_without_submissions.submissions.find_by(user: @student)).to be_nil
+        # grade only the REPLY_TO_TOPIC checkpoint
+        Submission.suspend_callbacks(:aggregate_checkpoint_submissions) do
+          assignment_without_submissions.grade_student(
+            @student,
+            grader: @teacher,
+            score: 5,
+            sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC
+          )
+        end
+        result = nil
+        expect do
+          result = service.call(assignment: assignment_without_submissions, student: @student)
+        end.to change { assignment_without_submissions.submissions.count }.from(0).to(1)
+        expect(result).to be true
+
+        # verify both child and parent scores
+        child  = assignment_without_submissions.sub_assignments.first.submissions.first
+        parent = assignment_without_submissions.submissions.first
+
+        expect(child.score).to eq 5
+        expect(parent.score).to eq 5
+      end
+
       it "saves the sum of checkpoint scores on the parent submission" do
         Submission.suspend_callbacks(:aggregate_checkpoint_submissions) do
           @topic.assignment.grade_student(@student, grader: @teacher, score: 3, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
@@ -670,9 +702,30 @@ describe Checkpoints::SubmissionAggregatorService do
         expect(submission.workflow_state).to eq "graded"
       end
 
-      it "sets the workflow_state to 'unsubmitted' when checkpoint states don't match" do
+      it "sets the workflow_state to 'pending_review' when a checkpoint is submitted and needs grading" do
         Submission.suspend_callbacks(:aggregate_checkpoint_submissions) do
           @topic.reply_to_topic_checkpoint.submit_homework(@student, submission_type: "discussion_topic")
+        end
+
+        success = service_call
+        expect(success).to be true
+        expect(submission.workflow_state).to eq "pending_review"
+      end
+
+      it "sets the workflow_state to 'pending_review' when both checkpoints need grading" do
+        Submission.suspend_callbacks(:aggregate_checkpoint_submissions) do
+          @topic.reply_to_topic_checkpoint.submit_homework(@student, submission_type: "discussion_topic")
+          @topic.reply_to_entry_checkpoint.submit_homework(@student, submission_type: "discussion_topic")
+        end
+
+        success = service_call
+        expect(success).to be true
+        expect(submission.workflow_state).to eq "pending_review"
+      end
+
+      it "sets the workflow_state to 'unsubmitted' when states don't match and no checkpoint needs grading" do
+        Submission.suspend_callbacks(:aggregate_checkpoint_submissions) do
+          @topic.assignment.grade_student(@student, grader: @teacher, score: 3, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
         end
 
         success = service_call

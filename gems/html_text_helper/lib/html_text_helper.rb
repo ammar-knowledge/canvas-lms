@@ -43,12 +43,14 @@ require "twitter-text"
 module HtmlTextHelper
   def self.strip_tags(text)
     text ||= ""
-    text.gsub(%r{</?[^<>\n]*>?}, "").gsub(/&#\d+;/) { |m| m[2..].to_i.chr(text.encoding) rescue "" }.gsub(/&\w+;/, "")
+    text.gsub(%r{</?[^<>\n]*>?}, "").gsub(/&#\d+;/) do |m|
+      m[2..].to_i.chr(text.encoding)
+    rescue RangeError
+      ""
+    end.gsub(/&\w+;/, "")
   end
 
-  def strip_tags(text)
-    HtmlTextHelper.strip_tags(text)
-  end
+  delegate :strip_tags, to: :HtmlTextHelper
 
   # Converts a string of html to plain text, preserving as much of the
   # formatting and information as possible
@@ -192,7 +194,7 @@ module HtmlTextHelper
     else
       output = Sanitize.clean(html, config)
     end
-    append_base_url(output, base_url).html_safe
+    append_base_url(output, base_url)
   end
 
   # Internal: Append given base URL to relative links in the source.
@@ -213,7 +215,7 @@ module HtmlTextHelper
       tag.attributes["href"].value = "#{base}#{url}"
     end
 
-    output.to_s
+    output.to_s.html_safe # rubocop:disable Rails/OutputSafety
   end
 
   def quote_clump(quote_lines)
@@ -275,7 +277,7 @@ module HtmlTextHelper
     processed_lines << quote_clump(quote_block) unless quote_block.empty?
     message = processed_lines.join("\n")
     links.unshift opts[:url] if opts[:url]
-    links.unshift message.html_safe
+    links.unshift message.html_safe # rubocop:disable Rails/OutputSafety
   end
 
   def add_notification_to_link(url, notification_id)

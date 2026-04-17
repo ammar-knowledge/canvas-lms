@@ -15,11 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
 import DialogFormView, {getResponsiveWidth} from '@canvas/forms/backbone/views/DialogFormView'
+import {redirectWithHorizonParams} from '@canvas/horizon/utils'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import $ from 'jquery'
 
-const I18n = useI18nScope('pages')
+const I18n = createI18nScope('pages')
 
 const dialogDefaults = {
   fixDialogButtons: false,
@@ -66,12 +67,12 @@ export default class WikiPageDeleteDialog extends DialogFormView {
         expires.setMinutes(expires.getMinutes() + 1)
         const path = '/' // should be wiki_pages_path, but IE will only allow *sub*directries to read the cookie, not the directory itself...
         $.cookie('deleted_page_title', page_title, {expires, path})
-        return (window.location.href = wiki_pages_path)
+        return redirectWithHorizonParams(wiki_pages_path)
       } else {
         $.flashMessage(
           I18n.t('notices.page_deleted', 'The page "%{title}" has been deleted.', {
             title: page_title,
-          })
+          }),
         )
         dfd.resolve()
         return this.close()
@@ -82,7 +83,7 @@ export default class WikiPageDeleteDialog extends DialogFormView {
       $.flashError(
         I18n.t('notices.delete_failed', 'The page "%{title}" could not be deleted.', {
           title: page_title,
-        })
+        }),
       )
       return dfd.reject()
     })

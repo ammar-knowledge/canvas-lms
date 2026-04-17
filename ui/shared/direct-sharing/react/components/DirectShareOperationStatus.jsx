@@ -17,7 +17,7 @@
  */
 
 import React, {useRef, useState} from 'react'
-import CanvasInlineAlert from '@canvas/alerts/react/InlineAlert'
+import {InlineAlert as CanvasInlineAlert} from '@instructure/platform-alerts'
 import {Spinner} from '@instructure/ui-spinner'
 
 export default function DirectShareOperationStatus({promise, startingMsg, successMsg, errorMsg}) {
@@ -36,8 +36,8 @@ export default function DirectShareOperationStatus({promise, startingMsg, succes
         })
         .catch(err => {
           if (promise === previousPromise.current) {
-            console.error(err) // eslint-disable-line no-console
-            if (err && err.response) console.error(err.response) // eslint-disable-line no-console
+            console.error(err)
+            if (err && err.response) console.error(err.response)
             setOperationStatus('error')
           }
         })
@@ -52,7 +52,7 @@ export default function DirectShareOperationStatus({promise, startingMsg, succes
 
   if (operationStatus === 'error') {
     alert = (
-      <CanvasInlineAlert variant="error" {...alertProps}>
+      <CanvasInlineAlert variant="error" {...alertProps} data-testid="direct-share-operation-error">
         {errorMsg}
       </CanvasInlineAlert>
     )

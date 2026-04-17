@@ -16,12 +16,46 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import type {Enrollment, FetchedEnrollments, TemporaryEnrollmentPairing} from '../types'
+import type {
+  Enrollment,
+  FetchedEnrollments,
+  TemporaryEnrollmentPairing,
+  TemporaryEnrollmentStatus,
+} from '../types'
 import {ITEMS_PER_PAGE} from '../types'
-import doFetchApi from '@canvas/do-fetch-api-effect'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import doFetchApi, {FetchApiError} from '@canvas/do-fetch-api-effect'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('temporary_enrollment')
+interface TemporaryEnrollmentPairingResponse {
+  temporary_enrollment_pairing: TemporaryEnrollmentPairing
+}
+
+const I18n = createI18nScope('temporary_enrollment')
+
+export type BulkTemporaryEnrollmentStatus = Record<string, TemporaryEnrollmentStatus>
+
+/**
+ * Fetches temporary enrollment statuses for multiple users in bulk
+ */
+export async function fetchBulkTemporaryEnrollmentStatus(
+  userIds: string[],
+  accountId?: string,
+): Promise<BulkTemporaryEnrollmentStatus> {
+  const params: Record<string, string | string[] | number> = {
+    user_ids: userIds,
+    limit: userIds.length,
+  }
+  if (accountId) {
+    params.account_id = accountId
+  }
+
+  const {json} = await doFetchApi<BulkTemporaryEnrollmentStatus>({
+    path: '/api/v1/temporary_enrollment_status',
+    params,
+  })
+
+  return json ?? {}
+}
 
 /**
  * Fetches temporary enrollment data for a user
@@ -39,7 +73,7 @@ const I18n = useI18nScope('temporary_enrollment')
 export async function fetchTemporaryEnrollments(
   userId: string,
   isRecipient: boolean,
-  pageRequest: string
+  pageRequest: string,
 ): Promise<FetchedEnrollments> {
   const params: Record<string, any> = {
     state: ['current_future_and_restricted'],
@@ -69,7 +103,8 @@ export async function fetchTemporaryEnrollments(
     throw new Error(errorMessage)
   }
 
-  return {enrollments: json, link}
+  // @ts-expect-error - Links type from parse-link-header is structurally incompatible with local Links type
+  return {enrollments: json ?? [], link}
 }
 
 /**
@@ -81,23 +116,26 @@ export async function fetchTemporaryEnrollments(
  */
 export async function createTemporaryEnrollmentPairing(
   accountId: string,
-  endingEnrollmentState: string
+  endingEnrollmentState: string,
 ): Promise<TemporaryEnrollmentPairing> {
   try {
-    const response = await doFetchApi({
+    const response = await doFetchApi<TemporaryEnrollmentPairingResponse>({
       path: `/api/v1/accounts/${accountId}/temporary_enrollment_pairings`,
       method: 'POST',
       params: {
         ending_enrollment_state: endingEnrollmentState,
       },
     })
+    if (!response.json) {
+      throw new Error(I18n.t('Failed to create temporary enrollment pairing'))
+    }
     return response.json.temporary_enrollment_pairing
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(I18n.t('Failed to create temporary enrollment pairing'))
     } else {
       throw new Error(
-        I18n.t('Failed to create temporary enrollment pairing due to an unknown error')
+        I18n.t('Failed to create temporary enrollment pairing due to an unknown error'),
       )
     }
   }
@@ -112,21 +150,24 @@ export async function createTemporaryEnrollmentPairing(
  */
 export async function getTemporaryEnrollmentPairing(
   accountId: string,
-  pairingId: number
+  pairingId: number,
 ): Promise<TemporaryEnrollmentPairing> {
   try {
-    const response = await doFetchApi({
+    const response = await doFetchApi<TemporaryEnrollmentPairingResponse>({
       path: `/api/v1/accounts/${accountId}/temporary_enrollment_pairings/${pairingId}`,
       method: 'GET',
     })
 
+    if (!response.json) {
+      throw new Error(I18n.t('Failed to retrieve temporary enrollment pairing'))
+    }
     return response.json.temporary_enrollment_pairing
   } catch (error) {
     if (error instanceof Error) {
       throw new Error(I18n.t('Failed to retrieve temporary enrollment pairing'))
     } else {
       throw new Error(
-        I18n.t('Failed to retrieve temporary enrollment pairing due to an unknown error')
+        I18n.t('Failed to retrieve temporary enrollment pairing due to an unknown error'),
       )
     }
   }
@@ -179,7 +220,7 @@ export async function createEnrollment(
   enrollmentLimitPrivilegesToSection: boolean,
   startDate: Date,
   endDate: Date,
-  roleId: string
+  roleId: string,
 ): Promise<void> {
   try {
     await doFetchApi({
@@ -199,19 +240,26 @@ export async function createEnrollment(
     })
   } catch (error) {
     const defaultErrorMessage = I18n.t(
-      'Failed to create temporary enrollment, please try again later'
+      'Failed to create temporary enrollment, please try again later',
     )
-    // @ts-expect-error because doFetchApi is not type safe (yet)
-    const serverErrorMessage: string = (await error.response?.json())?.message || ''
+    let serverErrorMessage = ''
+    if (error instanceof FetchApiError) {
+      try {
+        const errorBody = await error.response.json()
+        serverErrorMessage = errorBody?.message || ''
+      } catch {
+        // Failed to parse error response body
+      }
+    }
     const serverErrorTranslations: {[key: string]: string} = {
       "Can't add an enrollment to a concluded course.": I18n.t(
-        'Cannot add a temporary enrollment to a concluded course'
+        'Cannot add a temporary enrollment to a concluded course',
       ),
       'Cannot create an enrollment with this role because it is inactive.': I18n.t(
-        'Cannot create a temporary enrollment with an inactive role'
+        'Cannot create a temporary enrollment with an inactive role',
       ),
       'The specified type must match the base type for the role': I18n.t(
-        'The specified type must match the base type for the role'
+        'The specified type must match the base type for the role',
       ),
     }
     const errorMessage = serverErrorTranslations[serverErrorMessage] || defaultErrorMessage

@@ -18,7 +18,9 @@
 
 import React from 'react'
 import {act, render as rtlRender, waitFor, fireEvent} from '@testing-library/react'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
+import {http} from 'msw'
+import {setupServer} from 'msw/node'
 import OutcomesContext from '@canvas/outcomes/react/contexts/OutcomesContext'
 import {
   ACCOUNT_OUTCOME_CALCULATION_QUERY,
@@ -27,9 +29,21 @@ import {
 import MasteryCalculation from '../index'
 import {masteryCalculationGraphqlMocks} from '@canvas/outcomes/mocks/Outcomes'
 
-jest.useFakeTimers()
+vi.useFakeTimers()
+
+const server = setupServer()
 
 describe('MasteryCalculation', () => {
+  beforeAll(() => {
+    server.listen({
+      onUnhandledRequest: 'error',
+    })
+  })
+
+  afterAll(() => {
+    server.close()
+  })
+
   beforeEach(() => {
     window.ENV = {
       PROFICIENCY_CALCULATION_METHOD_ENABLED_ROLES: [
@@ -51,57 +65,77 @@ describe('MasteryCalculation', () => {
       PERMISSIONS: {
         manage_proficiency_calculations: true,
       },
+      OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION: false,
     }
   })
 
   afterEach(() => {
     window.ENV = null
+    server.resetHandlers()
   })
 
   const render = (
     children,
-    {contextType = 'Account', contextId = '11', mocks = masteryCalculationGraphqlMocks} = {}
+    {contextType = 'Account', contextId = '11', mocks = masteryCalculationGraphqlMocks} = {},
   ) => {
     return rtlRender(
       <OutcomesContext.Provider value={{env: {contextType, contextId}}}>
         <MockedProvider addTypename={false} mocks={mocks}>
           {children}
         </MockedProvider>
-      </OutcomesContext.Provider>
+      </OutcomesContext.Provider>,
+    )
+  }
+
+  function setupSubmissionHandler(contextType, contextId, payload) {
+    server.use(
+      http.post(`/${contextType.toLowerCase()}s/${contextId}/outcome_calculation_method`, () => {
+        return new Response(JSON.stringify(payload), {
+          headers: {'Content-Type': 'application/json'},
+          status: 200,
+        })
+      }),
     )
   }
 
   it('loads proficiency data for Account', async () => {
     const {getByDisplayValue} = render(<MasteryCalculation />)
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(getByDisplayValue(/65/)).not.toEqual(null)
   })
 
   it('loads calculation data for Course', async () => {
-    const {getByDisplayValue} = render(<MasteryCalculation />, {
+    const {findByDisplayValue} = render(<MasteryCalculation />, {
       contextType: 'Course',
       contextId: '12',
     })
-    await act(async () => jest.runAllTimers())
-    expect(getByDisplayValue(/65/)).not.toEqual(null)
+    await act(async () => vi.runAllTimers())
+    await waitFor(async () => {
+      expect(await findByDisplayValue(/65/)).not.toBeNull()
+    })
   })
 
   it('loads role list', async () => {
     const {getByText, getAllByText} = render(<MasteryCalculation />)
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(
-      getByText(/Permission to change this mastery calculation at the account level is enabled for/)
+      getByText(
+        /Permission to change this mastery calculation at the account level is enabled for/,
+      ),
     ).not.toEqual(null)
     expect(
-      getByText(/Permission to change this mastery calculation at the course level is enabled for/)
+      getByText(/Permission to change this mastery calculation at the course level is enabled for/),
     ).not.toEqual(null)
-    expect(getAllByText(/Account Admin/).length).not.toBe(0)
+    expect(getAllByText(/Account Admin/)).not.toHaveLength(0)
     expect(getByText(/Teacher/)).not.toEqual(null)
   })
 
   it('displays an error on failed request', async () => {
-    const {getByText} = render(<MasteryCalculation />, {mocks: []})
-    await act(async () => jest.runAllTimers())
+    const mocks = [...masteryCalculationGraphqlMocks]
+    mocks[0] = {...mocks[0], result: {errors: new Error('aw shucks')}}
+
+    const {getByText} = render(<MasteryCalculation />, {mocks: mocks})
+    await act(async () => vi.runAllTimers())
     expect(getByText(/An error occurred/)).not.toEqual(null)
   })
 
@@ -125,7 +159,7 @@ describe('MasteryCalculation', () => {
       },
     ]
     const {getByText} = render(<MasteryCalculation />, {mocks: emptyMocks})
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(getByText('Mastery Calculation')).not.toBeNull()
   })
 
@@ -136,7 +170,7 @@ describe('MasteryCalculation', () => {
       calculationMethod: 'decaying_average',
       calculationInt: 88,
     }
-    const updateCall = jest.fn(() => ({
+    const updateCall = vi.fn(() => ({
       data: {
         createOutcomeCalculationMethod: {
           outcomeCalculationMethod: {
@@ -158,13 +192,25 @@ describe('MasteryCalculation', () => {
         result: updateCall,
       },
     ]
+
+    beforeEach(() => {
+      server.resetHandlers()
+      setupSubmissionHandler('Account', '11', {
+        calculation_method: variables.calculationMethod,
+        calculation_int: variables.calculationInt,
+      })
+    })
+
     it('submits a request when calculation method is saved', async () => {
       const {getByText, findByLabelText} = render(<MasteryCalculation />, {mocks: updateMocks})
-      await act(async () => jest.runAllTimers())
+      await act(async () => vi.runAllTimers())
+
       const parameter = await findByLabelText(/Parameter/)
       fireEvent.input(parameter, {target: {value: '88'}})
+
       fireEvent.click(getByText('Save Mastery Calculation'))
       fireEvent.click(getByText('Save'))
+
       await waitFor(() => {
         expect(updateCall).toHaveBeenCalled()
       })

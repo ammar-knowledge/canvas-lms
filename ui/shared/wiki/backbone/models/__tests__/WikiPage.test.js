@@ -17,10 +17,7 @@
  */
 
 import WikiPage from '../WikiPage'
-import _ from 'lodash'
-import sinon from 'sinon'
-
-const sandbox = sinon.createSandbox()
+import {isObject} from 'es-toolkit/compat'
 
 const ok = x => expect(x).toBeTruthy()
 const equal = (a, b) => expect(a).toEqual(b)
@@ -99,7 +96,7 @@ describe('WikiPage', () => {
       const namespacedObj = {}
       namespacedObj.wiki_page = wikiPageObj()
       const parseResponse = wikiPage.parse(namespacedObj)
-      ok(!_.isObject(parseResponse.wiki_page), 'Removes the wiki_page namespace')
+      ok(!isObject(parseResponse.wiki_page), 'Removes the wiki_page namespace')
     })
 
     test('present includes the context information', () => {
@@ -111,42 +108,46 @@ describe('WikiPage', () => {
 
     test('publish convenience method', () => {
       const wikiPage = new WikiPage(wikiPageObj())
-      sandbox.stub(wikiPage, 'save').callsFake(attributes => {
+      wikiPage.save = vi.fn(attributes => {
         ok(attributes, 'attributes present')
         ok(attributes.wiki_page, 'wiki_page present')
         strictEqual(attributes.wiki_page.published, true, 'published provided correctly')
       })
       wikiPage.publish()
+      expect(wikiPage.save).toHaveBeenCalled()
     })
 
     test('unpublish convenience method', () => {
       const wikiPage = new WikiPage(wikiPageObj())
-      sandbox.stub(wikiPage, 'save').callsFake(attributes => {
+      wikiPage.save = vi.fn(attributes => {
         ok(attributes, 'attributes present')
         ok(attributes.wiki_page, 'wiki_page present')
         strictEqual(attributes.wiki_page.published, false, 'published provided correctly')
       })
-      return wikiPage.unpublish()
+      wikiPage.unpublish()
+      expect(wikiPage.save).toHaveBeenCalled()
     })
 
     test('setFrontPage convenience method', () => {
       const wikiPage = new WikiPage(wikiPageObj())
-      sandbox.stub(wikiPage, 'save').callsFake(attributes => {
+      wikiPage.save = vi.fn(attributes => {
         ok(attributes, 'attributes present')
         ok(attributes.wiki_page, 'wiki_page present')
         strictEqual(attributes.wiki_page.front_page, true, 'front_page provided correctly')
       })
       wikiPage.setFrontPage()
+      expect(wikiPage.save).toHaveBeenCalled()
     })
 
     test('unsetFrontPage convenience method', () => {
       const wikiPage = new WikiPage(wikiPageObj())
-      sandbox.stub(wikiPage, 'save').callsFake(attributes => {
+      wikiPage.save = vi.fn(attributes => {
         ok(attributes, 'attributes present')
         ok(attributes.wiki_page, 'wiki_page present')
         strictEqual(attributes.wiki_page.front_page, false, 'front_page provided correctly')
       })
       wikiPage.unsetFrontPage()
+      expect(wikiPage.save).toHaveBeenCalled()
     })
   })
 })

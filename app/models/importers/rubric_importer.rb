@@ -55,6 +55,16 @@ module Importers
       else
         item ||= Rubric.where(context_id: context, context_type: context.class.to_s, id: hash[:id]).first
         item ||= Rubric.where(context_id: context, context_type: context.class.to_s, migration_id: hash[:migration_id]).first if hash[:migration_id]
+
+        # avoid override a rubric used for grading
+        if item&.rubric_assessments&.any?
+          return migration.add_import_warning(
+            t("#migration.rubric_type", "Rubric"),
+            hash[:title],
+            I18n.t("A rubric that has been used for grading cannot be overwritten.")
+          )
+        end
+
         item ||= Rubric.new(context:)
         item.migration_id = hash[:migration_id]
         item.workflow_state = "active" if item.deleted?
@@ -93,21 +103,59 @@ module Importers
         end
 
         item.skip_updating_points_possible = true
-        item.update_mastery_scales(false)
+        item.update_mastery_scales(save: false)
         migration.add_imported_item(item)
         item.save!
       end
 
-      if (association = context.rubric_associations.where(rubric_id: item).first)
+      process_rubric_association(context, migration, item)
+      track_metrics(migration)
+
+      item
+    end
+
+    def self.process_rubric_association(context, migration, item)
+      associate_with = context
+      opts = { skip_updating_rubric_association_count: true }
+
+      if context.is_a?(Course) && migration.migration_settings[:associate_with_assignment_id].present?
+        assignment = context.assignments.where(id: migration.migration_settings[:associate_with_assignment_id]).first
+
+        if assignment && assignment.rubric_association.blank?
+          associate_with = assignment
+          opts[:purpose] = "grading"
+        end
+      end
+
+      association = if associate_with.is_a?(Assignment)
+                      associate_with.rubric_association
+                    else
+                      associate_with.rubric_associations.where(rubric_id: item).first
+                    end
+
+      if association
         unless association.bookmarked
           association.bookmarked = true
           association.save!
         end
       else
-        item.associate_with(context, context)
+        item.associate_with(associate_with, context, opts)
       end
+    end
 
-      item
+    def self.process_rubric_association_count(migration)
+      rubrics = migration.imported_migration_items_by_class(Rubric)
+      rubrics.each(&:update_association_count)
+    end
+
+    def self.track_metrics(migration)
+      return unless migration.migration_settings[:is_copy_to]
+
+      if migration.migration_settings[:associate_with_assignment_id].present?
+        InstStatsd::Statsd.distributed_increment("content_migration.rubrics.associate_with_assignment")
+      else
+        InstStatsd::Statsd.distributed_increment("content_migration.rubrics.course_copy")
+      end
     end
   end
 end

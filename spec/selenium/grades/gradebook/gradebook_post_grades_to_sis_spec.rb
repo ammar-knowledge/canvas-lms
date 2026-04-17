@@ -22,19 +22,32 @@ require_relative "../pages/gradebook_page"
 require_relative "../setup/gradebook_setup"
 require_relative "../../../feature_flag_helper"
 
-describe "Gradebook - post grades to SIS" do
+# NOTE: We are aware that we're duplicating some unnecessary testcases, but this was the
+# easiest way to review, and will be the easiest to remove after the feature flag is
+# permanently removed. Testing both flag states is necessary during the transition phase.
+shared_examples "Gradebook - post grades to SIS" do |ff_enabled|
   include GradebookCommon
   include GradebookSetup
   include FeatureFlagHelper
+
   include_context "in-process server selenium tests"
 
   before(:once) do
+    # Set feature flag state for the test run - this affects how the gradebook data is fetched, not the data setup
+    if ff_enabled
+      Account.site_admin.enable_feature!(:performance_improvements_for_gradebook)
+    else
+      Account.site_admin.disable_feature!(:performance_improvements_for_gradebook)
+    end
     gradebook_data_setup
     create_sis_assignment
     show_sections_filter(@teacher)
   end
 
   before do
+    if ff_enabled
+      allow(Services::PlatformServiceGradebook).to receive(:graphql_usage_rate).and_return(100)
+    end
     user_session(@teacher)
   end
 
@@ -224,23 +237,10 @@ describe "Gradebook - post grades to SIS" do
 
       expect(f("iframe.post-grades-frame")).to be_displayed
     end
-
-    # flakey; passes locally
-    xit "shows post grades lti button when only one section available" do
-      course = Course.new(name: "Math 201", account: @account, sis_source_id: "xyz")
-      course.save
-      course.enroll_teacher(@user).accept!
-      course.assignments.create!(name: "Assignment1", post_to_sis: true)
-      create_post_grades_tool(course:)
-
-      Gradebook.visit(@course)
-      Gradebook.select_sync
-
-      expect(Gradebook.action_menu_item_selector(tool_name)).to be_displayed
-
-      Gradebook.action_menu_item_selector(tool_name).click
-
-      expect(f("iframe.post-grades-frame")).to be_displayed
-    end
   end
+end
+
+describe "Gradebook - post grades to SIS" do
+  it_behaves_like "Gradebook - post grades to SIS", true
+  it_behaves_like "Gradebook - post grades to SIS", false
 end

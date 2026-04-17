@@ -22,14 +22,14 @@
 class Quizzes::QuizSubmissionFilesController < ApplicationController
   include Api::V1::Submission
 
-  before_action :require_user, :require_context
+  before_action :require_context
 
   # @API Upload a file
   #
   # Associate a new quiz submission file
   #
   # This API endpoint is the first step in uploading a quiz submission file.
-  # See the {file:file_uploads.html File Upload Documentation} for details on
+  # See the {file:file.file_uploads.html File Upload Documentation} for details on
   # the file upload workflow as these parameters are interpreted as per the
   # documentation there.
   #

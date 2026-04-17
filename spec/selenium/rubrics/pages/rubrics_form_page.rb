@@ -55,6 +55,10 @@ class RubricsForm
       f("[data-testid='cancel-rubric-save-button']")
     end
 
+    def warning_exit_rubric_button
+      f("[data-testid='exit-rubric-warning-button']")
+    end
+
     def save_as_draft_button
       f("[data-testid='save-as-draft-button']")
     end
@@ -77,6 +81,10 @@ class RubricsForm
 
     def traditional_grid_rating_button(index)
       f("[data-testid^='traditional-criterion-'][data-testid$='-ratings-#{index}']")
+    end
+
+    def criterion_ratings_flex_direction
+      f("[data-testid='traditional-view-criterion-ratings']")["data-direction"]
     end
 
     def criterion_description_input

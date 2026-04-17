@@ -1,4 +1,13 @@
 <h2 class="screenreader-only"><%= t('headings.sections', "Reports") %></h2>
+
+<% if @account.feature_enabled?(:new_account_reports_ui) %>
+  <div class="alert alert-info" style="margin-bottom: 1em;">
+    <i class="icon-info"></i>
+    <%= t "Our new Reports page adds dynamic report progress and history." %>
+    <%= link_to t('Go to the new Reports page'), account_reports_path(@account) %>
+  </div>
+<% end %>
+
 <table class="reports">
   <tr class="reports">
     <th class="reports"><%= t 'headers.report_name', 'Name' %></th>
@@ -58,8 +67,6 @@
                     report_details: details,
                   }) %>
                 </div>
-                <br />
-                <button id="run_<%= report %>" class="Button Button--primary Button--small run_report_link"><%= t 'links.run_report', 'Run Report' %></button>
               </form>
             </div>
           </div>
@@ -79,3 +86,7 @@
     </tr>
   <% end %>
 </table>
+<div id="report_desc_mount"></div>
+<div id="run_report_mount"></div>
+
+

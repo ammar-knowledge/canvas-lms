@@ -15,27 +15,29 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-import $ from 'jquery'
-import {each, extend} from 'lodash'
+import DateAvailable from '@canvas/assignments/react/DateAvailable'
+import DateDue from '@canvas/assignments/react/DateDue'
 import Backbone from '@canvas/backbone'
 import CyoeHelper from '@canvas/conditional-release-cyoe-helper'
-import PublishIconView from '@canvas/publish-icon-view'
 import LockIconView from '@canvas/lock-icon'
-import DateDueColumnView from '@canvas/assignments/backbone/views/DateDueColumnView'
-import DateAvailableColumnView from '@canvas/assignments/backbone/views/DateAvailableColumnView'
+import PublishIconView from '@canvas/publish-icon-view'
 import SisButtonView from '@canvas/sis/backbone/views/SisButtonView'
+import $ from 'jquery'
+import {each, extend} from 'es-toolkit/compat'
 import template from '../../jst/QuizItemView.handlebars'
 import '@canvas/jquery/jquery.disableWhileLoading'
-import Quiz from '@canvas/quizzes/backbone/models/Quiz'
-import React from 'react'
-import ReactDOM from 'react-dom'
+import ItemAssignToManager from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToManager'
 import DirectShareCourseTray from '@canvas/direct-sharing/react/components/DirectShareCourseTray'
 import DirectShareUserModal from '@canvas/direct-sharing/react/components/DirectShareUserModal'
-import ItemAssignToTray from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToTray'
+import Quiz from '@canvas/quizzes/backbone/models/Quiz'
+import {assignLocation} from '@canvas/util/globalUtils'
+import React from 'react'
+import ReactDOM from 'react-dom'
+import {render, rerender} from '@canvas/react'
 
-const I18n = useI18nScope('quizzes.index')
+const I18n = createI18nScope('quizzes.index')
 
 export default class ItemView extends Backbone.View {
   static initClass() {
@@ -46,8 +48,6 @@ export default class ItemView extends Backbone.View {
 
     this.child('publishIconView', '[data-view=publish-icon]')
     this.child('lockIconView', '[data-view=lock-icon]')
-    this.child('dateDueColumnView', '[data-view=date-due]')
-    this.child('dateAvailableColumnView', '[data-view=date-available]')
     this.child('sisButtonView', '[data-view=sis-button]')
 
     this.prototype.events = {
@@ -120,13 +120,85 @@ export default class ItemView extends Backbone.View {
         })
       }
     }
+  }
 
-    this.dateDueColumnView = new DateDueColumnView({model: this.model})
-    return (this.dateAvailableColumnView = new DateAvailableColumnView({model: this.model}))
+  cleanupDateDueColumn() {
+    if (this._dateDueRoot) {
+      this._dateDueRoot.unmount()
+      this._dateDueRoot = null
+    }
+  }
+
+  renderDateDueColumn() {
+    const mountPoint = this.$el.find('[data-view=date-due]')[0]
+
+    if (!mountPoint) return
+
+    const model = this.model.get('assignment') || this.model
+    const data = this.model.toView()
+
+    const component = (
+      <DateDue
+        multipleDueDates={data.multipleDueDates}
+        allDates={model.allDates()}
+        singleSectionDueDate={data.singleSectionDueDate}
+        todoDate={data.todo_date}
+        linkHref={model.htmlUrl()}
+      />
+    )
+
+    if (this._dateDueRoot) {
+      rerender(this._dateDueRoot, component)
+    } else {
+      this._dateDueRoot = render(component, mountPoint)
+    }
+  }
+
+  cleanupDateAvailableColumn() {
+    if (this._dateAvailableRoot) {
+      this._dateAvailableRoot.unmount()
+      this._dateAvailableRoot = null
+    }
+  }
+
+  renderDateAvailableColumn() {
+    const mountPoint = this.$el.find('[data-view=date-available]')[0]
+
+    if (!mountPoint) return
+
+    const group = this.model.defaultDates()
+    const data = this.model.toView()
+    const component = (
+      <DateAvailable
+        multipleDueDates={data.multipleDueDates}
+        allDates={this.model.allDates()}
+        defaultDates={group.toJSON()}
+        linkHref={this.model.htmlUrl()}
+      />
+    )
+
+    if (this._dateAvailableRoot) {
+      rerender(this._dateAvailableRoot, component)
+    } else {
+      this._dateAvailableRoot = render(component, mountPoint)
+    }
   }
 
   afterRender() {
+    if (ENV.horizon_course) {
+      this.publishIconView.$el.addClass('disabled')
+    }
+    this.cleanupDateAvailableColumn()
+    this.cleanupDateDueColumn()
+    this.renderDateDueColumn()
+    this.renderDateAvailableColumn()
     return this.$el.toggleClass('quiz-loading-overrides', !!this.model.get('loadingOverrides'))
+  }
+
+  remove() {
+    this.cleanupDateDueColumn()
+    this.cleanupDateAvailableColumn()
+    return super.remove()
   }
 
   // make clicks follow through to url for entire row
@@ -140,7 +212,8 @@ export default class ItemView extends Backbone.View {
   }
 
   redirectTo(path) {
-    return (window.location.href = path)
+    assignLocation(path)
+    return path
   }
 
   migrateQuizEnabled() {
@@ -175,8 +248,9 @@ export default class ItemView extends Backbone.View {
 
   renderItemAssignToTray(open, returnFocusTo, itemProps) {
     const quizItemType = this.model.get('quiz_type') !== 'quizzes.next' ? 'quiz' : 'assignment'
+
     ReactDOM.render(
-      <ItemAssignToTray
+      <ItemAssignToManager
         open={open}
         onClose={() => {
           ReactDOM.unmountComponentAtNode(document.getElementById('assign-to-mount-point'))
@@ -190,7 +264,7 @@ export default class ItemView extends Backbone.View {
         timezone={ENV.TIMEZONE || 'UTC'}
         {...itemProps}
       />,
-      document.getElementById('assign-to-mount-point')
+      document.getElementById('assign-to-mount-point'),
     )
   }
 
@@ -198,10 +272,14 @@ export default class ItemView extends Backbone.View {
     e.preventDefault()
     const returnFocusTo = $(e.target).closest('ul').prev('.al-trigger')
 
-    const courseId = e.target.getAttribute('data-quiz-context-id')
-    const itemName = e.target.getAttribute('data-quiz-name')
-    const itemContentId = e.target.getAttribute('data-quiz-id')
-    const iconType = e.target.getAttribute('data-is-lti-quiz') ? 'lti-quiz' : 'quiz'
+    // Get data from the inner span with translate="no"
+    const $link = $(e.target).closest('.assign-to-link')
+    const $dataSpan = $link.find('.assign-to-link-resources')
+
+    const courseId = $dataSpan.attr('data-quiz-context-id')
+    const itemName = $dataSpan.attr('data-quiz-name')
+    const itemContentId = $dataSpan.attr('data-quiz-id')
+    const iconType = $dataSpan.attr('data-is-lti-quiz') ? 'lti-quiz' : 'quiz'
     const pointsPossible = this.model.get('points_possible')
     this.renderItemAssignToTray(true, returnFocusTo, {
       courseId,
@@ -213,13 +291,12 @@ export default class ItemView extends Backbone.View {
   }
 
   canDelete() {
-    return this.model.get('permissions').delete
+    return this.model.get('permissions')?.delete
   }
 
   onDelete(e) {
     e.preventDefault()
     if (this.canDelete()) {
-      // eslint-disable-next-line no-alert
       if (window.confirm(this.messages.confirm)) return this.delete()
     }
   }
@@ -245,6 +322,7 @@ export default class ItemView extends Backbone.View {
     const quizId = this.model.get('id')
     const isOldQuiz = this.model.get('quiz_type') !== 'quizzes.next'
     const contentSelection = isOldQuiz ? {quizzes: [quizId]} : {assignments: [quizId]}
+
     ReactDOM.render(
       <DirectShareCourseTray
         open={open}
@@ -255,7 +333,7 @@ export default class ItemView extends Backbone.View {
           return setTimeout(() => this.$settingsButton.focus(), 100)
         }}
       />,
-      document.getElementById('direct-share-mount-point')
+      document.getElementById('direct-share-mount-point'),
     )
   }
 
@@ -268,6 +346,7 @@ export default class ItemView extends Backbone.View {
     const quizId = this.model.get('id')
     const isOldQuiz = this.model.get('quiz_type') !== 'quizzes.next'
     const contentType = isOldQuiz ? 'quiz' : 'assignment'
+
     ReactDOM.render(
       <DirectShareUserModal
         open={open}
@@ -278,7 +357,7 @@ export default class ItemView extends Backbone.View {
           return setTimeout(() => this.$settingsButton.focus(), 100)
         }}
       />,
-      document.getElementById('direct-share-mount-point')
+      document.getElementById('direct-share-mount-point'),
     )
   }
 
@@ -390,7 +469,7 @@ export default class ItemView extends Backbone.View {
     const isNewQuizzes = this.model.get('quiz_type') === 'quizzes.next'
     const modelId = this.model.get('id')
     const resourceQueryString = isNewQuizzes ? `assignments[]=${modelId}` : `quizzes[]=${modelId}`
-    const isShareToCommons = (tool) => tool.canvas_icon_class === 'icon-commons'
+    const isShareToCommons = tool => tool.canvas_icon_class === 'icon-commons'
     const tools = ENV.quiz_menu_tools || []
 
     if (!isNewQuizzes || ENV.FEATURES.commons_new_quizzes) {
@@ -422,7 +501,7 @@ export default class ItemView extends Backbone.View {
     base.isMasterCourseChildContent = this.model.isMasterCourseChildContent()
     base.failedToMigrate = this.model.get('workflow_state') === 'failed_to_migrate'
     base.showAvailability =
-      !(this.model.get('in_paced_course') && this.canManage()) &&
+      !this.model.get('in_paced_course') &&
       (this.model.multipleDueDates() || !this.model.defaultDates().available())
     base.showDueDate =
       !(this.model.get('in_paced_course') && this.canManage()) &&
@@ -447,7 +526,6 @@ export default class ItemView extends Backbone.View {
       this.model.get('restricted_by_master_course')
 
     base.courseId = ENV.context_asset_string.split('_')[1]
-    base.differentiatedModulesFlag = ENV.FEATURES?.selective_release_ui_api
     base.showSpeedGraderLinkFlag = ENV.FLAGS?.show_additional_speed_grader_link
     base.showSpeedGraderLink = ENV.SHOW_SPEED_GRADER_LINK
 

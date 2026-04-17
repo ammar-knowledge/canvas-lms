@@ -20,18 +20,24 @@ import {GroupSet} from './GroupSet'
 import {AssignmentGroup} from './AssignmentGroup'
 import {Section} from './Section'
 import {arrayOf, shape, string} from 'prop-types'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 export const Course = {
   fragment: gql`
-    fragment Course on Course {
+    fragment EditV2Course on Course {
       _id
       id
       name
+      groupSets {
+        ...EditV2GroupSet
+      }
       assignmentGroupsConnection {
         nodes {
-          ...AssignmentGroup
+          ...EditV2AssignmentGroup
         }
+      }
+      assignmentGroups {
+        ...EditV2AssignmentGroup
       }
       usersConnection(filter: {enrollmentTypes: StudentEnrollment, enrollmentStates: active}) {
         nodes {
@@ -41,7 +47,7 @@ export const Course = {
       }
       groupSetsConnection {
         nodes {
-          ...GroupSet
+          ...EditV2GroupSet
         }
       }
       sectionsConnection {
@@ -58,6 +64,8 @@ export const Course = {
     _id: string,
     id: string,
     name: string,
+    groupSets: arrayOf(GroupSet.shape),
+    assignmentGroups: arrayOf(AssignmentGroup.shape),
     assignmentGroupsConnection: shape({
       nodes: arrayOf(AssignmentGroup.shape),
     }),
@@ -79,6 +87,8 @@ export const Course = {
     _id: '1',
     id: 'K3n9F08vw4',
     name: 'X-Men School',
+    groupSets: [GroupSet.mock()],
+    assignmentGroups: shape([AssignmentGroup.mock()]),
     assignmentGroupsConnection: shape({
       nodes: [AssignmentGroup.mock()],
     }),

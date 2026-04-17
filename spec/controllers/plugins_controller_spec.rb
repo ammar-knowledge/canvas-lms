@@ -18,15 +18,63 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../spec_helper"
-
 describe PluginsController do
   include Rails.application.routes.url_helpers
 
+  describe "#index" do
+    it "does not allow non-site-admins" do
+      user = user_with_pseudonym(active_all: true)
+      user_session(user)
+      get :index
+      expect(response).to be_unauthorized
+    end
+
+    it "allows site-admins" do
+      user = user_with_pseudonym(active_all: true)
+      Account.site_admin.account_users.create!(user:)
+      user_session(user)
+      get :index
+      expect(response).to be_successful
+    end
+  end
+
+  describe "#show" do
+    it "does not allow non-site-admins" do
+      user = user_with_pseudonym(active_all: true)
+      user_session(user)
+      get :show, params: { id: "account_reports" }
+      expect(response).to be_unauthorized
+    end
+
+    it "allows site-admins" do
+      user = user_with_pseudonym(active_all: true)
+      Account.site_admin.account_users.create!(user:)
+      user_session(user)
+      get :show, params: { id: "account_reports" }
+      expect(response).to be_successful
+    end
+  end
+
   describe "#update" do
+    it "does not allow non-site-admins" do
+      user = user_with_pseudonym(active_all: true)
+      user_session(user)
+      put :update, params: { id: "account_reports", plugin_setting: { disabled: false } }
+      expect(response).to be_unauthorized
+    end
+
+    it "allows site-admins" do
+      user = user_with_pseudonym(active_all: true)
+      Account.site_admin.account_users.create!(user:)
+      user_session(user)
+      put :update, params: { id: "account_reports", plugin_setting: { disabled: false } }
+      expect(response).to be_redirect
+    end
+
     it "still enables plugins even with no settings posted" do
+      user = account_admin_user(account: Account.site_admin, active_all: true)
+      user_session(user)
       expect(PluginSetting.find_by(name: "account_reports")).to be_nil
-      allow(controller).to receive(:require_setting_site_admin).and_return(true)
 
       put "update", params: { id: "account_reports", account_id: Account.default.id, plugin_setting: { disabled: false } }
       expect(response).to be_redirect
@@ -35,12 +83,13 @@ describe PluginsController do
     end
 
     it "trims posted params" do
+      user = account_admin_user(account: Account.site_admin, active_all: true)
+      user_session(user)
       ps = PluginSetting.new(name: "big_blue_button")
       ps.settings = {}.with_indifferent_access
       ps.disabled = false
       ps.save!
 
-      allow(controller).to receive(:require_setting_site_admin).and_return(true)
       # The 'all' parameter is necessary for this test to pass when the
       # multiple root accounts plugin is installed
       put "update", params: { id: "big_blue_button", settings: { domain: " abc ", secret: "secret", recording_enabled: "0", free_trial: true, send_avatar: true, replace_with_alternatives: false, use_fallback: false }, all: 1 }
@@ -51,11 +100,12 @@ describe PluginsController do
 
     context "account_reports" do
       it "can disable reports" do
+        user = account_admin_user(account: Account.site_admin, active_all: true)
+        user_session(user)
         ps = PluginSetting.new(name: "account_reports")
         ps.settings = { course_storage_csv: true }.with_indifferent_access
         ps.save!
 
-        allow(controller).to receive(:require_setting_site_admin).and_return(true)
         # The 'all' parameter is necessary for this test to pass when the
         # multiple root acoounts plugin is installed
         put "update", params: { id: "account_reports", settings: { "course_storage_csv" => "0" }, all: 1 }

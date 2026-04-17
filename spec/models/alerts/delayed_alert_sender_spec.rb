@@ -23,19 +23,19 @@ module Alerts
     describe "scoped to unit" do
       before do
         @mock_notification = Notification.new
-        allow(BroadcastPolicy).to receive(:notification_finder).and_return(double(by_name: @mock_notification))
+        allow(BroadcastPolicy).to receive(:notification_finder).and_return(instance_double(NotificationFinder, by_name: @mock_notification))
       end
 
       context "basic evaluation" do
         it "does not trigger any alerts for unpublished courses" do
-          course = double("Course", available?: false)
+          course = instance_double(Course, available?: false)
           expect_any_instance_of(Notification).not_to receive(:create_message)
 
           DelayedAlertSender.evaluate_for_course(course, nil)
         end
 
         it "does not trigger any alerts for courses with no alerts" do
-          course = double("Course", available?: true, alerts: [])
+          course = instance_double(Course, available?: true, alerts: [])
           expect_any_instance_of(Notification).not_to receive(:create_message)
 
           DelayedAlertSender.evaluate_for_course(course, nil)
@@ -177,7 +177,7 @@ module Alerts
         alert.save!
         @course.start_at = 30.days.ago
 
-        mock_interaction = double(should_not_receive_message?: true)
+        mock_interaction = instance_double(Alerts::Interaction, should_not_receive_message?: true)
         expect(Alerts::Interaction).to receive(:new).once.and_return(mock_interaction)
 
         DelayedAlertSender.evaluate_for_course(@course, [alert])
@@ -224,46 +224,6 @@ module Alerts
         end
       end
 
-      context "user notes" do
-        context "when the deprecate_faculty_journal flag is disabled" do
-          before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-          it "alerts" do
-            course_with_teacher(active_all: 1)
-            root_account = @course.root_account
-            root_account.enable_user_notes = true
-            root_account.save!
-
-            student_in_course(active_all: 1)
-            alert = @course.alerts.build(recipients: [:student])
-            alert.criteria.build(criterion_type: "UserNote", threshold: 7)
-            alert.save!
-            @course.start_at = 30.days.ago
-            expect(@mock_notification).to receive(:create_message).with(anything, [@user.id], anything)
-
-            DelayedAlertSender.evaluate_for_course(@course, nil)
-          end
-        end
-
-        context "when the deprecate_faculty_journal flag is enabled" do
-          it "does not alert" do
-            course_with_teacher(active_all: 1)
-            root_account = @course.root_account
-            root_account.enable_user_notes = true
-            root_account.save!
-
-            student_in_course(active_all: 1)
-            alert = @course.alerts.build(recipients: [:student])
-            alert.criteria.build(criterion_type: "UserNote", threshold: 7)
-            alert.save!
-            @course.start_at = 30.days.ago
-            expect(@mock_notification).to_not receive(:create_message).with(anything, [@user.id], anything)
-
-            DelayedAlertSender.evaluate_for_course(@course, nil)
-          end
-        end
-      end
-
       context "notification alert info" do
         before :once do
           Notification.create!(name: "Alert")
@@ -279,7 +239,7 @@ module Alerts
         end
 
         before do
-          @pseudonym = double("Pseudonym")
+          @pseudonym = instance_double(Pseudonym)
           allow(@pseudonym).to receive(:destroyed?).and_return(false)
           allow(Pseudonym).to receive(:find_by_user_id).and_return(@pseudonym)
         end
@@ -305,27 +265,6 @@ module Alerts
           end
 
           DelayedAlertSender.evaluate_for_course(@course, nil)
-        end
-
-        context "when the deprecate_faculty_journal flag is disabled" do
-          before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-          it "tells you what the alert is about note" do
-            root_account = @course.root_account
-            root_account.enable_user_notes = true
-            root_account.save!
-
-            ::UserNote.create!(creator: @teacher, user: @user, root_account_id: root_account.id) { |un| un.created_at = 30.days.ago }
-            alert = @course.alerts.build(recipients: [:student])
-            alert.criteria.build(criterion_type: "UserNote", threshold: 7)
-            alert.save!
-            @course.start_at = 30.days.ago
-            expect(@mock_notification).to receive(:create_message) do |alert_in, _, _|
-              expect(alert_in.criteria.first.criterion_type).to eq "UserNote"
-            end
-
-            DelayedAlertSender.evaluate_for_course(@course, nil)
-          end
         end
 
         it "tells you what the alert is about interaction" do

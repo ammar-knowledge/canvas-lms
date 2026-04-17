@@ -16,9 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('media_capture_strings')
+const I18n = createI18nScope('media_capture_strings')
 
 const MediaCaptureStrings = {
   ARIA_VIDEO_LABEL: I18n.t('Video Player'),
@@ -52,7 +52,7 @@ const UploadMediaStrings = {
   SUBMIT_TEXT: I18n.t('Submit'),
   CLOSE_TEXT: I18n.t('Close'),
   UPLOAD_MEDIA_LABEL: I18n.t('Upload Media'),
-  CLEAR_FILE_TEXT: I18n.t('Clear selected file'),
+  CLEAR_FILE_TEXT: I18n.t('Remove'),
   INVALID_FILE_TEXT: I18n.t('Invalid file type'),
   DRAG_DROP_CLICK_TO_BROWSE: I18n.t('Drag and drop, or click to browse your computer'),
   EMBED_VIDEO_CODE_TEXT: I18n.t('Embed Video Code'),
@@ -72,6 +72,9 @@ const UploadMediaStrings = {
   NO_FILE_CHOSEN: I18n.t('No file selected'),
   SUPPORTED_FILE_TYPES: I18n.t('Supported file types: .vtt, .srt'),
   ADD_NEW_CAPTION_OR_SUBTITLE: I18n.t('Add new caption or subtitle'),
+  SELECT_SUPPORTED_FILE_TYPE: I18n.t('Please select a file of a supported type'),
+  CHOOSE_FILE_TO_UPLOAD: I18n.t('Please choose a file'),
+  ENTER_FILE_NAME: I18n.t('Please enter a file name'),
 }
 
 const SelectStrings = {

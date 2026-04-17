@@ -61,7 +61,7 @@ export default function useDebouncedSearchTerm(
   }: {
     timeout?: number
     isSearchableTerm?: (term: string) => boolean
-  } = {}
+  } = {},
 ) {
   const [searchTerm, rawSetSearchTerm] = useState(defaultValue)
   const [searchTermIsPending, setSearchIsPending] = useState(false)
@@ -69,28 +69,24 @@ export default function useDebouncedSearchTerm(
   // We only want to set the searchTerm state if the final value is actually
   // different than the old value, and only if the new value is valid.
   const searchTermWillChange = useCallback(
-    (oldTerm, newTerm) => oldTerm !== newTerm && isSearchableTerm(newTerm),
-    [isSearchableTerm]
+    (oldTerm: string, newTerm: string) => oldTerm !== newTerm && isSearchableTerm(newTerm),
+    [isSearchableTerm],
   )
 
-  const [debouncedSetSearchTerm, cancelCallback, callPending] = useDebouncedCallback(
-    (newSearchTerm: string) => {
-      // Set the new search term first to avoid a render where isPending is
-      // false but the new search term hasn't been set yet.
-      if (searchTermWillChange(searchTerm, newSearchTerm)) {
-        rawSetSearchTerm(newSearchTerm)
-      }
-      // Whether we actually set the new search term or not, a change can no
-      // longer be pending because this callback has now been called.
-      setSearchIsPending(false)
-    },
-    timeout
-  )
-
-  const wrappedCancelCallback = (...args: any[]) => {
+  const debouncedSetSearchTerm = useDebouncedCallback((newSearchTerm: string) => {
+    // Set the new search term first to avoid a render where isPending is
+    // false but the new search term hasn't been set yet.
+    if (searchTermWillChange(searchTerm, newSearchTerm)) {
+      rawSetSearchTerm(newSearchTerm)
+    }
+    // Whether we actually set the new search term or not, a change can no
+    // longer be pending because this callback has now been called.
     setSearchIsPending(false)
-    // @ts-expect-error
-    cancelCallback(...args)
+  }, timeout)
+
+  const wrappedCancelCallback = () => {
+    setSearchIsPending(false)
+    debouncedSetSearchTerm.cancel()
   }
 
   // Note that this depends on searchTerm, so this will return a new function
@@ -102,7 +98,7 @@ export default function useDebouncedSearchTerm(
       setSearchIsPending(searchTermWillChange(searchTerm, newSearchTerm))
       debouncedSetSearchTerm(newSearchTerm)
     },
-    [debouncedSetSearchTerm, searchTermWillChange, searchTerm]
+    [debouncedSetSearchTerm, searchTermWillChange, searchTerm],
   )
 
   return {
@@ -110,6 +106,6 @@ export default function useDebouncedSearchTerm(
     setSearchTerm,
     searchTermIsPending,
     cancelCallback: wrappedCancelCallback,
-    callPending,
+    callPending: debouncedSetSearchTerm.flush,
   }
 }

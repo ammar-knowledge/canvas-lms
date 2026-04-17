@@ -17,9 +17,13 @@
  */
 
 import {render} from '@testing-library/react'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 import React from 'react'
 
 import {GradedDiscussionOptions} from '../GradedDiscussionOptions'
+
+const server = setupServer()
 
 const defaultProps = {
   assignmentGroups: [],
@@ -41,45 +45,90 @@ const defaultProps = {
   canManageAssignTo: true,
 }
 
+const SECTIONS_URL = `/api/v1/courses/1/sections`
+const STUDENTS_URL = `/api/v1/courses/1/users`
+const COURSE_SETTINGS_URL = `/api/v1/courses/1/settings`
+const GRAPHQL_URL = `/api/graphql`
+
 const renderGradedDiscussionOptions = (props = {}) => {
   return render(<GradedDiscussionOptions {...defaultProps} {...props} />)
 }
 describe('GradedDiscussionOptions', () => {
+  beforeEach(() => {
+    ENV.DISCUSSION_TOPIC = {
+      ATTRIBUTES: {
+        id: '1',
+      },
+    }
+  })
+
   it('renders', () => {
-    const {getByText} = renderGradedDiscussionOptions()
+    const {getAllByText, getByText} = renderGradedDiscussionOptions()
     expect(getByText('Points Possible')).toBeInTheDocument()
     expect(getByText('Display Grade As')).toBeInTheDocument()
     expect(getByText('Assignment Group')).toBeInTheDocument()
-    expect(getByText('Peer Reviews')).toBeInTheDocument()
+    expect(getAllByText('Peer Reviews')).toHaveLength(1)
     expect(getByText('Assignment Settings')).toBeInTheDocument()
   })
 
   it('renders with null points possible value', () => {
-    const {getByText} = renderGradedDiscussionOptions({pointsPossible: null})
+    const {getAllByText, getByText} = renderGradedDiscussionOptions({pointsPossible: null})
     expect(getByText('Points Possible')).toBeInTheDocument()
     expect(getByText('Display Grade As')).toBeInTheDocument()
     expect(getByText('Assignment Group')).toBeInTheDocument()
-    expect(getByText('Peer Reviews')).toBeInTheDocument()
+    expect(getAllByText('Peer Reviews')).toHaveLength(1)
     expect(getByText('Assignment Settings')).toBeInTheDocument()
-  })
-
-  describe('with selective_release_ui_api enabled', () => {
-    beforeEach(() => {
-      ENV.FEATURES.selective_release_ui_api = true
-    })
-
-    it('does not render assignment settings if canManageAssignTo is false', () => {
-      const {getByText, queryByText, rerender} = renderGradedDiscussionOptions({canManageAssignTo: true})
-      expect(getByText('Assignment Settings')).toBeInTheDocument()
-      rerender(<GradedDiscussionOptions {...defaultProps} canManageAssignTo={false} />)
-      expect(queryByText('Assignment Settings')).not.toBeInTheDocument()
-    })
   })
 
   describe('Checkpoints', () => {
     it('renders the section Checkpoint Settings when the checkpoints checkbox is selected', () => {
       const {getByText} = renderGradedDiscussionOptions({isCheckpoints: true})
       expect(getByText('Checkpoint Settings')).toBeInTheDocument()
+    })
+  })
+
+  describe('with selective release', () => {
+    beforeAll(() => server.listen())
+    afterAll(() => server.close())
+
+    beforeEach(() => {
+      server.use(
+        http.get(SECTIONS_URL, () => {
+          return HttpResponse.json([])
+        }),
+        http.get(STUDENTS_URL, () => {
+          return HttpResponse.json([])
+        }),
+        http.get(COURSE_SETTINGS_URL, () => {
+          return HttpResponse.json({hide_final_grades: false})
+        }),
+        http.post(GRAPHQL_URL, () => {
+          return HttpResponse.json({
+            data: {
+              course: {
+                usersConnection: {
+                  pageInfo: {hasNextPage: false, endCursor: null},
+                  nodes: [],
+                },
+              },
+            },
+          })
+        }),
+      )
+      ENV.COURSE_ID = '1'
+    })
+
+    afterEach(() => {
+      server.resetHandlers()
+    })
+
+    it('does not render assignment settings if canManageAssignTo is false', () => {
+      const {getByText, queryByText, rerender} = renderGradedDiscussionOptions({
+        canManageAssignTo: true,
+      })
+      expect(getByText('Assignment Settings')).toBeInTheDocument()
+      rerender(<GradedDiscussionOptions {...defaultProps} canManageAssignTo={false} />)
+      expect(queryByText('Assignment Settings')).not.toBeInTheDocument()
     })
   })
 })

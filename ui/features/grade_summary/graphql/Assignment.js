@@ -16,13 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
-import {arrayOf, bool, string, number} from 'prop-types'
+import {gql} from '@apollo/client'
+import {arrayOf, bool, string, number, object} from 'prop-types'
 
 import {GradingStandard} from './GradingStandard'
 import {Submission} from './Submission'
 import {Rubric} from '@canvas/assignments/graphql/student/Rubric'
 import {RubricAssociation} from '@canvas/assignments/graphql/student/RubricAssociation'
+import {LTI_ASSET_PROCESSORS_QUERY_NODES_FRAGMENT} from '@canvas/lti-asset-processor/shared-with-sg/replicated/queries/getLtiAssetProcessors'
 
 export const Assignment = {
   fragment: gql`
@@ -45,6 +46,7 @@ export const Assignment = {
       lockAt
       name
       omitFromFinalGrade
+      suppressAssignment
       pointsPossible
       position
       published
@@ -84,11 +86,15 @@ export const Assignment = {
       rubricAssociation {
         ...RubricAssociation
       }
+      ltiAssetProcessorsConnection(first: 20) {
+        nodes { ...LtiAssetProcessorFragment }
+      }
     }
     ${GradingStandard.fragment}
     ${Rubric.fragment}
     ${RubricAssociation.fragment}
     ${Submission.fragment}
+    ${LTI_ASSET_PROCESSORS_QUERY_NODES_FRAGMENT}
   `,
   shape: {
     _id: string,
@@ -107,6 +113,7 @@ export const Assignment = {
     lockAt: string,
     name: string,
     omitFromFinalGrade: bool,
+    suppressAssignment: bool,
     pointsPossible: number,
     position: number,
     published: bool,
@@ -142,6 +149,11 @@ export const Assignment = {
     }),
     rubric: Rubric.shape,
     rubricAssociation: RubricAssociation.shape,
+    ltiAssetProcessorsConnection: {
+      // Lti Asset Processor types use Zod schemas, so there's not really a
+      // need to replicate the full shape here.
+      nodes: arrayOf(object),
+    },
   },
   mock: ({
     _id = '1',
@@ -199,6 +211,9 @@ export const Assignment = {
     ],
     rubric = Rubric.mock(),
     rubricAssociation = RubricAssociation.mock(),
+    ltiAssetProcessorsConnection = {
+      nodes: [],
+    },
   } = {}) => ({
     _id,
     allowedAttempts,
@@ -228,5 +243,6 @@ export const Assignment = {
     modules,
     rubric,
     rubricAssociation,
+    ltiAssetProcessorsConnection,
   }),
 }

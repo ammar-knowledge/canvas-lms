@@ -17,8 +17,8 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {pick} from 'lodash'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {pick} from 'es-toolkit/compat'
 
 import {InstUISettingsProvider} from '@instructure/emotion'
 import {Flex} from '@instructure/ui-flex'
@@ -30,14 +30,13 @@ import type {BlackoutDate} from '../../shared/types'
 import {coursePaceDateFormatter} from '../../shared/api/backend_serializer'
 
 // until the icon gets into INSTUI
-// @ts-ignore
 import blackoutDatesIcon from '../../utils/blackout-dates-lined.svg'
 
-const I18n = useI18nScope('course_paces_blackout_date_row')
+const I18n = createI18nScope('course_paces_blackout_date_row')
 
 const componentOverrides = {
   'Table.Cell': {
-    background: '#F5F5F5',
+    background: '#F2F4F4',
   },
 }
 
@@ -105,10 +104,7 @@ class BlackoutDateRow extends React.Component<PassedProps, LocalState> {
     const labelMargin = this.props.isStacked ? '0 0 0 small' : undefined
     return (
       <InstUISettingsProvider theme={{componentOverrides}}>
-        <Table.Row
-          data-testid="pp-blackout-date-row"
-          {...pick(this.props, ['hover', 'isStacked', 'headers'])}
-        >
+        <Table.Row data-testid="pp-blackout-date-row" {...pick(this.props, ['hover', 'headers'])}>
           <Table.Cell>
             <View margin={labelMargin}>{this.renderTitle()}</View>
           </Table.Cell>
@@ -116,7 +112,7 @@ class BlackoutDateRow extends React.Component<PassedProps, LocalState> {
           <Table.Cell colSpan={this.props.isStacked ? 2 : 1} textAlign="center">
             <View margin={labelMargin}>{this.renderDates()}</View>
           </Table.Cell>
-          {!this.props.isStacked && <Table.Cell />}
+          {!this.props.isStacked ? <Table.Cell /> : <></>}
         </Table.Row>
       </InstUISettingsProvider>
     )

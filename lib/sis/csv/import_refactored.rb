@@ -52,12 +52,16 @@ module SIS
                      enrollment
                      admin
                      group_category
+                     differentiation_tag_set
                      group
+                     differentiation_tag
                      group_membership
+                     differentiation_tag_membership
                      grade_publishing_results
                      user_observer].freeze
 
       HEADERS_TO_EXCLUDE_FOR_DOWNLOAD = %w[password ssha_password].freeze
+      DEDUP_THRESHOLD = 100
 
       def initialize(root_account, opts = {})
         opts = opts.with_indifferent_access
@@ -119,14 +123,19 @@ module SIS
             Dir[File.join(tmp_dir, "**/**")].each do |fn|
               next if File.directory?(fn) || !!(fn =~ IGNORE_FILES)
 
-              file_name = fn[tmp_dir.size + 1..]
-              att = create_batch_attachment(File.join(tmp_dir, file_name))
-              process_file(tmp_dir, file_name, att)
+              file_name = fn[(tmp_dir.size + 1)..]
+              dir, file_name = dedup_csv(tmp_dir, file_name)
+              att = create_batch_attachment(File.join(dir, file_name))
+              process_file(dir, file_name, att)
             end
           when ".csv"
-            att = @batch.attachment if @batch.attachment && File.extname(@batch.attachment.filename).casecmp?(".csv")
+            dir, file_name = dedup_csv(File.dirname(file), File.basename(file))
+
+            att = create_batch_attachment File.join(dir, file_name) if File.join(dir, file_name) != file
+            att ||= @batch.attachment if @batch.attachment && File.extname(@batch.attachment.filename).casecmp?(".csv")
             att ||= create_batch_attachment file
-            process_file(File.dirname(file), File.basename(file), att)
+
+            process_file(dir, file_name, att)
           end
         end
         remove_instance_variable(:@files)
@@ -229,7 +238,7 @@ module SIS
       def update_progress
         completed_count = @batch.parallel_importers.where(workflow_state: "completed").count
         current_progress = [(completed_count.to_f * 100 / @parallel_importers.values.sum(&:count)).round, 99].min
-        SisBatch.where(id: @batch).where("progress IS NULL or progress < ?", current_progress).update_all(progress: current_progress)
+        SisBatch.where(id: @batch).where("progress IS NULL or progress < ?", current_progress).update_all(progress: current_progress, updated_at: Time.now.utc)
       end
 
       def run_parallel_importer(id, csv: nil, attempt: 0)
@@ -241,7 +250,7 @@ module SIS
           parallel_importer.abort
           return
         end
-        InstStatsd::Statsd.increment("sis_parallel_worker", tags: { attempt:, retry: in_retry })
+        InstStatsd::Statsd.distributed_increment("sis_parallel_worker", tags: { attempt:, retry: in_retry })
 
         importer_type = parallel_importer.importer_type.to_sym
         importer_object = SIS::CSV.const_get(importer_type.to_s.camelcase + "Importer").new(self)
@@ -249,11 +258,11 @@ module SIS
       rescue => e
         if !in_retry
           ensure_later = true
-          parallel_importer.write_attribute(:workflow_state, "retry")
+          parallel_importer.workflow_state = "retry"
           run_parallel_importer(parallel_importer, attempt:)
         elsif attempt < MAX_TRIES
           ensure_later = true
-          parallel_importer.write_attribute(:workflow_state, "queued")
+          parallel_importer.workflow_state = "queued"
           attempt += 1
           args = job_args(importer_type, attempt:)
           delay_if_production(**args).run_parallel_importer(parallel_importer, attempt:)
@@ -309,7 +318,7 @@ module SIS
       end
 
       def should_stop_import?
-        !@batch.workflow_state == "importing"
+        SisBatch.where(id: @batch).pick(:workflow_state) == "aborted"
       end
 
       def run_all_importers
@@ -400,7 +409,7 @@ module SIS
             return
           end
           begin
-            ::CSV.foreach(csv[:fullpath], **CSVBaseImporter::PARSE_ARGS.merge(headers: false)) do |row|
+            ::CSV.foreach(csv[:fullpath], **CSVBaseImporter::PARSE_ARGS, headers: false) do |row|
               row.each { |header| header&.downcase! }
               importer = IMPORTERS.index do |type|
                 if SIS::CSV.const_get(type.to_s.camelcase + "Importer").send(type.to_s + "_csv?", row)
@@ -444,6 +453,33 @@ module SIS
           new_csv.close
           create_batch_attachment(path)
         end
+      end
+
+      def dedup_csv(dir, file_name)
+        return [dir, file_name] unless File.extname(file_name).casecmp?(".csv")
+
+        begin
+          original_lines = ::CSV.readlines(File.join(dir, file_name))
+        rescue ::CSV::MalformedCSVError
+          return [dir, file_name] # allow downstream error handling manage malformed CSVs
+        end
+
+        unique_lines = original_lines.reverse.uniq.reverse # reverse -> uniq -> reverse keeps the last duplicate entry
+        return [dir, file_name] if original_lines.length - unique_lines.length < DEDUP_THRESHOLD
+
+        # Creating a temp dir under the given dir to avoid potential file name collision
+        dedup_dir = Dir.mktmpdir(nil, dir)
+        dedup_filename = file_name.sub(/\.csv$/i, "_deduplicated.csv")
+
+        # Ensure parent directory exists for files with subdirectory paths
+        output_path = File.join(dedup_dir, dedup_filename)
+        FileUtils.mkdir_p(File.dirname(output_path))
+
+        ::CSV.open(output_path, "w") do |csv|
+          unique_lines.each { |line| csv << line }
+        end
+
+        [dedup_dir, dedup_filename]
       end
     end
   end

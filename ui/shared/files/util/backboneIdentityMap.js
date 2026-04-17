@@ -15,12 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-/* eslint-disable new-cap */
-/* eslint-disable import/no-mutable-exports */
-/* eslint-disable vars-on-top */
-/* eslint-disable @typescript-eslint/no-shadow */
-/* eslint-disable no-var */
-
 // What follows is based on:
 // from https://github.com/shinetech/backbone-identity-map/blob/d9d1b5faf8f5cf4ef05b358f65347745f0df2693/backbone-identity-map.js
 
@@ -46,7 +40,7 @@
  * has already been assigned to the cache with the same ID, then
  * that object will be overridden.
  */
-import {uniqueId, extend as lodashExtend} from 'lodash'
+import {extend as lodashExtend, uniqueId} from 'es-toolkit/compat'
 
 // Stores cached models:
 // key: (unique identifier per class) + ':' + (model id)
@@ -93,7 +87,7 @@ var IdentityMap = function (realConstructor) {
           cache[classCacheKey + ':' + objectId] = obj
           obj.off(null, null, this)
         },
-        this
+        this,
       )
       return obj
     }

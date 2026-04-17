@@ -82,6 +82,27 @@ describe "assignments" do
       expect(list_items.count).to eq(1)
     end
 
+    describe "validations" do
+      it "renders validation seleect a student" do
+        course_with_teacher_logged_in
+        create_users_in_course(@course, 11)
+        @assignment = assignment_model({
+                                         course: @course,
+                                         peer_reviews: true,
+                                         automatic_peer_reviews: false,
+                                       })
+
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}/peer_reviews?page=2"
+
+        f(".assign_peer_review_link").click
+        find_button("Add").click
+        expect(f("#reviewee_errors")).to be_displayed
+        expect(f("#reviewee_id").attribute("class")).to include("error-outline")
+        input = driver.find_element(:css, "select[name='reviewee_id']")
+        expect(input.attribute("aria-label")).to eq("Please select a student")
+      end
+    end
+
     it "displays the intra-group review toggle for group assignments" do
       course_with_teacher_logged_in
       student = student_in_course.user
@@ -117,7 +138,7 @@ describe "assignments" do
 
       @assignment.only_visible_to_overrides = true
       get "/courses/#{@course.id}/assignments/#{@assignment.id}/peer_reviews"
-      expect(f(".no_students_message")).to_not be_displayed
+      expect(f(".no_students_message")).not_to be_displayed
     end
 
     context "rubric assessments" do
@@ -144,7 +165,7 @@ describe "assignments" do
 
         f(".assess_submission_link").click
         wait_for_animations
-        expect(f("#rubric_holder")).to_not contain_css(".save_rubric_button")
+        expect(f("#rubric_holder")).not_to contain_css(".save_rubric_button")
       end
 
       it "lets a student submit a rubric review even if already completed if a rubric is added afterwards" do
@@ -195,6 +216,136 @@ describe "assignments" do
     end
   end
 
+  context "preventing edits after submissions" do
+    before :once do
+      Account.site_admin.enable_feature!(:peer_review_allocation_and_grading)
+      course_factory(active_course: true)
+      @teacher = teacher_in_course(active_all: true).user
+      @student1 = student_in_course(active_all: true).user
+      @student2 = student_in_course(active_all: true).user
+
+      @assignment = assignment_model({
+                                       course: @course,
+                                       peer_reviews: true,
+                                       automatic_peer_reviews: false,
+                                       peer_review_count: 2
+                                     })
+      peer_review_model(parent_assignment: @assignment)
+
+      submission1 = @assignment.find_or_create_submission(@student1)
+      submission1.submission_type = "online_text_entry"
+      submission1.save!
+
+      submission2 = @assignment.find_or_create_submission(@student2)
+      submission2.submission_type = "online_text_entry"
+      submission2.save!
+
+      AssessmentRequest.create!(
+        user: @student1,
+        asset: submission1,
+        assessor_asset: submission2,
+        assessor: @student2,
+        workflow_state: "completed"
+      )
+
+      AssessmentRequest.create!(
+        user: @student2,
+        asset: submission2,
+        assessor_asset: submission1,
+        assessor: @student1,
+        workflow_state: "completed"
+      )
+    end
+
+    before do
+      user_session(@teacher)
+    end
+
+    it "displays alert and disables fields when peer review submissions exist", priority: "1" do
+      get "/courses/#{@course.id}/assignments/#{@assignment.id}/edit"
+      wait_for_ajaximations
+
+      wait_for(method: nil, timeout: 10) do
+        element_exists?("#peer_reviews_allocation_and_grading_details")
+      end
+
+      expect(element_exists?("div[role='alert']")).to be true
+      alert_message = f("div[role='alert']")
+      expect(alert_message).to be_displayed
+
+      reviews_required_input = f("#assignment_peer_reviews_count")
+      expect(reviews_required_input.attribute("disabled")).to eq("true")
+
+      points_per_review_input = f("#assignment_peer_reviews_max_input")
+      expect(points_per_review_input.attribute("disabled")).to eq("true")
+    end
+
+    it "disables External Tool submission type option when peer review submissions exist", custom_timeout: 30, priority: "1" do
+      get "/courses/#{@course.id}/assignments/#{@assignment.id}/edit"
+      wait_for_ajaximations
+
+      submission_type_dropdown = f("#assignment_submission_type")
+      external_tool_option = submission_type_dropdown.find_element(:css, "option[value='external_tool']")
+
+      expect(external_tool_option.attribute("disabled")).to eq("true")
+    end
+  end
+
+  describe "auto assign" do
+    before do
+      course_with_teacher_logged_in
+      @assignment = assignment_model({
+                                       course: @course,
+                                       peer_reviews: true,
+                                       automatic_peer_reviews: false,
+                                     })
+    end
+
+    it "displays auto assign section if the assignment is assigned to at least one user" do
+      student_in_course(active_all: true)
+      get "/courses/#{@course.id}/assignments/#{@assignment.id}/peer_reviews"
+      expect(f("#automatically_assign_reviews")).to be_displayed
+    end
+
+    it "displays auto assign input if there are submissions" do
+      student1 = student_in_course(active_all: true).user
+      student_in_course(active_all: true).user
+      submission = @assignment.submit_homework(student1)
+      submission.submission_type = "online_text_entry"
+      submission.save!
+
+      get "/courses/#{@course.id}/assignments/#{@assignment.id}/peer_reviews"
+      expect(f("#reviews_per_user_container")).to be_displayed
+    end
+
+    it "displays redirect to edit assignment button if there are no submissions" do
+      student_in_course(active_all: true).user
+      student_in_course(active_all: true).user
+
+      get "/courses/#{@course.id}/assignments/#{@assignment.id}/peer_reviews"
+      expect(f("#redirect_to_edit_button")).to be_displayed
+    end
+
+    it "automatically assigns peer reviews if both students have submissions" do
+      student1 = student_in_course(active_all: true).user
+      student2 = student_in_course(active_all: true).user
+      submission1 = @assignment.submit_homework(student1)
+      submission2 = @assignment.submit_homework(student2)
+      [submission1, submission2].each do |s|
+        s.submission_type = "online_text_entry"
+        s.save!
+      end
+
+      get "/courses/#{@course.id}/assignments/#{@assignment.id}/peer_reviews"
+      f("#reviews_per_user_input").send_keys("1")
+      f("#submit_assign_peer_reviews").click
+
+      wait_for_ajaximations
+      expect(submission1.assigned_assessments.size).to eq(1)
+      expect(submission2.assigned_assessments.size).to eq(1)
+    end
+  end
+
   describe "with anonymous peer reviews" do
     let!(:review_course) { course_factory(active_all: true) }
     let!(:teacher) { review_course.teachers.first }
@@ -218,17 +369,6 @@ describe "assignments" do
                          score: "5",
                          submission_type: "online_text_entry",
                          user: reviewed
-                       })
-    end
-    let!(:submissionReviewer) do
-      submission_model({
-                         assignment:,
-                         body: "submission body reviewer",
-                         course: review_course,
-                         grade: "5",
-                         score: "5",
-                         submission_type: "online_text_entry",
-                         user: reviewer
                        })
     end
     let!(:comment) do
@@ -257,8 +397,20 @@ describe "assignments" do
                            }
                          })
     end
+    let!(:anonymous_submission_page) { "/courses/#{review_course.id}/assignments/#{assignment.id}/anonymous_submissions/#{submission.anonymous_id}" }
 
-    before { assignment.assign_peer_review(reviewer, reviewed) }
+    before do
+      submission_model({
+                         assignment:,
+                         body: "submission body reviewer",
+                         course: review_course,
+                         grade: "5",
+                         score: "5",
+                         submission_type: "online_text_entry",
+                         user: reviewer
+                       })
+      assignment.assign_peer_review(reviewer, reviewed)
+    end
 
     context "when reviewed is logged in" do
       before { user_logged_in(user: reviewed) }
@@ -288,6 +440,12 @@ describe "assignments" do
         get "/courses/#{review_course.id}/assignments/#{assignment.id}/anonymous_submissions/#{submission.anonymous_id}"
         expect(f("#submission_comment_#{comment.id} .author_name")).to include_text(comment.author_name)
       end
+
+      it "allows reviewer to access the anonymous submission page" do
+        get anonymous_submission_page
+        expect(driver.current_url).to include(anonymous_submission_page)
+        expect(f("h1.submission_header")).to include_text("Peer Review")
+      end
     end
 
     context "when teacher is logged in" do
@@ -303,6 +461,12 @@ describe "assignments" do
         f(".assess_submission_link").click
         wait_for_animations
         expect(f("#rubric_assessment_option_#{assessment.id}")).to include_text(assessment.assessor_name)
+      end
+
+      it "allows teacher to access the anonymous submission page" do
+        get anonymous_submission_page
+        expect(driver.current_url).to include(anonymous_submission_page)
+        expect(f("h1.submission_header")).to include_text("Submission Details")
       end
     end
 
@@ -344,6 +508,181 @@ describe "assignments" do
         get "/courses/#{review_course.id}/assignments/#{assignment.id}/anonymous_submissions/#{submission.anonymous_id}"
         expect(f(".turnitin_similarity_score")).to be_displayed
       end
+    end
+  end
+
+  context "PRSA to-do list item" do
+    let(:teacher_course) { course_factory(active_all: true, course_name: "Teacher Course") }
+    let(:student_course) { course_factory(active_all: true, course_name: "Student Course") }
+    let(:mixed_user) do
+      user_factory(active_all: true, name: "TA User").tap do |u|
+        teacher_course.enroll_teacher(u, enrollment_state: :active)
+        student_course.enroll_student(u, enrollment_state: :active)
+      end
+    end
+    let(:reviewee) { student_in_course(course: student_course, active_all: true).user }
+    let(:assignment) do
+      student_course.assignments.create!(
+        title: "Essay with Peer Review",
+        submission_types: "online_text_entry",
+        peer_reviews: true,
+        peer_review_count: 1,
+        points_possible: 20
+      ).tap(&:publish)
+    end
+    let(:prsa) do
+      PeerReview::PeerReviewCreatorService.call(
+        parent_assignment: assignment,
+        points_possible: 10,
+        grading_type: "points"
+      )
+    end
+
+    before do
+      student_course.enable_feature!(:peer_review_allocation_and_grading)
+      assignment.submit_homework(reviewee, body: "My essay submission")
+      assignment.submit_homework(mixed_user, body: "Assessor submission")
+      sub_reviewee = assignment.submissions.find_by(user: reviewee)
+      sub_assessor = assignment.submissions.find_by(user: mixed_user)
+      AssessmentRequest.create!(
+        user: reviewee,
+        asset: sub_reviewee,
+        assessor_asset: sub_assessor,
+        assessor: mixed_user,
+        peer_review_sub_assignment: prsa,
+        workflow_state: "assigned"
+      )
+      user_session(mixed_user)
+    end
+
+    it "does not show the PRSA to-do item when assignments_2_student is disabled" do
+      student_course.disable_feature!(:assignments_2_student)
+      get "/"
+      wait_for_ajaximations
+      expect(f("#content")).not_to contain_css(".to-do-list")
+    end
+
+    it "shows the PRSA to-do item and links to peer reviews when assignments_2_student is enabled" do
+      student_course.enable_feature!(:assignments_2_student)
+      get "/"
+      wait_for_ajaximations
+      expect(f(".to-do-list")).to include_text(prsa.title)
+      todo_link = ff(".to-do-list li.todo a.item").find { |a| a.text.include?(prsa.title) }
+      expect(todo_link["href"]).to include("/peer_reviews")
+    end
+  end
+
+  context "graded peer reviews" do
+    before :once do
+      course_with_teacher(active_all: true)
+      @course.enable_feature!(:peer_review_allocation_and_grading)
+      @assignment = @course.assignments.create!(
+        title: "Assignment with Graded Peer Reviews",
+        submission_types: "online_text_entry",
+        peer_reviews: true,
+        points_possible: 10
+      )
+      peer_review_model(parent_assignment: @assignment)
+    end
+
+    before do
+      user_session(@teacher)
+    end
+
+    it "locks peer review settings in legacy mode", priority: "1" do
+      @course.disable_feature!(:peer_review_allocation_and_grading)
+
+      get "/courses/#{@course.id}/assignments/#{@assignment.id}/edit"
+      wait_for_ajaximations
+
+      peer_reviews_checkbox = f("#assignment_peer_reviews")
+      expect(peer_reviews_checkbox).to be_disabled
+
+      expect(f("#content")).to include_text(
+        "Peer review settings cannot be changed for this assignment because it was created with graded peer reviews"
+      )
+
+      expect(element_exists?("#peer_reviews_details")).to be false
+    end
+
+    it "allows editing peer review settings in graded mode", priority: "1" do
+      @course.enable_feature!(:peer_review_allocation_and_grading)
+
+      get "/courses/#{@course.id}/assignments/#{@assignment.id}/edit"
+      wait_for_ajaximations
+
+      wait_for(method: nil, timeout: 10) do
+        element_exists?("#peer_reviews_allocation_and_grading_details")
+      end
+
+      peer_reviews_checkbox = f("#assignment_peer_reviews_checkbox")
+      expect(peer_reviews_checkbox).not_to be_disabled
+
+      expect(f("#content")).not_to include_text(
+        "Peer review settings cannot be changed for this assignment because it was created with graded peer reviews"
+      )
+    end
+  end
+
+  context "legacy peer reviews" do
+    before :once do
+      course_with_teacher(active_all: true)
+      @legacy_assignment = @course.assignments.create!(
+        title: "Assignment with Legacy Peer Reviews",
+        submission_types: "online_text_entry",
+        peer_reviews: true,
+        automatic_peer_reviews: true,
+        peer_review_count: 1,
+        points_possible: 10
+      )
+    end
+
+    before do
+      user_session(@teacher)
+    end
+
+    it "allows editing peer review settings when feature flag is enabled", priority: "1" do
+      @course.enable_feature!(:peer_review_allocation_and_grading)
+
+      get "/courses/#{@course.id}/assignments/#{@legacy_assignment.id}/edit"
+      wait_for_ajaximations
+
+      peer_reviews_checkbox = f("#assignment_peer_reviews")
+      expect(peer_reviews_checkbox).not_to be_disabled
+      expect(peer_reviews_checkbox).to be_selected
+
+      expect(f("#content")).not_to include_text(
+        "Peer review settings cannot be changed for this assignment because it was created with graded peer reviews"
+      )
+
+      expect(element_exists?("#peer_reviews_details")).to be true
+      expect(f("#peer_reviews_details")).to be_displayed
+
+      peer_review_count_input = f("#assignment_peer_review_count")
+      expect(peer_review_count_input).not_to be_disabled
+      expect(peer_review_count_input.attribute("value")).to eq("1")
+    end
+
+    it "allows editing peer review settings in legacy mode", priority: "1" do
+      @course.disable_feature!(:peer_review_allocation_and_grading)
+
+      get "/courses/#{@course.id}/assignments/#{@legacy_assignment.id}/edit"
+      wait_for_ajaximations
+
+      peer_reviews_checkbox = f("#assignment_peer_reviews")
+      expect(peer_reviews_checkbox).not_to be_disabled
+      expect(peer_reviews_checkbox).to be_selected
+
+      expect(f("#content")).not_to include_text(
+        "Peer review settings cannot be changed for this assignment because it was created with graded peer reviews"
+      )
+
+      expect(element_exists?("#peer_reviews_details")).to be true
+      expect(f("#peer_reviews_details")).to be_displayed
+
+      peer_review_count_input = f("#assignment_peer_review_count")
+      expect(peer_review_count_input).not_to be_disabled
+      expect(peer_review_count_input.attribute("value")).to eq("1")
     end
   end
 end

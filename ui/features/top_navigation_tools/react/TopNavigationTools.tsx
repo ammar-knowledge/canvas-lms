@@ -24,10 +24,10 @@ import {Img} from '@instructure/ui-img'
 import {TruncateText} from '@instructure/ui-truncate-text'
 import {Flex} from '@instructure/ui-flex'
 import {Tooltip} from '@instructure/ui-tooltip'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import type {Tool} from '@canvas/global/env/EnvCommon'
 
-const I18n = useI18nScope('top_navigation_tools')
+const I18n = createI18nScope('top_navigation_tools')
 
 type TopNavigationToolsProps = {
   tools: Tool[]
@@ -35,7 +35,7 @@ type TopNavigationToolsProps = {
 }
 
 export const handleToolIconError = (tool: Tool) => (event: any) => {
-  event.target.src = `/lti/tool_default_icon?name=${tool.title[0]}`
+  event.target.src = `/lti/tool_default_icon?name=${encodeURIComponent(tool.title || '')}`
   event.onerror = null
 }
 
@@ -50,7 +50,7 @@ function getToolIcon(tool: Tool) {
   )
 }
 
-function handleToolClick(val: String, tools: Tool[], handleToolLaunch: (tool: Tool) => void) {
+function handleToolClick(val: string, tools: Tool[], handleToolLaunch: (tool: Tool) => void) {
   const targeted_tool = tools.find((tool: Tool) => tool.id === val)
   if (targeted_tool) {
     handleToolLaunch(targeted_tool)
@@ -61,54 +61,65 @@ export function TopNavigationTools(props: TopNavigationToolsProps) {
   const pinned_tools = props.tools.filter(tool => tool.pinned)
   const menu_tools = props.tools.filter(tool => !tool.pinned)
 
-  return (
-    <Flex as="div" gap="small" width="100%" height="100%" direction="row-reverse">
-      {menu_tools.length > 0 && (
-        <Flex.Item>
-          <Menu
-            placement="bottom end"
-            trigger={
-              <Tooltip renderTip={I18n.t('LTI Tools Menu')}>
-                <Button renderIcon={IconLtiLine} />
-              </Tooltip>
+  const menuToolsElement = menu_tools.length > 0 && (
+    <Flex.Item>
+      <Menu
+        placement="bottom end"
+        trigger={
+          <Tooltip renderTip={I18n.t('LTI Tools Menu')}>
+            <Button
+              renderIcon={IconLtiLine as any}
+              data-pendo="top-nav-menu-button"
+              aria-label={I18n.t('LTI Tools Menu')}
+            />
+          </Tooltip>
+        }
+        key="menu"
+        label={I18n.t('LTI Tools Menu')}
+      >
+        {menu_tools.map((tool: Tool) => {
+          return (
+            <Menu.Item
+              // @ts-expect-error
+              onSelect={(e, val) => handleToolClick(val, menu_tools, props.handleToolLaunch)}
+              key={tool.id}
+              value={tool.id}
+              label={I18n.t('Launch %{tool}', {tool: tool.title})}
+              data-pendo="top-nav-launch-tool-button"
+            >
+              <Flex direction="row" gap="small">
+                {getToolIcon(tool)}
+                <TruncateText>{tool.title}</TruncateText>
+              </Flex>
+            </Menu.Item>
+          )
+        })}
+      </Menu>
+    </Flex.Item>
+  )
+
+  const pinnedToolsElements = pinned_tools.map((tool: Tool) => {
+    return (
+      <Flex.Item key={tool.id}>
+        <Tooltip renderTip={tool.title}>
+          <IconButton
+            renderIcon={getToolIcon(tool)}
+            onClick={e =>
+              // @ts-expect-error
+              handleToolClick(e.target.dataset.toolId, pinned_tools, props.handleToolLaunch)
             }
-            key="menu"
-            label={I18n.t('LTI Tools Menu')}
-          >
-            {menu_tools.map((tool: Tool) => {
-              return (
-                <Menu.Item
-                  onSelect={(e, val) => handleToolClick(val, menu_tools, props.handleToolLaunch)}
-                  key={tool.id}
-                  value={tool.id}
-                  label={I18n.t('Launch %{tool}', {tool: tool.title})}
-                >
-                  <Flex direction="row" gap="small">
-                    {getToolIcon(tool)}
-                    <TruncateText>{tool.title}</TruncateText>
-                  </Flex>
-                </Menu.Item>
-              )
-            })}
-          </Menu>
-        </Flex.Item>
-      )}
-      {pinned_tools.map((tool: Tool) => {
-        return (
-          <Flex.Item key={tool.id}>
-            <Tooltip renderTip={tool.title}>
-              <IconButton
-                renderIcon={getToolIcon(tool)}
-                onClick={e =>
-                  handleToolClick(e.target.dataset.toolId, pinned_tools, props.handleToolLaunch)
-                }
-                data-tool-id={tool.id}
-                screenReaderLabel={tool.title}
-              />
-            </Tooltip>
-          </Flex.Item>
-        )
-      })}
+            data-tool-id={tool.id}
+            screenReaderLabel={tool.title}
+          />
+        </Tooltip>
+      </Flex.Item>
+    )
+  })
+
+  return (
+    <Flex as="div" gap="small" width="100%" height="100%">
+      {pinnedToolsElements}
+      {menuToolsElement}
     </Flex>
   )
 }
@@ -133,6 +144,7 @@ export function MobileTopNavigationTools(props: TopNavigationToolsProps) {
       {pinned_tools.map((tool: Tool) => {
         return (
           <Menu.Item
+            // @ts-expect-error
             onSelect={(e, val) => handleToolClick(val, pinned_tools, props.handleToolLaunch)}
             key={tool.id}
             value={tool.id}
@@ -149,6 +161,7 @@ export function MobileTopNavigationTools(props: TopNavigationToolsProps) {
       {menu_tools.map((tool: Tool) => {
         return (
           <Menu.Item
+            // @ts-expect-error
             onSelect={(e, val) => handleToolClick(val, menu_tools, props.handleToolLaunch)}
             key={tool.id}
             value={tool.id}

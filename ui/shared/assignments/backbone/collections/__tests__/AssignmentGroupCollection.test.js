@@ -22,7 +22,8 @@ import AssignmentGroupCollection from '@canvas/assignments/backbone/collections/
 import Course from '@canvas/courses/backbone/models/Course'
 import fakeENV from '@canvas/test-utils/fakeENV'
 import {saveObservedId} from '@canvas/observer-picker/ObserverGetObservee'
-import sinon from 'sinon'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 
 const ok = x => expect(x).toBeTruthy()
 const equal = (x, y) => expect(x).toEqual(y)
@@ -31,15 +32,25 @@ const strictEqual = (x, y) => expect(x).toEqual(y)
 
 const COURSE_SUBMISSIONS_URL = '/courses/1/submissions'
 
-let server
 let assignments
 let group
 let collection
 
+const server = setupServer()
+
 describe('AssignmentGroupCollection', () => {
+  beforeAll(() => {
+    server.listen({
+      onUnhandledRequest: 'error',
+    })
+  })
+
+  afterAll(() => {
+    server.close()
+  })
+
   beforeEach(() => {
     fakeENV.setup()
-    server = sinon.fakeServer.create()
     assignments = [1, 2, 3, 4].map(id => new Assignment({id}))
     group = new AssignmentGroup({assignments})
     collection = new AssignmentGroupCollection([group], {
@@ -49,7 +60,7 @@ describe('AssignmentGroupCollection', () => {
 
   afterEach(() => {
     fakeENV.teardown()
-    server.restore()
+    server.resetHandlers()
   })
 
   test('::model is AssignmentGroup', () =>
@@ -58,6 +69,16 @@ describe('AssignmentGroupCollection', () => {
   test('default params include assignments and not discussion topics', () => {
     const {include} = AssignmentGroupCollection.prototype.defaults.params
     deepEqual(include, ['assignments'], 'include only contains assignments')
+  })
+
+  test('default params include peer_review when feature flag is enabled', () => {
+    ENV.FEATURES = {peer_review_allocation_and_grading: true}
+    const {include} = AssignmentGroupCollection.prototype.defaults.params
+    deepEqual(
+      include,
+      ['assignments', 'peer_review'],
+      'include contains assignments and peer_review when feature flag is enabled',
+    )
   })
 
   test('optionProperties', () => {
@@ -69,12 +90,12 @@ describe('AssignmentGroupCollection', () => {
     strictEqual(
       collection_.courseSubmissionsURL,
       COURSE_SUBMISSIONS_URL,
-      'assigns courseSubmissionsURL to courseSubmissionsURL'
+      'assigns courseSubmissionsURL to courseSubmissionsURL',
     )
     strictEqual(collection_.course, course, 'assigns course to course')
   })
 
-  test('(#getGrades) loading grades from the server', function () {
+  test('(#getGrades) loading grades from the server', async function () {
     ENV.observed_student_ids = []
     ENV.PERMISSIONS.read_grades = true
     let triggeredChangeForAssignmentWithoutSubmission = false
@@ -83,29 +104,35 @@ describe('AssignmentGroupCollection', () => {
       assignment_id: id,
       grade: id,
     }))
-    server.respondWith('GET', `${COURSE_SUBMISSIONS_URL}?per_page=50`, [
-      200,
-      {'Content-Type': 'application/json'},
-      JSON.stringify(submissions),
-    ])
+
+    server.use(
+      http.get(`${COURSE_SUBMISSIONS_URL}`, ({request}) => {
+        const url = new URL(request.url)
+        if (url.searchParams.get('per_page') === '50') {
+          return HttpResponse.json(submissions)
+        }
+      }),
+    )
+
     const lastAssignment = assignments[3]
     lastAssignment.on(
       'change:submission',
-      () => (triggeredChangeForAssignmentWithoutSubmission = true)
+      () => (triggeredChangeForAssignmentWithoutSubmission = true),
     )
-    collection.getGrades()
-    server.respond()
+
+    await collection.getGrades()
+
     for (const assignment of assignments) {
       if (assignment.get('id') === 4) continue
       equal(
         assignment.get('submission').get('grade'),
         assignment.get('id'),
-        'sets submission grade for assignments with a matching submission'
+        'sets submission grade for assignments with a matching submission',
       )
     }
     ok(
       triggeredChangeForAssignmentWithoutSubmission,
-      'triggers change for assignments without a matching submission grade so the UI can update'
+      'triggers change for assignments without a matching submission grade so the UI can update',
     )
   })
 
@@ -128,5 +155,173 @@ describe('AssignmentGroupCollection', () => {
     const actual_user_id = collection.getObservedUserId()
 
     equal(!!actual_user_id, false, 'returns falsey')
+  })
+
+  describe('expandPeerReviewSubAssignments', () => {
+    beforeEach(() => {
+      ENV.FLAGS = {}
+      ENV.current_user_roles = []
+      ENV.PERMISSIONS = {}
+    })
+
+    test('does nothing when feature flag is disabled', () => {
+      ENV.PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED = false
+      ENV.current_user_roles = ['student']
+
+      const assignment = new Assignment({
+        id: 1,
+        peer_review_sub_assignment: {
+          id: 101,
+          due_at: '2024-01-15',
+        },
+      })
+      const group = new AssignmentGroup({assignments: [assignment]})
+      const collection = new AssignmentGroupCollection([group])
+
+      const initialCount = group.get('assignments').length
+      collection.expandPeerReviewSubAssignments()
+
+      equal(group.get('assignments').length, initialCount, 'should not add peer review assignments')
+    })
+
+    test('does nothing when user is not a student', () => {
+      ENV.PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED = true
+      ENV.current_user_roles = ['teacher']
+      ENV.PERMISSIONS.manage = true
+
+      const assignment = new Assignment({
+        id: 1,
+        peer_review_sub_assignment: {
+          id: 101,
+          due_at: '2024-01-15',
+        },
+      })
+      const group = new AssignmentGroup({assignments: [assignment]})
+      const collection = new AssignmentGroupCollection([group])
+
+      const initialCount = group.get('assignments').length
+      collection.expandPeerReviewSubAssignments()
+
+      equal(group.get('assignments').length, initialCount, 'should not add peer review assignments')
+    })
+
+    test('expands peer review sub-assignments for students when feature flag is enabled', () => {
+      ENV.PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED = true
+      ENV.current_user_roles = ['student']
+      ENV.PERMISSIONS.manage = false
+
+      const assignment = new Assignment({
+        id: 1,
+        name: 'Test Assignment',
+        peer_review_count: 2,
+        assignment_group_id: 10,
+        course_id: 100,
+        published: true,
+        html_url: '/courses/100/assignments/1',
+        peer_review_sub_assignment: {
+          id: 101,
+          due_at: '2024-01-15',
+          lock_at: '2024-01-20',
+          unlock_at: '2024-01-10',
+        },
+      })
+      const group = new AssignmentGroup({id: 10, assignments: [assignment]})
+      const collection = new AssignmentGroupCollection([group])
+
+      collection.expandPeerReviewSubAssignments()
+
+      equal(group.get('assignments').length, 2, 'should add peer review assignment')
+
+      const peerReviewAssignment = group.get('assignments').at(1)
+      equal(peerReviewAssignment.get('id'), 101, 'should have correct id')
+      equal(
+        peerReviewAssignment.get('due_at'),
+        '2024-01-15',
+        'should have due_at from sub-assignment',
+      )
+      equal(
+        peerReviewAssignment.get('lock_at'),
+        '2024-01-20',
+        'should have lock_at from sub-assignment',
+      )
+      equal(
+        peerReviewAssignment.get('unlock_at'),
+        '2024-01-10',
+        'should have unlock_at from sub-assignment',
+      )
+      equal(peerReviewAssignment.get('parent_assignment_id'), 1, 'should have parent_assignment_id')
+      equal(
+        peerReviewAssignment.get('parent_assignment_name'),
+        'Test Assignment',
+        'should have parent_assignment_name',
+      )
+      equal(
+        peerReviewAssignment.get('parent_peer_review_count'),
+        2,
+        'should have parent_peer_review_count',
+      )
+      equal(
+        peerReviewAssignment.get('is_peer_review_assignment'),
+        true,
+        'should be marked as peer review assignment',
+      )
+      equal(
+        peerReviewAssignment.get('assignment_group_id'),
+        10,
+        'should inherit assignment_group_id',
+      )
+      equal(peerReviewAssignment.get('course_id'), 100, 'should inherit course_id')
+      equal(peerReviewAssignment.get('published'), true, 'should inherit published')
+      equal(
+        peerReviewAssignment.get('html_url'),
+        '/courses/100/assignments/1/peer_reviews',
+        'should have peer reviews URL',
+      )
+    })
+
+    test('does not add assignments when there are no peer_review_sub_assignments', () => {
+      ENV.PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED = true
+      ENV.current_user_roles = ['student']
+      ENV.PERMISSIONS.manage = false
+
+      const assignment = new Assignment({
+        id: 1,
+        name: 'Test Assignment',
+      })
+      const group = new AssignmentGroup({assignments: [assignment]})
+      const collection = new AssignmentGroupCollection([group])
+
+      const initialCount = group.get('assignments').length
+      collection.expandPeerReviewSubAssignments()
+
+      equal(group.get('assignments').length, initialCount, 'should not add any assignments')
+    })
+
+    test('expands multiple peer review sub-assignments across multiple groups', () => {
+      ENV.PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED = true
+      ENV.current_user_roles = ['student']
+      ENV.PERMISSIONS.manage = false
+
+      const assignment1 = new Assignment({
+        id: 1,
+        name: 'Assignment 1',
+        html_url: '/courses/100/assignments/1',
+        peer_review_sub_assignment: {id: 101, due_at: '2024-01-15'},
+      })
+      const assignment2 = new Assignment({
+        id: 2,
+        name: 'Assignment 2',
+        html_url: '/courses/100/assignments/2',
+        peer_review_sub_assignment: {id: 102, due_at: '2024-01-16'},
+      })
+      const group1 = new AssignmentGroup({id: 10, assignments: [assignment1]})
+      const group2 = new AssignmentGroup({id: 20, assignments: [assignment2]})
+      const collection = new AssignmentGroupCollection([group1, group2])
+
+      collection.expandPeerReviewSubAssignments()
+
+      equal(group1.get('assignments').length, 2, 'should add peer review assignment to group 1')
+      equal(group2.get('assignments').length, 2, 'should add peer review assignment to group 2')
+    })
   })
 })

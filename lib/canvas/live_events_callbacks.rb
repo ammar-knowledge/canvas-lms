@@ -46,6 +46,8 @@ module Canvas::LiveEventsCallbacks
       Canvas::LiveEvents.group_membership_created(obj)
     when WikiPage
       Canvas::LiveEvents.wiki_page_created(obj)
+    when Lti::ResourceLink
+      Canvas::LiveEvents.lti_resource_link_created(obj)
     when Assignment
       Canvas::LiveEvents.assignment_created(obj)
     when AssignmentGroup
@@ -64,6 +66,8 @@ module Canvas::LiveEventsCallbacks
       end
     when AccountNotification
       Canvas::LiveEvents.account_notification_created(obj)
+    when Account
+      Canvas::LiveEvents.account_created(obj)
     when User
       Canvas::LiveEvents.user_created(obj)
     when CourseSection
@@ -128,11 +132,13 @@ module Canvas::LiveEventsCallbacks
     when GroupMembership
       Canvas::LiveEvents.group_membership_updated(obj)
     when WikiPage
-      if changes["title"] || changes["body"]
+      if changes["title"] || changes["body"] || changes["workflow_state"]
         Canvas::LiveEvents.wiki_page_updated(obj,
                                              changes["title"]&.first,
                                              changes["body"]&.first)
       end
+    when Lti::ResourceLink
+      Canvas::LiveEvents.lti_resource_link_updated(obj)
     when Assignment
       Canvas::LiveEvents.assignment_updated(obj)
     when AssignmentGroup
@@ -141,18 +147,24 @@ module Canvas::LiveEventsCallbacks
       Canvas::LiveEvents.assignment_override_updated(obj)
     when Attachment
       if attachment_eligible?(obj)
-        if %w[display_name lock_at unlock_at folder_id].any? { |field| changes[field] }
+        if %w[display_name lock_at unlock_at folder_id locked].any? { |field| changes[field] }
           Canvas::LiveEvents.attachment_updated(obj, changes["display_name"]&.first)
         elsif changes["file_state"] && obj.file_state == "deleted"
           # Attachments are often soft deleted rather than destroyed
           Canvas::LiveEvents.attachment_deleted(obj)
         end
       end
+    when Account
+      Canvas::LiveEvents.account_updated(obj)
     when Submission
       if obj.just_submitted?
         Canvas::LiveEvents.submission_created(obj)
       elsif !obj.unsubmitted?
         Canvas::LiveEvents.submission_updated(obj)
+      end
+
+      if changes["custom_grade_status_id"]
+        Canvas::LiveEvents.submission_custom_grade_status(obj, changes["custom_grade_status_id"].first)
       end
     when User
       Canvas::LiveEvents.user_updated(obj)

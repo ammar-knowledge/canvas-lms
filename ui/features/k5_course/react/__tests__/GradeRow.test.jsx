@@ -61,7 +61,7 @@ describe('GradeRow', () => {
     const {getByText} = render(
       <table>
         <tbody>{GradeRow({...getProps()})}</tbody>
-      </table>
+      </table>,
     )
     const title = getByText('Essay #2')
     expect(title).toBeInTheDocument()
@@ -73,7 +73,7 @@ describe('GradeRow', () => {
       const {getByText} = render(
         <table>
           <tbody>{GradeRow({...getProps({unread: true})})}</tbody>
-        </table>
+        </table>,
       )
       expect(getByText('New grade for Essay #2')).toBeInTheDocument()
     })
@@ -82,7 +82,7 @@ describe('GradeRow', () => {
       const {getByText, queryByText} = render(
         <table>
           <tbody>{GradeRow({...getProps()})}</tbody>
-        </table>
+        </table>,
       )
       expect(getByText('Essay #2')).toBeInTheDocument()
       expect(queryByText('New grade for Essay #2')).not.toBeInTheDocument()
@@ -94,7 +94,7 @@ describe('GradeRow', () => {
       const {getByText} = render(
         <table>
           <tbody>{GradeRow({...getProps()})}</tbody>
-        </table>
+        </table>,
       )
       expect(getByText('5 pts')).toBeInTheDocument()
       expect(getByText('Out of 5 pts')).toBeInTheDocument()
@@ -104,9 +104,27 @@ describe('GradeRow', () => {
       const {queryByText} = render(
         <table>
           <tbody>{GradeRow({...getProps({restrictQuantitativeData: true})})}</tbody>
-        </table>
+        </table>,
       )
       expect(queryByText('Out of 5 pts')).not.toBeInTheDocument()
+    })
+
+    it('rounds grade to 2 decimal places for points gradingType', () => {
+      const {getByText} = render(
+        <table>
+          <tbody>
+            {GradeRow({
+              ...getProps({
+                grade: '0.7142857142857143',
+                score: 0.7142857142857143,
+                pointsPossible: 2,
+              }),
+            })}
+          </tbody>
+        </table>,
+      )
+      expect(getByText('0.71 pts')).toBeInTheDocument()
+      expect(getByText('Out of 2 pts')).toBeInTheDocument()
     })
 
     it('shows — pts for ungraded assignment with points gradingType', () => {
@@ -120,7 +138,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText('— pts')).toBeInTheDocument()
       expect(getByText('Out of 5 pts')).toBeInTheDocument()
@@ -139,7 +157,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       ;['—', 'Out of', 'pts'].forEach(t => {
         expect(queryByText(t, {exact: false})).not.toBeInTheDocument()
@@ -159,7 +177,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText('A GPA')).toBeInTheDocument()
     })
@@ -175,7 +193,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText('A')).toBeInTheDocument()
     })
@@ -193,7 +211,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText('75%')).toBeInTheDocument()
     })
@@ -209,7 +227,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText('Complete')).toBeInTheDocument()
     })
@@ -226,7 +244,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText('Incomplete')).toBeInTheDocument()
     })
@@ -243,7 +261,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText('Not graded')).toBeInTheDocument()
       expect(getByText('—')).toBeInTheDocument()
@@ -261,7 +279,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText('Excused')).toBeInTheDocument()
     })
@@ -270,7 +288,7 @@ describe('GradeRow', () => {
       const {getByRole} = render(
         <table>
           <tbody>{GradeRow({...getProps({hasComments: true})})}</tbody>
-        </table>
+        </table>,
       )
       const link = getByRole('link', {name: 'View feedback'})
       expect(link).toBeInTheDocument()
@@ -281,7 +299,7 @@ describe('GradeRow', () => {
       const {queryByText} = render(
         <table>
           <tbody>{GradeRow({...getProps()})}</tbody>
-        </table>
+        </table>,
       )
       expect(queryByText('View feedback')).not.toBeInTheDocument()
     })
@@ -301,7 +319,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText('Missing')).toBeInTheDocument()
     })
@@ -310,7 +328,7 @@ describe('GradeRow', () => {
       const {getByText} = render(
         <table>
           <tbody>{GradeRow({...getProps()})}</tbody>
-        </table>
+        </table>,
       )
       expect(getByText(`Submitted ${dateFormatter('2020-03-18T05:59:59Z')}`)).toBeInTheDocument()
     })
@@ -326,7 +344,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText('Late')).toBeInTheDocument()
     })
@@ -342,7 +360,7 @@ describe('GradeRow', () => {
               }),
             })}
           </tbody>
-        </table>
+        </table>,
       )
       expect(getByText(`Late ${dateFormatter('2020-05-18T05:59:59Z')}`)).toBeInTheDocument()
     })

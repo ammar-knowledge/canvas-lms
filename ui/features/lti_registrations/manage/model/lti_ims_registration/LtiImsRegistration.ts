@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import * as z from 'zod'
-import {ZLtiScope} from '../LtiScope'
+import {ZLtiScope} from '@canvas/lti/model/LtiScope'
 import {ZRegistrationOverlay} from '../RegistrationOverlay'
 import {ZLtiConfiguration} from '../lti_tool_configuration/LtiConfiguration'
 import {ZLtiImsToolConfiguration} from './LtiImsToolConfiguration'
@@ -55,6 +55,11 @@ export const ZLtiImsRegistration = z.object({
    * The configuration without the overlay applied
    */
   default_configuration: ZLtiConfiguration,
+  /**
+   * The original registration URL, if it was populated during registration
+   * Registrations were created prior to this field being added, so it may be null
+   */
+  registration_url: z.string().optional().nullable(),
 })
 
 export interface LtiImsRegistration extends z.infer<typeof ZLtiImsRegistration> {}

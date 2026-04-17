@@ -16,15 +16,15 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender} from '@canvas/react'
 import {CloseButton, IconButton} from '@instructure/ui-buttons'
 import {Text} from '@instructure/ui-text'
 import {Heading} from '@instructure/ui-heading'
 import {IconQuestionLine} from '@instructure/ui-icons'
 import {Modal} from '@instructure/ui-modal'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('outcomesCriterionInfo')
+const I18n = createI18nScope('outcomesCriterionInfo')
 
 const spiel = () =>
   I18n.t(`
@@ -101,5 +101,5 @@ export default class CriterionInfo extends React.Component {
 }
 
 export const addCriterionInfoButton = element => {
-  ReactDOM.render(<CriterionInfo />, element)
+  legacyRender(<CriterionInfo />, element)
 }

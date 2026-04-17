@@ -23,7 +23,12 @@
  */
 export interface EnvContextModules {
   course_id: string
+  CONTEXT_IS_AVAILABLE: boolean
+  PAGE_TITLE: string | null
   CONTEXT_URL_ROOT: string
+  ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS: boolean
+  CONTENT_MIGRATIONS_EXPIRE_DAYS: number
+  CAN_MANAGE_DIFFERENTIATION_TAGS: boolean
   FILES_CONTEXTS: Array<{asset_string: string}>
   MODULE_FILE_DETAILS: Record<
     string,
@@ -36,8 +41,22 @@ export interface EnvContextModules {
     usage_rights_required: boolean
     manage_files_edit: boolean
   }
+  MODULES_PERMISSIONS:
+    | {
+        readAsAdmin: boolean
+        canAdd: boolean
+        canEdit: boolean
+        canDelete: boolean
+        canView: boolean
+        canViewUnpublished: boolean
+        canDirectShare: boolean
+        canManageSpeedGrader: boolean
+      }
+    | undefined
+  NEW_QUIZZES_BY_DEFAULT: boolean | undefined
+  NEW_QUIZZES_ENABLED: boolean | undefined
+  DEFAULT_POST_TO_SIS: boolean | undefined
   MODULE_TOOLS: Record<string, unknown>
-  DEFAULT_POST_TO_SIS: boolean
 
   MASTER_COURSE_SETTINGS?: {
     IS_MASTER_COURSE: boolean
@@ -52,4 +71,23 @@ export interface EnvContextModules {
   }
   POST_TO_SIS: boolean
   DEFAULT_DUE_TIME?: string
+  FEATURE_MODULES_PERF?: boolean
+  IS_STUDENT?: boolean
+  MODULE_FEATURES?: {
+    STUDENT_MODULE_SELECTION: boolean
+    TEACHER_MODULE_SELECTION: boolean
+    MODULES_ARE_PAGINATED?: boolean
+    PAGE_SIZE?: number
+    SEAMLESS_EXTERNAL_URL_REDIRECT?: boolean
+  }
+  MODULES_OBSERVER_INFO?: {
+    isObserver: boolean
+    observedStudent: {id: string; name: string} | null
+    courseName: string
+  }
+  OBSERVER_OPTIONS?: {
+    OBSERVED_USERS_LIST: Array<{id: string; name: string; avatar_url?: string | null}>
+    CAN_ADD_OBSERVEE: boolean
+  }
+  CONTEXT_MODULES_HEADER_PROPS?: any
 }

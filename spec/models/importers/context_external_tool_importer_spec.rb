@@ -24,7 +24,7 @@ describe Importers::ContextExternalToolImporter do
 
   it "works for course-level tools" do
     migration = @course.content_migrations.create!
-    tool = Importers::ContextExternalToolImporter.import_from_migration({ title: "tool", url: "http://example.com" }, @course, migration)
+    tool = Importers::ContextExternalToolImporter.import_from_migration({ title: "tool", url: "http://example.com" }, @course, migration:)
     expect(tool).not_to be_nil
     expect(tool.context).to eq @course
   end
@@ -32,13 +32,13 @@ describe Importers::ContextExternalToolImporter do
   it 'does not create a new record if "persist" is falsey' do
     migration = @course.content_migrations.create!
     expect do
-      Importers::ContextExternalToolImporter.import_from_migration({ title: "tool", url: "http://example.com" }, @course, migration, nil, false)
+      Importers::ContextExternalToolImporter.import_from_migration({ title: "tool", url: "http://example.com" }, @course, migration:, persist: false)
     end.not_to change { ContextExternalTool.count }
   end
 
   it "works for account-level tools" do
     migration = @course.account.content_migrations.create!
-    tool = Importers::ContextExternalToolImporter.import_from_migration({ title: "tool", url: "http://example.com" }, @course.account, migration)
+    tool = Importers::ContextExternalToolImporter.import_from_migration({ title: "tool", url: "http://example.com" }, @course.account, migration:)
     expect(tool).not_to be_nil
     expect(tool.context).to eq @course.account
   end
@@ -50,7 +50,7 @@ describe Importers::ContextExternalToolImporter do
     import_hash[:privacy_level] = import_hash.delete :workflow_state
     migration = @course.account.content_migrations.create!
     expect do
-      Importers::ContextExternalToolImporter.import_from_migration(import_hash, @course, migration, nil, true)
+      Importers::ContextExternalToolImporter.import_from_migration(import_hash, @course, migration:)
     end.not_to change { ContextExternalTool.count }
   end
 
@@ -64,7 +64,7 @@ describe Importers::ContextExternalToolImporter do
     import_hash[:migration_id] = "hi"
     migration = @course.account.content_migrations.create!
     expect do
-      Importers::ContextExternalToolImporter.import_from_migration(import_hash, @course, migration, nil, true)
+      Importers::ContextExternalToolImporter.import_from_migration(import_hash, @course, migration:)
     end.not_to change { ContextExternalTool.count }
     expect(tool2.reload.identity_hash).to eq "duplicate"
   end
@@ -74,12 +74,14 @@ describe Importers::ContextExternalToolImporter do
       Importers::ContextExternalToolImporter.import_from_migration(
         tool_hash,
         course.account,
-        migration
+        migration:
       )
     end
 
     let(:course) { @course }
-    let(:developer_key) { DeveloperKey.create!(account: course.account) }
+    let(:developer_key) do
+      lti_registration_with_tool(account: course.account).developer_key
+    end
     let(:migration) { course.content_migrations.create! }
     let(:settings) { { client_id: developer_key.global_id } }
     let(:tool_hash) do
@@ -91,12 +93,18 @@ describe Importers::ContextExternalToolImporter do
       }
     end
 
-    it "sets the developer key id" do
+    it "sets the developer key and lti registration" do
       expect(subject.developer_key).to eq developer_key
+      expect(subject.lti_registration).to eq developer_key.lti_registration
     end
 
     it "sets the lti_version" do
       expect(subject.lti_version).to eq "1.3"
+    end
+
+    it "allows nil domain" do
+      tool_hash[:domain] = nil
+      expect(subject.domain).to be_nil
     end
 
     context "when lti_version isn't present in hash" do
@@ -141,15 +149,14 @@ describe Importers::ContextExternalToolImporter do
     subject do
       Importers::ContextExternalToolImporter.import_from_migration(
         tool_hash,
-        course.account,
-        migration,
-        tool
+        @course.account,
+        migration:,
+        item: tool
       )
     end
 
-    let(:course) { @course }
-    let(:migration) { course.content_migrations.create! }
-    let(:tool) { external_tool_model(context: course) }
+    let(:migration) { @course.content_migrations.create! }
+    let(:tool) { external_tool_model(context: @course) }
     let(:tool_hash) do
       {
         title: "test tool",
@@ -196,6 +203,50 @@ describe Importers::ContextExternalToolImporter do
     end
   end
 
+  context "unified_tool_id" do
+    subject do
+      Importers::ContextExternalToolImporter.import_from_migration(
+        tool_hash,
+        @course.account,
+        migration:,
+        item: tool
+      )
+    end
+
+    let(:migration) { @course.content_migrations.create! }
+    let(:tool) do
+      t = external_tool_model(context: @course)
+      t.unified_tool_id = "222"
+      t
+    end
+    let(:unified_tool_id) { "utid" }
+    let(:tool_hash) do
+      {
+        title: "test tool",
+        settings: {
+          oauth_compliant: true
+        },
+        unified_tool_id:
+      }
+    end
+
+    context "when unified_tool_id is present in the hash" do
+      it "updates the unified_tool_id" do
+        subject
+        expect(tool.unified_tool_id).to eq "utid"
+      end
+    end
+
+    context "when unified_tool_id is not present in hash" do
+      let(:unified_tool_id) { nil }
+
+      it "keeps the tool's unified_tool_id" do
+        subject
+        expect(tool.unified_tool_id).to eq "222"
+      end
+    end
+  end
+
   context "combining imported external tools" do
     before :once do
       @migration = ContentMigration.new(migration_type: "common_cartridge_importer")
@@ -209,7 +260,7 @@ describe Importers::ContextExternalToolImporter do
       ]
 
       data.each do |hash|
-        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, @migration)
+        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, migration: @migration)
       end
 
       expect(@course.context_external_tools.map(&:migration_id).sort).to eq ["1", "2"]
@@ -222,7 +273,7 @@ describe Importers::ContextExternalToolImporter do
         { migration_id: "3", title: "tool", url: "http://notexample.com" }
       ]
       data.each do |hash|
-        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, @migration)
+        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, migration: @migration)
       end
 
       expect(@course.context_external_tools.map(&:migration_id).sort).to eq ["1", "3"]
@@ -243,7 +294,7 @@ describe Importers::ContextExternalToolImporter do
       ]
 
       data.each do |hash|
-        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, @migration)
+        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, migration: @migration)
       end
 
       expect(@course.context_external_tools.map(&:migration_id).sort).to eq ["1", "3"]
@@ -264,7 +315,7 @@ describe Importers::ContextExternalToolImporter do
       ]
 
       data.each do |hash|
-        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, @migration)
+        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, migration: @migration)
       end
 
       expect(@course.context_external_tools.map(&:migration_id).sort).to eq ["1", "3"]
@@ -285,7 +336,7 @@ describe Importers::ContextExternalToolImporter do
       ]
 
       data.each do |hash|
-        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, @migration)
+        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, migration: @migration)
       end
 
       expect(@course.context_external_tools.map(&:migration_id).sort).to eq ["1", "3"]
@@ -305,7 +356,7 @@ describe Importers::ContextExternalToolImporter do
       ]
 
       data.each do |hash|
-        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, @migration)
+        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, migration: @migration)
       end
 
       expect(@course.context_external_tools.map(&:migration_id).sort).to eq ["1"]
@@ -346,7 +397,7 @@ describe Importers::ContextExternalToolImporter do
 
     it "does not search if setting not enabled" do
       @data.each do |hash|
-        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, @migration)
+        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, migration: @migration)
       end
 
       expect(@course.context_external_tools.map(&:migration_id).sort).to eq %w[1 2 3 4]
@@ -355,7 +406,7 @@ describe Importers::ContextExternalToolImporter do
     it "searches for existing tools if setting enabled" do
       @migration.migration_settings[:prefer_existing_tools] = true
       @data.each do |hash|
-        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, @migration)
+        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, migration: @migration)
       end
 
       expect(@course.context_external_tools.map(&:migration_id).sort).to eq ["3"]
@@ -371,7 +422,7 @@ describe Importers::ContextExternalToolImporter do
         if hash[:migration_id] == "4"
           hash[:title] = "haha totally different tool"
         end
-        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, @migration)
+        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, migration: @migration)
       end
 
       expect(@course.context_external_tools.map(&:migration_id).sort).to eq ["3", "4"] # brings in tool 4 now
@@ -385,10 +436,216 @@ describe Importers::ContextExternalToolImporter do
         if hash[:migration_id] == "4"
           hash[:title] = "haha totally different tool"
         end
-        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, @migration)
+        Importers::ContextExternalToolImporter.import_from_migration(hash, @course, migration: @migration)
       end
 
       expect(@course.context_external_tools.map(&:migration_id).sort).to eq ["3"] # still compacts
+    end
+  end
+
+  describe "primary context control creation" do
+    let_once(:developer_key) do
+      lti_registration_with_tool(account: course.account).developer_key
+    end
+    let_once(:course) { @course }
+    let_once(:migration) { course.content_migrations.create!(user: user_model) }
+    let_once(:tool_hash) do
+      {
+        migration_id: "test_tool_1",
+        title: "LTI 1.3 Tool",
+        url: "http://www.example.com",
+        lti_version: "1.3",
+        settings: { client_id: developer_key.global_id }
+      }
+    end
+
+    it "creates a primary context control when migration has no associated control" do
+      expect do
+        Importers::ContextExternalToolImporter.import_from_migration(
+          tool_hash,
+          course,
+          migration:
+        )
+      end.to change { Lti::ContextControl.count }.by(1)
+
+      control = Lti::ContextControl.last
+      expect(control.course_id).to eq course.id
+      expect(control.registration_id).to eq developer_key.lti_registration.id
+      expect(control.available).to be true
+      expect(control.created_by_id).to eq migration.user.id
+      expect(control.updated_by_id).to eq migration.user.id
+    end
+
+    it "does not create a context control when associated_control_from_migration is provided" do
+      associated_control = { "deployment_migration_id" => "test_tool_1", "available" => false }
+
+      expect do
+        Importers::ContextExternalToolImporter.import_from_migration(
+          tool_hash,
+          course,
+          migration:,
+          associated_control_from_migration: associated_control
+        )
+      end.not_to change { Lti::ContextControl.count }
+    end
+
+    it "does not create a context control when persist is false" do
+      expect do
+        Importers::ContextExternalToolImporter.import_from_migration(
+          tool_hash,
+          course,
+          migration:,
+          persist: false
+        )
+      end.not_to change { Lti::ContextControl.count }
+    end
+
+    it "does not create a context control for LTI 1.1 tools" do
+      tool_hash[:lti_version] = "1.1"
+      tool_hash[:settings] = {}
+      tool_hash[:consumer_key] = "test_key"
+      tool_hash[:shared_secret] = "test_secret"
+
+      expect do
+        Importers::ContextExternalToolImporter.import_from_migration(
+          tool_hash,
+          course,
+          migration:
+        )
+      end.not_to change { Lti::ContextControl.count }
+    end
+
+    it "adds an error when tool has no developer key" do
+      tool_hash[:settings] = { client_id: nil }
+
+      expect(migration).to receive(:add_error).with(
+        a_string_matching(/doesn't have any developer key/)
+      )
+
+      result = Importers::ContextExternalToolImporter.import_from_migration(
+        tool_hash,
+        course,
+        migration:
+      )
+
+      expect(result).to be_nil
+    end
+
+    it "adds an error when developer key is not usable in context" do
+      # Create a developer key that won't be usable in this course
+      other_account = account_model
+      other_registration = lti_registration_with_tool(account: other_account)
+      other_dev_key = other_registration.developer_key
+      other_registration.deactivate
+      tool_hash[:settings] = { client_id: other_dev_key.global_id }
+
+      expect(migration).to receive(:add_error).with(
+        a_string_matching(/is not available or enabled in this context/)
+      )
+
+      result = Importers::ContextExternalToolImporter.import_from_migration(
+        tool_hash,
+        course,
+        migration:
+      )
+
+      expect(result).to be_nil
+    end
+
+    it "adds an error when tool has no lti_registration_id" do
+      # Create a developer key without an lti_registration
+      orphan_dev_key = DeveloperKey.create!(account: course.account)
+      tool_hash[:settings] = { client_id: orphan_dev_key.global_id }
+
+      expect(migration).to receive(:add_error).with(
+        a_string_matching(/not available or enabled/)
+      )
+
+      result = Importers::ContextExternalToolImporter.import_from_migration(
+        tool_hash,
+        course,
+        migration:
+      )
+
+      expect(result).to be_nil
+    end
+
+    it "adds the created control to migration imported items" do
+      tool = Importers::ContextExternalToolImporter.import_from_migration(
+        tool_hash,
+        course,
+        migration:
+      )
+
+      expect(migration.imported_migration_items_by_class(Lti::ContextControl).count).to eq 1
+      control = migration.imported_migration_items_by_class(Lti::ContextControl).first
+      expect(control.deployment_id).to eq tool.id
+    end
+
+    it "sets the control's deployment_id to the tool's id" do
+      tool = Importers::ContextExternalToolImporter.import_from_migration(
+        tool_hash,
+        course,
+        migration:
+      )
+
+      control = Lti::ContextControl.last
+      expect(control.deployment_id).to eq tool.id
+    end
+  end
+
+  describe "lock_deploying enforcement" do
+    let_once(:developer_key) do
+      lti_registration_with_tool(account: @course.account, registration_params: { lock_deploying: true }).developer_key
+    end
+    let_once(:migration) { @course.content_migrations.create!(user: user_model) }
+    let_once(:tool_hash) do
+      {
+        migration_id: "locked_tool_1",
+        title: "Locked Tool",
+        url: "http://www.example.com",
+        lti_version: "1.3",
+        settings: { client_id: developer_key.global_id }
+      }
+    end
+
+    context "when flag is enabled and registration is locked" do
+      it "does not persist the tool" do
+        expect do
+          Importers::ContextExternalToolImporter.import_from_migration(
+            tool_hash,
+            @course,
+            migration:
+          )
+        end.not_to change { ContextExternalTool.count }
+      end
+
+      it "adds a warning to the migration" do
+        expect(migration).to receive(:add_warning).with(
+          a_string_matching(/not imported because it has been locked/)
+        )
+        Importers::ContextExternalToolImporter.import_from_migration(
+          tool_hash,
+          @course,
+          migration:
+        )
+      end
+    end
+
+    context "when flag is disabled" do
+      before do
+        @course.account.disable_feature!(:lock_lti_registrations)
+      end
+
+      it "imports the tool normally even when lock_deploying is true" do
+        expect do
+          Importers::ContextExternalToolImporter.import_from_migration(
+            tool_hash,
+            @course,
+            migration:
+          )
+        end.to change { ContextExternalTool.count }.by(1)
+      end
     end
   end
 end

@@ -19,15 +19,15 @@
 import React, {useState, useEffect, useContext} from 'react'
 import PropTypes from 'prop-types'
 import {UsageRights} from '../../components/DiscussionOptions/UsageRights'
-import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
+import {AlertManagerContext} from '@instructure/platform-alerts'
 import {defaultUsageRights} from '../../util/usageRightsConstants'
 
 export const UsageRightsContainer = ({
-  contextType,
-  contextId,
-  onSaveUsageRights,
+  contextType = '',
+  contextId = '',
+  onSaveUsageRights = () => {},
   initialUsageRights,
-  errorState,
+  errorState = false,
 }) => {
   // Will be used as selectable options for the creative Commons Licenses
   const [ccLicenseOptions, setCCLicenseOptions] = useState([])
@@ -77,11 +77,4 @@ UsageRightsContainer.propTypes = {
     useJustification: PropTypes.string,
   }),
   errorState: PropTypes.bool, // can be used to show an error state
-}
-
-UsageRightsContainer.defaultProps = {
-  contextType: '',
-  contextId: '',
-  onSaveUsageRights: () => {},
-  errorState: false,
 }

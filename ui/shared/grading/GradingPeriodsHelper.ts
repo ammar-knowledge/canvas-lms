@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2016 - present Instructure, Inc.
  *
@@ -17,10 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {find, forEach, isArray, isDate, isString, sortBy} from 'lodash'
+import {sortBy, find, forEach, isArray, isDate, isString} from 'es-toolkit/compat'
 import type {CamelizedGradingPeriod} from './grading.d'
 
-function validateDate(date, nullAllowed = false) {
+function validateDate(date: Date | null, nullAllowed = false) {
   let valid = isDate(date)
   if (nullAllowed && !valid) {
     valid = date === null
@@ -29,10 +28,12 @@ function validateDate(date, nullAllowed = false) {
   if (!valid) throw new Error(`\`${date}\` must be a Date or null`)
 }
 
-function validateGradingPeriodDates(gradingPeriods) {
+function validateGradingPeriodDates(
+  gradingPeriods: CamelizedGradingPeriod | CamelizedGradingPeriod[],
+): CamelizedGradingPeriod[] {
   if (gradingPeriods == null) throw new Error(`\'${gradingPeriods}\' must be an array or object`)
 
-  const dates = ['startDate', 'endDate', 'closeDate']
+  const dates = ['startDate', 'endDate', 'closeDate'] as const
   const periods = isArray(gradingPeriods) ? gradingPeriods : [gradingPeriods]
   forEach(periods, period => {
     forEach(dates, date => validateDate(period[date]))
@@ -49,7 +50,7 @@ function validatePeriodID(id: string) {
 class GradingPeriodsHelper {
   gradingPeriods: CamelizedGradingPeriod[]
 
-  constructor(gradingPeriods) {
+  constructor(gradingPeriods: CamelizedGradingPeriod | CamelizedGradingPeriod[]) {
     this.gradingPeriods = validateGradingPeriodDates(gradingPeriods)
   }
 
@@ -69,7 +70,7 @@ class GradingPeriodsHelper {
     }
   }
 
-  gradingPeriodForDueAt(dueAt) {
+  gradingPeriodForDueAt(dueAt: Date | null) {
     validateDate(dueAt, true)
 
     return (
@@ -78,7 +79,7 @@ class GradingPeriodsHelper {
     )
   }
 
-  isDateInGradingPeriod(date, gradingPeriodID, runValidations = true) {
+  isDateInGradingPeriod(date: Date | null, gradingPeriodID: string, runValidations = true) {
     if (runValidations) {
       validateDate(date, true)
       validatePeriodID(gradingPeriodID)
@@ -94,7 +95,7 @@ class GradingPeriodsHelper {
     }
   }
 
-  isDateInClosedGradingPeriod(date) {
+  isDateInClosedGradingPeriod(date: Date | null) {
     const period = this.gradingPeriodForDueAt(date)
     return !!period && period.isClosed
   }

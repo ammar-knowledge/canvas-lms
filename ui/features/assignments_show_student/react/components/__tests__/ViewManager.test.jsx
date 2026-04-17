@@ -16,9 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import {fireEvent, render, waitFor} from '@testing-library/react'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
 import {mockQuery} from '@canvas/assignments/graphql/studentMocks'
-import range from 'lodash/range'
+import {range} from 'es-toolkit/compat'
 import React from 'react'
 import {
   STUDENT_VIEW_QUERY,
@@ -98,6 +99,7 @@ describe('ViewManager', () => {
       COURSE_ID: '1',
       current_user: {display_name: 'bob', avatar_url: 'awesome.avatar.url'},
       enrollment_state: 'active',
+      can_submit_assignment_from_section: true,
       PREREQS: {},
       current_user_roles: ['user', 'student'],
     }
@@ -112,9 +114,11 @@ describe('ViewManager', () => {
       it('by creating a new dummy submission when clicked', async () => {
         const props = await makeProps({currentAttempt: 1})
         const {getByDisplayValue, getByText} = render(
-          <MockedProvider>
-            <ViewManager {...props} />
-          </MockedProvider>
+          <MockedQueryProvider>
+            <MockedProvider>
+              <ViewManager {...props} />
+            </MockedProvider>
+          </MockedQueryProvider>,
         )
         const newAttemptButton = getByText('New Attempt')
         fireEvent.click(newAttemptButton)
@@ -124,9 +128,11 @@ describe('ViewManager', () => {
       it('by not displaying the new attempt button on a dummy submission', async () => {
         const props = await makeProps({currentAttempt: 1})
         const {queryByText, getByText} = render(
-          <MockedProvider>
-            <ViewManager {...props} />
-          </MockedProvider>
+          <MockedQueryProvider>
+            <MockedProvider>
+              <ViewManager {...props} />
+            </MockedProvider>
+          </MockedQueryProvider>,
         )
         const newAttemptButton = getByText('New Attempt')
         fireEvent.click(newAttemptButton)
@@ -138,9 +144,11 @@ describe('ViewManager', () => {
       it('is not displayed when the draft is the selected', async () => {
         const props = await makeProps({currentAttempt: 1, withDraft: true})
         const {queryByText} = render(
-          <MockedProvider>
-            <ViewManager {...props} />
-          </MockedProvider>
+          <MockedQueryProvider>
+            <MockedProvider>
+              <ViewManager {...props} />
+            </MockedProvider>
+          </MockedQueryProvider>,
         )
         expect(queryByText('New Attempt')).toBeNull()
       })
@@ -150,9 +158,11 @@ describe('ViewManager', () => {
       it('is not displayed on attempt 0', async () => {
         const props = await makeProps({currentAttempt: 0})
         const {queryByText} = render(
-          <MockedProvider>
-            <ViewManager {...props} />
-          </MockedProvider>
+          <MockedQueryProvider>
+            <MockedProvider>
+              <ViewManager {...props} />
+            </MockedProvider>
+          </MockedQueryProvider>,
         )
         expect(queryByText('New Attempt')).toBeNull()
       })
@@ -160,9 +170,11 @@ describe('ViewManager', () => {
       it('is displayed on the latest submitted attempt', async () => {
         const props = await makeProps({currentAttempt: 1})
         const {queryByText} = render(
-          <MockedProvider>
-            <ViewManager {...props} />
-          </MockedProvider>
+          <MockedQueryProvider>
+            <MockedProvider>
+              <ViewManager {...props} />
+            </MockedProvider>
+          </MockedQueryProvider>,
         )
         expect(queryByText('New Attempt')).not.toBeNull()
       })
@@ -170,12 +182,14 @@ describe('ViewManager', () => {
       it('sets focus on the assignment toggle details when clicked', async () => {
         const props = await makeProps({currentAttempt: 1})
         const {getByText, getByTestId} = render(
-          <MockedProvider>
-            <ViewManager {...props} />
-          </MockedProvider>
+          <MockedQueryProvider>
+            <MockedProvider>
+              <ViewManager {...props} />
+            </MockedProvider>
+          </MockedQueryProvider>,
         )
 
-        const mockFocus = jest.fn()
+        const mockFocus = vi.fn()
         const assignmentToggle = getByTestId('assignments-2-assignment-toggle-details')
         assignmentToggle.focus = mockFocus
 
@@ -190,9 +204,11 @@ describe('ViewManager', () => {
       it('is displayed if you are not on the latest submission attempt', async () => {
         const props = await makeProps({currentAttempt: 3, numSubmissionHistories: 4})
         const {queryByText} = render(
-          <MockedProvider>
-            <ViewManager {...props} />
-          </MockedProvider>
+          <MockedQueryProvider>
+            <MockedProvider>
+              <ViewManager {...props} />
+            </MockedProvider>
+          </MockedQueryProvider>,
         )
         expect(queryByText('New Attempt')).not.toBeNull()
       })
@@ -202,9 +218,25 @@ describe('ViewManager', () => {
 
         const props = await makeProps({currentAttempt: 1})
         const {queryByText} = render(
-          <MockedProvider>
-            <ViewManager {...props} />
-          </MockedProvider>
+          <MockedQueryProvider>
+            <MockedProvider>
+              <ViewManager {...props} />
+            </MockedProvider>
+          </MockedQueryProvider>,
+        )
+        expect(queryByText('New Attempt')).toBeNull()
+      })
+
+      it('is not displayed if the student is concluded in the section the assignment is assigned to', async () => {
+        window.ENV.can_submit_assignment_from_section = false
+
+        const props = await makeProps({currentAttempt: 1})
+        const {queryByText} = render(
+          <MockedQueryProvider>
+            <MockedProvider>
+              <ViewManager {...props} />
+            </MockedProvider>
+          </MockedQueryProvider>,
         )
         expect(queryByText('New Attempt')).toBeNull()
       })
@@ -215,9 +247,11 @@ describe('ViewManager', () => {
     it('are initially displayed if they exist', async () => {
       const props = await makeProps({currentAttempt: 1, withDraft: true})
       const {getByDisplayValue} = render(
-        <MockedProvider>
-          <ViewManager {...props} />
-        </MockedProvider>
+        <MockedQueryProvider>
+          <MockedProvider>
+            <ViewManager {...props} />
+          </MockedProvider>
+        </MockedQueryProvider>,
       )
       expect(getByDisplayValue('Attempt 2')).not.toBeNull()
     })

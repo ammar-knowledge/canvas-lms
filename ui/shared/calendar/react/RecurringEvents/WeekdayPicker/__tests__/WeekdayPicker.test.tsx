@@ -22,12 +22,18 @@ import {render, act} from '@testing-library/react'
 import WeekdayPicker from '../WeekdayPicker'
 
 const defaultProps = (overrides: object = {}) => ({
-  onChange: jest.fn(),
+  onChange: vi.fn(),
   locale: 'en',
   ...overrides,
 })
 
 describe('WeekdayPicker', () => {
+  beforeAll(() => {
+    const liveRegion = document.createElement('div')
+    liveRegion.id = 'flash_screenreader_holder'
+    liveRegion.setAttribute('role', 'alert')
+    document.body.appendChild(liveRegion)
+  })
   it('renders', () => {
     const {getAllByRole, getByText} = render(<WeekdayPicker {...defaultProps()} />)
     expect(getByText('Sunday')).toBeInTheDocument()
@@ -97,5 +103,11 @@ describe('WeekdayPicker', () => {
       getByText('Tuesday').click()
     })
     expect(props.onChange).toHaveBeenCalledWith(['SU', 'MO', 'TU'])
+  })
+
+  it('shows error if there are no selected days', () => {
+    const props = defaultProps({selectedDays: []})
+    const {queryAllByText} = render(<WeekdayPicker {...props} />)
+    expect(queryAllByText('Please select at least one option')[0]).toBeInTheDocument()
   })
 })

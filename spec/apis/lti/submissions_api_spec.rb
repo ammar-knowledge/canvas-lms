@@ -66,7 +66,7 @@ module Lti
     let(:other_tp_guid) { SecureRandom.uuid }
 
     before do
-      mock_sub_helper = instance_double("Lti::PlagiarismSubscriptionsHelper",
+      mock_sub_helper = instance_double(Lti::PlagiarismSubscriptionsHelper,
                                         create_subscription: "123",
                                         destroy_subscription: nil)
       allow(Lti::PlagiarismSubscriptionsHelper).to receive(:new).and_return(mock_sub_helper)
@@ -119,7 +119,7 @@ module Lti
     describe "#show" do
       let(:endpoint) { "/api/lti/assignments/#{assignment.id}/submissions/#{submission.id}" }
 
-      include_examples "authorization"
+      it_behaves_like "authorization"
 
       it "returns a submission json object" do
         now = Time.now.utc
@@ -132,12 +132,12 @@ module Lti
                  "url" => nil,
                  "submitted_at" => now.iso8601,
                  "assignment_id" => assignment.id,
-                 "user_id" => Lti::Asset.opaque_identifier_for(student),
+                 "user_id" => Lti::V1p1::Asset.opaque_identifier_for(student),
                  "submission_type" => "online_upload",
                  "workflow_state" => "submitted",
                  "attempt" => 1,
                  "course_id" => assignment.context.global_id,
-                 "lti_course_id" => Lti::Asset.opaque_identifier_for(assignment.context),
+                 "lti_course_id" => Lti::V1p1::Asset.opaque_identifier_for(assignment.context),
                  "attachments" =>
                    [
                      {
@@ -176,7 +176,7 @@ module Lti
     describe "#history" do
       let(:endpoint) { "/api/lti/assignments/#{assignment.id}/submissions/#{submission.id}/history" }
 
-      include_examples "authorization"
+      it_behaves_like "authorization"
       it "returns the submission history as an array of JSON objects" do
         now = Time.now.utc
         Timecop.freeze(now) do
@@ -189,12 +189,12 @@ module Lti
                 "url" => nil,
                 "submitted_at" => now.iso8601,
                 "assignment_id" => assignment.id,
-                "user_id" => Lti::Asset.opaque_identifier_for(student),
+                "user_id" => Lti::V1p1::Asset.opaque_identifier_for(student),
                 "submission_type" => "online_upload",
                 "workflow_state" => "submitted",
                 "attempt" => 1,
                 "course_id" => assignment.context.global_id,
-                "lti_course_id" => Lti::Asset.opaque_identifier_for(assignment.context),
+                "lti_course_id" => Lti::V1p1::Asset.opaque_identifier_for(assignment.context),
                 "attachments" =>
                    [
                      {
@@ -234,14 +234,14 @@ module Lti
 
         get endpoint, headers: request_headers
         json = JSON.parse(response.body)
-        expect(json[0]["attachments"].first["id"]).to_not equal json[1]["attachments"].first["id"]
+        expect(json[0]["attachments"].first["id"]).not_to equal json[1]["attachments"].first["id"]
       end
     end
 
     describe "#attachment" do
       let(:endpoint) { "/api/lti/assignments/#{assignment.id}/submissions/#{submission.id}/attachment/#{attachment.id}" }
 
-      include_examples "authorization"
+      it_behaves_like "authorization"
 
       it "allows a user to download a file" do
         get "/api/lti/assignments/#{assignment.id}/submissions/#{submission.id}", headers: request_headers

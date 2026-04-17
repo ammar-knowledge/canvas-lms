@@ -25,7 +25,7 @@ describe Lti::PlatformStorage do
     let(:signing_secret) { "sekret" }
 
     before do
-      allow(Rails).to receive(:application).and_return(instance_double("Rails::Application", credentials: {})) unless Rails.application.present?
+      allow(Rails).to receive(:application).and_return(instance_double(Rails::Application, credentials: {})) unless Rails.application.present?
       allow(Rails.application.credentials).to receive(:dig).with(:lti_platform_storage, :signing_secret).and_return(signing_secret)
     end
 
@@ -38,6 +38,6 @@ describe Lti::PlatformStorage do
     subject { Lti::PlatformStorage::FORWARDING_TARGET }
 
     it { is_expected.to be_a String }
-    it { is_expected.to_not be_empty }
+    it { is_expected.not_to be_empty }
   end
 end

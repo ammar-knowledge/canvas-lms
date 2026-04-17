@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-class MasterCourses::MasterContentTag < ActiveRecord::Base
+class MasterCourses::MasterContentTag < ApplicationRecord
   # i want to get off content tag's wild ride
 
   # stores restriction data on the blueprint side
@@ -33,11 +33,13 @@ class MasterCourses::MasterContentTag < ActiveRecord::Base
                                      :calendar_event,
                                      :context_external_tool,
                                      :context_module,
+                                     :course,
                                      :course_pace,
                                      :discussion_topic,
                                      :learning_outcome,
                                      :media_track,
                                      :rubric,
+                                     :sub_assignment,
                                      :wiki_page,
                                      quiz: "Quizzes::Quiz"]
   belongs_to :assignment, -> { where(master_courses_master_content_tags: { content_type: "Assignment" }) }, foreign_key: "content_id", inverse_of: :master_content_tag

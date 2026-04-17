@@ -20,13 +20,33 @@ import React from 'react'
 import {render} from '@testing-library/react'
 import GraderNamesVisibleToFinalGraderCheckbox from '../GraderNamesVisibleToFinalGraderCheckbox'
 import userEvent from '@testing-library/user-event'
+import fakeENV from '@canvas/test-utils/fakeENV'
+
+// Mock jQuery
+vi.mock('jquery', () => {
+  const jQueryMock = {
+    flashError: vi.fn(),
+    Deferred: vi.fn(() => ({
+      resolve: vi.fn(),
+      reject: vi.fn(),
+      promise: vi.fn(),
+    })),
+    when: vi.fn(() => Promise.resolve()),
+  }
+  return vi.fn(() => jQueryMock)
+})
 
 describe('GraderNamesVisibleToFinalGraderCheckbox', () => {
   let props
   let wrapper
 
   beforeEach(() => {
+    fakeENV.setup()
     props = {checked: false}
+  })
+
+  afterEach(() => {
+    fakeENV.teardown()
   })
 
   function mountComponent() {

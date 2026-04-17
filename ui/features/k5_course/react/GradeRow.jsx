@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Table} from '@instructure/ui-table'
 import {Link} from '@instructure/ui-link'
 import {Text} from '@instructure/ui-text'
@@ -26,9 +26,13 @@ import {AccessibleContent, ScreenReaderContent} from '@instructure/ui-a11y-conte
 import {Badge} from '@instructure/ui-badge'
 import {getK5ThemeVars} from '@canvas/k5/react/k5-theme'
 
-const k5ThemeVariables = getK5ThemeVars()
+const k5ThemeVariables = getK5ThemeVars(
+  Boolean(ENV.use_high_contrast),
+  Boolean(ENV.USE_CLASSIC_FONT),
+  Boolean(ENV.use_dyslexic_font),
+)
 
-const I18n = useI18nScope('grade_row')
+const I18n = createI18nScope('grade_row')
 
 // For the instui Table to render correctly with layout="stacked", (see GradeDetails)
 // its body's children must be Table.Rows. It doesn't work to trick it by setting
@@ -84,7 +88,7 @@ export const GradeRow = ({
     }
     if (submissionDate) {
       return (
-        <Text color="success" size="small">
+        <Text data-testid="submission-date" color="success" size="small">
           {I18n.t('Submitted %{date}', {
             date: dateFormatter(submissionDate),
           })}
@@ -102,40 +106,48 @@ export const GradeRow = ({
 
   const renderScore = () => {
     if (excused) {
-      return <Text>{I18n.t('Excused')}</Text>
+      return <Text data-testid="assignment-score">{I18n.t('Excused')}</Text>
     }
 
     const notGraded = grade == null
     const gradeString = notGraded ? '—' : grade
 
     switch (gradingType) {
-      case 'points':
-        return notGraded ? (
-          notGradedContent(I18n.t('— pts'))
-        ) : (
-          <Text>{I18n.t('%{score} pts', {score: gradeString})}</Text>
+      case 'points': {
+        if (notGraded) {
+          return notGradedContent(I18n.t('— pts'))
+        }
+        const roundedScore = I18n.n(parseFloat(gradeString), {
+          precision: 2,
+          strip_insignificant_zeros: true,
+        })
+        return (
+          <Text data-testid="assignment-score">
+            {I18n.t('%{score} pts', {score: roundedScore})}
+          </Text>
         )
+      }
       case 'gpa_scale':
         return notGraded ? (
           notGradedContent(I18n.t('— GPA'))
         ) : (
-          <Text>{I18n.t('%{gpa} GPA', {gpa: gradeString})}</Text>
+          <Text data-testid="assignment-score">{I18n.t('%{gpa} GPA', {gpa: gradeString})}</Text>
         )
       case 'pass_fail':
         return notGraded ? (
           notGradedContent()
         ) : grade === 'complete' ? (
-          <AccessibleContent alt={I18n.t('Complete')}>
+          <AccessibleContent data-testid="assignment-score" alt={I18n.t('Complete')}>
             <IconCheckDarkSolid />
           </AccessibleContent>
         ) : (
-          <AccessibleContent alt={I18n.t('Incomplete')}>
+          <AccessibleContent data-testid="assignment-score" alt={I18n.t('Incomplete')}>
             <IconXSolid />
           </AccessibleContent>
         )
       case 'not_graded':
         return (
-          <AccessibleContent alt={I18n.t('Ungraded assignment')}>
+          <AccessibleContent data-testid="assignment-score" alt={I18n.t('Ungraded assignment')}>
             <Text>--</Text>
           </AccessibleContent>
         )
@@ -144,11 +156,11 @@ export const GradeRow = ({
         return notGraded ? (
           notGradedContent()
         ) : grade === 'complete' ? (
-          <AccessibleContent alt={I18n.t('Complete')}>
+          <AccessibleContent data-testid="assignment-score" alt={I18n.t('Complete')}>
             <IconCheckDarkSolid />
           </AccessibleContent>
         ) : (
-          <Text>{grade}</Text>
+          <Text data-testid="assignment-score">{grade}</Text>
         )
     }
   }
@@ -158,9 +170,10 @@ export const GradeRow = ({
       <Link
         href={url}
         isWithinText={false}
+        data-testid="assignment-name"
         themeOverride={{
-          color: k5ThemeVariables.colors.textDarkest,
-          hoverColor: k5ThemeVariables.colors.textDarkest,
+          color: k5ThemeVariables.colors.contrasts.grey125125,
+          hoverColor: k5ThemeVariables.colors.contrasts.grey125125,
         }}
       >
         {assignmentName}
@@ -198,7 +211,7 @@ export const GradeRow = ({
         {dueDate && <Text>{dateFormatter(dueDate)}</Text>}
       </Table.Cell>
       <Table.Cell themeOverride={cellTheme}>
-        <Text>{assignmentGroupName}</Text>
+        <Text data-testid="assignment-group-name">{assignmentGroupName}</Text>
       </Table.Cell>
       <Table.Cell themeOverride={cellTheme}>
         <div className="grade-details__score">

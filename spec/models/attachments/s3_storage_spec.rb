@@ -18,9 +18,10 @@
 #
 
 describe Attachments::S3Storage do
+  let(:attachment) { attachment_model }
+
   describe "#sign_policy" do
     # example values from http://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-post-example.html
-    let(:attachment) { attachment_model }
     let(:access_key_id) { "AKIAIOSFODNN7EXAMPLE" }
     let(:secret_access_key) { "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" }
     let(:datetime) { "20151229T000000Z" }
@@ -41,13 +42,11 @@ describe Attachments::S3Storage do
     BASE64
     let(:signature) { "8afdbf4008c03f22c2cd3cdb72e4afbb1f6a588f3255ac628749a66d7f09699e" }
     let(:bucket) do
-      config = double("config", {
-                        secret_access_key:,
-                        region: "us-east-1",
-                        credentials: double(credentials: double(access_key_id:, secret_access_key:)),
-                      })
-      client = double("client", config:)
-      double("bucket", client:)
+      credentials = instance_double(Aws::Credentials, access_key_id:, secret_access_key:)
+      credentials_provider = instance_double(Aws::CredentialProvider, credentials:)
+      config = Struct.new(:region, :credentials).new("us-east-1", credentials_provider)
+      client = instance_double(Aws::S3::Client, config:)
+      instance_double(Aws::S3::Bucket, client:)
     end
 
     it "follows the v4 signing example from AWS" do
@@ -55,6 +54,78 @@ describe Attachments::S3Storage do
       store = Attachments::S3Storage.new(attachment)
       _sig_key, sig_val = store.sign_policy(string_to_sign, datetime)
       expect(sig_val).to eq signature
+    end
+  end
+
+  describe "#open" do
+    before { s3_storage! }
+
+    context "when the attachment exists" do
+      it "returns a tempfile" do
+        result = attachment.open
+        expect(result).to be_a(Tempfile)
+      end
+
+      it "downloads the file to the tempfile" do
+        expect_any_instance_of(Aws::S3::Object).to receive(:get).once
+        attachment.open
+      end
+
+      it "validates the hash if integrity_check is true" do
+        expect(attachment).to receive(:validate_hash)
+        attachment.open(integrity_check: true)
+      end
+    end
+
+    context "when the S3 object is missing" do
+      let(:s3_error) { Aws::S3::Errors::NoSuchKey.new(instance_double(Seahorse::Client::RequestContext), "no such key") }
+
+      before do
+        attachment.update!(file_state: "available")
+        allow_any_instance_of(Aws::S3::Object).to receive(:get).and_raise(s3_error)
+        allow(Canvas::Errors).to receive(:capture_exception)
+      end
+
+      it "returns nil" do
+        expect(attachment.open).to be_nil
+      end
+
+      it "sets in-memory file_state to broken" do
+        attachment.open
+        expect(attachment.file_state).to eq "broken"
+      end
+
+      it "persists file_state to broken" do
+        attachment.open
+        expect(attachment.reload.file_state).to eq "broken"
+      end
+
+      it "captures the exception" do
+        attachment.open
+        expect(Canvas::Errors).to have_received(:capture_exception).with(:attachment, s3_error, :warn)
+      end
+
+      it "does not perform integrity check even if requested" do
+        expect(attachment).not_to receive(:validate_hash)
+        attachment.open(integrity_check: true)
+      end
+
+      it "does not yield chunks when block given" do
+        yielded = false
+        attachment.open { |_chunk| yielded = true }
+        expect(yielded).to be false
+      end
+    end
+
+    context "when file_state is already broken" do
+      before do
+        attachment.update!(file_state: "broken")
+      end
+
+      it "returns nil immediately without calling S3 get" do
+        expect_any_instance_of(Aws::S3::Object).not_to receive(:get)
+        expect(attachment.open).to be_nil
+      end
     end
   end
 end

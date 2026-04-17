@@ -32,6 +32,8 @@ module Api::V1::CalendarEvent
   def event_json(event, user, session, options = {})
     if event.is_a?(::CalendarEvent)
       calendar_event_json(event, user, session, options)
+    elsif event.is_a?(::SubAssignment)
+      sub_assignment_event_json(event, user, session, options)
     else
       assignment_event_json(event, user, session, options)
     end
@@ -64,7 +66,6 @@ module Api::V1::CalendarEvent
                rrule
                blackout_date]
     )
-
     if user
       hash["location_address"] = event.location_address
       hash["location_name"] = event.location_name
@@ -73,9 +74,9 @@ module Api::V1::CalendarEvent
     hash["type"] = "event"
     if event.context_type == "CourseSection"
       hash["title"] += " (#{context.name})" unless hash["title"].end_with?(" (#{context.name})")
-      hash["description"] = api_user_content(event.description, event.context.course) unless excludes.include?("description")
+      hash["description"] = api_user_content(event.description, event.context.course, location: event.asset_string) unless excludes.include?("description")
     else
-      hash["description"] = api_user_content(event.description, context) unless excludes.include?("description")
+      hash["description"] = api_user_content(event.description, context, location: event.asset_string) unless excludes.include?("description")
     end
 
     appointment_group = options[:appointment_group]
@@ -90,23 +91,25 @@ module Api::V1::CalendarEvent
                                    options[:child_events_count] || event.child_events.size
                                  end
 
+    request_shard = options[:request_shard] || @request_shard || user.shard
     if event.effective_context_code
+      effective_context_code = (request_shard == event.shard) ? event.effective_context_code : event.sharded_effective_context_code
       if appointment_group && include_child_events
         common_context_codes = common_ag_context_codes(appointment_group, user, event, options[:for_scheduler])
-        effective_context_code = (event.effective_context_code.split(",") & common_context_codes).first
-        if effective_context_code
-          hash["context_code"] = hash["effective_context_code"] = effective_context_code
+        matched_common_context = (effective_context_code.split(",") & common_context_codes).first
+        if matched_common_context
+          hash["context_code"] = hash["effective_context_code"] = matched_common_context
         else
           # the teacher has no courses in common with the signups
           include_child_events = false
           hash["child_events"] = []
           hash["child_events_count"] = 0
-          hash["effective_context_code"] = event.effective_context_code
+          hash["effective_context_code"] = effective_context_code
         end
       else
-        hash["effective_context_code"] = event.effective_context_code
+        hash["effective_context_code"] = effective_context_code
       end
-      hash["all_context_codes"] = event.effective_context_code
+      hash["all_context_codes"] = effective_context_code
     else
       hash["all_context_codes"] = Context.context_code_for(event)
     end
@@ -114,7 +117,7 @@ module Api::V1::CalendarEvent
     hash["context_name"] = context.try(:nickname_for, user)
     hash["context_color"] = context.try(:course_color)
 
-    hash["parent_event_id"] = event.parent_calendar_event_id
+    hash["parent_event_id"] = request_shard.activate { event.parent_calendar_event_id }
     # events are hidden when section-specific events override them
     # but if nobody is logged in, no sections apply, so show the base event
     hash["hidden"] = user ? event.hidden? : false
@@ -128,8 +131,8 @@ module Api::V1::CalendarEvent
       end
     end
     if appointment_group
-      hash["appointment_group_id"] = appointment_group.id
-      hash["appointment_group_url"] = api_v1_appointment_group_url(appointment_group)
+      hash["appointment_group_id"] = request_shard.activate { appointment_group.id }
+      hash["appointment_group_url"] = request_shard.activate { api_v1_appointment_group_url(appointment_group) }
       hash["can_manage_appointment_group"] = appointment_group.grants_right?(user, session, :manage)
       hash["participant_type"] = appointment_group.participant_type
       if options[:current_participant] && event.has_asset?(options[:current_participant])
@@ -187,7 +190,9 @@ module Api::V1::CalendarEvent
       hash["web_conference"] = api_conference_json(event.web_conference, user, session)
     end
 
-    hash["url"] = api_v1_calendar_event_url(event) if options.key?(:url_override) ? options[:url_override] || hash["own_reservation"] : event.grants_right?(user, session, :read)
+    if options.key?(:url_override) ? options[:url_override] || hash["own_reservation"] : event.grants_right?(user, session, :read)
+      hash["url"] = request_shard.activate { api_v1_calendar_event_url(event) }
+    end
     hash["html_url"] = calendar_url_for(options[:effective_context] || event.effective_context, event:)
     if duplicates
       hash["duplicates"] = duplicates.map { |dupe| { "calendar_event" => calendar_event_json(dupe, user, session, options) } }
@@ -209,7 +214,7 @@ module Api::V1::CalendarEvent
     target_fields = %w[created_at updated_at title all_day all_day_date workflow_state submission_types]
     target_fields << "description" unless excludes.include?("description")
     hash = api_json(assignment, user, session, only: target_fields)
-    hash["description"] = api_user_content(hash["description"], assignment.context) unless excludes.include?("description")
+    hash["description"] = api_user_content(hash["description"], assignment.context, location: assignment.asset_string) unless excludes.include?("description")
 
     hash["id"] = "assignment_#{assignment.id}"
     hash["type"] = "assignment"
@@ -227,9 +232,53 @@ module Api::V1::CalendarEvent
     hash["start_at"] = hash["end_at"] = assignment.due_at
     hash["url"] = api_v1_calendar_event_url("assignment_#{assignment.id}")
     if assignment.applied_overrides.present?
-      hash["assignment_overrides"] = assignment.applied_overrides.map { |o| assignment_override_json(o) }
+      all_overrides = assignment.applied_overrides.map { |o| assignment_override_json(o) }
+      hash["assignment_overrides"] = if all_overrides.size > 1
+                                       all_overrides.select { |o| o["context_module_id"].nil? }
+                                     else
+                                       all_overrides
+                                     end
     end
     hash["important_dates"] = assignment.important_dates
+    hash
+  end
+
+  def sub_assignment_event_json(sub_assignment, user, session, options = {})
+    excludes = options[:excludes] || []
+    parent_assignment = sub_assignment.parent_assignment
+
+    target_fields = %w[created_at updated_at title all_day all_day_date workflow_state submission_types]
+    target_fields << "description" unless excludes.include?("description")
+    parent_assignment_hash = assignment_json(parent_assignment, user, session, override_dates: false, submission: options[:submission])
+    hash = api_json(sub_assignment, user, session, only: target_fields)
+
+    hash["title"] = sub_assignment.title_with_required_replies
+    hash["description"] = api_user_content(hash["description"], sub_assignment.context, location: sub_assignment.asset_string) unless excludes.include?("description")
+    hash["id"] = "sub_assignment_#{sub_assignment.id}"
+    hash["type"] = "sub_assignment"
+
+    hash["sub_assignment"] = assignment_json(sub_assignment, user, session, override_dates: false, submission: options[:submission])
+    hash["sub_assignment"]["name"] = sub_assignment.title_with_required_replies
+    hash["sub_assignment"]["sub_assignment_tag"] = sub_assignment.sub_assignment_tag
+    hash["sub_assignment"]["parent_assignment_id"] = sub_assignment.parent_assignment_id
+    hash["sub_assignment"]["discussion_topic"] = parent_assignment_hash["discussion_topic"]
+
+    # use the parent assignment to construct urls as the sub_assignment cannot be accessed directly
+    html_url = course_assignment_url(parent_assignment.context_id, parent_assignment)
+    hash["html_url"] = html_url
+    hash["sub_assignment"]["html_url"] = html_url
+    hash["url"] = api_v1_calendar_event_url("assignment_#{parent_assignment.id}")
+    hash["sub_assignment"]["submissions_download_url"] = parent_assignment_hash["submissions_download_url"]
+
+    hash["context_code"] = Context.context_code_for(sub_assignment)
+    hash["context_name"] = sub_assignment.context.try(:nickname_for, user)
+    hash["context_color"] = sub_assignment.context.try(:course_color)
+
+    hash["start_at"] = hash["end_at"] = sub_assignment.due_at
+    if sub_assignment.applied_overrides.present?
+      hash["sub_assignment_overrides"] = sub_assignment.applied_overrides.map { |o| assignment_override_json(o) }
+    end
+    hash["important_dates"] = sub_assignment.important_dates
     hash
   end
 
@@ -263,8 +312,13 @@ module Api::V1::CalendarEvent
         }
       end
     end
-    hash["context_codes"] = group.context_codes_for_user(user)
-    hash["all_context_codes"] = group.context_codes if include.include?("all_context_codes") && group.grants_right?(user, session, :manage)
+
+    request_shard = @request_shard || user.shard
+    hash["context_codes"] = request_shard.activate { group.contexts.map(&:asset_string) }
+
+    if include.include?("all_context_codes") && group.grants_right?(user, session, :manage)
+      hash["all_context_codes"] = request_shard.activate { group.contexts.map(&:asset_string) }
+    end
     hash["requiring_action"] = group.requiring_action?(user)
     if group.new_appointments.present?
       hash["new_appointments"] = group.new_appointments.map { |event| calendar_event_json(event, user, session, skip_details: true, appointment_group_id: group.id) }

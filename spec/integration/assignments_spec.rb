@@ -120,6 +120,37 @@ describe "assignments" do
       expect(doc.css(".assignment_dates").text).not_to include "Everyone"
     end
   end
+
+  describe "read permissions" do
+    describe "admin" do
+      def admin_user_logged_in(permission, enabled)
+        account = @course.root_account
+        role = custom_account_role("CustomAccountUser", account:)
+        RoleOverride.manage_role_override(account, role, permission, override: enabled)
+        admin = account_admin_user(account:, role:, active_all: true)
+        user_session(admin)
+      end
+
+      before do
+        course_with_teacher_logged_in(active_all: true)
+        @assignment = @course.assignments.create!(title: "Test 1", submission_types: "online_text_entry")
+      end
+
+      it "can view assignment with Course Content - view" do
+        admin_user_logged_in("read_course_content", true)
+
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}"
+        expect(response).to have_http_status(:ok)
+      end
+
+      it "cannot view assignment without Course Content - view" do
+        admin_user_logged_in("read_course_content", false)
+
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}"
+        expect(response).to have_http_status(:unauthorized)
+      end
+    end
+  end
 end
 
 describe "download submissions link" do
@@ -336,7 +367,7 @@ describe "assignments_2 feature flag and parameter" do
       it "shows the old assignments page even with query parameter" do
         get "/courses/#{@course.id}/assignments/#{@assignment.id}?assignments_2=1"
         html = Nokogiri::HTML5(response.body)
-        expect(html.at_css("div#assignment_show")).to be
+        expect(html.at_css("div#assignment_show")).not_to be_nil
       end
     end
 
@@ -348,13 +379,13 @@ describe "assignments_2 feature flag and parameter" do
       it "shows new assignments" do
         get "/courses/#{@course.id}/assignments/#{@assignment.id}"
         html = Nokogiri::HTML5(response.body)
-        expect(html.at_css("div#assignment_show")).not_to be
+        expect(html.at_css("div#assignment_show")).to be_nil
       end
 
       it "shows old assignments when explicitly requested" do
         get "/courses/#{@course.id}/assignments/#{@assignment.id}?assignments_2=0"
         html = Nokogiri::HTML5(response.body)
-        expect(html.at_css("div#assignment_show")).to be
+        expect(html.at_css("div#assignment_show")).not_to be_nil
       end
     end
   end
@@ -373,7 +404,7 @@ describe "assignments_2 feature flag and parameter" do
       it "shows the old assignments page even with query parameter" do
         get "/courses/#{@course.id}/assignments/#{@assignment.id}?assignments_2=1"
         html = Nokogiri::HTML5(response.body)
-        expect(html.at_css("div#assignment_show")).to be
+        expect(html.at_css("div#assignment_show")).not_to be_nil
       end
     end
 
@@ -387,13 +418,13 @@ describe "assignments_2 feature flag and parameter" do
         @assignment.save!
         get "/courses/#{@course.id}/assignments/#{@assignment.id}"
         html = Nokogiri::HTML5(response.body)
-        expect(html.at_css("div#assignment_show")).not_to be
+        expect(html.at_css("div#assignment_show")).to be_nil
       end
 
       it "shows old assignments if requested" do
         get "/courses/#{@course.id}/assignments/#{@assignment.id}?assignments_2=0"
         html = Nokogiri::HTML5(response.body)
-        expect(html.at_css("div#assignment_show")).to be
+        expect(html.at_css("div#assignment_show")).not_to be_nil
       end
 
       it "sets the necessary RCS ENV" do
@@ -453,41 +484,6 @@ describe "assignments_2 feature flag and parameter" do
         get "/courses/#{@course.id}/assignments/#{@assignment.id}"
         expect(old_assignment_page_indicator).to be_present
       end
-    end
-  end
-
-  describe "description" do
-    before do
-      skip "TODO doesn't work right because public_user_content is wonky"
-    end
-
-    let(:description) { <<~HTML }
-      <a href="#{attachment_model.public_download_url}">link</a>
-    HTML
-
-    it "excludes verifiers if course is not public" do
-      course_with_student(active_all: true)
-      user_session(@student)
-      expect(UserContent::FilesHandler).to receive(:new).with(hash_including(is_public: false))
-      assignment = @course.assignments.create(
-        title: "some assignment",
-        description:
-      )
-      get "/courses/#{@course.id}/assignments/#{assignment.id}"
-    end
-
-    it "includes verifiers if course is public" do
-      expect(UserContent::FilesHandler).to receive(:new).with(hash_including(is_public: true))
-      course = course_factory(
-        active_all: true,
-        is_public: true
-      )
-      assignment = assignment_model(
-        course:,
-        submission_types: "online_url",
-        description:
-      )
-      get "/courses/#{course.id}/assignments/#{assignment.id}"
     end
   end
 end

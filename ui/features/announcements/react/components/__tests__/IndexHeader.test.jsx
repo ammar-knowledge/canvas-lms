@@ -39,12 +39,12 @@ const defaultProps = () => ({
   isToggleLocking: false,
   permissions: defaultPermissions(),
   atomFeedUrl: null,
-  searchAnnouncements: () => Promise.reject(new Error('Not Implemented')),
+  searchAnnouncements: () => {},
   toggleSelectedAnnouncementsLock: () => Promise.reject(new Error('Not Implemented')),
   deleteSelectedAnnouncements: () => Promise.reject(new Error('Not Implemented')),
   searchInputRef: null,
   announcementsLocked: false,
-  markAllAnnouncementRead: jest.fn(),
+  markAllAnnouncementRead: vi.fn(),
 })
 
 describe('IndexHeader', () => {
@@ -61,19 +61,19 @@ describe('IndexHeader', () => {
 
   it('does not render icon dropdown next to title', () => {
     render(<IndexHeader {...defaultProps()} />)
-    expect(screen.queryByRole('button', {name: 'Announcement Filter'})).not.toBeInTheDocument()
+    expect(screen.queryByTestId('toggle-filter-menu')).not.toBeInTheDocument()
   })
 
   it('renders filter dropdown', () => {
     render(<IndexHeader {...defaultProps()} />)
-    expect(screen.getByRole('combobox', {name: 'Announcement Filter'})).toBeInTheDocument()
+    expect(screen.getByTestId('announcement-filter')).toBeInTheDocument()
   })
 
   it('lets me add an announcement when I have the permission', () => {
     render(
-      <IndexHeader {...defaultProps()} permissions={{...defaultPermissions(), create: true}} />
+      <IndexHeader {...defaultProps()} permissions={{...defaultPermissions(), create: true}} />,
     )
-    expect(screen.getByText('Add announcement')).toBeInTheDocument()
+    expect(screen.getByText('Add Announcement')).toBeInTheDocument()
   })
 
   it('lets me lock an announcement when I have the permission and it is unlocked', () => {
@@ -82,9 +82,12 @@ describe('IndexHeader', () => {
         {...defaultProps()}
         isToggleLocking={true}
         permissions={{...defaultPermissions(), manage_course_content_edit: true}}
-      />
+      />,
     )
     expect(screen.getByText('Lock Selected Announcements')).toBeInTheDocument()
+
+    const lockButton = screen.getByTestId('lock_announcements')
+    expect(lockButton).toHaveAttribute('data-action-state', 'lockSelectedButton')
   })
 
   it('lets me unlock an announcement when I have the permission and it is locked', () => {
@@ -92,9 +95,12 @@ describe('IndexHeader', () => {
       <IndexHeader
         {...defaultProps()}
         permissions={{...defaultPermissions(), manage_course_content_edit: true}}
-      />
+      />,
     )
     expect(screen.getByText('Unlock Selected Announcements')).toBeInTheDocument()
+
+    const lockButton = screen.getByTestId('lock_announcements')
+    expect(lockButton).toHaveAttribute('data-action-state', 'unlockSelectedButton')
   })
 
   it('lets me delete an announcement when I have the permission', () => {
@@ -102,7 +108,7 @@ describe('IndexHeader', () => {
       <IndexHeader
         {...defaultProps()}
         permissions={{...defaultPermissions(), manage_course_content_delete: true}}
-      />
+      />,
     )
     expect(screen.getByText('Delete Selected Announcements')).toBeInTheDocument()
   })
@@ -125,21 +131,18 @@ describe('IndexHeader', () => {
 
     it('renders icon dropdown next to title', () => {
       render(<IndexHeader {...defaultProps()} />)
-      expect(screen.getByRole('button', {name: 'Announcement Filter'})).toBeInTheDocument()
+      expect(screen.getByTestId('toggle-filter-menu')).toBeInTheDocument()
     })
 
     it('renders different title when another filter is selected from dropdown', async () => {
       render(<IndexHeader {...defaultProps()} />)
       expect(screen.queryByText('Unread Announcements')).not.toBeInTheDocument()
 
-      const filterButton = screen.getByRole('button', {name: 'Announcement Filter'})
+      const filterButton = screen.getByTestId('toggle-filter-menu')
       await user.click(filterButton)
 
-      const filterMenu = screen.getAllByRole('menu')[1]
-      const allKeys = filterMenu.querySelectorAll('li')
-      expect(allKeys.length).toBe(2)
-
-      await user.click(allKeys[1])
+      const unreadFilter = screen.getByTestId('menu-filter-unread')
+      await user.click(unreadFilter)
       expect(screen.getByText('Unread Announcements')).toBeInTheDocument()
     })
   })

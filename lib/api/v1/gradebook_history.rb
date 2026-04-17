@@ -139,7 +139,7 @@ module Api::V1
     end
 
     def submissions_set(course, api_context, options = {})
-      collection = ::Submission.for_course(course).order("graded_at DESC")
+      collection = ::Submission.for_course(course).order(graded_at: :desc)
 
       if options[:date]
         date = options[:date]
@@ -169,10 +169,11 @@ module Api::V1
     PREVIOUS_VERSION_ATTRS = %i[grade graded_at grader].freeze
     NEW_ATTRS = %i[grade graded_at grader score].freeze
 
-    DEFAULT_GRADER = Struct.new(:name, :id)
+    DefaultGrader = Struct.new(:name, :id)
+    private_constant :PREVIOUS_VERSION_ATTRS, :NEW_ATTRS, :DefaultGrader
 
     def default_grader
-      @default_grader ||= DEFAULT_GRADER.new(I18n.t("gradebooks.history.graded_on_submission", "Graded on submission"), 0)
+      @default_grader ||= DefaultGrader.new(I18n.t("gradebooks.history.graded_on_submission", "Graded on submission"), 0)
     end
 
     def user_cache

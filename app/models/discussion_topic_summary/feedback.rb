@@ -18,21 +18,21 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 class DiscussionTopicSummary
-  class Feedback < ActiveRecord::Base
+  class Feedback < ApplicationRecord
     belongs_to :root_account, class_name: "Account"
     belongs_to :discussion_topic_summary, inverse_of: :feedback
     belongs_to :user
 
-    before_validation :set_root_account
+    validates :comment, length: { maximum: 1024 }, allow_nil: true
 
-    self.ignored_columns += ["regenerated"]
+    before_validation :set_root_account
 
     def set_root_account
       self.root_account ||= discussion_topic_summary.root_account
     end
 
     def like
-      update!(liked: true, disliked: false)
+      update!(liked: true, disliked: false, comment: nil)
     end
 
     def dislike
@@ -40,7 +40,13 @@ class DiscussionTopicSummary
     end
 
     def reset_like
-      update!(liked: false, disliked: false)
+      update!(liked: false, disliked: false, comment: nil)
+    end
+
+    def add_comment(comment)
+      raise ActiveRecord::RecordInvalid, self unless disliked?
+
+      update!(comment:)
     end
 
     def disable_summary

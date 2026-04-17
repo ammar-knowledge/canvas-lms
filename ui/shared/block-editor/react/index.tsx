@@ -17,14 +17,15 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render} from '@canvas/react'
 import BlockEditor from './BlockEditor'
 
 import BlockEditorView from './BlockEditorView'
+import {type BlockEditorDataTypes} from './utils/transformations'
 
-function renderBlockEditorView(content: string, container: HTMLElement) {
-  ReactDOM.render(<BlockEditorView content={content} />, container)
+function renderBlockEditorView(content: BlockEditorDataTypes, container: HTMLElement) {
+  render(<BlockEditorView content={content} />, container)
 }
 
-export {BlockEditor, BlockEditorView, renderBlockEditorView}
+export {BlockEditor, BlockEditorView, renderBlockEditorView, type BlockEditorDataTypes}
 export default BlockEditor

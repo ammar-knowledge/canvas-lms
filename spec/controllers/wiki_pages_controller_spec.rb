@@ -24,6 +24,39 @@ describe WikiPagesController do
     @wiki = @course.wiki
   end
 
+  describe "new page" do
+    render_views
+
+    context "when 'block_content_editor' feature is enabled" do
+      before do
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+      end
+
+      it "renders new page" do
+        get :new, params: { course_id: @course.id }
+        expect(response).to have_http_status(:ok)
+      end
+
+      it "sets rce_js_env" do
+        get :new, params: { course_id: @course.id }
+        expect(assigns[:js_env]).to have_key :RICH_CONTENT_APP_HOST
+      end
+    end
+
+    context "when 'block_content_editor' feature is disabled" do
+      before do
+        @course.account.enable_feature!(:block_content_editor)
+        @course.disable_feature!(:block_content_editor_eap)
+      end
+
+      it "renders error page" do
+        get :new, params: { course_id: @course.id }
+        expect(response).to have_http_status(:unauthorized)
+      end
+    end
+  end
+
   describe "GET 'front_page'" do
     it "redirects" do
       get "front_page", params: { course_id: @course.id }
@@ -37,6 +70,48 @@ describe WikiPagesController do
       get "front_page", params: { course_id: @course.id }
       expect(response).to be_successful
       expect(assigns[:js_env][:DISPLAY_SHOW_ALL_LINK]).to be(true)
+    end
+
+    context "assign to differentiation tags" do
+      before do
+        @course.account.tap do |a|
+          a.settings[:allow_assign_to_differentiation_tags] = { value: true }
+          a.save!
+        end
+      end
+
+      it "adds differentiation tags information if account setting is on" do
+        get "index", params: { course_id: @course.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be true
+      end
+
+      it "does not add differentiation tags information if user cannot manage tags" do
+        course_with_student(active_all: true)
+        user_session(@student)
+        get "index", params: { course_id: @course.id }
+        expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be_nil
+        expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be_nil
+      end
+    end
+  end
+
+  context "unauthenticated user in public course" do
+    before do
+      @course.update!(is_public: true)
+      @page = @course.wiki_pages.create!(title: "a-page", body: "hello")
+      remove_user_session
+    end
+
+    it "allows access to the pages index" do
+      get "index", params: { course_id: @course.id }
+      expect(response).to have_http_status :ok
+    end
+
+    it "allows access to the front page" do
+      @course.wiki.set_front_page_url!(@page.url)
+      get "front_page", params: { course_id: @course.id }
+      expect(response).to have_http_status :ok
     end
   end
 
@@ -52,100 +127,68 @@ describe WikiPagesController do
         user_session(@student)
       end
 
-      context "with selective_release_backend enabled" do
-        before do
-          Account.site_admin.enable_feature! :selective_release_backend
-        end
-
-        context "regular pages" do
-          it "allows access by default" do
-            expect(response).to have_http_status :ok
-          end
-
-          it "does not allow access if page has only_visible_to_overrides=true" do
-            @page.update!(only_visible_to_overrides: true)
-            expect(response).to be_redirect
-            expect(response.location).to eq course_wiki_pages_url(@course)
-          end
-
-          it "allows access if only_visible_to_overrides=true but the user has an override" do
-            override = @page.assignment_overrides.create!
-            override.assignment_override_students.create!(user: @student)
-            expect(response).to have_http_status :ok
-          end
-
-          it "does not allow access if page has only_visible_to_overrides=false but user does not have module override" do
-            @page.update!(only_visible_to_overrides: false)
-            module1 = @course.context_modules.create!(name: "module1")
-            module1.add_item(id: @page.id, type: "wiki_page")
-            module1.assignment_overrides.create!(set_type: "ADHOC")
-
-            expect(response).to be_redirect
-            expect(response.location).to eq course_wiki_pages_url(@course)
-          end
-
-          it "allows access if page has only_visible_to_overrides=false and user does have module override" do
-            @page.update!(only_visible_to_overrides: false)
-            module1 = @course.context_modules.create!(name: "module1")
-            module1.add_item(id: @page.id, type: "wiki_page")
-
-            adhoc_override = module1.assignment_overrides.create!(set_type: "ADHOC")
-            adhoc_override.assignment_override_students.create!(user: @student)
-
-            expect(response).to have_http_status :ok
-          end
-        end
-
-        context "pages with an assignment" do
-          before do
-            assignment = @course.assignments.create!(
-              submission_types: "wiki_page",
-              only_visible_to_overrides: true
-            )
-            @page.assignment = assignment
-            @page.save!
-          end
-
-          it "does not allow access if assignment has only_visible_to_overrides=true" do
-            expect(response).to be_redirect
-            expect(response.location).to eq course_wiki_pages_url(@course)
-          end
-
-          it "allows access if assignment has only_visible_to_overrides=true but the user has an override" do
-            override = @page.assignment.assignment_overrides.create!
-            override.assignment_override_students.create!(user: @student)
-            expect(response).to have_http_status :ok
-          end
-
-          it "allows access if assignment has only_visible_to_overrides=false" do
-            @page.assignment.update!(only_visible_to_overrides: false)
-            expect(response).to have_http_status :ok
-          end
-        end
-      end
-
-      context "with selective_release_backend disabled" do
-        before do
-          Account.site_admin.disable_feature!(:selective_release_backend)
-          @assignment = @course.assignments.create!(submission_types: "wiki_page")
-          @page.assignment = @assignment
-          @page.save!
-        end
-
+      context "regular pages" do
         it "allows access by default" do
           expect(response).to have_http_status :ok
         end
 
-        it "does not allow access if assignment has only_visible_to_overrides=true and conditional release is enabled" do
-          allow(ConditionalRelease::Service).to receive(:service_configured?).and_return(true)
-          @course.update!(conditional_release: true)
-          @assignment.update!(only_visible_to_overrides: true)
+        it "does not allow access if page has only_visible_to_overrides=true" do
+          @page.update!(only_visible_to_overrides: true)
           expect(response).to be_redirect
           expect(response.location).to eq course_wiki_pages_url(@course)
         end
 
-        it "allows access if assignment has only_visible_to_overrides=true but conditional release is disabled" do
-          @assignment.update!(only_visible_to_overrides: true)
+        it "allows access if only_visible_to_overrides=true but the user has an override" do
+          override = @page.assignment_overrides.create!
+          override.assignment_override_students.create!(user: @student)
+          expect(response).to have_http_status :ok
+        end
+
+        it "does not allow access if page has only_visible_to_overrides=false but user does not have module override" do
+          @page.update!(only_visible_to_overrides: false)
+          module1 = @course.context_modules.create!(name: "module1")
+          module1.add_item(id: @page.id, type: "wiki_page")
+          module1.assignment_overrides.create!(set_type: "ADHOC")
+
+          expect(response).to be_redirect
+          expect(response.location).to eq course_wiki_pages_url(@course)
+        end
+
+        it "allows access if page has only_visible_to_overrides=false and user does have module override" do
+          @page.update!(only_visible_to_overrides: false)
+          module1 = @course.context_modules.create!(name: "module1")
+          module1.add_item(id: @page.id, type: "wiki_page")
+
+          adhoc_override = module1.assignment_overrides.create!(set_type: "ADHOC")
+          adhoc_override.assignment_override_students.create!(user: @student)
+
+          expect(response).to have_http_status :ok
+        end
+      end
+
+      context "pages with an assignment" do
+        before do
+          assignment = @course.assignments.create!(
+            submission_types: "wiki_page",
+            only_visible_to_overrides: true
+          )
+          @page.assignment = assignment
+          @page.save!
+        end
+
+        it "does not allow access if assignment has only_visible_to_overrides=true" do
+          expect(response).to be_redirect
+          expect(response.location).to eq course_wiki_pages_url(@course)
+        end
+
+        it "allows access if assignment has only_visible_to_overrides=true but the user has an override" do
+          override = @page.assignment.assignment_overrides.create!
+          override.assignment_override_students.create!(user: @student)
+          expect(response).to have_http_status :ok
+        end
+
+        it "allows access if assignment has only_visible_to_overrides=false" do
+          @page.assignment.update!(only_visible_to_overrides: false)
           expect(response).to have_http_status :ok
         end
       end
@@ -173,6 +216,167 @@ describe WikiPagesController do
         it_behaves_like "pages enforcing differentiation"
       end
 
+      context "study_assist feature" do
+        before do
+          config = instance_double(CanvasCareer::Config)
+          allow(CanvasCareer::Config).to receive(:new).and_return(config)
+          allow(config).to receive(:public_app_config).and_return({ "hosts" => { "journey" => "http://journey.test" } })
+        end
+
+        context "when enabled" do
+          before { @course.enable_feature!(:study_assist) }
+
+          context "as a student" do
+            before do
+              student_in_course(active_all: true)
+              user_session(@student)
+            end
+
+            it "sets study_assist in FEATURES" do
+              get "show", params: { course_id: @course.id, id: @page.url }
+              expect(assigns[:js_env][:FEATURES][:study_assist]).to be true
+            end
+
+            it "sets WIKI_PAGE_ID to the page url" do
+              get "show", params: { course_id: @course.id, id: @page.url }
+              expect(assigns[:js_env][:WIKI_PAGE_ID]).to eq @page.url
+            end
+
+            it "sets JOURNEY_URL from CanvasCareer config" do
+              get "show", params: { course_id: @course.id, id: @page.url }
+              expect(assigns[:js_env][:JOURNEY_URL]).to eq "http://journey.test"
+            end
+
+            it "sets STUDY_ASSIST_TOOLS with all tools enabled by default" do
+              get "show", params: { course_id: @course.id, id: @page.url }
+              expect(assigns[:js_env][:STUDY_ASSIST_TOOLS]).to eq ["Summarize", "Quiz me", "Flashcards"]
+            end
+
+            it "excludes tools when their feature flag is disabled" do
+              @course.disable_feature!(:study_assist_summarize)
+              get "show", params: { course_id: @course.id, id: @page.url }
+              expect(assigns[:js_env][:STUDY_ASSIST_TOOLS]).to eq ["Quiz me", "Flashcards"]
+            end
+
+            it "returns empty array when all tool flags are disabled" do
+              @course.disable_feature!(:study_assist_summarize)
+              @course.disable_feature!(:study_assist_quiz_me)
+              @course.disable_feature!(:study_assist_flashcards)
+              get "show", params: { course_id: @course.id, id: @page.url }
+              expect(assigns[:js_env][:STUDY_ASSIST_TOOLS]).to eq []
+            end
+          end
+
+          it "does not set study_assist for teachers" do
+            get "show", params: { course_id: @course.id, id: @page.url }
+            expect(assigns[:js_env][:FEATURES]).not_to have_key(:study_assist)
+          end
+
+          context "in a group context" do
+            before do
+              student_in_course(active_all: true)
+              user_session(@student)
+              @group = group_model(context: @course)
+              @group.add_user(@student)
+              @group_page = @group.wiki_pages.create!(title: "group page", body: "content")
+            end
+
+            it "does not enable study_assist" do
+              get "show", params: { group_id: @group.id, id: @group_page.url }
+              expect(assigns[:js_env][:FEATURES]).not_to have_key(:study_assist)
+            end
+          end
+        end
+
+        context "when disabled" do
+          it "does not set WIKI_PAGE_ID" do
+            get "show", params: { course_id: @course.id, id: @page.url }
+            expect(assigns[:js_env]).not_to have_key :WIKI_PAGE_ID
+          end
+
+          it "does not set JOURNEY_URL" do
+            get "show", params: { course_id: @course.id, id: @page.url }
+            expect(assigns[:js_env]).not_to have_key :JOURNEY_URL
+          end
+
+          it "does not set STUDY_ASSIST_TOOLS" do
+            get "show", params: { course_id: @course.id, id: @page.url }
+            expect(assigns[:js_env]).not_to have_key :STUDY_ASSIST_TOOLS
+          end
+        end
+      end
+
+      context "notebook feature" do
+        before do
+          config = instance_double(CanvasCareer::Config)
+          allow(CanvasCareer::Config).to receive(:new).and_return(config)
+          allow(config).to receive(:public_app_config).and_return({ "hosts" => { "journey" => "http://journey.test" } })
+        end
+
+        context "when enabled" do
+          before { @course.account.enable_feature!(:notebook) }
+
+          context "as a student" do
+            before do
+              student_in_course(active_all: true)
+              user_session(@student)
+            end
+
+            it "sets notebook in FEATURES" do
+              get "show", params: { course_id: @course.id, id: @page.url }
+              expect(assigns[:js_env][:FEATURES][:notebook]).to be true
+            end
+
+            it "sets WIKI_PAGE_ID to the page url" do
+              get "show", params: { course_id: @course.id, id: @page.url }
+              expect(assigns[:js_env][:WIKI_PAGE_ID]).to eq @page.url
+            end
+
+            it "sets WIKI_PAGE_UPDATED_AT to the page updated_at" do
+              get "show", params: { course_id: @course.id, id: @page.url }
+              expect(assigns[:js_env][:WIKI_PAGE_UPDATED_AT]).to eq @page.updated_at.iso8601
+            end
+
+            it "sets JOURNEY_URL from CanvasCareer config" do
+              get "show", params: { course_id: @course.id, id: @page.url }
+              expect(assigns[:js_env][:JOURNEY_URL]).to eq "http://journey.test"
+            end
+          end
+
+          it "does not set notebook for teachers" do
+            get "show", params: { course_id: @course.id, id: @page.url }
+            expect(assigns[:js_env][:FEATURES]).not_to have_key(:notebook)
+          end
+
+          context "in a group context" do
+            before do
+              student_in_course(active_all: true)
+              user_session(@student)
+              @group = group_model(context: @course)
+              @group.add_user(@student)
+              @group_page = @group.wiki_pages.create!(title: "group page", body: "content")
+            end
+
+            it "does not enable notebook" do
+              get "show", params: { group_id: @group.id, id: @group_page.url }
+              expect(assigns[:js_env][:FEATURES]).not_to have_key(:notebook)
+            end
+          end
+        end
+
+        context "when disabled" do
+          it "does not set WIKI_PAGE_UPDATED_AT" do
+            get "show", params: { course_id: @course.id, id: @page.url }
+            expect(assigns[:js_env]).not_to have_key :WIKI_PAGE_UPDATED_AT
+          end
+
+          it "does not set notebook in FEATURES" do
+            get "show", params: { course_id: @course.id, id: @page.url }
+            expect(assigns[:js_env][:FEATURES]).not_to have_key(:notebook)
+          end
+        end
+      end
+
       context "permanent_page_links enabled" do
         before :once do
           Account.site_admin.enable_feature!(:permanent_page_links)
@@ -180,7 +384,7 @@ describe WikiPagesController do
 
         before do
           @page.wiki_page_lookups.create!(slug: "an-old-url")
-          allow(InstStatsd::Statsd).to receive(:increment)
+          allow(InstStatsd::Statsd).to receive(:distributed_increment)
         end
 
         it "redirects to current page url" do
@@ -190,12 +394,12 @@ describe WikiPagesController do
 
         it "emits wikipage.show.page_url_resolved to statsd when finding a page from a stale URL" do
           get "show", params: { course_id: @course.id, id: "an-old-url" }
-          expect(InstStatsd::Statsd).to have_received(:increment).once.with("wikipage.show.page_url_resolved")
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).once.with("wikipage.show.page_url_resolved")
         end
 
         it "does not emit wikipage.show.page_url_resolved to statsd when using the current page URL" do
           get "show", params: { course_id: @course.id, id: @page.url }
-          expect(InstStatsd::Statsd).not_to have_received(:increment).with("wikipage.show.page_url_resolved")
+          expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("wikipage.show.page_url_resolved")
         end
       end
     end
@@ -212,6 +416,23 @@ describe WikiPagesController do
         end
 
         it_behaves_like "pages enforcing differentiation"
+      end
+
+      context "assign to differentiation tags" do
+        before do
+          @course.account.tap do |a|
+            a.settings[:allow_assign_to_differentiation_tags] = { value: true }
+            a.save!
+          end
+        end
+
+        it "differentiation tags information is true if account setting is on and user can manage tags" do
+          course_quiz
+          user_session(@teacher)
+          get "edit", params: { course_id: @course.id, id: @page.url }
+          expect(assigns[:js_env][:ALLOW_ASSIGN_TO_DIFFERENTIATION_TAGS]).to be true
+          expect(assigns[:js_env][:CAN_MANAGE_DIFFERENTIATION_TAGS]).to be true
+        end
       end
     end
 
@@ -255,7 +476,7 @@ describe WikiPagesController do
 
   describe "metrics" do
     before do
-      allow(InstStatsd::Statsd).to receive(:increment).and_call_original
+      allow(InstStatsd::Statsd).to receive(:distributed_increment).and_call_original
     end
 
     context "show" do
@@ -264,7 +485,7 @@ describe WikiPagesController do
           course_with_teacher_logged_in(active_all: true)
           bad_page_url = "something-that-doesnt-really-exist"
           get "show", params: { course_id: @course.id, id: bad_page_url }
-          expect(InstStatsd::Statsd).to have_received(:increment).with("wikipage.show.page_does_not_exist.with_edit_rights")
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("wikipage.show.page_does_not_exist.with_edit_rights")
         end
 
         it "does not increment the count metric when page is deleted" do
@@ -272,7 +493,7 @@ describe WikiPagesController do
           @page = @course.wiki_pages.create!(title: "delete me")
           @page.update(workflow_state: "deleted")
           get "show", params: { course_id: @course.id, id: @page.url }
-          expect(InstStatsd::Statsd).not_to have_received(:increment).with("wikipage.show.page_does_not_exist.with_edit_rights")
+          expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("wikipage.show.page_does_not_exist.with_edit_rights")
         end
       end
 
@@ -281,7 +502,7 @@ describe WikiPagesController do
           course_with_student_logged_in(active_all: true)
           bad_page_url = "something-else-that-doesnt-really-exist"
           get "show", params: { course_id: @course.id, id: bad_page_url }
-          expect(InstStatsd::Statsd).to have_received(:increment).with("wikipage.show.page_does_not_exist.without_edit_rights")
+          expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("wikipage.show.page_does_not_exist.without_edit_rights")
         end
 
         it "does not increment the count metric when page is deleted" do
@@ -289,8 +510,121 @@ describe WikiPagesController do
           @page = @course.wiki_pages.create!(title: "delete me too")
           @page.update(workflow_state: "deleted")
           get "show", params: { course_id: @course.id, id: @page.url }
-          expect(InstStatsd::Statsd).not_to have_received(:increment).with("wikipage.show.page_does_not_exist.without_edit_rights")
+          expect(InstStatsd::Statsd).not_to have_received(:distributed_increment).with("wikipage.show.page_does_not_exist.without_edit_rights")
         end
+      end
+    end
+  end
+
+  describe "set_block_content_editor_ai_alt_text_js_env" do
+    before do
+      @page = @course.wiki_pages.create!(title: "test page", body: "test content")
+      stub_const("CedarClient", Class.new do
+        def enabled?
+          true
+        end
+      end)
+      allow(CedarClient).to receive(:enabled?).and_return(true)
+    end
+
+    context "when all conditions are met" do
+      before do
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "sets ai_alt_text_generation_url to course URL in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expected_url = "/api/v1/courses/#{@course.id}/pages_ai/alt_text"
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to eq(expected_url)
+      end
+    end
+
+    context "when all conditions are met for a group context" do
+      before do
+        @group = group_model(context: @course)
+        @group_page = @group.wiki_pages.create!(title: "test group page", body: "test content")
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "sets ai_alt_text_generation_url to group URL in js_env" do
+        get "show", params: { group_id: @group.id, id: @group_page.url }
+        expected_url = "/api/v1/groups/#{@group.id}/pages_ai/alt_text"
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to eq(expected_url)
+      end
+    end
+
+    context "when block_content_editor_ai_alt_text feature is disabled" do
+      before do
+        Account.site_admin.disable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "sets ai_alt_text_generation_url to nil in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to be_nil
+      end
+    end
+
+    context "when block content editor is disabled in context" do
+      before do
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.disable_feature!(:block_content_editor)
+        @course.disable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "sets ai_alt_text_generation_url to nil in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to be_nil
+      end
+    end
+
+    context "when CedarClient is not enabled" do
+      before do
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:enabled?).and_return(false)
+      end
+
+      it "sets ai_alt_text_generation_url to nil in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to be_nil
+      end
+    end
+
+    context "when CedarClient is not available" do
+      before do
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        @course.account.enable_feature!(:block_content_editor)
+        @course.enable_feature!(:block_content_editor_eap)
+        allow(CedarClient).to receive(:try).with(:enabled?).and_return(nil)
+      end
+
+      it "sets ai_alt_text_generation_url to nil in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to be_nil
+      end
+    end
+
+    context "when context doesn't support block content editor" do
+      before do
+        Account.site_admin.enable_feature!(:block_content_editor_ai_alt_text)
+        allow(@course).to receive(:try).with(:block_content_editor_enabled?).and_return(nil)
+        allow(CedarClient).to receive(:enabled?).and_return(true)
+      end
+
+      it "sets ai_alt_text_generation_url to nil in js_env" do
+        get "show", params: { course_id: @course.id, id: @page.url }
+        expect(assigns[:js_env][:ai_alt_text_generation_url]).to be_nil
       end
     end
   end

@@ -20,13 +20,14 @@
 module Lti::IMS::Concerns
   module GradebookServices
     include AdvantageServices
+    include Lti::GradePassbackEligibility
 
     def self.included(klass)
       super
 
       AdvantageServices.included(klass)
 
-      klass.before_action :verify_course_not_concluded
+      klass.before_action :verify_course_not_concluded_for_user
       klass.before_action :verify_line_item_client_id_connection, only: %i[show update destroy]
     end
 
@@ -35,11 +36,7 @@ module Lti::IMS::Concerns
     end
 
     def context
-      @_context ||= if Account.site_admin.feature_enabled?(:ags_improved_course_concluded_response_codes)
-                      Course.find(params[:course_id])
-                    else
-                      Course.not_completed.find(params[:course_id])
-                    end
+      @_context ||= Course.find(params[:course_id])
     end
 
     def user
@@ -64,18 +61,25 @@ module Lti::IMS::Concerns
       params[:limit] ? { per_page: params[:limit] } : {}
     end
 
-    def verify_course_not_concluded
-      return unless Account.site_admin.feature_enabled?(:ags_improved_course_concluded_response_codes)
+    def verify_course_not_concluded_for_user
+      return verify_course_not_concluded if user.nil?
 
+      unless grade_passback_allowed?(context, user)
+        render_error("This course has concluded for this student. AGS requests will no longer be accepted for this course.",
+                     :unprocessable_entity)
+      end
+    end
+
+    def verify_course_not_concluded
       # If context is nil, the verify_context will handle rendering a 404.
-      if context&.concluded?
+      if course_concluded?(context)
         render_error("This course has concluded. AGS requests will no longer be accepted for this course.",
                      :unprocessable_entity)
       end
     end
 
     def verify_user_in_context
-      return if context.user_is_student?(user, include_fake_student: true)
+      return if context.user_is_student?(user, include_fake_student: true, include_all: true)
 
       render_error("User not found in course or is not a student", :unprocessable_entity)
     end
@@ -103,7 +107,7 @@ module Lti::IMS::Concerns
       assignment = Assignment.find_by(lti_context_id: params[:resourceLinkId])
       raise ActiveRecord::RecordNotFound unless assignment
 
-      if tool == ContextExternalTool.from_content_tag(assignment.external_tool_tag, assignment)
+      if tool == Lti::ToolFinder.from_content_tag(assignment.external_tool_tag, assignment)
         assignment.migrate_to_1_3_if_needed!(tool)
         return
       end

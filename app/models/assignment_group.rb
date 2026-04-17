@@ -18,8 +18,9 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class AssignmentGroup < ActiveRecord::Base
+class AssignmentGroup < ApplicationRecord
   include Workflow
+
   # Unlike our other soft-deletable models, assignment groups use 'available' instead of 'active'
   # to indicate a not-deleted state. This means we have to add the 'available' state here before
   # Canvas::SoftDeletable adds the 'active' and 'deleted' states, so that 'available' becomes the
@@ -28,6 +29,7 @@ class AssignmentGroup < ActiveRecord::Base
   include Canvas::SoftDeletable
 
   include MasterCourses::Restrictor
+
   restrict_columns :content, [:group_weight, :rules]
 
   attr_readonly :context_id, :context_type
@@ -40,7 +42,7 @@ class AssignmentGroup < ActiveRecord::Base
   serialize :integration_data, type: Hash
 
   has_many :scores, -> { active }
-  has_many :assignments, -> { order("position, due_at, title") }
+  has_many :assignments, -> { order(:position, :due_at, :title) }
 
   has_many :active_assignments,
            lambda {
@@ -99,41 +101,23 @@ class AssignmentGroup < ActiveRecord::Base
     can :read
 
     given do |user, session|
-      !context.root_account.feature_enabled?(:granular_permissions_manage_assignments) &&
-        context.grants_right?(user, session, :manage_assignments)
-    end
-    can :read and can :create and can :update
-
-    given do |user, session|
-      context.root_account.feature_enabled?(:granular_permissions_manage_assignments) &&
-        context.grants_right?(user, session, :manage_assignments_add)
+      context.grants_right?(user, session, :manage_assignments_add)
     end
     can :read and can :create
 
     given do |user, session|
-      context.root_account.feature_enabled?(:granular_permissions_manage_assignments) &&
-        context.grants_right?(user, session, :manage_assignments_edit)
+      context.grants_right?(user, session, :manage_assignments_edit)
     end
     can :read and can :update
 
     given do |user, session|
-      !context.root_account.feature_enabled?(:granular_permissions_manage_assignments) &&
-        context.grants_right?(user, session, :manage_assignments) &&
-        (context.account_membership_allows(user) ||
-         !any_assignment_in_closed_grading_period?)
-    end
-    can :delete
-
-    given do |user, session|
-      context.root_account.feature_enabled?(:granular_permissions_manage_assignments) &&
-        context.grants_right?(user, session, :manage_assignments_delete) &&
-        (context.account_membership_allows(user) ||
-         !any_assignment_in_closed_grading_period?)
+      context.grants_right?(user, session, :manage_assignments_delete) &&
+        (context.account_membership_allows(user) || !any_assignment_in_closed_grading_period?)
     end
     can :delete
   end
 
-  def restore(try_to_selectively_undelete_assignments = true)
+  def restore(try_to_selectively_undelete_assignments: true)
     to_restore = assignments.include_submittables
     if try_to_selectively_undelete_assignments
       # It's a pretty good guess that if an assignment was modified at the same
@@ -289,7 +273,7 @@ class AssignmentGroup < ActiveRecord::Base
     )
   end
 
-  def self.visible_assignments(user, context, assignment_groups, includes: [], assignment_ids: [])
+  def self.visible_assignments(user, context, assignment_groups, includes: [], assignment_ids: [], include_discussion_checkpoints: false)
     scope = if context.grants_any_right?(user, :manage_grades, :read_as_admin, *RoleOverride::GRANULAR_MANAGE_ASSIGNMENT_PERMISSIONS)
               context.active_assignments.where(assignment_group_id: assignment_groups)
             elsif user.nil?
@@ -298,6 +282,15 @@ class AssignmentGroup < ActiveRecord::Base
               user.assignments_visible_in_course(context)
                   .where(assignment_group_id: assignment_groups).published
             end
+    if include_discussion_checkpoints
+      # We need to update the scope to use AbstractAssignment instead of its subclass Assignment so that we can merge the
+      # scope query with the checkpoints_scope query
+      scope_assignment_ids = scope.pluck(:id)
+      scope = AbstractAssignment.where(id: scope_assignment_ids)
+      checkpoints_scope = SubAssignment.active.where(parent_assignment_id: scope_assignment_ids)
+      # merge the queries
+      scope = scope.or(checkpoints_scope)
+    end
 
     if assignment_ids&.any?
       scope = scope.where(id: assignment_ids)

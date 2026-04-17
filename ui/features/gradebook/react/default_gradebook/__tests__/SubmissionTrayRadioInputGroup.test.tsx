@@ -24,7 +24,7 @@ import SubmissionTrayRadioInputGroup, {
 } from '../components/SubmissionTrayRadioInputGroup'
 
 describe('SubmissionTrayRadioInputGroup Tests', () => {
-  const updateSubmission: (arg0: PendingUpdateData) => void = jest.fn()
+  const updateSubmission: (arg0: PendingUpdateData) => void = vi.fn()
 
   const getComponent = (customProps: Partial<SubmissionTrayRadioInputGroupProps>) => {
     const props: SubmissionTrayRadioInputGroupProps = {
@@ -67,7 +67,7 @@ describe('SubmissionTrayRadioInputGroup Tests', () => {
   })
 
   afterEach(() => {
-    jest.resetAllMocks()
+    vi.resetAllMocks()
   })
 
   describe('radio input disabled tests', () => {
@@ -365,7 +365,7 @@ describe('SubmissionTrayRadioInputGroup Tests', () => {
             latePolicyStatus: '',
           },
           submissionUpdating: false,
-        })
+        }),
       )
       expect(updateSubmission).toHaveBeenCalledWith({latePolicyStatus: 'missing'})
     })
@@ -394,7 +394,7 @@ describe('SubmissionTrayRadioInputGroup Tests', () => {
             latePolicyStatus: '',
           },
           submissionUpdating: false,
-        })
+        }),
       )
       expect(updateSubmission).toHaveBeenCalledWith({latePolicyStatus: 'none'})
     })
@@ -425,7 +425,7 @@ describe('SubmissionTrayRadioInputGroup Tests', () => {
             latePolicyStatus: '',
           },
           submissionUpdating: false,
-        })
+        }),
       )
       expect(updateSubmission).toHaveBeenCalledTimes(1)
       expect(updateSubmission).toHaveBeenCalledWith({

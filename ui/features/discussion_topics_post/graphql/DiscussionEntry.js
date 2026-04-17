@@ -17,10 +17,10 @@
  */
 
 import {AnonymousUser} from './AnonymousUser'
-import {bool, number, shape, string} from 'prop-types'
+import {arrayOf, bool, number, shape, string} from 'prop-types'
 import {DiscussionEntryPermissions} from './DiscussionEntryPermissions'
 import {DiscussionEntryVersion} from './DiscussionEntryVersion'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {Attachment} from './Attachment'
 import {PageInfo} from './PageInfo'
 import {User} from './User'
@@ -32,19 +32,24 @@ export const DiscussionEntry = {
       _id
       createdAt
       updatedAt
+      editedAt
       deleted
       message
       ratingCount
       ratingSum
       subentriesCount
+      pinType
+      pinnedBy {
+        shortName
+      }
       editor {
-        ...User
+        ...DiscussionPostUser
       }
       author {
-        ...User
+        ...DiscussionPostUser
       }
       attachment {
-        ...Attachment
+        ...DiscussionPostAttachment
       }
       entryParticipant {
         rating
@@ -82,10 +87,8 @@ export const DiscussionEntry = {
         }
         deleted
       }
-      discussionEntryVersionsConnection {
-        nodes {
-          ...DiscussionEntryVersion
-        }
+      discussionEntryVersions {
+        ...DiscussionEntryVersion
       }
       reportTypeCounts {
         inappropriateCount
@@ -106,11 +109,16 @@ export const DiscussionEntry = {
     _id: string,
     createdAt: string,
     updatedAt: string,
+    editedAt: string,
     deleted: bool,
     message: string,
     ratingCount: number,
     ratingSum: number,
     subentriesCount: number,
+    pinType: string,
+    pinnedBy: shape({
+      shortName: string,
+    }),
     attachment: Attachment.shape,
     author: User.shape,
     anonymousAuthor: AnonymousUser.shape,
@@ -147,7 +155,7 @@ export const DiscussionEntry = {
       }),
       deleted: bool,
     }),
-    discussionEntryVersionsConnection: DiscussionEntryVersion.shape,
+    discussionEntryVersions: arrayOf(DiscussionEntryVersion.shape),
     reportTypeCounts: shape({
       inappropriateCount: number,
       offensiveCount: number,
@@ -162,10 +170,13 @@ export const DiscussionEntry = {
     _id = 'DiscussionEntry-default-mock',
     createdAt = '2021-02-08T13:35:56-07:00',
     updatedAt = '2021-04-13T10:00:20-06:00',
+    editedAt = '2021-04-13T10:00:20-06:00',
     deleted = false,
     message = '<p>This is the parent reply</p>',
     ratingCount = null,
     ratingSum = null,
+    pinType = 'none',
+    pinnedBy = null,
     subentriesCount = 2,
     attachment = Attachment.mock(),
     author = User.mock(),
@@ -196,14 +207,11 @@ export const DiscussionEntry = {
     rootEntryId = null,
     parentId = null,
     quotedEntry = null,
-    discussionEntryVersionsConnection = {
-      nodes: [
-        DiscussionEntryVersion.mock({
-          message: '<p>This is the parent reply</p>',
-        }),
-      ],
-      __typename: 'DiscussionEntryVersionConnection',
-    },
+    discussionEntryVersions = [
+      DiscussionEntryVersion.mock({
+        message: '<p>This is the parent reply</p>',
+      }),
+    ],
     reportTypeCounts = {
       inappropriateCount: 0,
       offensiveCount: 0,
@@ -217,10 +225,13 @@ export const DiscussionEntry = {
     _id,
     createdAt,
     updatedAt,
+    editedAt,
     deleted,
     message,
     ratingCount,
     ratingSum,
+    pinType,
+    pinnedBy,
     subentriesCount,
     attachment,
     author,
@@ -234,7 +245,7 @@ export const DiscussionEntry = {
     rootEntryId,
     parentId,
     quotedEntry,
-    discussionEntryVersionsConnection,
+    discussionEntryVersions,
     reportTypeCounts,
     depth,
     __typename: 'DiscussionEntry',

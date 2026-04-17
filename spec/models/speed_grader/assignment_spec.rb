@@ -247,6 +247,56 @@ describe SpeedGrader::Assignment do
     end
   end
 
+  context "discussions assignment" do
+    before do
+      Account.site_admin.enable_feature! :discussion_checkpoints
+      Account.site_admin.enable_feature!(:react_discussions_post)
+
+      @teacher = teacher_in_course(active_all: true, name: "teacher").user
+      @student1 = student_in_course(course: @course, name: "student", active_all: true).user
+      @student2 = student_in_course(course: @course, name: "student2", active_all: true).user
+      @course.root_account.enable_feature!(:discussion_checkpoints)
+
+      @checkpointed_discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "Checkpointed Discussion")
+      @assignment = @checkpointed_assignment = @checkpointed_discussion.assignment
+
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: @checkpointed_discussion,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: 2.days.from_now }],
+        points_possible: 5
+      )
+
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: @checkpointed_discussion,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "everyone", due_at: 5.days.from_now }],
+        points_possible: 15,
+        replies_required: 3
+      )
+
+      3.times do |i|
+        entry = @checkpointed_discussion.discussion_entries.create!(user: @student1, message: " reply to topic i#{i} ")
+        @checkpointed_discussion.discussion_entries.create!(user: @student2, message: " reply to entry i#{i} ", root_entry_id: entry.id, parent_id: entry.id)
+      end
+
+      3.times do |j|
+        entry = @checkpointed_discussion.discussion_entries.create!(user: @student2, message: " reply to topic j#{j} ")
+        @checkpointed_discussion.discussion_entries.create!(user: @student1, message: " reply to entry j#{j} ", root_entry_id: entry.id, parent_id: entry.id)
+      end
+    end
+
+    let(:json) { SpeedGrader::Assignment.new(@checkpointed_assignment, @teacher).json }
+
+    it "returns the students entries ids in asc order" do
+      expect(json["student_entries"][@student1.id].last).to eq(DiscussionEntry.where(message: " reply to entry j2 ").first.id)
+      expect(json["student_entries"][@student1.id].first).to eq(DiscussionEntry.where(message: " reply to topic i0 ").first.id)
+
+      expect(json["student_entries"][@student2.id].last).to eq(DiscussionEntry.where(message: " reply to topic j2 ").first.id)
+      expect(json["student_entries"][@student2.id].first).to eq(DiscussionEntry.where(message: " reply to entry i0 ").first.id)
+    end
+  end
+
   context "students and active course sections" do
     before(:once) do
       @course = course_factory(active_course: true)
@@ -273,6 +323,23 @@ describe SpeedGrader::Assignment do
       test_student = @course.student_view_student
       json = SpeedGrader::Assignment.new(@assignment, @teacher).json
       expect(json[:context][:students].last[:id]).to eq(test_student.id.to_s)
+    end
+
+    it "keeps the original order of real students when placing student view students last" do
+      x_user = User.create!(name: "XÆA-12")
+      @course.enroll_student(x_user, enrollment_state: "active", section: @section1)
+      a_user = User.create!(name: "Aardvark")
+      @course.enroll_student(a_user, enrollment_state: "active", section: @section1)
+      test_student = @course.student_view_student
+      json = SpeedGrader::Assignment.new(@assignment, @teacher).json
+      students = json.dig(:context, :students)
+
+      aggregate_failures do
+        expect(students.first["name"]).to eq("Aardvark")
+        expect(students.second["name"]).to eq("User")
+        expect(students.third["name"]).to eq("XÆA-12")
+        expect(students.fourth["name"]).to eq(test_student.name)
+      end
     end
 
     it "includes all students when is only_visible_to_overrides false" do
@@ -595,6 +662,87 @@ describe SpeedGrader::Assignment do
     end
   end
 
+  describe "N+1 query prevention for attachment associations" do
+    it "preloads last_attachment_upload_status and folder to prevent N+1 queries" do
+      assignment = @course.assignments.create!(
+        title: "Test Assignment",
+        submission_types: ["online_upload"]
+      )
+
+      # Create 3 students
+      students = Array.new(10) do |i|
+        student = user_factory(active_all: true, name: "Student #{i}")
+        @course.enroll_student(student, enrollment_state: "active")
+        student
+      end
+
+      # Each student submits with multiple attachments and versions
+      students.each do |student|
+        folder = Folder.root_folders(student).first
+
+        # Create 3 attachments with upload statuses
+        attachments = Array.new(3) do |j|
+          att = student.attachments.create!(
+            uploaded_data: dummy_io,
+            filename: "file_#{j}.pdf",
+            display_name: "file_#{j}.pdf",
+            context: student,
+            folder:
+          )
+
+          # Add upload status to some attachments
+          if j.even?
+            AttachmentUploadStatus.create!(
+              attachment: att,
+              error: "test error"
+            )
+          end
+
+          att
+        end
+
+        # Submit with attachments
+        assignment.submit_homework(
+          student,
+          submission_type: "online_upload",
+          attachments:
+        )
+      end
+
+      # Count queries during JSON generation
+      upload_status_query_count = 0
+      folder_query_count = 0
+
+      subscription = ActiveSupport::Notifications.subscribe("sql.active_record") do |*args|
+        event = ActiveSupport::Notifications::Event.new(*args)
+        sql = event.payload[:sql]
+
+        # Count attachment_upload_statuses queries
+        if sql.match?(/SELECT.*FROM.*attachment_upload_statuses/i)
+          upload_status_query_count += 1
+        end
+
+        # Count folders queries
+        if sql.match?(/SELECT.*FROM.*folders/i)
+          folder_query_count += 1
+        end
+      end
+
+      # Generate JSON (this is where N+1 would occur)
+      SpeedGrader::Assignment.new(assignment, @teacher).json
+
+      ActiveSupport::Notifications.unsubscribe(subscription)
+
+      # With preloading: should be 2 queries each (1 for current submissions + 1 for history)
+      # Without preloading: would be N queries per attachment (one for each attachment)
+      expect(upload_status_query_count).to eq(2),
+                                           "Expected 2 upload_status queries but got #{upload_status_query_count}. This indicates an N+1 query problem."
+
+      expect(folder_query_count).to eq(2),
+                                    "Expected 2 folder queries but got #{folder_query_count}. This indicates an N+1 query problem."
+    end
+  end
+
   it "includes inline view pingback url for files" do
     assignment = @course.assignments.create! submission_types: ["online_upload"]
     attachment = @student.attachments.create! uploaded_data: dummy_io, filename: "doc.doc", display_name: "doc.doc", context: @student
@@ -666,7 +814,7 @@ describe SpeedGrader::Assignment do
         expect(json["GROUP_GRADING_MODE"]).to be false
       end
 
-      context "when a course has new gradeook and filter by student group enabled" do
+      context "when a course has new gradebook and filter by student group enabled" do
         before(:once) do
           @course.root_account.enable_feature!(:filter_speed_grader_by_student_group)
           @course.update!(filter_speed_grader_by_student_group: true)
@@ -675,11 +823,11 @@ describe SpeedGrader::Assignment do
         context "when no group filter is present" do
           it "returns all students" do
             @teacher.preferences.deep_merge!(gradebook_settings: {
-                                               @course.id => { "filter_rows_by" => { "student_group_id" => nil } }
+                                               @course.id => { "filter_rows_by" => { "student_group_ids" => [] } }
                                              })
             json = SpeedGrader::Assignment.new(@assignment, @teacher).json
             json_students = json.fetch(:context).fetch(:students).map { |s| s.except(:rubric_assessments, :fake_student) }
-            students = @course.students.as_json(include_root: false, only: %i[id name sortable_name])
+            students = @course.students.as_json(include_root: false, only: %i[id name sortable_name uuid])
             StringifyIds.recursively_stringify_ids(students)
             expect(json_students).to match_array(students)
           end
@@ -690,14 +838,14 @@ describe SpeedGrader::Assignment do
 
           before(:once) do
             @teacher.preferences.deep_merge!(gradebook_settings: {
-                                               @course.global_id => { "filter_rows_by" => { "student_group_id" => group.id.to_s } }
+                                               @course.global_id => { "filter_rows_by" => { "student_group_ids" => [group.id.to_s] } }
                                              })
           end
 
           it "returns only students that belong to the first group" do
             json = SpeedGrader::Assignment.new(@assignment, @teacher).json
             json_students = json.fetch(:context).fetch(:students).map { |s| s.except(:rubric_assessments, :fake_student) }
-            group_students = group.users.as_json(include_root: false, only: %i[id name sortable_name])
+            group_students = group.users.as_json(include_root: false, only: %i[id name sortable_name uuid])
             StringifyIds.recursively_stringify_ids(group_students)
             expect(json_students).to match_array(group_students)
           end
@@ -711,7 +859,7 @@ describe SpeedGrader::Assignment do
               json = SpeedGrader::Assignment.new(@assignment, @teacher).json
               json_students = json.fetch(:context).fetch(:students).map { |s| s.except(:rubric_assessments, :fake_student) }
               group_students = group.users.where.not(id: first_student)
-                                    .as_json(include_root: false, only: %i[id name sortable_name])
+                                    .as_json(include_root: false, only: %i[id name sortable_name uuid])
               StringifyIds.recursively_stringify_ids(group_students)
               expect(json_students).to match_array(group_students)
             end
@@ -720,13 +868,24 @@ describe SpeedGrader::Assignment do
           context "when the second group filter is present" do
             let(:group) { @second_group }
 
-            it "returns only students that belong to the second group" do
+            it "returns only students that belong to the second group when only the second group is selected" do
               @teacher.preferences.deep_merge!(gradebook_settings: {
-                                                 @course.global_id => { "filter_rows_by" => { "student_group_id" => group.id.to_s } }
+                                                 @course.global_id => { "filter_rows_by" => { "student_group_ids" => [group.id.to_s] } }
                                                })
               json = SpeedGrader::Assignment.new(@assignment, @teacher).json
               json_students = json.fetch(:context).fetch(:students).map { |s| s.except(:rubric_assessments, :fake_student) }
-              group_students = group.users.as_json(include_root: false, only: %i[id name sortable_name])
+              group_students = group.users.as_json(include_root: false, only: %i[id name sortable_name uuid])
+              StringifyIds.recursively_stringify_ids(group_students)
+              expect(json_students).to match_array(group_students)
+            end
+
+            it "returns only students from the second group/most recently selected group when both groups are selected" do
+              @teacher.preferences.deep_merge!(gradebook_settings: {
+                                                 @course.global_id => { "filter_rows_by" => { "student_group_ids" => [@first_group.id.to_s, group.id.to_s] } }
+                                               })
+              json = SpeedGrader::Assignment.new(@assignment, @teacher).json
+              json_students = json.fetch(:context).fetch(:students).map { |s| s.except(:rubric_assessments, :fake_student) }
+              group_students = group.users.as_json(include_root: false, only: %i[id name sortable_name uuid])
               StringifyIds.recursively_stringify_ids(group_students)
               expect(json_students).to match_array(group_students)
             end
@@ -737,13 +896,13 @@ describe SpeedGrader::Assignment do
 
             it "returns all students rather than attempting to filter by the deleted group" do
               @teacher.preferences.deep_merge!(gradebook_settings: {
-                                                 @course.global_id => { "filter_rows_by" => { "student_group_id" => group.id.to_s } }
+                                                 @course.global_id => { "filter_rows_by" => { "student_group_ids" => [group.id.to_s] } }
                                                })
               group.destroy!
 
               json = SpeedGrader::Assignment.new(@assignment, @teacher).json
               json_students = json.fetch(:context).fetch(:students).map { |s| s.except(:rubric_assessments, :fake_student) }
-              course_students = @course.students.as_json(include_root: false, only: %i[id name sortable_name])
+              course_students = @course.students.as_json(include_root: false, only: %i[id name sortable_name uuid])
               StringifyIds.recursively_stringify_ids(course_students)
               expect(json_students).to match_array(course_students)
             end
@@ -781,7 +940,7 @@ describe SpeedGrader::Assignment do
         submissions = @groups.map do |group|
           rep = group.users.sample
           @assignment.grade_student(rep, grade: 10, grader: @teacher).first.tap do |submission|
-            submission.update!(turnitin_data: { blah: 1 })
+            submission.update!(turnitin_data: { blah: {} })
           end
         end
 
@@ -926,6 +1085,14 @@ describe SpeedGrader::Assignment do
       expect(returned_student_ids).to contain_exactly(section1_student.id.to_s)
     end
 
+    it "reads from section_ids rather than section_id for filtering when multiselect is ON" do
+      Account.site_admin.enable_feature!(:multiselect_gradebook_filters)
+      teacher.preferences.deep_merge!(gradebook_settings: {
+                                        course.global_id => { "filter_rows_by" => { "section_ids" => [section1.id.to_s, section2.id.to_s], "section_id" => section1.id.to_s } }
+                                      })
+      expect(returned_student_ids).to contain_exactly(section1_student.id.to_s, section2_student.id.to_s)
+    end
+
     it "returns all eligible students if the user has not selected a section" do
       expect(returned_student_ids).to match_array(all_course_student_ids)
     end
@@ -933,6 +1100,15 @@ describe SpeedGrader::Assignment do
     it "returns all eligible students if the selected section is set to nil" do
       teacher.preferences.deep_merge!(gradebook_settings: {
                                         course.global_id => { "filter_rows_by" => { "section_id" => nil } }
+                                      })
+      expect(returned_student_ids).to match_array(all_course_student_ids)
+    end
+
+    it "return all eligible students if the selected sections is nil and multiselect is ON" do
+      Account.site_admin.enable_feature!(:multiselect_gradebook_filters)
+      # This should ignore the section_id filter since the FF is enabled
+      teacher.preferences.deep_merge!(gradebook_settings: {
+                                        course.global_id => { "filter_rows_by" => { "section_ids" => nil, "section_id" => section1.id.to_s } }
                                       })
       expect(returned_student_ids).to match_array(all_course_student_ids)
     end
@@ -1622,7 +1798,7 @@ describe SpeedGrader::Assignment do
     include_context "lti2_spec_helper"
 
     let_once(:test_course) do
-      test_course = course_factory(active_course: true)
+      test_course = course_factory(active_course: true, account:)
       test_course.enroll_teacher(test_teacher, enrollment_state: "active")
       test_course.enroll_student(test_student, enrollment_state: "active")
       test_course
@@ -1642,7 +1818,7 @@ describe SpeedGrader::Assignment do
 
     it "includes the OriginalityReport in the json" do
       submission = assignment.submit_homework(test_student, submission_type: "online_upload", attachments: [attachment])
-      submission.update_attribute(:turnitin_data, { blah: 1 })
+      submission.update_attribute(:turnitin_data, { blah: {} })
       OriginalityReport.create!(attachment:, originality_score: "1", submission:)
       json = SpeedGrader::Assignment.new(assignment, test_teacher).json
       tii_data = json["submissions"].first["submission_history"].first["submission"]["turnitin_data"]
@@ -1651,7 +1827,7 @@ describe SpeedGrader::Assignment do
 
     it "includes 'has_originality_report' in the json for text entry submissions" do
       submission = assignment.submit_homework(test_student, submission_type: "online_upload", attachments: [attachment])
-      submission.update_attribute(:turnitin_data, { blah: 1 })
+      submission.update_attribute(:turnitin_data, { blah: {} })
       OriginalityReport.create!(originality_score: "1", submission:)
       json = SpeedGrader::Assignment.new(assignment, test_teacher).json
       has_report = json["submissions"].first["submission_history"].first["submission"]["has_originality_report"]
@@ -1670,7 +1846,7 @@ describe SpeedGrader::Assignment do
       assignment.submit_homework(user_two, submission_type: "online_upload", attachments: [attachment])
 
       assignment.submissions.each do |s|
-        s.update!(group:, turnitin_data: { blah: 1 })
+        s.update!(group:, turnitin_data: { blah: {} })
       end
 
       report = OriginalityReport.create!(originality_score: "1", submission:, attachment:)
@@ -1684,7 +1860,7 @@ describe SpeedGrader::Assignment do
 
     it "includes 'has_originality_report' in the json" do
       submission = assignment.submit_homework(test_student, submission_type: "online_upload", attachments: [attachment])
-      submission.update_attribute(:turnitin_data, { blah: 1 })
+      submission.update_attribute(:turnitin_data, { blah: {} })
       OriginalityReport.create!(attachment:, originality_score: "1", submission:)
       json = SpeedGrader::Assignment.new(assignment, test_teacher).json
       has_report = json["submissions"].first["submission_history"].first["submission"]["has_originality_report"]
@@ -1693,7 +1869,7 @@ describe SpeedGrader::Assignment do
 
     it 'includes "has_plagiarism_tool" if the assignment has a plagiarism tool' do
       submission = assignment.submit_homework(test_student, submission_type: "online_upload", attachments: [attachment])
-      submission.update_attribute(:turnitin_data, { blah: 1 })
+      submission.update_attribute(:turnitin_data, { blah: {} })
 
       AssignmentConfigurationToolLookup.create!(
         assignment:,
@@ -1708,9 +1884,29 @@ describe SpeedGrader::Assignment do
       expect(has_tool).to be_truthy
     end
 
+    it 'excludes "has_plagiarism_tool" if the CPF has been migrated' do
+      submission = assignment.submit_homework(test_student, submission_type: "online_upload", attachments: [attachment])
+      submission.update_attribute(:turnitin_data, { blah: {} })
+
+      AssignmentConfigurationToolLookup.create!(
+        assignment:,
+        tool_vendor_code: product_family.vendor_code,
+        tool_product_code: product_family.product_code,
+        tool_resource_type_code: resource_handler.resource_type_code,
+        tool_type: "Lti::MessageHandler"
+      )
+
+      # Mark as migrated
+      allow_any_instance_of(AssignmentConfigurationToolLookup).to receive(:migrated?).and_return(true)
+
+      json = SpeedGrader::Assignment.new(assignment, test_teacher).json
+      has_tool = json["submissions"].first["submission_history"].first["submission"]["has_plagiarism_tool"]
+      expect(has_tool).to be_falsey
+    end
+
     it 'includes "has_originality_score" if the originality report includes an originality score' do
       submission = assignment.submit_homework(test_student, submission_type: "online_upload", attachments: [attachment])
-      submission.update_attribute(:turnitin_data, { blah: 1 })
+      submission.update_attribute(:turnitin_data, { blah: {} })
       OriginalityReport.create!(attachment:, originality_score: "1", submission:)
       json = SpeedGrader::Assignment.new(assignment, test_teacher).json
       has_score = json["submissions"].first["submission_history"].first["submission"]["has_originality_score"]
@@ -1719,7 +1915,7 @@ describe SpeedGrader::Assignment do
 
     it "includes originality data" do
       submission = assignment.submit_homework(test_student, submission_type: "online_upload", attachments: [attachment])
-      submission.update_attribute(:turnitin_data, { blah: 1 })
+      submission.update_attribute(:turnitin_data, { blah: {} })
       OriginalityReport.create!(attachment:, originality_score: "1", submission:)
       OriginalityReport.create!(originality_score: "1", submission:)
       json = SpeedGrader::Assignment.new(assignment, test_teacher).json
@@ -1732,7 +1928,7 @@ describe SpeedGrader::Assignment do
 
     it 'does not override "turnitin_data"' do
       submission = assignment.submit_homework(test_student, submission_type: "online_upload", attachments: [attachment])
-      submission.update_attribute(:turnitin_data, { test_key: 1 })
+      submission.update_attribute(:turnitin_data, { test_key: {} })
       json = SpeedGrader::Assignment.new(assignment, test_teacher).json
       keys = json["submissions"].first["submission_history"].first["submission"]["turnitin_data"].keys
       expect(keys).to include "test_key"
@@ -3111,6 +3307,90 @@ describe SpeedGrader::Assignment do
     it "sets post_manually to false in the response if the assignment is not manually-posted" do
       assignment.ensure_post_policy(post_manually: false)
       expect(json["post_manually"]).to be false
+    end
+  end
+
+  describe "#anonymize_students?" do
+    let_once(:assignment) { @course.assignments.create!(title: "test assignment") }
+    let(:speed_grader_assignment) { SpeedGrader::Assignment.new(assignment, @teacher) }
+
+    context "when assignment is quiz_lti" do
+      before do
+        allow(assignment).to receive(:quiz_lti?).and_return(true)
+      end
+
+      it "returns true when new_quizzes_anonymous_participants? is true" do
+        allow(assignment).to receive(:new_quizzes_anonymous_participants?).and_return(true)
+        expect(speed_grader_assignment.anonymize_students?).to be true
+      end
+
+      it "returns false when new_quizzes_anonymous_participants? is false" do
+        allow(assignment).to receive(:new_quizzes_anonymous_participants?).and_return(false)
+        expect(speed_grader_assignment.anonymize_students?).to be false
+      end
+    end
+
+    context "when assignment is not quiz_lti" do
+      before do
+        allow(assignment).to receive(:quiz_lti?).and_return(false)
+      end
+
+      it "delegates to assignment.anonymize_students? when true" do
+        allow(assignment).to receive(:anonymize_students?).and_return(true)
+        expect(speed_grader_assignment.anonymize_students?).to be true
+      end
+
+      it "delegates to assignment.anonymize_students? when false" do
+        allow(assignment).to receive(:anonymize_students?).and_return(false)
+        expect(speed_grader_assignment.anonymize_students?).to be false
+      end
+    end
+  end
+
+  describe "anonymous_participants in json" do
+    let_once(:assignment) { @course.assignments.create!(title: "test assignment") }
+
+    it "is false when the assignment has no anonymous participants" do
+      json = SpeedGrader::Assignment.new(assignment, @teacher).json
+      expect(json["anonymous_participants"]).to be false
+    end
+
+    it "is true when the assignment has anonymous participants" do
+      assignment.anonymous_participants = true
+      assignment.save!
+      json = SpeedGrader::Assignment.new(assignment, @teacher).json
+      expect(json["anonymous_participants"]).to be true
+    end
+  end
+
+  describe "#anonymous_students?" do
+    let_once(:assignment) { @course.assignments.create!(title: "test assignment") }
+    let(:speed_grader_assignment) { SpeedGrader::Assignment.new(assignment, @teacher) }
+
+    context "when anonymize_students? is true" do
+      before do
+        allow(speed_grader_assignment).to receive(:anonymize_students?).and_return(true)
+      end
+
+      it "returns true regardless of user permissions" do
+        expect(speed_grader_assignment.anonymous_students?(current_user: @teacher, assignment:)).to be true
+      end
+    end
+
+    context "when anonymize_students? is false" do
+      before do
+        allow(speed_grader_assignment).to receive(:anonymize_students?).and_return(false)
+      end
+
+      it "returns false when user has manage_grades or view_all_grades permission" do
+        allow(assignment.context).to receive(:grants_any_right?).with(@teacher, :manage_grades, :view_all_grades).and_return(true)
+        expect(speed_grader_assignment.anonymous_students?(current_user: @teacher, assignment:)).to be false
+      end
+
+      it "returns true when user has neither manage_grades nor view_all_grades permission" do
+        allow(assignment.context).to receive(:grants_any_right?).with(@teacher, :manage_grades, :view_all_grades).and_return(false)
+        expect(speed_grader_assignment.anonymous_students?(current_user: @teacher, assignment:)).to be true
+      end
     end
   end
 end

@@ -18,7 +18,7 @@
 
 import $ from 'jquery'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender} from '@canvas/react'
 import StudentContextTray from './GraphQLStudentContextTray'
 
 const handleClickEvent = event => {
@@ -26,7 +26,11 @@ const handleClickEvent = event => {
   const courseId = $(event.currentTarget).attr('data-course_id')
   if (ENV.STUDENT_CONTEXT_CARDS_ENABLED && studentId && courseId) {
     event.preventDefault()
-    const container = document.getElementById('StudentTray__Container')
+    // 'StudentTray__Container is provided by application controller, but for the
+    // case of showing discussions in speedgrader, we need to look for the iframe's parent
+    const container =
+      document.getElementById('StudentTray__Container') ||
+      window.parent.document.getElementById('StudentTray__Container')
 
     const returnFocusToHandler = () => {
       const focusableItems = [$(event.target)]
@@ -40,7 +44,7 @@ const handleClickEvent = event => {
       return focusableItems
     }
 
-    ReactDOM.render(
+    legacyRender(
       <StudentContextTray
         key={`student_context_card_${courseId}_${studentId}`}
         courseId={courseId}
@@ -48,7 +52,7 @@ const handleClickEvent = event => {
         returnFocusTo={returnFocusToHandler}
         externalTools={ENV.student_context_card_tools}
       />,
-      container
+      container,
     )
   }
 }

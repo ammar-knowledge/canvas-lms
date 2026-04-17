@@ -26,9 +26,11 @@ const props = {
   isLoading: false,
   noResultsLabel: 'empty results',
   noSearchMatchLabel: 'empty search',
-  onChange: jest.fn(),
+  onChange: vi.fn(),
   id: '',
   value: '',
+  setRef: vi.fn(),
+  invalidRole: vi.fn(),
 }
 
 const roleOptions = [
@@ -39,7 +41,7 @@ const roleOptions = [
 describe('RoleSearchSelect', () => {
   it('shows options on click', () => {
     const {getByText, queryByText} = render(
-      <RoleSearchSelect {...props}>{roleOptions}</RoleSearchSelect>
+      <RoleSearchSelect {...props}>{roleOptions}</RoleSearchSelect>,
     )
     const select = getByText('Select a Role')
     fireEvent.click(select)
@@ -49,7 +51,7 @@ describe('RoleSearchSelect', () => {
 
   it('shows options starting with the input letter', () => {
     const {getByPlaceholderText, queryByText} = render(
-      <RoleSearchSelect {...props}>{roleOptions}</RoleSearchSelect>
+      <RoleSearchSelect {...props}>{roleOptions}</RoleSearchSelect>,
     )
     const select = getByPlaceholderText('Select a Role')
     fireEvent.click(select)

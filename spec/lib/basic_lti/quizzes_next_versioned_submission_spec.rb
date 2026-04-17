@@ -26,7 +26,7 @@ describe BasicLTI::QuizzesNextVersionedSubmission do
     @root_account = @course.root_account
     @account = account_model(root_account: @root_account, parent_account: @root_account)
     @course.update_attribute(:account, @account)
-    @user = factory_with_protected_attributes(User, name: "some user", workflow_state: "registered")
+    @user = User.create!(name: "some user", workflow_state: "registered")
     @course.enroll_student(@user)
   end
 
@@ -342,7 +342,7 @@ describe BasicLTI::QuizzesNextVersionedSubmission do
               next if x[:grade].blank? && x[:workflow_state] != "graded"
 
               score = x[:grade] ? assignment.points_possible * x[:grade] : nil
-              grade = score ? score.to_s : nil
+              grade = score&.to_s
 
               [x[:url], score, grade]
             end
@@ -357,6 +357,7 @@ describe BasicLTI::QuizzesNextVersionedSubmission do
 
     before do
       allow(Submission).to receive(:find_or_initialize_by).and_return(submission)
+      allow(submission).to receive_messages(grader_can_grade?: true, autograded?: false)
     end
 
     let(:submission) do
@@ -381,12 +382,12 @@ describe BasicLTI::QuizzesNextVersionedSubmission do
 
     it "sends an 'Assignment Submitted' notification for the first attempt that is submitted" do
       expect(submission).to receive(:without_versioning).once.and_call_original
-      expect(submission).to receive(:with_versioning).with(false).once.and_call_original
+      expect(submission).to receive(:with_versioning).with(enabled: false).once.and_call_original
 
       # :with_versioning calls:
       # 1 - initialize_version
       # 2 - save_submission!
-      expect(submission).to receive(:with_versioning).with({ explicit: true }).twice.and_call_original
+      expect(submission).to receive(:with_versioning).with(explicit: true).twice.and_call_original
 
       expect(BroadcastPolicy.notifier).to receive(:send_notification).with(
         submission,

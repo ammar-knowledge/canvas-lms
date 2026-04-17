@@ -21,12 +21,12 @@ import {render} from '@testing-library/react'
 import BaseModalOptions from '../BaseModalOptions'
 
 describe('BaseModalOptions', () => {
-  const setName = jest.fn()
-  const setDuration = jest.fn()
-  const setOptions = jest.fn()
-  const setDescription = jest.fn()
-  const setInvitationOptions = jest.fn()
-  const setAttendeesOptions = jest.fn()
+  const setName = vi.fn()
+  const setDuration = vi.fn()
+  const setOptions = vi.fn()
+  const setDescription = vi.fn()
+  const setInvitationOptions = vi.fn()
+  const setAttendeesOptions = vi.fn()
 
   const defaultProps = {
     name: 'Conference 1',
@@ -54,7 +54,7 @@ describe('BaseModalOptions', () => {
         onSetDescription={props.setDescription}
         invitationOptions={props.invitationOptions}
         onSetInvitationOptions={props.setInvitationOptions}
-      />
+      />,
     )
   }
 
@@ -74,9 +74,9 @@ describe('BaseModalOptions', () => {
 
   it('should render with default props', () => {
     const {getByLabelText, getAllByLabelText} = setup(defaultProps)
-    expect(getByLabelText('Name')).toHaveValue(defaultProps.name)
-    expect(getAllByLabelText('Duration in Minutes')[0]).toHaveValue(
-      defaultProps.duration.toString()
+    expect(getByLabelText('Name *')).toHaveValue(defaultProps.name)
+    expect(getAllByLabelText('Duration in Minutes *')[0]).toHaveValue(
+      defaultProps.duration.toString(),
     )
     expect(getByLabelText('No time limit (for long-running conferences)').checked).toBeFalsy()
     expect(getByLabelText('Description')).toHaveValue(defaultProps.description)

@@ -16,24 +16,29 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useState} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import PropTypes from 'prop-types'
-import {View} from '@instructure/ui-view'
-import {Text} from '@instructure/ui-text'
-import {Img} from '@instructure/ui-img'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import Modal from '@canvas/instui-bindings/react/InstuiModal'
-import {Link} from '@instructure/ui-link'
-import {TruncateText} from '@instructure/ui-truncate-text'
-import {Tooltip} from '@instructure/ui-tooltip'
-import {IconLtiSolid} from '@instructure/ui-icons'
+import {assignLocation} from '@canvas/util/globalUtils'
 import {PresentationContent} from '@instructure/ui-a11y-content'
-import {getK5ThemeVars} from './k5-theme'
 import {Flex} from '@instructure/ui-flex'
+import {IconLtiSolid} from '@instructure/ui-icons'
+import {Img} from '@instructure/ui-img'
+import {Link} from '@instructure/ui-link'
+import {Text} from '@instructure/ui-text'
+import {Tooltip} from '@instructure/ui-tooltip'
+import {TruncateText} from '@instructure/ui-truncate-text'
+import {View} from '@instructure/ui-view'
+import PropTypes from 'prop-types'
+import React, {useState} from 'react'
+import {getK5ThemeVars} from './k5-theme'
 
-const k5ThemeVariables = getK5ThemeVars()
+const k5ThemeVariables = getK5ThemeVars(
+  Boolean(ENV.use_high_contrast),
+  Boolean(ENV.USE_CLASSIC_FONT),
+  Boolean(ENV.use_dyslexic_font),
+)
 
-const I18n = useI18nScope('k5_app_link')
+const I18n = createI18nScope('k5_app_link')
 
 export default function K5AppLink({app}) {
   const [isModalOpen, setModalOpen] = useState(false)
@@ -45,7 +50,7 @@ export default function K5AppLink({app}) {
     } else if (app.windowTarget) {
       window.open(launchUrl(app.courses[0].id), app.windowTarget)
     } else {
-      window.location.assign(launchUrl(app.courses[0].id))
+      assignLocation(launchUrl(app.courses[0].id))
     }
   }
 
@@ -114,8 +119,8 @@ export default function K5AppLink({app}) {
                   href={launchUrl(course.id)}
                   isWithinText={false}
                   themeOverride={{
-                    color: k5ThemeVariables.colors.textDarkest,
-                    hoverColor: k5ThemeVariables.colors.textDarkest,
+                    color: k5ThemeVariables.colors.contrasts.grey125125,
+                    hoverColor: k5ThemeVariables.colors.contrasts.grey125125,
                   }}
                   target={app.windowTarget}
                 >
@@ -136,7 +141,7 @@ export default function K5AppLink({app}) {
 export const AppShape = {
   id: PropTypes.string.isRequired,
   courses: PropTypes.arrayOf(
-    PropTypes.shape({id: PropTypes.string.isRequired, name: PropTypes.string.isRequired})
+    PropTypes.shape({id: PropTypes.string.isRequired, name: PropTypes.string.isRequired}),
   ).isRequired,
   title: PropTypes.string.isRequired,
   icon: PropTypes.string,

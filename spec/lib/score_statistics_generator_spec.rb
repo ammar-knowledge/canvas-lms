@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../spec_helper"
-
 describe ScoreStatisticsGenerator do
   # Because this functionality has been transplanted out of the grade
   # summary presenter, there are tests there that check the
@@ -66,12 +64,32 @@ describe ScoreStatisticsGenerator do
     }.from(0).to(2)
   end
 
+  it "doesn't update the score statistics if the data hasn't changed" do
+    ScoreStatistic.where(assignment: @assignments).destroy_all
+
+    ScoreStatisticsGenerator.update_score_statistics(@course.id)
+    updated_ats = ScoreStatistic.where(assignment: @assignments).order(:id).pluck(:updated_at)
+
+    ScoreStatisticsGenerator.update_score_statistics(@course.id)
+    expect(ScoreStatistic.where(assignment: @assignments).order(:id).pluck(:updated_at)).to eq(updated_ats)
+  end
+
   it "updates course score statistic if graded/posted assignments exist" do
     CourseScoreStatistic.where(course: @course).destroy_all
 
     expect { ScoreStatisticsGenerator.update_score_statistics(@course.id) }.to change {
       CourseScoreStatistic.where(course: @course).size
     }.from(0).to(1)
+  end
+
+  it "doesn't update the course score statistics if the data hasn't changed" do
+    CourseScoreStatistic.where(course: @course).destroy_all
+
+    ScoreStatisticsGenerator.update_score_statistics(@course.id)
+    updated_ats = CourseScoreStatistic.where(course: @course).order(:id).pluck(:updated_at)
+
+    ScoreStatisticsGenerator.update_score_statistics(@course.id)
+    expect(CourseScoreStatistic.where(course: @course).order(:id).pluck(:updated_at)).to eq(updated_ats)
   end
 
   it "removes course score statistic if no graded/posted assignments exist" do

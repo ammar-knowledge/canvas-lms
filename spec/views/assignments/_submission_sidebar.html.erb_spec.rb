@@ -18,7 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
 require_relative "../views_helper"
 
 describe "assignments/_submission_sidebar" do
@@ -72,7 +71,7 @@ describe "assignments/_submission_sidebar" do
       assign(:current_user_submission, submission)
       render
       html = Nokogiri::HTML5.fragment(response.body)
-      expect(html.css("div#comment-#{comment.id}").text).to include "a comment!"
+      expect(html.css("div#comment-#{comment.id} .comment_content").first["data-content"]).to include "a comment!"
     end
 
     it "does not render submission comments when the submission is not posted" do
@@ -118,7 +117,7 @@ describe "assignments/_submission_sidebar" do
       assign(:current_user_submission, submission)
       render
       html = Nokogiri::HTML5.fragment(response.body)
-      expect(html.css("div#comment-#{comment.id}").text).to include "a comment!"
+      expect(html.css("div#comment-#{comment.id} .comment_content").first["data-content"]).to include "a comment!"
     end
   end
 end

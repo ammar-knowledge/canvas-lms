@@ -18,9 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../spec_helper"
 require_relative "../../lti_spec_helper"
-require_relative "../../lti_1_3_spec_helper"
 
 module Lti
   describe AppCollator do
@@ -45,7 +43,7 @@ module Lti
         page2 = collection.paginate(page: page1.next_page, per_page:)
         expect(page1.count).to eq 3
         expect(page2.count).to eq 3
-        expect(page1.first).to_not eq page2.first
+        expect(page1.first).not_to eq page2.first
       end
     end
 
@@ -92,9 +90,7 @@ module Lti
       end
 
       it "returns an external tool app definition as 1.3 tool" do
-        external_tool = new_valid_external_tool(account)
-        external_tool.use_1_3 = true
-        external_tool.save!
+        external_tool = lti_registration_with_tool(account:).deployments.first
         tools_collection = subject.bookmarked_collection.paginate(per_page: 100).to_a
 
         definitions = subject.app_definitions(tools_collection)
@@ -127,9 +123,7 @@ module Lti
       end
 
       it "returns definition with top_nav_favorite when top_navigation placement is present" do
-        external_tool = new_valid_external_tool(account)
-        external_tool.use_1_3 = true
-        external_tool.save!
+        external_tool = lti_registration_with_tool(account:).deployments.first
         external_tool.context_external_tool_placements.create(placement_type: :top_navigation)
         tools_collection = subject.bookmarked_collection.paginate(per_page: 100).to_a
 
@@ -159,8 +153,8 @@ module Lti
         expect(definitions.count).to eq 2
         external_tool = definitions.find { |d| d[:app_type] == "ContextExternalTool" }
         tool_proxy = definitions.find { |d| d[:app_type] == "Lti::ToolProxy" }
-        expect(tool_proxy).to_not be_nil
-        expect(external_tool).to_not be_nil
+        expect(tool_proxy).not_to be_nil
+        expect(external_tool).not_to be_nil
       end
 
       it "has check_for_update set to false" do

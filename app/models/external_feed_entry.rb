@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class ExternalFeedEntry < ActiveRecord::Base
+class ExternalFeedEntry < ApplicationRecord
   include Workflow
 
   belongs_to :user
@@ -34,7 +34,7 @@ class ExternalFeedEntry < ActiveRecord::Base
   sanitize_field :message, CanvasSanitize::SANITIZE
 
   def infer_defaults
-    self.uuid ||= Digest::SHA256.hexdigest("#{title || rand.to_s}#{posted_at.strftime("%Y-%m-%d") rescue "no-time"}")
+    self.uuid ||= Digest::SHA256.hexdigest("#{title || rand.to_s}#{posted_at&.strftime("%Y-%m-%d") || "no-time"}")
   end
   protected :infer_defaults
 

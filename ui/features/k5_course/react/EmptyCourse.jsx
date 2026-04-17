@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 
 import {Img} from '@instructure/ui-img'
@@ -25,9 +25,9 @@ import {Text} from '@instructure/ui-text'
 import {Button} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
 
-import SpacePandaUrl from '@canvas/images/SpacePanda.svg'
+import SpacePandaUrl from '@instructure/platform-images/assets/SpacePanda.svg'
 
-const I18n = useI18nScope('empty_course')
+const I18n = createI18nScope('empty_course')
 
 export default function EmptyCourse({canManage, name, id}) {
   return (

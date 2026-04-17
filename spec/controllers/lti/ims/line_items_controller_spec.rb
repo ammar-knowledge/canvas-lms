@@ -25,6 +25,7 @@ module Lti
   module IMS
     RSpec.describe LineItemsController do
       include_context "advantage services context"
+      include AccountDomainSpecHelper
 
       let(:context) { course }
       let(:unknown_context_id) { (Course.maximum(:id) || 0) + 1 }
@@ -55,24 +56,31 @@ module Lti
       let(:scope_to_remove) { "https://purl.imsglobal.org/spec/lti-ags/scope/lineitem" }
 
       before do
-        allow_any_instance_of(Account).to receive(:environment_specific_domain)
-          .and_return("test.host")
+        stub_host_for_environment_specific_domain("test.host")
 
         assignment
       end
 
       shared_examples "assignment with wrong tool" do
         let(:other_tool) do
-          ContextExternalTool.create!(
+          tool = ContextExternalTool.create!(
             context: tool_context,
             consumer_key: "key",
             shared_secret: "secret",
             name: "wrong tool",
             url: "http://www.wrong_tool.com/launch",
-            developer_key: DeveloperKey.create!,
+            developer_key: lti_developer_key_model(account: tool_context.root_account),
             lti_version: "1.3",
             workflow_state: "public"
           )
+          control = tool.context_controls.new(registration: tool.developer_key.lti_registration, available: true)
+          if tool_context.is_a?(Course)
+            control.course = tool_context
+          else
+            control.account = tool_context
+          end
+          control.save!
+          tool
         end
         let(:line_item) do
           line_item_model(
@@ -159,7 +167,7 @@ module Lti
           end
 
           it "uses the Account#domain in the line item id" do
-            allow_any_instance_of(Account).to receive(:environment_specific_domain).and_return("canonical.host")
+            stub_host_for_environment_specific_domain("canonical.host")
             send_request
             expect(parsed_response_body["id"]).to start_with(
               "http://canonical.host/api/lti/courses/#{course.id}/line_items/"
@@ -329,10 +337,10 @@ module Lti
 
             it "creates a line item with resource link, tag, and extensions" do
               send_request
-              expect(item.resource_link).to_not be_blank
-              expect(item.resource_link.resource_link_uuid).to_not be_blank
-              expect(item.tag).to_not be_blank
-              expect(item.extensions).to_not be_blank
+              expect(item.resource_link).not_to be_blank
+              expect(item.resource_link.resource_link_uuid).not_to be_blank
+              expect(item.tag).not_to be_blank
+              expect(item.extensions).not_to be_blank
             end
 
             it "returns the resource link in the response" do

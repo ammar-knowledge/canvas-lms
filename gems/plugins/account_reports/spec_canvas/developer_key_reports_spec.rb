@@ -31,6 +31,7 @@ describe AccountReports::DeveloperKeyReports do
     read_report(report_type, report_opts)
   end
 
+  let_once(:scopes) { ["https://purl.imsglobal.org/spec/lti-ags/scope/lineitem"] }
   let_once(:account) { Account.default }
   let_once(:first_key) do
     dk = dev_key_model({ scopes: [
@@ -49,14 +50,17 @@ describe AccountReports::DeveloperKeyReports do
   let_once(:second_key) do
     dk = dev_key_model_1_3({ name: "Second Key",
                              public_jwk_url: "http://test.com/jwks",
-                             account: })
+                             account:,
+                             scopes: })
+    lti_tool_configuration_model(developer_key: dk, scopes:)
     disable_developer_key_account_binding! dk
     dk
   end
   let_once(:third_key) do
     dk = dev_key_model_dyn_reg({ name: "Third Key",
                                  public_jwk_url: "http://test.com/jwks",
-                                 account: })
+                                 account:,
+                                 scopes: })
     enable_developer_key_account_binding! dk
     dk
   end
@@ -157,6 +161,57 @@ describe AccountReports::DeveloperKeyReports do
         # goes where on each row.
         expect(subject.find { |row| row[0] == site_admin_key.global_id.to_s }[6]).to eq("On")
       end
+    end
+  end
+
+  context "with the lti_deactivate_registrations feature flag enabled" do
+    before { account.root_account.enable_feature!(:lti_deactivate_registrations) }
+
+    it "shows 'On' for an LTI key with an active registration" do
+      expect(subject.find { |row| row[0] == third_key.global_id.to_s }[6]).to eq("On")
+    end
+
+    it "shows 'On' for an LTI key with an active registration even when the account binding is disabled" do
+      second_key.lti_registration.activate
+      expect(subject.find { |row| row[0] == second_key.global_id.to_s }[6]).to eq("On")
+    end
+
+    it "shows 'Off' for an LTI key with an inactive registration" do
+      third_key.lti_registration.deactivate
+      expect(subject.find { |row| row[0] == third_key.global_id.to_s }[6]).to eq("Off")
+    end
+
+    it "still uses account binding for non-LTI keys" do
+      # first_key is an API key with enable_developer_key_account_binding! → "On"
+      expect(subject.find { |row| row[0] == first_key.global_id.to_s }[6]).to eq("On")
+    end
+  end
+
+  context "one of the keys has an overlay that adds an additional placement" do
+    let(:user) { user_model }
+    let(:overlay) do
+      Lti::Overlay.create!(registration: second_key.lti_registration,
+                           account:,
+                           updated_by: user,
+                           data: {
+                             "placements" => {
+                               "module_index_menu_modal" => {
+                                 "message_type" => "LtiResourceLinkRequest",
+                                 "icon_url" => "https://www.example.com/icon.png",
+                               }
+                             }
+                           })
+    end
+
+    let(:expected_result) do
+      super().tap do |er|
+        er[1][5] = %w[course_navigation account_navigation module_index_menu_modal].to_s
+      end
+    end
+
+    it "adds the additional placement" do
+      overlay
+      expect(subject).to eq(expected_result)
     end
   end
 end

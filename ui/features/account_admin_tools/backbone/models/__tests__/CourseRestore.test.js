@@ -19,20 +19,19 @@
 import CourseRestoreModel from '../CourseRestore'
 import $ from 'jquery'
 import 'jquery-migrate'
-import sinon from 'sinon'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 const fixturesDiv = document.createElement('div')
 fixturesDiv.id = 'fixtures'
 document.body.appendChild(fixturesDiv)
 
-const ok = x => expect(x).toBeTruthy()
-const equal = (x, y) => expect(x).toEqual(y)
-
 let account_id
 let course_id
 let courseRestore
-let server
-let clock
+
+const server = setupServer()
 
 const progressCompletedJSON = {
   completion: 0,
@@ -75,76 +74,143 @@ const courseJSON = {
 }
 
 describe('CourseRestore', () => {
-  beforeEach(() => {
-    account_id = 4
-    course_id = 42
-    courseRestore = new CourseRestoreModel({account_id})
-    server = sinon.fakeServer.create()
-    clock = sinon.useFakeTimers()
-    return $('#fixtures').append($('<div id="flash_screenreader_holder" />'))
+  beforeAll(() => {
+    server.listen({onUnhandledRequest: 'error'})
   })
 
   afterEach(() => {
-    server.restore()
-    clock.restore()
-    account_id = null
+    server.resetHandlers()
+    fakeENV.teardown()
     $('#fixtures').empty()
   })
-  // Describes searching for a course by ID
+
+  afterAll(() => server.close())
+
+  beforeEach(() => {
+    fakeENV.setup()
+    account_id = 4
+    course_id = 42
+    courseRestore = new CourseRestoreModel({account_id})
+    $('#fixtures').append($('<div id="flash_screenreader_holder" />'))
+
+    // Set up default handlers for all tests
+    server.use(
+      // Default handler for search requests
+      http.get('*/api/v1/accounts/*/courses/*', () => {
+        return new HttpResponse(null, {status: 404})
+      }),
+      // Default handler for restore requests
+      http.put('*/api/v1/accounts/*/courses/', () => {
+        return new HttpResponse(null, {status: 400})
+      }),
+      // Default handler for progress requests
+      http.get('*/api/v1/progress/*', () => {
+        return HttpResponse.json(progressCompletedJSON)
+      }),
+    )
+  })
   test("triggers 'searching' when search is called", function () {
-    const callback = sinon.spy()
+    const callback = vi.fn()
     courseRestore.on('searching', callback)
     courseRestore.search(account_id)
-    ok(callback.called, 'Searching event is called when searching')
+    expect(callback).toHaveBeenCalled()
   })
 
-  test('populates CourseRestore model with response, keeping its original account_id', function () {
+  test('populates CourseRestore model with response, keeping its original account_id', async () => {
+    server.use(http.get('*/api/v1/accounts/*/courses/*', () => HttpResponse.json(courseJSON)))
+
+    const searchComplete = new Promise(resolve => {
+      courseRestore.once('doneSearching', resolve)
+    })
+
     courseRestore.search(course_id)
-    server.respond('GET', courseRestore.searchUrl(), [
-      200,
-      {'Content-Type': 'application/json'},
-      JSON.stringify(courseJSON),
-    ])
-    equal(courseRestore.get('account_id'), account_id, 'account id stayed the same')
-    equal(courseRestore.get('id'), courseJSON.id, 'course id was updated')
+    await searchComplete
+    expect(courseRestore.get('account_id')).toBe(account_id)
+    expect(courseRestore.get('id')).toBe(courseJSON.id)
   })
 
-  test('set status when course not found', function () {
+  test('set status when course not found', async () => {
+    server.use(
+      http.get('*/api/v1/accounts/*/courses/*', () => {
+        return new HttpResponse('{}', {
+          status: 404,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+      }),
+    )
+
+    const searchComplete = new Promise(resolve => {
+      courseRestore.once('doneSearching', resolve)
+    })
+
     courseRestore.search('a')
-    server.respond('GET', courseRestore.searchUrl(), [
-      404,
-      {'Content-Type': 'application/json'},
-      JSON.stringify({}),
-    ])
-    equal(courseRestore.get('status'), 404)
+    await searchComplete
+    expect(courseRestore.get('status')).toBe(404)
   })
 
   test('responds with a deferred object', function () {
     const dfd = courseRestore.restore()
-    ok($.isFunction(dfd.done, 'This is a deferred object'))
+    expect($.isFunction(dfd.done)).toBeTruthy()
   })
 
-  // a restored course should be populated with a deleted course with an after a search was made.
-  test('restores a course after search finds a deleted course', function () {
-    courseRestore.search(course_id)
-    server.respond('GET', courseRestore.searchUrl(), [
-      200,
-      {'Content-Type': 'application/json'},
-      JSON.stringify(courseJSON),
-    ])
-    const dfd = courseRestore.restore()
-    server.respond(
-      'PUT',
-      `${courseRestore.baseUrl()}/?course_ids[]=${courseRestore.get('id')}&event=undelete`,
-      [200, {'Content-Type': 'application/json'}, JSON.stringify(progressQueuedJSON)]
+  test('restores a course after search finds a deleted course', async () => {
+    // Set up handlers with proper URL patterns to catch all requests
+    server.use(
+      // Handle search requests
+      http.get('*/api/v1/accounts/*/courses/*', ({request}) => {
+        const url = new URL(request.url)
+        if (url.searchParams.get('include[]') === 'all_courses') {
+          return HttpResponse.json(courseJSON)
+        }
+        return new HttpResponse(null, {status: 404})
+      }),
+      // Handle restore requests
+      http.put('*/api/v1/accounts/*/courses/', ({request}) => {
+        const url = new URL(request.url)
+        if (url.searchParams.get('event') === 'undelete' && url.searchParams.get('course_ids[]')) {
+          return HttpResponse.json(progressQueuedJSON)
+        }
+        return new HttpResponse(null, {status: 400})
+      }),
+      // Handle progress polling
+      http.get('*/api/v1/progress/*', () => {
+        return HttpResponse.json(progressCompletedJSON)
+      }),
+      // Catch any localhost progress URLs
+      http.get('http://localhost:3000/api/v1/progress/*', () => {
+        return HttpResponse.json(progressCompletedJSON)
+      }),
     )
-    clock.tick(1000)
-    server.respond('GET', progressQueuedJSON.url, [
-      200,
-      {'Content-Type': 'application/json'},
-      JSON.stringify(progressCompletedJSON),
-    ])
-    ok(dfd.state() === 'resolved', 'All ajax request in this deferred object should be resolved')
-    equal(courseRestore.get('workflow_state'), 'unpublished')
+
+    // First do the search
+    courseRestore.search(course_id)
+
+    // Wait for search to complete
+    const searchComplete = new Promise(resolve => {
+      courseRestore.once('doneSearching', resolve)
+    })
+    await searchComplete
+
+    // Verify search worked
+    expect(courseRestore.get('id')).toBe(courseJSON.id)
+
+    // Set up listener BEFORE triggering restore to avoid race condition
+    const restoreComplete = new Promise(resolve => {
+      courseRestore.once('doneRestoring', resolve)
+    })
+
+    // Now do the restore
+    const dfd = courseRestore.restore()
+
+    // Check state changes
+    await restoreComplete
+
+    expect(courseRestore.get('workflow_state')).toBe('unpublished')
+    expect(courseRestore.get('restored')).toBe(true)
+    // Wait for next tick to ensure jQuery deferred state is updated
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(dfd.state()).toBe('resolved')
   })
 })

@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class UserService < ActiveRecord::Base
+class UserService < ApplicationRecord
   include Workflow
 
   belongs_to :user
@@ -32,18 +32,7 @@ class UserService < ActiveRecord::Base
   after_save :touch_user
   after_save :clear_cache_key
 
-  def should_have_communication_channel?
-    [CommunicationChannel::TYPE_TWITTER].include?(service) && user
-  end
-
   def assert_relations
-    if should_have_communication_channel?
-      cc = user.communication_channels.where(path_type: service).first_or_initialize
-      cc.path_type = service
-      cc.workflow_state = "active"
-      cc.path = "#{service_user_id}@#{service}.com"
-      cc.save!
-    end
     if user_id && service
       UserService.where(user_id:, service:).where("id<>?", self).delete_all
     end
@@ -52,11 +41,6 @@ class UserService < ActiveRecord::Base
 
   def clear_cache_key
     user.clear_cache_key(:user_services)
-  end
-
-  def assert_communication_channel
-    # why is twitter getting special treatment?
-    touch if should_have_communication_channel? && !user.communication_channels.where(path_type: CommunicationChannel::TYPE_TWITTER).first
   end
 
   def infer_defaults
@@ -83,7 +67,7 @@ class UserService < ActiveRecord::Base
   scope :visible, -> { where("visible") }
 
   def service_name
-    service.titleize rescue ""
+    service.titleize
   end
 
   def password=(password)
@@ -124,21 +108,17 @@ class UserService < ActiveRecord::Base
     opts[:token] = nil
     opts[:secret] = nil
     opts[:service] = params[:service]
-    case opts[:service]
-    when "diigo"
+
+    if opts[:service] == "diigo"
       opts[:service_domain] = "diigo.com"
       opts[:protocol] = "http-auth"
       opts[:service_user_id] = params[:user_name]
       opts[:service_user_name] = params[:user_name]
       opts[:password] = params[:password]
-    when "skype"
-      opts[:service_domain] = "skype.com"
-      opts[:service_user_id] = params[:user_name]
-      opts[:service_user_name] = params[:user_name]
-      opts[:protocol] = "skype"
     else
       raise "Unknown Service Type"
     end
+
     register(opts)
   end
 
@@ -154,10 +134,6 @@ class UserService < ActiveRecord::Base
     case type
     when "google_drive"
       2
-    when "skype"
-      3
-    when CommunicationChannel::TYPE_TWITTER
-      4
     when "diigo"
       8
     else
@@ -169,12 +145,8 @@ class UserService < ActiveRecord::Base
     case type
     when "google_drive"
       t "#user_service.descriptions.google_drive", "Students can use Google Drive to collaborate on group projects.  Google Drive allows for real-time collaborative editing of documents, spreadsheets and presentations."
-    when CommunicationChannel::TYPE_TWITTER
-      t "#user_service.descriptions.twitter", "X.com is a great resource for out-of-class communication."
     when "diigo"
       t "#user_service.descriptions.diigo", "Diigo is a collaborative link-sharing tool.  You can tag any page on the Internet for later reference.  You can also link to other users' Diigo accounts to share links of similar interest."
-    when "skype"
-      t "#user_service.descriptions.skype", "Skype is a free tool for online voice and video calls."
     else # 'google_calendar'
       ""
     end
@@ -186,12 +158,8 @@ class UserService < ActiveRecord::Base
       "https://www.google.com/drive/"
     when "google_calendar"
       "http://calendar.google.com"
-    when CommunicationChannel::TYPE_TWITTER
-      "http://twitter.com/signup"
     when "diigo"
       "https://www.diigo.com/sign-up"
-    when "skype"
-      "http://www.skype.com/go/register"
     else
       nil
     end
@@ -203,12 +171,8 @@ class UserService < ActiveRecord::Base
       "https://myaccount.google.com/?pli=1"
     when "google_calendar"
       "http://calendar.google.com"
-    when CommunicationChannel::TYPE_TWITTER
-      "http://www.twitter.com/#{service_user_name}"
     when "diigo"
       "http://www.diigo.com/user/#{service_user_name}"
-    when "skype"
-      "skype:#{service_user_name}?add"
     else
       "http://www.instructure.com"
     end

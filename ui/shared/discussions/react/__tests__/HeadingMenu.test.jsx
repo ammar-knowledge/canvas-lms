@@ -31,9 +31,9 @@ const defaultProps = () => ({
   onSelectFilter: () => {},
 })
 
-jest.mock('lodash', () => ({
+vi.mock('lodash', () => ({
   debounce: fn => {
-    fn.cancel = jest.fn()
+    fn.cancel = vi.fn()
     return fn
   },
 }))
@@ -46,10 +46,10 @@ describe('Heading Menu', () => {
   })
 
   it('calls onSelectFilter when a filter is clicked', async () => {
-    const onSelectFilterMock = jest.fn()
+    const onSelectFilterMock = vi.fn()
 
     const {queryByTestId, getByTestId} = render(
-      <HeadingMenu {...defaultProps()} onSelectFilter={onSelectFilterMock} />
+      <HeadingMenu {...defaultProps()} onSelectFilter={onSelectFilterMock} />,
     )
 
     const filterMenu = queryByTestId('filter-menu')
@@ -69,7 +69,7 @@ describe('Heading Menu', () => {
       () => {
         expect(onSelectFilterMock).toHaveBeenCalledWith({id: 'all', value: 'all'})
       },
-      {timeout: DEFAULT_SEARCH_DELAY}
+      {timeout: DEFAULT_SEARCH_DELAY},
     )
   })
 })

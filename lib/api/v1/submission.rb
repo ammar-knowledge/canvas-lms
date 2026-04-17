@@ -37,23 +37,47 @@ module Api::V1::Submission
     context = nil,
     includes = [],
     params = {},
-    avatars = false
+    avatars: false,
+    preloaded_enrollments_by_user_id: nil
   )
     context ||= assignment.context
-    hash = submission_attempt_json(submission, assignment, current_user, session, context, params)
+    hash = submission_attempt_json(submission, assignment, current_user, session, context, params, preloaded_enrollments_by_user_id:)
 
     # The "body" attribute is intended to store the contents of text-entry
     # submissions, but for quizzes it contains a string that includes grading
     # information. Only return it if the caller has permissions.
     hash["body"] = nil if assignment.quiz? && !submission.user_can_read_grade?(current_user)
 
-    if includes.include?("sub_assignment_submissions") && assignment.root_account.feature_enabled?(:discussion_checkpoints)
-      hash["has_sub_assignment_submissions"] = assignment.has_sub_assignments
-      hash["sub_assignment_submissions"] = (assignment.has_sub_assignments &&
-                                           assignment.sub_assignments&.map do |sub_assignment|
-                                             sub_assignment_submission = sub_assignment.submissions.active.find_by(user_id: submission.user_id)
-                                             sub_assignnment_submission_json(sub_assignment_submission, sub_assignment_submission.assignment, current_user, session, context, includes, params, avatars)
-                                           end) || []
+    if includes.include?("sub_assignment_submissions") && context.discussion_checkpoints_enabled?
+      if assignment.has_sub_assignments
+        result = Checkpoints::SubAssignmentSubmissionSerializer.serialize(assignment:, user_id: submission.user_id)
+
+        sub_assignment_submissions = result[:submissions]&.filter_map do |sub_assignment_submission|
+          sub_assignment_submission_json(sub_assignment_submission, sub_assignment_submission.assignment, current_user, session, context, includes, params, avatars:)
+        end
+
+        hash["has_sub_assignment_submissions"] = result[:has_active_submissions]
+        hash["sub_assignment_submissions"] = sub_assignment_submissions || []
+      else
+        hash["has_sub_assignment_submissions"] = false
+        hash["sub_assignment_submissions"] = []
+      end
+    end
+
+    if includes.include?("peer_review_submissions") && context.feature_enabled?(:peer_review_allocation_and_grading)
+      if assignment.peer_reviews? && assignment.peer_review_sub_assignment.present? && !assignment.is_a?(PeerReviewSubAssignment)
+        result = PeerReview::PeerReviewSubmissionSerializer.serialize(assignment:, user_id: submission.user_id)
+
+        peer_review_submission_data = if result[:submission]
+                                        peer_review_submission_json(result[:submission], result[:submission].assignment, current_user, session, context, includes, params, avatars:)
+                                      end
+
+        hash["has_peer_review_submission"] = result[:has_peer_review_submission]
+        hash["peer_review_submission"] = peer_review_submission_data
+      else
+        hash["has_peer_review_submission"] = false
+        hash["peer_review_submission"] = nil
+      end
     end
 
     if includes.include?("submission_history")
@@ -105,13 +129,17 @@ module Api::V1::Submission
     end
 
     if includes.include?("has_postable_comments")
-      hash["has_postable_comments"] =
-        submission.submission_comments.any?(&:allows_posting_submission?)
+      hash["has_postable_comments"] = submission.postable_comments?
     end
 
     if includes.include?("submission_comments")
       published_comments = submission.comments_excluding_drafts_for(@current_user)
       hash["submission_comments"] = submission_comments_json(published_comments, current_user)
+    end
+
+    if includes.include?("submission_html_comments")
+      published_comments = submission.comments_excluding_drafts_for(@current_user)
+      hash["submission_html_comments"] = submission_comments_json(published_comments, current_user, use_html_comment: true)
     end
 
     if includes.include?("rubric_assessment") && submission.rubric_assessment &&
@@ -146,7 +174,7 @@ module Api::V1::Submission
             anonymous_id: submission.anonymous_id
           )
         else
-          course_assignment_submission_url(submission.context.id, assignment.id, submission.user.id)
+          course_assignment_submission_url(submission.context.id, assignment.id, submission.user_id)
         end
     end
 
@@ -221,7 +249,8 @@ module Api::V1::Submission
     session,
     context = nil,
     params = {},
-    quiz_submission_version = nil
+    quiz_submission_version = nil,
+    preloaded_enrollments_by_user_id: nil
   )
     context ||= assignment.context
     includes = Array.wrap(params[:include])
@@ -246,9 +275,14 @@ module Api::V1::Submission
       json_fields << "anonymous_id"
     end
 
+    if attempt.checkpoints_needs_grading? && context.discussion_checkpoints_enabled?
+      attempt.workflow_state = "pending_review"
+      attempt.submission_type = attempt.submission_type || attempt.assignment&.submission_types
+    end
+
     attempt.assignment = assignment
     hash = api_json(attempt, user, session, only: json_fields, methods: json_methods)
-    hash["body"] = api_user_content(hash["body"], context, user) if hash["body"].present?
+    hash["body"] = api_user_content(hash["body"], context, user, location: attempt.asset_string) if hash["body"].present?
 
     hash["group"] = submission_minimal_group_json(attempt) if includes.include?("group")
     if hash.key?("grade_matches_current_submission")
@@ -261,14 +295,15 @@ module Api::V1::Submission
       preview_args["version"] =
         quiz_submission_version || attempt.quiz_submission_version || attempt.version_number
       hash["preview_url"] =
-        course_assignment_submission_url(context, assignment, attempt[:user_id], preview_args)
+        course_assignment_submission_url(context, assignment, attempt.user_id, preview_args)
     end
 
     unless attempt.media_comment_id.blank?
       hash["media_comment"] =
         media_comment_json(
-          media_id: attempt.media_comment_id,
-          media_type: attempt.media_comment_type
+          { media_id: attempt.media_comment_id,
+            media_type: attempt.media_comment_type },
+          location: attempt.asset_string
         )
     end
 
@@ -281,10 +316,10 @@ module Api::V1::Submission
                                                                                       .include?("webhook_info")
     end
 
-    if attempt.vericite_data(false).present? &&
+    if attempt.vericite_data(lookup_data: false).present? &&
        attempt.can_view_plagiarism_report("vericite", @current_user, session) &&
        attempt.assignment.vericite_enabled?
-      vericite_hash = attempt.vericite_data(false).dup
+      vericite_hash = attempt.vericite_data(lookup_data: false).dup
       hash["vericite_data"] = vericite_hash.except(:last_processed_attempt, :webhook_info)
     end
 
@@ -306,14 +341,13 @@ module Api::V1::Submission
             options = {
               anonymous_instructor_annotations: assignment.anonymous_instructor_annotations?,
               enable_annotations: true,
-              enrollment_type: user_type(context, user),
+              enrollment_type: user_type(context, user, preloaded_enrollments_by_user_id),
               include: includes,
-              moderated_grading_allow_list: attempt.moderated_grading_allow_list(user),
               skip_permission_checks: true,
               submission_id: attempt.id
             }
 
-            attachment_json(attachment, user, {}, options)
+            attachment_json(attachment, user, { location: attempt.asset_string }, options)
           end
       end
     end
@@ -367,6 +401,8 @@ module Api::V1::Submission
       end
     end
 
+    hash["student_entered_score"] = attempt.student_entered_score if includes.include?("student_entered_score")
+
     hash
   end
 
@@ -374,7 +410,13 @@ module Api::V1::Submission
     # If one is including the group in the submission response, we can
     # assume they want the information for identification and sorting
     # issues and not the full group object.
-    { id: attempt.group_id, name: attempt.group.try(:name) }
+    if attempt.group_id.present?
+      { id: attempt.group_id, name: attempt.group.try(:name) }
+    else
+      # Use attempt.user.groups (preloaded association) to avoid N+1 queries
+      group = attempt.user&.groups&.find { |g| g.group_category_id == attempt.assignment&.group_category_id }
+      { id: group&.id, name: group&.name }
+    end
   end
 
   def quiz_submission_attempt_json(attempt, assignment, user, session, context = nil, params)
@@ -400,7 +442,7 @@ module Api::V1::Submission
     hash
   end
 
-  def sub_assignnment_submission_json(
+  def sub_assignment_submission_json(
     submission,
     assignment,
     current_user,
@@ -408,13 +450,47 @@ module Api::V1::Submission
     context = nil,
     includes = [],
     params = {},
-    avatars = false
+    avatars: false
   )
+    json = submission_json(submission, assignment, current_user, session, context, includes, params, avatars:)
 
-    json = submission_json(submission, assignment, current_user, session, context, includes, params, avatars)
-    json["sub_assignment_tag"] = assignment.sub_assignment_tag
-    json.delete("id")
-    json
+    # we want to make a clear distinction between a submission and a sub assignment submission, we will do this by
+    # keeping the sub assignment submission json as minimal as possible, only keeping exactly what clients need
+    sub_assignment_json = json.slice(
+      "seconds_late",
+      "custom_grade_status_id",
+      "late_policy_status",
+      "late",
+      "missing",
+      "excused",
+      "entered_grade",
+      "entered_score",
+      "grade",
+      "score",
+      "user_id",
+      "grade_matches_current_submission",
+      "submitted_at",
+      "points_deducted"
+    )
+    sub_assignment_json["sub_assignment_tag"] = assignment.sub_assignment_tag
+    sub_assignment_json["published_grade"] = submission.published_grade
+    sub_assignment_json["published_score"] = submission.published_score
+    sub_assignment_json
+  end
+
+  def peer_review_submission_json(
+    submission,
+    assignment,
+    current_user,
+    session,
+    context = nil,
+    includes = [],
+    params = {},
+    avatars: false
+  )
+    # Remove peer_review_submissions from includes to prevent infinite recursion
+    filtered_includes = includes.reject { |inc| inc == "peer_review_submissions" }
+    submission_json(submission, assignment, current_user, session, context, filtered_includes, params, avatars:)
   end
 
   # Create an attachment with a ZIP archive of an assignment's submissions.

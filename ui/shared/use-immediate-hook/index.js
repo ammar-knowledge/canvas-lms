@@ -26,8 +26,15 @@
 // flicker in the browser by avoiding multiple DOM updates.
 
 import {useEffect, useRef} from 'react'
-import {isEqual} from 'lodash'
-import {shallowEqualArrays} from 'shallow-equal'
+import {isEqual} from 'es-toolkit/compat'
+
+function shallowEqualArrays(arrA, arrB) {
+  if (arrA === arrB) return true
+  if (!Array.isArray(arrA) || !Array.isArray(arrB)) return false
+  if (arrA.length !== arrB.length) return false
+
+  return arrA.every((value, index) => value === arrB[index])
+}
 
 function depsHaveChanged(priorDeps, newDeps, opts) {
   return (
@@ -45,7 +52,7 @@ export default function useImmediate(fn, newDeps, opts = {}) {
     () => () => {
       if (cleanupFn.current) cleanupFn.current()
     },
-    []
+    [],
   )
 
   // Like useEffect, we want to run the fn and its cleanup every time if deps are not specified

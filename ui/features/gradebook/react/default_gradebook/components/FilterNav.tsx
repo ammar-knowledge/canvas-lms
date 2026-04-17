@@ -19,8 +19,8 @@
 import React, {useState, useCallback, useRef, type SetStateAction} from 'react'
 import {Link} from '@instructure/ui-link'
 import {AccessibleContent} from '@instructure/ui-a11y-content'
-import uuid from 'uuid'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import * as uuid from 'uuid'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Flex} from '@instructure/ui-flex'
 import {Tag} from '@instructure/ui-tag'
 import {Alert} from '@instructure/ui-alerts'
@@ -39,7 +39,7 @@ import {IconArrowOpenDownLine} from '@instructure/ui-icons'
 import {View} from '@instructure/ui-view'
 import {FilterNavPopover} from './FilterNavPopover'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 export type FilterNavProps = {
   modules: Module[]
@@ -97,6 +97,8 @@ export default function FilterNav({
         return 'grading-periods'
       case 'student-group':
         return 'student-groups'
+      case 'non-collaborative-group':
+        return 'non-collaborative-groups'
       case 'start-date':
         return 'start-date'
       case 'end-date':
@@ -116,7 +118,7 @@ export default function FilterNav({
         applyFilters(filterPreset.filters)
       }
     },
-    [appliedFilters, applyFilters]
+    [appliedFilters, applyFilters],
   )
 
   const {dataMap, filterItems} = useFilterDropdownData({
@@ -150,7 +152,7 @@ export default function FilterNav({
       modules,
       sections,
       studentGroupCategories,
-      customStatuses
+      customStatuses,
     )
 
     const filterKey = getFilterKey(filter)

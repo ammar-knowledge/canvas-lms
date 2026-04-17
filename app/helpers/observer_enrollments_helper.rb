@@ -33,8 +33,12 @@ module ObserverEnrollmentsHelper
 
     users = Rails.cache.fetch_with_batched_keys(["observed_users2", course_id].cache_key, batch_object: user, batched_keys: :enrollments, expires_in: 1.day) do
       GuardRail.activate(:secondary) do
-        scope = user.enrollments.active_or_pending_by_date.shard(user.in_region_associated_shards)
-        scope = scope.where(course_id:) if course_id
+        scope = user.enrollments.active_or_pending_by_date
+        scope = if course_id
+                  scope.shard(Shard.shard_for(course_id)).where(course_id:)
+                else
+                  scope.shard(user.in_region_associated_shards)
+                end
         has_own_enrollments = scope.not_of_observer_type.exists? || scope.of_observer_type.where(associated_user_id: nil).exists?
         users = User.where(
           id: scope.of_observer_type.where.not(associated_user_id: nil).distinct.limit(MAX_OBSERVED_USERS).pluck(:associated_user_id)
@@ -47,6 +51,28 @@ module ObserverEnrollmentsHelper
     observed_user_cookie_name = "#{OBSERVER_COOKIE_PREFIX}#{user.id}"
     @selected_observed_user = users.detect { |u| u.id.to_s == cookies[observed_user_cookie_name] } || users.first
     cookies.delete(observed_user_cookie_name) if @selected_observed_user == users.first
+    user_json_preloads(users, accounts: true, pseudonyms: true)
     users.map { |u| user_json(u, @current_user, session, ["avatar_url"], @context, nil, ["pseudonym"]) }
+  end
+
+  # Helper method for GraphQL loaders to determine which observed student is currently selected
+  # based on the observer cookie mechanism
+  def selected_observed_student_from_cookie(current_user, observed_students, request)
+    return observed_students.first if observed_students.empty? || current_user.nil?
+
+    # Use the observer cookie mechanism to determine which student is currently selected
+    observed_user_cookie_name = "#{OBSERVER_COOKIE_PREFIX}#{current_user.id}"
+
+    # Get cookies from request if available
+    selected_user_id = request&.cookies&.[](observed_user_cookie_name)
+
+    # Find the selected student from observed students, or fall back to first
+    if selected_user_id
+      selected_student = observed_students.find { |student| student.id.to_s == selected_user_id.to_s }
+      return selected_student if selected_student
+    end
+
+    # Default to first observed student
+    observed_students.first
   end
 end

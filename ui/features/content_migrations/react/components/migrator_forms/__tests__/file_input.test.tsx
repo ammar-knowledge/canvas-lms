@@ -20,13 +20,17 @@ import React from 'react'
 import {render, screen, fireEvent} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import MigrationFileInput from '../file_input'
-import {showFlashError} from '@canvas/alerts/react/FlashAlert'
+import {showFlashError} from '@instructure/platform-alerts'
 
-jest.mock('@canvas/alerts/react/FlashAlert', () => ({
-  showFlashError: jest.fn().mockReturnValue(jest.fn()),
-}))
+vi.mock('@instructure/platform-alerts', async () => {
+  const actual = await vi.importActual('@instructure/platform-alerts')
+  return {
+    ...actual,
+    showFlashError: vi.fn().mockReturnValue(vi.fn()),
+  }
+})
 
-const onChange = jest.fn()
+const onChange = vi.fn()
 
 const renderComponent = (overrideProps?: any) =>
   render(<MigrationFileInput onChange={onChange} {...overrideProps} />)
@@ -34,7 +38,7 @@ const renderComponent = (overrideProps?: any) =>
 describe('MigrationFileInput', () => {
   beforeAll(() => (window.ENV.UPLOAD_LIMIT = 1024))
 
-  afterEach(() => jest.clearAllMocks())
+  afterEach(() => vi.clearAllMocks())
 
   it('renders hidden input', () => {
     renderComponent()
@@ -45,7 +49,7 @@ describe('MigrationFileInput', () => {
   it('renders button input', () => {
     renderComponent()
 
-    expect(screen.getByRole('button', {name: 'Choose File'})).toBeInTheDocument()
+    expect(screen.getByText('Choose File')).toBeInTheDocument()
   })
 
   it('renders text if no file is chosen', () => {
@@ -64,7 +68,7 @@ describe('MigrationFileInput', () => {
     expect(screen.getByText('my_file.zip')).toBeInTheDocument()
   })
 
-  it('does not render file name when large file is chosen', async () => {
+  it('renders file size validation error when large file is chosen', async () => {
     renderComponent()
 
     const file = new File(['blah, blah, blah'], 'my_file.zip', {type: 'application/zip'})
@@ -72,18 +76,7 @@ describe('MigrationFileInput', () => {
     const input = screen.getByTestId('migrationFileUpload')
     await userEvent.upload(input, file)
 
-    expect(screen.getByText('No file chosen')).toBeInTheDocument()
-  })
-
-  it('renders alert when large file is chosen', async () => {
-    renderComponent()
-
-    const file = new File(['blah, blah, blah'], 'my_file.zip', {type: 'application/zip'})
-    Object.defineProperty(file, 'size', {value: 1024 + 1})
-    const input = screen.getByTestId('migrationFileUpload')
-    await userEvent.upload(input, file)
-
-    expect(showFlashError).toHaveBeenCalledWith('Your migration can not exceed 1.0 KB')
+    expect(screen.getByText('Your migration can not exceed 1.0 KB')).toBeInTheDocument()
   })
 
   it('calls onChange with file', async () => {
@@ -96,16 +89,18 @@ describe('MigrationFileInput', () => {
     expect(onChange).toHaveBeenCalledWith(expect.any(File))
   })
 
-  it('calls onChange with null', async () => {
+  it('calls onChange with null and displays proper error message when wrong file type provided', async () => {
     renderComponent()
 
-    const file = new File(['blah, blah, blah'], 'my_file.zip', {type: 'application/zip'})
+    const wrongFile = new File(['blah, blah, blah'], 'my_file.jpg', {type: 'image/jpeg'})
     const input = screen.getByTestId('migrationFileUpload')
-    await userEvent.upload(input, file)
-    // This is needed to clear input
-    fireEvent.change(input, {target: {files: []}})
-
+    fireEvent.change(input, {
+      target: {
+        files: [wrongFile],
+      },
+    })
     expect(onChange).toHaveBeenCalledWith(null)
+    expect(screen.getByText('Invalid file type')).toBeInTheDocument()
   })
 
   it('renders the progressbar with the passed progress', async () => {
@@ -115,6 +110,25 @@ describe('MigrationFileInput', () => {
 
   it('disable input while uploading', async () => {
     renderComponent({isSubmitting: true})
-    expect(screen.getByRole('button', {name: 'Choose File'})).toBeDisabled()
+    expect(screen.getByTestId('migrationFileUpload')).toBeDisabled()
+  })
+
+  describe('externalFormMessage', () => {
+    describe('when externalFormMessage is provided', () => {
+      const text = 'External Form Message'
+      const externalFormMessage = {text, type: 'hint'}
+
+      it('renders the externalFormMessage', () => {
+        renderComponent({externalFormMessage})
+        expect(screen.getByText(text)).toBeInTheDocument()
+      })
+    })
+
+    describe('when externalFormMessage is not provided', () => {
+      it('renders the default message', () => {
+        renderComponent()
+        expect(screen.getByText('No file chosen')).toBeInTheDocument()
+      })
+    })
   })
 })

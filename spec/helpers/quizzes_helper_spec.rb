@@ -38,7 +38,7 @@ describe QuizzesHelper do
       quiz = Quizzes::Quiz.new(context: @course)
       quiz.workflow_state = "available"
       quiz.last_edited_at = 10.minutes.ago
-      quiz.published_at   = Time.now
+      quiz.published_at   = Time.zone.now
 
       allow(self).to receive(:can_publish).and_return(true)
       expect(needs_unpublished_warning?(quiz)).to be_falsey
@@ -55,7 +55,7 @@ describe QuizzesHelper do
     it "is true if quiz has unpublished changes" do
       quiz = Quizzes::Quiz.new(context: @course)
       quiz.workflow_state = "available"
-      quiz.last_edited_at = Time.now
+      quiz.last_edited_at = Time.zone.now
       quiz.published_at   = 10.minutes.ago
 
       allow(self).to receive(:can_publish).and_return(true)
@@ -311,36 +311,36 @@ describe QuizzesHelper do
 
   describe "#quiz_edit_text" do
     it "returns correct string for survey" do
-      quiz = double(survey?: true)
+      quiz = instance_double(Quizzes::Quiz, survey?: true)
       expect(quiz_edit_text(quiz)).to eq "Edit Survey"
     end
 
     it "returns correct string for quiz" do
-      quiz = double(survey?: false)
+      quiz = instance_double(Quizzes::Quiz, survey?: false)
       expect(quiz_edit_text(quiz)).to eq "Edit Quiz"
     end
   end
 
   describe "#quiz_delete_text" do
     it "returns correct string for survey" do
-      quiz = double(survey?: true)
+      quiz = instance_double(Quizzes::Quiz, survey?: true)
       expect(quiz_delete_text(quiz)).to eq "Delete Survey"
     end
 
     it "returns correct string for quiz" do
-      quiz = double(survey?: false)
+      quiz = instance_double(Quizzes::Quiz, survey?: false)
       expect(quiz_delete_text(quiz)).to eq "Delete Quiz"
     end
   end
 
   describe "#score_affected_by_regrade" do
     it "returns true if kept score differs from score before regrade" do
-      submission = double(score_before_regrade: 5, kept_score: 10, score: 5)
+      submission = instance_double(Quizzes::QuizSubmission, score_before_regrade: 5, kept_score: 10, score: 5)
       expect(score_affected_by_regrade?(submission)).to be_truthy
     end
 
     it "returns false if kept score equals score before regrade" do
-      submission = double(score_before_regrade: 5, kept_score: 5, score: 0)
+      submission = instance_double(Quizzes::QuizSubmission, score_before_regrade: 5, kept_score: 5, score: 0)
       expect(score_affected_by_regrade?(submission)).to be_falsey
     end
   end
@@ -365,31 +365,29 @@ describe QuizzesHelper do
   describe "#render_show_correct_answers" do
     context "show_correct_answers is false" do
       it "shows No" do
-        quiz = double({ show_correct_answers: false })
+        quiz = instance_double(Quizzes::Quiz, show_correct_answers: false)
         expect(render_show_correct_answers(quiz)).to eq "No"
       end
     end
 
     context "show_correct_answers is true, but nothing else is set" do
       it "shows Immediately" do
-        quiz = double({
-                        show_correct_answers: true,
-                        show_correct_answers_at: nil,
-                        hide_correct_answers_at: nil,
-                        show_correct_answers_last_attempt: false
-                      })
+        quiz = instance_double(Quizzes::Quiz,
+                               show_correct_answers: true,
+                               show_correct_answers_at: nil,
+                               hide_correct_answers_at: nil,
+                               show_correct_answers_last_attempt: false)
         expect(render_show_correct_answers(quiz)).to eq "Immediately"
       end
     end
 
     context "show_correct_answers_last_attempt is true" do
       it "shows After Last Attempt" do
-        quiz = double({
-                        show_correct_answers: true,
-                        show_correct_answers_at: nil,
-                        hide_correct_answers_at: nil,
-                        show_correct_answers_last_attempt: true
-                      })
+        quiz = instance_double(Quizzes::Quiz,
+                               show_correct_answers: true,
+                               show_correct_answers_at: nil,
+                               hide_correct_answers_at: nil,
+                               show_correct_answers_last_attempt: true)
         expect(render_show_correct_answers(quiz)).to eq "After Last Attempt"
       end
     end
@@ -397,11 +395,10 @@ describe QuizzesHelper do
     context "show_correct_answers_at is set" do
       it "shows date of" do
         time = 1.day.from_now
-        quiz = double({
-                        show_correct_answers: true,
-                        show_correct_answers_at: time,
-                        hide_correct_answers_at: nil
-                      })
+        quiz = instance_double(Quizzes::Quiz,
+                               show_correct_answers: true,
+                               show_correct_answers_at: time,
+                               hide_correct_answers_at: nil)
         expect(render_show_correct_answers(quiz)).to eq "After #{datetime_string(time)}"
       end
     end
@@ -409,11 +406,10 @@ describe QuizzesHelper do
     context "hide_correct_answers_at is set" do
       it "shows date of" do
         time = 1.day.from_now
-        quiz = double({
-                        show_correct_answers: true,
-                        show_correct_answers_at: nil,
-                        hide_correct_answers_at: time,
-                      })
+        quiz = instance_double(Quizzes::Quiz,
+                               show_correct_answers: true,
+                               show_correct_answers_at: nil,
+                               hide_correct_answers_at: time)
         expect(render_show_correct_answers(quiz)).to eq "Until #{datetime_string(time)}"
       end
     end
@@ -423,11 +419,10 @@ describe QuizzesHelper do
         time = 1.day.from_now
         time2 = 1.week.from_now
 
-        quiz = double({
-                        show_correct_answers: true,
-                        show_correct_answers_at: time,
-                        hide_correct_answers_at: time2,
-                      })
+        quiz = instance_double(Quizzes::Quiz,
+                               show_correct_answers: true,
+                               show_correct_answers_at: time,
+                               hide_correct_answers_at: time2)
         expect(render_show_correct_answers(quiz)).to eq "From #{datetime_string(time)} to #{datetime_string(time2)}"
       end
     end
@@ -435,75 +430,73 @@ describe QuizzesHelper do
 
   describe "#render_correct_answer_protection" do
     it 'provides a useful message when "last attempt"' do
-      quiz = double({
-                      show_correct_answers_last_attempt: true,
-                    })
-      quiz_submission = double(last_attempt_completed?: false)
+      quiz = instance_double(Quizzes::Quiz,
+                             show_correct_answers_last_attempt: true)
+      quiz_submission = instance_double(Quizzes::QuizSubmission, last_attempt_completed?: false)
 
       message = render_correct_answer_protection(quiz, quiz_submission)
       expect(message).to match(/last attempt/)
     end
 
-    it 'provides a useful message when "no"' do
-      quiz = double({
-                      show_correct_answers_last_attempt: nil,
-                      show_correct_answers: false,
-                      show_correct_answers_at: nil,
-                      hide_correct_answers_at: nil
-                    })
-      quiz_submission = double(last_attempt_completed?: false)
+    context("when correct answers are hidden") do
+      let(:quiz) do
+        instance_double(Quizzes::Quiz,
+                        show_correct_answers_last_attempt: nil,
+                        show_correct_answers: false,
+                        show_correct_answers_at: nil,
+                        hide_correct_answers_at: nil)
+      end
+      let(:quiz_submission) { instance_double(Quizzes::QuizSubmission, last_attempt_completed?: false) }
 
-      message = render_correct_answer_protection(quiz, quiz_submission)
-      expect(message).to match(/are hidden/)
+      it "provides a useful message" do
+        expect(render_correct_answer_protection(quiz, quiz_submission)).to match(/are hidden/)
+      end
     end
 
     it 'provides nothing when "yes"' do
-      quiz = double({
-                      show_correct_answers_last_attempt: nil,
-                      show_correct_answers: true,
-                      show_correct_answers_at: nil,
-                      hide_correct_answers_at: nil
-                    })
-      quiz_submission = double(last_attempt_completed?: false)
+      quiz = instance_double(Quizzes::Quiz,
+                             show_correct_answers_last_attempt: nil,
+                             show_correct_answers: true,
+                             show_correct_answers_at: nil,
+                             hide_correct_answers_at: nil)
+      quiz_submission = instance_double(Quizzes::QuizSubmission, last_attempt_completed?: false)
 
       message = render_correct_answer_protection(quiz, quiz_submission)
       expect(message).to be_nil
     end
 
     it 'provides a useful message, and an availability date, when "show at" is set' do
-      quiz = double({
-                      show_correct_answers_last_attempt: nil,
-                      show_correct_answers: true,
-                      show_correct_answers_at: 1.day.from_now,
-                      hide_correct_answers_at: nil
-                    })
-      quiz_submission = double(last_attempt_completed?: false)
+      quiz = instance_double(Quizzes::Quiz,
+                             show_correct_answers_last_attempt: nil,
+                             show_correct_answers: true,
+                             show_correct_answers_at: 1.day.from_now,
+                             hide_correct_answers_at: nil)
+      quiz_submission = instance_double(Quizzes::QuizSubmission, last_attempt_completed?: false)
 
       message = render_correct_answer_protection(quiz, quiz_submission)
       expect(message).to match(/will be available/)
     end
 
     it 'provides a useful message, and a date, when "hide at" is set' do
-      quiz = double({
-                      show_correct_answers_last_attempt: nil,
-                      show_correct_answers: true,
-                      show_correct_answers_at: nil,
-                      hide_correct_answers_at: 1.day.from_now
-                    })
-      quiz_submission = double(last_attempt_completed?: false)
+      quiz = instance_double(Quizzes::Quiz,
+                             show_correct_answers_last_attempt: nil,
+                             show_correct_answers: true,
+                             show_correct_answers_at: nil,
+                             hide_correct_answers_at: 1.day.from_now)
+      quiz_submission = instance_double(Quizzes::QuizSubmission, last_attempt_completed?: false)
 
       message = render_correct_answer_protection(quiz, quiz_submission)
       expect(message).to match(/are available until/)
     end
   end
 
-  context "#point_value_for_input" do
+  describe "#point_value_for_input" do
     let(:user_answer) { @user_answer }
     let(:question) { { points_possible: 5 } }
     let(:quiz) { @quiz }
 
     before do
-      @quiz = double(quiz_type: "graded_survey")
+      @quiz = instance_double(Quizzes::Quiz, quiz_type: "graded_survey")
       @user_answer = { correct: "undefined", points: 5 }
     end
 
@@ -531,7 +524,7 @@ describe QuizzesHelper do
     end
   end
 
-  context "#comment_get" do
+  describe "#comment_get" do
     it "returns _html field if present" do
       comment = comment_get({ foo_html: "<div>Foo</div>", foo: "Bar" }, "foo")
       expect(comment).to eq "<div>Foo</div>"
@@ -560,6 +553,23 @@ describe QuizzesHelper do
                             },
                             "foo")
       expect(comment).to eq('<img class="equation_image" data-equation-content="\\coprod">')
+    end
+  end
+
+  describe "#link_to_take_quiz" do
+    before do
+      @quiz = instance_double(Quizzes::Quiz, cant_go_back?: false)
+      allow(self).to receive_messages(preview_quiz_url: "/preview_quiz_url", take_quiz_url: "/take_quiz_url")
+    end
+
+    context 'when opts["class"] includes "btn"' do
+      let(:link_body) { "Take the Quiz Again" }
+      let(:opts) { { "class" => "btn btn-primary", "id" => "take_quiz_link" } }
+
+      it 'adds role="button"' do
+        result = link_to_take_quiz(link_body, opts)
+        expect(result).to include('role="button"')
+      end
     end
   end
 end

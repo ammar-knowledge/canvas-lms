@@ -161,7 +161,6 @@ module DataFixup::PopulateRootAccountIdOnModels
   def self.populate_overrides
     {
       AssetUserAccess => DataFixup::PopulateRootAccountIdOnAssetUserAccesses,
-      Attachment => DataFixup::PopulateRootAccountIdOnAttachments,
       CommunicationChannel => DataFixup::PopulateRootAccountIdsOnCommunicationChannels,
       LearningOutcome => DataFixup::PopulateRootAccountIdsOnLearningOutcomes,
       User => DataFixup::PopulateRootAccountIdsOnUsers,
@@ -222,9 +221,9 @@ module DataFixup::PopulateRootAccountIdOnModels
   # tables that have been filled for a while already
   DONE_TABLES = [Account, Assignment, Course, CourseSection, Enrollment, EnrollmentTerm, Group].freeze
 
-  def self.send_later_backfill_strand(job, *args)
+  def self.send_later_backfill_strand(job, *)
     delay_if_production(priority: Delayed::MAX_PRIORITY,
-                        n_strand: ["root_account_id_backfill", Shard.current.database_server.id]).__send__(job, *args)
+                        n_strand: ["root_account_id_backfill", Shard.current.database_server.id]).__send__(job, *)
   end
 
   def self.run
@@ -359,11 +358,10 @@ module DataFixup::PopulateRootAccountIdOnModels
 
       assoc_options = table.reflections[assoc.to_s].options
       prefix = assoc_options[:polymorphic_prefix] ? "#{assoc}_" : ""
-      if assoc_options[:polymorphic].present?
-        assoc_options[:polymorphic].each do |poly_a|
-          poly_a = poly_a.keys.first if poly_a.is_a? Hash
-          account_columns = Account.resolved_root_account_id_sql if poly_a == :account
-          memo[:"#{prefix}#{poly_a}"] = account_columns || columns
+      if assoc_options[:polymorphic].is_a?(Hash)
+        assoc_options[:polymorphic].each_value do |name|
+          account_columns = Account.resolved_root_account_id_sql if name == :account
+          memo[:"#{prefix}#{name}"] = account_columns || columns
         end
       else
         columns = Account.resolved_root_account_id_sql if assoc == :account

@@ -62,8 +62,8 @@ describe "conversations new" do
 
             # Groups that are a part of a concluded course should not be visible
             expect(@group.context).to eq(@course)
-            expect(f("body")).to_not contain_jqcss("span:contains('#{@group.name}')")
-            expect(f("body")).to_not contain_jqcss("li:contains('#{@course.name}')")
+            expect(f("body")).not_to contain_jqcss("span:contains('#{@group.name}')")
+            expect(f("body")).not_to contain_jqcss("li:contains('#{@course.name}')")
           end
 
           it "does not allow a teacher to create a new conversation when course is soft concluded" do
@@ -92,7 +92,7 @@ describe "conversations new" do
             get "/conversations"
             f("button[data-testid='compose']").click
             f("input[placeholder='Select Course']").click
-            expect(f("body")).to_not contain_jqcss("li:contains('#{@course.name}')")
+            expect(f("body")).not_to contain_jqcss("li:contains('#{@course.name}')")
           end
         end
       end
@@ -364,6 +364,72 @@ describe "conversations new" do
         expect(fj("li:contains('All in #{@course.name}')")).to be_displayed
       end
 
+      context "differentiation tags" do
+        before do
+          Account.default.settings[:allow_assign_to_differentiation_tags] = { value: true }
+          Account.default.save!
+          Account.default.reload
+          @non_collaborative_group_category = @course.group_categories.create!(name: "Test differentiation tag", non_collaborative: true)
+          @non_collaborative_group = @course.groups.create!(name: "Test differentiation tag", group_category: @non_collaborative_group_category)
+          @non_collaborative_group.add_user(@s1)
+          @non_collaborative_group.add_user(@s2)
+        end
+
+        describe "as a teacher" do
+          before do
+            user_session(@teacher)
+            get "/conversations"
+            f("button[data-testid='compose']").click
+            f("input[placeholder='Select Course']").click
+            fj("li:contains('#{@course.name}')").click
+            f("input[aria-label='To']").click
+          end
+
+          it "correctly sends messages to differentiation tag" do
+            fj("div[data-testid='address-book-item']:contains('Differentiation Tags')").click
+            wait_for_ajaximations
+            fj("div[data-testid='address-book-item']:contains('differentiation tag')").click
+            wait_for_ajaximations
+            fj("div[data-testid='address-book-item']:contains('All in #{@non_collaborative_group.name}')").click
+            wait_for_ajaximations
+            expect(f("input[data-testid='individual-message-checkbox']")).to be_disabled
+            expect(f("input[data-testid='individual-message-checkbox']").attribute("checked")).to eq "true"
+            f("textarea[data-testid='message-body']").send_keys "hallo!"
+            wait_for_ajaximations
+            fj("button:contains('Send')").click
+            wait_for_ajaximations
+
+            # Verify that the message was sent to both students in the group, but as separate conversations
+            expect(@s1.conversations.last.conversation.conversation_participants.collect(&:user_id).sort).to eq([@teacher, @s1].collect(&:id).sort)
+            expect(@s2.conversations.last.conversation.conversation_participants.collect(&:user_id).sort).to eq([@teacher, @s2].collect(&:id).sort)
+
+            expect(@s1.conversations.last.conversation.conversation_messages.first.body).to eq "hallo!"
+            expect(@s2.conversations.last.conversation.conversation_messages.first.body).to eq "hallo!"
+          end
+
+          it "does not show all in option for differentiation tags" do
+            fj("div[data-testid='address-book-item']:contains('Differentiation Tags')").click
+            wait_for_ajaximations
+            expect(f("body")).not_to contain_jqcss("div[data-testid='address-book-item']:contains('All in Differentiation Tags')")
+          end
+        end
+
+        describe "as a student" do
+          before do
+            user_session(@s1)
+            get "/conversations"
+            f("button[data-testid='compose']").click
+            f("input[placeholder='Select Course']").click
+            fj("li:contains('#{@course.name}')").click
+            f("input[aria-label='To']").click
+          end
+
+          it "does not show differentiation tags" do
+            expect(f("body")).not_to contain_jqcss("div[data-testid='address-book-item']:contains('Differentiation Tags')")
+          end
+        end
+      end
+
       context "individual message sending" do
         it "allows messages to be sent individually for account-level groups", priority: "2" do
           @group.destroy
@@ -435,14 +501,18 @@ describe "conversations new" do
           expect(f("input[data-testid='individual-message-checkbox']")).not_to be_disabled
           fj("div[data-testid='address-book-item']:contains('Students')").click
           wait_for_ajaximations
-
           fj("div[data-testid='address-book-item']:contains('All in Students')").click
+          wait_for_ajaximations
           expect(fj("span[data-testid='address-book-tag']:contains('All in Students')")).to be_present
 
+          f("#address-book-form").click
+          wait_for_ajaximations
           force_click(checkbox_selector)
+          wait_for_ajaximations
           expect(f(checkbox_selector).attribute("checked")).to eq "true"
 
           force_click(checkbox_selector)
+          wait_for_ajaximations
           expect(f(checkbox_selector).attribute("checked")).to be_nil
 
           f("textarea[data-testid='message-body']").send_keys "sent to everyone in the account level group"
@@ -549,7 +619,7 @@ describe "conversations new" do
 
         # Verify that the send validations verify that there are no selected recipients
         fj("button:contains('Send')").click
-        expect(ffj("span:contains('Please select a recipient.')")[1]).to be_displayed
+        expect(ffj("span:contains('Please select a recipient')")[1]).to be_displayed
       end
     end
   end

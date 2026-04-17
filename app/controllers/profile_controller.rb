@@ -155,10 +155,15 @@
 #
 class ProfileController < ApplicationController
   before_action :require_registered_user, except: %i[show settings communication communication_update]
-  before_action :require_user, only: %i[settings communication communication_update qr_mobile_login]
+  skip_before_action :require_user, only: :show
   before_action :require_user_for_private_profile, only: :show
   before_action :reject_student_view_student
   before_action :require_password_session, only: %i[communication communication_update update]
+
+  include HorizonMode
+  include StudentEnrollmentHelper
+
+  before_action :load_canvas_career, only: %i[show settings communication content_shares qr_mobile_login]
 
   include Api::V1::Avatar
   include Api::V1::CommunicationChannel
@@ -167,6 +172,7 @@ class ProfileController < ApplicationController
 
   include TextHelper
   include ProfileHelper
+  include Login::OtpHelper
 
   def show
     unless @current_user && @domain_root_account.enable_profiles?
@@ -188,8 +194,14 @@ class ProfileController < ApplicationController
     )
 
     if @user_data[:known_user] # if you can message them, you can see the profile
-      js_env enable_gravatar: @domain_root_account&.enable_gravatar?
-      add_crumb(t("crumbs.settings_frd", "%{user}'s Profile", user: @user.short_name), user_profile_path(@user))
+      js_env({ enable_gravatar: @domain_root_account&.enable_gravatar? })
+      if @domain_root_account.try(:feature_enabled?, :instui_nav)
+        add_crumb(@user.short_name, user_profile_path(@user))
+        add_crumb(t("Profile"))
+      else
+        add_crumb(t("crumbs.settings_frd", "%{user}'s Profile", user: @user.short_name), user_profile_path(@user))
+      end
+      page_has_instui_topnav
       render
     else
       render :unauthorized
@@ -202,6 +214,14 @@ class ProfileController < ApplicationController
   # When requesting the profile for the user accessing the API, the user's
   # calendar feed URL and LTI user id will be returned as well.
   #
+  # @argument include[] [String, "links"|"user_services"|"uuid"]
+  #   Array of additional information to include.
+  #
+  #   "links":: include the user's profile links in the response
+  #             as an array of objects with +url+ and +title+ fields
+  #   "user_services":: include names and links for the user's connected services
+  #   "uuid":: include the user's uuid in the response
+  #
   # @returns Profile
   def settings
     if api_request?
@@ -213,29 +233,40 @@ class ProfileController < ApplicationController
       @user = @current_user
       @user.dismiss_bouncing_channel_message!
     end
-    @user_data = profile_data(@user.profile, @current_user, session, [])
     @channels = @user.communication_channels.unretired
-    @email_channels = @channels.select { |c| c.path_type == "email" }
-    @sms_channels = @channels.select { |c| c.path_type == "sms" }
-    @other_channels = @channels.reject { |c| c.path_type == "email" }
-    @default_email_channel = @email_channels.first
-    @default_pseudonym = @user.primary_pseudonym
-    @pseudonyms = @user.pseudonyms.active_only
-    @password_pseudonyms = @pseudonyms.reject(&:managed_password?)
+    @pseudonyms = @user.pseudonyms_visible_to(@current_user).select(&:active?)
     @context = @user.profile
     set_active_tab "profile_settings"
-    js_env enable_gravatar: @domain_root_account&.enable_gravatar?
+    register_cc_tabs = ["email"]
+    register_cc_tabs.push("sms") if current_mfa_settings != :disabled && otp_via_sms_in_us_region?
+    register_cc_tabs.push("slack") if @user.account.feature_enabled?(:slack_notifications)
+    is_default_account = @domain_root_account == Account.default
+    can_update_tokens = @current_user
+                        .access_tokens
+                        .temp_record
+                        .grants_right?(logged_in_user,
+                                       AccessToken.account_session_for_permissions(@domain_root_account),
+                                       :update)
+    google_drive_oauth_url = oauth_url(service: "google_drive", return_to: settings_profile_url)
+    user_is_only_student = user_has_only_student_enrollments?(@current_user)
+    js_env({ enable_gravatar: @domain_root_account&.enable_gravatar?, register_cc_tabs:, is_default_account:, google_drive_oauth_url:, user_is_only_student:, PERMISSIONS: { can_update_tokens: } })
     respond_to do |format|
       format.html do
+        @user_data = profile_data(@user.profile, @current_user, session, [])
+        @password_pseudonyms = @pseudonyms.reject(&:managed_password?)
+        @email_channels = @channels.select { |c| c.path_type == "email" }
+        @sms_channels = @channels.select { |c| c.path_type == "sms" }
+        @other_channels = @channels.reject { |c| c.path_type == "email" }
+        @default_email_channel = @email_channels.first
         @user.reload
         show_tutorial_ff_to_user = @domain_root_account&.feature_enabled?(:new_user_tutorial) &&
                                    @user.participating_instructor_course_ids.any?
         add_crumb(@user.short_name, profile_path)
         add_crumb(t("Settings"))
-        js_env(
-          NEW_USER_TUTORIALS_ENABLED_AT_ACCOUNT: show_tutorial_ff_to_user,
-          CONTEXT_BASE_URL: "/users/#{@user.id}"
-        )
+        js_env({
+                 NEW_USER_TUTORIALS_ENABLED_AT_ACCOUNT: show_tutorial_ff_to_user,
+                 CONTEXT_BASE_URL: "/users/#{@user.id}"
+               })
         page_has_instui_topnav
         render :profile
       end
@@ -254,18 +285,20 @@ class ProfileController < ApplicationController
 
     add_crumb(@current_user.short_name, profile_path)
     add_crumb(t("Notification Settings"))
-    js_env NOTIFICATION_PREFERENCES_OPTIONS: {
-      allowed_push_categories: Notification.categories_to_send_in_push,
-      send_scores_in_emails_text: Notification.where(category: "Grading").first&.related_user_setting(@user, @domain_root_account),
-      daily_notification_time: time_string(@current_user.daily_notification_time, nil, @current_user.time_zone || ActiveSupport::TimeZone["America/Denver"] || Time.zone),
-      weekly_notification_range: {
-        weekday: I18n.l(@current_user.weekly_notification_range.first.in_time_zone.to_date, format: :weekday),
-        start_time: time_string(@current_user.weekly_notification_range.first, nil, @current_user.time_zone || ActiveSupport::TimeZone["America/Denver"] || Time.zone),
-        end_time: time_string(@current_user.weekly_notification_range.last, nil, @current_user.time_zone || ActiveSupport::TimeZone["America/Denver"] || Time.zone)
-      },
-      read_privacy_info: @user.preferences[:read_notification_privacy_info],
-      account_privacy_notice: @domain_root_account.settings[:external_notification_warning]
-    }
+    js_env({
+             NOTIFICATION_PREFERENCES_OPTIONS: {
+               allowed_push_categories: Notification.categories_to_send_in_push,
+               send_scores_in_emails_text: Notification.where(category: "Grading").first&.related_user_setting(@user, @domain_root_account),
+               daily_notification_time: time_string(@current_user.daily_notification_time, nil, @current_user.time_zone || ActiveSupport::TimeZone["America/Denver"] || Time.zone),
+               weekly_notification_range: {
+                 weekday: I18n.l(@current_user.weekly_notification_range.first.in_time_zone.to_date, format: :weekday),
+                 start_time: time_string(@current_user.weekly_notification_range.first, nil, @current_user.time_zone || ActiveSupport::TimeZone["America/Denver"] || Time.zone),
+                 end_time: time_string(@current_user.weekly_notification_range.last, nil, @current_user.time_zone || ActiveSupport::TimeZone["America/Denver"] || Time.zone)
+               },
+               read_privacy_info: @user.preferences[:read_notification_privacy_info],
+               account_privacy_notice: @domain_root_account.settings[:external_notification_warning]
+             }
+           })
 
     js_bundle :account_notification_settings
     respond_to do |format|
@@ -399,47 +432,10 @@ class ProfileController < ApplicationController
         user_params.delete(:pronouns)
       end
 
-      if @user.update(user_params)
-        pseudonymed = false
-        if params[:default_email_id].present?
-          @email_channel = @user.communication_channels.email.active.where(id: params[:default_email_id]).first
-          if @email_channel
-            @email_channel.move_to_top
-            @user.clear_email_cache!
-          end
-        end
-        if params[:pseudonym]
-          pseudonym_params = params[:pseudonym].permit(:password, :password_confirmation, :unique_id)
-
-          change_password = params[:pseudonym].delete :change_password
-          old_password = params[:pseudonym].delete :old_password
-          if params[:pseudonym][:password_id] && change_password
-            pseudonym_to_update = @user.pseudonyms.find(params[:pseudonym][:password_id])
-          end
-          if change_password == "1" && pseudonym_to_update && !pseudonym_to_update.valid_arbitrary_credentials?(old_password)
-            error_msg = t("errors.invalid_old_passowrd", "Invalid old password for the login %{pseudonym}", pseudonym: pseudonym_to_update.unique_id)
-            pseudonymed = true
-            format.html do
-              flash[:error] = error_msg
-              redirect_to user_profile_url(@current_user)
-            end
-            format.json { render json: { errors: { old_password: error_msg } }, status: :bad_request }
-          end
-          if change_password != "1" || !pseudonym_to_update || !pseudonym_to_update.valid_arbitrary_credentials?(old_password)
-            pseudonym_params.delete :password
-            pseudonym_params.delete :password_confirmation
-          end
-          params[:pseudonym].delete :password_id
-          pseudonym_to_update.require_password = true if pseudonym_to_update
-          if !pseudonym_params.empty? && pseudonym_to_update && !pseudonym_to_update.update(pseudonym_params)
-            pseudonymed = true
-            flash[:error] = t("errors.profile_update_failed", "Login failed to update")
-            format.html { redirect_to user_profile_url(@current_user) }
-            format.json { render json: pseudonym_to_update.errors, status: :bad_request }
-          end
-        end
+      user_saved, pseudonymed = handle_profile_update(format, user_params)
+      if user_saved
         unless pseudonymed
-          flash[:notice] = t("notices.updated_profile", "Settings successfully updated")
+          flash[:notice] = t("notices.updated_profile", "Settings successfully updated") # rubocop:disable Rails/ActionControllerFlashBeforeRender
           format.html { redirect_to user_profile_url(@current_user) }
           format.json { render json: @user.as_json(methods: :avatar_url, include: { communication_channel: { only: [:id, :path], include_root: false }, pseudonym: { only: [:id, :unique_id], include_root: false } }) }
         end
@@ -450,6 +446,51 @@ class ProfileController < ApplicationController
     end
   end
 
+  def handle_profile_update(format, user_params)
+    pseudonymed = false
+    user_updated = @user.update(user_params)
+    if user_updated
+      if params[:default_email_id].present?
+        @email_channel = @user.communication_channels.email.active.where(id: params[:default_email_id]).first
+        if @email_channel
+          @email_channel.move_to_top
+          @user.clear_email_cache!
+        end
+      end
+      if params[:pseudonym]
+        pseudonym_params = params[:pseudonym].permit(:password, :password_confirmation, :unique_id)
+
+        change_password = params[:pseudonym].delete :change_password
+        old_password = params[:pseudonym].delete :old_password
+        if params[:pseudonym][:password_id] && change_password
+          pseudonym_to_update = @user.pseudonyms.find(params[:pseudonym][:password_id])
+        end
+        if change_password == "1" && pseudonym_to_update && !pseudonym_to_update.valid_arbitrary_credentials?(old_password)
+          error_msg = t("errors.invalid_old_passowrd", "Invalid old password for the login %{pseudonym}", pseudonym: pseudonym_to_update.unique_id)
+          pseudonymed = true
+          format.html do
+            flash[:error] = error_msg
+            redirect_to user_profile_url(@current_user)
+          end
+          format.json { render json: { errors: { old_password: error_msg } }, status: :bad_request }
+        end
+        if change_password != "1" || !pseudonym_to_update || !pseudonym_to_update.valid_arbitrary_credentials?(old_password)
+          pseudonym_params.delete :password
+          pseudonym_params.delete :password_confirmation
+        end
+        params[:pseudonym].delete :password_id
+        pseudonym_to_update.require_password = true if pseudonym_to_update
+        if !pseudonym_params.empty? && pseudonym_to_update && !pseudonym_to_update.update(pseudonym_params)
+          pseudonymed = true
+          flash[:error] = t("errors.profile_update_failed", "Login failed to update")
+          format.html { redirect_to user_profile_url(@current_user) }
+          format.json { render json: pseudonym_to_update.errors, status: :bad_request }
+        end
+      end
+    end
+    [user_updated, pseudonymed]
+  end
+
   # TODO: the current update method needs to get moved to the UsersController
   # (since it is not concerned with profiles), then this should get renamed
   #
@@ -458,6 +499,7 @@ class ProfileController < ApplicationController
     @user = @current_user
     @profile = @user.profile
     @context = @profile
+    edit_permissions = @user.details_editable_by_user
 
     if allowed_to_change_pronouns?
       valid_pronoun = @domain_root_account.pronouns.include?(params[:pronouns]&.strip) || params[:pronouns] == ""
@@ -465,15 +507,16 @@ class ProfileController < ApplicationController
     end
 
     short_name = params[:user] && params[:user][:short_name]
-    @user.short_name = short_name if short_name && @user.user_can_edit_name?
-    if params[:user_profile] && @user.user_can_edit_profile?
+    @user.short_name = short_name if short_name && edit_permissions[:can_edit_name]
+    if params[:user_profile] && edit_permissions[:can_edit]
       user_profile_params = params[:user_profile].permit(:title, :pronunciation, :bio)
-      user_profile_params.delete(:title) unless @user.user_can_edit_name?
-      user_profile_params.delete(:pronunciation) unless @domain_root_account.enable_name_pronunciation?
+      user_profile_params.delete(:title) unless edit_permissions[:can_edit_title]
+      user_profile_params.delete(:bio) unless edit_permissions[:can_edit_bio]
+      user_profile_params.delete(:pronunciation) unless @user.can_change_pronunciation?(@domain_root_account)
       @profile.attributes = user_profile_params
     end
 
-    if params[:link_urls] && params[:link_titles] && @user.user_can_edit_profile?
+    if params[:link_urls] && params[:link_titles] && edit_permissions[:can_edit_profile_links]
       @profile.links = []
       params[:link_urls].zip(params[:link_titles])
                         .reject { |url, title| url.blank? && title.blank? }
@@ -562,8 +605,6 @@ class ProfileController < ApplicationController
 
     add_crumb(@user.short_name, profile_path)
     add_crumb(t("crumbs.mobile_qr_login", "QR for Mobile Login"))
-
-    js_bundle :qr_mobile_login
 
     page_has_instui_topnav
     render html: "", layout: true

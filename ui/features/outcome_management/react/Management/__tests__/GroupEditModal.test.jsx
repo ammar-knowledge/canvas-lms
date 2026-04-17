@@ -17,19 +17,19 @@
  */
 
 import React from 'react'
-import {render as realRender, fireEvent, act} from '@testing-library/react'
-import {MockedProvider} from '@apollo/react-testing'
-import {createCache} from '@canvas/apollo'
+import {cleanup, render as realRender, fireEvent, act} from '@testing-library/react'
+import {MockedProvider} from '@apollo/client/testing'
+import {createCache} from '@canvas/apollo-v3'
 import GroupEditModal from '../GroupEditModal'
 import OutcomesContext from '@canvas/outcomes/react/contexts/OutcomesContext'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert} from '@instructure/platform-alerts'
 import {updateOutcomeGroupMock} from '@canvas/outcomes/mocks/Management'
 import injectGlobalAlertContainers from '@canvas/util/react/testing/injectGlobalAlertContainers'
 
 injectGlobalAlertContainers()
 
-jest.mock('@canvas/alerts/react/FlashAlert')
-jest.useFakeTimers()
+vi.mock('@instructure/platform-alerts')
+vi.useFakeTimers()
 
 describe('GroupEditModal', () => {
   let cache
@@ -52,30 +52,32 @@ describe('GroupEditModal', () => {
       contextType = 'Account',
       contextId = '1',
       mocks = [updateOutcomeGroupMock({description: group.description})],
-    } = {}
+    } = {},
   ) => {
     return realRender(
       <OutcomesContext.Provider value={{env: {contextType, contextId}}}>
         <MockedProvider cache={cache} mocks={mocks}>
           {children}
         </MockedProvider>
-      </OutcomesContext.Provider>
+      </OutcomesContext.Provider>,
     )
   }
 
   beforeEach(() => {
     cache = createCache()
-    onCloseHandlerMock = jest.fn()
+    onCloseHandlerMock = vi.fn()
     window.ENV.FEATURES = {}
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
+    cleanup()
+    cache.reset()
   })
 
   it('renders component with content', async () => {
     const {getByText} = render(<GroupEditModal {...defaultProps()} />)
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     expect(getByText('Edit Group')).toBeInTheDocument()
   })
 
@@ -89,11 +91,11 @@ describe('GroupEditModal', () => {
         }),
       ],
     })
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     const titleField = getByDisplayValue('Group title')
     fireEvent.change(titleField, {target: {value: 'Updated title'}})
     fireEvent.click(getByText('Save'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     expect(onCloseHandlerMock).toHaveBeenCalled()
     expect(showFlashAlert).toHaveBeenCalledWith({
       type: 'success',
@@ -114,7 +116,7 @@ describe('GroupEditModal', () => {
     const titleField = getByDisplayValue('Group title')
     fireEvent.change(titleField, {target: {value: 'Updated title'}})
     fireEvent.click(getByText('Save'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     expect(onCloseHandlerMock).toHaveBeenCalled()
     expect(showFlashAlert).toHaveBeenCalledWith({
       type: 'success',
@@ -126,8 +128,16 @@ describe('GroupEditModal', () => {
     const {getByDisplayValue, rerender} = render(<GroupEditModal {...defaultProps()} />)
     const titleField = getByDisplayValue('Group title')
     fireEvent.change(titleField, {target: {value: 'Updated title'}})
-    rerender(<GroupEditModal {...defaultProps({isOpen: false})} />)
-    rerender(<GroupEditModal {...defaultProps({isOpen: true})} />)
+    rerender(
+      <MockedProvider>
+        <GroupEditModal {...defaultProps({isOpen: false})} />
+      </MockedProvider>,
+    )
+    rerender(
+      <MockedProvider>
+        <GroupEditModal {...defaultProps({isOpen: true})} />
+      </MockedProvider>,
+    )
     expect(getByDisplayValue('Group title')).toBeInTheDocument()
   })
 
@@ -145,7 +155,7 @@ describe('GroupEditModal', () => {
     const titleField = getByDisplayValue('Group title')
     fireEvent.change(titleField, {target: {value: 'Updated title'}})
     fireEvent.click(getByText('Save'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     expect(onCloseHandlerMock).toHaveBeenCalled()
     expect(showFlashAlert).toHaveBeenCalledWith({
       type: 'error',
@@ -167,7 +177,7 @@ describe('GroupEditModal', () => {
     const titleField = getByDisplayValue('Group title')
     fireEvent.change(titleField, {target: {value: 'Updated title'}})
     fireEvent.click(getByText('Save'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     expect(onCloseHandlerMock).toHaveBeenCalled()
     expect(showFlashAlert).toHaveBeenCalledWith({
       type: 'error',
@@ -189,7 +199,7 @@ describe('GroupEditModal', () => {
     const titleField = getByDisplayValue('Group title')
     fireEvent.change(titleField, {target: {value: 'Updated title'}})
     fireEvent.click(getByText('Save'))
-    await act(async () => jest.runOnlyPendingTimers())
+    await act(async () => vi.runOnlyPendingTimers())
     expect(onCloseHandlerMock).toHaveBeenCalled()
     expect(showFlashAlert).toHaveBeenCalledWith({
       type: 'error',

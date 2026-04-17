@@ -138,10 +138,9 @@ class GradeChangeAuditApiController < AuditorApiController
   # @returns [GradeChangeEvent]
   #
   def for_assignment
-    return render_unauthorized_action unless admin_authorized?
-
     @assignment = api_find(Assignment.active, params[:assignment_id])
-    unless @assignment.context.root_account == @domain_root_account
+
+    unless @assignment.context.root_account == @domain_root_account && course_authorized?(@assignment.course)
       raise ActiveRecord::RecordNotFound, "Couldn't find assignment with API id '#{params[:assignment_id]}'"
     end
 
@@ -162,15 +161,8 @@ class GradeChangeAuditApiController < AuditorApiController
   # @returns [GradeChangeEvent]
   #
   def for_course
-    begin
-      course = Course.find(params[:course_id])
-    rescue ActiveRecord::RecordNotFound => e
-      return render_unauthorized_action unless admin_authorized?
-
-      raise e
-    end
-
-    return render_unauthorized_action unless course_authorized?(course)
+    course = api_find(Course, params[:course_id])
+    raise ActiveRecord::RecordNotFound, "Couldn't find course with API id '#{params[:course_id]}'" unless course_authorized?(course)
 
     events = Auditors::GradeChange.for_course(course, query_options)
     render_events(events, polymorphic_url([:api_v1, :audit_grade_change, course]), course:)
@@ -191,7 +183,7 @@ class GradeChangeAuditApiController < AuditorApiController
   def for_student
     return render_unauthorized_action unless admin_authorized?
 
-    @student = User.active.find(params[:student_id])
+    @student = api_find(User.active, params[:student_id])
     unless @domain_root_account.associated_user?(@student)
       raise ActiveRecord::RecordNotFound, "Couldn't find user with API id '#{params[:student_id]}'"
     end
@@ -215,7 +207,7 @@ class GradeChangeAuditApiController < AuditorApiController
   def for_grader
     return render_unauthorized_action unless admin_authorized?
 
-    @grader = User.active.find(params[:grader_id])
+    @grader = api_find(User.active, params[:grader_id])
     unless @domain_root_account.associated_user?(@grader)
       raise ActiveRecord::RecordNotFound, "Couldn't find user with API id '#{params[:grader_id]}'"
     end
@@ -227,7 +219,7 @@ class GradeChangeAuditApiController < AuditorApiController
   # @API Advanced query
   #
   # List grade change events satisfying all given parameters. Teachers may query for events in courses they teach.
-  # Queries without +course_id+ require account administrator rights.
+  # Queries without +course_id+ or +assignment_id+ require account administrator rights.
   #
   # At least one of +course_id+, +assignment_id+, +student_id+, or +grader_id+ must be specified.
   #
@@ -256,17 +248,23 @@ class GradeChangeAuditApiController < AuditorApiController
 
     if params[:course_id].present?
       course = api_find(Course, params[:course_id])
-      return render_unauthorized_action unless course_authorized?(course)
+      raise ActiveRecord::RecordNotFound, "Couldn't find course with API id '#{params[:course_id]}'" unless course_authorized?(course)
 
       student = api_find(course.all_users, params[:student_id]) if params[:student_id].present?
       grader = api_find(User.active, params[:grader_id]) if params[:grader_id].present?
       assignment ||= api_find(course.assignments, params[:assignment_id]) if params[:assignment_id].present?
+    elsif params[:assignment_id].present?
+      assignment ||= api_find(Assignment.active, params[:assignment_id])
+      course = assignment.course
+      raise ActiveRecord::RecordNotFound, "Couldn't find assignment with API id '#{params[:assignment_id]}'" unless course_authorized?(course)
+
+      student = api_find(course.all_users, params[:student_id]) if params[:student_id].present?
+      grader = api_find(User.active, params[:grader_id]) if params[:grader_id].present?
     else
       return render_unauthorized_action unless admin_authorized?
 
       student = api_find(User.active, params[:student_id]) if params[:student_id].present?
       grader = api_find(User.active, params[:grader_id]) if params[:grader_id].present?
-      assignment ||= api_find(Assignment, params[:assignment_id]) if params[:assignment_id].present?
     end
 
     conditions = {}
@@ -285,18 +283,10 @@ class GradeChangeAuditApiController < AuditorApiController
     render_events(events, api_v1_audit_grade_change_url, course:, remove_anonymous: params[:student_id].present?)
   end
 
-  # TODO: remove Cassandra cruft and make Gradebook History use the admin search above
-  # once OSS users have been given the opportunity to migrate to Postgres auditors
+  # TODO: make Gradebook History use the admin search above
   def for_course_and_other_parameters
-    begin
-      course = Course.find(params[:course_id])
-    rescue ActiveRecord::RecordNotFound => e
-      return render_unauthorized_action unless admin_authorized?
-
-      raise e
-    end
-
-    return render_unauthorized_action unless course_authorized?(course)
+    course = api_find(Course, params[:course_id])
+    raise ActiveRecord::RecordNotFound, "Couldn't find course with API id '#{params[:course_id]}'" unless course_authorized?(course)
 
     args = { course: }
     restrict_to_override_grades = params[:assignment_id] == "override"
@@ -416,13 +406,13 @@ class GradeChangeAuditApiController < AuditorApiController
     return if override_events.blank?
 
     current_scores = current_override_scores_query(override_events).each_with_object({}) do |score, hash|
-      key = key_from_ids(score.enrollment.course_id, score.enrollment.user_id, score.grading_period_id)
+      key = [score.enrollment.course_id, score.enrollment.user_id, score.grading_period_id]
       hash[key] = score
     end
 
     override_events.each do |event|
       grading_period_id = event.in_grading_period? ? event.grading_period_id : nil
-      key = key_from_ids(event.context_id, event.student_id, grading_period_id)
+      key = [event.context_id, event.student_id, grading_period_id]
 
       current_score = current_scores[key]
       event.grade_current = if current_score&.override_grade
@@ -439,37 +429,33 @@ class GradeChangeAuditApiController < AuditorApiController
 
     events_with_grading_period = events.select(&:in_grading_period?)
     if events_with_grading_period.present?
-      values = events_with_grading_period.map do |event|
-        key = key_from_ids(event.context_id, event.student_id, event.grading_period_id).join(",")
-        "(#{key})"
-      end.join(", ")
+      conditions = events_with_grading_period.map do
+        "(enrollments.course_id = ? AND enrollments.user_id = ? AND scores.grading_period_id = ?)"
+      end.join(" OR ")
 
-      scopes << base_score_scope
-                .where("(enrollments.course_id, enrollments.user_id, scores.grading_period_id) IN (#{values})")
+      values = events_with_grading_period.flat_map do |event|
+        [event.context_id, event.student_id, event.grading_period_id]
+      end
+
+      scopes << base_score_scope.where(conditions, *values)
     end
 
     events_without_grading_period = events.reject(&:in_grading_period?)
     if events_without_grading_period.present?
-      values = events_without_grading_period.map do |event|
-        key = key_from_ids(event.context_id, event.student_id).join(",")
-        "(#{key})"
-      end.join(", ")
+      conditions = events_without_grading_period.map do
+        "(enrollments.course_id = ? AND enrollments.user_id = ?)"
+      end.join(" OR ")
+
+      values = events_without_grading_period.flat_map do |event|
+        [event.context_id, event.student_id]
+      end
 
       scopes << base_score_scope
                 .where(course_score: true)
-                .where("(enrollments.course_id, enrollments.user_id) IN (#{values})")
+                .where(conditions, *values)
     end
 
     scopes.reduce { |result, scope| result.union(scope) }
-  end
-
-  def key_from_ids(*ids)
-    # If we fetched our override change records from Postgres, the relevant ID
-    # fields will already be relative to the current shard and so the below
-    # method won't change them. If we got them from Cassandra, however, we have
-    # to adjust them before searching.
-
-    ids.map { |id| Shard.relative_id_for(id, Shard.current, Shard.current) }
   end
 
   def include_override_grades?(course: nil)

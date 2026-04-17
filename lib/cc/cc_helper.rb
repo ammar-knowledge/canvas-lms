@@ -85,10 +85,13 @@ module CC
     EVENTS = "events.xml"
     LATE_POLICY = "late_policy.xml"
     LEARNING_OUTCOMES = "learning_outcomes.xml"
+    LTI_CONTEXT_CONTROLS = "lti_context_controls.xml"
+    LTI_CONTEXT_CONTROLS_FOLDER = "lti_context_controls"
     MANIFEST = "imsmanifest.xml"
     MODULE_META = "module_meta.xml"
     COURSE_PACES = "course_paces.xml"
     RUBRICS = "rubrics.xml"
+    NAV_MENU_LINKS = "nav_menu_links.xml"
     EXTERNAL_TOOLS = "external_tools.xml"
     FILES_META = "files_meta.xml"
     SYLLABUS = "syllabus.html"
@@ -105,11 +108,11 @@ module CC
 
     REPLACEABLE_MEDIA_TYPES = ["audio", "video"].freeze
 
-    def ims_date(date = nil, default = Time.now)
+    def ims_date(date = nil, default = Time.zone.now)
       CCHelper.ims_date(date, default)
     end
 
-    def ims_datetime(date = nil, default = Time.now)
+    def ims_datetime(date = nil, default = Time.zone.now)
       CCHelper.ims_datetime(date, default)
     end
 
@@ -125,14 +128,14 @@ module CC
       (global ? "g" : "i") + Digest::MD5.hexdigest(prepend + key)
     end
 
-    def self.ims_date(date = nil, default = Time.now)
+    def self.ims_date(date = nil, default = Time.zone.now)
       date ||= default
       return nil unless date
 
       date.respond_to?(:utc) ? date.utc.strftime(IMS_DATE) : date.strftime(IMS_DATE)
     end
 
-    def self.ims_datetime(date = nil, default = Time.now)
+    def self.ims_datetime(date = nil, default = Time.zone.now)
       date ||= default
       return nil unless date
 
@@ -202,11 +205,9 @@ module CC
       linked_objects
     end
 
-    require "set"
-
     class HtmlContentExporter
       attr_reader :course, :user, :used_media_objects, :media_object_flavor, :media_object_infos
-      attr_accessor :referenced_files, :referenced_assessment_question_files
+      attr_accessor :referenced_files
 
       def initialize(course, user, opts = {})
         @media_object_flavor = opts[:media_object_flavor]
@@ -220,7 +221,6 @@ module CC
         @for_epub_export = opts[:for_epub_export]
         @key_generator = opts[:key_generator] || CC::CCHelper
         @referenced_files = {}
-        @referenced_assessment_question_files = {}
         @disable_content_rewriting = !!opts[:disable_content_rewriting] || false
 
         @rewriter.set_handler("file_contents") do |match|
@@ -248,30 +248,34 @@ module CC
               "#{COURSE_TOKEN}/files"
             end
           else
-            context = @course
-            current_referenced_files = @referenced_files
-            if match.context_type == "assessment_questions" && !@for_course_copy
-              context = match.context_type.classify.constantize.find_by(id: match.context_id)
-              current_referenced_files = @referenced_assessment_question_files
-            end
+            obj = match.obj_class.find_by(id: match.obj_id)
+            next(match.url) if obj.try(:context_type).nil? || %w[Course User AssessmentQuestion].exclude?(obj.context_type)
 
-            obj = if context && match.obj_class == Attachment
-                    context.attachments.find_by(id: match.obj_id)
-                  else
-                    match.obj_class.where(id: match.obj_id).first
-                  end
-            next(match.url) unless obj && (@rewriter.user_can_view_content?(obj) || @for_epub_export)
+            # find the object in the context in case it's deleted and we need to find the active attachment
+            obj = obj.context.attachments.find_by(id: obj) if obj.deleted? && %w[Course User].include?(obj.context_type)
+            next(match.url) unless obj
+            next(match.url) if obj.context_type == "Course" && obj.context_id != @course.id
+            next(match.url) if obj.context_type == "AssessmentQuestion" && @for_course_copy
+            next(match.url) if match.context_type.present? && (match.context_type.classify != obj&.context_type || match.context_id != obj.context_id.to_s)
+            next(match.url) unless @rewriter.user_can_view_content?(obj) || @for_epub_export
 
             obj.export_id = @key_generator.create_key(obj)
-            current_referenced_files[obj.id] = obj if @track_referenced_files && !current_referenced_files[obj.id]
+            @referenced_files[obj.id] = obj if @track_referenced_files && !@referenced_files[obj.id]
+            if obj.context_type == "User"
+              uri = Addressable::URI.parse(match.rest)
+              uri.query_values = uri.query_values&.except("verifier").presence
+              match.rest = uri.to_s
+            end
 
             if @for_course_copy
               "#{COURSE_TOKEN}/file_ref/#{obj.export_id}#{match.rest}"
             else
               # for files in exports, turn it into a relative link by path, rather than by file id
               # we retain the file query string parameters
-              folder = if match.context_type == "assessment_questions"
+              folder = if obj.context_type == "AssessmentQuestion"
                          "#{WEB_CONTENT_TOKEN}/assessment_questions"
+                       elsif obj.context_type == "User"
+                         "#{WEB_CONTENT_TOKEN}/#{Folder.media_folder(course).name}"
                        else
                          obj.folder&.full_name&.sub(/course( |%20)files/, WEB_CONTENT_TOKEN)
                        end
@@ -349,6 +353,17 @@ module CC
         query.sub(original_param, new_param)
       end
 
+      def json_page(block_editor, title, meta_fields = {})
+        json = {}
+        json["title"] = title
+        json["meta"] = meta_fields
+        json["block_editor"] = {
+          "blocks" => @rewriter.translate_blocks(block_editor),
+          "editor_version" => block_editor.editor_version
+        }
+        json.to_json
+      end
+
       def html_page(html, title, meta_fields = {})
         content = html_content(html)
         meta_html = ""
@@ -387,13 +402,17 @@ module CC
         File.join(WEB_CONTENT_TOKEN, info[:path])
       end
 
+      def translate_url(url)
+        @disable_content_rewriting ? url : @rewriter.translate_url(url)
+      end
+
       def html_content(html)
         return html if @disable_content_rewriting || html.blank?
 
         html = @rewriter.translate_content(html)
         return html if html.blank?
 
-        doc = Nokogiri::HTML5.fragment(html)
+        doc = Nokogiri::HTML5.fragment(html, nil, **CanvasSanitize::SANITIZE[:parser_options])
         # keep track of found media comments, and translate them into links into the files tree
         # if imported back into canvas, they'll get uploaded to the media server
         # and translated back into media comments
@@ -471,6 +490,14 @@ module CC
       # media object, the file will get reactivated when they export
       unless attachment
         att = obj.attachment || Attachment.find_by(media_entry_id: obj.media_id)
+        if course && !att
+          unless obj.context_id
+            obj.context = course
+            obj.save
+          end
+          obj.create_attachment
+          att = obj.attachment
+        end
         attachment = att.copy_to_folder!(Folder.media_folder(course))
       end
       updates = {}
@@ -496,6 +523,8 @@ module CC
     # path components and the query string
     def self.file_query_string(sub_path)
       return if sub_path.blank?
+
+      sub_path = CGI.unescapeHTML(sub_path)
 
       qs = []
       begin

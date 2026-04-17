@@ -24,7 +24,7 @@ import AddExternalToolButton from '../AddExternalToolButton'
 
 describe('AddExternalToolButton', () => {
   beforeEach(() => {
-    jest.spyOn($, 'flashErrorSafe')
+    vi.spyOn($, 'flashErrorSafe')
     userEvent.setup()
   })
 
@@ -88,18 +88,18 @@ describe('AddExternalToolButton', () => {
           modalIsOpen={true}
           ref={ref}
           configurationType="lti2"
-        />
+        />,
       )
       await userEvent.selectOptions(
         screen.getByRole('combobox', {name: /Configuration Type/i}),
-        'By LTI 2 Registration URL'
+        'By LTI 2 Registration URL',
       )
       const registrationUrl = 'http://www.instructure.com/register'
-      const iframeDouble = {submit: jest.fn()}
+      const iframeDouble = {submit: vi.fn()}
       const launchButton = screen.getByText(/Launch Registration Tool/i)
       // This is a disgrace and should be fixed but would require a huge rewrite of the components,
       // so here we are.
-      launchButton.closest = jest.fn()
+      launchButton.closest = vi.fn()
       launchButton.closest.mockReturnValue(iframeDouble)
       ref.current.createTool('lti2', {registrationUrl}, {currentTarget: launchButton})
       expect(iframeDouble.submit).toHaveBeenCalledTimes(1)
@@ -224,7 +224,7 @@ describe('AddExternalToolButton', () => {
           duplicateTool={true}
           configurationType="xml"
           ref={ref}
-        />
+        />,
       )
       const xhr = {
         responseText: JSON.stringify({

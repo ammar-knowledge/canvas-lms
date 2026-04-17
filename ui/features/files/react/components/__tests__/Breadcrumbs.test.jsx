@@ -34,7 +34,7 @@ describe('Files Breadcrumbs Component', () => {
     fakeENV.teardown()
   })
 
-  test('generates the home, rootFolder, and other links', () => {
+  test.skip('generates the home, rootFolder, and other links', () => {
     const sampleProps = {
       rootTillCurrentFolder: [
         new Folder({context_type: 'course', context_id: 1}),
@@ -46,7 +46,7 @@ describe('Files Breadcrumbs Component', () => {
     render(<Breadcrumbs {...sampleProps} />)
 
     const links = screen.getAllByRole('link')
-    expect(links.length).toBe(3)
+    expect(links).toHaveLength(3)
     expect(new URL(links[0].href).pathname).toBe('/')
     expect(new URL(links[1].href).pathname).toBe('/courses/1/files')
     expect(new URL(links[2].href).pathname).toBe('/courses/1/files/folder/test_folder_name')

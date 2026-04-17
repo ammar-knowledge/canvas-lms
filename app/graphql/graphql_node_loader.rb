@@ -26,7 +26,10 @@ module GraphQLNodeLoader
     when "Account"
       Loaders::IDLoader.for(Account).load(id).then(check_read_permission)
     when "AccountBySis"
-      Loaders::SISIDLoader.for(Account).load(id).then(check_read_permission)
+      Loaders::SISIDLoader.for(Account, root_account: ctx[:domain_root_account]).load(id).then(check_read_permission)
+    when "AccountNotification"
+      # AccountNotification doesn't implement grants_any_right?, and they are visible to all users
+      Loaders::IDLoader.for(AccountNotification).load(id)
     when "Course"
       Loaders::IDLoader.for(Course).load(id).then(check_read_permission)
     when "CustomGradeStatus"
@@ -34,20 +37,49 @@ module GraphQLNodeLoader
     when "StandardGradeStatus"
       Loaders::IDLoader.for(StandardGradeStatus).load(id).then(check_read_permission)
     when "CourseBySis"
-      Loaders::SISIDLoader.for(Course).load(id).then(check_read_permission)
+      Loaders::SISIDLoader.for(Course, root_account: ctx[:domain_root_account]).load(id).then(check_read_permission)
     when "Assignment"
-      Loaders::IDLoader.for(Assignment).load(id).then(check_read_permission)
+      Loaders::IDLoader.for(AbstractAssignment).load(id).then(check_read_permission)
+    when "SubAssignment"
+      Loaders::IDLoader.for(SubAssignment).load(id).then(check_read_permission)
+    when "AbstractAssignment"
+      include_types = id[:include_types]
+      include_types = ["Assignment"] if include_types.blank?
+      actual_id = id[:id]
+
+      Loaders::IDLoader.for(AbstractAssignment).load(actual_id).then do |record|
+        next nil unless record
+        next nil unless include_types.include?(record.type)
+
+        if record.is_a?(PeerReviewSubAssignment)
+          Loaders::AssociationLoader.for(AbstractAssignment, :context).load(record).then do
+            next nil unless record.context.feature_enabled?(:peer_review_allocation_and_grading)
+
+            record
+          end
+        else
+          record
+        end
+      end.then(check_read_permission)
+    when "PeerReviewSubAssignment"
+      Loaders::IDLoader.for(PeerReviewSubAssignment).load(id).then do |peer_review_sub_assignment|
+        next nil unless peer_review_sub_assignment
+        next nil unless peer_review_sub_assignment.context.feature_enabled?(:peer_review_allocation_and_grading)
+
+        peer_review_sub_assignment
+      end.then(check_read_permission)
     when "AssignmentBySis"
-      Loaders::SISIDLoader.for(Assignment).load(id).then(check_read_permission)
+      Loaders::SISIDLoader.for(Assignment, root_account: ctx[:domain_root_account]).load(id).then(check_read_permission)
     when "Section"
       Loaders::IDLoader.for(CourseSection).load(id).then(check_read_permission)
     when "SectionBySis"
-      Loaders::SISIDLoader.for(CourseSection).load(id).then(check_read_permission)
+      Loaders::SISIDLoader.for(CourseSection, root_account: ctx[:domain_root_account]).load(id).then(check_read_permission)
     when "User"
       Loaders::IDLoader.for(User).load(id).then(lambda do |user|
         return nil unless user && ctx[:current_user]
 
         return user if user.grants_right?(ctx[:current_user], :read_full_profile)
+        return user if user.grants_right?(ctx[:current_user], :read)
         return user if user == ctx[:current_user]
 
         has_permission = Rails.cache.fetch(["node_user_perm", ctx[:current_user], user].cache_key) do
@@ -81,7 +113,7 @@ module GraphQLNodeLoader
     when "Group"
       Loaders::IDLoader.for(Group).load(id).then(check_read_permission)
     when "GroupBySis"
-      Loaders::SISIDLoader.for(Group).load(id).then(check_read_permission)
+      Loaders::SISIDLoader.for(Group, root_account: ctx[:domain_root_account]).load(id).then(check_read_permission)
     when "GroupSet"
       Loaders::IDLoader.for(GroupCategory).load(id).then do |category|
         Loaders::AssociationLoader.for(GroupCategory, :context)
@@ -89,7 +121,7 @@ module GraphQLNodeLoader
                                   .then { check_read_permission.call(category) }
       end
     when "GroupSetBySis"
-      Loaders::SISIDLoader.for(GroupCategory).load(id).then do |category|
+      Loaders::SISIDLoader.for(GroupCategory, root_account: ctx[:domain_root_account]).load(id).then do |category|
         Loaders::AssociationLoader.for(GroupCategory, :context)
                                   .load(category)
                                   .then { check_read_permission.call(category) }
@@ -148,6 +180,14 @@ module GraphQLNodeLoader
           policy
         end
       end
+    when "ScheduledPost"
+      Loaders::IDLoader.for(ScheduledPost).load(id).then do |scheduled_post|
+        Loaders::AssociationLoader.for(ScheduledPost, :assignment).load(scheduled_post).then do |assignment|
+          next nil unless assignment.course.grants_right?(ctx[:current_user], :manage_grades)
+
+          scheduled_post
+        end
+      end
     when "File"
       Loaders::IDLoader.for(Attachment).load(id).then do |attachment|
         next if attachment.deleted?
@@ -157,7 +197,7 @@ module GraphQLNodeLoader
     when "AssignmentGroup"
       Loaders::IDLoader.for(AssignmentGroup).load(id).then(check_read_permission)
     when "AssignmentGroupBySis"
-      Loaders::SISIDLoader.for(AssignmentGroup).load(id).then(check_read_permission)
+      Loaders::SISIDLoader.for(AssignmentGroup, root_account: ctx[:domain_root_account]).load(id).then(check_read_permission)
     when "Discussion"
       Loaders::IDLoader.for(DiscussionTopic).load(id).then do |topic|
         next nil unless topic.grants_right?(ctx[:current_user], :read) && !topic.deleted?
@@ -171,7 +211,15 @@ module GraphQLNodeLoader
     when "Submission"
       Loaders::IDLoader.for(Submission).load(id).then(check_read_permission)
     when "SubmissionByAssignmentAndUser"
-      submission = Submission.active.find_by(assignment_id: id.fetch(:assignment_id), user_id: id.fetch(:user_id))
+      submission = Submission.active.preload(assignment: :context).find_by(assignment_id: id.fetch(:assignment_id),
+                                                                           user_id: id.fetch(:user_id))
+      if Account.site_admin.feature_enabled?(:graphql_honor_anonymous_grading) &&
+         !submission&.can_read_submission_user_name?(ctx[:current_user], ctx[:session])
+        submission = nil
+      end
+      check_read_permission.call(submission)
+    when "SubmissionByAssignmentAndAnonymousId"
+      submission = Submission.active.find_by(assignment_id: id.fetch(:assignment_id), anonymous_id: id.fetch(:anonymous_id))
       check_read_permission.call(submission)
     when "Progress"
       Loaders::IDLoader.for(Progress).load(id).then do |progress|
@@ -241,6 +289,12 @@ module GraphQLNodeLoader
 
         record
       end
+    when "Folder"
+      Loaders::IDLoader.for(Folder).load(id).then do |folder|
+        next nil unless folder&.grants_right?(ctx[:current_user], :read)
+
+        folder
+      end
     when "CommentBankItem"
       Loaders::IDLoader.for(CommentBankItem).load(id).then do |record|
         next if !record || record.deleted? || !record.grants_right?(ctx[:current_user], :read)
@@ -253,11 +307,46 @@ module GraphQLNodeLoader
 
         record
       end
+    when "ModuleProgression"
+      Loaders::IDLoader.for(ContextModuleProgression).load(id).then do |progression|
+        next unless progression
+
+        Loaders::AssociationLoader.for(ContextModuleProgression, :context_module).load(progression).then do |mod|
+          Loaders::AssociationLoader.for(ContextModule, :context).load(mod).then do
+            next nil unless mod.context.grants_right?(ctx[:current_user], :read)
+            next nil unless progression.user_id == ctx[:current_user].id || mod.context.grants_right?(ctx[:current_user], :view_all_grades)
+
+            progression
+          end
+        end
+      end
     when "UsageRights"
       Loaders::IDLoader.for(UsageRights).load(id).then do |usage_rights|
         next unless usage_rights.context.grants_right?(ctx[:current_user], :read)
 
         usage_rights
+      end
+    when "AllocationRule"
+      Loaders::IDLoader.for(AllocationRule).load(id).then do |record|
+        next if !record || record.deleted? || !record.course.grants_right?(ctx[:current_user], :read)
+
+        record
+      end
+    when "InstitutionalTag"
+      Loaders::IDLoader.for(InstitutionalTag).load(id).then do |tag|
+        next nil unless ctx[:domain_root_account]&.feature_enabled?(:institutional_tags)
+        next nil unless ctx[:domain_root_account]&.grants_right?(ctx[:current_user], ctx[:session], :manage_institutional_tags_view)
+
+        tag
+      end
+    when "InstitutionalTagAssociation"
+      Loaders::IDLoader.for(InstitutionalTagAssociation).load(id).then(check_read_permission)
+    when "InstitutionalTagCategory"
+      Loaders::IDLoader.for(InstitutionalTagCategory).load(id).then do |category|
+        next nil unless ctx[:domain_root_account]&.feature_enabled?(:institutional_tags)
+        next nil unless ctx[:domain_root_account]&.grants_right?(ctx[:current_user], ctx[:session], :manage_institutional_tags_view)
+
+        category
       end
     else
       raise UnsupportedTypeError, "don't know how to load #{type}"

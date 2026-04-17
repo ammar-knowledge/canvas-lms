@@ -163,6 +163,9 @@ If you need to change a button's size, you can do so by adding the appropriate c
     opacity: 0.5;
   }
 
+  // https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum
+  min-width: 24px;
+  min-height: 24px;
 }
 
 
@@ -228,7 +231,7 @@ input[type="button"] {
 .btn-primary, // <-- deprecated- do not use
 .Button--primary {
   @if $use_high_contrast {
-    @include canvas-button(#0770A3, $ic-color-light);
+    @include canvas-button(#0A5A9E, $ic-color-light);
   } @else {
     @include canvas-button(
         var(--ic-brand-button--primary-bgd),
@@ -374,6 +377,13 @@ input[type="button"] {
   color: $ic-color-light;
   &:hover, &:focus { color: $ic-color-light; }
   &:focus { @include button-focus-dark; }
+}
+
+// Same as .Button--icon-action, but in danger color
+.Button--icon-action-danger {
+  @extend .Button--icon-action;
+  color: $ic-color-danger;
+  &:hover, &:focus { color: $ic-color-danger; }
 }
 
 

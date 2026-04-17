@@ -35,16 +35,18 @@ describe('RequirementForm', () => {
     ],
     onChangeRequirementCount: () => {},
     onToggleSequentialProgress: () => {},
-    onAddRequirement: jest.fn(),
+    onAddRequirement: vi.fn(),
     onDropRequirement: () => {},
     onUpdateRequirement: () => {},
+    validatePointsInput: () => {},
+    pointsInputMessages: [],
   }
 
   const renderComponent = (overrides = {}) => render(<RequirementForm {...props} {...overrides} />)
 
   beforeEach(() => {
     document.body.innerHTML = `<div id="flash_screenreader_holder" role="alert"></div>`
-    jest.resetAllMocks()
+    vi.resetAllMocks()
   })
 
   it('renders', () => {

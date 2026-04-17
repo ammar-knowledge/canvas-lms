@@ -18,14 +18,12 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "ostruct"
-
 describe Quizzes::QuizQuestion::AnswerParsers::AnswerParser do
-  context "#parse" do
+  describe "#parse" do
     let(:answer_parser) { Quizzes::QuizQuestion::AnswerParsers::AnswerParser.new([]) }
 
     it "returns the question with answers assigned" do
-      question = OpenStruct.new
+      question = Quizzes::QuizQuestion::AnswerGroup.new
       expect(answer_parser.parse(question).answers).to eq []
     end
   end

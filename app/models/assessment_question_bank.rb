@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class AssessmentQuestionBank < ActiveRecord::Base
+class AssessmentQuestionBank < ApplicationRecord
   extend RootAccountResolver
   include Workflow
 
@@ -33,6 +33,7 @@ class AssessmentQuestionBank < ActiveRecord::Base
   resolves_root_account through: :context
 
   include MasterCourses::Restrictor
+
   restrict_columns :content, [:title]
 
   workflow do
@@ -42,30 +43,17 @@ class AssessmentQuestionBank < ActiveRecord::Base
 
   set_policy do
     given do |user, session|
-      !context.root_account.feature_enabled?(:granular_permissions_manage_assignments) &&
-        context.grants_right?(user, session, :read_question_banks) &&
-        context.grants_right?(user, session, :manage_assignments)
-    end
-    can :read and can :create and can :update and can :delete and can :manage
-
-    given do |user, session|
-      context.root_account.feature_enabled?(:granular_permissions_manage_assignments) &&
-        context.grants_right?(user, session, :read_question_banks) &&
-        context.grants_right?(user, session, :manage_assignments_add)
+      context.grants_all_rights?(user, session, :read_question_banks, :manage_assignments_add)
     end
     can :read and can :create
 
     given do |user, session|
-      context.root_account.feature_enabled?(:granular_permissions_manage_assignments) &&
-        context.grants_right?(user, session, :read_question_banks) &&
-        context.grants_right?(user, session, :manage_assignments_edit)
+      context.grants_all_rights?(user, session, :read_question_banks, :manage_assignments_edit)
     end
     can :read and can :update and can :manage
 
     given do |user, session|
-      context.root_account.feature_enabled?(:granular_permissions_manage_assignments) &&
-        context.grants_right?(user, session, :read_question_banks) &&
-        context.grants_right?(user, session, :manage_assignments_delete)
+      context.grants_all_rights?(user, session, :read_question_banks, :manage_assignments_delete)
     end
     can :read and can :delete
 
@@ -85,12 +73,14 @@ class AssessmentQuestionBank < ActiveRecord::Base
   end
 
   def self.unfiled_for_context(context)
-    context.assessment_question_banks.where(title: default_unfiled_title, workflow_state: "active").first_or_create rescue nil
+    return unless context
+
+    context.assessment_question_banks.where(title: default_unfiled_title, workflow_state: "active").first_or_create
   end
 
   def cached_context_short_name
     @cached_context_name ||= Rails.cache.fetch(["short_name_lookup", context_code].cache_key) do
-      context.short_name rescue ""
+      context.try(:short_name) || ""
     end
   end
 
@@ -140,7 +130,7 @@ class AssessmentQuestionBank < ActiveRecord::Base
     LearningOutcome.update_alignments(self, context, [])
   end
 
-  def bookmark_for(user, do_bookmark = true)
+  def bookmark_for(user, do_bookmark: true)
     if do_bookmark
       assessment_question_bank_users.where(user:).first_or_create!
     else

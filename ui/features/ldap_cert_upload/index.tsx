@@ -19,14 +19,19 @@
 import React from 'react'
 import ready from '@instructure/ready'
 import {CertUploadForm} from './react/components/CertUploadForm'
-import ReactDOM from 'react-dom'
+import {render} from '@canvas/react'
+import type {Root} from 'react-dom/client'
+
+const roots: Map<Element, Root> = new Map()
 
 ready(() => {
   document.querySelectorAll("[id^='internal-ca-select-']").forEach(certUploadContainer => {
     const id = certUploadContainer.id.match(/internal-ca-select-(.*)$/)?.[1]
-
     const inputField = id && (document.querySelector(`#internal_ca_${id}`) as HTMLInputElement)
 
-    if (inputField) ReactDOM.render(<CertUploadForm inputField={inputField} />, certUploadContainer)
+    if (inputField) {
+      const root = render(<CertUploadForm inputField={inputField} />, certUploadContainer)
+      roots.set(certUploadContainer, root)
+    }
   })
 })

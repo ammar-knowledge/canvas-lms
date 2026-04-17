@@ -142,6 +142,11 @@
 #           "description": "If requested, this field will be included and contain a url to retrieve the user's avatar.",
 #           "example": "https://canvas.instructure.com/images/messages/avatar-50.png",
 #           "type": "string"
+#         },
+#         "uuid": {
+#           "description": "The Canvas UUID for the participant.",
+#           "example": "W9GQIcdoDTqwX8mxIunDQQVL6WZTaGmpa5xovmCB",
+#           "type": "string"
 #         }
 #       }
 #     }
@@ -151,13 +156,15 @@ class ConversationsController < ApplicationController
   include KalturaHelper
   include Api::V1::Conversation
   include Api::V1::Progress
+  include HorizonMode
 
-  before_action :require_user, except: [:public_feed]
+  skip_before_action :require_user, only: :public_feed
   before_action :reject_student_view_student
   before_action :get_conversation, only: %i[show update destroy add_recipients remove_messages]
   before_action :infer_scope, only: %i[index show create update add_recipients add_message remove_messages]
   before_action :normalize_recipients, only: [:create, :add_recipients]
   before_action :infer_tags, only: [:create, :add_recipients]
+  before_action :load_canvas_career, only: %i[index]
 
   # whether it's a bulk private message, or a big group conversation,
   # batch up all delayed jobs to make this more responsive to the user
@@ -169,7 +176,7 @@ class ConversationsController < ApplicationController
   # Returns the paginated list of conversations for the current user, most
   # recent ones first.
   #
-  # @argument scope [String, "unread"|"starred"|"archived"]
+  # @argument scope [String, "unread"|"starred"|"archived"|"sent"]
   #   When set, only return conversations of the specified type. For example,
   #   set to "unread" to return only conversations that haven't been read.
   #   The default behavior is to return all non-archived conversations (i.e.
@@ -177,9 +184,10 @@ class ConversationsController < ApplicationController
   #
   # @argument filter[] [String, course_id|group_id|user_id]
   #   When set, only return conversations for the specified courses, groups
-  #   or users. The id should be prefixed with its type, e.g. "user_123" or
-  #   "course_456". Can be an array (by setting "filter[]") or single value
-  #   (by setting "filter")
+  #   or users. The id should be prefixed with its type, e.g. "user_123",
+  #  "uuid:W9GQIcdoDTqwX8mxIunDQQVL6WZTaGmpa5xovmCB", or "course_456".
+  #  For users, you can use either their numeric ID or UUID prefixed with "uuid:".
+  #  Can be an array (by setting "filter[]") or single value (by setting "filter")
   #
   # @argument filter_mode ["and"|"or", default "or"]
   #   When filter[] contains multiple filters, combine them with this mode,
@@ -195,8 +203,9 @@ class ConversationsController < ApplicationController
   #   paged conversation data, and "conversation_ids" which will contain the
   #   ids of all conversations under this scope/filter in the same order.
   #
-  # @argument include[] [Optional, String, "participant_avatars"]
-  #   "participant_avatars":: Optionally include an "avatar_url" key for each user participanting in the conversation
+  # @argument include[] [Optional, String, "participant_avatars"|"uuid"]
+  #   "participant_avatars":: Optionally include an "avatar_url" key for each user participating in the conversation
+  #   "uuid":: Optionally include an "uuid" key for each user participating in the conversation
   #
   # @response_field id The unique identifier for the conversation.
   # @response_field subject The subject of the conversation.
@@ -227,7 +236,8 @@ class ConversationsController < ApplicationController
   # @response_field participants Array of users (id, name, full_name) participating in
   #   the conversation. Includes current user. If `include[]=participant_avatars`
   #   was passed as an argument, each user in the array will also have an
-  #   "avatar_url" field
+  #   "avatar_url" field. If `include[]=uuid` was passed as an argument,
+  #   each user in the array will also have an "uuid" field
   # @response_field visible Boolean, indicates whether the conversation is
   #   visible under the current scope and filter. This attribute is always
   #   true in the index API response, and is primarily useful in create/update
@@ -262,6 +272,7 @@ class ConversationsController < ApplicationController
   # @returns [Conversation]
   #
   def index
+    page_has_instui_topnav
     respond_to do |format|
       format.json do
         @conversations_scope = @conversations_scope.where("message_count > 0")
@@ -272,6 +283,7 @@ class ConversationsController < ApplicationController
                                                  @current_user,
                                                  session,
                                                  include_participant_avatars: (Array(params[:include]).include? "participant_avatars"),
+                                                 include_participant_uuid: include_participant_uuid?,
                                                  include_participant_contexts: false,
                                                  visible: true,
                                                  include_context_name: true,
@@ -280,11 +292,11 @@ class ConversationsController < ApplicationController
         if params[:include_all_conversation_ids]
           @conversations_json = { conversations: @conversations_json, conversation_ids: @conversations_scope.conversation_ids }
         end
-        InstStatsd::Statsd.increment("inbox.visit.scope.inbox.pages_loaded.legacy") if params[:scope] == "inbox"
-        InstStatsd::Statsd.increment("inbox.visit.scope.unread.pages_loaded.legacy") if params[:scope] == "unread"
-        InstStatsd::Statsd.increment("inbox.visit.scope.sent.pages_loaded.legacy") if params[:scope] == "sent"
-        InstStatsd::Statsd.increment("inbox.visit.scope.starred.pages_loaded.legacy") if params[:scope] == "starred"
-        InstStatsd::Statsd.increment("inbox.visit.scope.archived.pages_loaded.legacy") if params[:scope] == "archived"
+        InstStatsd::Statsd.distributed_increment("inbox.visit.scope.inbox.pages_loaded.legacy") if params[:scope] == "inbox"
+        InstStatsd::Statsd.distributed_increment("inbox.visit.scope.unread.pages_loaded.legacy") if params[:scope] == "unread"
+        InstStatsd::Statsd.distributed_increment("inbox.visit.scope.sent.pages_loaded.legacy") if params[:scope] == "sent"
+        InstStatsd::Statsd.distributed_increment("inbox.visit.scope.starred.pages_loaded.legacy") if params[:scope] == "starred"
+        InstStatsd::Statsd.distributed_increment("inbox.visit.scope.archived.pages_loaded.legacy") if params[:scope] == "archived"
         render json: @conversations_json
       end
       format.html do
@@ -307,34 +319,19 @@ class ConversationsController < ApplicationController
         hash[:INBOX_AUTO_RESPONSE_ENABLED] = Account.site_admin.feature_enabled?(:inbox_settings) &&
                                              @domain_root_account.enable_inbox_auto_response? &&
                                              (!is_student || (is_student && !@domain_root_account.disable_inbox_auto_response_for_students?))
-
-        notes_enabled_accounts = @current_user.associated_accounts.having_user_notes_enabled
-
-        hash[:NOTES_ENABLED] = notes_enabled_accounts.any?
-        hash[:CAN_ADD_NOTES_FOR_ACCOUNT] = notes_enabled_accounts.any? { |a| a.grants_right?(@current_user, :manage_students) }
-
-        if hash[:NOTES_ENABLED] && !hash[:CAN_ADD_NOTES_FOR_ACCOUNT]
-          course_note_permissions = {}
-          @current_user.enrollments.active.of_instructor_type.preload(:course).each do |enrollment|
-            course_note_permissions[enrollment.course_id] = true if enrollment.has_permission_to?(:manage_user_notes)
-          end
-          hash[:CAN_ADD_NOTES_FOR_COURSES] = course_note_permissions
-        end
         js_env({
                  CONVERSATIONS: hash,
                  apollo_caching: Account.site_admin.feature_enabled?(:apollo_caching),
                  conversation_cache_key: Base64.encode64("#{@current_user.uuid}jamDN74lLSmfnmo74Hb6snyBnmc6q"),
                  react_inbox_labels: Account.site_admin.feature_enabled?(:react_inbox_labels),
+                 # TODO: clean :inbox_sis_id_for_duplicates flag after release, VICE-5840
+                 inbox_sis_id_for_duplicates: Account.site_admin.feature_enabled?(:inbox_sis_id_for_duplicates),
                  inbox_translation_languages: @domain_root_account.feature_enabled?(:translate_inbox_messages) ? Translation.languages : [],
-                 inbox_translation_enabled: @domain_root_account.feature_enabled?(:translate_inbox_messages)
+                 inbox_translation_enabled: @domain_root_account.feature_enabled?(:translate_inbox_messages),
+                 cedar_translation: true, # KEPT TO AVOID P4 on release,  VICE-5844
                })
         @page_title = t("Inbox")
-        InstStatsd::Statsd.increment("inbox.visit.react")
-        InstStatsd::Statsd.count("inbox.visit.scope.inbox.count.react", @current_user.conversations.default.size)
-        InstStatsd::Statsd.count("inbox.visit.scope.sent.count.react", @current_user.all_conversations.sent.size)
-        InstStatsd::Statsd.count("inbox.visit.scope.unread.count.react", @current_user.conversations.unread.size)
-        InstStatsd::Statsd.count("inbox.visit.scope.starred.count.react", @current_user.starred_conversations.size)
-        InstStatsd::Statsd.count("inbox.visit.scope.archived.count.react", @current_user.conversations.archived.size)
+        InstStatsd::Statsd.distributed_increment("inbox.visit.react")
         css_bundle :canvas_inbox
         js_bundle :inbox
         render html: "", layout: true
@@ -348,10 +345,11 @@ class ConversationsController < ApplicationController
   # reused.
   #
   # @argument recipients[] [Required, String]
-  #   An array of recipient ids. These may be user ids or course/group ids
-  #   prefixed with "course_" or "group_" respectively, e.g.
-  #   recipients[]=1&recipients[]=2&recipients[]=course_3. If the course/group
-  #   has over 100 enrollments, 'bulk_message' and 'group_conversation' must be
+  #   An array of recipient ids. These may be user ids
+  #  (either numeric IDs or UUIDs prefixed with "uuid:"),
+  #   or course/group ids prefixed with "course_" or "group_" respectively, e.g.
+  #   recipients[]=1&recipients[]=uuid:W9GQIcdoDTqwX8mxIunDQQVL6WZTaGmpa5xovmCBx&recipients[]=course_3.
+  #   If the course/group has over 100 enrollments, 'bulk_message' and 'group_conversation' must be
   #   set to true.
   #
   # @argument subject [String]
@@ -381,11 +379,6 @@ class ConversationsController < ApplicationController
   # @argument media_comment_type [String, "audio"|"video"]
   #   Type of the associated media file
   #
-  # @argument user_note [Boolean]
-  #   Will add a faculty journal entry for each recipient as long as the user
-  #   making the api call has permission, the recipient is a student and
-  #   faculty journals are enabled in the account.
-  #
   # @argument mode [String, "sync"|"async"]
   #   Determines whether the messages will be created/sent synchronously or
   #   asynchronously. Defaults to sync, and this option is ignored if this is a
@@ -406,6 +399,9 @@ class ConversationsController < ApplicationController
   # @argument context_code [String]
   #   The course or group that is the context for this conversation. Same format
   #   as courses or groups in the recipients argument.
+  #
+  # @argument include[] [Optional, String, "uuid"]
+  #   "uuid":: Optionally include an "uuid" key for each user participating in the conversation
   def create
     return render_error("recipients", "blank") if params[:recipients].blank?
     return render_error("recipients", "invalid") if @recipients.blank?
@@ -417,9 +413,7 @@ class ConversationsController < ApplicationController
     if params[:context_code].present?
       context = Context.find_by_asset_string(params[:context_code])
 
-      recipients_are_instructors = all_recipients_are_instructors?(context, @recipients)
-
-      if context.is_a?(Course) && !recipients_are_instructors && !observer_to_linked_students(@recipients) && !context.grants_right?(@current_user, session, :send_messages)
+      if context.is_a?(Course) && missing_right_to_send_any_recipient(@recipients, context) && !context.grants_right?(@current_user, session, :send_messages)
         return render_error("Unable to send messages to users in #{context.name}", "")
       elsif !valid_context?(context)
         return render_error("context_code", "invalid")
@@ -434,15 +428,23 @@ class ConversationsController < ApplicationController
       context_id = context.id
     end
 
+    allowed_recipient_types = [nil, "students", "observers"].freeze
     params[:recipients].each do |recipient|
-      if recipient =~ /\A(course_\d+)(?:_([a-z]+))?$/ && [nil, "students", "observers"].include?($2) &&
+      return render_error("recipients", "invalid") unless recipient.is_a?(String)
+
+      if recipient =~ /\A(course_\d+)(?:_([a-z]+))?$/ && allowed_recipient_types.include?($2) &&
          !Context.find_by_asset_string($1).try(:grants_right?, @current_user, session, :send_messages_all)
         return render_error("recipients", "restricted by role")
       end
     end
 
-    group_conversation     = value_to_boolean(params[:group_conversation])
-    batch_private_messages = !group_conversation && @recipients.size > 1
+    group_conversation = value_to_boolean(params[:group_conversation])
+
+    force_individual_messages = context.is_a?(Course) &&
+                                context.root_account.feature_enabled?(:restrict_student_access) &&
+                                context.user_is_instructor?(@current_user)
+
+    batch_private_messages = (!group_conversation && @recipients.size > 1) || force_individual_messages
     batch_group_messages   = (group_conversation && value_to_boolean(params[:bulk_message])) || value_to_boolean(params[:force_new])
     message                = build_message
 
@@ -472,23 +474,20 @@ class ConversationsController < ApplicationController
                                            group: batch_group_messages)
 
         InstStatsd::Statsd.count("inbox.conversation.created.legacy", batch.recipient_count)
-        InstStatsd::Statsd.increment("inbox.message.sent.legacy")
-        InstStatsd::Statsd.increment("inbox.conversation.sent.legacy")
+        InstStatsd::Statsd.distributed_increment("inbox.message.sent.legacy")
+        InstStatsd::Statsd.distributed_increment("inbox.conversation.sent.legacy")
         if message.has_media_objects || params[:media_comment_id]
-          InstStatsd::Statsd.increment("inbox.message.sent.media.legacy")
+          InstStatsd::Statsd.distributed_increment("inbox.message.sent.media.legacy")
         end
         if !message[:attachment_ids].nil? && params[:attachment_ids] != ""
-          InstStatsd::Statsd.increment("inbox.message.sent.attachment.legacy")
+          InstStatsd::Statsd.distributed_increment("inbox.message.sent.attachment.legacy")
         end
         InstStatsd::Statsd.count("inbox.message.sent.recipients.legacy", @recipients.count)
         if context_type == "Account" || context_type.nil?
-          InstStatsd::Statsd.increment("inbox.conversation.sent.account_context.legacy")
-        end
-        if !Account.site_admin.feature_enabled?(:deprecate_faculty_journal) && params[:user_note] == "1"
-          InstStatsd::Statsd.increment("inbox.conversation.sent.faculty_journal.legacy")
+          InstStatsd::Statsd.distributed_increment("inbox.conversation.sent.account_context.legacy")
         end
         if params[:bulk_message] == "1"
-          InstStatsd::Statsd.increment("inbox.conversation.sent.individual_message_option.legacy")
+          InstStatsd::Statsd.distributed_increment("inbox.conversation.sent.individual_message_option.legacy")
         end
         if mode == :async
           headers["X-Conversation-Batch-Id"] = batch.id.to_s
@@ -496,34 +495,31 @@ class ConversationsController < ApplicationController
         end
 
         # reload and preload stuff
-        conversations = ConversationParticipant.where(id: batch.conversations).preload(:conversation).order("visible_last_authored_at DESC, last_message_at DESC, id DESC")
+        conversations = ConversationParticipant.where(id: batch.conversations).preload(:conversation).order(visible_last_authored_at: :desc, last_message_at: :desc, id: :desc)
         Conversation.preload_participants(conversations.map(&:conversation))
         ConversationParticipant.preload_latest_messages(conversations, @current_user)
         visibility_map = infer_visibility(conversations)
-        render json: conversations.map { |c| conversation_json(c, @current_user, session, include_participant_avatars: false, include_participant_contexts: false, visible: visibility_map[c.conversation_id]) }, status: :created
+        render json: conversations.map { |c| conversation_json(c, @current_user, session, include_participant_avatars: false, include_participant_uuid: include_participant_uuid?, include_participant_contexts: false, visible: visibility_map[c.conversation_id]) }, status: :created
       else
         @conversation = @current_user.initiate_conversation(@recipients, !group_conversation, subject: params[:subject], context_type:, context_id:)
         @conversation.add_message(message, tags: @tags, update_for_sender: false, cc_author: true)
-        InstStatsd::Statsd.increment("inbox.conversation.created.legacy")
-        InstStatsd::Statsd.increment("inbox.message.sent.legacy")
-        InstStatsd::Statsd.increment("inbox.conversation.sent.legacy")
+        InstStatsd::Statsd.distributed_increment("inbox.conversation.created.legacy")
+        InstStatsd::Statsd.distributed_increment("inbox.message.sent.legacy")
+        InstStatsd::Statsd.distributed_increment("inbox.conversation.sent.legacy")
         if params[:bulk_message] == "1"
-          InstStatsd::Statsd.increment("inbox.conversation.sent.individual_message_option.legacy")
+          InstStatsd::Statsd.distributed_increment("inbox.conversation.sent.individual_message_option.legacy")
         end
         if context_type == "Account" || context_type.nil?
-          InstStatsd::Statsd.increment("inbox.conversation.sent.account_context.legacy")
+          InstStatsd::Statsd.distributed_increment("inbox.conversation.sent.account_context.legacy")
         end
         if message.has_media_objects || params[:media_comment_id]
-          InstStatsd::Statsd.increment("inbox.message.sent.media.legacy")
+          InstStatsd::Statsd.distributed_increment("inbox.message.sent.media.legacy")
         end
         if !message[:attachment_ids].nil? && message[:attachment_ids] != ""
-          InstStatsd::Statsd.increment("inbox.message.sent.attachment.legacy")
-        end
-        if params[:user_note] == "1"
-          InstStatsd::Statsd.increment("inbox.conversation.sent.faculty_journal.legacy")
+          InstStatsd::Statsd.distributed_increment("inbox.message.sent.attachment.legacy")
         end
         InstStatsd::Statsd.count("inbox.message.sent.recipients.legacy", @recipients.count)
-        render json: [conversation_json(@conversation.reload, @current_user, session, include_indirect_participants: true, messages: [message])], status: :created
+        render json: [conversation_json(@conversation.reload, @current_user, session, include_indirect_participants: true, include_participant_uuid: include_participant_uuid?, messages: [message])], status: :created
       end
     end
   rescue ActiveRecord::RecordInvalid => e
@@ -686,6 +682,7 @@ class ConversationsController < ApplicationController
                                    session,
                                    include_participant_contexts: value_to_boolean(params.fetch(:include_participant_contexts, true)),
                                    include_indirect_participants: true,
+                                   include_participant_uuid: include_participant_uuid?,
                                    messages:,
                                    submissions: [],
                                    include_beta: params[:include_beta],
@@ -738,12 +735,12 @@ class ConversationsController < ApplicationController
   def update
     prev_conversation_state = @conversation.deep_dup
     if @conversation.update(params.require(:conversation).permit(*API_ALLOWED_FIELDS))
-      InstStatsd::Statsd.increment("inbox.conversation.archived.legacy") if params.require(:conversation)["workflow_state"] == "archived"
-      InstStatsd::Statsd.increment("inbox.conversation.unarchived.legacy") if ["read", "unread"].include?(params.require(:conversation)["workflow_state"]) && prev_conversation_state.workflow_state == "archived"
-      InstStatsd::Statsd.increment("inbox.conversation.starred.legacy") if ActiveModel::Type::Boolean.new.cast(params[:conversation][:starred]) && !prev_conversation_state.starred
-      InstStatsd::Statsd.increment("inbox.conversation.unstarred.legacy") if !ActiveModel::Type::Boolean.new.cast(params[:conversation][:starred]) && prev_conversation_state.starred
-      InstStatsd::Statsd.increment("inbox.conversation.unread.legacy") if params.require(:conversation)["workflow_state"] == "unread" && prev_conversation_state.workflow_state == "read"
-      render json: conversation_json(@conversation, @current_user, session)
+      InstStatsd::Statsd.distributed_increment("inbox.conversation.archived.legacy") if params.require(:conversation)["workflow_state"] == "archived"
+      InstStatsd::Statsd.distributed_increment("inbox.conversation.unarchived.legacy") if ["read", "unread"].include?(params.require(:conversation)["workflow_state"]) && prev_conversation_state.workflow_state == "archived"
+      InstStatsd::Statsd.distributed_increment("inbox.conversation.starred.legacy") if ActiveModel::Type::Boolean.new.cast(params[:conversation][:starred]) && !prev_conversation_state.starred
+      InstStatsd::Statsd.distributed_increment("inbox.conversation.unstarred.legacy") if !ActiveModel::Type::Boolean.new.cast(params[:conversation][:starred]) && prev_conversation_state.starred
+      InstStatsd::Statsd.distributed_increment("inbox.conversation.unread.legacy") if params.require(:conversation)["workflow_state"] == "unread" && prev_conversation_state.workflow_state == "read"
+      render json: conversation_json(@conversation, @current_user, session, include_participant_uuid: include_participant_uuid?)
     else
       render json: @conversation.errors, status: :bad_request
     end
@@ -777,7 +774,7 @@ class ConversationsController < ApplicationController
   #   }
   def destroy
     @conversation.remove_messages(:all)
-    render json: conversation_json(@conversation, @current_user, session, visible: false)
+    render json: conversation_json(@conversation, @current_user, session, visible: false, include_participant_uuid: include_participant_uuid?)
   end
 
   # internal api
@@ -895,7 +892,7 @@ class ConversationsController < ApplicationController
     if @recipients.present?
       if @conversation.conversation.can_add_participants?(@recipients)
         @conversation.add_participants(@recipients, tags: @tags, root_account_id: @domain_root_account.id)
-        render json: conversation_json(@conversation.reload, @current_user, session, messages: [@conversation.messages.first])
+        render json: conversation_json(@conversation.reload, @current_user, session, messages: [@conversation.messages.first], include_participant_uuid: include_participant_uuid?)
       else
         render_error("recipients", "too many participants for group conversation")
       end
@@ -932,11 +929,6 @@ class ConversationsController < ApplicationController
   # An array of message ids from this conversation to send to recipients
   # of the new message. Recipients who already had a copy of included
   # messages will not be affected.
-  #
-  # @argument user_note [Boolean]
-  #   Will add a faculty journal entry for each recipient as long as the user
-  #   making the api call has permission, the recipient is a student and
-  #   faculty journals are enabled in the account.
   #
   # @example_response
   #   {
@@ -975,7 +967,7 @@ class ConversationsController < ApplicationController
   #
 
   def add_message
-    get_conversation(true)
+    get_conversation(allow_deleted: true)
 
     message = process_response(
       conversation: @conversation,
@@ -989,19 +981,18 @@ class ConversationsController < ApplicationController
       attachment_ids: params[:attachment_ids],
       domain_root_account_id: @domain_root_account.id,
       media_comment_id: params[:media_comment_id],
-      media_comment_type: params[:media_comment_type],
-      user_note: params[:user_note]
+      media_comment_type: params[:media_comment_type]
     )
-    InstStatsd::Statsd.increment("inbox.message.sent.legacy")
-    InstStatsd::Statsd.increment("inbox.message.sent.isReply.legacy")
+    InstStatsd::Statsd.distributed_increment("inbox.message.sent.legacy")
+    InstStatsd::Statsd.distributed_increment("inbox.message.sent.isReply.legacy")
     if params[:media_comment_id] || ConversationMessage.where(id: message[:message]&.id).first&.has_media_objects
-      InstStatsd::Statsd.increment("inbox.message.sent.media.legacy")
+      InstStatsd::Statsd.distributed_increment("inbox.message.sent.media.legacy")
     end
     if !message[:message].nil? && !message[:message][:attachment_ids].nil? && message[:message][:attachment_ids] != ""
-      InstStatsd::Statsd.increment("inbox.message.sent.attachment.legacy")
+      InstStatsd::Statsd.distributed_increment("inbox.message.sent.attachment.legacy")
     end
     InstStatsd::Statsd.count("inbox.message.sent.recipients.legacy", message[:recipients_count])
-    render json: message[:message].nil? ? [] : conversation_json(@conversation.reload, @current_user, session, messages: [message[:message]]), status: message[:status]
+    render json: message[:message].nil? ? [] : conversation_json(@conversation.reload, @current_user, session, messages: [message[:message]], include_participant_uuid: include_participant_uuid?), status: message[:status]
   rescue ConversationsHelper::RepliesLockedForUser
     render_unauthorized_action
   rescue ConversationsHelper::Error => e
@@ -1035,7 +1026,7 @@ class ConversationsController < ApplicationController
       if @conversation.conversation_message_participants.where.not(workflow_state: "deleted").empty?
         @conversation.update_attribute(:last_message_at, nil)
       end
-      render json: conversation_json(@conversation, @current_user, session)
+      render json: conversation_json(@conversation, @current_user, session, include_participant_uuid: include_participant_uuid?)
     end
   end
 
@@ -1202,11 +1193,18 @@ class ConversationsController < ApplicationController
     end
   end
 
-  def get_conversation(allow_deleted = false)
+  def get_conversation(allow_deleted: false)
     scope = @current_user.all_conversations
     scope = scope.where("message_count>0") unless allow_deleted
     @conversation = scope.where(conversation_id: params[:id] || params[:conversation_id] || 0).first
-    raise ActiveRecord::RecordNotFound unless @conversation
+    unless @conversation
+      if api_request? || request.xhr? || params[:format] == "json"
+        raise ActiveRecord::RecordNotFound
+      else
+        flash[:error] = t("conversation_not_found", "That conversation does not exist or you do not have access to it.")
+        redirect_to conversations_url
+      end
+    end
   end
 
   def include_private_conversation_enrollments
@@ -1215,6 +1213,10 @@ class ConversationsController < ApplicationController
     else
       api_request?
     end
+  end
+
+  def include_participant_uuid?
+    Array(params[:include]).include?("uuid")
   end
 
   # TODO: API v2: default to false, like we do in the UI

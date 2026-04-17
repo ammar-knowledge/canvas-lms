@@ -17,27 +17,28 @@
  */
 
 import React from 'react'
-import {render} from '@testing-library/react'
+import {render, waitFor} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {shallow} from 'enzyme'
+import {queryClient} from '@instructure/platform-query'
+import {QueryClientProvider} from '@tanstack/react-query'
 import UsersList from '../UsersList'
-import UsersListRow from '../UsersListRow'
-import fetchMock from 'fetch-mock'
-import sinon from 'sinon'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 
-describe('Account Course User Search UsersList View', function (hooks) {
+const server = setupServer()
+
+function renderWithQueryClient(ui) {
+  queryClient.clear()
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
+}
+
+describe('Account Course User Search UsersList View', function () {
+  beforeAll(() => server.listen())
+  afterEach(() => server.resetHandlers())
+  afterAll(() => server.close())
+
   beforeEach(() => {
-    fetchMock.mock(
-      '/api/v1/users/1/enrollments?state%5B%5D=active&state%5B%5D=invited&temporary_enrollment_providers=true',
-      {
-        status: 200,
-        body: {},
-      }
-    )
-  })
-
-  afterEach(() => {
-    fetchMock.restore()
+    server.use(http.get('/api/v1/users/1/enrollments', () => HttpResponse.json({})))
   })
 
   const usersProps = {
@@ -65,7 +66,7 @@ describe('Account Course User Search UsersList View', function (hooks) {
         avatar_url: 'http://someurl',
       },
     ],
-    handleSubmitEditUserForm: jest.fn(),
+    handleSubmitEditUserForm: vi.fn(),
     permissions: {
       can_masquerade: true,
       can_message_users: true,
@@ -76,19 +77,58 @@ describe('Account Course User Search UsersList View', function (hooks) {
       sort: 'username',
       order: 'asc',
     },
-    onUpdateFilters: sinon.spy(),
-    onApplyFilters: sinon.spy(),
-    sortColumnHeaderRef: sinon.spy(),
+    onUpdateFilters: vi.fn(),
+    onApplyFilters: vi.fn(),
+    sortColumnHeaderRef: vi.fn(),
     roles: [],
   }
 
   it('displays users that are passed in as props', () => {
-    const wrapper = shallow(<UsersList {...usersProps} />)
-    const nodes = wrapper.find(UsersListRow).getElements()
+    const {getByText} = renderWithQueryClient(<UsersList {...usersProps} />)
 
-    expect(nodes[0].props.user.name).toEqual('UserA')
-    expect(nodes[1].props.user.name).toEqual('UserB')
-    expect(nodes[2].props.user.name).toEqual('UserC')
+    expect(getByText('UserA')).toBeInTheDocument()
+    expect(getByText('UserB')).toBeInTheDocument()
+    expect(getByText('UserC')).toBeInTheDocument()
+  })
+
+  describe('bulk temporary enrollment status', () => {
+    const tempEnrollPermissions = {
+      can_view_temporary_enrollments: true,
+    }
+
+    it('fetches batch statuses when can_view_temporary_enrollments is true', async () => {
+      let batchRequestMade = false
+      server.use(
+        http.get('/api/v1/temporary_enrollment_status', () => {
+          batchRequestMade = true
+          return HttpResponse.json({})
+        }),
+      )
+
+      renderWithQueryClient(
+        <UsersList
+          {...usersProps}
+          permissions={{...usersProps.permissions, ...tempEnrollPermissions}}
+          roles={[{id: '1', label: 'Student'}]}
+        />,
+      )
+
+      await waitFor(() => expect(batchRequestMade).toBe(true))
+    })
+
+    it('does not fetch batch statuses when can_view_temporary_enrollments is falsy', () => {
+      let batchRequestMade = false
+      server.use(
+        http.get('/api/v1/temporary_enrollment_status', () => {
+          batchRequestMade = true
+          return HttpResponse.json({})
+        }),
+      )
+
+      renderWithQueryClient(<UsersList {...usersProps} />)
+
+      expect(batchRequestMade).toBe(false)
+    })
   })
 
   Object.entries({
@@ -119,12 +159,12 @@ describe('Account Course User Search UsersList View', function (hooks) {
       }
 
       it(`sorting by ${columnID} ${sortOrder} puts ${expectedArrow}-arrow on ${label} only`, () => {
-        const wrapper = render(<UsersList {...props} />)
+        const wrapper = renderWithQueryClient(<UsersList {...props} />)
         expect(
-          wrapper.container.querySelectorAll(`[name="IconMiniArrow${unexpectedArrow}"]`).length
-        ).toEqual(0)
+          wrapper.container.querySelectorAll(`[name="IconMiniArrow${unexpectedArrow}"]`),
+        ).toHaveLength(0)
         const icons = wrapper.container.querySelectorAll(`[name="IconMiniArrow${expectedArrow}"]`)
-        expect(icons.length).toEqual(1)
+        expect(icons).toHaveLength(1)
         const header = icons[0].closest('[data-testid="UsersListHeader"]')
         header.focus()
         expect(wrapper.queryAllByText(expectedTip)).toBeTruthy()
@@ -132,52 +172,30 @@ describe('Account Course User Search UsersList View', function (hooks) {
       })
 
       it(`clicking the ${label} column header calls onChangeSort with ${columnID}`, async () => {
-        const sortSpy = sinon.spy()
-        const wrapper = render(
+        const sortSpy = vi.fn()
+        const wrapper = renderWithQueryClient(
           <UsersList
             {...{
               ...props,
               onUpdateFilters: sortSpy,
             }}
-          />
+          />,
         )
         const header = Array.from(
-          wrapper.container.querySelectorAll('[data-testid="UsersListHeader"]')
+          wrapper.container.querySelectorAll('[data-testid="UsersListHeader"]'),
         )
           .filter(n => n.textContent.includes(label))[0]
           .querySelector('button')
         const user = userEvent.setup({delay: null})
         await user.click(header)
-        expect(sortSpy.calledOnce).toBeTruthy()
-        expect(
-          sortSpy.calledWith({
-            search_term: 'User',
-            sort: columnID,
-            order: sortOrder === 'asc' ? 'desc' : 'asc',
-            role_filter_id: undefined,
-          })
-        ).toBeTruthy()
+        expect(sortSpy).toHaveBeenCalledTimes(1)
+        expect(sortSpy).toHaveBeenCalledWith({
+          search_term: 'User',
+          sort: columnID,
+          order: sortOrder === 'asc' ? 'desc' : 'asc',
+          role_filter_id: undefined,
+        })
       })
     })
-  })
-
-  it('component should not update if props do not change', () => {
-    const instance = new UsersList(usersProps)
-    expect(instance.shouldComponentUpdate({...usersProps})).toBeFalsy()
-  })
-
-  it('component should update if a prop is added', () => {
-    const instance = new UsersList(usersProps)
-    expect(instance.shouldComponentUpdate({...usersProps, newProp: true})).toBeTruthy()
-  })
-
-  it('component should update if a prop is changed', () => {
-    const instance = new UsersList(usersProps)
-    expect(instance.shouldComponentUpdate({...usersProps, users: {}})).toBeTruthy()
-  })
-
-  it('component should not update if only the searchFilter prop is changed', () => {
-    const instance = new UsersList(usersProps)
-    expect(instance.shouldComponentUpdate({...usersProps, searchFilter: {}})).toBeFalsy()
   })
 })

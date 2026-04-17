@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class WikiPage < ActiveRecord::Base
+class WikiPage < ApplicationRecord
   attr_readonly :wiki_id
   attr_accessor :saved_by
 
@@ -36,8 +36,10 @@ class WikiPage < ActiveRecord::Base
   include LockedFor
   include HtmlTextHelper
   include DatesOverridable
+  include Accessibility::Scannable
 
   include MasterCourses::Restrictor
+
   restrict_columns :content, [:body, :title]
   restrict_columns :settings, [:editing_roles, :url]
   restrict_assignment_columns
@@ -45,6 +47,7 @@ class WikiPage < ActiveRecord::Base
   restrict_columns :availability_dates, [:publish_at]
 
   include SmartSearchable
+
   use_smart_search title_column: :title,
                    body_column: :body,
                    index_scope: ->(course) { course.wiki_pages.not_deleted },
@@ -62,7 +65,12 @@ class WikiPage < ActiveRecord::Base
   has_many :wiki_page_lookups, inverse_of: :wiki_page
   has_one :master_content_tag, class_name: "MasterCourses::MasterContentTag", inverse_of: :wiki_page
   has_one :block_editor, as: :context, dependent: :destroy
+  has_one :external_content_reference, dependent: :destroy, inverse_of: :wiki_page
+  has_one :estimated_duration, dependent: :destroy, inverse_of: :wiki_page
+  has_many :attachment_associations, as: :context, inverse_of: :context
+
   accepts_nested_attributes_for :block_editor, allow_destroy: true
+  accepts_nested_attributes_for :estimated_duration, allow_destroy: true
   acts_as_url :title, sync_url: true
 
   validate :validate_front_page_visibility
@@ -75,23 +83,24 @@ class WikiPage < ActiveRecord::Base
   before_validation :ensure_unique_title
   before_create :set_root_account_id
 
+  after_destroy :delete_from_pine, if: :eligible_for_pine_indexing?
   after_save  :touch_context
   after_save  :update_assignment,
               if: proc { context.try(:conditional_release?) }
   after_save :create_lookup, if: :should_create_lookup?
   after_save :delete_lookups, if: -> { !Account.site_admin.feature_enabled?(:permanent_page_links) && saved_change_to_workflow_state? && deleted? }
+  after_save :index_in_pine, if: :should_index_in_pine?
 
   scope :visible_to_students_in_course_with_da, lambda { |user_ids, course_ids|
-    if Account.site_admin.feature_enabled?(:selective_release_backend)
-      # no assignment -> visible if wiki_page_visibilities has results
-      # assignment -> visible if assignment_visibilities has results
-      visible_wiki_page_ids = WikiPageVisibility::WikiPageVisibilityService.wiki_pages_visible_to_students_in_courses(course_ids:, user_ids:).map(&:wiki_page_id)
+    # no assignment -> visible if wiki_page_visibilities has results
+    # assignment -> visible if assignment_visibilities has results
+    visible_wiki_page_ids = WikiPageVisibility::WikiPageVisibilityService.wiki_pages_visible_to_students(course_ids:, user_ids:).map(&:wiki_page_id)
 
+    if with_assignment_in_course(course_ids).exists?
       without_assignment_in_course(course_ids).where(id: visible_wiki_page_ids)
                                               .union(joins_assignment_student_visibilities(user_ids, course_ids))
     else
-      without_assignment_in_course(course_ids)
-        .union(joins_assignment_student_visibilities(user_ids, course_ids))
+      without_assignment_in_course(course_ids).where(id: visible_wiki_page_ids)
     end
   }
 
@@ -109,20 +118,37 @@ class WikiPage < ActiveRecord::Base
     wiki_ids += Course.where(id: course_ids).pluck(:wiki_id) if course_ids.any?
     wiki_ids += Group.where(id: group_ids).pluck(:wiki_id) if group_ids.any?
     context_pages = where(wiki_id: wiki_ids)
-    if Account.site_admin.feature_enabled?(:selective_release_backend)
-      scope_assignments = context_pages.where.not(assignment_id: nil).pluck(:assignment_id)
-      visible_wiki_pages = WikiPageVisibility::WikiPageVisibilityService.wiki_pages_visible_to_student_in_courses(user_id:, course_ids:).map(&:wiki_page_id)
-      visible_assignments = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_student_by_assignment(user_id:, assignment_ids: scope_assignments).map(&:assignment_id)
+    candidate_page_ids = context_pages.pluck(:id)
 
-      context_pages.where("wiki_pages.assignment_id IS NULL AND (wiki_pages.id IN (?) OR wiki_pages.context_type = 'Group')", visible_wiki_pages)
-                   .or(context_pages.where("wiki_pages.assignment_id IS NOT NULL AND wiki_pages.assignment_id IN (?)", visible_assignments))
-    else
-      context_pages.where("wiki_pages.assignment_id IS NULL OR EXISTS (SELECT 1 FROM #{AssignmentStudentVisibility.quoted_table_name} asv WHERE wiki_pages.assignment_id = asv.assignment_id AND asv.user_id = ?)", user_id)
-    end
+    # Short-circuit if no pages to check (e.g., no pages with todo dates)
+    next context_pages.none if candidate_page_ids.empty?
+
+    scope_assignments = context_pages.where.not(assignment_id: nil).pluck(:assignment_id)
+    visible_wiki_pages = WikiPageVisibility::WikiPageVisibilityService
+                         .wiki_pages_visible_to_students(
+                           user_ids: user_id,
+                           course_ids:,
+                           wiki_page_ids: candidate_page_ids
+                         )
+                         .map(&:wiki_page_id)
+
+    visible_assignments = if scope_assignments.empty?
+                            []
+                          else
+                            AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: user_id, assignment_ids: scope_assignments).map(&:assignment_id)
+                          end
+    context_pages.where("wiki_pages.assignment_id IS NULL AND (wiki_pages.id IN (?) OR wiki_pages.context_type = 'Group')", visible_wiki_pages)
+                 .or(context_pages.where("wiki_pages.assignment_id IS NOT NULL AND wiki_pages.assignment_id IN (?)", visible_assignments))
   }
 
   TITLE_LENGTH = 255
   SIMPLY_VERSIONED_EXCLUDE_FIELDS = %i[workflow_state editing_roles notify_of_update].freeze
+
+  include LinkedAttachmentHandler
+
+  def self.html_fields
+    %w[body]
+  end
 
   def ensure_wiki_and_context
     self.wiki_id ||= context.wiki_id || context.wiki.id
@@ -150,9 +176,16 @@ class WikiPage < ActiveRecord::Base
   end
 
   def url
-    return read_attribute(:url) unless Account.site_admin.feature_enabled?(:permanent_page_links)
+    return super unless Account.site_admin.feature_enabled?(:permanent_page_links)
 
-    current_lookup&.slug || read_attribute(:url)
+    current_lookup&.slug || super
+  end
+
+  # This group_category_id is used to identify a learning object as a group assignment
+  # since wiki pages cannot be configured as a group assignment,
+  # it will return nil for now.
+  def effective_group_category_id
+    nil
   end
 
   def should_create_lookup?
@@ -162,12 +195,16 @@ class WikiPage < ActiveRecord::Base
 
   def create_lookup
     new_record = id_changed?
-    WikiPageLookup.unique_constraint_retry do
-      lookup = wiki_page_lookups.find_by(slug: read_attribute(:url)) unless new_record
-      lookup ||= wiki_page_lookups.build(slug: read_attribute(:url))
-      lookup.save
-      # this is kind of circular so we want to avoid triggering callbacks again
-      update_column(:current_lookup_id, lookup.id)
+    begin
+      WikiPageLookup.unique_constraint_retry do
+        lookup = wiki_page_lookups.find_by(slug: self["url"]) unless new_record
+        lookup ||= wiki_page_lookups.build(slug: self["url"])
+        lookup.save
+        # this is kind of circular so we want to avoid triggering callbacks again
+        update_column(:current_lookup_id, lookup.id)
+      end
+    rescue ActiveRecord::RecordNotUnique
+      raise RequestError.new("wiki page with that url already exists", 409)
     end
   end
 
@@ -180,7 +217,7 @@ class WikiPage < ActiveRecord::Base
     return if deleted? || Account.site_admin.feature_enabled?(:permanent_page_links)
 
     to_cased_title = ->(string) { string.gsub(/[^\w]+/, " ").gsub(/\b('?[a-z])/) { $1.capitalize }.strip }
-    self.title ||= to_cased_title.call(read_attribute(:url) || "page")
+    self.title ||= to_cased_title.call(self["url"] || "page")
     # TODO: i18n (see wiki.rb)
 
     if self.title == "Front Page" && new_record?
@@ -246,9 +283,9 @@ class WikiPage < ActiveRecord::Base
       while urls.detect { |u| u == "#{base_url}-#{n}" }
         n = n.succ
       end
-      write_attribute url_attribute, "#{base_url}-#{n}"
+      self[url_attribute] = "#{base_url}-#{n}"
     else
-      write_attribute url_attribute, base_url
+      self[url_attribute] = base_url
     end
   end
 
@@ -266,14 +303,16 @@ class WikiPage < ActiveRecord::Base
   end
 
   has_a_broadcast_policy
-  simply_versioned exclude: SIMPLY_VERSIONED_EXCLUDE_FIELDS, when: proc { |wp|
-    # always create a version when restoring a deleted page
-    next true if wp.workflow_state_changed? && wp.workflow_state_was == "deleted"
+  simply_versioned exclude: SIMPLY_VERSIONED_EXCLUDE_FIELDS,
+                   when: proc { |wp|
+                     # always create a version when restoring a deleted page
+                     next true if wp.workflow_state_changed? && wp.workflow_state_was == "deleted"
 
-    # :user_id and :updated_at do not merit creating a version, but should be saved
-    exclude_fields = [:user_id, :updated_at].concat(SIMPLY_VERSIONED_EXCLUDE_FIELDS).map(&:to_s)
-    (wp.changes.keys.map(&:to_s) - exclude_fields).present?
-  }
+                     # :user_id and :updated_at do not merit creating a version, but should be saved
+                     exclude_fields = [:user_id, :updated_at].concat(SIMPLY_VERSIONED_EXCLUDE_FIELDS).map(&:to_s)
+                     (wp.changes.keys.map(&:to_s) - exclude_fields).present?
+                   },
+                   versioned_associations: [:attachment_associations]
 
   after_save :remove_changed_flag
 
@@ -291,9 +330,9 @@ class WikiPage < ActiveRecord::Base
   alias_method :published?, :active?
 
   def set_revised_at
-    self.revised_at ||= Time.now
-    self.revised_at = Time.now if body_changed? || title_changed?
-    @page_changed = body_changed? || title_changed?
+    self.revised_at ||= Time.zone.now
+    self.revised_at = Time.zone.now if body_changed? || title_changed? || workflow_state_changed?
+    @page_changed = body_changed? || title_changed? || workflow_state_changed?
     true
   end
 
@@ -330,33 +369,19 @@ class WikiPage < ActiveRecord::Base
   scope :order_by_id, -> { order(:id) }
 
   def low_level_locked_for?(user, opts = {})
-    if Account.site_admin.feature_enabled?(:selective_release_backend)
-      return false if opts[:check_policies] && grants_right?(user, :update)
+    return false if opts[:check_policies] && wiki.grants_right?(user, :view_unpublished_items)
 
-      RequestCache.cache(locked_request_cache_key(user)) do
-        locked = false
-        page_for_user = (assignment || self).overridden_for(user)
-        if page_for_user.unlock_at && page_for_user.unlock_at > Time.zone.now
-          locked = { object: page_for_user, unlock_at: page_for_user.unlock_at }
-        elsif could_be_locked && (item = locked_by_module_item?(user, opts))
-          locked = { object: self, module: item.context_module }
-        elsif page_for_user.lock_at && page_for_user.lock_at < Time.zone.now
-          locked = { object: page_for_user, lock_at: page_for_user.lock_at }
-        end
-        locked
+    RequestCache.cache(locked_request_cache_key(user)) do
+      locked = false
+      page_for_user = (assignment || self).overridden_for(user)
+      if page_for_user.unlock_at && page_for_user.unlock_at > Time.zone.now && !context.enable_course_paces?
+        locked = { object: page_for_user, unlock_at: page_for_user.unlock_at }
+      elsif could_be_locked && (item = locked_by_module_item?(user, opts))
+        locked = { object: self, module: item.context_module }
+      elsif page_for_user.lock_at && page_for_user.lock_at < Time.zone.now && !context.enable_course_paces?
+        locked = { object: page_for_user, lock_at: page_for_user.lock_at }
       end
-    else
-      return false unless could_be_locked
-
-      RequestCache.cache(locked_request_cache_key(user), opts[:deep_check_if_needed]) do
-        locked = false
-        if (item = locked_by_module_item?(user, opts))
-          locked = { object: self, module: item.context_module }
-          unlock_at = locked[:module].unlock_at
-          locked[:unlock_at] = unlock_at if unlock_at && unlock_at > Time.now.utc
-        end
-        locked
-      end
+      locked
     end
   end
 
@@ -407,9 +432,11 @@ class WikiPage < ActiveRecord::Base
   end
 
   def can_read_page?(user, session = nil)
-    return true if unpublished? && wiki.grants_right?(user, session, :view_unpublished_items)
+    read_wiki = wiki.grants_right?(user, session, :read)
+    read_course_content = context.is_a?(Course) ? (context.grants_right?(user, session, :read_course_content) || read_wiki) : true
+    return true if unpublished? && wiki.grants_right?(user, session, :view_unpublished_items) && read_course_content
 
-    published? && wiki.grants_right?(user, session, :read)
+    published? && read_wiki
   end
 
   def can_edit_page?(user, session = nil)
@@ -438,8 +465,19 @@ class WikiPage < ActiveRecord::Base
     false
   end
 
+  def show_in_search_for_user?(user)
+    return false unless user
+    return true if can_edit_page?(user)
+
+    if context.tab_hidden?(Course::TAB_PAGES)
+      return false unless context_module_tags.where(context:).any? { |tag| tag.context_module&.available_for?(user) }
+    end
+
+    !locked_for?(user)
+  end
+
   def effective_roles
-    context_roles = context.default_wiki_editing_roles rescue nil
+    context_roles = context.try(:default_wiki_editing_roles)
     roles = (editing_roles || context_roles || default_roles).split(",")
     (roles == %w[teachers]) ? [] : roles # "Only teachers" option doesn't grant rights excluded by RoleOverrides
   end
@@ -476,15 +514,32 @@ class WikiPage < ActiveRecord::Base
   end
 
   def participants
-    res = []
-    if context&.available?
-      res += if active?
-               context.participants(by_date: true)
-             else
-               context.participating_admins
-             end
-    end
-    res.flatten.uniq
+    return [] unless context&.available?
+    return context.participating_admins unless active?
+
+    has_selective_release = context.is_a?(Course) &&
+                            (only_visible_to_overrides || (assignment_id && assignment&.only_visible_to_overrides))
+    return context.participants(by_date: true) unless has_selective_release
+
+    res = context.participating_admins
+    all_students = context.participating_students_by_date
+    all_student_ids = all_students.pluck(:id)
+    visible_student_ids = if assignment_id
+                            AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(
+                              assignment_ids: assignment_id,
+                              course_ids: context.id,
+                              user_ids: all_student_ids
+                            ).map(&:user_id).uniq
+                          else
+                            WikiPageVisibility::WikiPageVisibilityService.wiki_pages_visible_to_students(
+                              course_ids: context.id,
+                              user_ids: all_student_ids,
+                              wiki_page_ids: id
+                            ).map(&:user_id).uniq
+                          end
+
+    res += all_students.where(id: visible_student_ids) if visible_student_ids.any?
+    res.uniq
   end
 
   def get_potentially_conflicting_titles(title_base)
@@ -516,7 +571,7 @@ class WikiPage < ActiveRecord::Base
 
   def last_revision_at
     res = self.revised_at || updated_at
-    res = Time.now if res.is_a?(String)
+    res = Time.zone.now if res.is_a?(String)
     res
   end
 
@@ -589,6 +644,7 @@ class WikiPage < ActiveRecord::Base
       copy_title: nil
     }
     opts_with_default = default_opts.merge(opts)
+
     result = WikiPage.new({
                             title: opts_with_default[:copy_title] || get_copy_title(self, t("Copy"), self.title),
                             wiki_id: self.wiki_id,
@@ -597,16 +653,29 @@ class WikiPage < ActiveRecord::Base
                             body:,
                             workflow_state: "unpublished",
                             user_id:,
+                            saving_user: opts[:user],
                             protected_editing:,
                             editing_roles:,
-                            todo_date:
+                            todo_date:,
                           })
+
+    if block_editor
+      block_editor_attributes = { version: block_editor.version, blocks: block_editor.blocks }
+      result.block_editor_attributes = block_editor_attributes
+    end
+
     if assignment && opts_with_default[:duplicate_assignment]
       result.assignment = assignment.duplicate({
                                                  duplicate_wiki_page: false,
-                                                 copy_title: result.title
+                                                 copy_title: result.title,
+                                                 user: opts[:user]
                                                })
     end
+
+    if context.is_a?(Course) && context.horizon_course? && estimated_duration
+      result.estimated_duration = EstimatedDuration.new({ duration: estimated_duration.duration.iso8601 })
+    end
+
     result
   end
 
@@ -623,7 +692,7 @@ class WikiPage < ActiveRecord::Base
                             "active"
                           end
 
-    self.editing_roles = (context.default_wiki_editing_roles rescue nil) || default_roles
+    self.editing_roles = context.try(:default_wiki_editing_roles) || default_roles
 
     if is_front_page?
       self.body = t "#application.wiki_front_page_default_content_course", "Welcome to your new course wiki!" if context.is_a?(Course)
@@ -647,8 +716,10 @@ class WikiPage < ActiveRecord::Base
   end
 
   def self.visible_ids_by_user(opts)
-    assignment_page_visibilities = if Account.site_admin.feature_enabled?(:selective_release_backend)
-                                     visible_assignments = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students_in_courses(user_ids: opts[:user_id], course_ids: opts[:course_id])
+    assignment_page_visibilities = if with_assignment_in_course(opts[:course_id]).empty?
+                                     {}
+                                   else
+                                     visible_assignments = AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(user_ids: opts[:user_id], course_ids: opts[:course_id])
                                      # map the visibilities to a hash of assignment_id => [user_ids]
                                      assignment_user_map = visible_assignments.each_with_object(Hash.new { |hash, key| hash[key] = [] }) do |visibility, hash|
                                        hash[visibility.assignment_id] << visibility.user_id
@@ -658,31 +729,160 @@ class WikiPage < ActiveRecord::Base
                                        .pluck(:id, :assignment_id)
                                        .flat_map { |wiki_page_id, assignment_id| assignment_user_map[assignment_id].map { |user_id| [wiki_page_id, user_id] } }
                                        .group_by { |_, user_id| user_id }
-                                   else
-                                     joins_assignment_student_visibilities(opts[:user_id], opts[:course_id])
-                                       .pluck("wiki_pages.id", "assignment_student_visibilities.user_id")
-                                       .group_by { |_, user_id| user_id }
                                    end
     no_assignment_page_visibilities = without_assignment_in_course(opts[:course_id])
-    no_assignment_page_visibilities = if Account.site_admin.feature_enabled?(:selective_release_backend)
-                                        visible_wiki_pages = WikiPageVisibility::WikiPageVisibilityService.wiki_pages_visible_to_students_in_courses(course_ids: opts[:course_id], user_ids: opts[:user_id])
-                                        visible_wiki_page_ids = visible_wiki_pages.map { |visibility| [visibility.wiki_page_id, visibility.user_id] }
 
-                                        no_assignment_page_visibilities
-                                          .where(id: visible_wiki_page_ids.map(&:first))
-                                          .pluck(:id).group_by { |id| visible_wiki_page_ids.find { |visibility| visibility.first == id }.last }
-                                      else
-                                        no_assignment_page_visibilities.pluck(:id)
-                                      end
+    visible_wiki_pages = WikiPageVisibility::WikiPageVisibilityService.wiki_pages_visible_to_students(course_ids: opts[:course_id], user_ids: opts[:user_id])
+    no_assignment_page_ids = RequestCache.cache("wiki_pages_without_assignment", opts[:course_id]) do
+      no_assignment_page_visibilities.pluck(:id)
+    end
+    visible_wiki_pages = visible_wiki_pages.select { |v| no_assignment_page_ids.include?(v.wiki_page_id) }
+    no_assignment_page_visibilities = visible_wiki_pages.group_by(&:user_id)
+                                                        .transform_values { |visibilities| visibilities.map(&:wiki_page_id) }
 
     opts[:user_id].index_with do |user_id|
       page_ids_with_assignment = (assignment_page_visibilities[user_id] || []).map { |page_id, _| page_id }
-      page_ids_no_assignment = if Account.site_admin.feature_enabled?(:selective_release_backend)
-                                 (no_assignment_page_visibilities[user_id] || []).map { |page_id, _| page_id }
-                               else
-                                 no_assignment_page_visibilities
-                               end
+      page_ids_no_assignment = (no_assignment_page_visibilities[user_id] || []).map { |page_id, _| page_id }
       page_ids_with_assignment.concat(page_ids_no_assignment)
     end
+  end
+
+  # list of attributes tracked in Pine for Horizon course wiki pages
+  PINE_TRACKED_CHANGES = %w[title body workflow_state].freeze
+
+  def should_index_in_pine?
+    return false unless eligible_for_pine_indexing?
+    return false unless workflow_state == "active"
+
+    # Index if relevant fields changed
+    saved_changes.keys.intersect?(PINE_TRACKED_CHANGES)
+  end
+
+  def index_in_pine
+    delay(
+      n_strand: ["horizon_wiki_ingestion", context.global_root_account_id],
+      singleton: "horizon_wiki_ingestion:#{context.global_id}:#{id}",
+      max_attempts: 3
+    ).ingest_to_pine
+  end
+
+  def ingest_to_pine
+    return unless workflow_state == "active" && body.present?
+    return unless context.is_a?(Course) && context.root_account.present?
+
+    metadata = {
+      course_id: context.id.to_s,
+      title:
+    }
+
+    # PineClient requires a user object with uuid and global_id, but we don't have a user in this context
+    # and the action is more of a system-initiated action than a user-initiated action
+    null_user = Struct.new(:uuid, :global_id).new(uuid: nil, global_id: nil)
+
+    PineClient.ingest_html(
+      html_content: body,
+      metadata:,
+      source: "canvas",
+      source_id: id.to_s,
+      source_type: "wiki_page",
+      feature_slug: "horizon-content-ingestion",
+      root_account_uuid: context.root_account.uuid,
+      current_user: null_user
+    )
+  rescue => e
+    Rails.logger.error("Failed to ingest wiki page #{id} for context #{context.class.name}:#{context.id}: #{e.message}")
+    raise
+  end
+
+  def eligible_for_pine_indexing?
+    return false unless context.is_a?(Course)
+    return false unless context.horizon_course?
+    return false unless PineClient.enabled?
+
+    true
+  end
+
+  def delete_from_pine
+    return unless context.is_a?(Course) && context.root_account.present?
+
+    # PineClient requires a user object with uuid and global_id, but we don't have a user in this context
+    # and the action is more of a system-initiated action than a user-initiated action
+    null_user = Struct.new(:uuid, :global_id).new(uuid: nil, global_id: nil)
+
+    delay(
+      n_strand: ["horizon_wiki_deletion", context.global_root_account_id],
+      singleton: "horizon_wiki_deletion:#{context.global_id}:#{id}",
+      max_attempts: 3
+    ).delete_from_pine_job(null_user)
+  rescue => e
+    Rails.logger.error("Failed to queue Pine deletion for wiki page #{id} for context #{context.class.name}:#{context.id}: #{e.message}")
+    # Don't raise - we don't want to block the deletion if Pine is down
+  end
+
+  def delete_from_pine_job(null_user)
+    PineClient.delete_document(
+      source: "canvas",
+      source_id: id.to_s,
+      source_type: "wiki_page",
+      feature_slug: "horizon-content-ingestion",
+      root_account_uuid: context.root_account.uuid,
+      current_user: null_user
+    )
+  rescue => e
+    Rails.logger.error("Failed to delete wiki page #{id} from Pine for context #{context.class.name}:#{context.id}: #{e.message}")
+    raise
+  end
+
+  def a11y_scannable_attributes
+    # We need to run the scan on title and workflow_state change as well otherwise AccessibilityResourceScan will be out of date
+    # TODO: RCX-4463 remove title and workflow_state
+    %i[title body workflow_state]
+  end
+
+  def create_block_editor_data(user_uuid:, data:)
+    response = Canvas.retriable(tries: content_service_max_retries) do
+      ContentServiceClient.create_content(
+        root_account_uuid: context.root_account.uuid,
+        user_uuid:,
+        context_type: "WikiPage",
+        context_id: id,
+        data:
+      )
+    end
+    create_external_content_reference(content_id: response.external_content_id)
+  end
+
+  def update_block_editor_data(user_uuid:, data:)
+    ref = external_content_reference
+    return unless ref
+
+    Canvas.retriable(tries: content_service_max_retries) do
+      ContentServiceClient.update_content(
+        root_account_uuid: context.root_account.uuid,
+        user_uuid:,
+        external_content_id: ref.content_id,
+        data:
+      )
+    end
+  end
+
+  def get_block_editor_data(user_uuid:)
+    ref = external_content_reference
+    return unless ref
+
+    content = Canvas.retriable(tries: content_service_max_retries) do
+      ContentServiceClient.get_content(
+        root_account_uuid: context.root_account.uuid,
+        user_uuid:,
+        external_content_id: ref.content_id
+      )
+    end
+    content.data
+  end
+
+  private
+
+  def content_service_max_retries
+    Setting.get("content_service_client_max_retries", "3").to_i
   end
 end

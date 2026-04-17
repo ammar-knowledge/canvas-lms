@@ -17,8 +17,6 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require_relative "../spec_helper"
-
 describe ActiveSupport::Cache::HaStore do
   before do
     skip unless Canvas.redis_enabled?
@@ -42,13 +40,23 @@ describe ActiveSupport::Cache::HaStore do
   end
 
   describe "consume_consul_events" do
+    before do
+      secret_key = SecureRandom.uuid
+      Canvas.redis.set(secret_key, "1", ex: 5)
+      begin
+        value = redis.get(secret_key)
+      rescue
+        # ignore
+      end
+      skip "Can't run this spec unless redis is default configured" unless value == "1"
+    end
+
     it "works" do
       # check that Canvas.redis is equivalent to Redis.new that consume_consule_events uses
       # I would normally compare against `id`, but that might have localhost vs. 127.0.0.1
       redis = Redis.new(connect_timeout: 0.5)
       secret_key = SecureRandom.uuid
       Canvas.redis.set(secret_key, "1", ex: 5)
-      skip "Can't run this spec unless redis is default configured" unless (redis.get(secret_key) rescue nil) == "1"
       consul_event_id = SecureRandom.uuid
 
       Bundler.with_unbundled_env do
@@ -71,7 +79,6 @@ describe ActiveSupport::Cache::HaStore do
       Canvas.redis.set(secret_key2, "1", ex: 5)
       secret_key3 = "prefix2/#{SecureRandom.uuid}"
       Canvas.redis.set(secret_key3, "1", ex: 5)
-      skip "Can't run this spec unless redis is default configured" unless (redis.get(secret_key) rescue nil) == "1"
       consul_event_id = SecureRandom.uuid
 
       Bundler.with_unbundled_env do
@@ -94,7 +101,6 @@ describe ActiveSupport::Cache::HaStore do
       Canvas.redis.set(secret_key, "1", ex: 5)
       secret_key2 = SecureRandom.uuid
       Canvas.redis.set(secret_key2, "1", ex: 5)
-      skip "Can't run this spec unless redis is default configured" unless (redis.get(secret_key) rescue nil) == "1"
       consul_event_id = SecureRandom.uuid
 
       Bundler.with_unbundled_env do
@@ -116,7 +122,6 @@ describe ActiveSupport::Cache::HaStore do
       secret_key2 = SecureRandom.uuid
       Canvas.redis.set(secret_key, "1", ex: 5)
       Canvas.redis.set(secret_key2, "1", ex: 5)
-      skip "Can't run this spec unless redis is default configured" unless (redis.get(secret_key) rescue nil) == "1"
       consul_event_id = SecureRandom.uuid
 
       Bundler.with_unbundled_env do
@@ -159,7 +164,7 @@ describe ActiveSupport::Cache::HaStore do
         Timecop.travel(1)
         expect(Account.site_admin.cache_key(:feature_flags)).to eq key1
         Timecop.travel(1)
-        expect(Canvas.redis).to_not receive(:del)
+        expect(Canvas.redis).not_to receive(:del)
         Account.site_admin.clear_cache_key(:feature_flags)
         expect(Account.site_admin.cache_key(:feature_flags)).not_to eq key1
       end

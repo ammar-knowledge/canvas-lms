@@ -19,6 +19,11 @@
 #
 
 module Types
+  class GroupStateType < Types::BaseEnum
+    value "available"
+    value "deleted"
+  end
+
   class GroupType < ApplicationObjectType
     graphql_name "Group"
 
@@ -34,6 +39,10 @@ module Types
     field :name, String, null: true
 
     field :members_count, Integer, null: true
+
+    field :non_collaborative, Boolean, null: true
+
+    field :state, GroupStateType, method: :workflow_state, null: false
 
     field :can_message, Boolean, null: false
     def can_message
@@ -79,6 +88,13 @@ module Types
     def activity_stream
       context.scoped_set!(:context_type, "Group")
       object
+    end
+
+    field :group_category, GroupSetType, null: true
+    def group_category
+      Loaders::AssociationLoader.for(Group, :group_category).load(object).then do |group_category|
+        group_category if group_category&.grants_any_right?(current_user, :read, :manage)
+      end
     end
 
     private :members_scope

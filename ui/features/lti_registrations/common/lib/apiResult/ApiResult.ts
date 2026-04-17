@@ -16,17 +16,33 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import parseLinkHeader, {Links} from '@canvas/parse-link-header/parseLinkHeader'
 import type {ZodSchema, ZodTypeDef, ZodError} from 'zod'
 
 export type ApiResult<A> =
   | {
-      _type: 'success'
+      /** Indicates that the backend response was parsed successfully */
+      _type: 'Success'
       data: A
+      links?: Links
     }
   | {
+      /** Indicates that the backend responded with a JSON value that could not be parsed */
       _type: 'ApiParseError'
       url: string
       error: ZodError<any>
+    }
+  | {
+      /** Indicates that the backend responded with a non-JSON value */
+      _type: 'InvalidJson'
+      url: string
+      error?: Error
+    }
+  | {
+      /** Indicates an error response from the backend */
+      _type: 'ApiError'
+      status: number
+      body?: unknown
     }
   | {
       _type: 'GenericError'
@@ -37,24 +53,40 @@ export type ApiResult<A> =
       error: Error
     }
 
-export const success = <A>(data: A): ApiResult<A> => ({
-  _type: 'success',
+export type UnsuccessfulApiResult = Exclude<ApiResult<unknown>, {_type: 'Success'}>
+export type SuccessfulApiResult<A> = Extract<ApiResult<A>, {_type: 'Success'}>
+
+export const success = <A>(data: A, links?: Links): ApiResult<A> => ({
+  _type: 'Success',
   data,
+  links,
 })
 
-export const apiParseError = (error: ZodError, url: string): ApiResult<never> => ({
+export const apiParseError = (error: ZodError, url: string): UnsuccessfulApiResult => ({
   _type: 'ApiParseError',
   url,
   error,
 })
 
-export const genericError = (message: string): ApiResult<never> => ({
+export const apiError = (status: number, body: unknown): UnsuccessfulApiResult => ({
+  _type: 'ApiError',
+  status,
+  body,
+})
+
+export const genericError = (message: string): UnsuccessfulApiResult => ({
   _type: 'GenericError',
   message,
 })
 
-export const exception = (error: Error): ApiResult<never> => ({
+export const exception = (error: Error): UnsuccessfulApiResult => ({
   _type: 'Exception',
+  error,
+})
+
+export const invalidJson = (url: string, error?: Error): UnsuccessfulApiResult => ({
+  _type: 'InvalidJson',
+  url,
   error,
 })
 
@@ -71,20 +103,25 @@ export const parseFetchResult =
     return result
       .then(response => {
         if (response.ok) {
-          try {
-            return response.json().then(json => [response, json] as const)
-          } catch (e) {
-            throw new Error('Failed to parse response as JSON.')
-          }
+          const links = parseLinkHeader(response.headers.get('Link') ?? '') ?? {}
+          return response
+            .json()
+            .then(json => [response, json] as const)
+            .then(([resp, json]) => [resp, schema.safeParse(json)] as const)
+            .then(([resp, parsedJson]) => {
+              return parsedJson.success
+                ? success(parsedJson.data, links)
+                : apiParseError(parsedJson.error, resp.url)
+            })
+            .catch(err => {
+              return invalidJson(response.url, err instanceof Error ? err : undefined)
+            })
         } else {
-          throw new Error('Response was not ok.')
+          return response
+            .json()
+            .then(body => apiError(response.status, body))
+            .catch(() => apiError(response.status, undefined))
         }
-      })
-      .then(([resp, json]) => [resp, schema.safeParse(json)] as const)
-      .then(([resp, parsedJson]) => {
-        return parsedJson.success
-          ? success(parsedJson.data)
-          : apiParseError(parsedJson.error, resp.url)
       })
       .catch(err => {
         if (err instanceof Error) {
@@ -95,13 +132,15 @@ export const parseFetchResult =
       })
   }
 
-export const formatApiResultError = (
-  error: Exclude<ApiResult<unknown>, {_type: 'success'}>
-): string => {
+export const formatApiResultError = (error: UnsuccessfulApiResult): string => {
   if (error._type === 'Exception') {
     return `${error.error.message}${error.error.stack ? `\n${error.error.stack}` : ''}`
   } else if (error._type === 'GenericError') {
     return error.message
+  } else if (error._type === 'InvalidJson') {
+    return `Error parsing response from ${error.url}:\nResult was not valid JSON.`
+  } else if (error._type === 'ApiError') {
+    return `Error from server: ${error.status} ${JSON.stringify(error.body)}`
   } else {
     const messages = error.error.errors
       .map(issue => {
@@ -112,4 +151,77 @@ export const formatApiResultError = (
       .join('\n')
     return `Error parsing response from ${error.url}:\n${messages}`
   }
+}
+
+/**
+ * Applies a function to the data of an `ApiResult` if it is a success. If the mapped
+ * function throws, an UnsuccessfulApiResult is returned with the throw error.
+ * @param result
+ * @param f
+ * @returns
+ */
+export const mapApiResult = <A, B>(result: ApiResult<A>, f: (a: A) => B): ApiResult<B> => {
+  if (isSuccessful(result)) {
+    return success(f(result.data), result.links)
+  } else {
+    return result
+  }
+}
+
+/**
+ * Returns true if the `ApiResult` is not a success
+ * and narrows the type
+ * @param result
+ * @returns
+ */
+export const isUnsuccessful = (result: ApiResult<unknown>): result is UnsuccessfulApiResult => {
+  return result._type !== 'Success'
+}
+
+/**
+ * Returns true if the `ApiResult` is a success
+ * and narrows the type
+ * @param result
+ * @returns
+ */
+export const isSuccessful = <A>(result: ApiResult<A>): result is SuccessfulApiResult<A> => {
+  return result._type === 'Success'
+}
+
+/**
+ * Combines two `ApiResult`s into one, returning a success if both are successful
+ * or the first unsuccessful result
+ *
+ * @param resultA
+ * @param resultB
+ * @returns
+ */
+export const combineApiResults =
+  <A, B>(resultA: ApiResult<A>, resultB: ApiResult<B>) =>
+  <Z>(combine: (a: A, b: B) => Z): ApiResult<Z> => {
+    if (isUnsuccessful(resultA)) {
+      return resultA
+    } else if (isUnsuccessful(resultB)) {
+      return resultB
+    } else {
+      return success(combine(resultA.data, resultB.data))
+    }
+  }
+
+/**
+ * Combines an array of `ApiResult`s into one, returning a success if all are successful
+ * or the first unsuccessful result
+ * @param results
+ * @returns
+ */
+export const combineAllApiResults = <Results extends ApiResult<any>[]>(
+  results: Results,
+): ApiResult<{[K in keyof Results]: Results[K] extends ApiResult<infer A> ? A : never}> => {
+  return results.reduce(
+    (acc: ApiResult<any[]>, result: ApiResult<any>) =>
+      combineApiResults(acc, result)((a, b) => [...a, b]),
+    success([]),
+  ) as ApiResult<{
+    [K in keyof Results]: Results[K] extends ApiResult<infer A> ? A : never
+  }>
 }

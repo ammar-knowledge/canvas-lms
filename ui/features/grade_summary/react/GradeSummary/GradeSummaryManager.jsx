@@ -18,17 +18,20 @@
 
 // import PropTypes from 'prop-types'
 import React, {useEffect, useState} from 'react'
-import {ApolloProvider, createClient, createPersistentCache} from '@canvas/apollo'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import ErrorBoundary from '@canvas/error-boundary'
-import GenericErrorPage from '@canvas/generic-error-page'
-import errorShipUrl from '@canvas/images/ErrorShip.svg'
+import {ApolloProvider, createClient, createPersistentCache} from '@canvas/apollo-v3'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {ErrorBoundary} from '@instructure/platform-error-boundary'
+import {GenericErrorPage} from '@instructure/platform-generic-error-page'
+import {reportError, canvasErrorPageTranslations} from '@canvas/error-page-utils'
+import errorShipUrl from '@instructure/platform-images/assets/ErrorShip.svg'
 
 import GradeSummaryContainer from './GradeSummaryContainer'
 
-import LoadingIndicator from '@canvas/loading-indicator'
+import {LoadingIndicator} from '@instructure/platform-loading-indicator'
+import {queryClient} from '@instructure/platform-query'
+import {QueryClientProvider} from '@tanstack/react-query'
 
-const I18n = useI18nScope('grade_summary')
+const I18n = createI18nScope('grade_summary')
 
 const GradeSummaryManager = () => {
   const [client, setClient] = useState(null)
@@ -53,18 +56,22 @@ const GradeSummaryManager = () => {
   }
 
   return (
-    <ApolloProvider client={client}>
-      <ErrorBoundary
-        errorComponent={
-          <GenericErrorPage
-            imageUrl={errorShipUrl}
-            errorCategory={I18n.t('Grade Summary Error Page')}
-          />
-        }
-      >
-        <GradeSummaryContainer />
-      </ErrorBoundary>
-    </ApolloProvider>
+    <QueryClientProvider client={queryClient}>
+      <ApolloProvider client={client}>
+        <ErrorBoundary
+          errorComponent={
+            <GenericErrorPage
+              imageUrl={errorShipUrl}
+              onReportError={reportError}
+              translations={canvasErrorPageTranslations}
+              errorCategory={I18n.t('Grade Summary Error Page')}
+            />
+          }
+        >
+          <GradeSummaryContainer />
+        </ErrorBoundary>
+      </ApolloProvider>
+    </QueryClientProvider>
   )
 }
 

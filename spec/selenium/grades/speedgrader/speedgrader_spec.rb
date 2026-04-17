@@ -27,6 +27,7 @@ require_relative "../pages/student_grades_page"
 require_relative "../pages/gradebook_page"
 require_relative "../../assignments/page_objects/assignment_page"
 require_relative "../../assignments/page_objects/submission_detail_page"
+require_relative "../pages/gradebook_cells_page"
 
 describe "SpeedGrader" do
   include_context "in-process server selenium tests"
@@ -417,13 +418,21 @@ describe "SpeedGrader" do
 
       it "displays correct status pill for each student submission" do
         expect(f(".submission-missing-pill")).to be_displayed
+
         Speedgrader.click_next_student_btn
+        wait_for_dom_ready
         expect(f(".submission-extended-pill")).to be_displayed
+
         Speedgrader.click_next_student_btn
+        wait_for_dom_ready
         expect(f(".submission-late-pill")).to be_displayed
+
         Speedgrader.click_next_student_btn
+        wait_for_dom_ready
         expect(f(".submission-excused-pill")).to be_displayed
+
         Speedgrader.click_next_student_btn
+        wait_for_dom_ready
         expect(f(".submission-custom-grade-status-pill-#{@custom_status.id}")).to be_displayed
       end
 
@@ -463,6 +472,61 @@ describe "SpeedGrader" do
         expect(late_status).to be_displayed
         late_status.click
         expect(f(".submission-late-pill")).to be_displayed
+      end
+    end
+
+    context "submission status for checkpointed discussions" do
+      before do
+        checkpointed_discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+        replies_required = 1
+
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: checkpointed_discussion,
+          checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+          dates: [{ type: "everyone", due_at: 2.days.from_now }],
+          points_possible: 3
+        )
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: checkpointed_discussion,
+          checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+          dates: [{ type: "everyone", due_at: 3.days.from_now }],
+          points_possible: 9,
+          replies_required:
+        )
+        root_entry = checkpointed_discussion.discussion_entries.create!(user: @students[0], message: "reply to topic")
+        checkpointed_discussion.discussion_entries.create!(user: @students[0], message: "reply to entry", parent_entry: root_entry)
+        @submission_to_grade = checkpointed_discussion.assignment.submissions.where(user_id: @students[0].id).first
+      end
+
+      it "displays the correctly propagated status pill whenever a checkpoint's status is changed" do
+        user_session(@teacher)
+        get "/courses/#{@course.id}/gradebook/speed_grader?assignment_id=#{@submission_to_grade.assignment_id}&student_id=#{@submission_to_grade.user_id}"
+
+        # excused vs none is excused
+        f("[data-testid='reply_to_topic-checkpoint-status-select']").click
+        fj("li:contains('Excused')").click
+        wait_for_ajaximations
+        expect(f(".submission-excused-pill")).to be_present
+
+        # excused vs late is excused
+        f("[data-testid='reply_to_entry-checkpoint-status-select']").click
+        fj("li:contains('Late')").click
+        wait_for_ajaximations
+        expect(f(".submission-excused-pill")).to be_present
+
+        # missing vs late is late
+        f("[data-testid='reply_to_topic-checkpoint-status-select']").click
+        fj("li:contains('Missing')").click
+        wait_for_ajaximations
+        expect(f(".submission-late-pill")).to be_present
+
+        # missing vs extended is missing
+        f("[data-testid='reply_to_entry-checkpoint-status-select']").click
+        fj("li:contains('Extended')").click
+        wait_for_ajaximations
+        expect(f(".submission-missing-pill")).to be_present
+
+        # we will not be testing extended vs none, since extended does not show anything different from none in the UI
       end
     end
   end
@@ -670,6 +734,12 @@ describe "SpeedGrader" do
         Speedgrader.visit(@course.id, @assignment_for_course.id)
 
         expect(Speedgrader.right_pane).to contain_jqcss("#reassign_assignment[disabled]:visible")
+
+        # The jQuery UI tooltip clears the title attribute on mouseover (to prevent
+        # the native browser tooltip). Move the mouse away to trigger mouseleave,
+        # which causes the tooltip widget to restore the title attribute.
+        driver.action.move_to(f("#combo_box_container")).perform
+
         wrapper = ff("#reassign_assignment_wrapper")
         expect(wrapper[0].attribute("title")).to eq "Student has met maximum allowed attempts."
 
@@ -866,9 +936,7 @@ describe "SpeedGrader" do
 
       get "/courses/#{@course.id}/gradebook/speed_grader?assignment_id=#{assignment.id}#"
 
-      # menu needs to be expanded for this to work
       options = ff("#students_selectmenu-menu li")
-      # driver.execute_script("$('#students_selectmenu-menu li').focus()")
 
       options.each_with_index do |option, i|
         f("#students_selectmenu-button").click
@@ -877,17 +945,12 @@ describe "SpeedGrader" do
       end
 
       get "/courses/#{@course.id}/gradebook"
-      cells = ff("#gradebook_grid .container_1 .slick-cell")
 
-      # For whatever reason, this spec fails occasionally.
-      # Expected "10"
-      # Got "-"
-
-      expect(cells[0]).to include_text "10"
-      expect(cells[3]).to include_text "10"
-      expect(cells[6]).to include_text "10"
-      expect(cells[9]).to include_text "5"
-      expect(cells[12]).to include_text "7"
+      expect(f(Gradebook::Cells.grading_cell_selector(@students[0], assignment).to_s)).to include_text "10"
+      expect(f(Gradebook::Cells.grading_cell_selector(@students[1], assignment).to_s)).to include_text "10"
+      expect(f(Gradebook::Cells.grading_cell_selector(@students[2], assignment).to_s)).to include_text "10"
+      expect(f(Gradebook::Cells.grading_cell_selector(@students[3], assignment).to_s)).to include_text "5"
+      expect(f(Gradebook::Cells.grading_cell_selector(@students[4], assignment).to_s)).to include_text "7"
     end
   end
 
@@ -909,27 +972,6 @@ describe "SpeedGrader" do
         expect(Speedgrader.quiz_header).to include_text quiz.title
         expect(Speedgrader.quiz_nav).to be_displayed
         expect(Speedgrader.quiz_nav_questions).to have_size 24
-      end
-    end
-
-    it "scrolls nav bar and to questions", priority: "1" do
-      skip_if_chrome("broken")
-
-      in_frame "speedgrader_iframe", ".quizzes-speedgrader" do
-        wrapper = f("#quiz-nav-inner-wrapper")
-
-        # check scrolling
-        first_left = wrapper.css_value("left").to_f
-
-        f("#nav-link-next").click
-        second_left = wrapper.css_value("left").to_f
-        expect(first_left).to be > second_left
-
-        # check anchors
-        anchors = ff("#quiz-nav-inner-wrapper li a")
-        data_id = anchors[1].attribute "data-id"
-        anchors[1].click
-        expect(f("#question_#{data_id}")).to have_class "selected_single_question"
       end
     end
 

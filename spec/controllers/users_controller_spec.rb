@@ -19,13 +19,42 @@
 #
 
 require "feedjira"
-require_relative "../lti_1_3_spec_helper"
 require_relative "../helpers/k5_common"
 
 describe UsersController do
   include K5Common
 
   let(:group_helper) { Factories::GradingPeriodGroupHelper.new }
+
+  describe "activity_stream" do
+    before do
+      course_with_teacher(active_all: true)
+      course_with_student(active_all: true, course: @course)
+      user_session(@student)
+    end
+
+    context "with a suppressed assignment" do
+      it "skips submission stream items for that assignment" do
+        assignment = @course.assignments.create!(title: "some assignment", submission_types: ["online_text_entry"], suppress_assignment: true)
+        sub = assignment.submit_homework @student, body: "submission"
+        sub.add_comment author: @teacher, comment: "lol"
+        get :activity_stream, params: { user_id: @student.id, only_active_courses: true }
+        json = response.parsed_body
+        expect(json.length).to eq 0
+      end
+    end
+
+    context "with a non-suppressed assignment" do
+      it "includes submission stream items for that assignment" do
+        assignment = @course.assignments.create!(title: "some assignment", submission_types: ["online_text_entry"], suppress_assignment: false)
+        sub = assignment.submit_homework @student, body: "submission"
+        sub.add_comment author: @teacher, comment: "lol"
+        get :activity_stream, params: { user_id: @student.id, only_active_courses: true }
+        json = response.parsed_body
+        expect(json.length).to eq 1
+      end
+    end
+  end
 
   describe "external_tool" do
     let(:account) { Account.default }
@@ -60,7 +89,7 @@ describe UsersController do
     before do
       account.account_users.create!(user:)
       allow(Lti::LogService).to receive(:new) do
-        double("Lti::LogService").tap { |s| allow(s).to receive(:call) }
+        instance_double(Lti::LogService, call: nil)
       end
       user_session(user)
     end
@@ -68,10 +97,31 @@ describe UsersController do
     context "ENV.LTI_TOOL_FORM_ID" do
       it "sets a random id" do
         expect(controller).to receive(:random_lti_tool_form_id).and_return("1")
-        allow(controller).to receive(:js_env).with(anything).and_call_original
-        expect(controller).to receive(:js_env).with(LTI_TOOL_FORM_ID: "1")
+        allow(controller).to receive(:js_env)
+        expect(controller).to receive(:js_env).with(hash_including(LTI_TOOL_FORM_ID: "1"))
+
         get :external_tool, params: { id: tool.id, user_id: user.id }
       end
+    end
+
+    it "uses borderless display type when windowTarget is _blank" do
+      tool.settings[:user_navigation][:windowTarget] = "_blank"
+      tool.save!
+
+      get :external_tool, params: { id: tool.id, user_id: user.id }
+
+      expect(assigns[:lti_launch]).not_to be_nil
+      expect(assigns[:display_override]).to eq "borderless"
+    end
+
+    it "renders with default display type when windowTarget is not _blank" do
+      tool.settings[:user_navigation][:windowTarget] = "_self"
+      tool.save!
+
+      get :external_tool, params: { id: tool.id, user_id: user.id }
+
+      expect(assigns[:lti_launch]).not_to be_nil
+      expect(assigns[:display_override]).to be_nil
     end
 
     it "removes query string when post_only = true" do
@@ -127,23 +177,38 @@ describe UsersController do
         user:,
         session_id: nil,
         placement: :user_navigation,
-        launch_type: :direct_link
+        launch_type: :direct_link,
+        launch_url: tool.url
       )
     end
 
     context "using LTI 1.3 when specified" do
-      include_context "lti_1_3_spec_helper"
+      include_context "key_storage_helper"
 
       let(:verifier) { "e5e774d015f42370dcca2893025467b414d39009dfe9a55250279cca16f5f3c2704f9c56fef4cea32825a8f72282fa139298cf846e0110238900567923f9d057" }
       let(:redis_key) { "#{assigns[:domain_root_account].class_name}:#{Lti::RedisMessageClient::LTI_1_3_PREFIX}#{verifier}" }
       let(:cached_launch) { JSON.parse(Canvas.redis.get(redis_key)) }
       let(:developer_key) { DeveloperKey.create! }
+      let(:oidc_initiation_url) { "http://lti13testtool.docker/blti_launch" }
+      let(:tool) do
+        reg = lti_registration_with_tool(
+          account:,
+          configuration_params: {
+            oidc_initiation_url:,
+            placements: [
+              {
+                placement: "user_navigation",
+                enabled: true,
+                text: "example",
+              }
+            ]
+          }
+        )
+        reg.deployments.first
+      end
 
       before do
         allow(SecureRandom).to receive(:hex).and_return(verifier)
-        tool.use_1_3 = true
-        tool.developer_key = developer_key
-        tool.save!
         get :external_tool, params: { id: tool.id, user_id: user.id }
       end
 
@@ -156,13 +221,13 @@ describe UsersController do
           canvas_region
           canvas_environment
           client_id
-          deployment_id
+          lti_deployment_id
           lti_storage_target
         ]
       end
 
       it 'sets the "login_hint" to the current user lti id' do
-        expect(assigns[:lti_launch].params["login_hint"]).to eq Lti::Asset.opaque_identifier_for(user)
+        expect(assigns[:lti_launch].params["login_hint"]).to eq Lti::V1p1::Asset.opaque_identifier_for(user)
       end
 
       it "caches the LTI 1.3 launch" do
@@ -179,7 +244,6 @@ describe UsersController do
       end
 
       context "when the developer key has an oidc_initiation_url" do
-        let(:developer_key) { DeveloperKey.create!(oidc_initiation_url:) }
         let(:oidc_initiation_url) { "https://www.test.com/oidc/login" }
 
         it "uses the oidc_initiation_url as the resource_url" do
@@ -192,7 +256,7 @@ describe UsersController do
   describe "GET oauth" do
     it "sets up oauth for google_drive" do
       state = nil
-      settings_mock = double
+      settings_mock = instance_double(PluginSetting)
       allow(settings_mock).to receive_messages(settings: {}, enabled?: true)
 
       user_factory(active_all: true)
@@ -218,18 +282,18 @@ describe UsersController do
 
   describe "GET oauth_success" do
     it "handles google_drive oauth_success for a logged_in_user" do
-      settings_mock = double
+      settings_mock = instance_double(PluginSetting)
       allow(settings_mock).to receive(:settings).and_return({})
-      authorization_mock = instance_double("Google::Auth::UserRefreshCredentials",
+      authorization_mock = instance_double(Google::Auth::UserRefreshCredentials,
                                            :code= => nil,
                                            :fetch_access_token! => nil,
                                            :refresh_token => "refresh_token",
                                            :access_token => "access_token")
-      about_mock = instance_double("Google::Apis::DriveV3::About",
-                                   user: instance_double("Google::Apis::DriveV3::User",
+      about_mock = instance_double(Google::Apis::DriveV3::About,
+                                   user: instance_double(Google::Apis::DriveV3::User,
                                                          email_address: "blah@blah.com",
                                                          permission_id: "permission_id"))
-      client_mock = instance_double("Google::Apis::DriveV3::DriveService",
+      client_mock = instance_double(Google::Apis::DriveV3::DriveService,
                                     get_about: about_mock,
                                     authorization: authorization_mock)
       allow(GoogleDrive::Client).to receive(:create).and_return(client_mock)
@@ -252,14 +316,14 @@ describe UsersController do
     end
 
     it "handles google_drive oauth_success for a non logged in user" do
-      settings_mock = double
+      settings_mock = instance_double(PluginSetting)
       allow(settings_mock).to receive(:settings).and_return({})
-      authorization_mock = instance_double("Google::Auth::UserRefreshCredentials",
+      authorization_mock = instance_double(Google::Auth::UserRefreshCredentials,
                                            :code= => nil,
                                            :fetch_access_token! => nil,
                                            :refresh_token => "refresh_token",
                                            :access_token => "access_token")
-      client_mock = instance_double("Google::Apis::DriveV3::DriveService",
+      client_mock = instance_double(Google::Apis::DriveV3::DriveService,
                                     get_about: nil,
                                     authorization: authorization_mock)
       allow(GoogleDrive::Client).to receive(:create).and_return(client_mock)
@@ -276,14 +340,14 @@ describe UsersController do
     end
 
     it "rejects invalid state" do
-      settings_mock = double
+      settings_mock = instance_double(PluginSetting)
       allow(settings_mock).to receive(:settings).and_return({})
-      authorization_mock = instance_double("Google::Auth::UserRefreshCredentials")
+      authorization_mock = instance_double(Google::Auth::UserRefreshCredentials)
       allow(authorization_mock).to receive_messages(:code= => nil,
                                                     :fetch_access_token! => nil,
                                                     :refresh_token => "refresh_token",
                                                     :access_token => "access_token")
-      client_mock = instance_double("Google::Apis::DriveV3::DriveService",
+      client_mock = instance_double(Google::Apis::DriveV3::DriveService,
                                     get_about: nil,
                                     authorization: authorization_mock)
       allow(GoogleDrive::Client).to receive(:create).and_return(client_mock)
@@ -298,11 +362,11 @@ describe UsersController do
     end
 
     it "handles auth failure gracefully" do
-      authorization_mock = instance_double("Google::Auth::UserRefreshCredentials", :code= => nil)
+      authorization_mock = instance_double(Google::Auth::UserRefreshCredentials, :code= => nil)
       allow(authorization_mock).to receive(:fetch_access_token!) do
         raise Signet::AuthorizationError, "{\"error\": \"invalid_grant\", \"error_description\": \"Bad Request\"}"
       end
-      client_mock = instance_double("Google::Apis::DriveV3::DriveService", authorization: authorization_mock)
+      client_mock = instance_double(Google::Apis::DriveV3::DriveService, authorization: authorization_mock)
       allow(GoogleDrive::Client).to receive(:create).and_return(client_mock)
       state = Canvas::Security.create_jwt({ "return_to_url" => "http://localhost.com/return",
                                             "nonce" => "abc123" })
@@ -377,7 +441,7 @@ describe UsersController do
 
     it "does not include courses for which the user doesnt have the appropriate rights" do
       @role1 = custom_account_role("subadmin", account: Account.default)
-      account_admin_user_with_role_changes(role: @role1, role_changes: { manage_content: false, read_course_content: false })
+      account_admin_user_with_role_changes(role: @role1, role_changes: { read_course_content: false })
       course_with_user("TeacherEnrollment", course_name: "A", active_all: true, user: @admin)
       course_with_user("StudentEnrollment", course_name: "B", active_all: true, user: @admin)
 
@@ -529,6 +593,72 @@ describe UsersController do
     end
   end
 
+  context "when current_course_id is present" do
+    before do
+      course_with_teacher_logged_in(course_name: "LocaleTestCourse", active_all: true)
+
+      # Simulate a course in Spanish
+      @spanish_course = @course
+      @spanish_course.locale = "es"
+      @spanish_course.start_at = Time.zone.local(2025, 2, 1, 0, 0, 0)
+      @spanish_course.conclude_at = Time.zone.local(2025, 5, 20, 0, 0, 0)
+      @spanish_course.save!
+
+      course_with_teacher(course_name: "CurrentCourse", user: @teacher, active_all: true)
+      @current_course_catalan = @course
+      @current_course_catalan.locale = "ca"
+      @current_course_catalan.save!
+
+      user_session(@teacher)
+    end
+
+    it "includes start_at_locale and end_at_locale using the current_course locale" do
+      # Simulate importing a course set in Spanish to a course set to Catalan
+      get "manageable_courses", params: {
+        user_id: @teacher.id,
+        current_course_id: @current_course_catalan.id,
+        term: "LocaleTestCourse"
+      }
+
+      expect(response).to be_successful
+      courses = json_parse
+      returned_course = courses.find { |c| c["course_code"] == "LocaleTestCourse" }
+      expect(returned_course).not_to be_nil
+
+      expect(returned_course["start_at_locale"]).to be_present
+      expect(returned_course["end_at_locale"]).to be_present
+
+      expect(returned_course["start_at_locale"]).to eq("Febr 1, 2025 a les 0:00")
+      expect(returned_course["end_at_locale"]).to eq("Maig 20, 2025 a les 0:00")
+    end
+  end
+
+  context "when current_course_id is not present" do
+    before do
+      course_with_teacher_logged_in(course_name: "NoLocale", active_all: true)
+
+      @course.start_at = 2.weeks.ago
+      @course.conclude_at = 1.day.from_now
+      @course.save!
+    end
+
+    it "returns nil for start_at_locale and end_at_locale" do
+      get "manageable_courses", params: {
+        user_id: @teacher.id,
+        term: "NoLocale"
+      }
+
+      expect(response).to be_successful
+      courses = json_parse
+
+      returned_course = courses.find { |c| c["course_code"] == "NoLocale" }
+      expect(returned_course).not_to be_nil
+
+      expect(returned_course["start_at_locale"]).to be_nil
+      expect(returned_course["end_at_locale"]).to be_nil
+    end
+  end
+
   describe "POST 'create'" do
     it "does not allow creating when self_registration is disabled and you're not an admin'" do
       post "create", params: { pseudonym: { unique_id: "jacob@instructure.com" }, user: { name: "Jacob Fugal" } }
@@ -547,7 +677,7 @@ describe UsersController do
 
         it "does not allow teachers to self register" do
           post "create", params: { pseudonym: { unique_id: "jane@example.com" }, user: { name: "Jane Teacher", terms_of_use: "1", initial_enrollment_type: "teacher" } }, format: "json"
-          assert_status(403)
+          assert_forbidden
         end
 
         it "does not allow students to self register" do
@@ -555,7 +685,7 @@ describe UsersController do
           @course.update_attribute(:self_enrollment, true)
 
           post "create", params: { pseudonym: { unique_id: "jane@example.com", password: "lolwut12", password_confirmation: "lolwut12" }, user: { name: "Jane Student", terms_of_use: "1", self_enrollment_code: @course.self_enrollment_code, initial_enrollment_type: "student" }, pseudonym_type: "username", self_enrollment: "1" }, format: "json"
-          assert_status(403)
+          assert_forbidden
         end
 
         it "allows observers to self register" do
@@ -647,7 +777,7 @@ describe UsersController do
         end
 
         it "redirects users to the oauth confirmation when registering through oauth" do
-          redis = double("Redis")
+          redis = instance_double(Redis)
           allow(redis).to receive(:setex)
           allow(redis).to receive(:hmget)
           allow(redis).to receive(:del)
@@ -711,7 +841,7 @@ describe UsersController do
         accepted_terms = json["user"]["user"]["preferences"]["accepted_terms"]
         expect(response).to be_successful
         expect(accepted_terms).to be_present
-        expect(Time.parse(accepted_terms)).to be_within(1.minute.to_i).of(Time.now.utc)
+        expect(Time.zone.parse(accepted_terms)).to be_within(1.minute.to_i).of(Time.now.utc)
       end
 
       it "stores a confirmation_redirect url if it's trusted" do
@@ -742,7 +872,7 @@ describe UsersController do
         expect(CommunicationChannel.last.confirmation_redirect).to be_nil
       end
 
-      it "creates a registered user if the skip_registration flag is passed in" do
+      it "ignores skip_registration flag for unauthenticated self-registering users" do
         post("create", params: {
                pseudonym: { unique_id: "jacob@instructure.com" },
                user: { name: "Jacob Fugal", terms_of_use: "1", skip_registration: "1" }
@@ -751,12 +881,26 @@ describe UsersController do
 
         p = Pseudonym.where(unique_id: "jacob@instructure.com").first
         expect(p).to be_active
-        expect(p.user).to be_registered
+        expect(p.user).to be_pre_registered
         expect(p.user.name).to eq "Jacob Fugal"
         expect(p.user.communication_channels.length).to eq 1
         expect(p.user.communication_channels.first).to be_unconfirmed
         expect(p.user.communication_channels.first.path).to eq "jacob@instructure.com"
         expect(p.user.associated_accounts).to eq [Account.default]
+      end
+
+      it "allows skip_registration for admin users with manage_user_logins" do
+        account_admin_user(account: Account.default)
+        user_session(@admin)
+        post("create", params: {
+               pseudonym: { unique_id: "jacob@instructure.com" },
+               user: { name: "Jacob Fugal", skip_registration: "1" }
+             })
+        expect(response).to be_successful
+
+        p = Pseudonym.where(unique_id: "jacob@instructure.com").first
+        expect(p).to be_active
+        expect(p.user).to be_registered
       end
 
       it "complains about conflicting unique_ids" do
@@ -1019,6 +1163,80 @@ describe UsersController do
           expect(p.unique_id).to eq "spaceman@example.com"
           expect(p.user.email).to eq "spaceman@example.com"
         end
+
+        it "does not raises RecordNotUnique when reactivating a user with a retired CC and capitalized Email type" do
+          # First, create a user
+          post "create",
+               params: {
+                 account_id: account.id,
+                 pseudonym: {
+                   unique_id: "tim.mariner@example.com",
+                   sis_user_id: "041349",
+                   integration_id: "StaffID: 041349",
+                   send_confirmation: "False"
+                 },
+                 communication_channel: {
+                   type: "Email",
+                   skip_confirmation: "False"
+                 },
+                 user: {
+                   name: "Tim Mariner",
+                   sortable_name: "Mariner, Tim"
+                 }
+               },
+               format: "json"
+          expect(response).to be_successful
+
+          # Get the created user and pseudonym
+          pseudonym = Pseudonym.where(unique_id: "tim.mariner@example.com").first
+          user = pseudonym.user
+
+          # Verify we have a communication channel
+          cc = user.communication_channels.where(path_type: "email").by_path("tim.mariner@example.com").first
+          expect(cc).to be_present
+          expect(cc.path_type).to eq "email"
+
+          # Retire the communication channel and delete the user/pseudonym
+          user.destroy!
+
+          expect(user.reload.workflow_state).to eq "deleted"
+          expect(cc.reload.workflow_state).to eq "retired"
+
+          # Verify there's only ONE retired communication channel
+          expect(CommunicationChannel.where(
+            user_id: user.id,
+            path_type: "email"
+          ).count).to eq 1
+
+          # Try to reactivate with capitalized "Email" type (this reproduces the bug)
+          # The bug causes a database constraint violation
+          post "create",
+               params: {
+                 account_id: account.id,
+                 force_validations: "False",
+                 enable_sis_reactivation: "True",
+                 pseudonym: {
+                   unique_id: "tim.mariner@example.com",
+                   sis_user_id: "041349",
+                   integration_id: "StaffID: 041349",
+                   send_confirmation: "False"
+                 },
+                 communication_channel: {
+                   type: "Email",
+                   skip_confirmation: "True"
+                 },
+                 user: {
+                   name: "Tim Mariner",
+                   sortable_name: "Mariner, Tim"
+                 }
+               },
+               format: "json"
+          expect(response).to be_successful
+
+          # User is reactivated.
+          expect(user.reload.workflow_state).to eq "registered"
+          expect(cc.reload.workflow_state).to eq "active"
+        end
       end
 
       it "does not allow an admin to set the sis id when creating a user if they don't have privileges to manage sis" do
@@ -1156,22 +1374,26 @@ describe UsersController do
     end
 
     it "returns nil if there is no token" do
-      allow(DynamicSettings).to receive(:find).with(tree: :private).and_return(DynamicSettings::FallbackProxy.new({ "recaptcha_server_key" => nil }))
+      allow(Rails.application.credentials).to receive(:recaptcha_keys).and_return(nil)
+      allow(Rails.application.credentials).to receive(:dig).with(:recaptcha_keys, :server_key).and_return(nil)
       expect(subject.send(:validate_recaptcha, nil)).to be_nil
     end
 
     it "returns nil for valid recaptcha submissions" do
-      allow(DynamicSettings).to receive(:find).with(tree: :private).and_return(DynamicSettings::FallbackProxy.new({ "recaptcha_server_key" => "test-token" }))
+      allow(Rails.application.credentials).to receive(:recaptcha_keys).and_return({ server_key: "test-token" })
+      allow(Rails.application.credentials).to receive(:dig).with(:recaptcha_keys, :server_key).and_return("test-token")
       expect(subject.send(:validate_recaptcha, "valid-submit-key")).to be_nil
     end
 
     it "returns an error for missing recaptcha submissions" do
-      allow(DynamicSettings).to receive(:find).with(tree: :private).and_return(DynamicSettings::FallbackProxy.new({ "recaptcha_server_key" => "test-token" }))
+      allow(Rails.application.credentials).to receive(:recaptcha_keys).and_return({ server_key: "test-token" })
+      allow(Rails.application.credentials).to receive(:dig).with(:recaptcha_keys, :server_key).and_return("test-token")
       expect(subject.send(:validate_recaptcha, nil)).not_to be_nil
     end
 
     it "returns an error for invalid recaptcha submissions" do
-      allow(DynamicSettings).to receive(:find).with(tree: :private).and_return(DynamicSettings::FallbackProxy.new({ "recaptcha_server_key" => "test-token" }))
+      allow(Rails.application.credentials).to receive(:recaptcha_keys).and_return({ server_key: "test-token" })
+      allow(Rails.application.credentials).to receive(:dig).with(:recaptcha_keys, :server_key).and_return("test-token")
       expect(subject.send(:validate_recaptcha, "invalid-submit-key")).not_to be_nil
     end
   end
@@ -1552,7 +1774,7 @@ describe UsersController do
         course.enroll_student(snooping_student, active_all: true)
         user_session(snooping_student)
         get_grades!(grading_period.id)
-        expect(response).to_not be_ok
+        expect(response).not_to be_ok
       end
     end
   end
@@ -2161,37 +2383,40 @@ describe UsersController do
   end
 
   describe "GET 'admin_merge'" do
-    let(:account) { Account.create! }
+    it "sets the env" do
+      allow_any_instance_of(Account).to receive(:grants_any_right?).and_return(true)
+      account_admin_user
+      @admin.associated_accounts.create!({ name: "A account" })
+      @admin.associated_accounts.create!({ name: "B account" })
+      user_session(@admin)
+      user = user_with_pseudonym
+      get "admin_merge", params: { user_id: user.id }
+      expect(assigns[:js_env][:ADMIN_MERGE_ACCOUNT_OPTIONS]).to match_array(@admin.associated_accounts.map { |a| { id: a.id, name: a.name } })
+    end
+  end
 
-    before do
+  describe "GET 'user_for_merge'" do
+    it "return user with enrollments, pseudonyms and CCs display values" do
       account_admin_user
       user_session(@admin)
-    end
+      user = user_with_pseudonym
+      user.pseudonym.update_attribute(:sis_user_id, "sis_user_id")
+      user.pseudonym.update_attribute(:integration_id, "integration_id")
+      user.pseudonym.update_attribute(:unique_id, "login_id")
+      course_with_student(active_all: true, user:)
+      user.communication_channels.create(path: "user_cc@instructure.com").confirm!
 
-    describe "as site admin" do
-      before { Account.site_admin.account_users.create!(user: @admin) }
+      get "user_for_merge", params: { user_id: user.id }
 
-      it "warns about merging a user with itself" do
-        user = User.create!
-        pseudonym(user)
-        get "admin_merge", params: { user_id: user.id, pending_user_id: user.id }
-        expect(flash[:error]).to eq "You can't merge an account with itself."
-      end
-
-      it "does not issue warning if the users are different" do
-        user = User.create!
-        other_user = User.create!
-        get "admin_merge", params: { user_id: user.id, pending_user_id: other_user.id }
-        expect(flash[:error]).to be_nil
-      end
-    end
-
-    it "does not allow you to view any user by id" do
-      pseudonym(@admin)
-      user_with_pseudonym(account:)
-      get "admin_merge", params: { user_id: @admin.id, pending_user_id: @user.id }
-      expect(response).to be_successful
-      expect(assigns[:pending_other_user]).to be_nil
+      parsed_response = response.parsed_body
+      expect(parsed_response["name"]).to eq user.name
+      expect(parsed_response["short_name"]).to eq user.short_name
+      expect(parsed_response["sis_user_id"]).to eq user.pseudonym.sis_user_id
+      expect(parsed_response["login_id"]).to eq user.pseudonym.unique_id
+      expect(parsed_response["integration_id"]).to eq user.pseudonym.integration_id
+      expect(parsed_response["enrollments"]).to match_array(user.enrollments.current.map { |e| "#{e.course.name} (#{e.readable_type})" })
+      expect(parsed_response["pseudonyms"]).to match_array(user.pseudonyms.active.map { |p| "#{p.unique_id} (#{p.account.name})" })
+      expect(parsed_response["communication_channels"]).to match_array(user.communication_channels.unretired.email.map(&:path).uniq)
     end
   end
 
@@ -2234,6 +2459,7 @@ describe UsersController do
 
     context "rendering page views" do
       before do
+        allow(controller).to receive(:page_view_path).and_return("users/page_views/page_views")
         allow(PageView).to receive(:page_views_enabled?).and_return(true)
         course_with_teacher(active_all: 1)
       end
@@ -2318,6 +2544,21 @@ describe UsersController do
       expect(response).to render_template("users/show")
     end
 
+    it "404s, but still shows, on a deleted user in circular merge for admins" do
+      @user1 = user_with_pseudonym(active_all: true, account: @account)
+      @user2 = user_factory(active_all: true, account: @account)
+
+      UserMerge.from(@user1).into(@user2)
+      UserMerge.from(@user2).into(@user1)
+
+      account_admin_user
+      user_session(@admin)
+
+      get "show", params: { id: @user1.id }
+      expect(response).to have_http_status :not_found
+      expect(response).to render_template("users/show")
+    end
+
     it "responds to JSON request" do
       account = Account.create!
       course_with_student(active_all: true, account:)
@@ -2358,13 +2599,23 @@ describe UsersController do
       expect(response).to have_http_status :ok
     end
 
-    it "shows a deleted user from the account context if they have a deleted pseudonym for that account" do
+    it "does not show a deleted user from the account context if they have a deleted pseudonym for that account" do
       course_with_teacher(active_all: 1, user: user_with_pseudonym)
       account_admin_user(active_all: true)
       user_session(@admin)
       @teacher.remove_from_root_account(Account.default)
 
       get "show", params: { account_id: Account.default.id, id: @teacher.id }
+      expect(response).to have_http_status :unauthorized
+    end
+
+    it "shows a deleted user from the account context if they have a deleted pseudonym for that account and the include_deleted_users flag is set" do
+      course_with_teacher(active_all: 1, user: user_with_pseudonym)
+      account_admin_user(active_all: true)
+      user_session(@admin)
+      @teacher.remove_from_root_account(Account.default)
+
+      get "show", params: { account_id: Account.default.id, id: @teacher.id, include_deleted_users: true }
       expect(response).to have_http_status :ok
     end
 
@@ -2382,14 +2633,20 @@ describe UsersController do
         @teacher.remove_from_root_account(Account.default)
       end
 
-      it "shows a deleted user from the account context if they have a deleted pseudonym for that account" do
+      it "does not show a deleted user from the account context if they have a deleted pseudonym for that account" do
         get "show", params: { account_id: Account.default.id, id: @teacher.id }
+
+        expect(response).to have_http_status :unauthorized
+      end
+
+      it "shows a deleted user from the account context if they have a deleted pseudonym for that account and the include_deleted_users flag is set" do
+        get "show", params: { account_id: Account.default.id, id: @teacher.id, include_deleted_users: true }
 
         expect(response).to have_http_status :ok
       end
 
       it "does not give login ID for another account in json format" do
-        get "show", params: { account_id: Account.default.id, id: @teacher.id, format: :json }
+        get "show", params: { account_id: Account.default.id, id: @teacher.id, include_deleted_users: true, format: :json }
 
         expect(response).to have_http_status :ok
         expect(response.parsed_body["login_id"]).to be_nil
@@ -2414,7 +2671,7 @@ describe UsersController do
       user_session(@user)
       put "update", params: { id: other_user.id }, format: "json"
       expect(response.body).not_to include "secret"
-      expect(response).to have_http_status :unauthorized
+      expect(response).to have_http_status :forbidden
     end
 
     it "overwrites stuck sis fields" do
@@ -2430,6 +2687,14 @@ describe UsersController do
       user_session(@user)
       put "update", params: { id: @user.id, "user[sortable_name]": "overwritten@example.com", override_sis_stickiness: false }, format: "json"
       expect(response.body).not_to include "overwritten@example.com"
+      expect(response).to have_http_status :ok
+    end
+
+    it "does update timezone for user without admin privileges" do
+      user_with_pseudonym
+      user_session(@user)
+      put "update", params: { id: @user.id, "user[time_zone]": "Arizona" }, format: "json"
+      expect(response.body).to include "Arizona"
       expect(response).to have_http_status :ok
     end
   end
@@ -2503,7 +2768,7 @@ describe UsersController do
 
     it "sets the js_env properly with act as user data" do
       get "masquerade", params: { user_id: user2.id }
-      assert_response(:success)
+      expect(response).to have_http_status(:success)
       act_as_user_data = controller.js_env[:act_as_user_data][:user]
       expect(act_as_user_data).to include({
                                             name: user2.name,
@@ -2622,6 +2887,45 @@ describe UsersController do
       get "teacher_activity", params: { user_id: @teacher.id, course_id: @course.id }
 
       expect(assigns[:courses][@course][0][:ungraded]).to eq [s1]
+    end
+  end
+
+  describe "#new" do
+    context "when the user is logged in" do
+      before do
+        @user = user_factory(active_all: true)
+        user_session(@user)
+      end
+
+      it "redirects to the root URL" do
+        get :new
+        expect(response).to redirect_to(root_url)
+      end
+    end
+
+    context "when the user is not logged in" do
+      context "and the feature flag login_registration_ui_identity is enabled" do
+        before do
+          Account.default.enable_feature!(:login_registration_ui_identity)
+          allow(Account.default).to receive(:self_registration_allowed_for?).and_return(true)
+        end
+
+        it "redirects to the registration landing page" do
+          get :new
+          expect(response).to redirect_to(register_landing_path)
+        end
+      end
+
+      context "and the feature flag login_registration_ui_identity is disabled" do
+        before do
+          allow(Account.default).to receive(:self_registration_allowed_for?).and_return(true)
+        end
+
+        it "renders the legacy registration page using the bare layout" do
+          get :new
+          expect(response).to render_template(layout: "bare")
+        end
+      end
     end
   end
 
@@ -2755,6 +3059,67 @@ describe UsersController do
   end
 
   describe "#user_dashboard" do
+    context "learning agent env" do
+      before(:once) do
+        course_with_student(active_all: true)
+        @course.root_account.allow_feature!(:athena_learning_agent_button)
+      end
+
+      before do
+        Rails.cache.clear
+        user_session(@student)
+      end
+
+      it "does not set ATHENA when no course has the flag enabled" do
+        @course.disable_feature!(:athena_learning_agent_button)
+        get :user_dashboard
+        expect(assigns[:js_env]).not_to have_key(:ATHENA)
+      end
+
+      it "sets ATHENA when at least one course has the flag enabled" do
+        @course.enable_feature!(:athena_learning_agent_button)
+        get :user_dashboard
+        expect(assigns[:js_env]).to have_key(:ATHENA)
+      end
+
+      it "caches the enrollment check with enrollment-aware batched keys" do
+        @course.enable_feature!(:athena_learning_agent_button)
+        allow(Rails.cache).to receive(:fetch_with_batched_keys).and_call_original
+        expect(Rails.cache).to receive(:fetch_with_batched_keys)
+          .with("learning_agent_dashboard/v1",
+                batch_object: @student,
+                batched_keys: :enrollments,
+                expires_in: 5.minutes)
+          .and_call_original
+        get :user_dashboard
+      end
+
+      it "does not set ATHENA for a teacher enrollment in a flagged course" do
+        course_with_teacher(active_all: true, user: @student)
+        @course.enable_feature!(:athena_learning_agent_button)
+        # student has no student enrollment in this new course
+        @student.enrollments.where(type: "StudentEnrollment").destroy_all
+        get :user_dashboard
+        expect(assigns[:js_env]).not_to have_key(:ATHENA)
+      end
+
+      it "does not set ATHENA when the student enrollment is concluded" do
+        @course.enable_feature!(:athena_learning_agent_button)
+        @course.update!(workflow_state: :completed)
+        get :user_dashboard
+        expect(assigns[:js_env]).not_to have_key(:ATHENA)
+      end
+
+      it "sets ATHENA when only one of multiple courses has the flag enabled" do
+        course2 = course_with_student(active_all: true, user: @student).course
+        course2.root_account.allow_feature!(:athena_learning_agent_button)
+        @course.disable_feature!(:athena_learning_agent_button)
+        course2.enable_feature!(:athena_learning_agent_button)
+        get :user_dashboard
+        expect(assigns[:js_env]).to have_key(:ATHENA)
+      end
+    end
+
     context "with student planner feature enabled" do
       before(:once) do
         @account = Account.default
@@ -2812,7 +3177,7 @@ describe UsersController do
 
       it "loads nicknames" do
         @user.set_preference(:course_nicknames, @course1.id, "some nickname or whatever")
-        expect_any_instance_of(User).to_not receive(:course_nickname)
+        expect_any_instance_of(User).not_to receive(:course_nickname)
         get "user_dashboard"
         course_data = assigns[:js_env][:STUDENT_PLANNER_COURSES]
         expect(course_data.detect { |h| h[:id] == @course1.id }[:shortName]).to eq "some nickname or whatever"
@@ -2858,7 +3223,7 @@ describe UsersController do
 
       context "disabled" do
         before(:once) do
-          toggle_k5_setting(@account, false)
+          toggle_k5_setting(@account, enable: false)
         end
 
         it_behaves_like "observer list"
@@ -2877,7 +3242,7 @@ describe UsersController do
 
       context "enabled" do
         before(:once) do
-          toggle_k5_setting(@account, true)
+          toggle_k5_setting(@account)
         end
 
         it_behaves_like "observer list"
@@ -2900,6 +3265,20 @@ describe UsersController do
           get "user_dashboard"
           expect(assigns[:css_bundles].flatten).to include :k5_dashboard
           expect(assigns[:css_bundles].flatten).not_to include :k5_font
+        end
+
+        context "when the user prefers the dyslexia friendly font" do
+          before do
+            course_with_student_logged_in
+            toggle_k5_setting(@course.account)
+            @student.enable_feature!(:use_dyslexic_font)
+          end
+
+          it "does not include k5_font css bundle" do
+            get "user_dashboard"
+            expect(assigns[:css_bundles].flatten).to include :k5_dashboard
+            expect(assigns[:css_bundles].flatten).not_to include :k5_font
+          end
         end
 
         context "ENV.INITIAL_NUM_K5_CARDS" do
@@ -2991,7 +3370,7 @@ describe UsersController do
           end
 
           it "does not include classic accounts in the list" do
-            toggle_k5_setting(@account2, false)
+            toggle_k5_setting(@account2, enable: false)
             get "user_dashboard"
             account_contexts = assigns[:js_env][:ACCOUNT_CALENDAR_CONTEXTS]
             expect(account_contexts.length).to be 1
@@ -3001,14 +3380,309 @@ describe UsersController do
       end
     end
 
-    it "sets ENV.CREATE_COURSES_PERMISSIONS correctly if user is a teacher and can create courses" do
-      Account.default.settings[:teachers_can_create_courses] = true
-      Account.default.save!
-      course_with_teacher_logged_in(active_all: true)
+    context "ENV.CREATE_COURSES_PERMISSIONS" do
+      before do
+        Account.default.enable_feature!(:create_course_subaccount_picker)
+        Account.default.settings[:teachers_can_create_courses] = true
+        Account.default.settings[:students_can_create_courses] = true
+        Account.default.save!
+      end
 
+      it "sets correct for a teacher with enrollments" do
+        course_with_teacher_logged_in(active_all: true)
+
+        get "user_dashboard"
+        expect(assigns[:js_env][:CREATE_COURSES_PERMISSIONS][:PERMISSION]).to be(:teacher)
+        expect(assigns[:js_env][:CREATE_COURSES_PERMISSIONS][:RESTRICT_TO_MCC_ACCOUNT]).to be_falsey
+      end
+
+      it "sets correctly for a user with no enrollments" do
+        user_session(user_factory(active_all: true))
+
+        get "user_dashboard"
+        expect(assigns[:js_env][:CREATE_COURSES_PERMISSIONS][:PERMISSION]).to be_nil
+        expect(assigns[:js_env][:CREATE_COURSES_PERMISSIONS][:RESTRICT_TO_MCC_ACCOUNT]).to be_truthy
+      end
+
+      it "sets correctly for a student with enrollments in a sub-account" do
+        @subaccount = Account.default.sub_accounts.create!(name: "SA")
+        course_with_student_logged_in(active_all: true, account: @subaccount)
+
+        get "user_dashboard"
+        expect(assigns[:js_env][:CREATE_COURSES_PERMISSIONS][:PERMISSION]).to be(:student)
+        expect(assigns[:js_env][:CREATE_COURSES_PERMISSIONS][:RESTRICT_TO_MCC_ACCOUNT]).to be_falsey
+      end
+
+      it "sets correctly for an admin user" do
+        admin_user = account_admin_user(active_all: true)
+        user_session(admin_user)
+
+        get "user_dashboard"
+        expect(assigns[:js_env][:CREATE_COURSES_PERMISSIONS][:PERMISSION]).to be(:admin)
+        expect(assigns[:js_env][:CREATE_COURSES_PERMISSIONS][:RESTRICT_TO_MCC_ACCOUNT]).to be_falsey
+      end
+    end
+
+    context "with widget_dashboard feature allowed" do
+      before do
+        # Make feature available at account level - user preference defaults to OFF (opt-in required)
+        Account.default.allow_feature!(:widget_dashboard)
+      end
+
+      it "includes each course once even for multiple enrollments" do
+        course_with_student_logged_in(active_all: true)
+        @user.preferences[:widget_dashboard_user_preference] = true
+        @user.save!
+        @section = @course.course_sections.create! name: "section 2"
+        multiple_student_enrollment(@user, @section)
+        @current_user = @user
+        get "user_dashboard"
+        expect(assigns[:js_env][:SHARED_COURSE_DATA].length).to eq 1
+      end
+
+      it "includes platform_ui_unified_widgets_dashboard in DASHBOARD_FEATURES when enabled" do
+        course_with_student_logged_in(active_all: true)
+        @user.preferences[:widget_dashboard_user_preference] = true
+        @user.save!
+        Account.site_admin.enable_feature!(:platform_ui_unified_widgets_dashboard)
+        get "user_dashboard"
+        expect(assigns[:js_env][:DASHBOARD_FEATURES][:platform_ui_unified_widgets_dashboard]).to be true
+      end
+
+      it "does not include platform_ui_unified_widgets_dashboard in DASHBOARD_FEATURES when disabled" do
+        course_with_student_logged_in(active_all: true)
+        @user.preferences[:widget_dashboard_user_preference] = true
+        @user.save!
+        Account.site_admin.disable_feature!(:platform_ui_unified_widgets_dashboard)
+        get "user_dashboard"
+        expect(assigns[:js_env][:DASHBOARD_FEATURES][:platform_ui_unified_widgets_dashboard]).to be false
+      end
+
+      describe "dashboard routing" do
+        before :once do
+          @observer = user_factory(active_all: true)
+          @student = user_factory(active_all: true)
+          @course = course_factory(active_all: true)
+          @course.enroll_student(@student)
+        end
+
+        before do
+          user_session(@observer)
+        end
+
+        it "does not show widget dashboard to observer by default when feature is allowed" do
+          @observer_enrollment = @course.enroll_user(@observer, "ObserverEnrollment", section: @course.course_sections.first, enrollment_state: "active")
+          @observer_enrollment.update_attribute(:associated_user_id, @student.id)
+          user_session(@observer)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+
+        it "shows legacy dashboard if not actively observing" do
+          @observer_enrollment = @course.enroll_user(@observer, "ObserverEnrollment", section: @course.course_sections.first, enrollment_state: "active")
+          user_session(@observer)
+
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:css_bundles].flatten).to include :dashboard
+        end
+
+        it "does not show widget dashboard to students by default when feature is allowed" do
+          user_session(@student)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+
+        it "shows widget dashboard to students who opt in when feature is allowed" do
+          @student.preferences[:widget_dashboard_user_preference] = true
+          @student.save!
+          user_session(@student)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :widget_dashboard
+          expect(assigns[:css_bundles].flatten).to include :dashboard_card
+        end
+
+        it "shows legacy dashboard to teachers" do
+          @teacher = user_factory(active_all: true)
+          @course.enroll_teacher(@teacher)
+          user_session(@teacher)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:css_bundles].flatten).to include :dashboard
+        end
+
+        it "shows legacy dashboard if user has at least one non student enrollment" do
+          @mixed_user = user_factory(active_all: true)
+          @course.enroll_student(@mixed_user)
+          @course.enroll_teacher(@mixed_user)
+          user_session(@mixed_user)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:css_bundles].flatten).to include :dashboard
+        end
+
+        it "shows legacy dashboard to account admins even when opted in" do
+          account_admin_user
+          @admin.preferences[:widget_dashboard_user_preference] = true
+          @admin.save!
+          user_session(@admin)
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+
+        it "respects user preference when feature is allowed (can override)" do
+          user_session(@student)
+          @student.preferences[:widget_dashboard_user_preference] = false
+          @student.save!
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+
+        it "respects user preference when feature is allowed_on (can override, default on)" do
+          Account.default.set_feature_flag!(:widget_dashboard, Feature::STATE_DEFAULT_ON)
+          user_session(@student)
+          @student.preferences[:widget_dashboard_user_preference] = false
+          @student.save!
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+
+        it "respects user preference when feature is locked on (can override)" do
+          Account.default.enable_feature!(:widget_dashboard)
+          user_session(@student)
+          @student.preferences[:widget_dashboard_user_preference] = false
+          @student.save!
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+
+        it "does not show widget dashboard when feature is disabled even if user preference is true" do
+          Account.default.disable_feature!(:widget_dashboard)
+          user_session(@student)
+          @student.preferences[:widget_dashboard_user_preference] = true
+          @student.save!
+          get "user_dashboard"
+          expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+          expect(assigns[:js_bundles].flatten).to include :dashboard
+        end
+      end
+    end
+  end
+
+  describe "#should_show_educator_dashboard?" do
+    let(:account) { Account.default }
+
+    before do
+      account.enable_feature!(:educator_dashboard)
+    end
+
+    it "returns true for teacher" do
+      course_with_teacher_logged_in(active_all: true)
       get "user_dashboard"
-      expect(assigns[:js_env][:CREATE_COURSES_PERMISSIONS][:PERMISSION]).to be(:teacher)
-      expect(assigns[:js_env][:CREATE_COURSES_PERMISSIONS][:RESTRICT_TO_MCC_ACCOUNT]).to be_falsey
+      expect(assigns(:js_env)[:DASHBOARD_FEATURES][:educator_dashboard]).to be true
+    end
+
+    it "does not load widget_dashboard bundle for TA" do
+      course_with_ta(active_all: true)
+      user_session(@ta)
+      get "user_dashboard"
+      expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+    end
+
+    it "returns true for multi-role user with teacher and student enrollments" do
+      course_with_teacher_logged_in(active_all: true)
+      @course.enroll_student(@user, enrollment_state: "active")
+      get "user_dashboard"
+      expect(assigns(:js_env)[:DASHBOARD_FEATURES][:educator_dashboard]).to be true
+    end
+
+    it "does not load widget_dashboard bundle for teacher with only completed enrollments" do
+      course_with_teacher_logged_in(active_all: true)
+      @enrollment.update!(workflow_state: "completed")
+      get "user_dashboard"
+      expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+    end
+
+    context "routing to widget_dashboard bundle" do
+      it "loads widget_dashboard bundle for teacher" do
+        course_with_teacher_logged_in(active_all: true)
+        get "user_dashboard"
+        expect(assigns[:js_bundles].flatten).to include :widget_dashboard
+      end
+
+      it "sets educator_dashboard in DASHBOARD_FEATURES for teacher" do
+        course_with_teacher_logged_in(active_all: true)
+        get "user_dashboard"
+        expect(assigns(:js_env)[:DASHBOARD_FEATURES][:educator_dashboard]).to be true
+      end
+
+      it "loads educator_dashboard css bundle for teacher" do
+        course_with_teacher_logged_in(active_all: true)
+        get "user_dashboard"
+        expect(assigns[:css_bundles].flatten).to include :educator_dashboard
+      end
+
+      it "does not include student-only data for educator" do
+        course_with_teacher_logged_in(active_all: true)
+        get "user_dashboard"
+        expect(assigns(:js_env)).not_to have_key(:SHARED_COURSE_DATA)
+        expect(assigns(:js_env)).not_to have_key(:OBSERVED_USERS_LIST)
+      end
+
+      it "does not load widget_dashboard bundle when feature flag is off" do
+        account.disable_feature!(:educator_dashboard)
+        course_with_teacher_logged_in(active_all: true)
+        get "user_dashboard"
+        expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+      end
+
+      it "does not load widget_dashboard bundle for K5 teacher" do
+        course_with_teacher_logged_in(active_all: true)
+        allow(controller).to receive(:k5_user?).and_return(true)
+        get "user_dashboard"
+        expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+      end
+
+      it "does not load widget_dashboard bundle for student-only user" do
+        course_with_student_logged_in(active_all: true)
+        get "user_dashboard"
+        expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+      end
+
+      it "adds educator-dashboard body class for educator" do
+        course_with_teacher_logged_in(active_all: true)
+        get "user_dashboard"
+        expect(assigns(:body_classes)).to include("educator-dashboard")
+      end
+
+      it "loads educator dashboard for designer" do
+        course = course_factory(active_all: true)
+        designer = user_factory(active_all: true)
+        course.enroll_user(designer, "DesignerEnrollment", enrollment_state: :active)
+        user_session(designer)
+        get "user_dashboard"
+        expect(assigns[:js_bundles].flatten).to include :widget_dashboard
+        expect(assigns(:js_env)[:DASHBOARD_FEATURES][:educator_dashboard]).to be true
+      end
+
+      it "does not load educator dashboard for designer when flag is off" do
+        account.disable_feature!(:educator_dashboard)
+        course = course_factory(active_all: true)
+        designer = user_factory(active_all: true)
+        course.enroll_user(designer, "DesignerEnrollment", enrollment_state: :active)
+        user_session(designer)
+        get "user_dashboard"
+        expect(assigns[:js_bundles].flatten).not_to include :widget_dashboard
+      end
     end
   end
 
@@ -3053,6 +3727,17 @@ describe UsersController do
 
         get "dashboard_stream_items", params: { observed_user_id: @another_student.id }
         expect(response).to be_unauthorized
+      end
+
+      it "filters out conversation stream items when observing a student" do
+        conversation_item = instance_double(StreamItem, asset_type: "Conversation", course: nil)
+        announcement_item = instance_double(StreamItem, asset_type: "Announcement", course: nil)
+        allow_any_instance_of(User).to receive(:cached_recent_stream_items).and_return([conversation_item, announcement_item])
+
+        get "dashboard_stream_items", params: { observed_user_id: @student.id }
+
+        expect(assigns[:stream_items]).not_to include(conversation_item)
+        expect(assigns[:stream_items]).to include(announcement_item)
       end
     end
   end
@@ -3152,7 +3837,7 @@ describe UsersController do
       user_with_pseudonym(active_user: true, username: "test1@example.com", password: "test1234")
       @user
     end
-    let(:developer_key) { DeveloperKey.create! }
+    let(:developer_key) { DeveloperKey.create!(name: "dev key") }
     let(:access_token) { user.access_tokens.create!(developer_key:) }
     let(:endpoint) { "https://example.com" }
     let(:app_key) { "VALID" }
@@ -3196,7 +3881,7 @@ describe UsersController do
 
       it "returns forbidden" do
         subject
-        assert_status(403)
+        assert_forbidden
         json = response.parsed_body
         expect(json["message"]).to eq "Developer key not authorized"
       end
@@ -3238,9 +3923,8 @@ describe UsersController do
 
       it "has exp that matches expires_at" do
         subject
-        exp = DateTime.strptime(token["exp"].to_s, "%s")
-        expires_at = DateTime.strptime(response.parsed_body["expires_at"].to_s, "%Q")
-        expect(exp.to_s).to eq expires_at.to_s
+        expires_at = Time.strptime(response.parsed_body["expires_at"].to_s, "%Q")
+        expect(token["exp"]).to eq expires_at.to_i
       end
     end
 
@@ -3273,14 +3957,14 @@ describe UsersController do
         subject
         expires_at = response.parsed_body["expires_at"]
         expect(expires_at).to be_a Float
-        expires_at_date = DateTime.strptime(expires_at.to_s, "%Q")
-        expect(expires_at_date).to be_a DateTime
+        expires_at_date = Time.strptime(expires_at.to_s, "%Q")
+        expect(expires_at_date).to be_a Time
       end
 
       it "is ~1 day from now" do
         subject
         expires_at = response.parsed_body["expires_at"]
-        expect(DateTime.strptime(expires_at.to_s, "%Q").utc).to be_within(1.minute).of(1.day.from_now)
+        expect(Time.strptime(expires_at.to_s, "%Q").utc).to be_within(1.minute).of(1.day.from_now)
       end
     end
 
@@ -3294,8 +3978,8 @@ describe UsersController do
           get "pandata_events_token", params: { app_key: }
 
           token = CanvasSecurity.decode_jwt(response.parsed_body["auth_token"], ["secret"])
-          exp = DateTime.strptime(token["exp"].to_s, "%s").to_s
-          expires_at = DateTime.strptime(response.parsed_body["expires_at"].to_s, "%Q").to_s
+          exp = Time.zone.at(token["exp"])
+          expires_at = Time.strptime(response.parsed_body["expires_at"].to_s, "%Q").to_s
 
           expect(exp).to eq expires_at
         end
@@ -3304,8 +3988,8 @@ describe UsersController do
         get "pandata_events_token", params: { app_key: }
 
         token = CanvasSecurity.decode_jwt(response.parsed_body["auth_token"], ["secret"])
-        exp2 = DateTime.strptime(token["exp"].to_s, "%s").to_s
-        expires_at2 = DateTime.strptime(response.parsed_body["expires_at"].to_s, "%Q").to_s
+        exp2 = Time.zone.at(token["exp"])
+        expires_at2 = Time.strptime(response.parsed_body["expires_at"].to_s, "%Q").to_s
 
         expect(expires_at).not_to eq expires_at2
         expect(exp2).to eq expires_at2
@@ -3327,7 +4011,7 @@ describe UsersController do
       user_session(admin)
 
       delete "destroy", params: { id: user.id }, format: :json
-      expect(response).to have_http_status :unauthorized
+      expect(response).to have_http_status :forbidden
     end
 
     it "allows siteadmin users" do
@@ -3346,11 +4030,12 @@ describe UsersController do
     let(:admin) { account_admin_user(active_all: true)  }
 
     def add_mobile_access_token(user)
-      user.access_tokens.create!
+      user.access_tokens.create!(purpose: "active mobile token")
+      user.access_tokens.create!(purpose: "expired mobile token", permanent_expires_at: 1.day.ago)
 
-      @sns_client = double
+      @sns_client = instance_double(Aws::SNS::Client)
       allow(DeveloperKey).to receive(:sns).and_return(@sns_client)
-      expect(@sns_client).to receive(:create_platform_endpoint).and_return(endpoint_arn: "arn")
+      allow(@sns_client).to receive(:create_platform_endpoint).and_return(endpoint_arn: "arn")
       user.access_tokens.each_with_index { |ac, i| ac.notification_endpoints.create!(token: "token #{i}") }
     end
 
@@ -3367,7 +4052,7 @@ describe UsersController do
       user_session(user2)
 
       delete "terminate_sessions", params: { id: user.id }, format: :json
-      expect(response).to have_http_status :unauthorized
+      expect(response).to have_http_status :forbidden
     end
 
     it "allows admin to terminate sessions" do
@@ -3388,7 +4073,7 @@ describe UsersController do
 
       expect(response).to have_http_status :ok
       expect(user.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
-      expect(user.reload.notification_endpoints.count).to be < starting_notification_endpoints_count
+      expect(user.reload.notification_endpoints.count).to eq(starting_notification_endpoints_count)
     end
 
     it "allows admin to expire mobile sessions for one user" do
@@ -3401,8 +4086,35 @@ describe UsersController do
       expect(user2.reload.access_tokens.take.permanent_expires_at).to be_nil
     end
 
+    it "does not allow admins to expire mobile sessions for users in other accounts" do
+      other_account = Account.create!(name: "Other Account")
+      other_user = user_with_pseudonym(active_all: true, account: other_account)
+      add_mobile_access_token(other_user)
+
+      user_session(admin)
+      delete "expire_mobile_sessions", params: { id: other_user.id }, format: :json
+
+      expect(response).to have_http_status :not_found
+      expect(other_user.reload.access_tokens.take.permanent_expires_at).to be_nil
+    end
+
+    it "allows admin to expire mobile sessions for everyone except active admins" do
+      other_admin = account_admin_user(user: user_with_pseudonym, active_all: true)
+      add_mobile_access_token(other_admin)
+
+      user2.account_users.create! account: Account.default, workflow_state: "deleted"
+      add_mobile_access_token(user2)
+
+      user_session(admin)
+      delete "expire_mobile_sessions", params: { skip_admins: "1" }, format: :json
+      expect(response).to have_http_status :ok
+      expect(user.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
+      expect(user2.reload.access_tokens.take.permanent_expires_at).to be <= Time.zone.now
+      expect(other_admin.reload.access_tokens.take.permanent_expires_at).to be_nil
+    end
+
     it "only expires access tokens associated to mobile app developer keys" do
-      dev_key = DeveloperKey.create!
+      dev_key = DeveloperKey.create!(name: "dev key")
       user2.access_tokens.create!(developer_key: dev_key)
 
       user_session(admin)
@@ -3427,7 +4139,7 @@ describe UsersController do
       @user1 = @user
       @user2 = user_factory(active_all: true)
       put "settings", params: { id: @user2.id, collapse_course_nav: true }, format: "json"
-      assert_unauthorized
+      assert_forbidden
     end
 
     it "updates collapse_course_nav preference to true" do
@@ -3479,6 +4191,407 @@ describe UsersController do
       allow(controller).to receive(:use_classic_font?).and_return(false)
       get "show_k5_dashboard", format: "json"
       expect(json_parse["use_classic_font"]).to be_falsey
+    end
+  end
+
+  describe "#clear_cache" do
+    it "does not allow non-site-admins" do
+      user = user_with_pseudonym(active_all: true)
+      user_session(user)
+      post :clear_cache, params: { id: user.id }
+      expect(response).to be_unauthorized
+    end
+
+    it "allows site-admins" do
+      user = user_with_pseudonym(active_all: true)
+      Account.site_admin.account_users.create!(user:)
+      user_session(user)
+      target_user = user_with_pseudonym(active_all: true)
+      post :clear_cache, params: { id: target_user.id }
+      expect(response).to be_successful
+      expect(json_parse["status"]).to eq("ok")
+    end
+  end
+
+  describe "#destroy" do
+    it "does not allow non-site-admins" do
+      user = user_with_pseudonym(active_all: true)
+      user_session(user)
+      delete :destroy, params: { id: user.id }
+      expect(response).to be_unauthorized
+    end
+
+    it "allows site-admins" do
+      user = user_with_pseudonym(active_all: true)
+      Account.site_admin.account_users.create!(user:)
+      user_session(user)
+      target_user = user_with_pseudonym(active_all: true)
+      delete :destroy, params: { id: target_user.id }
+      expect(response).to be_successful
+      expect(json_parse["deleted"]).to be true
+      expect(json_parse["status"]).to eq("ok")
+    end
+  end
+
+  describe "dashboard with course grades" do
+    before do
+      Account.default.enable_feature!(:widget_dashboard)
+    end
+
+    context "when student accesses their own dashboard" do
+      before do
+        course_with_student(active_all: true)
+        @student.update!(preferences: @student.preferences.merge(widget_dashboard_user_preference: true))
+        user_session(@student)
+      end
+
+      it "shows course grades with percentage grading scheme when standard disabled" do
+        @course.grading_standard_enabled = false
+        @course.save!
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data).to be_present
+        expect(course_data.first[:gradingScheme]).to eq("percentage")
+      end
+
+      it "shows course grades with grading standard data when letter grading enabled" do
+        @course.grading_standard_enabled = true
+        @course.grading_standard = @course.grading_standards.create!(
+          title: "Letter Grading Scheme",
+          data: { "A" => 0.9, "F" => 0 },
+          scaling_factor: 1.0,
+          points_based: false,
+          workflow_state: "active"
+        )
+        @course.save!
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data).to be_present
+        expect(course_data.first[:gradingScheme]).to be_an(Array)
+        expect(course_data.first[:gradingScheme]).to include(["A", 0.9])
+      end
+
+      it "includes courses when hide_final_grades is false" do
+        @course.settings = @course.settings.merge(hide_final_grades: false)
+        @course.save!
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data).to be_present
+        expect(course_data.first[:courseId]).to eq(@course.id.to_s)
+      end
+    end
+
+    context "when observer accesses observed student dashboard" do
+      before do
+        course_with_student(active_all: true)
+        @observer = user_with_pseudonym(active_all: true)
+        @observer.update!(preferences: @observer.preferences.merge(widget_dashboard_user_preference: true))
+        @course.enroll_user(@observer, "ObserverEnrollment", associated_user_id: @student.id, enrollment_state: "active")
+        user_session(@observer)
+        session[:observed_user_id] = @student.id
+      end
+
+      it "shows observed student's course grades when enrollment grants read_grades permission" do
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data).to be_present
+        expect(course_data.first[:courseId]).to eq(@course.id.to_s)
+      end
+
+      it "excludes courses when observer lacks all grade permissions" do
+        @course.enroll_user(@observer, "ObserverEnrollment", enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA] || []
+        student_courses = course_data.select { |c| c[:courseId] == @course.id.to_s }
+        expect(student_courses).to be_empty
+      end
+    end
+
+    context "grade priority and display" do
+      before do
+        course_with_student(active_all: true)
+        @student.update!(preferences: @student.preferences.merge(widget_dashboard_user_preference: true))
+        user_session(@student)
+        @assignment = @course.assignments.create!(title: "Test", points_possible: 100)
+      end
+
+      it "displays override score when course allows final grade override" do
+        @course.enable_feature!(:final_grades_override)
+        @course.update!(allow_final_grade_override: true)
+
+        submission = @assignment.submit_homework(@student, body: "test")
+        submission.update_column(:score, 80)
+        score = @enrollment.find_score(course_score: true)
+        score.update!(override_score: 95, current_score: 80)
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data.first[:currentGrade]).to eq(95.0)
+      end
+
+      it "displays current score when override exists but course does not allow final grade override" do
+        @course.disable_feature!(:final_grades_override)
+
+        submission = @assignment.submit_homework(@student, body: "test")
+        submission.update_column(:score, 80)
+        score = @enrollment.find_score(course_score: true)
+        score.update!(override_score: 95, current_score: 80)
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data.first[:currentGrade]).to eq(80.0)
+      end
+
+      it "matches mobile API grade calculation (effective_current_score) with override allowed" do
+        @course.enable_feature!(:final_grades_override)
+        @course.update!(allow_final_grade_override: true)
+
+        submission = @assignment.submit_homework(@student, body: "test")
+        submission.update_column(:score, 80)
+        score = @enrollment.find_score(course_score: true)
+        score.update!(override_score: 95, current_score: 80, final_score: 85)
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expected_grade = @enrollment.effective_current_score(course_score: true)
+        expect(course_data.first[:currentGrade]).to eq(expected_grade)
+      end
+
+      it "matches mobile API grade calculation (effective_current_score) with override not allowed" do
+        @course.disable_feature!(:final_grades_override)
+
+        submission = @assignment.submit_homework(@student, body: "test")
+        submission.update_column(:score, 80)
+        score = @enrollment.find_score(course_score: true)
+        score.update!(override_score: 95, current_score: 80, final_score: 85)
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expected_grade = @enrollment.effective_current_score(course_score: true)
+        expect(course_data.first[:currentGrade]).to eq(expected_grade)
+        expect(expected_grade).to eq(80.0)
+      end
+
+      it "displays current score when no override present" do
+        submission = @assignment.submit_homework(@student, body: "test")
+        submission.update_column(:score, 85)
+        score = @enrollment.find_score(course_score: true)
+        score.update!(current_score: 80, final_score: 85)
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        expect(course_data.first[:currentGrade]).to eq(80.0)
+      end
+
+      it "sorts courses alphabetically by name" do
+        course_with_student_logged_in(active_all: true)
+        @user.update!(preferences: @user.preferences.merge(widget_dashboard_user_preference: true))
+        @course.update!(name: "Zebra Course")
+
+        @course2 = course_factory(active_all: true)
+        @course2.update!(name: "Apple Course")
+        @course2.enroll_student(@user, enrollment_state: "active")
+
+        get :user_dashboard
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_names = course_data.pluck(:courseName)
+
+        expect(course_names).to eq(["Apple Course", "Zebra Course"])
+      end
+    end
+
+    context "enrollment filtering" do
+      before do
+        @student = user_factory(active_all: true)
+        @student.update!(preferences: @student.preferences.merge(widget_dashboard_user_preference: true))
+        @current_course = course_factory(active_all: true)
+        @current_course.enroll_student(@student, enrollment_state: "active")
+        user_session(@student)
+      end
+
+      it "excludes courses with section dates in the past" do
+        # Create a course with section that ended
+        past_course = course_factory(active_all: true)
+        past_section = past_course.course_sections.create!(name: "Past Section", end_at: 1.week.ago)
+        past_course.enroll_student(@student, section: past_section, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include current course but not past course
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(past_course.id.to_s)
+      end
+
+      it "excludes courses with conclude_at dates in the past" do
+        # Create a course that concluded
+        past_course = course_factory(active_all: true)
+        past_course.update!(conclude_at: 1.week.ago)
+        past_course.enroll_student(@student, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include current course but not concluded course
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(past_course.id.to_s)
+      end
+
+      it "excludes completed enrollments" do
+        # Create a new student with only one course to test completed enrollment
+        student = user_factory(active_all: true)
+        course = course_factory(active_all: true)
+        enrollment = course.enroll_student(student, enrollment_state: "active")
+
+        # Conclude the enrollment
+        enrollment.workflow_state = "completed"
+        enrollment.save!
+
+        user_session(student)
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA] || []
+        expect(course_data).to be_empty
+      end
+
+      it "excludes hard inactive enrollments" do
+        # Create a new student with only one course to test inactive enrollment
+        student = user_factory(active_all: true)
+        course = course_factory(active_all: true)
+        enrollment = course.enroll_student(student, enrollment_state: "active")
+
+        # Make enrollment inactive
+        enrollment.workflow_state = "inactive"
+        enrollment.save!
+
+        user_session(student)
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA] || []
+        expect(course_data).to be_empty
+      end
+
+      it "excludes elementary homeroom courses for students" do
+        # Enable elementary subject setting
+        @current_course.account.enable_as_k5_account!
+
+        # Create an elementary homeroom course
+        homeroom = course_factory(active_all: true)
+        homeroom.homeroom_course = true
+        homeroom.save!
+        homeroom.enroll_student(@student, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include regular course but not homeroom
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(homeroom.id.to_s)
+      end
+
+      it "excludes horizon courses for students" do
+        # Enable the horizon course feature flag
+        @current_course.account.enable_feature!(:horizon_course_setting)
+
+        # Create a horizon course
+        horizon = course_factory(active_all: true)
+        horizon.update!(horizon_course: true)
+        horizon.enroll_student(@student, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include regular course but not horizon
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(horizon.id.to_s)
+      end
+
+      it "excludes unpublished courses for students" do
+        # Create an unpublished course
+        unpublished = course_factory
+        unpublished.workflow_state = "claimed"
+        unpublished.save!
+        unpublished.enroll_student(@student, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include published course but not unpublished
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(unpublished.id.to_s)
+      end
+    end
+
+    context "observer enrollment filtering" do
+      before do
+        @student = user_factory(active_all: true)
+        @observer = user_with_pseudonym(active_all: true)
+        @observer.update!(preferences: @observer.preferences.merge(widget_dashboard_user_preference: true))
+        @current_course = course_factory(active_all: true)
+        @current_course.enroll_student(@student, enrollment_state: "active")
+        @current_course.enroll_user(@observer, "ObserverEnrollment", associated_user_id: @student.id, enrollment_state: "active")
+        user_session(@observer)
+        session[:observed_user_id] = @student.id
+      end
+
+      it "excludes observed student's past courses" do
+        # Create a past course for the student
+        past_course = course_factory(active_all: true)
+        past_section = past_course.course_sections.create!(name: "Past Section", end_at: 1.week.ago)
+        past_course.enroll_student(@student, section: past_section, enrollment_state: "active")
+        past_course.enroll_user(@observer, "ObserverEnrollment", associated_user_id: @student.id, enrollment_state: "active")
+
+        get :user_dashboard
+        expect(response).to be_successful
+
+        course_data = assigns[:js_env][:SHARED_COURSE_DATA]
+        course_ids = course_data.pluck(:courseId)
+
+        # Should include current course but not past course
+        expect(course_ids).to include(@current_course.id.to_s)
+        expect(course_ids).not_to include(past_course.id.to_s)
+      end
     end
   end
 end

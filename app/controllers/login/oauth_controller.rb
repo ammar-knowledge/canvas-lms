@@ -19,11 +19,11 @@
 #
 
 class Login::OAuthController < Login::OAuthBaseController
-  def new
-    super
+  skip_before_action :require_user, only: %i[new create]
 
+  def new
     timeout_protection do
-      request_token = @aac.consumer.get_request_token(oauth_callback: callback_uri)
+      request_token = aac.consumer.get_request_token(oauth_callback: callback_uri)
       session[:oauth] = {
         callback_confirmed: request_token.callback_confirmed?,
         request_token: request_token.token,
@@ -67,5 +67,9 @@ class Login::OAuthController < Login::OAuthBaseController
 
   def callback_uri
     oauth_login_callback_url(id: @aac.global_id)
+  end
+
+  def auth_type
+    "oauth"
   end
 end

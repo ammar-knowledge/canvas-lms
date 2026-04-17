@@ -17,38 +17,39 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require_relative "../../../lti_1_3_spec_helper"
-
 RSpec.shared_context "lti_advantage_shared_examples" do
-  include_context "lti_1_3_spec_helper"
+  include_context "key_storage_helper"
 
   let(:return_url) { "http://www.platform.com/return_url" }
   let(:opts) { { resource_type: "course_navigation" } }
   let(:lti_assignment) { Lti::LtiAssignmentCreator.new(assignment).convert }
   let(:deep_linking_return_url) { "http://www.test.cop/success" }
   let(:controller) do
-    controller = double("controller")
+    controller = instance_double(ApplicationController)
     allow(controller).to receive_messages(request:, polymorphic_url: deep_linking_return_url)
     allow(controller).to receive(:params)
     controller
   end
   # All this setup just so we can stub out controller.*_url methods
   let(:request) do
-    request = double("request")
+    request = instance_double(ActionDispatch::Request)
     allow(request).to receive_messages(url: "https://localhost", host: "/my/url", scheme: "https")
     request
+  end
+  let(:expander_opts) do
+    {
+      current_user: user,
+      tool:,
+      assignment:,
+      collaboration:
+    }
   end
   let(:expander) do
     Lti::VariableExpander.new(
       course.root_account,
       course,
       controller,
-      {
-        current_user: user,
-        tool:,
-        assignment:,
-        collaboration:
-      }
+      expander_opts
     )
   end
   let(:collaboration) { nil }
@@ -65,36 +66,30 @@ RSpec.shared_context "lti_advantage_shared_examples" do
     @course
   end
 
-  let(:tool) do
-    tool = course.context_external_tools.new(
-      name: "bob",
-      consumer_key: "key",
-      shared_secret: "secret",
-      url: "http://www.example.com/basic_lti"
-    )
-    tool.course_navigation = {
-      enabled: true,
-      message_type: "ResourceLinkRequest",
-      selection_width: "500",
-      selection_height: "400",
-      custom_fields: {
-        has_expansion: "$User.id",
-        no_expansion: "foo"
-      }
-    }
-    tool.use_1_3 = true
-    tool.developer_key = developer_key
-    tool.save!
-    tool
-  end
-  let(:developer_key) do
-    DeveloperKey.create!(
-      name: "Developer Key With Scopes",
+  let(:registration) do
+    lti_registration_with_tool(
       account: course.root_account,
-      scopes: developer_key_scopes,
-      require_scopes: true
+      developer_key_params: { scopes: developer_key_scopes },
+      configuration_params: {
+        target_link_uri: "http://www.example.com/basic_lti",
+        oidc_initiation_url: "http://www.example.com/basic_lti",
+        domain: "www.example.com",
+        placements: [
+          {
+            placement: "course_navigation",
+            message_type: "LtiResourceLinkRequest",
+            selection_width: 500,
+            selection_height: 400,
+            custom_fields: {
+              has_expansion: "$User.id",
+              no_expansion: "foo"
+            }
+          }
+        ]
+      }
     )
   end
+  let(:tool) { registration.deployments.first }
   let(:developer_key_scopes) { [] }
 
   shared_examples_for "lti 1.3 message initialization" do

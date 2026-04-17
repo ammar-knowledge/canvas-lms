@@ -23,12 +23,6 @@ unless $canvas_tasks_loaded
   namespace :canvas do
     desc "Compile javascript and css assets."
     task :compile_assets do # rubocop:disable Rails/RakeEnvironment
-      # running :environment as a prerequisite task is necessary even if we don't
-      # need it for this task: forked processes (through Parallel) that invoke other
-      # Rake tasks may require the Rails environment and for some reason, Rake will
-      # not re-run the environment task when forked
-      require_relative "../../config/environment" rescue nil
-
       # opt out
       npm_install = ENV["COMPILE_ASSETS_NPM_INSTALL"] != "0"
       build_api_docs = ENV["COMPILE_ASSETS_API_DOCS"] != "0"
@@ -109,9 +103,12 @@ unless $canvas_tasks_loaded
 
       sentry_cli_path = (ENV["SENTRY_CLI_GLOBAL"] == "1") ? "sentry-cli" : "yarn run sentry-cli"
 
+      puts "--> Injecting Sentry debug IDs into source maps"
+      system "#{sentry_cli_path} sourcemaps inject public/dist/ --ignore-file .sentryignore"
+
       puts "--> Uploading source maps to Sentry at #{args.url}"
       system "SENTRY_AUTH_TOKEN=#{args.auth_token} SENTRY_URL=#{args.url} SENTRY_ORG=#{args.org} #{sentry_cli_path} " \
-             "releases --project #{args.project} files #{args.version} upload-sourcemaps public/dist/ --ignore-file " \
+             "sourcemaps upload --project #{args.project} --release #{args.version} public/dist/ --ignore-file " \
              ".sentryignore --url-prefix '~/dist/'"
     end
 
@@ -162,9 +159,9 @@ unless $canvas_tasks_loaded
     task pending_migrations: :environment do
       ActiveRecord::Migrator.new(
         :up,
-        ActiveRecord::Base.connection.migration_context.migrations,
-        ActiveRecord::Base.connection.schema_migration,
-        ActiveRecord::InternalMetadata.new(ActiveRecord::Base.connection)
+        ActiveRecord::Base.migration_context.migrations,
+        ActiveRecord::Base.schema_migration,
+        ActiveRecord::Base.internal_metadata
       ).pending_migrations.each do |pending_migration|
         tags = pending_migration.tags
         tags = " (#{tags.join(", ")})" unless tags.empty?
@@ -175,9 +172,9 @@ unless $canvas_tasks_loaded
     desc "Shows skipped db migrations."
     task skipped_migrations: :environment do
       ActiveRecord::Migrator.new(:up,
-                                 ActiveRecord::Base.connection.migration_context.migrations,
-                                 ActiveRecord::Base.connection.schema_migration,
-                                 ActiveRecord::InternalMetadata.new(ActiveRecord::Base.connection)).skipped_migrations.each do |skipped_migration|
+                                 ActiveRecord::Base.migration_context.migrations,
+                                 ActiveRecord::Base.schema_migration,
+                                 ActiveRecord::Base.internal_metadata).skipped_migrations.each do |skipped_migration|
         tags = skipped_migration.tags
         tags = " (#{tags.join(", ")})" unless tags.empty?
         puts "  %4d %s%s" % [skipped_migration.version, skipped_migration.name, tags]
@@ -191,12 +188,12 @@ unless $canvas_tasks_loaded
       # When all callsites are migrated, this task
       # definition can be dropped.
       task predeploy: [:environment, :load_config] do
-        migrations = ActiveRecord::Base.connection.migration_context.migrations
+        migrations = ActiveRecord::Base.migration_context.migrations
         migrations = migrations.select { |m| m.tags.include?(:predeploy) }
         ActiveRecord::Migrator.new(:up,
                                    migrations,
-                                   ActiveRecord::Base.connection.schema_migration,
-                                   ActiveRecord::InternalMetadata.new(ActiveRecord::Base.connection))
+                                   ActiveRecord::Base.schema_migration,
+                                   ActiveRecord::Base.internal_metadata)
                               .migrate
       end
     end
@@ -208,16 +205,18 @@ unless $canvas_tasks_loaded
 
         config = ActiveRecord::Base.configurations.find_db_config("test")
         queue = config.configuration_hash[:queue]
-        ActiveRecord::Tasks::DatabaseTasks.drop(queue) if queue rescue nil
-        ActiveRecord::Tasks::DatabaseTasks.drop(config) rescue nil
+        begin
+          ActiveRecord::Tasks::DatabaseTasks.drop(queue) if queue
+        rescue
+          # ignore
+        end
+        begin
+          ActiveRecord::Tasks::DatabaseTasks.drop(config)
+        rescue
+          # ignore
+        end
         ActiveRecord::Base.connection_handler.clear_all_connections!
         Shard.default(reload: true) # make sure we know that sharding isn't set up yet
-        CanvasCassandra::DatabaseBuilder.config_names.each do |cass_config|
-          db = CanvasCassandra::DatabaseBuilder.from_config(cass_config)
-          db.tables.each do |table|
-            db.execute("DROP TABLE #{table}")
-          end
-        end
         ActiveRecord::Tasks::DatabaseTasks.create(queue) if queue
         ActiveRecord::Tasks::DatabaseTasks.create(config)
         ActiveRecord::Base.connection.schema_cache.clear!

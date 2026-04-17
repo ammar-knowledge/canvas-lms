@@ -23,7 +23,9 @@
 #   script/rails runner spec/fixtures/data_generation/generate_data.rb [options]
 #
 # In docker environment, run:
-#   docker-compose run web bundle exec rails runner spec/fixtures/data_generation/generate_data.rb [options]
+#   docker compose run web bundle exec rails runner spec/fixtures/data_generation/generate_data.rb [options]
+
+# rubocop:disable Rails/Exit, Rails/Output, RSpec/Output
 
 require_relative "../../factories/course_factory"
 require_relative "../../factories/user_factory"
@@ -36,13 +38,19 @@ require "optparse"
 # rubocop:disable Style/MixinUsage
 include Factories
 # rubocop:enable Style/MixinUsage
+
 # rubocop:enable Specs/ScopeIncludes
 
 # rubocop:disable Specs/ScopeHelperModules
-def toggle_k5_setting(account, enable = true)
+def toggle_k5_setting(account, enable: true)
   account.settings[:enable_as_k5_account] = { value: enable, locked: enable }
   account.root_account.settings[:k5_accounts] = enable ? [account.id] : []
   account.root_account.save!
+  account.save!
+end
+
+def toggle_horizon_setting(account, enable: true)
+  account.horizon_account = enable
   account.save!
 end
 
@@ -115,18 +123,19 @@ def course_with_students_enrolled
   @student_list
 end
 
-def create_assignment(course, title, points_possible = 10)
+def create_assignment(course, title, points_possible = 10, creator = @teacher)
   course.assignments.create!(
     title: "#{title} #{SecureRandom.alphanumeric(10)}",
     description: "General Assignment",
     points_possible:,
     submission_types: "online_text_entry",
-    workflow_state: "published"
+    workflow_state: "published",
+    saving_user: creator
   )
 end
 
 def create_discussion(course, creator, workflow_state = "published")
-  discussion_assignment = create_assignment(@course, "Discussion Assignment", 10)
+  discussion_assignment = create_assignment(@course, "Discussion Assignment", 10, creator)
   course.discussion_topics.create!(
     user: creator,
     title: "Discussion Topic #{SecureRandom.alphanumeric(10)}",
@@ -230,7 +239,7 @@ end
 
 def generate_k5_dashboard
   puts "Generate K5 Dashboard Homeroom and Subjects"
-  toggle_k5_setting(@root_account, true)
+  toggle_k5_setting(@root_account)
   course_with_teacher_enrolled
   homeroom = @course
   homeroom.homeroom_course = true
@@ -280,49 +289,82 @@ end
 def generate_mastery_path_course
   puts "Generate Course with Mastery Path"
   course_with_enrollments
+
   @course.conditional_release = true
   @course.save!
 
-  @trigger_assignment = create_assignment(@course, "Mastery Path Main Assignment", 10)
-  @set1_assmt1 = create_assignment(@course, "Set 1 Assessment 1", 10)
-  @set2_assmt1 = create_assignment(@course, "Set 2 Assessment 1", 10)
-  @set2_assmt2 = create_assignment(@course, "Set 2 Assessment 2", 10)
-  @set3a_assmt = create_assignment(@course, "Set 3a Assessment", 10)
-  @set3b_assmt = create_assignment(@course, "Set 3b Assessment", 10)
+  @trigger_assignment = @course.assignments.create!(
+    title: "Trigger Assignment",
+    grading_type: "points",
+    points_possible: 100,
+    # due_at: 1.day.ago(now),
+    submission_types: "online_text_entry"
+  )
 
-  graded_discussion = create_discussion(@course, @teacher)
+  @set1_assignment = @course.assignments.create!(
+    title: "Set 1 Assignment",
+    points_possible: 10,
+    only_visible_to_overrides: true
+  )
+  @set1_assignment.assignment_overrides.create!(
+    set_type: "Noop",
+    set_id: 1,
+    all_day: false,
+    title: "Mastery Paths",
+    unlock_at_overridden: true,
+    lock_at_overridden: true,
+    due_at_overridden: true
+  )
+  @set2_assignment = @course.assignments.create!(
+    title: "Set 2 Assignment",
+    points_possible: 10,
+    only_visible_to_overrides: true
+  )
+  @set2_assignment.assignment_overrides.create!(
+    set_type: "Noop",
+    set_id: 1,
+    all_day: false,
+    title: "Mastery Paths",
+    unlock_at_overridden: true,
+    lock_at_overridden: true,
+    due_at_overridden: true
+  )
+  @set3_assignment = @course.assignments.create!(
+    title: "Set 3 Assignment",
+    points_possible: 10,
+    only_visible_to_overrides: true
+  )
+  @set3_assignment.assignment_overrides.create!(
+    set_type: "Noop",
+    set_id: 1,
+    all_day: false,
+    title: "Mastery Paths",
+    unlock_at_overridden: true,
+    lock_at_overridden: true,
+    due_at_overridden: true
+  )
 
   course_module = @course.context_modules.create!(name: "Mastery Path Module")
   course_module.add_item(id: @trigger_assignment.id, type: "assignment")
-  course_module.add_item(id: @set1_assmt1.id, type: "assignment")
-  course_module.add_item(id: graded_discussion.id, type: "discussion_topic")
-  course_module.add_item(id: @set2_assmt1.id, type: "assignment")
-  course_module.add_item(id: @set2_assmt2.id, type: "assignment")
-  course_module.add_item(id: @set3a_assmt.id, type: "assignment")
-  course_module.add_item(id: @set3b_assmt.id, type: "assignment")
+  course_module.add_item(id: @set1_assignment.id, type: "assignment")
+  course_module.add_item(id: @set2_assignment.id, type: "assignment")
+  course_module.add_item(id: @set3_assignment.id, type: "assignment")
 
   ranges = [
     ConditionalRelease::ScoringRange.new(lower_bound: 0.7, upper_bound: 1.0, assignment_sets: [
                                            ConditionalRelease::AssignmentSet.new(assignment_set_associations: [
-                                                                                   ConditionalRelease::AssignmentSetAssociation.new(assignment_id: @set1_assmt1.id),
-                                                                                   ConditionalRelease::AssignmentSetAssociation.new(assignment_id: graded_discussion.assignment_id)
+                                                                                   ConditionalRelease::AssignmentSetAssociation.new(assignment_id: @set1_assignment.id)
                                                                                  ])
                                          ]),
     ConditionalRelease::ScoringRange.new(lower_bound: 0.4, upper_bound: 0.7, assignment_sets: [
                                            ConditionalRelease::AssignmentSet.new(assignment_set_associations: [
-                                                                                   ConditionalRelease::AssignmentSetAssociation.new(assignment_id: @set2_assmt1.id),
-                                                                                   ConditionalRelease::AssignmentSetAssociation.new(assignment_id: @set2_assmt2.id)
+                                                                                   ConditionalRelease::AssignmentSetAssociation.new(assignment_id: @set2_assignment.id)
                                                                                  ])
                                          ]),
     ConditionalRelease::ScoringRange.new(lower_bound: 0, upper_bound: 0.4, assignment_sets: [
                                            ConditionalRelease::AssignmentSet.new(
                                              assignment_set_associations: [ConditionalRelease::AssignmentSetAssociation.new(
-                                               assignment_id: @set3a_assmt.id
-                                             )]
-                                           ),
-                                           ConditionalRelease::AssignmentSet.new(
-                                             assignment_set_associations: [ConditionalRelease::AssignmentSetAssociation.new(
-                                               assignment_id: @set3b_assmt.id
+                                               assignment_id: @set3_assignment.id
                                              )]
                                            )
                                          ])
@@ -401,7 +443,6 @@ def generate_course_pace_course
   course_with_teacher_enrolled
   course_with_students_enrolled
 
-  @root_account.enable_feature!(:course_paces)
   @course.update(enable_course_paces: true)
 
   module1 = create_module(@course)
@@ -419,6 +460,280 @@ def generate_course_pace_course
   puts "Assignment 2 ID is #{assignment2.id}"
   puts "Discussion ID is #{discussion1.id}"
   puts "Module ID is #{module1.id}"
+end
+
+def generate_mega_course
+  puts "Generate Mega Course with #{@mega_course} learning objects"
+  course_with_teacher_enrolled
+  course_with_students_enrolled
+
+  items_per_course_module = 20
+  course_modules = []
+
+  number_of_course_modules = @mega_course / items_per_course_module
+  last_module_number_of_items = @mega_course % items_per_course_module
+  if last_module_number_of_items >> 0
+    number_of_course_modules += 1
+  end
+
+  number_of_course_modules.times do
+    course_modules << create_module(@course)
+  end
+
+  course_modules.each_with_index do |course_module, module_number|
+    items_per_course_module = if module_number == number_of_course_modules - 1 && last_module_number_of_items > 0
+                                last_module_number_of_items
+                              else
+                                20
+                              end
+
+    item_types = %w[assignment discussion_topic quiz wiki_page]
+
+    item_types.cycle.take(items_per_course_module).each do |item_type|
+      learning_object = case item_type
+                        when "assignment"
+                          create_assignment(@course, "Mega Assignment")
+                        when "discussion_topic"
+                          create_discussion(@course, @teacher)
+                        when "quiz"
+                          create_quiz(@course)
+                        when "wiki_page"
+                          create_wiki_page(@course)
+                        end
+
+      course_module.add_item(id: learning_object.id, type: item_type)
+    end
+  end
+
+  assignment_list = @course.assignments
+  wiki_page_list = @course.wiki_pages
+
+  assignment_list.each do |assignment|
+    Assignment.suspend_due_date_caching do
+      @student_list.each do |student|
+        ao = assignment.assignment_overrides.create!
+        ao.assignment_override_students.create!(user: student)
+      end
+    end
+  end
+
+  wiki_page_list.each do |wiki_page|
+    @student_list.each do |student|
+      ao = wiki_page.assignment_overrides.create!
+      ao.assignment_override_students.create!(user: student)
+    end
+  end
+
+  print_standard_course_info
+end
+
+def enable_horizon_for_account(account = @root_account)
+  Account.site_admin.enable_feature!(:horizon_course_setting) unless Account.site_admin.feature_enabled?(:horizon_course_setting)
+  toggle_horizon_setting(account, enable: true)
+end
+
+def generate_horizon_hierarchy_with_users(root_is_horizon: false)
+  puts "Generate Horizon/Academic Account Hierarchy with Programs, Users and Courses"
+
+  @root_account.enable_feature!(:horizon_course_setting) unless @root_account.feature_enabled?(:horizon_course_setting)
+
+  if root_is_horizon
+    toggle_horizon_setting(@root_account, enable: true)
+  end
+
+  created_count = { accounts: 0, users: 0, courses: 0, enrollments: 0 }
+  skipped_count = { accounts: 0, users: 0, courses: 0, enrollments: 0 }
+
+  3.times do |i|
+    admin_name = "Root Admin #{i + 1}"
+    admin_user = User.find_by(name: admin_name)
+    if admin_user
+      skipped_count[:users] += 1
+    else
+      admin_user = User.create!(name: admin_name)
+      admin_user.register!
+      created_count[:users] += 1
+    end
+
+    admin_role = Role.get_built_in_role("AccountAdmin", root_account_id: @root_account.id)
+    unless @root_account.account_users.where(user: admin_user, role: admin_role).exists?
+      @root_account.account_users.create!(user: admin_user, role: admin_role)
+    end
+  end
+
+  top_level_accounts = []
+
+  if root_is_horizon
+    10.times do |i|
+      account_name = "Horizon Account #{i + 1}"
+      account = @root_account.sub_accounts.find_by(name: account_name)
+      if account
+        skipped_count[:accounts] += 1
+      else
+        account = @root_account.sub_accounts.create!(name: account_name)
+        created_count[:accounts] += 1
+      end
+      top_level_accounts << { account:, horizon: true }
+
+      admin_name = "#{account.name} Admin"
+      admin_user = User.find_by(name: admin_name)
+      if admin_user
+        skipped_count[:users] += 1
+      else
+        admin_user = User.create!(name: admin_name)
+        admin_user.register!
+        created_count[:users] += 1
+      end
+
+      admin_role = Role.get_built_in_role("AccountAdmin", root_account_id: @root_account.id)
+      unless account.account_users.where(user: admin_user, role: admin_role).exists?
+        account.account_users.create!(user: admin_user, role: admin_role)
+      end
+    end
+  else
+    5.times do |i|
+      account_name = "Horizon Account #{i + 1}"
+      account = @root_account.sub_accounts.find_by(name: account_name)
+      if account
+        skipped_count[:accounts] += 1
+      else
+        account = @root_account.sub_accounts.create!(name: account_name)
+        created_count[:accounts] += 1
+      end
+      toggle_horizon_setting(account, enable: true)
+      top_level_accounts << { account:, horizon: true }
+
+      admin_name = "#{account.name} Admin"
+      admin_user = User.find_by(name: admin_name)
+      if admin_user
+        skipped_count[:users] += 1
+      else
+        admin_user = User.create!(name: admin_name)
+        admin_user.register!
+        created_count[:users] += 1
+      end
+
+      admin_role = Role.get_built_in_role("AccountAdmin", root_account_id: @root_account.id)
+      unless account.account_users.where(user: admin_user, role: admin_role).exists?
+        account.account_users.create!(user: admin_user, role: admin_role)
+      end
+    end
+
+    5.times do |i|
+      account_name = "Academic Account #{i + 1}"
+      account = @root_account.sub_accounts.find_by(name: account_name)
+      if account
+        skipped_count[:accounts] += 1
+      else
+        account = @root_account.sub_accounts.create!(name: account_name)
+        created_count[:accounts] += 1
+      end
+      top_level_accounts << { account:, horizon: false }
+
+      admin_name = "#{account.name} Admin"
+      admin_user = User.find_by(name: admin_name)
+      if admin_user
+        skipped_count[:users] += 1
+      else
+        admin_user = User.create!(name: admin_name)
+        admin_user.register!
+        created_count[:users] += 1
+      end
+
+      admin_role = Role.get_built_in_role("AccountAdmin", root_account_id: @root_account.id)
+      unless account.account_users.where(user: admin_user, role: admin_role).exists?
+        account.account_users.create!(user: admin_user, role: admin_role)
+      end
+    end
+  end
+
+  top_level_accounts.each do |item|
+    parent_account = item[:account]
+
+    5.times do |i|
+      program_name = "#{parent_account.name} - Program #{i + 1}"
+      program_account = parent_account.sub_accounts.find_by(name: program_name)
+      if program_account
+        skipped_count[:accounts] += 1
+      else
+        program_account = parent_account.sub_accounts.create!(
+          name: program_name,
+          root_account: @root_account
+        )
+        created_count[:accounts] += 1
+      end
+
+      admin_name = "#{program_account.name} Admin"
+      admin_user = User.find_by(name: admin_name)
+      if admin_user
+        skipped_count[:users] += 1
+      else
+        admin_user = User.create!(name: admin_name)
+        admin_user.register!
+        created_count[:users] += 1
+      end
+
+      admin_role = Role.get_built_in_role("AccountAdmin", root_account_id: @root_account.id)
+      unless program_account.account_users.where(user: admin_user, role: admin_role).exists?
+        program_account.account_users.create!(user: admin_user, role: admin_role)
+      end
+
+      3.times do |j|
+        teacher_name = "#{program_account.name} Teacher #{j + 1}"
+        teacher = User.find_by(name: teacher_name)
+        if teacher
+          skipped_count[:users] += 1
+        else
+          teacher = User.create!(name: teacher_name)
+          teacher.register!
+          created_count[:users] += 1
+        end
+
+        course_name = "#{program_account.name} - Course #{j + 1}"
+        course = program_account.courses.find_by(name: course_name)
+        if course
+          skipped_count[:courses] += 1
+        else
+          course = program_account.courses.create!(
+            name: course_name,
+            workflow_state: "available",
+            root_account: @root_account
+          )
+          created_count[:courses] += 1
+        end
+
+        if course.enrollments.where(user: teacher, type: "TeacherEnrollment").exists?
+          skipped_count[:enrollments] += 1
+        else
+          course.enroll_teacher(teacher, enrollment_state: "active")
+          created_count[:enrollments] += 1
+        end
+
+        5.times do |k|
+          student_name = "Student #{k + 1} in #{course.name}"
+          student = User.find_by(name: student_name)
+          if student
+            skipped_count[:users] += 1
+          else
+            student = User.create!(name: student_name)
+            student.register!
+            created_count[:users] += 1
+          end
+
+          if course.enrollments.where(user: student, type: "StudentEnrollment").exists?
+            skipped_count[:enrollments] += 1
+          else
+            course.enroll_student(student, enrollment_state: "active")
+            created_count[:enrollments] += 1
+          end
+        end
+      end
+    end
+  end
+
+  puts "\n=== Summary ==="
+  puts "Created: #{created_count[:accounts]} accounts, #{created_count[:users]} users, #{created_count[:courses]} courses, #{created_count[:enrollments]} enrollments"
+  puts "Skipped: #{skipped_count[:accounts]} accounts, #{skipped_count[:users]} users, #{skipped_count[:courses]} courses, #{skipped_count[:enrollments]} enrollments"
 end
 
 def create_all_the_available_data
@@ -445,13 +760,15 @@ def create_all_the_available_data
   generate_course_assignment_groups
   @course_name = save_course_name + " (course pace course)"
   generate_course_pace_course
+  @course_name = save_course_name + " (mega course)"
+  generate_mega_course
 end
 # rubocop:enable Specs/ScopeHelperModules
 
 options = {}
 ARGV << "-h" if ARGV.empty?
 option_parser = OptionParser.new do |opts|
-  opts.banner = "Usage: bin/rails runner spec/fixtures/data_generation/generate_data.rb [-abdgklmprsth] [-c course_name] [-n number_of_students]"
+  opts.banner = "Usage: bin/rails runner spec/fixtures/data_generation/generate_data.rb [-abdgklmprsthHoRz] [-c course_name] [-n number_of_students]"
   opts.on("-a", "--all_data", "Create all the available data with defaults")
   opts.on("-b", "--basic_course", "Course with teacher and students")
   opts.on("-c", "--course_name=COURSENAME", "Course Name")
@@ -467,9 +784,13 @@ option_parser = OptionParser.new do |opts|
   opts.on("-r", "--rubric", "Course with Outcome Rubric Assignment")
   opts.on("-s", "--submissions", "Course and Assignments and Submissions")
   opts.on("-t", "--sections", "Course with Students in Sections")
+  opts.on("-o", "--mega_course=MEGACOURSE", Integer, "Mega Course with Learning Objects and Overrides (default: 200)")
+  opts.on("-z", "--enable_horizon", "Enable Horizon for the root account")
+  opts.on("-H", "--horizon_hierarchy", "Create account hierarchy with mixed Horizon/Academic accounts, programs, users, and courses")
+  opts.on("-R", "--root_horizon", "Make root account a Horizon account (use with -H, creates only Horizon accounts)")
   opts.on_tail("-h", "--help", "Help") do
     puts opts
-    exit
+    exit 0
   end
 end
 
@@ -483,14 +804,21 @@ end
 @course_name = options.key?(:course_name) ? options[:course_name] : "Play Course"
 @number_of_students = options.key?(:num_students) ? options[:num_students] : 3
 root_account_id = options.key?(:account_id) ? options[:account_id] : 2
-
+puts "Root Account Id is #{root_account_id}"
 if (@root_account = Account.find_by(id: root_account_id)).nil?
   puts "Invalid Root Account Id: #{root_account_id}"
   puts option_parser.help
   exit 1
 end
 
+# mega course takes the number of learning objects to create
+@mega_course = options.key?(:mega_course) ? options[:mega_course] : 200
+
+enable_horizon = options.delete(:enable_horizon)
+root_horizon = options.delete(:root_horizon) || false
 options.except!(:course_name, :num_students, :account_id)
+
+enable_horizon_for_account(@root_account) if enable_horizon
 
 if options[:all_data]
   create_all_the_available_data
@@ -525,8 +853,14 @@ options.each_key do |key|
     generate_sections
   when :course_pace
     generate_course_pace_course
+  when :mega_course
+    generate_mega_course
+  when :horizon_hierarchy
+    generate_horizon_hierarchy_with_users(root_is_horizon: root_horizon)
   else raise "should never get here -- BIG FAIL"
   end
 end
 
 exit 0
+
+# rubocop:enable Rails/Exit, Rails/Output, RSpec/Output

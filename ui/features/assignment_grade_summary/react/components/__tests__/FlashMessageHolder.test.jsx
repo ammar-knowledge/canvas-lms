@@ -20,18 +20,20 @@ import React from 'react'
 import {render} from '@testing-library/react'
 import {Provider} from 'react-redux'
 
-import * as FlashAlert from '@canvas/alerts/react/FlashAlert'
+import * as FlashAlert from '@instructure/platform-alerts'
 import * as AssignmentActions from '../../assignment/AssignmentActions'
 import * as GradeActions from '../../grades/GradeActions'
 import * as StudentActions from '../../students/StudentActions'
 import FlashMessageHolder from '../FlashMessageHolder'
 import configureStore from '../../configureStore'
 
-/* eslint-disable qunit/no-identical-names */
-
-jest.mock('@canvas/alerts/react/FlashAlert', () => ({
-  showFlashAlert: jest.fn(),
-}))
+vi.mock('@instructure/platform-alerts', async () => {
+  const actual = await vi.importActual('@instructure/platform-alerts')
+  return {
+    ...actual,
+    showFlashAlert: vi.fn(),
+  }
+})
 
 describe('GradeSummary FlashMessageHolder', () => {
   let storeEnv
@@ -57,7 +59,7 @@ describe('GradeSummary FlashMessageHolder', () => {
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   function mountComponent() {
@@ -65,7 +67,7 @@ describe('GradeSummary FlashMessageHolder', () => {
     wrapper = render(
       <Provider store={store}>
         <FlashMessageHolder />
-      </Provider>
+      </Provider>,
     )
   }
 
@@ -158,7 +160,7 @@ describe('GradeSummary FlashMessageHolder', () => {
     beforeEach(() => {
       mountComponent()
       store.dispatch(
-        GradeActions.setBulkSelectProvisionalGradesStatus('1101', GradeActions.SUCCESS)
+        GradeActions.setBulkSelectProvisionalGradesStatus('1101', GradeActions.SUCCESS),
       )
     })
 
@@ -181,7 +183,7 @@ describe('GradeSummary FlashMessageHolder', () => {
     beforeEach(() => {
       mountComponent()
       store.dispatch(
-        GradeActions.setBulkSelectProvisionalGradesStatus('1101', GradeActions.FAILURE)
+        GradeActions.setBulkSelectProvisionalGradesStatus('1101', GradeActions.FAILURE),
       )
     })
 
@@ -200,7 +202,7 @@ describe('GradeSummary FlashMessageHolder', () => {
     })
   })
 
-  test('does not display a flash alert when releasing grades starts', () => {
+  test('does not display a flash alert when releasing grades starts (2)', () => {
     mountComponent()
     store.dispatch(AssignmentActions.setReleaseGradesStatus(AssignmentActions.STARTED))
     expect(FlashAlert.showFlashAlert).toHaveBeenCalledTimes(0)
@@ -370,7 +372,7 @@ describe('GradeSummary FlashMessageHolder', () => {
     beforeEach(() => {
       mountComponent()
       store.dispatch(
-        AssignmentActions.setReleaseGradesStatus(AssignmentActions.GRADES_ALREADY_RELEASED)
+        AssignmentActions.setReleaseGradesStatus(AssignmentActions.GRADES_ALREADY_RELEASED),
       )
     })
 
@@ -394,8 +396,8 @@ describe('GradeSummary FlashMessageHolder', () => {
       mountComponent()
       store.dispatch(
         AssignmentActions.setReleaseGradesStatus(
-          AssignmentActions.NOT_ALL_SUBMISSIONS_HAVE_SELECTED_GRADE
-        )
+          AssignmentActions.NOT_ALL_SUBMISSIONS_HAVE_SELECTED_GRADE,
+        ),
       )
     })
 
@@ -483,4 +485,3 @@ describe('GradeSummary FlashMessageHolder', () => {
     })
   })
 })
-/* eslint-enable qunit/no-identical-names */

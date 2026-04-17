@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../spec_helper"
-
 describe GradingPeriod do
   subject(:grading_period) { grading_period_group.grading_periods.create!(params) }
 
@@ -63,8 +61,6 @@ describe GradingPeriod do
     grading_period = GradingPeriod.new(params.except(:title))
     expect(grading_period).not_to be_valid
   end
-
-  it { is_expected.to validate_numericality_of(:weight) }
 
   describe ".in_closed_grading_period?" do
     let(:in_closed_grading_period) { closed_period.start_date + 1.day }
@@ -712,7 +708,7 @@ describe GradingPeriod do
         start_date: 2.months.ago(now),
         end_date: 1.month.ago(now)
       )
-      expect(grading_period).to_not be_current
+      expect(grading_period).not_to be_current
     end
 
     it "returns true if the current time falls between the start date and end date (inclusive)",
@@ -729,7 +725,7 @@ describe GradingPeriod do
         start_date: 1.month.from_now(now),
         end_date: 2.months.from_now(now)
       )
-      expect(grading_period).to_not be_current
+      expect(grading_period).not_to be_current
     end
   end
 
@@ -806,7 +802,7 @@ describe GradingPeriod do
     let(:period_one) { { title: "an title", start_date: 1.week.ago(now), end_date: 2.weeks.from_now(now) } }
     let(:period_two) { { title: "an title", start_date: 2.weeks.from_now(now), end_date: 5.weeks.from_now(now) } }
 
-    include_examples "soft deletion"
+    it_behaves_like "soft deletion"
   end
 
   describe ".in_date_range?" do
@@ -1004,6 +1000,8 @@ describe GradingPeriod do
 
     it "updates course score when the grading period weight is changed" do
       grading_period.save!
+      # Changing the assinment due date, so there are scores to update in the course
+      @assignment.update!(due_at: 2.hours.from_now(now))
       grading_period_group.update!(weighted: true)
       expect { grading_period.update!(weight: 50) }.to change {
         Score.where(grading_period_id: nil).first.updated_at

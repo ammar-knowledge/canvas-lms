@@ -26,7 +26,7 @@ import {
 import OutcomesContext from '@canvas/outcomes/react/contexts/OutcomesContext'
 import {defaultRatingsAndCalculationMethod} from '../Management/__tests__/helpers'
 
-jest.useFakeTimers()
+vi.useFakeTimers()
 
 describe('FindOutcomeItem', () => {
   let onMenuHandlerMock
@@ -52,7 +52,7 @@ describe('FindOutcomeItem', () => {
 
   const render = (
     children,
-    {friendlyDescriptionFF = true, accountLevelMasteryScalesFF = true, renderer = rtlRender} = {}
+    {friendlyDescriptionFF = true, accountLevelMasteryScalesFF = true, renderer = rtlRender} = {},
   ) => {
     return renderer(
       <OutcomesContext.Provider
@@ -64,17 +64,17 @@ describe('FindOutcomeItem', () => {
         }}
       >
         {children}
-      </OutcomesContext.Provider>
+      </OutcomesContext.Provider>,
     )
   }
 
   beforeEach(() => {
-    onMenuHandlerMock = jest.fn()
-    onImportOutcomeHandlerMock = jest.fn()
+    onMenuHandlerMock = vi.fn()
+    onImportOutcomeHandlerMock = vi.fn()
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   it('renders title if title prop passed', () => {
@@ -103,7 +103,7 @@ describe('FindOutcomeItem', () => {
 
   it('disables add button with Added as text if group has been imported', () => {
     const {getByText} = render(
-      <FindOutcomeItem {...defaultProps({importGroupStatus: IMPORT_COMPLETED})} />
+      <FindOutcomeItem {...defaultProps({importGroupStatus: IMPORT_COMPLETED})} />,
     )
     expect(getByText('Added')).toBeInTheDocument()
     expect(getByText('Added').closest('button')).toBeDisabled()
@@ -111,7 +111,7 @@ describe('FindOutcomeItem', () => {
 
   it('displays spinner for outcome if group import is pending and outcome import is not completed', () => {
     const {queryByText, getByTestId} = render(
-      <FindOutcomeItem {...defaultProps({importGroupStatus: IMPORT_PENDING})} />
+      <FindOutcomeItem {...defaultProps({importGroupStatus: IMPORT_PENDING})} />,
     )
     expect(getByTestId('outcome-import-pending')).toBeInTheDocument()
     expect(queryByText('Add')).not.toBeInTheDocument()
@@ -124,7 +124,7 @@ describe('FindOutcomeItem', () => {
           importGroupStatus: IMPORT_PENDING,
           importOutcomeStatus: IMPORT_COMPLETED,
         })}
-      />
+      />,
     )
     expect(queryByTestId('outcome-import-pending')).not.toBeInTheDocument()
     expect(getByText('Added')).toBeInTheDocument()
@@ -150,7 +150,7 @@ describe('FindOutcomeItem', () => {
   describe('Assuming the description is over a line', () => {
     it('displays down pointing caret when description is expanded', () => {
       const {queryByTestId, getByText} = render(
-        <FindOutcomeItem {...defaultProps({description: '<p>Aa</p><p>Bb</p>'})} />
+        <FindOutcomeItem {...defaultProps({description: '<p>Aa</p><p>Bb</p>'})} />,
       )
       fireEvent.click(getByText('Expand description for outcome Outcome Title'))
       expect(queryByTestId('icon-arrow-down')).toBeInTheDocument()
@@ -158,7 +158,7 @@ describe('FindOutcomeItem', () => {
 
     it('expands description when user clicks on right pointing caret', () => {
       const {queryByTestId, getByText} = render(
-        <FindOutcomeItem {...defaultProps({description: '<p>Aa</p><p>Bb</p>'})} />
+        <FindOutcomeItem {...defaultProps({description: '<p>Aa</p><p>Bb</p>'})} />,
       )
       fireEvent.click(getByText('Expand description for outcome Outcome Title'))
       expect(queryByTestId('description-expanded')).toBeInTheDocument()
@@ -166,7 +166,7 @@ describe('FindOutcomeItem', () => {
 
     it('collapses description when user clicks on downward pointing caret', () => {
       const {queryByTestId, getByText} = render(
-        <FindOutcomeItem {...defaultProps({description: '<p>Aa</p><p>Bb</p>'})} />
+        <FindOutcomeItem {...defaultProps({description: '<p>Aa</p><p>Bb</p>'})} />,
       )
       fireEvent.click(getByText('Expand description for outcome Outcome Title'))
       fireEvent.click(getByText('Collapse description for outcome Outcome Title'))
@@ -192,7 +192,7 @@ describe('FindOutcomeItem', () => {
       />,
       {
         friendlyDescriptionFF: true,
-      }
+      },
     )
 
     fireEvent.click(getByText('Expand description for outcome Outcome Title'))
@@ -204,7 +204,7 @@ describe('FindOutcomeItem', () => {
       <FindOutcomeItem {...defaultProps({friendlyDescription: 'test friendly description'})} />,
       {
         friendlyDescriptionFF: false,
-      }
+      },
     )
 
     fireEvent.click(getByText('Expand description for outcome Outcome Title'))
@@ -226,6 +226,78 @@ describe('FindOutcomeItem', () => {
         const {queryByTestId} = render(<FindOutcomeItem {...defaultProps({description: null})} />)
         expect(queryByTestId('icon-arrow-right').closest('button')).toBeDisabled()
       })
+    })
+  })
+
+  describe('OutcomeContextTag', () => {
+    it('renders Institution tag for Account context type', () => {
+      const {getByTestId} = render(
+        <FindOutcomeItem
+          {...defaultProps({sourceContextType: 'Account', sourceContextId: '100'})}
+        />,
+      )
+      const tag = getByTestId('outcome-context-tag')
+      expect(tag.textContent).toBe('Institution')
+      expect(tag.getAttribute('aria-label')).toBe('This is an institution-level outcome')
+    })
+
+    it('renders Course tag for Course context type', () => {
+      const {getByTestId} = render(
+        <FindOutcomeItem
+          {...defaultProps({sourceContextType: 'Course', sourceContextId: '100'})}
+        />,
+      )
+      const tag = getByTestId('outcome-context-tag')
+      expect(tag.textContent).toBe('Course')
+      expect(tag.getAttribute('aria-label')).toBe('This is a course-level outcome')
+    })
+
+    it('does not render when sourceContextType is null', () => {
+      const {queryByTestId} = render(
+        <FindOutcomeItem {...defaultProps({sourceContextType: null, sourceContextId: '100'})} />,
+      )
+      expect(queryByTestId('outcome-context-tag')).not.toBeInTheDocument()
+    })
+
+    it('does not render when sourceContextId is null', () => {
+      const {queryByTestId} = render(
+        <FindOutcomeItem
+          {...defaultProps({sourceContextType: 'Account', sourceContextId: null})}
+        />,
+      )
+      expect(queryByTestId('outcome-context-tag')).not.toBeInTheDocument()
+    })
+
+    it('does not render when sourceContextType is empty string', () => {
+      const {queryByTestId} = render(
+        <FindOutcomeItem {...defaultProps({sourceContextType: '', sourceContextId: '100'})} />,
+      )
+      expect(queryByTestId('outcome-context-tag')).not.toBeInTheDocument()
+    })
+
+    it('does not render when sourceContextId is whitespace only', () => {
+      const {queryByTestId} = render(
+        <FindOutcomeItem
+          {...defaultProps({sourceContextType: 'Account', sourceContextId: '   '})}
+        />,
+      )
+      expect(queryByTestId('outcome-context-tag')).not.toBeInTheDocument()
+    })
+
+    it('renders alongside other content and features', () => {
+      const {getByTestId, getByText} = render(
+        <FindOutcomeItem
+          {...defaultProps({
+            sourceContextType: 'Course',
+            sourceContextId: '200',
+            description: 'Test description',
+            isImported: true,
+          })}
+        />,
+      )
+      expect(getByTestId('outcome-context-tag')).toBeInTheDocument()
+      expect(getByText('Expand description for outcome Outcome Title')).toBeInTheDocument()
+      expect(getByText('Added')).toBeInTheDocument()
     })
   })
 })

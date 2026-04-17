@@ -17,33 +17,36 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Button} from '@instructure/ui-buttons'
-import {IconSyllabusLine} from '@instructure/ui-icons'
-import {Tooltip} from '@instructure/ui-tooltip'
+import {DiscussionSummaryUsage} from './DiscussionSummary'
+import {IconAiSolid} from '@instructure/ui-icons'
 
 interface DiscussionSummaryGenerateButtonProps {
   onClick: () => void
   isEnabled: boolean
+  isMobile: boolean
+  usage: DiscussionSummaryUsage | null
 }
 
-const I18n = useI18nScope('discussions_posts')
+const I18n = createI18nScope('discussions_posts')
 
 export const DiscussionSummaryGenerateButton: React.FC<
   DiscussionSummaryGenerateButtonProps
 > = props => {
-  const buttonText = I18n.t('Generate Summary')
+  const buttonText = I18n.t('Summarize')
 
   return (
-    <Tooltip renderTip={buttonText} width="48px" data-testid="summary-generate-tooltip">
-      <Button
-        onClick={props.onClick}
-        renderIcon={IconSyllabusLine}
-        data-testid="summary-generate-button"
-        disabled={!props.isEnabled}
-      >
-        {buttonText}
-      </Button>
-    </Tooltip>
+    <Button
+      display={props.isMobile ? 'block' : 'inline-block'}
+      onClick={props.onClick}
+      color="ai-primary"
+      renderIcon={<IconAiSolid />}
+      data-testid="summary-generate-button"
+      disabled={!props.isEnabled}
+      aria-label={I18n.t('Ignite AI Summarize')}
+    >
+      {buttonText}
+    </Button>
   )
 }

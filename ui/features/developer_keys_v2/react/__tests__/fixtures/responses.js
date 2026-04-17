@@ -31,6 +31,7 @@ const successfulLtiKeySaveResponse = {
           'https://purl.imsglobal.org/spec/lti-ags/scope/score',
           'https://purl.imsglobal.org/spec/lti-ags/scope/lineitem.readonly',
           'https://purl.imsglobal.org/spec/lti-nrps/scope/contextmembership.readonly',
+          'https://purl.imsglobal.org/spec/lti/scope/noticehandlers',
           'https://canvas.instructure.com/lti/feature_flags/scope/show',
           'https://canvas.instructure.com/lti-ags/progress/scope/show',
           'https://canvas.instructure.com/lti/public_jwk/scope/update',
@@ -39,7 +40,6 @@ const successfulLtiKeySaveResponse = {
           'https://canvas.instructure.com/lti/data_services/scope/list',
           'https://canvas.instructure.com/lti/data_services/scope/destroy',
           'https://canvas.instructure.com/lti/data_services/scope/show',
-          'https://canvas.instructure.com/lti/data_services/scope/list_event_types',
         ],
         extensions: [
           {
@@ -426,6 +426,7 @@ const successfulLtiKeySaveResponse = {
         'https://purl.imsglobal.org/spec/lti-ags/scope/score',
         'https://purl.imsglobal.org/spec/lti-ags/scope/lineitem.readonly',
         'https://purl.imsglobal.org/spec/lti-nrps/scope/contextmembership.readonly',
+        'https://purl.imsglobal.org/spec/lti/scope/noticehandlers',
         'https://canvas.instructure.com/lti/feature_flags/scope/show',
         'https://canvas.instructure.com/lti-ags/progress/scope/show',
         'https://canvas.instructure.com/lti/public_jwk/scope/update',
@@ -434,7 +435,6 @@ const successfulLtiKeySaveResponse = {
         'https://canvas.instructure.com/lti/data_services/scope/list',
         'https://canvas.instructure.com/lti/data_services/scope/destroy',
         'https://canvas.instructure.com/lti/data_services/scope/show',
-        'https://canvas.instructure.com/lti/data_services/scope/list_event_types',
       ],
       workflow_state: 'active',
       icon_url: null,

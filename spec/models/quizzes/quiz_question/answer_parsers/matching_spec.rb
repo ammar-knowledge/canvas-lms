@@ -21,7 +21,7 @@
 require_relative "answer_parser_spec_helper"
 
 describe Quizzes::QuizQuestion::AnswerParsers::Matching do
-  context "#parse" do
+  describe "#parse" do
     let(:raw_answers) do
       [
         {
@@ -84,7 +84,7 @@ describe Quizzes::QuizQuestion::AnswerParsers::Matching do
       ]
     end
 
-    include_examples "All answer parsers"
+    it_behaves_like "All answer parsers"
 
     it "reuses match_id for duplicate answer_match_right" do
       question = Quizzes::QuizQuestion::QuestionData.new(question_params)

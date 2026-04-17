@@ -67,9 +67,9 @@ describe "AuthenticationProviders API", type: :request do
       expect(res.pluck("idp_entity_id").join).to eq "rad"
     end
 
-    it "returns unauthorized error" do
+    it "returns forbidden error" do
       course_with_student(course: @course)
-      call_index(401)
+      call_index(403)
     end
   end
 
@@ -220,9 +220,9 @@ describe "AuthenticationProviders API", type: :request do
       )
     end
 
-    it "returns unauthorized error" do
+    it "returns forbidden error" do
       course_with_student(course: @course)
-      call_create({}, 401)
+      call_create({}, 403)
     end
 
     it "disables open registration when setting delegated auth" do
@@ -365,9 +365,9 @@ describe "AuthenticationProviders API", type: :request do
       call_update(0, {}, 404)
     end
 
-    it "returns unauthorized error" do
+    it "returns forbidden error" do
       course_with_student(course: @course)
-      call_update(0, {}, 401)
+      call_update(0, {}, 403)
     end
 
     it "can disable MFA" do
@@ -412,7 +412,7 @@ describe "AuthenticationProviders API", type: :request do
       @saml_hash["mfa_required"] = false
       @saml_hash["skip_internal_mfa"] = false
       @saml_hash["otp_via_sms"] = true
-      expect(json).to eq @saml_hash
+      expect(json.slice(*@saml_hash.keys)).to eql @saml_hash
     end
 
     it "returns ldap aac" do
@@ -431,7 +431,7 @@ describe "AuthenticationProviders API", type: :request do
       @ldap_hash["internal_ca"] = nil
       @ldap_hash["verify_tls_cert_opt_in"] = false
       @ldap_hash["otp_via_sms"] = true
-      expect(json).to eq @ldap_hash
+      expect(json).to eql @ldap_hash
     end
 
     it "returns cas aac" do
@@ -446,16 +446,16 @@ describe "AuthenticationProviders API", type: :request do
       @cas_hash["mfa_required"] = false
       @cas_hash["skip_internal_mfa"] = false
       @cas_hash["otp_via_sms"] = true
-      expect(json).to eq @cas_hash
+      expect(json.slice(*@cas_hash.keys)).to eql @cas_hash
     end
 
     it "404s" do
       call_show(0, 404)
     end
 
-    it "returns unauthorized error" do
+    it "returns forbidden error" do
       course_with_student(course: @course)
-      call_show(0, 401)
+      call_show(0, 403)
     end
 
     it "allows seeing the canvas auth type for any authenticated user" do
@@ -513,9 +513,32 @@ describe "AuthenticationProviders API", type: :request do
       call_destroy(0, 404)
     end
 
-    it "returns unauthorized error" do
+    it "returns forbidden error" do
       course_with_student(course: @course)
-      call_destroy(0, 401)
+      call_destroy(0, 403)
+    end
+
+    context "when provider is on the discovery page" do
+      let(:aac) { @account.authentication_providers.create!(@saml_hash) }
+
+      before do
+        allow(Account.site_admin).to receive(:feature_enabled?).and_call_original
+        allow(Account.site_admin).to receive(:feature_enabled?)
+          .with(:new_login_ui_identity_discovery_page).and_return(true)
+        @account.settings[:discovery_page] = {
+          active: true,
+          primary: [{ authentication_provider_id: aac.id, label: "Test Provider" }],
+          secondary: []
+        }
+        @account.save!
+      end
+
+      it "returns 422" do
+        json = call_destroy(aac.id, 422)
+
+        expect(json["errors"]).to include(match(/remove.*from the discovery page/))
+        expect(aac.reload.workflow_state).to eq("active")
+      end
     end
   end
 
@@ -540,7 +563,7 @@ describe "AuthenticationProviders API", type: :request do
 
     it "requires authorization" do
       course_with_student(course: @course)
-      update_settings({}, 401)
+      update_settings({}, 403)
     end
 
     it "sets auth settings" do
@@ -551,6 +574,47 @@ describe "AuthenticationProviders API", type: :request do
       }
       update_settings(payload, 200)
       expect(@account.reload.auth_discovery_url).to eq("https://www.discover.com")
+    end
+
+    it "sets login_help_url" do
+      payload = {
+        "sso_settings" => {
+          "login_help_url" => "https://example.com/login-help"
+        }
+      }
+      update_settings(payload, 200)
+      expect(@account.reload.login_help_url).to eq("https://example.com/login-help")
+    end
+
+    it "rejects an invalid login_help_url" do
+      payload = {
+        "sso_settings" => {
+          "login_help_url" => "not a url at all"
+        }
+      }
+      update_settings(payload, 422)
+    end
+
+    it "clears login_help_url with a blank value" do
+      @account.login_help_url = "https://example.com/faq"
+      @account.save!
+      payload = {
+        "sso_settings" => {
+          "login_help_url" => ""
+        }
+      }
+      update_settings(payload, 200)
+      expect(@account.reload.login_help_url).to be_nil
+    end
+
+    it "normalizes login_help_url without a scheme" do
+      payload = {
+        "sso_settings" => {
+          "login_help_url" => "example.com/login-help"
+        }
+      }
+      update_settings(payload, 200)
+      expect(@account.reload.login_help_url).to eq("http://example.com/login-help")
     end
 
     it "ignores settings that don't exist" do

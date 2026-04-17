@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "name": "@instructure/query-string-encoding",
+  "private": true,
+  "version": "1.0.0",
+  "author": "neme",
+  "main": "./index.js"
+}

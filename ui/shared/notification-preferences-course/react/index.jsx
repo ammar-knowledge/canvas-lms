@@ -16,8 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import AlertManager from '@canvas/alerts/react/AlertManager'
-import {ApolloProvider, createClient} from '@canvas/apollo'
+import {AlertManager} from '@instructure/platform-alerts'
+import {ApolloProvider, createClient} from '@canvas/apollo-v3'
 import CourseNotificationSettingsQuery from './CourseNotificationSettingsQuery'
 import React from 'react'
 

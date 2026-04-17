@@ -17,7 +17,7 @@
  */
 
 import {Error} from '../../../shared/graphql/Error'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {Attachment} from './Attachment'
 
 export const CREATE_DISCUSSION_TOPIC = gql`
@@ -39,6 +39,10 @@ export const CREATE_DISCUSSION_TOPIC = gql`
     $podcastEnabled: Boolean
     $podcastHasStudentPosts: Boolean
     $locked: Boolean
+    $expanded: Boolean
+    $expandedLocked: Boolean
+    $sortOrder: DiscussionSortOrderType
+    $sortOrderLocked: Boolean
     $discussionType: DiscussionTopicDiscussionType
     $isAnnouncement: Boolean
     $specificSections: String
@@ -68,6 +72,10 @@ export const CREATE_DISCUSSION_TOPIC = gql`
         podcastEnabled: $podcastEnabled
         podcastHasStudentPosts: $podcastHasStudentPosts
         locked: $locked
+        expanded: $expanded
+        expandedLocked: $expandedLocked
+        sortOrder: $sortOrder
+        sortOrderLocked: $sortOrderLocked
         isAnnouncement: $isAnnouncement
         specificSections: $specificSections
         groupCategoryId: $groupCategoryId
@@ -97,6 +105,10 @@ export const CREATE_DISCUSSION_TOPIC = gql`
         podcastHasStudentPosts
         isAnnouncement
         replyToEntryRequiredCount
+        expanded
+        expandedLocked
+        sortOrder
+        sortOrderLocked
         assignment {
           _id
           name
@@ -115,6 +127,7 @@ export const CREATE_DISCUSSION_TOPIC = gql`
           restrictQuantitativeData
           sisId
           state
+          suppressAssignment
           peerReviews {
             automaticReviews
             count
@@ -133,7 +146,7 @@ export const CREATE_DISCUSSION_TOPIC = gql`
           }
         }
         attachment {
-          ...Attachment
+          ...EditV2Attachment
         }
       }
       errors {
@@ -161,6 +174,10 @@ export const UPDATE_DISCUSSION_TOPIC = gql`
     $podcastEnabled: Boolean
     $podcastHasStudentPosts: Boolean
     $locked: Boolean
+    $expanded: Boolean
+    $expandedLocked: Boolean
+    $sortOrder: DiscussionSortOrderType
+    $sortOrderLocked: Boolean
     $discussionType: DiscussionTopicDiscussionType
     $specificSections: String
     $fileId: ID
@@ -190,6 +207,10 @@ export const UPDATE_DISCUSSION_TOPIC = gql`
         podcastEnabled: $podcastEnabled
         podcastHasStudentPosts: $podcastHasStudentPosts
         locked: $locked
+        expanded: $expanded
+        expandedLocked: $expandedLocked
+        sortOrder: $sortOrder
+        sortOrderLocked: $sortOrderLocked
         specificSections: $specificSections
         groupCategoryId: $groupCategoryId
         fileId: $fileId
@@ -222,8 +243,12 @@ export const UPDATE_DISCUSSION_TOPIC = gql`
         podcastHasStudentPosts
         isAnnouncement
         replyToEntryRequiredCount
+        expanded
+        expandedLocked
+        sortOrder
+        sortOrderLocked
         attachment {
-          ...Attachment
+          ...EditV2Attachment
         }
         assignment {
           _id
@@ -243,6 +268,7 @@ export const UPDATE_DISCUSSION_TOPIC = gql`
           restrictQuantitativeData
           sisId
           state
+          suppressAssignment
           peerReviews {
             automaticReviews
             count

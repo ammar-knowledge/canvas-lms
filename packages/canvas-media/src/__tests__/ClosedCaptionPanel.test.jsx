@@ -16,12 +16,13 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import {fireEvent, render, waitFor} from '@testing-library/react'
-import React from 'react'
-
+import {vi} from 'vitest'
 import ClosedCaptionCreator, {ClosedCaptionPanel} from '../ClosedCaptionCreator'
 import getTranslations from '../getTranslations'
 
-jest.mock('../getTranslations', () => jest.fn(locale => Promise.resolve({[locale]: {}})))
+vi.mock('../getTranslations', () => ({
+  default: vi.fn(locale => Promise.resolve({[locale]: {}})),
+}))
 
 function makeProps(options = {}) {
   return {
@@ -79,9 +80,9 @@ describe('ClosedCaptionCreator', () => {
   })
 
   it('selects a file', () => {
-    const updateSubtitles = jest.fn()
+    const updateSubtitles = vi.fn()
     const {container, getByText, getByPlaceholderText, getByTestId} = render(
-      <ClosedCaptionPanel {...makeProps({updateSubtitles})} />
+      <ClosedCaptionPanel {...makeProps({updateSubtitles})} />,
     )
     const selectLang = getByPlaceholderText('select language')
     fireEvent.click(selectLang)
@@ -95,15 +96,15 @@ describe('ClosedCaptionCreator', () => {
     expect(getByTestId('CC-CreatorRow-chosen')).toBeInTheDocument()
     expect(getByText('add new caption')).toBeInTheDocument()
     expect(updateSubtitles).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({locale: 'fr'})])
+      expect.arrayContaining([expect.objectContaining({locale: 'fr'})]),
     )
   })
 
   it('adds a new row and focused language selector when + is clicked', () => {
     const {container, getByText, getByPlaceholderText, getAllByTestId} = render(
-      <ClosedCaptionPanel {...makeProps()} />
+      <ClosedCaptionPanel {...makeProps()} />,
     )
-    expect(getAllByTestId('CC-CreatorRow-choosing').length).toBe(1)
+    expect(getAllByTestId('CC-CreatorRow-choosing')).toHaveLength(1)
 
     // create the first row
     const selectLang = getByPlaceholderText('select language')
@@ -115,14 +116,14 @@ describe('ClosedCaptionCreator', () => {
     const file = new File(['foo'], 'file1.srt', {type: 'application/srt'})
     selectFile(fileInput, [file])
 
-    expect(getAllByTestId('CC-CreatorRow-chosen').length).toBe(1)
+    expect(getAllByTestId('CC-CreatorRow-chosen')).toHaveLength(1)
 
     // click the + button to add a new row
     const plusBtn = getByText('add new caption')
     fireEvent.click(plusBtn)
 
-    expect(getAllByTestId('CC-CreatorRow-chosen').length).toBe(1)
-    expect(getAllByTestId('CC-CreatorRow-choosing').length).toBe(1)
+    expect(getAllByTestId('CC-CreatorRow-chosen')).toHaveLength(1)
+    expect(getAllByTestId('CC-CreatorRow-choosing')).toHaveLength(1)
     expect(getByPlaceholderText('select language')).toBe(container.ownerDocument.activeElement)
   })
 
@@ -136,7 +137,7 @@ describe('ClosedCaptionCreator', () => {
             {locale: 'fr', file: {name: 'fr.srt'}},
           ],
         })}
-      />
+      />,
     )
 
     const plusBtn = getByText('add new caption')
@@ -149,9 +150,9 @@ describe('ClosedCaptionCreator', () => {
 
   it('deletes a row when trashcan is clicked', () => {
     const {container, getByText, getByPlaceholderText, getAllByTestId} = render(
-      <ClosedCaptionPanel {...makeProps()} />
+      <ClosedCaptionPanel {...makeProps()} />,
     )
-    expect(getAllByTestId('CC-CreatorRow-choosing').length).toBe(1)
+    expect(getAllByTestId('CC-CreatorRow-choosing')).toHaveLength(1)
 
     // create the first row
     let selectLang = getByPlaceholderText('select language')
@@ -163,14 +164,14 @@ describe('ClosedCaptionCreator', () => {
     let file = new File(['foo'], 'file1.srt', {type: 'application/srt'})
     selectFile(fileInput, [file])
 
-    expect(getAllByTestId('CC-CreatorRow-chosen').length).toBe(1)
+    expect(getAllByTestId('CC-CreatorRow-chosen')).toHaveLength(1)
 
     // click the + button to add a new row
     const plusBtn = getByText('add new caption')
     fireEvent.click(plusBtn)
 
-    expect(getAllByTestId('CC-CreatorRow-chosen').length).toBe(1)
-    expect(getAllByTestId('CC-CreatorRow-choosing').length).toBe(1)
+    expect(getAllByTestId('CC-CreatorRow-chosen')).toHaveLength(1)
+    expect(getAllByTestId('CC-CreatorRow-choosing')).toHaveLength(1)
 
     // create the 2nd row
     selectLang = getByPlaceholderText('select language')
@@ -182,13 +183,13 @@ describe('ClosedCaptionCreator', () => {
     file = new File(['bar'], 'file2.srt', {type: 'application/srt'})
     selectFile(fileInput, [file])
 
-    expect(getAllByTestId('CC-CreatorRow-chosen').length).toBe(2)
+    expect(getAllByTestId('CC-CreatorRow-chosen')).toHaveLength(2)
 
     // delete the first row
     const trashcan = getByText('Remove French closed captions').closest('button')
     fireEvent.click(trashcan)
 
-    expect(getAllByTestId('CC-CreatorRow-chosen').length).toBe(1)
+    expect(getAllByTestId('CC-CreatorRow-chosen')).toHaveLength(1)
     expect(getByText('English')).toBeInTheDocument()
   })
 
@@ -203,7 +204,7 @@ describe('ClosedCaptionCreator', () => {
               {locale: 'fr', file: {name: 'fr.srt'}},
             ],
           })}
-        />
+        />,
       )
       expect(getByText('English')).toBeInTheDocument()
       expect(getByText('Spanish')).toBeInTheDocument()
@@ -213,9 +214,9 @@ describe('ClosedCaptionCreator', () => {
       const trashcan = getByText('Remove English closed captions').closest('button')
       fireEvent.click(trashcan)
 
-      expect(getAllByTestId('CC-CreatorRow-chosen').length).toBe(2)
+      expect(getAllByTestId('CC-CreatorRow-chosen')).toHaveLength(2)
       expect(getByText('Remove Spanish closed captions').closest('button')).toBe(
-        container.ownerDocument.activeElement
+        container.ownerDocument.activeElement,
       )
     })
 
@@ -229,7 +230,7 @@ describe('ClosedCaptionCreator', () => {
               {locale: 'fr', file: {name: 'fr.srt'}},
             ],
           })}
-        />
+        />,
       )
       expect(getByText('English')).toBeInTheDocument()
       expect(getByText('Spanish')).toBeInTheDocument()
@@ -240,9 +241,9 @@ describe('ClosedCaptionCreator', () => {
       const trashcan = getByText('Remove French closed captions').closest('button')
       fireEvent.click(trashcan)
 
-      expect(getAllByTestId('CC-CreatorRow-chosen').length).toBe(2)
+      expect(getAllByTestId('CC-CreatorRow-chosen')).toHaveLength(2)
       expect(getByText('add new caption').closest('button')).toBe(
-        container.ownerDocument.activeElement
+        container.ownerDocument.activeElement,
       )
     })
 
@@ -255,7 +256,7 @@ describe('ClosedCaptionCreator', () => {
               {locale: 'es', file: {name: 'es.srt'}},
             ],
           })}
-        />
+        />,
       )
       expect(getByText('English')).toBeInTheDocument()
       expect(getByText('Spanish')).toBeInTheDocument()
@@ -278,7 +279,7 @@ describe('ClosedCaptionCreator', () => {
               {locale: 'es', file: {name: 'es.srt'}},
             ],
           })}
-        />
+        />,
       )
       expect(getByText('English')).toBeInTheDocument()
       expect(getByText('Spanish')).toBeInTheDocument()

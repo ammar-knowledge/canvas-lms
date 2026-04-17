@@ -18,8 +18,9 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class AssignmentOverrideStudent < ActiveRecord::Base
+class AssignmentOverrideStudent < ApplicationRecord
   include Canvas::SoftDeletable
+
   belongs_to :assignment, class_name: "AbstractAssignment"
   belongs_to :assignment_override
   belongs_to :user
@@ -40,7 +41,7 @@ class AssignmentOverrideStudent < ActiveRecord::Base
   validates :assignment_override, :user, presence: true
   validates :user_id, uniqueness: { scope: %i[assignment_id quiz_id context_module_id wiki_page_id discussion_topic_id attachment_id],
                                     conditions: -> { where.not(workflow_state: "deleted") },
-                                    message: -> { t("already belongs to an assignment override") } }
+                                    message: ->(_object, _data) { t("already belongs to an assignment override") } }
 
   validate :assignment_override, if: :active? do |record|
     if record.assignment_override && record.assignment_override.set_type != "ADHOC"
@@ -141,7 +142,14 @@ class AssignmentOverrideStudent < ActiveRecord::Base
 
     return false unless record.user_id && record.context_id
 
-    @no_enrollment = !record.user.student_enrollments.shard(record.shard).where(course_id: record.context_id).exists?
+    # Use preloaded enrollments if available to avoid N+1 queries
+    @no_enrollment = if record.user.association(:student_enrollments).loaded?
+                       record.user.student_enrollments.none? { |e| e.course_id == record.context_id }
+                     else
+                       !record.user.student_enrollments.shard(record.shard).where(course_id: record.context_id).exists?
+                     end
+
+    @no_enrollment
   end
 
   def update_cached_due_dates

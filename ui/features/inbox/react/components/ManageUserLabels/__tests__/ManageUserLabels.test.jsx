@@ -24,9 +24,9 @@ const createProps = overrides => {
   return {
     open: true,
     labels: ['Assignment Info', 'Important'],
-    onCreate: jest.fn(),
-    onDelete: jest.fn(),
-    onClose: jest.fn(),
+    onCreate: vi.fn(),
+    onDelete: vi.fn(),
+    onClose: vi.fn(),
     ...overrides,
   }
 }
@@ -47,7 +47,7 @@ describe('ManageUserLabels', () => {
   it('correctly adds labels', () => {
     const props = createProps()
     const {getByLabelText, getByTestId, getAllByTestId, getByText} = render(
-      <ManageUserLabels {...props} />
+      <ManageUserLabels {...props} />,
     )
 
     fireEvent.change(getByLabelText('Label Name'), {target: {value: 'New Label'}})
@@ -60,7 +60,7 @@ describe('ManageUserLabels', () => {
   it('shows error if trying to add a label that already exists', () => {
     const props = createProps()
     const {getByLabelText, getByTestId, getAllByTestId, getByText} = render(
-      <ManageUserLabels {...props} />
+      <ManageUserLabels {...props} />,
     )
 
     fireEvent.change(getByLabelText('Label Name'), {target: {value: 'Important'}})
@@ -68,7 +68,7 @@ describe('ManageUserLabels', () => {
 
     expect(getAllByTestId('label')).toHaveLength(2)
     expect(
-      getByText('The specified label already exists. Please enter a different label name.')
+      getByText('The specified label already exists. Please enter a different label name.'),
     ).toBeInTheDocument()
   })
 
@@ -115,7 +115,8 @@ describe('ManageUserLabels', () => {
     expect(props.onCreate).not.toHaveBeenCalled()
   })
 
-  it('calls onDelete when the Save button is clicked', () => {
+  it('calls onDelete when the Save button is clicked', async () => {
+    vi.useFakeTimers()
     const props = createProps()
     const {getAllByTestId, getByText} = render(<ManageUserLabels {...props} />)
 
@@ -123,10 +124,13 @@ describe('ManageUserLabels', () => {
 
     fireEvent.click(getByText('Save'))
 
-    waitFor(() => {
-      expect(props.onDelete).toHaveBeenCalled()
-      expect(props.onDelete).toHaveBeenCalledWith(['Assignment Info'])
-    })
+    // The component has a 2500ms setTimeout before calling onDelete
+    await vi.advanceTimersByTimeAsync(2500)
+
+    expect(props.onDelete).toHaveBeenCalled()
+    expect(props.onDelete).toHaveBeenCalledWith(['Assignment Info'])
+
+    vi.useRealTimers()
   })
 
   it('does not calls onDelete when the Save button is clicked and no labels are deleted', () => {
@@ -141,7 +145,7 @@ describe('ManageUserLabels', () => {
   it('does not calls onDelete when the Save button is clicked and unsaved labels are deleted', () => {
     const props = createProps()
     const {getByLabelText, getByTestId, getAllByTestId, getByText} = render(
-      <ManageUserLabels {...props} />
+      <ManageUserLabels {...props} />,
     )
 
     fireEvent.change(getByLabelText('Label Name'), {target: {value: 'Beta'}})
@@ -156,7 +160,7 @@ describe('ManageUserLabels', () => {
   it('component resets to its initial state when the modal is closed', () => {
     const props = createProps()
     const {getByLabelText, getByTestId, getAllByTestId, getByText, getAllByText} = render(
-      <ManageUserLabels {...props} />
+      <ManageUserLabels {...props} />,
     )
 
     fireEvent.change(getByLabelText('Label Name'), {target: {value: 'New Label'}})
@@ -168,5 +172,20 @@ describe('ManageUserLabels', () => {
     fireEvent.click(getAllByText('Close')[1])
 
     expect(getAllByTestId('label')).toHaveLength(2)
+  })
+
+  it('initializes internal labels from props when labels change', () => {
+    const props = createProps({labels: ['Label A', 'Label B']})
+    const {getAllByTestId, rerender} = render(<ManageUserLabels {...props} />)
+
+    // Verify initial labels are rendered
+    expect(getAllByTestId('label')).toHaveLength(2)
+
+    // Update labels prop to trigger useEffect (line 61-63)
+    const updatedProps = createProps({labels: ['Label A', 'Label B', 'Label C']})
+    rerender(<ManageUserLabels {...updatedProps} />)
+
+    // Verify updated labels are rendered
+    expect(getAllByTestId('label')).toHaveLength(3)
   })
 })

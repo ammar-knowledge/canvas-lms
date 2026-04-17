@@ -47,7 +47,7 @@ describe "admin settings tab" do
     end
   end
 
-  def check_box_verifier(css_selectors, features, checker = true)
+  def check_box_verifier(css_selectors, features, checker: true)
     is_symbol = false
 
     css_selectors = [css_selectors] unless css_selectors.is_a? Array
@@ -106,7 +106,7 @@ describe "admin settings tab" do
 
   def go_to_feature_options(account_id)
     get "/accounts/#{account_id}/settings"
-    f("#tab-features-link").click
+    f("#tab-features").click
     wait_for_ajaximations
   end
 
@@ -163,7 +163,7 @@ describe "admin settings tab" do
     end
 
     it "unchecks 'students can opt-in to receiving scores in email notifications'" do
-      check_box_verifier("#account_settings_allow_sending_scores_in_emails", :allow_sending_scores_in_emails, false)
+      check_box_verifier("#account_settings_allow_sending_scores_in_emails", :allow_sending_scores_in_emails, checker: false)
     end
 
     it "sets trusted referers for account" do
@@ -181,69 +181,61 @@ describe "admin settings tab" do
   end
 
   context "quiz ip address filter" do
-    before do
-      get "/accounts/#{Account.default.id}/settings"
-    end
-
     def add_quiz_filter(name = "www.canvas.instructure.com", value = "192.168.217.1/24")
-      fj("#ip_filters .name[value='']:visible").send_keys name
-      fj("#ip_filters .value[value='']:visible").send_keys value
+      link = f(%(button[data-testid="add-ip-filter"]))
+      scroll_into_view(link)
+      link.click
+      fj(%(input[data-testid="ip-filter-name"]:last)).send_keys name
+      fj(%(input[data-testid="ip-filter-filter"]:last)).send_keys value
       click_submit
       filter_hash = { name => value }
       expect(Account.default.settings[:ip_filters]).to include filter_hash
-      expect(fj("#ip_filters .name[value='#{name}']")).to be_displayed
-      expect(fj("#ip_filters .value[value='#{value}']")).to be_displayed
+      expect(fj(%(input[data-testid="ip-filter-name"][value='#{name}']))).to be_displayed
+      expect(fj(%(input[data-testid="ip-filter-filter"][value='#{value}']))).to be_displayed
       filter_hash
     end
 
     def create_quiz_filter(name = "www.canvas.instructure.com", value = "192.168.217.1/24")
       Account.default.tap do |a|
-        a.settings[:ip_filters] ||= []
-        a.settings[:ip_filters] << { name => value }
+        a.settings[:ip_filters] ||= {}
+        a.settings[:ip_filters].store(name, value)
         a.save!
       end
     end
 
-    it "clicks on the quiz help link" do
-      link = f(".ip_help_link")
-      scroll_into_view(link)
-      link.click
-      expect(f("#ip_filters_dialog")).to include_text "What are Quiz IP Filters?"
-    end
-
     it "adds a quiz filter" do
+      get "/accounts/#{Account.default.id}/settings"
       add_quiz_filter
     end
 
     it "adds another quiz filter" do
       create_quiz_filter
-      link = f(".add_ip_filter_link")
-      scroll_into_view(link)
-      link.click
+      get "/accounts/#{Account.default.id}/settings"
       add_quiz_filter "www.canvas.instructure.com/tests", "129.186.127.12/4"
     end
 
     it "edits a quiz filter" do
       create_quiz_filter
+      get "/accounts/#{Account.default.id}/settings"
       new_name = "www.example.org"
       new_value = "10.192.124.12/8"
-      replace_content(fj("#ip_filters .name:visible"), new_name)
-      replace_content(fj("#ip_filters .value:visible"), new_value)
+      replace_content(f(%(input[data-testid="ip-filter-name"])), new_name)
+      replace_content(f(%(input[data-testid="ip-filter-filter"])), new_value)
       click_submit
       filter_hash = { new_name => new_value }
       expect(Account.default.settings[:ip_filters]).to include filter_hash
-      expect(fj("#ip_filters .name[value='#{new_name}']")).to be_displayed
-      expect(fj("#ip_filters .value[value='#{new_value}']")).to be_displayed
+      expect(fj(%(input[data-testid="ip-filter-name"][value='#{new_name}']))).to be_displayed
+      expect(fj(%(input[data-testid="ip-filter-filter"][value='#{new_value}']))).to be_displayed
     end
 
     it "deletes a quiz filter" do
-      filter_hash = add_quiz_filter
-      link = f("#ip_filters .delete_filter_link")
+      create_quiz_filter
+      get "/accounts/#{Account.default.id}/settings"
+      link = f(%([data-testid="delete-ip-filter"]))
       scroll_into_view(link)
       link.click
       click_submit
-      expect(f("#account_settings")).not_to contain_css("#ip_filters .value[value='#{filter_hash.values.first}']")
-      expect(f("#account_settings")).not_to contain_css("#ip_filters .name[value='#{filter_hash.keys.first}']")
+      expect(f("#account_settings_quiz_ip_filters")).to include_text "No Quiz IP filters have been set"
       expect(Account.default.settings[:ip_filters]).to be_blank
     end
   end
@@ -258,66 +250,18 @@ describe "admin settings tab" do
     end
 
     it "unchecks users can edit display name' and check it again" do
-      check_box_verifier("#account_settings_users_can_edit_name", :users_can_edit_name, false)
+      check_box_verifier("#account_settings_users_can_edit_name", :users_can_edit_name, checker: false)
       check_box_verifier("#account_settings_users_can_edit_name", :users_can_edit_name)
     end
 
     it "unchecks users_can_edit_profile and check it again" do
-      check_box_verifier("#account_settings_users_can_edit_profile", :users_can_edit_profile, false)
+      check_box_verifier("#account_settings_users_can_edit_profile", :users_can_edit_profile, checker: false)
       check_box_verifier("#account_settings_users_can_edit_profile", :users_can_edit_profile)
     end
 
     it "unchecks users_can_edit_comm_channels and check it again" do
-      check_box_verifier("#account_settings_users_can_edit_comm_channels", :users_can_edit_comm_channels, false)
+      check_box_verifier("#account_settings_users_can_edit_comm_channels", :users_can_edit_comm_channels, checker: false)
       check_box_verifier("#account_settings_users_can_edit_comm_channels", :users_can_edit_comm_channels)
-    end
-
-    describe "equella settings" do
-      def add_equella_feature
-        equella_url = "http://oer.equella.com/signon.do"
-        f("#account_settings_equella_endpoint").send_keys(equella_url)
-        f("#account_settings_equella_teaser").send_keys("equella feature")
-        click_submit
-        expect(Account.default.settings[:equella_endpoint]).to eq equella_url
-        expect(Account.default.settings[:equella_teaser]).to eq "equella feature"
-        expect(f("#account_settings_equella_endpoint")).to have_value equella_url
-        expect(f("#account_settings_equella_teaser")).to have_value "equella feature"
-      end
-
-      before do
-        equella = f("#enable_equella")
-        scroll_into_view(equella)
-        equella.click
-      end
-
-      it "adds an equella feature" do
-        add_equella_feature
-      end
-
-      it "edits an equella feature" do
-        add_equella_feature
-        new_equella_url = "http://oer.equella.com/signon.be"
-        replace_content(f("#account_settings_equella_endpoint"), new_equella_url)
-        replace_content(f("#account_settings_equella_teaser"), "new equella feature")
-        click_submit
-        expect(Account.default.settings[:equella_endpoint]).to eq new_equella_url
-        expect(Account.default.settings[:equella_teaser]).to eq "new equella feature"
-        expect(f("#account_settings_equella_endpoint")).to have_value new_equella_url
-        expect(f("#account_settings_equella_teaser")).to have_value "new equella feature"
-      end
-
-      it "deletes an equella feature" do
-        add_equella_feature
-        expect(fj("#account_settings_equella_endpoint:visible")).to be_displayed
-        expect(fj("#account_settings_equella_teaser:visible")).to be_displayed
-        replace_content(f("#account_settings_equella_endpoint"), "")
-        replace_content(f("#account_settings_equella_teaser"), "")
-        click_submit
-        expect(Account.default.settings[:equella_endpoint]).to be_nil
-        expect(Account.default.settings[:equella_teaser]).to be_nil
-        expect(f("#account_settings")).not_to contain_jqcss("#account_settings_equella_endpoint:visible")
-        expect(f("#account_settings")).not_to contain_jqcss("#account_settings_equella_teaser:visible")
-      end
     end
   end
 
@@ -330,26 +274,21 @@ describe "admin settings tab" do
       question = f("label[for='account_services_google_docs_previews'] .icon-question")
       scroll_into_view(question)
       question.click
-      expect(fj(".ui-dialog-title:visible")).to include_text("About Google Docs Previews")
-    end
-
-    it "unclicks and then click on skype" do
-      check_box_verifier("#account_services_skype", { allowed_services: :skype }, false)
-      check_box_verifier("#account_services_skype", { allowed_services: :skype })
+      expect(f("[data-testid='about-google-docs']")).to include_text("About Google Docs Previews")
     end
 
     it "unclicks and click on google docs previews" do
-      check_box_verifier("#account_services_google_docs_previews", { allowed_services: :google_docs_previews }, false)
+      check_box_verifier("#account_services_google_docs_previews", { allowed_services: :google_docs_previews }, checker: false)
       check_box_verifier("#account_services_google_docs_previews", { allowed_services: :google_docs_previews })
     end
 
     it "clicks on user avatars" do
       check_box_verifier("#account_services_avatars", { allowed_services: :avatars })
-      check_box_verifier("#account_services_avatars", { allowed_services: :avatars }, false)
+      check_box_verifier("#account_services_avatars", { allowed_services: :avatars }, checker: false)
     end
 
     it "disables all web services" do
-      check_box_verifier(nil, :all_selectors, false)
+      check_box_verifier(nil, :all_selectors, checker: false)
     end
 
     it "enables all web services" do
@@ -360,20 +299,19 @@ describe "admin settings tab" do
       AccountServices.register_service(:myplugin, { name: "My Plugin", description: "", expose_to_ui: :setting, default: false })
       get "/accounts/#{Account.default.id}/settings"
       check_box_verifier("#account_services_myplugin", { allowed_services: :myplugin })
-      check_box_verifier("#account_services_myplugin", { allowed_services: :myplugin }, false)
+      check_box_verifier("#account_services_myplugin", { allowed_services: :myplugin }, checker: false)
     end
 
     it "enables and disable a plugin service (service)" do
       AccountServices.register_service(:myplugin, { name: "My Plugin", description: "", expose_to_ui: :service, default: false })
       get "/accounts/#{Account.default.id}/settings"
       check_box_verifier("#account_services_myplugin", { allowed_services: :myplugin })
-      check_box_verifier("#account_services_myplugin", { allowed_services: :myplugin }, false)
+      check_box_verifier("#account_services_myplugin", { allowed_services: :myplugin }, checker: false)
     end
   end
 
   context "who can create new courses" do
     before do
-      Account.default.disable_feature!(:granular_permissions_manage_courses)
       get "/accounts/#{Account.default.id}/settings"
     end
 
@@ -382,11 +320,6 @@ describe "admin settings tab" do
     end
 
     it "checks on users with no enrollments" do
-      check_box_verifier("#account_settings_no_enrollments_can_create_courses", :no_enrollments_can_create_courses)
-    end
-
-    it "checks on users with no enrollments (granular permissions)" do
-      Account.default.enable_feature!(:granular_permissions_manage_courses)
       check_box_verifier("#account_settings_no_enrollments_can_create_courses", :no_enrollments_can_create_courses)
     end
 
@@ -431,8 +364,9 @@ describe "admin settings tab" do
 
       get "/accounts/#{Account.default.id}/settings"
 
-      f("#tab-notifications-link").click
-      f("#account_settings_notifications button[type=submit]").click
+      f("#tab-notifications").click
+      wait_for_ajax_requests
+      f("#tab-notifications-mount button").click
       wait_for_ajax_requests
 
       expect(Account.default.settings[:custom_help_links]).to eq [
@@ -445,14 +379,15 @@ describe "admin settings tab" do
       Account.default.settings[:custom_help_links] = [help_link]
       Account.default.save!
 
+      wait_for_ajaximations
       default_links = Account.default.help_links_builder.instantiate_links(Account.default.help_links_builder.default_links)
       filtered_links = Account.default.help_links_builder.filtered_links(default_links)
       help_links = Account.default.help_links
+      wait_for_ajaximations
       expect(help_links).to include(help_link.merge(type: "custom"))
       expect(help_links & filtered_links).to eq(filtered_links)
 
       get "/accounts/#{Account.default.id}/settings"
-
       top = f("#custom_help_link_settings .ic-Sortable-item")
       last_button = top.find_elements(:css, "button").last
       scroll_into_view(last_button)
@@ -460,58 +395,63 @@ describe "admin settings tab" do
       wait_for_ajaximations
 
       click_submit
-
       new_help_links = Account.default.help_links
-      expect(new_help_links.pluck(:id)).to_not include(Account.default.help_links_builder.filtered_links(default_links).first[:id].to_s)
+      expect(new_help_links.pluck(:id)).not_to include(Account.default.help_links_builder.filtered_links(default_links).first[:id].to_s)
       expect(new_help_links.pluck(:id)).to include(Account.default.help_links_builder.filtered_links(default_links).last[:id].to_s)
       expect(new_help_links.last).to include(help_link)
     end
 
     it "adds a custom link" do
-      Account.site_admin.enable_feature! :featured_help_links
       get "/accounts/#{Account.default.id}/settings"
+      wait_for_ajaximations
+
+      # Click the Help Options button first
       help_options = f(".HelpMenuOptions__Container button")
       scroll_into_view(help_options)
       help_options.click
+      wait_for_ajaximations
+
+      # Click "Add Custom Link" in the menu
       fj('[role="menuitemradio"] span:contains("Add Custom Link")').click
-      replace_content fj('#custom_help_link_settings input[name$="[text]"]:visible'), "text"
-      replace_content fj('#custom_help_link_settings textarea[name$="[subtext]"]:visible'), "subtext"
-      replace_content fj('#custom_help_link_settings input[name$="[url]"]:visible'), "https://url.example.com"
-      fj('#custom_help_link_settings fieldset .ic-Label:contains("Featured"):visible').click
-      link = f('#custom_help_link_settings button[type="submit"]')
-      scroll_into_view(link)
-      link.click
-      expect(fj(".ic-Sortable-item:first .ic-Sortable-item__Text")).to include_text("text")
-      form = f("#account_settings")
-      form.submit
-      cl = Account.default.help_links.detect { |hl| hl["url"] == "https://url.example.com" }
-      expect(cl).to include(
-        {
-          "text" => "text",
-          "subtext" => "subtext",
-          "url" => "https://url.example.com",
-          "type" => "custom",
-          "is_featured" => true,
-          "is_new" => false,
-          "available_to" => %w[user student teacher admin observer unenrolled]
-        }
-      )
+      wait_for_ajaximations
+
+      # Fill in the form fields
+      replace_content f("#admin_settings_custom_link_name"), "text"
+      replace_content f("#admin_settings_custom_link_subtext"), "subtext"
+      replace_content f("#admin_settings_custom_link_url"), "http://example.com"
+
+      # Click the label for the user checkbox
+      user_label = f('label[for="admin_settings_custom_link_type_user"]')
+      scroll_into_view(user_label)
+      user_label.click
+
+      # Click submit
+      submit = f('#custom_help_link_settings button[type="submit"]')
+      scroll_into_view(submit)
+      submit.click
+      wait_for_ajaximations
+
+      added_item = ff(".ic-Sortable-item .ic-Sortable-item__Text").find { |item| item.text == "text" }
+      expect(added_item).to be_present
+      expect(added_item.text).to eq "text"
     end
 
     it "adds a custom link with New designation" do
-      Account.site_admin.enable_feature! :featured_help_links
       get "/accounts/#{Account.default.id}/settings"
       help_options = f(".HelpMenuOptions__Container button")
       scroll_into_view(help_options)
       help_options.click
       fj('[role="menuitemradio"] span:contains("Add Custom Link")').click
-      replace_content fj('#custom_help_link_settings input[name$="[text]"]:visible'), "text"
-      replace_content fj('#custom_help_link_settings textarea[name$="[subtext]"]:visible'), "subtext"
-      replace_content fj('#custom_help_link_settings input[name$="[url]"]:visible'), "https://newurl.example.com"
-      fj('#custom_help_link_settings fieldset .ic-Label:contains("New"):visible').click
+      replace_content f("#admin_settings_custom_link_name"), "text"
+      replace_content f("#admin_settings_custom_link_subtext"), "subtext"
+      replace_content f("#admin_settings_custom_link_url"), "https://newurl.example.com"
+      new_label = fj('#custom_help_link_settings fieldset .ic-Label:contains("New"):visible')
+      scroll_into_view(new_label)
+      new_label.click
       link = f('#custom_help_link_settings button[type="submit"]')
       scroll_into_view(link)
       link.click
+      wait_for_ajaximations
       form = f("#account_settings")
       form.submit
       cl = Account.default.help_links.detect { |hl| hl["url"] == "https://newurl.example.com" }
@@ -531,7 +471,7 @@ describe "admin settings tab" do
       link = fj('#custom_help_link_settings span:contains("Edit custom-link-text-frd")').find_element(:xpath, "..")
       scroll_into_view(link)
       link.click
-      replace_content fj('#custom_help_link_settings input[name$="[url]"]:visible'), "https://whatever.example.com"
+      replace_content f("#admin_settings_custom_link_url"), "https://whatever.example.com"
       f('#custom_help_link_settings button[type="submit"]').click
       expect(fj(".ic-Sortable-item:last .ic-Sortable-item__Text")).to include_text("custom-link-text-frd")
       form = f("#account_settings")
@@ -547,9 +487,11 @@ describe "admin settings tab" do
       link = fj('#custom_help_link_settings span:contains("Edit Report a Problem")').find_element(:xpath, "..")
       scroll_into_view(link)
       link.click
-      url = fj('#custom_help_link_settings input[name$="[url]"]:visible')
-      expect(url).to be_disabled
-      fj('#custom_help_link_settings fieldset .ic-Label:contains("Teachers"):visible').click
+      url = f("#admin_settings_custom_link_url")
+      expect(url.attribute("readonly")).to eq "true"
+      teachers_label = fj('#custom_help_link_settings fieldset .ic-Label:contains("Teachers"):visible')
+      scroll_into_view(teachers_label)
+      teachers_label.click
       f('#custom_help_link_settings button[type="submit"]').click
       expect(f(".ic-Sortable-item:nth-of-type(3) .ic-Sortable-item__Text")).to include_text("Report a Problem")
       form = f("#account_settings")
@@ -626,10 +568,11 @@ describe "admin settings tab" do
     course_with_admin_logged_in(account: Account.default, user:)
     provision_quizzes_next(Account.default)
     get "/accounts/#{Account.default.id}/settings"
-    f("#tab-features-link").click
+    wait_for_new_page_load
+    f("#tab-features").click
     wait_for_ajaximations
+    features_text = f("#features-selected").text
 
-    features_text = f("#tab-features").text
     Feature.applicable_features(Account.default).each do |feature|
       next if feature.visible_on && !feature.visible_on.call(Account.default)
 

@@ -19,7 +19,7 @@
 #
 
 describe SIS::CSV::CourseImporter do
-  before { account_model }
+  before(:once) { account_model }
 
   it "skips bad content" do
     before_count = Course.count
@@ -373,8 +373,8 @@ describe SIS::CSV::CourseImporter do
       expect(c.name).to eq "Test Course 1"
       expect(c.course_code).to eq "TC 101"
       expect(c.enrollment_term).to eq EnrollmentTerm.where(sis_source_id: "T001").first
-      expect(c.start_at).to eq DateTime.parse("2011-04-14 00:00:00")
-      expect(c.conclude_at).to eq DateTime.parse("2011-05-14 00:00:00")
+      expect(c.start_at).to eq Time.zone.parse("2011-04-14 00:00:00")
+      expect(c.conclude_at).to eq Time.zone.parse("2011-05-14 00:00:00")
       expect(c.restrict_enrollments_to_course_dates).to be_truthy
     end
     process_csv_data_cleanly(
@@ -386,8 +386,8 @@ describe SIS::CSV::CourseImporter do
       expect(c.name).to eq "Test Course 2"
       expect(c.course_code).to eq "TC 102"
       expect(c.enrollment_term).to eq EnrollmentTerm.where(sis_source_id: "T002").first
-      expect(c.start_at).to eq DateTime.parse("2011-04-12 00:00:00")
-      expect(c.conclude_at).to eq DateTime.parse("2011-05-12 00:00:00")
+      expect(c.start_at).to eq Time.zone.parse("2011-04-12 00:00:00")
+      expect(c.conclude_at).to eq Time.zone.parse("2011-05-12 00:00:00")
       expect(c.restrict_enrollments_to_course_dates).to be_truthy
     end
     process_csv_data_cleanly(
@@ -408,8 +408,8 @@ describe SIS::CSV::CourseImporter do
       c.name = "Test Course 3"
       c.course_code = "TC 103"
       c.enrollment_term = EnrollmentTerm.where(sis_source_id: "T003").first
-      c.start_at = DateTime.parse("2011-04-13 00:00:00")
-      c.conclude_at = DateTime.parse("2011-05-13 00:00:00")
+      c.start_at = Time.zone.parse("2011-04-13 00:00:00")
+      c.conclude_at = Time.zone.parse("2011-05-13 00:00:00")
       c.restrict_enrollments_to_course_dates = true
       c.save!
     end
@@ -422,8 +422,8 @@ describe SIS::CSV::CourseImporter do
       expect(c.name).to eq "Test Course 3"
       expect(c.course_code).to eq "TC 103"
       expect(c.enrollment_term).to eq EnrollmentTerm.where(sis_source_id: "T003").first
-      expect(c.start_at).to eq DateTime.parse("2011-04-13 00:00:00")
-      expect(c.conclude_at).to eq DateTime.parse("2011-05-13 00:00:00")
+      expect(c.start_at).to eq Time.zone.parse("2011-04-13 00:00:00")
+      expect(c.conclude_at).to eq Time.zone.parse("2011-05-13 00:00:00")
       expect(c.restrict_enrollments_to_course_dates).to be_truthy
     end
     Course.where(sis_source_id: ["c2", "c3"]).each do |c|
@@ -471,8 +471,8 @@ describe SIS::CSV::CourseImporter do
       expect(c.name).to eq "Test Course 1"
       expect(c.course_code).to eq "TC 101"
       expect(c.enrollment_term).to eq EnrollmentTerm.where(sis_source_id: "T001").first
-      expect(c.start_at).to eq DateTime.parse("2011-04-14 00:00:00")
-      expect(c.conclude_at).to eq DateTime.parse("2011-05-14 00:00:00")
+      expect(c.start_at).to eq Time.zone.parse("2011-04-14 00:00:00")
+      expect(c.conclude_at).to eq Time.zone.parse("2011-05-14 00:00:00")
       expect(c.restrict_enrollments_to_course_dates).to be_truthy
     end
     process_csv_data_cleanly(
@@ -484,8 +484,8 @@ describe SIS::CSV::CourseImporter do
       expect(c.name).to eq "Test Course 2"
       expect(c.course_code).to eq "TC 102"
       expect(c.enrollment_term).to eq EnrollmentTerm.where(sis_source_id: "T002").first
-      expect(c.start_at).to eq DateTime.parse("2011-04-12 00:00:00")
-      expect(c.conclude_at).to eq DateTime.parse("2011-05-12 00:00:00")
+      expect(c.start_at).to eq Time.zone.parse("2011-04-12 00:00:00")
+      expect(c.conclude_at).to eq Time.zone.parse("2011-05-12 00:00:00")
       expect(c.restrict_enrollments_to_course_dates).to be_truthy
     end
     process_csv_data_cleanly(
@@ -506,8 +506,8 @@ describe SIS::CSV::CourseImporter do
       c.name = "Test Course 3"
       c.course_code = "TC 103"
       c.enrollment_term = EnrollmentTerm.where(sis_source_id: "T003").first
-      c.start_at = DateTime.parse("2011-04-13 00:00:00")
-      c.conclude_at = DateTime.parse("2011-05-13 00:00:00")
+      c.start_at = Time.zone.parse("2011-04-13 00:00:00")
+      c.conclude_at = Time.zone.parse("2011-05-13 00:00:00")
       c.restrict_enrollments_to_course_dates = true
       c.save!
     end
@@ -520,8 +520,8 @@ describe SIS::CSV::CourseImporter do
       expect(c.name).to eq "Test Course 3"
       expect(c.course_code).to eq "TC 103"
       expect(c.enrollment_term).to eq EnrollmentTerm.where(sis_source_id: "T003").first
-      expect(c.start_at).to eq DateTime.parse("2011-04-13 00:00:00")
-      expect(c.conclude_at).to eq DateTime.parse("2011-05-13 00:00:00")
+      expect(c.start_at).to eq Time.zone.parse("2011-04-13 00:00:00")
+      expect(c.conclude_at).to eq Time.zone.parse("2011-05-13 00:00:00")
       expect(c.restrict_enrollments_to_course_dates).to be_truthy
     end
     Course.where(sis_source_id: "c1").each do |c|
@@ -529,8 +529,8 @@ describe SIS::CSV::CourseImporter do
       expect(c.name).to eq "Test Course 4"
       expect(c.course_code).to eq "TC 104"
       expect(c.enrollment_term).to eq EnrollmentTerm.where(sis_source_id: "T004").first
-      expect(c.start_at).to eq DateTime.parse("2011-04-16 00:00:00")
-      expect(c.conclude_at).to eq DateTime.parse("2011-05-16 00:00:00")
+      expect(c.start_at).to eq Time.zone.parse("2011-04-16 00:00:00")
+      expect(c.conclude_at).to eq Time.zone.parse("2011-05-16 00:00:00")
       expect(c.restrict_enrollments_to_course_dates).to be_truthy
     end
   end
@@ -864,7 +864,7 @@ describe SIS::CSV::CourseImporter do
       other_mm.update_attribute(:workflow_state, "completed")
       run_jobs
       mm = @template.reload.master_migrations.last
-      expect(mm).to_not eq other_mm
+      expect(mm).not_to eq other_mm
       expect(mm).to be_completed
     end
 
@@ -955,7 +955,6 @@ describe SIS::CSV::CourseImporter do
     end
 
     it "applies an account's course template" do
-      @account.root_account.enable_feature!(:course_templates)
       template = @account.courses.create!(name: "Template Course", template: true)
       template.assignments.create!(title: "my assignment")
       @account.update!(course_template: template)
@@ -1025,5 +1024,27 @@ describe SIS::CSV::CourseImporter do
     course = @account.all_courses.where(sis_source_id: "test_1").first
     expect(course.name).to eq "Test Course 101"
     expect(course.friendly_name).to be_nil
+  end
+
+  it "sets integration IDs" do
+    process_csv_data_cleanly(
+      "course_id,short_name,long_name,account_id,term_id,status,integration_id",
+      "test_1,TC 101,Test Course 101,,,active,CINT-001"
+    )
+    course = Course.find_by(sis_source_id: "test_1")
+    expect(course.integration_id).to eq "CINT-001"
+  end
+
+  it "doesn't remove integration IDs when not specified" do
+    course = @account.courses.create!(sis_source_id: "test_1", integration_id: "CINT-001")
+    course.stuck_sis_fields = Set.new
+    course.save!
+
+    process_csv_data_cleanly(
+      "course_id,short_name,long_name,account_id,term_id,status",
+      "test_1,TC 101,Test Course 101.9,,,active"
+    )
+    expect(course.reload.integration_id).to eq "CINT-001"
+    expect(course.name).to eq "Test Course 101.9"
   end
 end

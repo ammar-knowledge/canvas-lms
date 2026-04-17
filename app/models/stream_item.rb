@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class StreamItem < ActiveRecord::Base
+class StreamItem < ApplicationRecord
   serialize :data
 
   has_many :stream_item_instances
@@ -48,7 +48,7 @@ class StreamItem < ActiveRecord::Base
   end
 
   def get_notification_category
-    read_attribute(:data)["notification_category"] || data.notification_category
+    self["data"]["notification_category"] || data.notification_category
   end
 
   def self.reconstitute_ar_object(type, data)
@@ -93,7 +93,7 @@ class StreamItem < ActiveRecord::Base
     res.instance_variable_set(:@new_record, false) if data["id"]
 
     # the after_find from NotificationPreloader won't get triggered
-    if res.respond_to?(:preload_notification) && res.read_attribute(:notification_id)
+    if res.respond_to?(:preload_notification) && res["notification_id"]
       res.preload_notification
     end
 
@@ -103,7 +103,7 @@ class StreamItem < ActiveRecord::Base
   def data(viewing_user_id = nil)
     # reconstitute AR objects
     @ar_data ||= shard.activate do
-      self.class.reconstitute_ar_object(asset_type, read_attribute(:data))
+      self.class.reconstitute_ar_object(asset_type, super())
     end
     res = @ar_data
 
@@ -188,8 +188,22 @@ class StreamItem < ActiveRecord::Base
     when DiscussionTopic
       res = object.attributes
       res["user_ids_that_can_see_responses"] = object.user_ids_who_have_posted_and_admins if object.require_initial_post?
-      res["total_root_discussion_entries"] = object.root_discussion_entries.active.count
-      res[:root_discussion_entries] = object.root_discussion_entries.active.order(created_at: :desc).limit(LATEST_ENTRY_LIMIT).to_a.reverse.map do |entry|
+      res["total_root_discussion_entries"] = if object.association(:root_discussion_entries).loaded?
+                                               object.root_discussion_entries.count { |e| e.workflow_state != "deleted" }
+                                             else
+                                               object.root_discussion_entries.active.size
+                                             end
+      entries = if object.association(:root_discussion_entries).loaded?
+                  object.root_discussion_entries
+                        .reject { |e| e.workflow_state == "deleted" }
+                        .sort_by(&:created_at)
+                        .reverse
+                        .take(LATEST_ENTRY_LIMIT)
+                        .reverse
+                else
+                  object.root_discussion_entries.active.order(created_at: :desc).limit(LATEST_ENTRY_LIMIT).to_a.reverse
+                end
+      res[:root_discussion_entries] = entries.map do |entry|
         hash = entry.attributes
         hash["user_short_name"] = entry.user.short_name if entry.user
         hash["message"] = hash["message"][0, 4.kilobytes] if hash["message"].present?
@@ -221,11 +235,11 @@ class StreamItem < ActiveRecord::Base
     end
     if context_type
       res["context_short_name"] = Rails.cache.fetch(["short_name_lookup", "#{context_type.underscore}_#{context_id}"].cache_key) do
-        self.context.short_name rescue ""
+        self.context.try(:short_name) || ""
       end
     end
     res["type"] = object.class.to_s
-    res["user_short_name"] = object.user.short_name rescue nil
+    res["user_short_name"] = object.try(:user)&.short_name
 
     if self.class.new_message?(object)
       self.asset_type = "Message"
@@ -292,14 +306,12 @@ class StreamItem < ActiveRecord::Base
           }
         end
         # set the hidden flag if this submission is not posted
-        if object.is_a?(Submission) && !object.posted? && (owner_insert = inserts.detect { |i| i[:user_id] == object.user_id })
+        if object.is_a?(Submission) && (!object.posted? || object.assignment.suppress_assignment?) && (owner_insert = inserts.detect { |i| i[:user_id] == object.user_id })
           owner_insert[:hidden] = true
         end
 
-        StreamItemInstance.unique_constraint_retry do
-          StreamItemInstance.where(stream_item_id:, user_id: sliced_user_ids).delete_all
-          StreamItemInstance.bulk_insert(inserts)
-        end
+        StreamItemInstance.where(stream_item_id:, user_id: sliced_user_ids).delete_all
+        StreamItemInstance.insert_all(inserts)
 
         # reset caches manually because the observer wont trigger off of the above mass inserts
         sliced_user_ids.each do |user_id|
@@ -332,9 +344,9 @@ class StreamItem < ActiveRecord::Base
   def self.prepare_object_for_unread(object)
     case object
     when DiscussionEntry
-      ActiveRecord::Associations.preload(object, :discussion_entry_participants)
+      ActiveRecord::Associations.preload(object, :discussion_entry_participants) unless object.association(:discussion_entry_participants).loaded?
     when DiscussionTopic
-      ActiveRecord::Associations.preload(object, :discussion_topic_participants)
+      ActiveRecord::Associations.preload(object, :discussion_topic_participants) unless object.association(:discussion_topic_participants).loaded?
     end
   end
 
@@ -361,12 +373,12 @@ class StreamItem < ActiveRecord::Base
     # we pass false for the touch_users argument, on the assumption that these
     # stream items that we delete aren't visible on the user's dashboard anymore
     # anyway, so there's no need to invalidate all the caches.
-    destroy_stream_items(ttl, false)
+    destroy_stream_items(ttl, touch_users: false)
   end
 
   # delete old stream items and the corresponding instances before a given date
   # returns the number of destroyed stream items
-  def self.destroy_stream_items(before_date, touch_users = true)
+  def self.destroy_stream_items(before_date, touch_users: true)
     user_ids = Set.new
     count = 0
 
@@ -408,8 +420,8 @@ class StreamItem < ActiveRecord::Base
     count
   end
 
-  scope :before, ->(id) { where("id<?", id).order("updated_at DESC").limit(21) }
-  scope :after, ->(start_at) { where("updated_at>?", start_at).order("updated_at DESC").limit(21) }
+  scope :before, ->(id) { where("id<?", id).order(updated_at: :desc).limit(21) }
+  scope :after, ->(start_at) { where("updated_at>?", start_at).order(updated_at: :desc).limit(21) }
 
   def associated_shards
     if self.context.try(:respond_to?, :associated_shards)

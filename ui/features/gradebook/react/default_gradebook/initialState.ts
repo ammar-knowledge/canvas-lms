@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2020 - present Instructure, Inc.
  *
@@ -40,10 +39,10 @@ export function getInitialGradebookContent(options: {teacher_notes: null | Custo
 
 export function getInitialGridDisplaySettings(
   settings: GradebookSettings,
-  colors: StatusColors
+  colors: StatusColors,
 ): GridDisplaySettings {
   const selectedPrimaryInfo = studentRowHeaderConstants.primaryInfoKeys.includes(
-    settings.student_column_display_as
+    settings.student_column_display_as,
   )
     ? settings.student_column_display_as
     : studentRowHeaderConstants.defaultPrimaryInfo
@@ -103,8 +102,11 @@ export function getInitialGridDisplaySettings(
       editedCommentId: null,
     },
     showUnpublishedAssignments: settings.show_unpublished_assignments === 'true',
+    showSuppressedAssignments: settings.show_suppressed_assignments === 'true',
     showSeparateFirstLastNames: settings.show_separate_first_last_names === 'true',
     viewUngradedAsZero: settings.view_ungraded_as_zero === 'true',
+    viewHiddenGradesIndicator: settings.view_hidden_grades_indicator === 'true',
+    viewStatusForColorblindness: settings.view_status_for_colorblindness === 'true',
   }
 }
 
@@ -134,7 +136,9 @@ export function getInitialCourseContent(options: GradebookOptions): CourseConten
   const defaultGradingScheme = options.default_grading_standard
     ? {
         data: options.default_grading_standard,
+        // @ts-expect-error
         pointsBased: options.default_grading_standard_points_based,
+        // @ts-expect-error
         scalingFactor: options.default_grading_standard_scaling_factor,
       }
     : null
@@ -144,6 +148,7 @@ export function getInitialCourseContent(options: GradebookOptions): CourseConten
     courseGradingSchemePointsBased: options.grading_standard_points_based,
     courseGradingSchemeScalingFactor: options.grading_standard_scaling_factor,
     defaultGradingScheme,
+    // @ts-expect-error
     gradingSchemes: options.grading_schemes.map(camelizeProperties),
     gradingPeriodAssignments: {},
     assignmentStudentVisibility: {},

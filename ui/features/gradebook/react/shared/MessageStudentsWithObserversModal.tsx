@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2024 - present Instructure, Inc.
@@ -18,10 +19,10 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender, legacyUnmountComponentAtNode} from '@canvas/react'
 import AsyncComponents from '../default_gradebook/AsyncComponents'
-import {ApolloProvider} from 'react-apollo'
-import {createClient} from '@canvas/apollo'
+import {QueryClientProvider} from '@tanstack/react-query'
+import {queryClient} from '@instructure/platform-query'
 
 export const showMessageStudentsWithObserversModal = async (props, focusAtEnd) => {
   const mountPoint = document.querySelector("[data-component='MessageStudentsWithObserversModal']")
@@ -29,17 +30,17 @@ export const showMessageStudentsWithObserversModal = async (props, focusAtEnd) =
     const dialogeProps = {
       ...props,
       onClose: () => {
-        ReactDOM.unmountComponentAtNode(mountPoint)
+        legacyUnmountComponentAtNode(mountPoint)
         focusAtEnd()
       },
     }
     const MessageStudentsWhoDialog = await AsyncComponents.loadMessageStudentsWithObserversDialog()
 
-    ReactDOM.render(
-      <ApolloProvider client={createClient()}>
+    legacyRender(
+      <QueryClientProvider client={queryClient}>
         <MessageStudentsWhoDialog {...dialogeProps} />
-      </ApolloProvider>,
-      mountPoint
+      </QueryClientProvider>,
+      mountPoint,
     )
   }
 }

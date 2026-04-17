@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2018 - present Instructure, Inc.
@@ -41,7 +42,7 @@ describe('GradeOverrideEntry', () => {
 
   describe('#enterGradesAs', () => {
     // TODO: GRADE-1926 Return `EnterGradesAs.GRADING_SCHEME` when a grading scheme is used
-    /* jest/no-disabled-tests */
+    /* vi/no-disabled-tests */
     it.skip(`is '${EnterGradesAs.GRADING_SCHEME}' when using grading scheme`, () => {
       const gradeEntry = new GradeOverrideEntry(options)
       expect(gradeEntry.enterGradesAs).toEqual(EnterGradesAs.GRADING_SCHEME)
@@ -630,7 +631,7 @@ describe('GradeOverrideEntry', () => {
       describe('.schemeKey', () => {
         it('is set to the scheme key matching the given grade percentage', () => {
           expect(
-            gradeInfoFromGrade({percentage: 81.1234, schemeKey: 'B'}).grade?.schemeKey
+            gradeInfoFromGrade({percentage: 81.1234, schemeKey: 'B'}).grade?.schemeKey,
           ).toEqual('B')
         })
 
@@ -646,7 +647,7 @@ describe('GradeOverrideEntry', () => {
 
       it(`is set to "${PERCENTAGE}" when using a grading scheme`, () => {
         expect(gradeInfoFromGrade({percentage: 81.1234, schemeKey: 'B'}).enteredAs).toEqual(
-          PERCENTAGE
+          PERCENTAGE,
         )
       })
 

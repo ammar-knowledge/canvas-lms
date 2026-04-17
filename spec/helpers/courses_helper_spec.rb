@@ -27,12 +27,14 @@ describe CoursesHelper do
   context "a view with a 'Coming Up' sidebar" do
     before(:once) do
       course_with_teacher(active_all: true)
-      @assignment = factory_with_protected_attributes(@course.assignments,
-                                                      assignment_valid_attributes.merge({ points_possible: 10,
-                                                                                          submission_types: "online_text_entry" }))
-      @assignment2 = factory_with_protected_attributes(@course.assignments,
-                                                       assignment_valid_attributes.merge({ points_possible: 10,
-                                                                                           submission_types: "none" }))
+      @assignment = @course.assignments.create!(
+        assignment_valid_attributes.merge({ points_possible: 10,
+                                            submission_types: "online_text_entry" })
+      )
+      @assignment2 = @course.assignments.create!(
+        assignment_valid_attributes.merge({ points_possible: 10,
+                                            submission_types: "none" })
+      )
     end
 
     before do
@@ -41,8 +43,8 @@ describe CoursesHelper do
 
     describe "an assignment with no submissions" do
       before(:once) do
-        @student_one = factory_with_protected_attributes(User, valid_user_attributes)
-        @student_two = factory_with_protected_attributes(User, valid_user_attributes)
+        @student_one = User.create!(valid_user_attributes)
+        @student_two = User.create!(valid_user_attributes)
         [@student_one, @student_two].each do |student|
           e = @course.enroll_student(student)
           e.invite
@@ -69,8 +71,8 @@ describe CoursesHelper do
 
     describe "an assignment with submissions" do
       before(:once) do
-        @student_one = factory_with_protected_attributes(User, valid_user_attributes)
-        @student_two = factory_with_protected_attributes(User, valid_user_attributes)
+        @student_one = User.create!(valid_user_attributes)
+        @student_two = User.create!(valid_user_attributes)
         [@student_one, @student_two].each do |student|
           e = @course.enroll_student(student)
           e.invite
@@ -257,6 +259,103 @@ describe CoursesHelper do
         end
       end
     end
+
+    context "with course setup" do
+      before(:once) do
+        course_with_teacher(active_all: true)
+      end
+
+      before do
+        @context = @course
+        @domain_root_account = Account.default
+        @current_user = @teacher
+        allow(@context).to receive(:tabs_available).and_return([
+                                                                 { id: "home", label: "Home", hidden: false },
+                                                                 { id: "assignments", label: "Assignments", hidden: false },
+                                                                 { id: "disabled_tab", label: "Disabled", hidden: true }
+                                                               ])
+      end
+
+      it "includes immovable property for disabled tabs" do
+        allow(@context).to receive(:tab_enabled?) do |tab|
+          tab[:id] != "disabled_tab"
+        end
+        allow(self).to receive(:sortable_tabs_tab_disabled_message).and_return("Test message")
+
+        tabs = sortable_tabs
+        disabled_tab = tabs.find { |t| t[:id] == "disabled_tab" }
+        enabled_tab = tabs.find { |t| t[:id] == "home" }
+
+        expect(disabled_tab[:immovable]).to be true
+        expect(enabled_tab.key?(:immovable)).to be false
+      end
+
+      it "includes disabled_message for all tabs" do
+        allow(@context).to receive(:tab_enabled?).and_return(true)
+        allow(self).to receive(:sortable_tabs_tab_disabled_message).and_return("Test message")
+
+        tabs = sortable_tabs
+        expect(tabs.first[:disabled_message]).to eq "Test message"
+      end
+
+      it "filters out settings tab" do
+        allow(@context).to receive_messages(tabs_available: [
+                                              { id: Course::TAB_SETTINGS, label: "Settings" },
+                                              { id: "home", label: "Home" }
+                                            ],
+                                            tab_enabled?: true)
+        allow(self).to receive(:sortable_tabs_tab_disabled_message).and_return("Test message")
+
+        tabs = sortable_tabs
+        settings_tab = tabs.find { |t| t[:id] == Course::TAB_SETTINGS }
+        expect(settings_tab).to be_nil
+      end
+    end
+  end
+
+  describe "#sortable_tabs_tab_disabled_message" do
+    before(:once) do
+      course_with_teacher(active_all: true)
+    end
+
+    before do
+      @context = @course
+    end
+
+    it "returns K5 message for elementary subject courses" do
+      allow(@context).to receive(:elementary_subject_course?).and_return(true)
+      tab = { id: "home" }
+      expect(I18n).to receive(:t).with("courses.settings.tab_hidden_if_disabled_k5", "Tab disabled, won't appear in subject navigation").and_return("K5 message")
+      expect(sortable_tabs_tab_disabled_message(tab)).to eq "K5 message"
+    end
+
+    it "returns external tab message for external tabs" do
+      allow(@context).to receive(:elementary_subject_course?).and_return(false)
+      tab = { id: "external_tool_1", external: true }
+      expect(I18n).to receive(:t).with("courses.settings.tab_hidden_if_disabled", "Page disabled, won't appear in navigation").and_return("External disabled")
+      expect(sortable_tabs_tab_disabled_message(tab)).to eq "External disabled"
+    end
+
+    it "returns can't disable message for grades tab" do
+      allow(@context).to receive(:elementary_subject_course?).and_return(false)
+      tab = { id: Course::TAB_GRADES }
+      expect(I18n).to receive(:t).with("courses.settings.tab_cant_disable", "This page can't be disabled, only hidden").and_return("Can't disable")
+      expect(sortable_tabs_tab_disabled_message(tab)).to eq "Can't disable"
+    end
+
+    it "returns can't disable message for discussions tab" do
+      allow(@context).to receive(:elementary_subject_course?).and_return(false)
+      tab = { id: Course::TAB_DISCUSSIONS }
+      expect(I18n).to receive(:t).with("courses.settings.tab_cant_disable", "This page can't be disabled, only hidden").and_return("Can't disable")
+      expect(sortable_tabs_tab_disabled_message(tab)).to eq "Can't disable"
+    end
+
+    it "returns default disabled message for regular tabs" do
+      allow(@context).to receive(:elementary_subject_course?).and_return(false)
+      tab = { id: "assignments" }
+      expect(I18n).to receive(:t).with("courses.settings.tab_disabled", "Page disabled, will redirect to course home page").and_return("Default disabled")
+      expect(sortable_tabs_tab_disabled_message(tab)).to eq "Default disabled"
+    end
   end
 
   describe "#format_course_section_date" do
@@ -273,20 +372,20 @@ describe CoursesHelper do
 
   describe "sortable user course list helpers" do
     context "get_sorting_order" do
-      it "returns 'desc' if we are sorting on the current col that is in ascending order" do
+      it "returns 'desc' if you click the same column when there is no prior order" do
         expect(get_sorting_order("favorite", "favorite", nil)).to eq("desc")
       end
 
-      it "returns 'desc' if the default col is being sorted on in ascending order" do
-        expect(get_sorting_order("published", nil, nil)).to eq("desc")
+      it "starts new columns in ascending order" do
+        expect(get_sorting_order("published", nil, nil)).to eq("asc")
       end
 
-      it "returns nil if we are not sorting on the current col" do
-        expect(get_sorting_order("enrolled_as", "favorite", nil)).to be_nil
+      it "starts any column you click (that wasn’t already sorted) in ascending order" do
+        expect(get_sorting_order("enrolled_as", "favorite", nil)).to eq("asc")
       end
 
-      it "returns nil if we are sorting on the current col that is in descending order" do
-        expect(get_sorting_order("favorite", "favorite", "desc")).to be_nil
+      it "toggles back to 'asc' when you click the same column a second time" do
+        expect(get_sorting_order("favorite", "favorite", "desc")).to eq("asc")
       end
     end
 
@@ -309,7 +408,7 @@ describe CoursesHelper do
         table = "cc"
         column = "favorite"
         old_params = ActionController::Parameters.new
-        new_params = ActionController::Parameters.new(cc_sort: column, cc_order: nil, focus: table)
+        new_params = ActionController::Parameters.new(cc_sort: column, cc_order: "asc", focus: table)
         expect(get_courses_params(table, column, old_params)).to eq(new_params.permit(:cc_sort, :cc_order, :focus))
       end
 
@@ -317,7 +416,7 @@ describe CoursesHelper do
         table = "cc"
         column = "favorite"
         old_params = ActionController::Parameters.new(pc_sort: "published")
-        new_params = ActionController::Parameters.new(cc_sort: column, cc_order: nil, focus: table, pc_sort: "published")
+        new_params = ActionController::Parameters.new(cc_sort: column, cc_order: "asc", focus: table, pc_sort: "published")
         expect(get_courses_params(table, column, old_params)).to eq(new_params.permit(:cc_sort, :cc_order, :focus, :pc_sort))
       end
 
@@ -325,8 +424,117 @@ describe CoursesHelper do
         table = "cc"
         column = "favorite"
         old_params = ActionController::Parameters.new(foo: "bar")
-        new_params = ActionController::Parameters.new(cc_sort: column, cc_order: nil, focus: table)
+        new_params = ActionController::Parameters.new(cc_sort: column, cc_order: "asc", focus: table)
         expect(get_courses_params(table, column, old_params)).to eq(new_params.permit(:cc_sort, :cc_order, :focus))
+      end
+
+      it "works on pc table" do
+        table = "pc"
+        column = "favorite"
+        old_params = ActionController::Parameters.new(pc_sort: column, pc_order: nil, focus: table)
+        new_params = ActionController::Parameters.new(pc_sort: column, pc_order: "desc", focus: table)
+        expect(get_courses_params(table, column, old_params)).to eq(new_params.permit(:pc_sort, :pc_order, :focus))
+      end
+    end
+  end
+
+  describe "#recent_event_url" do
+    before(:once) do
+      course_with_teacher(active_all: true)
+      @course.account.enable_feature!(:discussion_checkpoints)
+      @assignment = @course.assignments.create!(assignment_valid_attributes.merge({ points_possible: 10,
+                                                                                    submission_types: "online_text_entry" }))
+      @checkpoint_topic, @checkpoint_entry = graded_discussion_topic_with_checkpoints(context: @course)
+    end
+
+    it "returns url for the parent assignment when event is SubAssignment" do
+      expect(recent_event_url(@checkpoint_topic)).to eq "/courses/#{@course.id}/assignments/#{@checkpoint_topic.parent_assignment.id}"
+      expect(recent_event_url(@checkpoint_entry)).to eq "/courses/#{@course.id}/assignments/#{@checkpoint_entry.parent_assignment.id}"
+    end
+
+    it "returns url for the assignment itself when event is Assignment" do
+      expect(recent_event_url(@assignment)).to eq "/courses/#{@course.id}/assignments/#{@assignment.id}"
+    end
+
+    it "returns url for the parent assignment when event is PeerReviewSubAssignment" do
+      @course.account.enable_feature!(:peer_review_allocation_and_grading)
+      peer_review = peer_review_model(course: @course)
+      expect(recent_event_url(peer_review)).to eq "/courses/#{@course.id}/assignments/#{peer_review.parent_assignment_id}"
+    end
+  end
+
+  describe "#icon_data for PeerReviewSubAssignment" do
+    include CoursesHelper
+    include ApplicationHelper
+
+    before(:once) do
+      course_with_teacher(active_all: true)
+      @course.account.enable_feature!(:peer_review_allocation_and_grading)
+      @student_one = User.create!(valid_user_attributes)
+      @student_two = User.create!(valid_user_attributes)
+      [@student_one, @student_two].each do |student|
+        e = @course.enroll_student(student)
+        e.invite
+        e.accept
+      end
+      @peer_review = peer_review_model(course: @course)
+      @peer_review.reload
+    end
+
+    before do
+      user_session(@user)
+    end
+
+    def check_peer_review_icon_data(msg, aria_label, icon, options = {})
+      base_options = {
+        context: @course,
+        contexts: [@course],
+        current_user: @teacher,
+        recent_event: @peer_review,
+        submission: nil
+      }.merge(options)
+      icon_explanation, icon_aria_label, icon_class = icon_data(base_options)
+      expect(icon_explanation).to eql msg
+      expect(icon_aria_label).to eql aria_label
+      expect(icon_class).to eql icon
+    end
+
+    context "as a student" do
+      it "returns not submitted when no peer review submission exists" do
+        expect(self).to receive(:t).with("#courses.recent_event.not_submitted", "not submitted").and_return("not submitted")
+        check_peer_review_icon_data("not submitted", "Peer Review", "icon-peer-review", current_user: @student_one)
+      end
+
+      it "returns submission readable_state when peer review submission exists" do
+        submission = @peer_review.submit_homework(@student_one, { submission_type: "online_text_entry", body: "my review" })
+        check_peer_review_icon_data(submission.readable_state,
+                                    "Peer Review",
+                                    "icon-peer-review",
+                                    current_user: @student_one,
+                                    submission:,
+                                    show_assignment_type_icon: true)
+      end
+    end
+
+    context "as an instructor" do
+      it "returns no submissions when none exist" do
+        expect(self).to receive(:t).with("#courses.recent_event.no_submissions", "no submissions").and_return("no submissions")
+        check_peer_review_icon_data("no submissions", "Peer Review", "icon-peer-review")
+      end
+
+      it "returns needs grading when ungraded submissions exist" do
+        expect(self).to receive(:t).with("#courses.recent_event.needs_grading", "needs grading").and_return("needs grading")
+        @peer_review.submit_homework(@student_one, { submission_type: "online_text_entry", body: "my review" })
+        check_peer_review_icon_data("needs grading", "Peer Review", "icon-peer-review")
+      end
+
+      it "returns all graded when all submitted and graded" do
+        expect(self).to receive(:t).with("#courses.recent_event.all_graded", "all graded").and_return("all graded")
+        [@student_one, @student_two].each do |student|
+          @peer_review.submit_homework(student, { submission_type: "online_text_entry", body: "review" })
+          @peer_review.grade_student(student, grade: 5, grader: @teacher)
+        end
+        check_peer_review_icon_data("all graded", "Peer Review", "icon-peer-review")
       end
     end
   end

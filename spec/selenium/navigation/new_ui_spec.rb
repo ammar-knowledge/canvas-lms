@@ -20,6 +20,7 @@
 require_relative "../common"
 require_relative "../helpers/files_common"
 require_relative "../rcs/pages/rce_next_page"
+require_relative "../files_v2/pages/files_page"
 
 describe "new ui" do
   include_context "in-process server selenium tests"
@@ -73,9 +74,49 @@ describe "new ui" do
     end
 
     it "breadcrumbs show for course files navigation menu item", priority: "2" do
+      @teacher.set_preference(:files_ui_version, "v1")
       get "/courses/#{@course.id}/files"
       expect(f("#breadcrumbs .ellipsis")).to include_text("Files")
       expect(f(".ellipsible")).to include_text(@course.course_code)
+    end
+
+    context("files rewrite tooggle") do
+      include FilesPage
+
+      let(:folder_name) { "base folder" }
+
+      before do
+        user_session @teacher
+      end
+
+      it "breadcrumbs show for course files navigation menu item", priority: "2" do
+        @teacher.set_preference(:files_ui_version, "v1")
+        get "/courses/#{@course.id}/files"
+        expect(f("#breadcrumbs .ellipsis")).to include_text("Files")
+        expect(f(".ellipsible")).to include_text(@course.course_code)
+      end
+
+      it "breadcrumbs show for course files navigation menu item on new files UI", priority: "2" do
+        @teacher.set_preference(:files_ui_version, "v2")
+        get "/courses/#{@course.id}/files"
+        expect(breadcrumb).to include_text(@course.course_code)
+      end
+
+      it "shows new files folder icon in course files", priority: "2" do
+        @teacher.set_preference(:files_ui_version, "v1")
+        get "/courses/#{@course.id}/files"
+        add_folder(folder_name)
+        # verifying new files folder icon css property still displays with new ui
+        expect(f(".media-object.ef-big-icon.FilesystemObjectThumbnail.mimeClass-folder")).to be_displayed
+      end
+
+      it "shows new files folder icon in course files on new files UI", priority: "2" do
+        @teacher.set_preference(:files_ui_version, "v2")
+        get "/courses/#{@course.id}/files"
+        create_folder(folder_name)
+        # verifying new files folder icon css property still displays with new ui
+        expect(folder_icon).to be_displayed
+      end
     end
 
     it "breadcrumbs show for course syllabus navigation menu item", priority: "2" do
@@ -108,35 +149,13 @@ describe "new ui" do
       expect(f(".home + li .ellipsible")).to include_text(@course.course_code)
     end
 
-    it "shows new files folder icon in course files", priority: "2" do
-      get "/courses/#{@course.id}/files"
-      add_folder
-      # verifying new files folder icon css property still displays with new ui
-      expect(f(".media-object.ef-big-icon.FilesystemObjectThumbnail.mimeClass-folder")).to be_displayed
-    end
-
     it "does not override high contrast theme", priority: "2" do
       BrandableCSS.save_default!("css") # make sure variable css file is up to date
       @user.enable_feature!("high_contrast")
       get "/profile/settings"
       menu_link = f(".profile_settings.active")
-      expect(menu_link.css_value("border-left")).to eq("2px solid rgb(45, 59, 69)")
-      expect(menu_link.css_value("color")).to eq("rgba(45, 59, 69, 1)")
-    end
-
-    it "does not break tiny mce css", priority: "2" do
-      skip_if_chrome("Chrome does not get these values properly")
-      get "/courses/#{@course.id}/discussion_topics/new?is_announcement=true"
-      mce_icons = f(".mce-ico")
-      expect(mce_icons.css_value("font-family")).to eq("tinymce,Arial")
-      expect(mce_icons.css_value("font-style")).to eq("normal")
-      expect(mce_icons.css_value("font-weight")).to eq("400")
-      expect(mce_icons.css_value("font-size")).to eq("16px")
-      expect(mce_icons.css_value("vertical-align")).to eq("text-top")
-      expect(mce_icons.css_value("display")).to eq("inline-block")
-      expect(mce_icons.css_value("background-size")).to eq("cover")
-      expect(mce_icons.css_value("width")).to eq("16px")
-      expect(mce_icons.css_value("height")).to eq("16px")
+      expect(menu_link.css_value("border-left")).to eq("2px solid rgb(39, 53, 64)")
+      expect(menu_link.css_value("color")).to eq("rgba(39, 53, 64, 1)")
     end
   end
 

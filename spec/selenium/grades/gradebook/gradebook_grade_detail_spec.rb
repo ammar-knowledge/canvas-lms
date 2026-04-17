@@ -23,13 +23,23 @@ require_relative "../pages/gradebook_grade_detail_tray_page"
 require_relative "../../helpers/gradebook_common"
 require_relative "../../helpers/files_common"
 
-describe "Grade Detail Tray:" do
+# NOTE: We are aware that we're duplicating some unnecessary testcases, but this was the
+# easiest way to review, and will be the easiest to remove after the feature flag is
+# permanently removed. Testing both flag states is necessary during the transition phase.
+shared_examples "Grade Detail Tray:" do |ff_enabled|
   include_context "in-process server selenium tests"
   include GradebookCommon
   include FilesCommon
+
   include_context "late_policy_course_setup"
 
-  before(:once) do
+  before :once do
+    # Set feature flag state for the test run - this affects how the gradebook data is fetched, not the data setup
+    if ff_enabled
+      Account.site_admin.enable_feature!(:performance_improvements_for_gradebook)
+    else
+      Account.site_admin.disable_feature!(:performance_improvements_for_gradebook)
+    end
     # create course with students, assignments, submissions and grades
     init_course_with_students(2)
     create_course_late_policy
@@ -39,6 +49,12 @@ describe "Grade Detail Tray:" do
     @custom_status = CustomGradeStatus.create!(name: "Custom Status", color: "#000000", root_account_id: @course.root_account_id, created_by: @teacher)
     @a5 = @course.assignments.create!(name: "Assignment 5", points_possible: 10, submission_types: "online_text_entry")
     @course.students.first.submissions.find_by(assignment_id: @a5.id).update!(custom_grade_status: @custom_status)
+  end
+
+  before do
+    if ff_enabled
+      allow(Services::PlatformServiceGradebook).to receive(:use_graphql?).and_return(true)
+    end
   end
 
   context "status" do
@@ -166,11 +182,14 @@ describe "Grade Detail Tray:" do
         Gradebook.visit(@course)
       end
 
-      it "speedgrader link navigates to speedgrader page", priority: "1" do
+      it "speedgrader link opens in a new tab", priority: "1" do
         Gradebook::Cells.open_tray(@course.students[0], @a1)
-        Gradebook::GradeDetailTray.speedgrader_link.click
 
-        expect(driver.current_url).to include "courses/#{@course.id}/gradebook/speed_grader?assignment_id=#{@a1.id}"
+        speedgrader_link = Gradebook::GradeDetailTray.speedgrader_link
+        expect(speedgrader_link.attribute("target")).to eq("_blank")
+        expect(speedgrader_link.attribute("href")).to include(
+          "courses/#{@course.id}/gradebook/speed_grader?assignment_id=#{@a1.id}"
+        )
       end
 
       it "clicking assignment name navigates to assignment page", priority: "2" do
@@ -377,7 +396,7 @@ describe "Grade Detail Tray:" do
 
   context "checkpoints" do
     before do
-      @course.root_account.enable_feature!(:discussion_checkpoints)
+      @course.account.enable_feature!(:discussion_checkpoints)
 
       create_checkpoint_assignment
 
@@ -538,6 +557,49 @@ describe "Grade Detail Tray:" do
         expect(f("[data-testid='reply_to_topic-checkpoint-status-select']")).to have_attribute("value", "None")
         expect(f("[data-testid='reply_to_entry-checkpoint-status-select']")).to have_attribute("value", "Excused")
       end
+
+      it "persists data when clicking the speedgraded link", :ignore_js_errors do
+        discussion_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "late discussion")
+        due_at = 1.week.ago
+
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic:,
+          checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+          dates: [{ type: "everyone", due_at: }],
+          points_possible: 20
+        )
+
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic:,
+          checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+          dates: [{ type: "everyone", due_at: }],
+          points_possible: 10,
+          replies_required: 1
+        )
+
+        entry = discussion_topic.discussion_entries.create!(user: @students[0])
+        sub_entry = discussion_topic.discussion_entries.build
+        sub_entry.parent_id = entry.id
+        sub_entry.user_id = @students[0].id
+        sub_entry.save!
+
+        late_assignment = Assignment.last
+        user_session(@teacher)
+        Gradebook.visit(@course)
+        Gradebook::Cells.open_tray(@students[0], late_assignment)
+        reply_to_topic_input = Gradebook::GradeDetailTray.grade_inputs[0]
+        required_replies_input = Gradebook::GradeDetailTray.grade_inputs[1]
+        Gradebook::GradeDetailTray.edit_grade_for_input(reply_to_topic_input, 10)
+        Gradebook::GradeDetailTray.edit_grade_for_input(required_replies_input, 10)
+        Gradebook::GradeDetailTray.speedgrader_link.click
+        expect(f("[data-testid='reply_to_topic-checkpoint-status-select']")).to have_attribute("value", "Late")
+        expect(f("[data-testid='reply_to_entry-checkpoint-status-select']")).to have_attribute("value", "Late")
+      end
     end
   end
+end
+
+describe "Grade Detail Tray:" do
+  it_behaves_like "Grade Detail Tray:", true
+  it_behaves_like "Grade Detail Tray:", false
 end

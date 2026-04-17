@@ -17,14 +17,10 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require_relative "../../../spec_helper"
-
 class ObserverAlertThresholdApiHarness
   include Api::V1::ObserverAlertThreshold
 
-  def value_to_boolean(value)
-    Canvas::Plugin.value_to_boolean(value)
-  end
+  delegate :value_to_boolean, to: :"Canvas::Plugin"
 
   def session
     Object.new

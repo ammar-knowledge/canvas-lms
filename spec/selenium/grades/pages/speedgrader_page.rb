@@ -86,7 +86,7 @@ class Speedgrader
     end
 
     def keyboard_shortcuts_link
-      fxpath('//ul[@role = "menu"]//span[text() = "Keyboard Shortcuts"]')
+      fj("div[role='menu'] span:contains('Keyboard Shortcuts')")
     end
 
     def post_or_hide_grades_button
@@ -348,8 +348,8 @@ class Speedgrader
     end
 
     # action
-    def visit(course_id, assignment_id, timeout = 10, student_id = nil)
-      get "/courses/#{course_id}/gradebook/speed_grader?assignment_id=#{assignment_id}#{student_id ? "&student_id=#{student_id}" : ""}"
+    def visit(course_id, assignment_id, timeout = 10, student_id = nil, entry_id: nil)
+      get "/courses/#{course_id}/gradebook/speed_grader?assignment_id=#{assignment_id}#{"&student_id=#{student_id}" if student_id}#{"&entry_id=#{entry_id}" if entry_id}"
       visibility_check = grade_input
       wait_for(method: :visit, timeout:) { visibility_check.displayed? }
     end
@@ -651,7 +651,7 @@ class Speedgrader
 
     # comment library
     def comment_library_link
-      f('[data-testid="comment-library-link"]')
+      f('[data-testid="comment-library-button"]')
     end
 
     def comment_library_count
@@ -659,11 +659,11 @@ class Speedgrader
     end
 
     def comment_library_text_area
-      f('[data-testid="comment-library-text-area"]')
+      f('[data-testid="create-comment-library-item-textarea"]')
     end
 
     def comment_library_edit_text_area
-      f('[data-testid="comment-library-edit-text-area"]')
+      f('[data-testid="comment-library-edit-textarea"]')
     end
 
     def comment_library_save_button
@@ -675,7 +675,7 @@ class Speedgrader
     end
 
     def comment_library_close_button
-      f('[data-testid="close-comment-library-button"]')
+      f('[data-testid="tray-close-button"]')
     end
 
     def comment_library_area
@@ -683,11 +683,11 @@ class Speedgrader
     end
 
     def comment_library_delete_button
-      f('[data-testid="comment-library-delete-button"]')
+      f('[data-testid^="comment-library-delete-button"]')
     end
 
     def comment_library_edit_button
-      f('[data-testid="comment-library-edit-button"]')
+      f('[data-testid^="comment-library-edit-button"]')
     end
 
     def comment_library_suggestions_toggle
@@ -695,7 +695,7 @@ class Speedgrader
     end
 
     def comment_library_suggestion
-      f('[data-testid="comment-suggestion"]')
+      f('[data-testid^="comment-suggestion-"]')
     end
 
     def add_comment_to_library(comment)
@@ -704,6 +704,54 @@ class Speedgrader
       comment_library_add_button.click
       f(".flashalert-message button").click
       Speedgrader.comment_library_close_button.click
+    end
+
+    def wait_for_speedgrader_iframe(timeout = 10)
+      wait_for(method: nil, timeout:) { f("#speedgrader_iframe") }
+    end
+
+    def wait_for_discussions_iframe(timeout = 10)
+      wait_for(method: nil, timeout:) { f("#discussion_preview_iframe") }
+    end
+
+    def wait_for_first_reply_button(timeout = 10)
+      wait_for(method: nil, timeout:) { f("[data-testid='discussions-first-reply-button']") }
+    end
+
+    # expects #speedgrader_iframe and #discussion_preview_iframe to be loaded
+    def wait_for_all_speedgrader_iframes_to_load
+      Speedgrader.wait_for_speedgrader_iframe
+      in_frame("speedgrader_iframe") do
+        Speedgrader.wait_for_discussions_iframe
+        in_frame("discussion_preview_iframe") do
+          wait_for_ajaximations
+          yield if block_given?
+        end
+      end
+    end
+
+    # the parent speedgrader_iframe is #speedgrader_iframe, this is the left pane of the speedgrader
+    def wait_for_parent_speedgrader_iframe_to_load
+      Speedgrader.wait_for_speedgrader_iframe
+      in_frame("speedgrader_iframe") do
+        wait_for_ajaximations
+        yield if block_given?
+      end
+    end
+
+    def permanently_set_to_show_replies_in_context
+      f("button[title='Settings']").click
+      fj("[class*='menuItem__label']:contains('Options')").click
+      fj("label:contains('Show replies in context')").click
+      fj(".ui-dialog-buttonset .ui-button:visible:last").click
+    end
+
+    def send_post_message_to_iframe(message)
+      driver.execute_script(<<~JS, f("#speedgrader_iframe"), message)
+        const iframe = arguments[0];
+        const msg = arguments[1];
+        iframe.contentWindow?.postMessage(msg, '*');
+      JS
     end
   end
 end

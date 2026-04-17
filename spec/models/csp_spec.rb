@@ -17,7 +17,6 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
-require_relative "../spec_helper"
 
 describe Csp do
   def create_tool(context, attrs)
@@ -26,6 +25,7 @@ describe Csp do
 
   before do
     allow(HostUrl).to receive(:context_host).with(Account.default, anything).and_return(nil)
+    allow(HostUrl).to receive(:context_host).with(->(arg) { arg != Account.default }, anything).and_call_original
   end
 
   describe "account setting inheritance" do
@@ -43,7 +43,7 @@ describe Csp do
     it "inherits settings" do
       @root.enable_csp!
       @accounts.each do |a|
-        expect(a.csp_enabled?).to be true
+        expect(a.reload.csp_enabled?).to be true
         expect(a.csp_account_id).to eq @root.global_id
       end
     end
@@ -51,7 +51,7 @@ describe Csp do
     it "overrides inherited settings if explicitly set down the chain" do
       @root.enable_csp!
       @sub1.disable_csp!
-      expect(@sub2.csp_enabled?).to be false
+      expect(@sub2.reload.csp_enabled?).to be false
     end
 
     it "does not override inherited settings if explicitly set down the chain but locked" do
@@ -59,7 +59,7 @@ describe Csp do
       @sub1.disable_csp!
       @root.lock_csp!
       @accounts.each do |a|
-        expect(a.csp_enabled?).to be true
+        expect(a.reload.csp_enabled?).to be true
         expect(a.csp_account_id).to eq @root.global_id
       end
     end
@@ -76,6 +76,7 @@ describe Csp do
       enable_cache do
         expect(@sub2.csp_enabled?).to be false
         @root.enable_csp!
+        run_jobs
         expect(Account.find(@sub2.id).csp_enabled?).to be true
       end
     end
@@ -87,6 +88,7 @@ describe Csp do
       enable_cache do
         expect(@sub2.csp_enabled?).to be true
         @root.unlock_csp!
+        run_jobs
         expect(Account.find(@sub2.id).csp_enabled?).to be false
       end
     end

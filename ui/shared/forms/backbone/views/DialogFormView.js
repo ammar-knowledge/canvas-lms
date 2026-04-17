@@ -16,15 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* eslint-disable no-void */
-
 import {extend} from '@canvas/backbone/utils'
 import $ from 'jquery'
 import ValidatedFormView from './ValidatedFormView'
 import preventDefault from '@canvas/util/preventDefault'
 import wrapper from '../../jst/DialogFormWrapper.handlebars'
 import 'jqueryui/dialog'
-import '@canvas/util/jquery/fixDialogButtons'
 
 export const isSmallTablet = !window.matchMedia('(min-width: 550px)').matches
 

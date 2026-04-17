@@ -21,12 +21,110 @@
 module Plannable
   ACTIVE_WORKFLOW_STATES = ["active", "published"].freeze
 
+  # Reduces an array of AR scopes into an Arel UNION node.
+  # Using Arel avoids string-based SQL interpolation (which triggers brakeman warnings).
+  def self.union_arel(*scopes)
+    scopes.flat_map { |s| s.is_a?(Array) ? s : [s] }.map(&:arel).reduce { |acc, a| Arel::Nodes::Union.new(acc, a) }
+  end
+
+  def self.submittable_override_assignment_scopes(user, marked_complete:)
+    [Quizzes::Quiz, DiscussionTopic, WikiPage].map do |klass|
+      klass.joins(:planner_overrides)
+           .merge(PlannerOverride.where(user_id: user.id, marked_complete:))
+           .where.not(assignment_id: nil)
+           .select(:assignment_id)
+    end
+  end
+
   def self.included(base)
     base.class_eval do
       has_many :planner_overrides, as: :plannable
       after_save :update_associated_planner_overrides
       before_save :check_if_associated_planner_overrides_need_updating
       scope :available_to_planner, -> { where(workflow_state: ACTIVE_WORKFLOW_STATES) }
+      scope :incomplete_for_planner, lambda { |user|
+        scope = where.not(
+          id: PlannerOverride.where(
+            plannable_type: klass.name,
+            user:,
+            marked_complete: true
+          ).select(:plannable_id)
+        )
+
+        if [Assignment, SubAssignment].include?(klass)
+          if Account.site_admin.feature_enabled?(:planner_submittable_completion_filter)
+            # Exclude assignments whose submittable (quiz, discussion, wiki page) is marked complete.
+            Plannable.submittable_override_assignment_scopes(user, marked_complete: true).each do |subquery|
+              scope = scope.where.not(id: subquery)
+            end
+          end
+
+          submission_scope = Submission.where(user:)
+                                       .where("submissions.assignment_id = assignments.id")
+                                       .where.not(submitted_at: nil)
+                                       .where(redo_request: [false, nil])
+                                       .joins("LEFT JOIN #{PlannerOverride.quoted_table_name} ON
+                                               planner_overrides.plannable_id = submissions.assignment_id
+                                               AND planner_overrides.plannable_type = 'Assignment'
+                                               AND planner_overrides.user_id = #{user.id}")
+                                       .where("planner_overrides.marked_complete IS NOT FALSE")
+          if Account.site_admin.feature_enabled?(:planner_submittable_completion_filter)
+            Plannable.submittable_override_assignment_scopes(user, marked_complete: false).each do |subquery|
+              submission_scope = submission_scope.where.not(assignment_id: subquery)
+            end
+          end
+          scope = scope.where.not(submission_scope.arel.exists)
+        end
+        scope
+      }
+      # Returns items that are considered complete for the planner.
+      #
+      # An item is complete if:
+      # 1. It has a PlannerOverride with marked_complete: true, OR
+      # 2. For Assignments/SubAssignments: it has a submission (submitted_at present)
+      #    AND (no redo_request OR redo_request is false)
+      #    AND (no PlannerOverride OR PlannerOverride.marked_complete is not explicitly false)
+      #    AND its submittable object (if any) does not have PlannerOverride.marked_complete: false
+      # 3. For Assignments: it has an associated submittable object (quiz, discussion, wiki_page)
+      #    with a PlannerOverride marked_complete: true
+      #
+      # In other words: PlannerOverride.marked_complete: false (on either the assignment or its
+      # submittable) can override submission status, allowing users to mark submitted assignments
+      # as incomplete if they need to revise them.
+      scope :complete_for_planner, lambda { |user|
+        overridden_complete_ids = PlannerOverride.where(
+          plannable_type: klass.name,
+          user:,
+          marked_complete: true
+        ).select(:plannable_id)
+
+        if [Assignment, SubAssignment].include?(klass)
+          # Use UNION for better performance on large submissions tables
+          submitted_ids = klass
+                          .joins(:submissions)
+                          .joins("LEFT JOIN #{PlannerOverride.quoted_table_name} ON
+                                  planner_overrides.plannable_id = #{klass.table_name}.id
+                                  AND planner_overrides.plannable_type = '#{klass.name}'
+                                  AND planner_overrides.user_id = #{user.id}")
+                          .where(submissions: { user_id: user.id })
+                          .where.not(submissions: { submitted_at: nil })
+                          .where(submissions: { redo_request: [false, nil] })
+                          .where("planner_overrides.marked_complete IS NOT FALSE")
+                          .select("#{klass.table_name}.id")
+          if Account.site_admin.feature_enabled?(:planner_submittable_completion_filter)
+            Plannable.submittable_override_assignment_scopes(user, marked_complete: false).each do |subquery|
+              submitted_ids = submitted_ids.where.not(id: subquery)
+            end
+
+            submittable_scopes = Plannable.submittable_override_assignment_scopes(user, marked_complete: true)
+            where(klass.arel_table[:id].in(Plannable.union_arel(overridden_complete_ids, submitted_ids, submittable_scopes)))
+          else
+            where(klass.arel_table[:id].in(Plannable.union_arel(overridden_complete_ids, submitted_ids)))
+          end
+        else
+          where(id: overridden_complete_ids)
+        end
+      }
     end
   end
 
@@ -47,6 +145,12 @@ module Plannable
   end
 
   def planner_override_for(user)
+    if is_a?(SubAssignment) || is_a?(PeerReviewSubAssignment)
+      return PlannerOverride.for_user(user)
+                            .where(plannable_id: id, plannable_type: type)
+                            .where.not(workflow_state: "deleted").take
+    end
+
     if respond_to? :submittable_object
       submittable_override = submittable_object&.planner_override_for(user)
       return submittable_override if submittable_override
@@ -123,19 +227,45 @@ module Plannable
           rel_hash = nil
         end
       end
-      rel_array.reduce(object) { |val, key| val.send(key) }
+      # For simple {association: :column} structure, check attributes first
+      # This handles cases where the column was added via SELECT (e.g., with_user_due_date scope)
+      if col.keys.size == 1 && col.values.first.is_a?(Symbol)
+        column_name = col.values.first.to_s
+        if object.attributes.key?(column_name)
+          return object.attributes[column_name]
+        end
+      end
+
+      # Fall back to association navigation for truly nested cases
+      rel_array.reduce(object) { |val, key| val.try(key) || val.try(:first).try(key) }
     end
 
     # Grabs the value to use for the bookmark & comparison
     def column_value(object, col)
       case col
       when Array
-        object.attributes.values_at(*col).compact.first # coalesce nulls
+        # Check if array contains complex types (Hash) or just simple attribute names
+        if col.any?(Hash)
+          # For arrays with Hash/complex types, recursively get each value
+          col.filter_map { |c| c.is_a?(Hash) ? association_value(object, c) : object.attributes[c] }.first
+        else
+          object.attributes.values_at(*col).compact.first
+        end
       when Hash
         association_value(object, col)
       else
+        # if we used best_unicode_collation_key, the column name will be
+        # something like "(attachments.display_name COLLATE \"public\".\"und-u-kn-true\")"
+        col = strip_table_and_collation(col) if col.include?(@model.table_name)
         object.attributes[col]
       end
+    end
+
+    # Gets column name from a string like
+    # "(attachments.display_name COLLATE \"public\".\"und-u-kn-true\")"
+    def strip_table_and_collation(col)
+      match = col.match(/#{Regexp.escape(@model.table_name)}\.(\w+)/)
+      match ? match[1] : col
     end
 
     def bookmark_for(object)
@@ -144,21 +274,23 @@ module Plannable
       # coming from users_controller, @columns looks like ["due_at", "id"]
       # coming from planner_controller, like [[:due_at, :created_at], :id]
       #   or [[{:submission=>{:assignment=>:peer_reviews_due_at}}, {:assessor_asset=>:cached_due_date}, "created_at"], "id"]
-      @columns.flatten.each do |col|
+      @columns.each do |col|
         val = column_value(object, col)
         val = val.utc.strftime("%Y-%m-%d %H:%M:%S.%6N") if val.respond_to?(:strftime)
-        unless val.nil?
-          bookmark << val
-          break
-        end
+        bookmark << val
       end
-      bookmark << object.id
+      bookmark
     end
 
     TYPE_MAP = {
+      text: ->(val) { val.is_a?(String) },
       string: ->(val) { val.is_a?(String) },
       integer: ->(val) { val.is_a?(Integer) },
-      datetime: ->(val) { val.is_a?(String) && !!(DateTime.parse(val) rescue false) }
+      datetime: lambda do |val|
+        val.is_a?(String) && Time.zone.parse(val)
+      rescue ArgumentError
+        false
+      end
     }.freeze
 
     def validate(bookmark)
@@ -194,14 +326,24 @@ module Plannable
     def column_name(col)
       return associated_table_column_name(col) if col.is_a?(Hash)
 
-      "#{@model.table_name}.#{col}"
+      # if best_unicode_collation_key is used then the table name is already present
+      col.include?(@model.table_name) ? col : "#{@model.table_name}.#{col}"
     end
 
     # Joins the associated table & column together as a string to be used in a SQL query
     def associated_table_column_name(col)
       table, column = associated_table_column(col)
-      table_name = Object.const_defined?(table.to_s.classify) ? table.to_s.classify.constantize.quoted_table_name : table.to_s
-      [table_name, column].join(".")
+      correct_table_name =
+        if ActiveRecord::Base.connection.table_exists?(table.to_s)
+          table.to_s
+        elsif Object.const_defined?(table.to_s.classify)
+          Object.const_get(table.to_s.classify).quoted_table_name
+        else
+          inferred_table = table.to_s.tableize
+          ActiveRecord::Base.connection.table_exists?(inferred_table) ? inferred_table : table.to_s
+        end
+      # Return fully qualified column name
+      [correct_table_name, column].join(".")
     end
 
     # Finds the relevant table & column name when a hash is passed by checking if
@@ -218,7 +360,7 @@ module Plannable
         order = "COALESCE(#{col_name.map { |c| column_name(c) }.join(", ")})"
       else
         order = column_comparand(col_name)
-        if @model.columns_hash[col_name].null
+        if col_type_nullable?(col_name)
           order = "#{column_comparand(col_name, "=")} IS NULL, #{order}"
         end
       end
@@ -235,18 +377,47 @@ module Plannable
       col_name
     end
 
+    def get_column_type(table, column)
+      ActiveRecord::Base.connection.columns(table).find { |col| col.name == column.to_s }&.type
+    end
+
+    def col_type_nullable?(col)
+      if col.is_a?(Hash)
+        table, column = associated_table_column(col)
+        correct_table_name = table.to_s.tableize
+        ActiveRecord::Base.connection.columns(correct_table_name).find { |c| c.name == column.to_s }&.null
+      else
+        @model.columns_hash[col]&.null
+      end
+    end
+
     def column_comparison(column, comparator, value)
-      if value.nil? && comparator == ">"
+      if value.nil? && comparator == "="
+        ["#{column_comparand(column, "=")} IS NULL"]
+      elsif value.nil? && comparator == ">"
         # sorting by a nullable column puts nulls last, so for our sort order
         # 'column > NULL' is universally false
-        ["0=1"]
       elsif value.nil?
         # likewise only NULL values in column satisfy 'column = NULL' and
         # 'column >= NULL'
-        ["#{column_comparand(column, "=")} IS NULL"]
+        ["#{column_comparand(column, "=")} IS NOT NULL"]
       else
+        column_type = if column.is_a?(Hash)
+                        table, col = associated_table_column(column)
+                        correct_table_name = table.to_s.tableize
+                        get_column_type(correct_table_name, col)
+                      else
+                        @model.columns_hash[column]&.type
+                      end
+        # 🚀 Ensure value is cast correctly before comparison
+        if column_type == :string && value.is_a?(Integer)
+          value = value.to_s
+        elsif column_type == :integer && value.is_a?(String)
+          value = value.to_i
+        end
+
         sql = "#{column_comparand(column, comparator)} #{comparator} #{column_comparand(column, comparator, "?")}"
-        if !column.is_a?(Array) && @model.columns_hash[column].null && comparator != "="
+        if !column.is_a?(Array) && col_type_nullable?(column) && comparator != "="
           # our sort order wants "NULL > ?" to be universally true for non-NULL
           # values (we already handle NULL values above). but it is false in
           # SQL, so we need to include "column IS NULL" with > or >=
@@ -285,7 +456,8 @@ module Plannable
         end
         clause, *clause_args = column_comparison(col, comparator, val)
         clauses << clause
-        top_clauses << clauses.join(" AND ")
+        clauses.compact!
+        top_clauses << clauses.join(" AND ") if clauses.present?
         args.concat(clause_args)
         visited << [col, val]
       end

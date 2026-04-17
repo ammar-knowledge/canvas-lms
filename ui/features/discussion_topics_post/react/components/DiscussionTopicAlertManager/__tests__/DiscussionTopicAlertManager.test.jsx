@@ -22,9 +22,10 @@ import {DiscussionTopicAlertManager} from '../DiscussionTopicAlertManager'
 
 import {Discussion} from '../../../../graphql/Discussion'
 import {Assignment} from '../../../../graphql/Assignment'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
-jest.mock('../../../utils', () => ({
-  ...jest.requireActual('../../../utils'),
+vi.mock('../../../utils', async (importOriginal) => ({
+  ...(await importOriginal()),
   responsiveQuerySizes: () => ({desktop: {maxWidth: '1024px'}}),
 }))
 
@@ -35,6 +36,7 @@ const setup = props => {
 describe('DiscussionTopicAlertManager', () => {
   it('should render post required alert', () => {
     const container = setup({
+      userHasEntry: false,
       discussionTopic: Discussion.mock({
         initialPostRequiredForCurrentUser: true,
       }),
@@ -42,8 +44,78 @@ describe('DiscussionTopicAlertManager', () => {
     expect(container.getByTestId('post-required')).toBeTruthy()
   })
 
+  it('should render alert if peer review is enabled and did not post yet', () => {
+    const container = setup({
+      userHasEntry: false,
+      discussionTopic: Discussion.mock({
+        assignment: Assignment.mock({assessmentRequestsForCurrentUser: [{}]}),
+      }),
+    })
+    expect(container.getByTestId('post-required-for-peer-review')).toBeTruthy()
+  })
+
+  it('should NOT render alert if peer review is enabled and user has entry', () => {
+    const container = setup({
+      userHasEntry: true,
+      discussionTopic: Discussion.mock({
+        assignment: Assignment.mock({assessmentRequestsForCurrentUser: [{}]}),
+      }),
+    })
+    expect(container.queryByTestId('post-required-for-peer-review')).not.toBeInTheDocument()
+  })
+
+  describe('Checkpointed discussions with peer review', () => {
+    it('should render alert when reply to topic is not submitted', () => {
+      const container = setup({
+        userHasEntry: false,
+        discussionTopic: Discussion.mock({
+          assignment: Assignment.mock({
+            assessmentRequestsForCurrentUser: [{}],
+            checkpoints: [{tag: 'reply_to_topic'}, {tag: 'reply_to_entry'}],
+          }),
+        }),
+        replyToTopicSubmission: {},
+        replyToEntrySubmission: {submissionStatus: 'submitted'},
+      })
+      expect(container.getByTestId('post-required-for-peer-review')).toBeTruthy()
+      expect(container.getByText(/You must complete all discussion requirements/i)).toBeTruthy()
+    })
+
+    it('should render alert when reply to entry is not submitted', () => {
+      const container = setup({
+        userHasEntry: true,
+        discussionTopic: Discussion.mock({
+          assignment: Assignment.mock({
+            assessmentRequestsForCurrentUser: [{}],
+            checkpoints: [{tag: 'reply_to_topic'}, {tag: 'reply_to_entry'}],
+          }),
+        }),
+        replyToTopicSubmission: {submissionStatus: 'submitted'},
+        replyToEntrySubmission: {},
+      })
+      expect(container.getByTestId('post-required-for-peer-review')).toBeTruthy()
+      expect(container.getByText(/You must complete all discussion requirements/i)).toBeTruthy()
+    })
+
+    it('should NOT render alert when both checkpoints are submitted', () => {
+      const container = setup({
+        userHasEntry: true,
+        discussionTopic: Discussion.mock({
+          assignment: Assignment.mock({
+            assessmentRequestsForCurrentUser: [{}],
+            checkpoints: [{tag: 'reply_to_topic'}, {tag: 'reply_to_entry'}],
+          }),
+        }),
+        replyToTopicSubmission: {submissionStatus: 'submitted'},
+        replyToEntrySubmission: {submissionStatus: 'submitted'},
+      })
+      expect(container.queryByTestId('post-required-for-peer-review')).not.toBeInTheDocument()
+    })
+  })
+
   it('should render differentiated group topics alert', () => {
     const container = setup({
+      userHasEntry: false,
       discussionTopic: Discussion.mock({
         assignment: Assignment.mock({onlyVisibleToOverrides: true}),
       }),
@@ -53,6 +125,7 @@ describe('DiscussionTopicAlertManager', () => {
 
   it('should render delayed until alert', () => {
     const container = setup({
+      userHasEntry: false,
       discussionTopic: Discussion.mock({
         delayedPostAt: '3020-11-23T11:40:44-07:00',
         isAnnouncement: true,
@@ -63,6 +136,7 @@ describe('DiscussionTopicAlertManager', () => {
 
   it('should render not avalable for user alert', () => {
     const container = setup({
+      userHasEntry: false,
       discussionTopic: Discussion.mock({
         availableForUser: false,
       }),
@@ -71,8 +145,20 @@ describe('DiscussionTopicAlertManager', () => {
   })
 
   describe('Full anonymous discussion', () => {
+    beforeEach(() => {
+      // Setup fakeENV with student role
+      fakeENV.setup({
+        current_user_roles: ['User', 'student'],
+      })
+    })
+
+    afterEach(() => {
+      fakeENV.teardown()
+    })
+
     it('should render anon alert when status is present', async () => {
       const {findByTestId} = setup({
+        userHasEntry: false,
         discussionTopic: Discussion.mock({
           anonymousState: 'full_anonymity',
           canReplyAnonymously: true,
@@ -80,12 +166,18 @@ describe('DiscussionTopicAlertManager', () => {
       })
       const anonAlert = await findByTestId('anon-conversation')
       expect(anonAlert.textContent).toEqual(
-        'This is an anonymous Discussion. Your name and profile picture will be hidden from other course members. Mentions have also been disabled.'
+        'This is an anonymous Discussion. Your name and profile picture will be hidden from other course members. Mentions have also been disabled.',
       )
     })
 
     it('should render non-anon alert when user is teacher, ta, or designer', async () => {
+      // Set teacher role
+      fakeENV.setup({
+        current_user_roles: ['User', 'teacher'],
+      })
+
       const {findByTestId} = setup({
+        userHasEntry: false,
         discussionTopic: Discussion.mock({
           anonymousState: 'full_anonymity',
           canReplyAnonymously: false,
@@ -94,13 +186,14 @@ describe('DiscussionTopicAlertManager', () => {
 
       const anonAlert = await findByTestId('anon-conversation')
       expect(anonAlert.textContent).toEqual(
-        'This is an anonymous Discussion. Though student names and profile pictures will be hidden, your name and profile picture will be visible to all course members. Mentions have also been disabled.'
+        'This is an anonymous Discussion. Though student names and profile pictures will be hidden, your name and profile picture will be visible to all course members. Mentions have also been disabled.',
       )
     })
 
     it('should render correct alert when user is an observer', async () => {
       window.ENV.current_user_roles = ['User', 'observer']
       const {findByTestId} = setup({
+        userHasEntry: false,
         discussionTopic: Discussion.mock({
           anonymousState: 'full_anonymity',
           canReplyAnonymously: false,
@@ -108,15 +201,26 @@ describe('DiscussionTopicAlertManager', () => {
       })
       const anonAlert = await findByTestId('anon-conversation')
       expect(anonAlert.textContent).toEqual(
-        'This is an anonymous Discussion. Student names and profile pictures are hidden.'
+        'This is an anonymous Discussion. Student names and profile pictures are hidden.',
       )
     })
   })
 
   describe('Partial anonymous discussion', () => {
+    beforeEach(() => {
+      // Setup fakeENV with student role
+      fakeENV.setup({
+        current_user_roles: ['User', 'student'],
+      })
+    })
+
+    afterEach(() => {
+      fakeENV.teardown()
+    })
+
     it('should render partial anon alert when status is present', async () => {
-      window.ENV.current_user_roles = ['User', 'student']
       const {findByTestId} = setup({
+        userHasEntry: false,
         discussionTopic: Discussion.mock({
           anonymousState: 'partial_anonymity',
           canReplyAnonymously: true,
@@ -124,13 +228,16 @@ describe('DiscussionTopicAlertManager', () => {
       })
       const anonAlert = await findByTestId('anon-conversation')
       expect(anonAlert.textContent).toEqual(
-        'When creating a reply, you will have the option to show your name and profile picture to other course members or remain anonymous. Mentions have also been disabled.'
+        'When creating a reply, you will have the option to show your name and profile picture to other course members or remain anonymous. Mentions have also been disabled.',
       )
     })
 
     it('should render non-anon alert when user is teacher, ta, or designer', async () => {
-      window.ENV.current_user_roles = ['User', 'teacher']
+      fakeENV.setup({
+        current_user_roles: ['User', 'teacher'],
+      })
       const {findByTestId} = setup({
+        userHasEntry: false,
         discussionTopic: Discussion.mock({
           anonymousState: 'partial_anonymity',
           canReplyAnonymously: false,
@@ -138,13 +245,14 @@ describe('DiscussionTopicAlertManager', () => {
       })
       const anonAlert = await findByTestId('anon-conversation')
       expect(anonAlert.textContent).toEqual(
-        'When creating a reply, students will have the option to show their name and profile picture or remain anonymous. Your name and profile picture will be visible to all course members. Mentions have also been disabled.'
+        'When creating a reply, students will have the option to show their name and profile picture or remain anonymous. Your name and profile picture will be visible to all course members. Mentions have also been disabled.',
       )
     })
 
     it('should render correct alert when user is an observer', async () => {
       window.ENV.current_user_roles = ['User', 'observer']
       const {findByTestId} = setup({
+        userHasEntry: false,
         discussionTopic: Discussion.mock({
           anonymousState: 'partial_anonymity',
           canReplyAnonymously: false,
@@ -152,7 +260,7 @@ describe('DiscussionTopicAlertManager', () => {
       })
       const anonAlert = await findByTestId('anon-conversation')
       expect(anonAlert.textContent).toEqual(
-        'Students have the option to reply anonymously. Some names and profile pictures may be hidden.'
+        'Students have the option to reply anonymously. Some names and profile pictures may be hidden.',
       )
     })
   })

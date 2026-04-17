@@ -17,9 +17,9 @@
  */
 
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender, legacyUnmountComponentAtNode} from '@canvas/react'
 import page from 'page'
 import FocusStore from '../legacy/modules/FocusStore'
 import openMoveDialog from '../../openMoveDialog'
@@ -36,8 +36,12 @@ import RestrictedDialogForm from '@canvas/files/react/components/RestrictedDialo
 import '@canvas/rails-flash-notifications'
 import ContentTypeExternalToolTray from '@canvas/trays/react/ContentTypeExternalToolTray'
 import {ltiState} from '@canvas/lti/jquery/messages'
+import doFetchApi from '@canvas/do-fetch-api-effect'
+import {showFlashError} from '@instructure/platform-alerts'
+import {reloadWindow} from '@canvas/util/globalUtils'
+import filesEnv from '@canvas/files/react/modules/filesEnv'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 export default class Toolbar extends React.Component {
   static propTypes = {
@@ -52,6 +56,13 @@ export default class Toolbar extends React.Component {
     userCanRestrictFilesForContext: PropTypes.bool,
   }
 
+  constructor(props) {
+    super(props)
+    this.usageRightsBtnRef = React.createRef()
+    this.previewLinkRef = React.createRef()
+    this.searchTermRef = React.createRef()
+  }
+
   UNSAFE_componentWillMount() {
     this.downloadTitle = I18n.t('Download as Zip')
     this.tabIndex = null
@@ -59,6 +70,20 @@ export default class Toolbar extends React.Component {
 
   addFolder() {
     return this.props.currentFolder.folders.add({})
+  }
+
+  handleSwitchToNewFiles = async () => {
+    doFetchApi({
+      method: 'PUT',
+      path: `/api/v1/users/self/files_ui_version_preference`,
+      body: {files_ui_version: 'v2'},
+    })
+      .then(() => {
+        reloadWindow()
+      })
+      .catch(_ => {
+        showFlashError(I18n.t('Error switching to New Files Page.'))()
+      })
   }
 
   getItemsToDownload() {
@@ -92,25 +117,25 @@ export default class Toolbar extends React.Component {
         {
           count: this.props.selectedItems.length,
           itemName: this.props.selectedItems[0].displayName(),
-        }
+        },
       ),
       width: 800,
       minHeight: 400,
       close() {
-        ReactDOM.unmountComponentAtNode(this)
+        legacyUnmountComponentAtNode(this)
         $(this).remove()
       },
       modal: true,
       zIndex: 1000,
     })
 
-    ReactDOM.render(
+    legacyRender(
       <RestrictedDialogForm
         models={this.props.selectedItems}
         usageRightsRequiredForContext={this.props.usageRightsRequiredForContext}
         closeDialog={() => $dialog.dialog('close')}
       />,
-      $dialog[0]
+      $dialog[0],
     )
   }
 
@@ -124,17 +149,19 @@ export default class Toolbar extends React.Component {
       />
     )
 
-    return this.props.modalOptions.openModal(contents, () => this.refs.usageRightsBtn.focus())
+    return this.props.modalOptions.openModal(contents, () =>
+      this.usageRightsBtnRef.current?.focus(),
+    )
   }
 
   openPreview() {
-    FocusStore.setItemToFocus(this.refs.previewLink)
+    FocusStore.setItemToFocus(this.previewLinkRef.current)
     const queryString = $.param(this.props.getPreviewQuery())
     page(`${this.props.getPreviewRoute()}?${queryString}`)
   }
 
   onSubmitSearch() {
-    const searchTerm = this.refs.searchTerm.value
+    const searchTerm = this.searchTermRef.current?.value || ''
     page(`/search?search_term=${searchTerm}`)
   }
 
@@ -196,7 +223,8 @@ export default class Toolbar extends React.Component {
         window.location.reload()
       }
     }
-    ReactDOM.render(
+
+    legacyRender(
       <ContentTypeExternalToolTray
         tool={tool}
         placement="file_index_menu"
@@ -207,7 +235,7 @@ export default class Toolbar extends React.Component {
         onDismiss={handleDismiss}
         open={tool !== null}
       />,
-      document.getElementById('external-tool-mount-point')
+      document.getElementById('external-tool-mount-point'),
     )
   }
 
@@ -218,27 +246,48 @@ export default class Toolbar extends React.Component {
     const phoneHiddenSet = classnames({
       'hidden-phone': this.showingButtons,
     })
-    if (canManage) {
+
+    const showToggleButton =
+      ENV.FEATURES?.files_a11y_rewrite_toggle &&
+      ENV.FEATURES?.files_a11y_rewrite &&
+      ENV.current_user_id
+
+    if (canManage || showToggleButton) {
       return (
         <div className="ef-actions">
-          <button
-            type="button"
-            onClick={() => this.addFolder()}
-            className="btn btn-add-folder"
-            aria-label={I18n.t('Add Folder')}
-          >
-            <i className="icon-plus" />
-            &nbsp;
-            <span className={phoneHiddenSet}>{I18n.t('Folder')}</span>
-          </button>
-
-          <UploadButton
-            currentFolder={this.props.currentFolder}
-            showingButtons={!!this.showingButtons}
-            contextId={this.props.contextId}
-            contextType={this.props.contextType}
-          />
-          {this.renderTrayToolsMenu()}
+          {showToggleButton && (
+            <button
+              type="button"
+              className="btn btn-switch-to-new-files-page"
+              aria-label={I18n.t('Switch to New Files Page')}
+              onClick={() => this.handleSwitchToNewFiles()}
+            >
+              <span className={phoneHiddenSet}>{I18n.t('Switch to New Files Page')}</span>
+            </button>
+          )}
+          {canManage && (
+            <>
+              <button
+                type="button"
+                onClick={() => this.addFolder()}
+                className="btn btn-add-folder"
+                aria-label={I18n.t('Add Folder')}
+              >
+                <i className="icon-plus" />
+                &nbsp;
+                <span className={phoneHiddenSet}>{I18n.t('Folder')}</span>
+              </button>
+              {!filesEnv.userFileAccessRestricted && (
+                <UploadButton
+                  currentFolder={this.props.currentFolder}
+                  showingButtons={!!this.showingButtons}
+                  contextId={this.props.contextId}
+                  contextType={this.props.contextType}
+                />
+              )}
+              {this.renderTrayToolsMenu()}
+            </>
+          )}
         </div>
       )
     }
@@ -269,7 +318,7 @@ export default class Toolbar extends React.Component {
     if (canManage) {
       return (
         <button
-          ref="usageRightsBtn"
+          ref={this.usageRightsBtnRef}
           type="button"
           disabled={!this.showingButtons}
           className="Toolbar__ManageUsageRights ui-button btn-rights"
@@ -348,8 +397,8 @@ export default class Toolbar extends React.Component {
       $.screenReaderFlashMessageExclusive(
         I18n.t(
           {one: '%{count} item selected', other: '%{count} items selected'},
-          {count: this.props.selectedItems.length}
-        )
+          {count: this.props.selectedItems.length},
+        ),
       )
     }
   }
@@ -380,7 +429,7 @@ export default class Toolbar extends React.Component {
       submissionsFolderSelected ||
       this.props.selectedItems.some(item => item.get('for_submissions'))
     const restrictedByMasterCourse = this.props.selectedItems.some(
-      item => item.get('restricted_by_master_course') && item.get('is_master_course_child_content')
+      item => item.get('restricted_by_master_course') && item.get('is_master_course_child_content'),
     )
     const {
       userCanRestrictFilesForContext,
@@ -388,6 +437,8 @@ export default class Toolbar extends React.Component {
       userCanEditFilesForContext,
       userCanDeleteFilesForContext,
     } = this.props
+
+    const isAccessRestricted = filesEnv.userFileAccessRestricted
 
     const canManage = permission => {
       return permission && !submissionsFolderSelected && !restrictedByMasterCourse
@@ -422,7 +473,7 @@ export default class Toolbar extends React.Component {
             placeholder={I18n.t('Search for files')}
             aria-label={I18n.t('Search for files')}
             type="search"
-            ref="searchTerm"
+            ref={this.searchTermRef}
             className="ic-Input"
             defaultValue={this.props.query.search_term}
           />
@@ -437,7 +488,7 @@ export default class Toolbar extends React.Component {
             {/* TODO: use InstUI button */}
             {/* eslint-disable-next-line jsx-a11y/anchor-is-valid */}
             <a
-              ref="previewLink"
+              ref={this.previewLinkRef}
               href="#"
               onClick={!selectedItemIsFolder ? preventDefault(() => this.openPreview()) : () => {}}
               className={viewBtnClasses}
@@ -452,17 +503,18 @@ export default class Toolbar extends React.Component {
             </a>
 
             {this.renderManageAccessPermissionsButton(canManage(userCanRestrictFilesForContext))}
-            {this.renderDownloadButton()}
-            {this.renderCopyCourseButton(canManage(userCanEditFilesForContext))}
+            {!isAccessRestricted && this.renderDownloadButton()}
+            {!isAccessRestricted &&
+              this.renderCopyCourseButton(canManage(userCanEditFilesForContext))}
             {this.renderManageUsageRightsButton(
-              canManage(userCanEditFilesForContext && this.props.usageRightsRequiredForContext)
+              canManage(userCanEditFilesForContext && this.props.usageRightsRequiredForContext),
             )}
             {this.renderDeleteButton(canManage(userCanDeleteFilesForContext))}
           </div>
           <span className="ef-selected-count hidden-tablet hidden-phone">
             {I18n.t(
               {one: '%{count} item selected', other: '%{count} items selected'},
-              {count: this.props.selectedItems.length}
+              {count: this.props.selectedItems.length},
             )}
           </span>
           {this.renderUploadAddFolderButtons(canManage(userCanAddFilesForContext))}

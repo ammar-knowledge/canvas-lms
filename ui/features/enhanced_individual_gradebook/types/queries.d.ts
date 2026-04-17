@@ -38,11 +38,17 @@ export type EnrollmentConnection = {
   state: string
 }
 
+type AssignmentCheckpoint = {
+  tag: string
+  pointsPossible: number
+}
+
 export type AssignmentConnection = {
   id: string
   assignmentGroupId: string
   name: string
   pointsPossible: number
+  position: number
   submissionTypes: string[]
   anonymizeStudents: boolean
   omitFromFinalGrade: boolean
@@ -62,6 +68,8 @@ export type AssignmentConnection = {
   gradingPeriodId?: string | null
   hasSubmittedSubmissions: boolean
   inClosedGradingPeriod: boolean | null
+  checkpoints?: AssignmentCheckpoint[]
+  peerReviewSubAssignment?: Omit<AssignmentConnection, 'peerReviewSubAssignment' | 'checkpoints'> | null
 }
 
 export type AssignmentGroupConnection = {
@@ -114,6 +122,7 @@ export type SubmissionConnection = {
   gradingPeriodId?: string
   excused?: boolean
   state: string
+  subAssignmentSubmissions?: GradebookUserSubSubmissionDetails[]
 }
 
 export type Attachment = {
@@ -125,7 +134,7 @@ export type Attachment = {
 
 export type CommentConnection = {
   id: string
-  comment: string
+  htmlComment: string
   mediaObject?: {
     id: string
     mediaDownloadUrl: string
@@ -159,6 +168,8 @@ export type GradebookQueryResponse = {
     assignmentGroupsConnection: {
       nodes: AssignmentGroupConnection[]
     }
+    outcomeCalculationMethod: GradebookCourseOutcomeCalculationMethod | null
+    outcomeProficiency: GradebookCourseOutcomeProficiency | null
   }
 }
 
@@ -175,6 +186,19 @@ export type GradebookStudentDetails = {
   name: string
   hiddenName: string
   sortableName: string
+}
+
+export type GradebookUserSubSubmissionDetails = {
+  grade: string | null
+  score: number | null
+  publishedGrade: string | null
+  publishedScore: string | null
+  assignmentId: string
+  gradeMatchesCurrentSubmission: boolean
+  subAssignmentTag: string
+  enteredGrade: string | null
+  enteredScore?: number | null
+  excused: boolean
 }
 
 export type GradebookUserSubmissionDetails = {
@@ -196,9 +220,11 @@ export type GradebookUserSubmissionDetails = {
   redoRequest: boolean
   score: null | number
   state: string
+  sticker: string | null
   submissionType?: string | null
   submittedAt: Date | null
   userId: string
+  subAssignmentSubmissions?: GradebookUserSubSubmissionDetails[]
 }
 
 export type GradebookStudentQueryResponse = {
@@ -208,6 +234,7 @@ export type GradebookStudentQueryResponse = {
     }
     submissionsConnection: {
       nodes: GradebookUserSubmissionDetails[]
+      pageInfo: PageInfo
     }
   }
 }
@@ -218,4 +245,13 @@ export type GradebookSubmissionCommentsResponse = {
       nodes: CommentConnection[]
     }
   }
+}
+
+export type GradebookCourseOutcomeCalculationMethod = {
+  calculationInt: number | null
+  calculationMethod: string | null
+}
+
+export type GradebookCourseOutcomeProficiency = {
+  masteryPoints: number
 }

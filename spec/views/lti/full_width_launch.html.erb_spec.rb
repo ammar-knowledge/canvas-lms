@@ -18,7 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
 require "views/views_helper"
 
 describe "lti full width launch view" do
@@ -37,6 +36,7 @@ describe "lti full width launch view" do
     before do
       ctrl.instance_variable_set(:@domain_root_account, Account.default)
       ctrl.instance_variable_set(:@current_user, current_user)
+      allow(Rails.application.routes.url_helpers).to receive(:update_tool_eula_url).and_return("https://example.com/eula")
     end
 
     context "when the user is a student" do
@@ -93,6 +93,17 @@ describe "lti full width launch view" do
           ctrl.send(:content_tag_redirect, Account.default, tag, nil)
           expect(ctrl.response.body).to include("no longer available")
         end
+
+        context "with quiz_results_visibility_after_course_conclusion enabled" do
+          it "does not warn the student about a New Quizzes being unavailable" do
+            course.enroll_student(current_user, enrollment_state: "active")
+            course.soft_conclude!
+            course.save!
+            course.root_account.enable_feature!(:new_quizzes_enable_quiz_visibility_after_course_conclusion)
+            ctrl.send(:content_tag_redirect, Account.default, tag, nil)
+            expect(ctrl.response.body).not_to include("no longer available")
+          end
+        end
       end
 
       context "in an concluded course" do
@@ -101,6 +112,16 @@ describe "lti full width launch view" do
           course.complete!
           ctrl.send(:content_tag_redirect, Account.default, tag, nil)
           expect(ctrl.response.body).to include("no longer available")
+        end
+
+        context "with quiz_results_visibility_after_course_conclusion enabled" do
+          it "does not warn the student with an active enrollment about a New Quizzes being unavailable" do
+            course.enroll_student(current_user, enrollment_state: "active")
+            course.complete!
+            course.root_account.enable_feature!(:new_quizzes_enable_quiz_visibility_after_course_conclusion)
+            ctrl.send(:content_tag_redirect, Account.default, tag, nil)
+            expect(ctrl.response.body).not_to include("no longer available")
+          end
         end
       end
     end

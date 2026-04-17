@@ -48,12 +48,12 @@ module Importers
       end
     end
 
-    def self.select_linked_module_items(mod, migration, select_all = false)
+    def self.select_linked_module_items(mod, migration, select_all: false)
       if select_all || migration.import_object?("context_modules", mod["migration_id"]) || migration.import_object?("modules", mod["migration_id"])
         (mod["items"] || []).each do |item|
           if item["type"] == "submodule"
             # recursively select content in submodules
-            select_linked_module_items(item, migration, true)
+            select_linked_module_items(item, migration, select_all: true)
           elsif (resource_class = linked_resource_type_class(item["linked_resource_type"]))
             migration.import_object!(resource_class.table_name, item["linked_resource_id"])
           end
@@ -131,7 +131,9 @@ module Importers
       end
 
       position = (hash[:position] || hash[:order])&.to_i
-      if (item.new_record? || item.workflow_state_was == "deleted") && migration.try(:last_module_position) # try to import new modules after current ones instead of interweaving positions
+      # For regular imports, offset new modules to append after existing ones instead of interweaving positions.
+      # For Blueprint/Master Course imports, preserve absolute positions to maintain module order across syncs.
+      if (item.new_record? || item.workflow_state_was == "deleted") && migration.try(:last_module_position) && !migration.for_master_course_import?
         position = migration.last_module_position + (position || 1)
       end
       item.position = position
@@ -250,7 +252,7 @@ module Importers
                                          assignment: ass,
                                          position: context_module.migration_position)
         end
-      elsif /folder|heading|contextmodulesubheader/i.match?((hash[:linked_resource_type] || hash[:type]))
+      elsif /folder|heading|contextmodulesubheader/i.match?(hash[:linked_resource_type] || hash[:type])
         # just a snippet of text
         item = context_module.add_item({
                                          title: hash[:title] || hash[:linked_resource_title],
@@ -262,7 +264,8 @@ module Importers
       elsif /url/i.match?(hash[:linked_resource_type])
         # external url
         if (url = hash[:url])
-          if (CanvasHttp.validate_url(hash[:url]) rescue nil)
+          begin
+            CanvasHttp.validate_url(hash[:url])
             url = migration.process_domain_substitutions(url)
 
             item = context_module.add_item({
@@ -273,7 +276,7 @@ module Importers
                                            },
                                            existing_item,
                                            position: context_module.migration_position)
-          else
+          rescue URI::InvalidURIError, ArgumentError, CanvasHttp::RelativeUriError, CanvasHttp::InsecureUriError
             migration.add_import_warning(t(:migration_module_item_type, "Module Item"), hash[:title], "#{hash[:url]} is not a valid URL")
           end
         end
@@ -290,7 +293,7 @@ module Importers
           if custom_fields.present?
             external_tool_url = add_custom_fields_to_url(hash[:url], custom_fields) || hash[:url]
           end
-        elsif hash[:linked_resource_id] && (et = context_module.context.context_external_tools.active.where(migration_id: hash[:linked_resource_id]).first)
+        elsif hash[:linked_resource_id] && (et = Lti::ContextToolFinder.only_for(context_module.context).active.where(migration_id: hash[:linked_resource_id]).first)
           external_tool_id = et.id
         end
 

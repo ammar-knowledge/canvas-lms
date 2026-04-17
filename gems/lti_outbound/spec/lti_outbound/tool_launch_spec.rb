@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
-
 describe LtiOutbound::ToolLaunch do
   let(:consumer_instance) do
     consumer_instance = LtiOutbound::LTIConsumerInstance.new
@@ -88,24 +86,14 @@ describe LtiOutbound::ToolLaunch do
     assignment
   end
 
-  let(:controller) do
-    request_mock = double("request")
-    allow(request_mock).to receive(:host).returns("/my/url")
-    allow(request_mock).to receive(:scheme).returns("https")
-    controller = double("controller")
-    allow(controller).to receive(:request).returns(request_mock)
-    allow(controller).to receive(:logged_in_user).returns(@user)
-    controller
-  end
-
   let(:variable_expander) do
-    m = double("variable_expander")
+    m = double("VariableExpander") # rubocop:disable RSpec/VerifiedDoubles -- class doesn't exist in gem
     allow(m).to receive(:expand_variables!) { |hash| hash }
     m
   end
 
   let(:tool_launch) do
-    LtiOutbound::ToolLaunch.new(url: "http://www.yahoo.com",
+    LtiOutbound::ToolLaunch.new(url:,
                                 tool:,
                                 user:,
                                 account:,
@@ -115,6 +103,10 @@ describe LtiOutbound::ToolLaunch do
                                 outgoing_email_address: "outgoing_email_address",
                                 variable_expander:,
                                 include_module_context: true)
+  end
+
+  let(:url) do
+    "http://lti_tool.com"
   end
 
   describe "#generate" do
@@ -201,7 +193,7 @@ describe LtiOutbound::ToolLaunch do
 
         hash = tool_launch.generate
 
-        expect(hash.keys).to_not include("text")
+        expect(hash.keys).not_to include("text")
       end
     end
 
@@ -272,8 +264,8 @@ describe LtiOutbound::ToolLaunch do
       expect(hash["custom_fred"]).to eql("fred")
       expect(hash["custom_john"]).to eql("john")
       expect(hash["custom___taa____"]).to be(123)
-      expect(hash).to_not have_key '@$TAA$#$#'
-      expect(hash).to_not have_key "john"
+      expect(hash).not_to have_key '@$TAA$#$#'
+      expect(hash).not_to have_key "john"
     end
 
     context "link_params" do
@@ -314,13 +306,64 @@ describe LtiOutbound::ToolLaunch do
       end
     end
 
+    it "includes userid if not anonymous true" do
+      tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_PUBLIC
+      hash = tool_launch.generate
+      expect(hash).to have_key "user_id"
+      tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_EMAIL_ONLY
+      hash = tool_launch.generate
+      expect(hash).to have_key "user_id"
+      tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_NAME_ONLY
+      hash = tool_launch.generate
+      expect(hash).to have_key "user_id"
+    end
+
+    describe "when edu-apps launch" do
+      let(:url) do
+        "https://www.edu-apps.org/redirect"
+      end
+
+      it "includes userid if privacy_level is not anonymous" do
+        tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_PUBLIC
+        hash = tool_launch.generate
+        expect(hash).to have_key "user_id"
+        tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_EMAIL_ONLY
+        hash = tool_launch.generate
+        expect(hash).to have_key "user_id"
+        tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_NAME_ONLY
+        hash = tool_launch.generate
+        expect(hash).to have_key "user_id"
+      end
+
+      it "does not includes userid if privacy_level is anonymous" do
+        tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_ANONYMOUS
+        hash = tool_launch.generate
+        expect(hash).not_to have_key "user_id"
+      end
+    end
+
+    it "includes userid if it is not edu-apps tool" do
+      tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_PUBLIC
+      hash = tool_launch.generate
+      expect(hash).to have_key "user_id"
+      tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_EMAIL_ONLY
+      hash = tool_launch.generate
+      expect(hash).to have_key "user_id"
+      tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_NAME_ONLY
+      hash = tool_launch.generate
+      expect(hash).to have_key "user_id"
+      tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_ANONYMOUS
+      hash = tool_launch.generate
+      expect(hash).to have_key "user_id"
+    end
+
     it "does not include name and email if anonymous" do
       tool.privacy_level = LtiOutbound::LTITool::PRIVACY_LEVEL_ANONYMOUS
       hash = tool_launch.generate
-      expect(hash).to_not have_key "lis_person_name_given"
-      expect(hash).to_not have_key "lis_person_name_family"
-      expect(hash).to_not have_key "lis_person_name_full"
-      expect(hash).to_not have_key "lis_person_contact_email_primary"
+      expect(hash).not_to have_key "lis_person_name_given"
+      expect(hash).not_to have_key "lis_person_name_family"
+      expect(hash).not_to have_key "lis_person_name_full"
+      expect(hash).not_to have_key "lis_person_contact_email_primary"
     end
 
     it "includes name if name_only" do

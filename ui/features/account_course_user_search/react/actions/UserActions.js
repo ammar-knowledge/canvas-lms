@@ -16,10 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import UsersStore from '../store/UsersStore'
 
-const I18n = useI18nScope('user_actions')
+const I18n = createI18nScope('user_actions')
 
 export default {
   gotUserList(users, xhr) {
@@ -63,6 +63,12 @@ export default {
     }
   },
 
+  failedUserLoad() {
+    return {
+      type: 'FAILED_USER_LOAD',
+    }
+  },
+
   applySearchFilter(minSearchLength, store = UsersStore) {
     return (dispatch, getState) => {
       const searchFilter = getState().userList.searchFilter
@@ -73,8 +79,9 @@ export default {
         searchFilter.search_term === ''
       ) {
         const successHandler = (response, xhr) => dispatch(this.gotUserList(response, xhr))
+        const errorHandler = () => dispatch(this.failedUserLoad())
         dispatch(this.loadingUsers())
-        store.load(searchFilter, successHandler)
+        store.load(searchFilter, successHandler, errorHandler)
       } else {
         dispatch(this.displaySearchTermTooShortError(minSearchLength))
       }

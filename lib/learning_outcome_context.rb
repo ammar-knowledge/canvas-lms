@@ -61,10 +61,18 @@ module LearningOutcomeContext
       nil
     end
 
+    # Returns all outcomes that are created or imported in the context as well as outcomes
+    # that are available to import from the context's associated accounts
+    # (i.e. sub-account level and account-level outcomes)
     def available_outcomes
       [self, *associated_accounts].uniq.map do |context|
         [context.linked_learning_outcomes, context.created_learning_outcomes.active]
       end.flatten.uniq
+    end
+
+    # Returns only outcomes that are manually created or imported in the context
+    def associated_outcomes
+      [linked_learning_outcomes, created_learning_outcomes.active].flatten.uniq
     end
 
     def has_outcomes?
@@ -73,12 +81,12 @@ module LearningOutcomeContext
       end
     end
 
-    def root_outcome_group(force = true)
+    def root_outcome_group(force: true)
       LearningOutcomeGroup.find_or_create_root(self, force)
     end
 
     def update_root_outcome_group_name
-      root = root_outcome_group(false)
+      root = root_outcome_group(force: false)
       return unless root
 
       self.class.connection.after_transaction_commit do

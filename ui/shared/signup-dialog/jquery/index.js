@@ -17,7 +17,7 @@
  */
 
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import preventDefault from '@canvas/util/preventDefault'
 import registrationErrors from '@canvas/normalize-registration-errors'
 import teacherDialog from '../jst/teacherDialog.handlebars'
@@ -29,10 +29,9 @@ import addPrivacyLinkToDialog from './addPrivacyLinkToDialog'
 import htmlEscape from '@instructure/html-escape'
 import './validate'
 import '@canvas/jquery/jquery.instructure_forms'
-import '@canvas/util/jquery/fixDialogButtons'
 import extensions from '@canvas/bundles/extensions'
 
-const I18n = useI18nScope('registration')
+const I18n = createI18nScope('registration')
 
 const $nodes = {}
 
@@ -52,13 +51,13 @@ const termsHtml = function (arg) {
   const privacy_policy_url = arg.privacy_policy_url
   return I18n.t(
     'teacher_dialog.agree_to_terms_and_pp',
-    'You agree to the *terms of use* and acknowledge the **privacy policy**.',
+    'You agree to the *Acceptable Use Policy* and acknowledge the **Privacy Policy**.',
     {
       wrappers: [
         '<a href="' + htmlEscape(terms_of_use_url) + '" target="_blank">$1</a>',
         '<a href="' + htmlEscape(privacy_policy_url) + '" target="_blank">$1</a>',
       ],
-    }
+    },
   )
 }
 
@@ -77,6 +76,8 @@ const signupDialog = function (id, title, path) {
     terms_required: ENV.ACCOUNT.terms_required,
     recaptcha: ENV.ACCOUNT.recaptcha_key,
     terms_html: termsHtml(ENV.ACCOUNT),
+    terms_url: ENV.ACCOUNT.terms_of_use_url,
+    privacy_url: ENV.ACCOUNT.privacy_policy_url,
     path,
     require_email: ENV.ACCOUNT.registration_settings.require_email,
   })
@@ -85,7 +86,7 @@ const signupDialog = function (id, title, path) {
     preventDefault(function () {
       $node.dialog('close')
       return signupDialog($(this).data('template'), $(this).prop('title'))
-    })
+    }),
   )
   const $form = $node.find('form')
   $form.formSubmit({
@@ -134,9 +135,9 @@ const signupDialog = function (id, title, path) {
   $node.dialog({
     resizable: false,
     title,
-    // eslint-disable-next-line no-restricted-globals
+
     width: Math.min(screen.width, 550),
-    // eslint-disable-next-line no-restricted-globals
+
     height: screen.height > 750 ? 'auto' : screen.height,
     open() {
       let $captchaId
@@ -152,7 +153,7 @@ const signupDialog = function (id, title, path) {
               // An explicit tabindex is needed for it to be tabbable in the dialog
               return (evt.target.tabIndex = 0)
             },
-            true
+            true,
           )
         // eslint-disable-next-line no-undef
         $captchaId = grecaptcha.render($(this).find('.g-recaptcha')[0], {
@@ -173,7 +174,7 @@ const signupDialog = function (id, title, path) {
         $form.attr('data-captcha-id', $captchaId)
         $node.find('button[type=submit]').prop('disabled', true)
       }
-      // eslint-disable-next-line no-void
+
       return typeof signupDialog.afterRender === 'function' ? signupDialog.afterRender() : void 0
     },
     close() {

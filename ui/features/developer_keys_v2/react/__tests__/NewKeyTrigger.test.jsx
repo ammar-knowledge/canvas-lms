@@ -26,8 +26,8 @@ const store = {
 }
 
 const actions = {
-  developerKeysModalOpen: jest.fn(),
-  ltiKeysSetLtiKey: jest.fn(),
+  developerKeysModalOpen: vi.fn(),
+  ltiKeysSetLtiKey: vi.fn(),
 }
 
 const renderDeveloperKeyModalTrigger = () =>
@@ -35,17 +35,12 @@ const renderDeveloperKeyModalTrigger = () =>
 
 describe('DeveloperKeyModalTrigger', () => {
   beforeEach(async () => {
-    window.ENV = {
-      FEATURES: {
-        lti_dynamic_registration: true,
-      },
-    }
     renderDeveloperKeyModalTrigger()
 
     await userEvent.click(
       screen.getByRole('button', {
         name: /create a developer key/i,
-      })
+      }),
     )
   })
 
@@ -57,7 +52,7 @@ describe('DeveloperKeyModalTrigger', () => {
     await userEvent.click(
       screen.getByRole('menuitem', {
         name: /create an api key/i,
-      })
+      }),
     )
 
     expect(actions.developerKeysModalOpen).toHaveBeenCalled()
@@ -67,10 +62,40 @@ describe('DeveloperKeyModalTrigger', () => {
     await userEvent.click(
       screen.getByRole('menuitem', {
         name: /create an lti key/i,
-      })
+      }),
     )
 
     expect(actions.ltiKeysSetLtiKey).toHaveBeenCalled()
     expect(actions.developerKeysModalOpen).toHaveBeenCalled()
+  })
+})
+
+describe('DeveloperKeyModalTrigger when devKeysReadOnly is true', () => {
+  beforeEach(() => {
+    window.ENV = {devKeysReadOnly: true}
+  })
+
+  afterEach(() => {
+    window.ENV = {}
+  })
+
+  it('disables the button when devKeysReadOnly is true', () => {
+    render(<DeveloperKeyModalTrigger store={store} actions={actions} setAddKeyButtonRef={() => {}} />)
+
+    const button = screen.getByRole('button', {
+      name: /create a developer key/i,
+    })
+
+    expect(button).toBeDisabled()
+  })
+
+  it('shows the correct tooltip message when devKeysReadOnly is true', () => {
+    render(<DeveloperKeyModalTrigger store={store} actions={actions} setAddKeyButtonRef={() => {}} />)
+
+    const button = screen.getByRole('button', {
+      name: /create a developer key/i,
+    })
+
+    expect(button).toHaveAttribute('title', 'You do not have permission to create or modify developer keys in this account')
   })
 })

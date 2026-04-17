@@ -20,10 +20,11 @@ import React from 'react'
 import {render as testingLibraryRender, act, waitFor} from '@testing-library/react'
 import ReleaseNotesList from '../ReleaseNotesList'
 import userEvent from '@testing-library/user-event'
-import {QueryProvider, queryClient} from '@canvas/query'
+import {queryClient} from '@instructure/platform-query'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
 
 const render = (children: unknown) =>
-  testingLibraryRender(<QueryProvider>{children}</QueryProvider>)
+  testingLibraryRender(<MockedQueryProvider>{children}</MockedQueryProvider>)
 
 const releaseNotes = [
   {
@@ -45,8 +46,7 @@ const releaseNotes = [
 describe('ReleaseNotesList', () => {
   beforeEach(() => {
     ENV.FEATURES.embedded_release_notes = true
-    // @ts-expect-error
-    ENV.SETTINGS = {}
+    ENV.SETTINGS = {} as typeof ENV.SETTINGS
     queryClient.setQueryData(['settings', 'release_notes_badge_disabled'], false)
     queryClient.setQueryData(['releaseNotes'], releaseNotes)
   })
@@ -61,7 +61,7 @@ describe('ReleaseNotesList', () => {
     expect(queryByText(releaseNotes[0].title)).toBeInTheDocument()
     expect(getByRole('link', {name: releaseNotes[0].title})).toHaveAttribute(
       'href',
-      releaseNotes[0].url
+      releaseNotes[0].url,
     )
     expect(queryByText(releaseNotes[0].description)).toBeInTheDocument()
     expect(queryByText('Apr 26')).toBeInTheDocument()
@@ -69,7 +69,7 @@ describe('ReleaseNotesList', () => {
     expect(queryByText(releaseNotes[1].title)).toBeInTheDocument()
     expect(getByRole('link', {name: releaseNotes[1].title})).toHaveAttribute(
       'href',
-      releaseNotes[1].url
+      releaseNotes[1].url,
     )
     expect(queryByText(releaseNotes[1].description)).toBeInTheDocument()
     expect(queryByText('Apr 27')).toBeInTheDocument()

@@ -23,6 +23,7 @@ describe Auditors::ActiveRecord::FeatureFlagRecord do
   let(:feature_name) { "root_account_feature" }
 
   before do
+    allow(Account.site_admin).to receive(:feature_enabled?).with(:instructure_identity_global_flag)
     allow(RequestContextGenerator).to receive_messages(request_id:)
     allow(Feature).to receive(:definitions).and_return({
                                                          feature_name => Feature.new(feature: feature_name, applies_to: "RootAccount")
@@ -47,7 +48,7 @@ describe Auditors::ActiveRecord::FeatureFlagRecord do
 
     it "is creatable from an event_stream record of the correct type" do
       ar_rec = Auditors::ActiveRecord::FeatureFlagRecord.create_from_event_stream!(es_record)
-      expect(ar_rec.id).to_not be_nil
+      expect(ar_rec.id).not_to be_nil
       expect(ar_rec.uuid).to eq(es_record.id)
       expect(ar_rec.request_id).to eq(request_id)
       expect(ar_rec.user_id).to eq(user.id)

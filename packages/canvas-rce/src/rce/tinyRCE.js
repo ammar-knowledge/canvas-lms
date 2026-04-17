@@ -17,6 +17,7 @@
  */
 
 import * as browser from '../common/browser'
+// eslint-disable-next-line no-redeclare
 import tinymce from 'tinymce'
 
 // load theme
@@ -41,6 +42,7 @@ import 'tinymce/plugins/hr/plugin'
 import 'tinymce/plugins/searchreplace/plugin'
 
 // add custom plugins
+import './plugins/instructure_color/plugin'
 import './plugins/instructure-ui-icons/plugin'
 import './plugins/instructure_condensed_buttons/plugin'
 import './plugins/instructure_equation/plugin'
@@ -53,6 +55,8 @@ import './plugins/instructure_html_view/plugin'
 import './plugins/instructure_media_embed/plugin'
 import './plugins/instructure_icon_maker/plugin'
 import './plugins/instructure_wordcount/plugin'
+import './plugins/instructure_wordcount_header/plugin'
+import './plugins/instructure_keyboard_shortcuts_header/plugin'
 import './plugins/instructure_paste/plugin'
 import './plugins/instructure_fullscreen/plugin'
 import './plugins/instructure_studio_media_options/plugin'

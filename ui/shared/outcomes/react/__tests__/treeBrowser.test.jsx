@@ -17,19 +17,23 @@
  */
 
 import React from 'react'
-import {createCache} from '@canvas/apollo'
+import {createCache} from '@canvas/apollo-v3'
 import OutcomesContext from '../contexts/OutcomesContext'
 import {useManageOutcomes} from '../treeBrowser'
 import {smallOutcomeTree} from '../../mocks/Management'
 import {renderHook, act} from '@testing-library/react-hooks'
-import {MockedProvider} from '@apollo/react-testing'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {MockedProvider} from '@apollo/client/testing'
+import {showFlashAlert} from '@instructure/platform-alerts'
 
-jest.useFakeTimers()
+vi.useFakeTimers()
 
-jest.mock('@canvas/alerts/react/FlashAlert', () => ({
-  showFlashAlert: jest.fn(() => jest.fn(() => {})),
-}))
+vi.mock('@instructure/platform-alerts', async () => {
+  const actual = await vi.importActual('@instructure/platform-alerts')
+  return {
+    ...actual,
+    showFlashAlert: vi.fn(),
+  }
+})
 
 describe('useManageOutcomes', () => {
   let cache
@@ -51,34 +55,35 @@ describe('useManageOutcomes', () => {
   it('works with initialGroupId', async () => {
     const {result} = renderHook(
       () => useManageOutcomes({collection: 'test', initialGroupId: '400'}),
-      {wrapper}
+      {wrapper},
     )
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(result.current.selectedGroupId).toBe('400')
     expect(result.current.selectedParentGroupId).toBe('100')
 
     act(() => result.current.queryCollections({id: '100'}))
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(result.current.selectedGroupId).toBe('100')
     expect(result.current.selectedParentGroupId).toBe('1')
   })
 
   it('it doesnt show deleted group after rerender', async () => {
     const {result} = renderHook(() => useManageOutcomes(), {wrapper})
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
 
     expect(result.current.collections['100']).toBeDefined()
     act(() => result.current.removeGroup('100'))
+    await act(async () => vi.runAllTimers())
     expect(result.current.collections['100']).toBeUndefined()
 
     const {result: result2} = renderHook(() => useManageOutcomes(), {wrapper})
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(result2.current.collections['100']).toBeUndefined()
   })
 
   it('should flash a screenreader only info message when a group is loading', async () => {
     const {result} = renderHook(() => useManageOutcomes(), {wrapper})
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
 
     expect(result.current.collections['100']).toBeDefined()
     result.current.queryCollections({id: '100', parentGroupId: '1'})

@@ -17,46 +17,53 @@
  */
 
 import axios from '../index'
-import moxios from 'moxios'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 
 const ok = value => expect(value).toBeTruthy()
-const equal = (value, expected) => expect(value).toEqual(expected)
+
+const server = setupServer()
 
 describe('Custom Axios Tests', () => {
-  beforeEach(() => {
-    moxios.install()
+  beforeAll(() => {
+    server.listen()
   })
 
   afterEach(() => {
-    moxios.uninstall()
+    server.resetHandlers()
   })
 
-  test('Accept headers request stringified ids', done => {
-    moxios.stubRequest('/some/url', {
-      status: 200,
-      responseText: 'hello',
-    })
-
-    axios.get('/some/url').then(response => {
-      ok(response.config.headers.Accept.includes('application/json+canvas-string-ids'))
-      done()
-    })
-
-    moxios.wait(() => {})
+  afterAll(() => {
+    server.close()
   })
 
-  test('passes X-Requested-With header', done => {
-    moxios.stubRequest('/some/url', {
-      status: 200,
-      responseText: 'hello',
-    })
+  test('Accept headers request stringified ids', async () => {
+    let capturedRequest
+    server.use(
+      http.get('*/some/url', ({request}) => {
+        capturedRequest = request
+        return new HttpResponse('hello', {
+          status: 200,
+        })
+      }),
+    )
 
-    // eslint-disable-next-line promise/catch-or-return
-    axios.get('/some/url').then(response => {
-      ok(response.config.headers['X-Requested-With'] === 'XMLHttpRequest')
-      done()
-    })
+    await axios.get('/some/url')
+    ok(capturedRequest.headers.get('Accept').includes('application/json+canvas-string-ids'))
+  })
 
-    moxios.wait(() => {})
+  test('passes X-Requested-With header', async () => {
+    let capturedRequest
+    server.use(
+      http.get('*/some/url', ({request}) => {
+        capturedRequest = request
+        return new HttpResponse('hello', {
+          status: 200,
+        })
+      }),
+    )
+
+    await axios.get('/some/url')
+    ok(capturedRequest.headers.get('X-Requested-With') === 'XMLHttpRequest')
   })
 })

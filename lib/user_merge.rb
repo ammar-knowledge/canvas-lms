@@ -32,12 +32,19 @@ class UserMerge
     @data = []
   end
 
+  def pseudonyms_to_move_in_this_shard
+    Pseudonym.where(user_id: from_user)
+  end
+
+  def handle_instructure_identity(pseudonyms_to_move) end
+
   def into(target_user, merger: nil, source: nil)
     return unless target_user
     return if target_user == from_user
     raise "cannot merge a test student" if from_user.preferences[:fake_student] || target_user.preferences[:fake_student]
 
     @target_user = target_user
+    @merger = merger
     target_user.associate_with_shard(from_user.shard, :shadow)
     # we also store records for the from_user on the target shard for a split
     from_user.associate_with_shard(target_user.shard, :shadow)
@@ -100,8 +107,12 @@ class UserMerge
 
     Shard.with_each_shard(from_user.associated_shards + from_user.associated_shards(:weak) + from_user.associated_shards(:shadow)) do
       max_position = Pseudonym.where(user_id: target_user).ordered.last.try(:position) || 0
-      pseudonyms_to_move = Pseudonym.where(user_id: from_user)
+
+      # Modify to not include inst pseudonym
+      pseudonyms_to_move = pseudonyms_to_move_in_this_shard
+
       merge_data.add_more_data(pseudonyms_to_move)
+      handle_instructure_identity(pseudonyms_to_move)
       pseudonyms_to_move.update_all(["updated_at=NOW(), user_id=?, position=position+?", target_user, max_position])
 
       target_user.communication_channels.email.unretired.each do |cc|
@@ -123,13 +134,35 @@ class UserMerge
         Rails.logger.error "migrating discussions failed: #{e}"
       end
 
-      account_users = AccountUser.where(user_id: from_user)
+      account_users = AccountUser.where(user_id: from_user).to_a
       merge_data.add_more_data(account_users)
-      account_users.update_all(user_id: target_user.id, updated_at: Time.now.utc)
+      # move account_users that won't violate the unique index, then soft-delete the rest
+      existing_target_au = AccountUser.where(user_id: target_user).index_by { |au| [au.role_id, au.account_id] }
+      movable_ids = account_users.filter_map { |au| au.id unless existing_target_au.key?([au.role_id, au.account_id]) }
+      if movable_ids.any?
+        AccountUser.where(id: movable_ids).update_all(user_id: target_user.id, updated_at: Time.now.utc)
+      end
+      # for conflicting records, reactivate the target's if the from_user's was active
+      account_users.each do |au|
+        target_au = existing_target_au[[au.role_id, au.account_id]]
+        next unless target_au
+
+        if au.active? && !target_au.active?
+          merge_data.build_more_data([target_au], user: target_user, data:)
+          target_au.reactivate!
+        end
+      end
+      # soft-delete any remaining from_user account_users that couldn't be moved
+      AccountUser.where(user_id: from_user).find_each do |au|
+        au.current_user = @merger
+        au.destroy
+      end
+      target_user.clear_adminable_accounts_cache! if account_users.any?
+
+      handle_institutional_tag_associations
 
       attachments = Attachment.where(user_id: from_user)
       merge_data.add_more_data(attachments)
-      Attachment.delay.migrate_attachments(from_user, target_user)
 
       updates = {}
       %w[access_tokens
@@ -184,6 +217,7 @@ class UserMerge
       @data = []
       Enrollment.delay.recompute_due_dates_and_scores(target_user.id)
     end
+    Attachment.delay.migrate_attachments(from_user, target_user)
 
     from_user.reload
     target_user.reload
@@ -201,6 +235,27 @@ class UserMerge
     @merge_data&.items&.create!(user: target_user, item_type: "merge_error", item: e.backtrace.unshift(e.message))
     Canvas::Errors.capture(e, type: :user_merge, merge_data_id: @merge_data&.id, from_user_id: from_user&.id, target_user_id: target_user&.id)
     raise
+  end
+
+  def handle_institutional_tag_associations
+    tag_associations = from_user.institutional_tag_associations.active.to_a
+    return unless tag_associations.any?
+
+    merge_data.add_more_data(tag_associations, user: from_user)
+
+    target_tag_ids = target_user.institutional_tag_associations
+                                .active
+                                .pluck(:institutional_tag_id).to_set
+
+    conflict_ids = tag_associations.select { |a| target_tag_ids.include?(a.institutional_tag_id) }.map(&:id)
+    movable_ids  = tag_associations.map(&:id) - conflict_ids
+
+    if movable_ids.any?
+      InstitutionalTagAssociation.where(id: movable_ids)
+                                 .update_all(user_id: target_user.id, updated_at: Time.now.utc)
+    end
+
+    InstitutionalTagAssociation.where(id: conflict_ids).find_each(&:destroy) if conflict_ids.any?
   end
 
   def copy_favorites
@@ -293,6 +348,7 @@ class UserMerge
       from_user.update_shadow_records_synchronously!
       from_user.save!
 
+      target_user.update_shadow_records_synchronously!
       target_user.save!
     end
 
@@ -305,7 +361,7 @@ class UserMerge
   rescue ActiveRecord::RecordNotUnique
     # if we fail to move lti ids after a retry, put the source user's ids back and fall back on the old behavior
     from_user.update! lti_context_id: from_lti_context_id, lti_id: from_lti_id, uuid: from_uuid
-    InstStatsd::Statsd.increment("user_merge.move_lti_ids.unique_constraint_failure")
+    InstStatsd::Statsd.distributed_increment("user_merge.move_lti_ids.unique_constraint_failure")
     populate_past_lti_ids
   end
 
@@ -644,6 +700,16 @@ class UserMerge
     end
   end
 
+  def destroy_remaining_from_user_enrollments(column)
+    # Safety net: soft-delete any from_user enrollments that are still active
+    # after the move (e.g. if handle_conflicts missed a conflict ;) ).
+    remaining = Enrollment.active.where(column => from_user)
+    return unless remaining.exists?
+
+    merge_data.build_more_data(remaining, data:)
+    remaining.find_each(&:destroy)
+  end
+
   def remove_self_observers
     # prevent observing self by marking them as deleted
     to_delete = Enrollment.active.where("type = 'ObserverEnrollment' AND
@@ -666,6 +732,7 @@ class UserMerge
           target_user.associate_with_shard(from_user.shard) if to_move.exists?
           merge_data.build_more_data(to_move, data:)
           to_move.update_all(column => target_user.id, :updated_at => Time.now.utc)
+          destroy_remaining_from_user_enrollments(column)
         end
       end
     end

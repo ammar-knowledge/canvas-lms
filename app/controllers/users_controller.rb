@@ -78,114 +78,6 @@
 #       }
 #     }
 #
-# @model User
-#     {
-#       "id": "User",
-#       "description": "A Canvas user, e.g. a student, teacher, administrator, observer, etc.",
-#       "required": ["id"],
-#       "properties": {
-#         "id": {
-#           "description": "The ID of the user.",
-#           "example": 2,
-#           "type": "integer",
-#           "format": "int64"
-#         },
-#         "name": {
-#           "description": "The name of the user.",
-#           "example": "Sheldon Cooper",
-#           "type": "string"
-#         },
-#         "sortable_name": {
-#           "description": "The name of the user that is should be used for sorting groups of users, such as in the gradebook.",
-#           "example": "Cooper, Sheldon",
-#           "type": "string"
-#         },
-#         "last_name": {
-#           "description": "The last name of the user.",
-#           "example": "Cooper",
-#           "type": "string"
-#         },
-#         "first_name": {
-#           "description": "The first name of the user.",
-#           "example": "Sheldon",
-#           "type": "string"
-#         },
-#         "short_name": {
-#           "description": "A short name the user has selected, for use in conversations or other less formal places through the site.",
-#           "example": "Shelly",
-#           "type": "string"
-#         },
-#         "sis_user_id": {
-#           "description": "The SIS ID associated with the user.  This field is only included if the user came from a SIS import and has permissions to view SIS information.",
-#           "example": "SHEL93921",
-#           "type": "string"
-#         },
-#         "sis_import_id": {
-#           "description": "The id of the SIS import.  This field is only included if the user came from a SIS import and has permissions to manage SIS information.",
-#           "example": "18",
-#           "type": "integer",
-#           "format": "int64"
-#         },
-#         "integration_id": {
-#           "description": "The integration_id associated with the user.  This field is only included if the user came from a SIS import and has permissions to view SIS information.",
-#           "example": "ABC59802",
-#           "type": "string"
-#         },
-#         "login_id": {
-#           "description": "The unique login id for the user.  This is what the user uses to log in to Canvas.",
-#           "example": "sheldon@caltech.example.com",
-#           "type": "string"
-#         },
-#         "avatar_url": {
-#           "description": "If avatars are enabled, this field will be included and contain a url to retrieve the user's avatar.",
-#           "example": "https://en.gravatar.com/avatar/d8cb8c8cd40ddf0cd05241443a591868?s=80&r=g",
-#           "type": "string"
-#         },
-#         "avatar_state": {
-#           "description": "Optional: If avatars are enabled and caller is admin, this field can be requested and will contain the current state of the user's avatar.",
-#           "example": "approved",
-#           "type": "string"
-#         },
-#         "enrollments": {
-#           "description": "Optional: This field can be requested with certain API calls, and will return a list of the users active enrollments. See the List enrollments API for more details about the format of these records.",
-#           "type": "array",
-#           "items": { "$ref": "Enrollment" }
-#         },
-#         "email": {
-#           "description": "Optional: This field can be requested with certain API calls, and will return the users primary email address.",
-#           "example": "sheldon@caltech.example.com",
-#           "type": "string"
-#         },
-#         "locale": {
-#           "description": "Optional: This field can be requested with certain API calls, and will return the users locale in RFC 5646 format.",
-#           "example": "tlh",
-#           "type": "string"
-#         },
-#         "last_login": {
-#           "description": "Optional: This field is only returned in certain API calls, and will return a timestamp representing the last time the user logged in to canvas.",
-#           "example": "2012-05-30T17:45:25Z",
-#           "type": "string",
-#           "format": "date-time"
-#         },
-#         "time_zone": {
-#           "description": "Optional: This field is only returned in certain API calls, and will return the IANA time zone name of the user's preferred timezone.",
-#           "example": "America/Denver",
-#           "type": "string"
-#         },
-#         "bio": {
-#           "description": "Optional: The user's bio.",
-#           "example": "I like the Muppets.",
-#           "type": "string"
-#         },
-#         "pronouns": {
-#           "description": "Optional: This field is only returned if pronouns are enabled, and will return the pronouns of the user.",
-#           "example": "he/him",
-#           "type": "string"
-#         }
-#       }
-#     }
-#
-#
 #
 class UsersController < ApplicationController
   include SearchHelper
@@ -195,39 +87,28 @@ class UsersController < ApplicationController
   include DashboardHelper
   include Api::V1::Submission
   include ObserverEnrollmentsHelper
+  include HorizonMode
 
-  before_action :require_user, only: %i[grades
-                                        merge
-                                        kaltura_session
-                                        ignore_item
-                                        ignore_stream_item
-                                        close_notification
-                                        mark_avatar_image
-                                        user_dashboard
-                                        toggle_hide_dashcard_color_overlays
-                                        masquerade
-                                        external_tool
-                                        dashboard_sidebar
-                                        settings
-                                        activity_stream
-                                        activity_stream_summary
-                                        pandata_events_token
-                                        dashboard_cards
-                                        user_graded_submissions
-                                        show
-                                        terminate_sessions
-                                        dashboard_stream_items
-                                        show_k5_dashboard]
+  skip_before_action :require_user, only: %i[avatar_image
+                                             create
+                                             create_self_registered_user
+                                             media_download
+                                             new
+                                             oauth_success
+                                             public_feed
+                                             report_avatar_image]
   before_action :require_registered_user, only: [:delete_user_service,
                                                  :create_user_service]
   before_action :reject_student_view_student, only: %i[delete_user_service
                                                        create_user_service
-                                                       merge
                                                        user_dashboard
                                                        masquerade]
   skip_before_action :load_user, only: [:create_self_registered_user]
   before_action :require_self_registration, only: %i[new create create_self_registered_user]
   before_action :check_limited_access_for_students, only: %i[create_file set_custom_color]
+  before_action :load_canvas_career, only: %i[user_dashboard]
+
+  MAX_UUIDS_IN_FILTER = 100
 
   def grades
     @user = User.where(id: params[:user_id]).first if params[:user_id].present?
@@ -255,7 +136,7 @@ class UsersController < ApplicationController
         @presenter, params[:course_id], params[:grading_period_id]
       )
       @grades = grades_for_presenter(@presenter, @grading_periods)
-      js_env(grades_for_student_url:)
+      js_env({ grades_for_student_url: })
 
       ActiveRecord::Associations.preload(@observed_enrollments, :course)
 
@@ -304,18 +185,6 @@ class UsersController < ApplicationController
       session[:oauth_gdrive_nonce] = SecureRandom.hex
       state = Canvas::Security.create_jwt(redirect_uri:, return_to_url:, nonce: session[:oauth_gdrive_nonce])
       redirect_to GoogleDrive::Client.auth_uri(google_drive_client, state)
-    when "twitter"
-      success_url = oauth_success_url(service: "twitter")
-      request_token = Twitter::Connection.request_token(success_url)
-      OAuthRequest.create(
-        service: "twitter",
-        token: request_token.token,
-        secret: request_token.secret,
-        return_url: return_to_url,
-        user: @current_user,
-        original_host_with_port: request.host_with_port
-      )
-      redirect_to request_token.authorize_url
     end
   end
 
@@ -371,29 +240,6 @@ class UsersController < ApplicationController
       url = url_for request.parameters.merge(host: oauth_request.original_host_with_port, only_path: false)
       redirect_to url
     else
-      begin
-        raise "No OAuth Twitter User" unless oauth_request.user
-
-        twitter = Twitter::Connection.from_request_token(
-          oauth_request.token,
-          oauth_request.secret,
-          params[:oauth_verifier]
-        )
-        UserService.register(
-          service: "twitter",
-          access_token: twitter.access_token,
-          user: oauth_request.user,
-          service_domain: "twitter.com",
-          service_user_id: twitter.service_user_id,
-          service_user_name: twitter.service_user_name
-        )
-        oauth_request.destroy
-
-        flash[:notice] = t("twitter_added", "X.com access authorized!")
-      rescue => e
-        Canvas::Errors.capture_exception(:oauth, e)
-        flash[:error] = t("twitter_fail_whale", "X.com authorization failed. Please try again")
-      end
       return_to(oauth_request.return_url, user_profile_url(@current_user))
     end
   end
@@ -416,8 +262,10 @@ class UsersController < ApplicationController
   #   This can be a base role type of 'student', 'teacher',
   #   'ta', 'observer', or 'designer'.
   #
-  # @argument sort [String, "username"|"email"|"sis_id"|"integration_id"|"last_login"]
-  #   The column to sort results by.
+  # @argument sort [String, "username"|"email"|"sis_id"|"integration_id"|"last_login"|"id"]
+  #   The column to sort results by. For efficiency, use +id+ if you intend to retrieve
+  #   many pages of results. In the future, other sort options may be rate-limited
+  #   after 50 pages.
   #
   # @argument order [String, "asc"|"desc"]
   #   The order to sort the given column by.
@@ -425,6 +273,10 @@ class UsersController < ApplicationController
   # @argument include_deleted_users [Boolean]
   #   When set to true and used with an account context, returns users who have deleted
   #   pseudonyms for the context
+  #
+  # @argument uuids [Array]
+  #   When set, only return users with the specified UUIDs. UUIDs after the first 100
+  #   are ignored.
   #
   #  @example_request
   #    curl https://<canvas>/api/v1/accounts/self/users?search_term=<search value> \
@@ -438,8 +290,11 @@ class UsersController < ApplicationController
 
     includes = (params[:include] || []) & %w[avatar_url email last_login time_zone uuid ui_invoked]
     includes << "last_login" if params[:sort] == "last_login" && !includes.include?("last_login")
+    include_deleted_users = value_to_boolean(params[:include_deleted_users])
+    includes << "deleted_pseudonyms" if include_deleted_users
 
     search_term = params[:search_term].presence
+
     if search_term
       users = UserSearch.for_user_in_context(search_term,
                                              @context,
@@ -450,7 +305,7 @@ class UsersController < ApplicationController
                                                sort: params[:sort],
                                                enrollment_role_id: params[:role_filter_id],
                                                enrollment_type: params[:enrollment_type],
-                                               include_deleted_users: value_to_boolean(params[:include_deleted_users])
+                                               include_deleted_users:
                                              })
     else
       users = UserSearch.scope_for(@context,
@@ -460,25 +315,44 @@ class UsersController < ApplicationController
                                      sort: params[:sort],
                                      enrollment_role_id: params[:role_filter_id],
                                      enrollment_type: params[:enrollment_type],
-                                     ui_invoked: includes.include?("ui_invoked"),
                                      temporary_enrollment_recipients: value_to_boolean(params[:temporary_enrollment_recipients]),
                                      temporary_enrollment_providers: value_to_boolean(params[:temporary_enrollment_providers]),
-                                     include_deleted_users: value_to_boolean(params[:include_deleted_users])
+                                     include_deleted_users:
                                    })
       users = users.with_last_login if params[:sort] == "last_login"
     end
 
+    if params[:uuids].present? && Array(params[:uuids]).size > MAX_UUIDS_IN_FILTER
+      return render json: { error: "Too many UUIDs in filter. Current limit is #{MAX_UUIDS_IN_FILTER}" }, status: :bad_request
+    end
+
+    if params[:uuids].present? && (uuids = Array(params[:uuids]).flatten)
+      users = users.where(uuid: uuids)
+    end
+
+    users.preload(:pseudonyms) if includes.include? "deleted_pseudonyms"
+
     page_opts = { total_entries: nil }
-    if includes.include?("ui_invoked")
+    if in_app? || includes.include?("ui_invoked")
       page_opts = {} # let Folio calculate total entries
       includes.delete("ui_invoked")
+    elsif params[:sort] == "id"
+      # for a more efficient way to retrieve many pages in bulk
+      users = BookmarkedCollection.wrap(Plannable::Bookmarker.new(User, params[:order] == "desc", :id),
+                                        users,
+                                        count_total_entries: false)
     end
 
     GuardRail.activate(:secondary) do
       users = Api.paginate(users, self, api_v1_account_users_url, page_opts)
 
-      user_json_preloads(users, includes.include?("email"))
-      User.preload_last_login(users, @context.resolved_root_account_id) if includes.include?("last_login") && params[:sort] != "last_login"
+      preload_profiles = @domain_root_account.enable_profiles?
+      user_json_preloads(users, preload_email: includes.include?("email"), profile: preload_profiles)
+
+      if includes.include?("last_login") && params[:sort] != "last_login"
+        User.preload_last_login(users, @context.resolved_root_account_id)
+      end
+
       render json: users.map { |u| user_json(u, @current_user, session, includes) }
     end
   end
@@ -488,7 +362,7 @@ class UsersController < ApplicationController
     @user = api_find(User, params[:user_id])
     return render_unauthorized_action unless @user.can_masquerade?(@real_current_user || @current_user, @domain_root_account)
 
-    if request.post?
+    if request.post? || params[:stop_acting_as_user] == "true"
       if @user == @real_current_user
         session.delete(:become_user_id)
         session.delete(:enrollment_uuid)
@@ -507,27 +381,86 @@ class UsersController < ApplicationController
       css_bundle :act_as_modal
 
       @page_title = t("Act as %{user_name}", user_name: @user.short_name)
-      js_env act_as_user_data: {
-        user: {
-          name: @user.name,
-          pronouns: @user.pronouns,
-          short_name: @user.short_name,
-          id: @user.id,
-          avatar_image_url: @user.avatar_image_url,
-          sortable_name: @user.sortable_name,
-          email: @user.email,
-          pseudonyms: @user.all_active_pseudonyms.map do |pseudonym|
-            { login_id: pseudonym.unique_id,
-              sis_id: pseudonym.sis_user_id,
-              integration_id: pseudonym.integration_id }
-          end
-        }
-      }
+      js_env({
+               act_as_user_data: {
+                 user: {
+                   name: @user.name,
+                   pronouns: @user.pronouns,
+                   short_name: @user.short_name,
+                   id: @user.id,
+                   avatar_image_url: @user.avatar_image_url,
+                   sortable_name: @user.sortable_name,
+                   email: @user.email,
+                   pseudonyms: @user.pseudonyms_visible_to(@current_user).map do |pseudonym|
+                     { login_id: pseudonym.unique_id,
+                       sis_id: pseudonym.sis_user_id,
+                       integration_id: pseudonym.integration_id }
+                   end
+                 }
+               }
+             })
       render html: '<div id="application"></div><div id="act_as_modal"></div>'.html_safe, layout: "layouts/bare"
     end
   end
 
   def user_dashboard
+    @current_user.reload if @domain_root_account&.feature_enabled?(:widget_dashboard) ||
+                            @domain_root_account&.feature_enabled?(:educator_dashboard)
+    observed_users_list = observed_users(@current_user, session)
+    if should_show_widget_dashboard?
+      js_bundle :widget_dashboard
+      css_bundle :dashboard_card
+
+      if should_show_educator_dashboard?
+        css_bundle :educator_dashboard
+        add_body_class "educator-dashboard"
+        educator_config = @current_user.get_preference(:educator_dashboard_config) || {}
+        educator_config["layout"] ||= WidgetDashboardLayoutValidator.default_educator_layout
+
+        js_env({
+                 PREFERENCES: {
+                   dashboard_view: @current_user.dashboard_view(@domain_root_account),
+                   hide_dashcard_color_overlays: @current_user.preferences[:hide_dashcard_color_overlays],
+                   custom_colors: @current_user.custom_colors,
+                   learner_dashboard_tab_selection: @current_user.get_preference(:learner_dashboard_tab_selection) || "dashboard",
+                   widget_dashboard_config: educator_config
+                 },
+                 DASHBOARD_FEATURES: {
+                   platform_ui_unified_widgets_dashboard: Account.site_admin.feature_enabled?(:platform_ui_unified_widgets_dashboard),
+                   educator_dashboard: true
+                 }
+               })
+      else
+        observed_user = (@selected_observed_user && @selected_observed_user != @current_user) ? @selected_observed_user : nil
+        course_data_with_grades = fetch_courses_with_grades(observed_user)
+        widget_dashboard_config = @current_user.get_preference(:widget_dashboard_config) || {}
+
+        js_env({
+                 PREFERENCES: {
+                   dashboard_view: @current_user.dashboard_view(@domain_root_account),
+                   hide_dashcard_color_overlays: @current_user.preferences[:hide_dashcard_color_overlays],
+                   custom_colors: @current_user.custom_colors,
+                   learner_dashboard_tab_selection: @current_user.get_preference(:learner_dashboard_tab_selection) || "dashboard",
+                   widget_dashboard_config:
+                 },
+                 OBSERVED_USERS_LIST: observed_users_list,
+                 OBSERVED_USER_ID: observed_user&.id,
+                 CAN_ADD_OBSERVEE: @current_user
+                                   .profile
+                                   .tabs_available(@current_user, root_account: @domain_root_account)
+                                   .any? { |t| t[:id] == UserProfile::TAB_OBSERVEES },
+                 SHARED_COURSE_DATA: course_data_with_grades,
+                 WIDGET_DASHBOARD_DARK_MODE: !!@current_user&.preferences&.dig(:widget_dashboard_dark_mode),
+                 DASHBOARD_FEATURES: {
+                   widget_dashboard_dark_mode: @domain_root_account.feature_enabled?(:widget_dashboard_dark_mode),
+                   platform_ui_unified_widgets_dashboard: Account.site_admin.feature_enabled?(:platform_ui_unified_widgets_dashboard),
+                   educator_dashboard: false
+                 }
+               })
+      end
+      return render html: "", layout: true
+    end
+
     # Use the legacy to do list for non-students until it is ready for other roles
     if planner_enabled? && !@current_user.non_student_enrollment?
       css_bundle :react_todo_sidebar
@@ -535,6 +468,8 @@ class UsersController < ApplicationController
     session.delete(:parent_registration) if session[:parent_registration]
     check_incomplete_registration
     get_context
+
+    load_dashboard_learning_agent_env
 
     # dont show crumbs on dashboard because it does not make sense to have a breadcrumb
     # trail back to home if you are already home
@@ -549,17 +484,14 @@ class UsersController < ApplicationController
     disable_page_views if @current_pseudonym && @current_pseudonym.unique_id == "pingdom@instructure.com"
 
     # Reload user settings so we don't get a stale value for K5_USER when switching dashboards
-    @current_user.reload
-    observed_users_list = observed_users(@current_user, session)
+    # (skip if already reloaded above for widget_dashboard or educator_dashboard)
+    @current_user.reload unless @domain_root_account&.feature_enabled?(:widget_dashboard) ||
+                                @domain_root_account&.feature_enabled?(:educator_dashboard)
     k5_disabled = k5_disabled?
     k5_user = k5_user?(check_disabled: false)
-    js_env({ K5_USER: k5_user && !k5_disabled }, true)
+    js_env({ K5_USER: k5_user && !k5_disabled }, overwrite: true)
 
-    # things needed on both k5 and classic dashboards
-    create_permission_root_account = @current_user.create_courses_right(@domain_root_account)
-    create_permission_mcc_account = @current_user.create_courses_right(@domain_root_account.manually_created_courses_account)
-    create_permission_alternate_account = @current_user.alternate_account_for_course_creation && @current_user.create_courses_right(@current_user.alternate_account_for_course_creation)
-
+    course_permissions = @current_user.create_courses_permissions(@domain_root_account)
     js_env({
              PREFERENCES: {
                dashboard_view: @current_user.dashboard_view(@domain_root_account),
@@ -571,14 +503,14 @@ class UsersController < ApplicationController
              STUDENT_PLANNER_GROUPS: planner_enabled? && map_groups_for_planner(@current_user.current_groups),
              ALLOW_ELEMENTARY_DASHBOARD: k5_disabled && k5_user,
              CREATE_COURSES_PERMISSIONS: {
-               PERMISSION: create_permission_alternate_account || create_permission_root_account || create_permission_mcc_account,
-               RESTRICT_TO_MCC_ACCOUNT: !!(!create_permission_root_account && create_permission_mcc_account) && !(@domain_root_account.feature_enabled?(:create_course_subaccount_picker) && create_permission_alternate_account),
+               PERMISSION: course_permissions[:can_create],
+               RESTRICT_TO_MCC_ACCOUNT: course_permissions[:restrict_to_mcc],
              },
              OBSERVED_USERS_LIST: observed_users_list,
              CAN_ADD_OBSERVEE: @current_user
-                                 .profile
-                                 .tabs_available(@current_user, root_account: @domain_root_account)
-                                 .any? { |t| t[:id] == UserProfile::TAB_OBSERVEES }
+                               .profile
+                               .tabs_available(@current_user, root_account: @domain_root_account)
+                               .any? { |t| t[:id] == UserProfile::TAB_OBSERVEES }
            })
 
     # prefetch dashboard cards with the right observer url param
@@ -606,7 +538,7 @@ class UsersController < ApplicationController
              })
 
       css_bundle :k5_common, :k5_dashboard, :dashboard_card
-      css_bundle :k5_font unless use_classic_font?
+      css_bundle :k5_font unless use_classic_font? || @current_user.prefers_dyslexic_font? || mobile_device?
       js_bundle :k5_dashboard
     else
       # things needed only for classic dashboard
@@ -635,9 +567,11 @@ class UsersController < ApplicationController
       return render_unauthorized_action unless course_ids.any?
     end
     courses = course_ids.present? ? api_find_all(Course, course_ids) : nil
-
     @stream_items = @user.cached_recent_stream_items(contexts: courses)
+
     if stale?(etag: @stream_items)
+      @stream_items = @stream_items.reject { |i| i&.course&.horizon_course? && !i.course.grants_right?(@user, :read_as_admin) }
+      @stream_items = @stream_items.reject { |i| i.asset_type == "Conversation" } if @is_observing_student
       render partial: "shared/recent_activity", layout: false
     end
   end
@@ -652,6 +586,7 @@ class UsersController < ApplicationController
   def dashboard_cards
     opts = {}
     opts[:observee_user] = User.find_by(id: params[:observed_user_id].to_i) || @current_user if params.key?(:observed_user_id)
+    opts[:limit] = 50
     dashboard_courses = map_courses_for_menu(@current_user.menu_courses(nil, opts), tabs: DASHBOARD_CARD_TABS)
     published, unpublished = dashboard_courses.partition { |course| course[:published] }
     Rails.cache.write(["last_known_dashboard_cards_published_count", @current_user.global_id].cache_key, published.count)
@@ -668,9 +603,9 @@ class UsersController < ApplicationController
   end
 
   def cached_submissions(user, upcoming_events)
-    Rails.cache.fetch(["cached_user_submissions2", user].cache_key,
+    Rails.cache.fetch(["cached_user_submissions3", user].cache_key,
                       expires_in: 3.minutes) do
-      assignments = upcoming_events.select { |e| e.is_a?(Assignment) }
+      assignments = upcoming_events.select { |e| e.is_a?(Assignment) || e.is_a?(PeerReviewSubAssignment) }
       Shard.partition_by_shard(assignments) do |shard_assignments|
         Submission.active
                   .select(%i[id assignment_id score grade workflow_state updated_at])
@@ -854,6 +789,7 @@ class UsersController < ApplicationController
       opts[:context] = Context.find_by_asset_string(params[:context_code]) if params[:context_code]
       opts[:submission_user_id] = params[:submission_user_id] if params.key?(:submission_user_id)
       opts[:only_active_courses] = value_to_boolean(params[:only_active_courses]) if params.key?(:only_active_courses)
+      opts[:notification_categories] = params[:notification_categories] if params.key?(:notification_categories)
       api_render_stream(opts)
     else
       render_unauthorized_action
@@ -899,11 +835,11 @@ class UsersController < ApplicationController
     @courses = []
     Shard.with_each_shard(@context.in_region_associated_shards) do
       scope = if @query.present?
-                @context.manageable_courses_by_query(@query, include_concluded)
+                @context.manageable_courses_by_query(@query, include_concluded:)
               else
-                @context.manageable_courses(include_concluded).limit(limit)
+                @context.manageable_courses(include_concluded:).limit(limit)
               end
-      @courses += scope.select("courses.*,#{Course.best_unicode_collation_key("name")} AS sort_key").order("sort_key").preload(:enrollment_term).to_a
+      @courses += scope.select("courses.*,#{Course.best_unicode_collation_key("name")} AS sort_key").order(:sort_key).preload(:enrollment_term).to_a
     end
 
     @courses = @courses.sort_by do |c|
@@ -918,7 +854,6 @@ class UsersController < ApplicationController
       @courses.select! do |c|
         c.grants_any_right?(
           @current_user,
-          :manage_content,
           *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS
         )
       end
@@ -926,9 +861,12 @@ class UsersController < ApplicationController
       @courses.select! { |c| c.grants_all_rights?(@current_user, :read_as_admin, :read) }
     end
 
+    current_course = Course.find_by(id: params[:current_course_id]) if params[:current_course_id].present?
     MasterCourses::MasterTemplate.preload_is_master_course(@courses)
+
     render json: @courses.map { |c|
-      { label: c.nickname_for(@current_user),
+      {
+        label: c.nickname_for(@current_user),
         id: c.id,
         course_code: c.course_code,
         sis_id: c.sis_source_id,
@@ -936,13 +874,15 @@ class UsersController < ApplicationController
         enrollment_start: c.enrollment_term.start_at,
         account_name: c.enrollment_term.root_account.name,
         account_id: c.enrollment_term.root_account.id,
-        start_at: datetime_string(c.start_at, :verbose, nil, true),
-        end_at: datetime_string(c.conclude_at, :verbose, nil, true),
-        blueprint: MasterCourses::MasterTemplate.is_master_course?(c) }
+        start_at: datetime_string(c.start_at, :verbose, nil, shorten_midnight: true),
+        end_at: datetime_string(c.conclude_at, :verbose, nil, shorten_midnight: true),
+        blueprint: MasterCourses::MasterTemplate.is_master_course?(c)
+      }.merge(locale_dates_for(c, current_course))
     }
   end
 
   include Api::V1::TodoItem
+
   # @API List the TODO items
   # A paginated list of the current user's list of todo items.
   #
@@ -993,15 +933,15 @@ class UsersController < ApplicationController
   #   ]
   def todo_items
     GuardRail.activate(:secondary) do
-      return render_unauthorized_action unless @current_user
-
       bookmark = Plannable::Bookmarker.new(Assignment, false, [:due_at, :created_at], :id)
       grading_scope = @current_user.assignments_needing_grading(scope_only: true)
                                    .reorder(:due_at, :id).preload(:external_tool_tag, :rubric_association, :rubric, :discussion_topic, :quiz, :duplicate_of)
       submitting_scope = @current_user
                          .assignments_needing_submitting(
                            include_ungraded: true,
-                           scope_only: true
+                           scope_only: true,
+                           course_ids: @current_user.courses.pluck(:id),
+                           include_concluded: false
                          )
                          .reorder(:due_at, :id).preload(:external_tool_tag, :rubric_association, :rubric, :discussion_topic, :quiz).eager_load(:duplicate_of)
 
@@ -1020,6 +960,38 @@ class UsersController < ApplicationController
         ["grading", grading_collection],
         ["submitting", submitting_collection]
       ]
+
+      # Add discussion checkpoint assignments for courses with checkpoints enabled
+      course_ids_with_checkpoints = @current_user.course_ids_with_checkpoints_enabled
+      unless course_ids_with_checkpoints.empty?
+        sub_assignment_bookmark = Plannable::Bookmarker.new(SubAssignment, false, [:due_at, :created_at], :id)
+
+        # Add checkpoint assignments needing grading
+        checkpoint_grading_scope = @current_user.assignments_needing_grading(scope_only: true, is_sub_assignment: true)
+                                                .reorder(:due_at, :id).preload(:external_tool_tag, :rubric_association, :rubric, :discussion_topic, :duplicate_of)
+        checkpoint_grading_collection = BookmarkedCollection.wrap(sub_assignment_bookmark, checkpoint_grading_scope)
+        checkpoint_grading_collection = BookmarkedCollection.filter(checkpoint_grading_collection) do |assignment|
+          assignment.context.grants_right?(@current_user, session, :manage_grades)
+        end
+        checkpoint_grading_collection = BookmarkedCollection.transform(checkpoint_grading_collection) do |a|
+          todo_item_json(a, @current_user, session, "grading")
+        end
+        collections << ["checkpoint_grading", checkpoint_grading_collection]
+
+        # Add checkpoint assignments needing submitting
+        checkpoint_submitting_scope = @current_user.assignments_needing_submitting(
+          include_ungraded: true,
+          scope_only: true,
+          course_ids: course_ids_with_checkpoints,
+          include_concluded: false,
+          is_sub_assignment: true
+        ).reorder(:due_at, :id).preload(:external_tool_tag, :rubric_association, :rubric, :discussion_topic).eager_load(:duplicate_of)
+        checkpoint_submitting_collection = BookmarkedCollection.wrap(sub_assignment_bookmark, checkpoint_submitting_scope)
+        checkpoint_submitting_collection = BookmarkedCollection.transform(checkpoint_submitting_collection) do |a|
+          todo_item_json(a, @current_user, session, "submitting")
+        end
+        collections << ["checkpoint_submitting", checkpoint_submitting_collection]
+      end
 
       if Array(params[:include]).include? "ungraded_quizzes"
         quizzes_bookmark = Plannable::Bookmarker.new(Quizzes::Quiz, false, [:due_at, :created_at], :id)
@@ -1061,8 +1033,6 @@ class UsersController < ApplicationController
   #   }
   def todo_item_count
     GuardRail.activate(:secondary) do
-      return render_unauthorized_action unless @current_user
-
       grading = @current_user.submissions_needing_grading_count
       submitting = @current_user.assignments_needing_submitting(include_ungraded: true, scope_only: true, limit: nil).size
       if Array(params[:include]).include? "ungraded_quizzes"
@@ -1139,8 +1109,6 @@ class UsersController < ApplicationController
   #     }
   #   ]
   def upcoming_events
-    return render_unauthorized_action unless @current_user
-
     GuardRail.activate(:secondary) do
       prepare_current_user_dashboard_items
 
@@ -1181,7 +1149,7 @@ class UsersController < ApplicationController
   def missing_submissions
     GuardRail.activate(:secondary) do
       user = api_find(User, params[:user_id])
-      return unless @current_user && authorized_action(user, @current_user, :read)
+      return unless authorized_action(user, @current_user, :read)
 
       included_course_ids = api_find_all(Course, Array(params[:course_ids])).pluck(:id)
 
@@ -1190,7 +1158,8 @@ class UsersController < ApplicationController
 
         user = api_find(User, params[:observed_user_id])
         valid_course_ids = @current_user.observer_enrollments.active.where(associated_user_id: params[:observed_user_id]).shard(@current_user).pluck(:course_id)
-        return render_unauthorized_action unless (included_course_ids - valid_course_ids).empty?
+        included_course_ids &= valid_course_ids
+        return render_unauthorized_action if included_course_ids.empty?
       end
 
       filter = Array(params[:filter])
@@ -1207,6 +1176,7 @@ class UsersController < ApplicationController
                          .missing
                          .where(user_id: user.id,
                                 assignments: { context_id: shard_course_ids })
+                         .where("late_policy_status IS NULL OR late_policy_status != ?", "none")
                          .merge(Assignment.published)
         subs = subs.merge(Assignment.not_locked) if only_submittable
         subs = subs.in_current_grading_period_for_courses(shard_course_ids) if only_current_grading_period
@@ -1235,9 +1205,9 @@ class UsersController < ApplicationController
       return render(json: { ignored: false }, status: :bad_request)
     end
 
-    @current_user.ignore_item!(ActiveRecord::Base.find_by_asset_string(params[:asset_string], ["Assignment", "AssessmentRequest", "Quizzes::Quiz"]),
+    @current_user.ignore_item!(ActiveRecord::Base.find_by_asset_string(params[:asset_string], ["Assignment", "AssessmentRequest", "Quizzes::Quiz", "SubAssignment", "PeerReviewSubAssignment"]),
                                params[:purpose],
-                               params[:permanent] == "1")
+                               permanent: params[:permanent] == "1")
     render json: { ignored: true }
   end
 
@@ -1288,7 +1258,7 @@ class UsersController < ApplicationController
   # Upload a file to the user's personal files section.
   #
   # This API endpoint is the first step in uploading a file to a user's files.
-  # See the {file:file_uploads.html File Upload Documentation} for details on
+  # See the {file:file.file_uploads.html File Upload Documentation} for details on
   # the file upload workflow.
   #
   # Note that typically users will only be able to upload files to their
@@ -1322,11 +1292,8 @@ class UsersController < ApplicationController
     user_name = params[:user_service][:user_name]
     password = params[:user_service][:password]
     service = ServiceCredentials.new(user_name, password)
-    case params[:user_service][:service]
-    when "diigo"
+    if params[:user_service][:service] == "diigo"
       Diigo::Connection.diigo_get_bookmarks(service)
-    when "skype"
-      true
     else
       return render json: { errors: true }, status: :bad_request
     end
@@ -1340,9 +1307,9 @@ class UsersController < ApplicationController
   def services
     params[:service_types] ||= params[:service_type]
     json = Rails.cache.fetch(["user_services", @current_user, params[:service_type]].cache_key) do
-      @services = @current_user.user_services rescue []
+      @services = @current_user.user_services
       if params[:service_types]
-        @services = @services.of_type(params[:service_types].split(",")) rescue []
+        @services = @services.of_type(params[:service_types]&.split(","))
       end
       @services.map { |s| s.as_json(only: %i[service_user_id service_user_url service_user_name service type id]) }
     end
@@ -1350,10 +1317,8 @@ class UsersController < ApplicationController
   end
 
   def bookmark_search
-    @service = @current_user.user_services.where(type: "BookmarkService", service: params[:service_type]).first rescue nil
-    res = nil
-    res = @service.find_bookmarks if @service
-    render json: res
+    service = @current_user.user_services.where(type: "BookmarkService", service: params[:service_type]).first
+    render json: service&.find_bookmarks
   end
 
   def show
@@ -1363,13 +1328,9 @@ class UsersController < ApplicationController
       get_context(user_scope: User) if params[:account_id] || params[:course_id] || params[:group_id]
 
       @context_account = @context.is_a?(Account) ? @context : @domain_root_account
-      @user = api_find_all(@context&.all_users || User, [params[:id]]).first
-      if !@user && @context.is_a?(Account)
-        @user = api_find_all(@context&.deleted_users, [params[:id]]).first
-      end
-      allowed = @user&.grants_right?(@current_user, session, :read_full_profile)
-
-      return render_unauthorized_action unless allowed
+      scope = (value_to_boolean(params[:include_deleted_users]) && @context.is_a?(Account)) ? @context.pseudonym_users : (@context&.all_users || User)
+      @user = api_find_all(scope, [params[:id]]).first
+      return render_unauthorized_action unless @user&.grants_right?(@current_user, session, :read_full_profile)
 
       @context ||= @user
 
@@ -1408,7 +1369,10 @@ class UsersController < ApplicationController
           @body_classes << "full-width"
 
           js_permissions = {
+            can_view_user_generated_access_tokens: @user.grants_right?(@current_user, :view_user_generated_access_tokens),
             can_manage_sis_pseudonyms: @context_account.root_account.grants_right?(@current_user, :manage_sis),
+            can_manage_user_details: @user.grants_right?(@current_user, :manage_user_details),
+            can_manage_dsr_requests: @context_account.grants_right?(@current_user, :manage_dsr_requests)
           }
           if @context_account.root_account.feature_enabled?(:temporary_enrollments)
             js_permissions[:can_read_sis] = @context_account.grants_right?(@current_user, session, :read_sis)
@@ -1417,17 +1381,16 @@ class UsersController < ApplicationController
             js_permissions[:can_delete_temporary_enrollments] = @context_account.grants_right?(@current_user, session, :temporary_enrollments_delete)
             js_permissions[:can_view_temporary_enrollments] =
               @context_account.grants_any_right?(@current_user, session, *RoleOverride::MANAGE_TEMPORARY_ENROLLMENT_PERMISSIONS)
-            if @context_account.root_account.feature_enabled?(:granular_permissions_manage_users)
-              js_permissions[:can_allow_course_admin_actions] = @context_account.grants_right?(@current_user, session, :allow_course_admin_actions)
-              js_permissions[:can_add_ta] = @context_account.grants_right?(@current_user, session, :add_ta_to_course)
-              js_permissions[:can_add_student] = @context_account.grants_right?(@current_user, session, :add_student_to_course)
-              js_permissions[:can_add_teacher] = @context_account.grants_right?(@current_user, session, :add_teacher_to_course)
-              js_permissions[:can_add_designer] = @context_account.grants_right?(@current_user, session, :add_designer_to_course)
-              js_permissions[:can_add_observer] = @context_account.grants_right?(@current_user, session, :add_observer_to_course)
-            else
-              js_permissions[:can_manage_admin_users] = @context_account.grants_right?(@current_user, session, :manage_admin_users)
-            end
+            js_permissions[:can_allow_course_admin_actions] = @context_account.grants_right?(@current_user, session, :allow_course_admin_actions)
+            js_permissions[:can_add_ta] = @context_account.grants_right?(@current_user, session, :add_ta_to_course)
+            js_permissions[:can_add_student] = @context_account.grants_right?(@current_user, session, :add_student_to_course)
+            js_permissions[:can_add_teacher] = @context_account.grants_right?(@current_user, session, :add_teacher_to_course)
+            js_permissions[:can_add_designer] = @context_account.grants_right?(@current_user, session, :add_designer_to_course)
+            js_permissions[:can_add_observer] = @context_account.grants_right?(@current_user, session, :add_observer_to_course)
           end
+
+          timezones = I18nTimeZone.all.map { |tz| { name: tz.name, name_with_hour_offset: tz.to_s } }
+          default_timezone_name = @domain_root_account.try(:default_time_zone)&.name || "Mountain Time (US & Canada)"
 
           js_env({
                    CONTEXT_USER_DISPLAY_NAME: @user.short_name,
@@ -1435,12 +1398,15 @@ class UsersController < ApplicationController
                    COURSE_ROLES: Role.course_role_data_for_account(@context_account, @current_user),
                    PERMISSIONS: js_permissions,
                    ROOT_ACCOUNT_ID: @context_account.root_account.id,
+                   TIMEZONES: timezones,
+                   DEFAULT_TIMEZONE_NAME: default_timezone_name,
+                   PV5_ENABLED: PageViews::Configuration.configured?,
                  })
           render status:
         end
         format.json do
           includes = %w[locale avatar_url]
-          includes << "deleted_pseudonyms" if @context.is_a?(Account)
+          includes << "deleted_pseudonyms" if value_to_boolean(params[:include_deleted_users])
           render json: user_json(@user,
                                  @current_user,
                                  session,
@@ -1475,7 +1441,7 @@ class UsersController < ApplicationController
   #       -X GET \
   #       -H 'Authorization: Bearer <token>'
   #
-  # @returns User
+  # @returns Schemas::Docs::User
   def api_show
     @user = api_find(User, params[:id])
     if @user.grants_right?(@current_user, session, :api_show_user)
@@ -1505,7 +1471,7 @@ class UsersController < ApplicationController
   def external_tool
     timing_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     placement = :user_navigation
-    @tool = ContextExternalTool.find_for(params[:id], @domain_root_account, placement)
+    @tool = Lti::ToolFinder.from_id!(params[:id], @domain_root_account, placement:)
     @opaque_id = @tool.opaque_identifier_for(@current_user, context: @domain_root_account)
     @resource_type = "user_navigation"
 
@@ -1513,8 +1479,10 @@ class UsersController < ApplicationController
     @return_url = named_context_url(@current_user, :context_external_content_success_url, "external_tool_redirect", { include_host: true })
     @redirect_return = true
     @context = @current_user
-    js_env(redirect_return_success_url: success_url,
-           redirect_return_cancel_url: success_url)
+    js_env({
+             redirect_return_success_url: success_url,
+             redirect_return_cancel_url: success_url
+           })
 
     @lti_launch = @tool.settings["post_only"] ? Lti::Launch.new(post_only: true) : Lti::Launch.new
     opts = {
@@ -1524,7 +1492,7 @@ class UsersController < ApplicationController
     }
 
     @tool_form_id = random_lti_tool_form_id
-    js_env(LTI_TOOL_FORM_ID: @tool_form_id)
+    js_env({ LTI_TOOL_FORM_ID: @tool_form_id })
 
     variable_expander = Lti::VariableExpander.new(@domain_root_account, @context, self, {
                                                     current_user: @current_user,
@@ -1551,11 +1519,16 @@ class UsersController < ApplicationController
     @lti_launch.resource_url = @tool.login_or_launch_url(extension_type: placement)
     @lti_launch.link_text = @tool.label_for(placement, I18n.locale)
     @lti_launch.analytics_id = @tool.tool_id
-    Lti::LogService.new(tool: @tool, context: @domain_root_account, user: @current_user, session_id: session[:session_id], placement:, launch_type: :direct_link).call
+    Lti::LogService.new(tool: @tool, context: @domain_root_account, user: @current_user, session_id: session[:session_id], placement:, launch_type: :direct_link, launch_url: @lti_launch.resource_url).call
 
     set_active_tab @tool.asset_string
     add_crumb(@current_user.short_name, user_profile_path(@current_user))
-    render Lti::AppUtil.display_template
+
+    @display_override = if @tool.extension_setting("user_navigation", "windowTarget") == "_blank"
+                          "borderless"
+                        end
+
+    render Lti::AppUtil.display_template(@tool.display_type(placement), display_override: @display_override)
     timing_end = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     InstStatsd::Statsd.timing("lti.user_external_tool.request_time", timing_end - timing_start, tags: { lti_version: @tool.lti_version })
   end
@@ -1563,10 +1536,17 @@ class UsersController < ApplicationController
   def new
     return redirect_to(root_url) if @current_user
 
+    if @domain_root_account.feature_enabled?(:login_registration_ui_identity)
+      Rails.logger.debug "Redirecting to register_landing_path"
+      return redirect_to(register_landing_path)
+    end
+
     run_login_hooks
     @include_recaptcha = recaptcha_enabled?
-    js_env ACCOUNT: account_json(@domain_root_account, nil, session, ["registration_settings"]),
-           PASSWORD_POLICY: @domain_root_account.password_policy
+    js_env({
+             ACCOUNT: account_json(@domain_root_account, nil, session, ["registration_settings"]),
+             PASSWORD_POLICY: @domain_root_account.password_policy
+           })
     render layout: "bare"
   end
 
@@ -1684,7 +1664,7 @@ class UsersController < ApplicationController
   #
   # @argument enable_sis_reactivation [Boolean]
   #   When true, will first try to re-activate a deleted user with matching sis_user_id if possible.
-  #   This is commonly done with user[skip_registration] and communication_channel[skip_confirmation]
+  #   This is commonly done with +user[skip_registration]+ and +communication_channel[skip_confirmation]+
   #   so that the default communication_channel is also restored.
   #
   # @argument destination [URL]
@@ -1751,7 +1731,18 @@ class UsersController < ApplicationController
     create_user
   end
 
-  BOOLEAN_PREFS = %i[manual_mark_as_read collapse_global_nav collapse_course_nav hide_dashcard_color_overlays release_notes_badge_disabled comment_library_suggestions_enabled elementary_dashboard_disabled].freeze
+  BOOLEAN_PREFS = %i[
+    manual_mark_as_read
+    collapse_global_nav
+    collapse_course_nav
+    hide_dashcard_color_overlays
+    release_notes_badge_disabled
+    comment_library_suggestions_enabled
+    elementary_dashboard_disabled
+    default_to_block_editor
+    widget_dashboard_user_preference
+    widget_dashboard_dark_mode
+  ].freeze
 
   # @API Update user settings.
   # Update an existing user's settings.
@@ -1780,6 +1771,14 @@ class UsersController < ApplicationController
   # @argument elementary_dashboard_disabled [Boolean]
   #   If true, will display the user's preferred class Canvas dashboard
   #   view instead of the canvas for elementary view.
+  #
+  # @argument widget_dashboard_user_preference [Boolean]
+  #   If true, enables the widget dashboard for the user. Only applies
+  #   when the widget_dashboard feature is enabled at the account level.
+  #   Defaults to true when the feature becomes available.
+  #
+  # @argument widget_dashboard_dark_mode [Boolean]
+  #   If true, enables the dark color theme for the widget dashboard.
   #
   # @example_request
   #
@@ -1964,13 +1963,83 @@ class UsersController < ApplicationController
         format.json do
           if user.set_preference(:custom_colors, colors)
             enrollment_types_tags = user.participating_enrollments.pluck(:type).uniq.map { |type| "enrollment_type:#{type}" }
-            InstStatsd::Statsd.increment("user.set_custom_color", tags: enrollment_types_tags)
+            InstStatsd::Statsd.distributed_increment("user.set_custom_color", tags: enrollment_types_tags)
             render(json: { hexcode: colors[context.asset_string] })
           else
             render(json: user.errors, status: :bad_request)
           end
         end
       end
+    end
+  end
+
+  # @API Update text editor preference
+  # Updates a user's default choice for text editor.  This allows
+  # the Choose an Editor propmts to preload the user's preference.
+  #
+  #
+  # @argument text_editor_preference  [String, "block_editor"|"rce"|""]
+  #   The identifier for the editor.
+  #
+  # @example_request
+  #
+  #   curl 'https://<canvas>/api/v1/users/<user_id>/prefered_editor \
+  #     -X PUT \
+  #     -F 'text_editor_preference=rce'
+  #     -H 'Authorization: Bearer <token>'
+  #
+  # @example_response
+  #   {
+  #     "text_editor_preference": "rce"
+  #   }
+  def set_text_editor_preference
+    user = api_find(User, params[:id])
+
+    return unless authorized_action(user, @current_user, [:manage, :manage_user_details])
+
+    raise ActiveRecord::RecordInvalid if %w[rce block_editor].exclude?(params[:text_editor_preference]) && params[:text_editor_preference] != ""
+
+    params[:text_editor_preference] = nil if params[:text_editor_preference] == ""
+
+    if user.set_preference(:text_editor_preference, params[:text_editor_preference])
+      render(json: { text_editor_preference: user.reload.get_preference(:text_editor_preference) })
+    else
+      render(json: user.errors, status: :bad_request)
+    end
+  end
+
+  # @API Update files UI version preference
+  # Updates a user's default choice for files UI version. This allows
+  # the files UI to preload the user's preference.
+  #
+  # @argument files_ui_version [String, "v1"|"v2"]
+  #   The identifier for the files UI version.
+  #
+  # @example_request
+  #
+  #   curl 'https://<canvas>/api/v1/users/<user_id>/files_ui_version_preference \
+  #     -X PUT \
+  #     -F 'files_ui_version=v2'
+  #     -H 'Authorization: Bearer <token>'
+  #
+  # @example_response
+  #   {
+  #     "files_ui_version": "v2"
+  #   }
+
+  def set_files_ui_version_preference
+    user = api_find(User, params[:id])
+
+    return unless authorized_action(user, @current_user, [:manage, :manage_user_details])
+
+    if %w[v1 v2].exclude?(params[:files_ui_version])
+      return render(json: { message: "Invalid files_ui_version provided" }, status: :bad_request)
+    end
+
+    if user.set_preference(:files_ui_version, params[:files_ui_version])
+      render(json: { files_ui_version: user.reload.get_preference(:files_ui_version) })
+    else
+      render(json: user.errors, status: :bad_request)
     end
   end
 
@@ -2037,13 +2106,16 @@ class UsersController < ApplicationController
       end
       return unless authorized_action(context, @current_user, :read)
 
-      position = Integer(val) rescue nil
-      if position.nil?
-        return render(json: { message: "Invalid position provided" }, status: :bad_request)
-      elsif position.abs > 1_000
-        # validate that the value used is less than unreasonable, but without any real effort
-        return render(json: { message: "Position #{position} is too high. Your dashboard cards can probably be sorted with numbers 1-5, you could even use a 0." }, status: :bad_request)
+      begin
+        position = Integer(val)
+        if position.abs > 1_000
+          # validate that the value used is less than unreasonable, but without any real effort
+          return render(json: { message: "Position #{position} is too high. Your dashboard cards can probably be sorted with numbers 1-5, you could even use a 0." }, status: :bad_request)
+        end
+      rescue ArgumentError
+        render(json: { message: "Invalid position provided" }, status: :bad_request)
       end
+      return if performed?
     end
 
     user.set_dashboard_positions(user.dashboard_positions.merge(params[:dashboard_positions].to_unsafe_h))
@@ -2088,7 +2160,7 @@ class UsersController < ApplicationController
   # @argument user[avatar][token] [String]
   #   A unique representation of the avatar record to assign as the user's
   #   current avatar. This token can be obtained from the user avatars endpoint.
-  #   This supersedes the user [avatar] [url] argument, and if both are included
+  #   This supersedes the +user[avatar][url]+ argument, and if both are included
   #   the url will be ignored. Note: this is an internal representation and is
   #   subject to change without notice. It should be consumed with this api
   #   endpoint and used in the user update endpoint, and should not be
@@ -2160,7 +2232,7 @@ class UsersController < ApplicationController
     if @domain_root_account.enable_profiles?
       managed_attributes << :bio if @user.grants_right?(@current_user, :manage_user_details)
       managed_attributes << :title if @user.grants_right?(@current_user, :rename)
-      managed_attributes << :pronunciation if @domain_root_account.enable_name_pronunciation? && @user.grants_right?(@current_user, :manage_user_details)
+      managed_attributes << :pronunciation if @user.can_change_pronunciation?(@domain_root_account) && @user.grants_right?(@current_user, :manage_user_details)
     end
 
     can_admin_change_pronouns = @domain_root_account.can_add_pronouns? && @user.grants_right?(@current_user, :manage_user_details)
@@ -2169,7 +2241,11 @@ class UsersController < ApplicationController
     end
 
     if @user.grants_right?(@current_user, :manage_user_details)
-      managed_attributes.push(:time_zone, :locale, :event)
+      managed_attributes.push(:event)
+    end
+
+    if @user.grants_right?(@current_user, :update_profile)
+      managed_attributes.push(:time_zone, :locale)
     end
 
     if @user.grants_right?(@current_user, :update_avatar)
@@ -2250,33 +2326,48 @@ class UsersController < ApplicationController
 
     @user.sortable_name_explicitly_set = user_params[:sortable_name].present?
 
-    if (event = user_params.delete(:event)) && %w[suspend unsuspend].include?(event) &&
-       @user != @current_user
-      @user.pseudonyms.active.shard(@user).each do |p|
-        next unless p.grants_right?(@current_user, :delete)
-        next if p.active? && event == "unsuspend"
-        next if p.suspended? && event == "suspend"
+    user_updated = false
+    begin
+      User.transaction do
+        if (event = user_params.delete(:event)) && %w[suspend unsuspend].include?(event) &&
+           @user != @current_user
+          @user.pseudonyms.active.shard(@user).each do |pseudo|
+            next unless pseudo.grants_right?(@current_user, :delete)
+            next if pseudo.active? && event == "unsuspend"
+            next if pseudo.suspended? && event == "suspend"
 
-        p.update!(workflow_state: (event == "suspend") ? "suspended" : "active")
-      end
-    end
+            pseudo.current_user = @current_user # performing user for audit logging
+            if event == "suspend"
+              pseudo.suspend!
+            else
+              pseudo.unsuspend!
+            end
+          end
+        end
+        @user.update!(user_params)
 
-    respond_to do |format|
-      if @user.update(user_params)
         if admin_avatar_update
           avatar_state = (old_avatar_state == :locked) ? old_avatar_state : "approved"
           @user.avatar_state = user_params[:avatar_image][:state] || avatar_state
         end
-        @user.profile.save if @user.profile.changed?
-        @user.save if admin_avatar_update || update_email
+        @user.profile.save! if @user.profile.changed?
+        @user.save! if admin_avatar_update || update_email
         # User.email= causes a reload to the user object. The saves need to
         # happen before the reload happens or we lose all the hard work from
         # above.
         @user.email = new_email if update_email
+        user_updated = true
+      end
+    rescue ActiveRecord::RecordInvalid => e
+      @user.errors.merge!(e.record.errors) unless e.record == @user
+    end
+
+    respond_to do |format|
+      if user_updated
         session.delete(:require_terms)
         flash[:notice] = t("user_updated", "User was successfully updated.")
         unless params[:redirect_to_previous].blank?
-          return redirect_back fallback_location: user_url(@user)
+          return redirect_back_or_to(user_url(@user))
         end
 
         format.html { redirect_to user_url(@user) }
@@ -2304,7 +2395,7 @@ class UsersController < ApplicationController
     user.update!(last_logged_out: now)
     user.access_tokens.active.update_all(updated_at: now, permanent_expires_at: now)
 
-    render json: "ok"
+    render json: { message: "All sessions terminated" }
   end
 
   # @API Log users out of all mobile apps
@@ -2313,15 +2404,18 @@ class UsersController < ApplicationController
   #
   # The route that takes a user id will expire mobile sessions for that user.
   # The route that doesn't take a user id will expire mobile sessions for *all* users
-  # in the institution.
+  # in the institution (except for account administrators if +skip_admins+ is given).
   #
+  # @argument skip_admins [Optional, Boolean]
+  #  If true, will not expire mobile sessions for account administrators.
   def expire_mobile_sessions
     return unless authorized_action(@domain_root_account, @current_user, :manage_user_logins)
 
-    user = api_find(User, params[:id]) if params.key?(:id)
-    AccessToken.delay_if_production.invalidate_mobile_tokens!(@domain_root_account, user:)
+    user = api_find(@domain_root_account.pseudonym_users, params[:id]) if params.key?(:id)
+    skip_admins = value_to_boolean(params[:skip_admins])
+    AccessToken.delay_if_production.invalidate_mobile_tokens!(@domain_root_account, user:, skip_admins:)
 
-    render json: "ok"
+    render json: { message: "All mobile sessions terminated" }
   end
 
   def media_download
@@ -2346,57 +2440,47 @@ class UsersController < ApplicationController
     end
   end
 
-  def merge
-    @source_user = User.find(params[:user_id])
-    @target_user = User.where(id: params[:new_user_id]).first if params[:new_user_id]
-    @target_user ||= @current_user
-    if @source_user.grants_right?(@current_user, :merge) && @target_user.grants_right?(@current_user, :merge)
-      UserMerge.from(@source_user).into(@target_user, merger: @current_user, source: "users_controller")
-      @target_user.touch
-      flash[:notice] = t("user_merge_success", "User merge succeeded! %{first_user} and %{second_user} are now one and the same.", first_user: @target_user.name, second_user: @source_user.name)
-      if @target_user == @current_user
-        redirect_to user_profile_url(@current_user)
-      else
-        redirect_to user_url(@target_user)
-      end
-    else
-      flash[:error] = t("user_merge_fail", "User merge failed. Please make sure you have proper permission and try again.")
-      redirect_to dashboard_url
-    end
-  end
-
   def admin_merge
     @user = User.find(params[:user_id])
-    if authorized_action(@user, @current_user, :merge)
-      if params[:clear]
-        params.delete(:new_user_id)
-        params.delete(:pending_user_id)
-      end
 
-      if params[:new_user_id].present?
-        @other_user = api_find_all(User, [params[:new_user_id]]).first
-        if !@other_user || !@other_user.grants_right?(@current_user, :merge)
-          @other_user = nil
-          flash[:error] = t("user_not_found", "No active user with that ID was found.")
-        elsif @other_user == @user
-          @other_user = nil
-          flash[:error] = t("cant_self_merge", "You can't merge an account with itself.")
-        end
-      end
+    return unless authorized_action(@user, @current_user, :merge)
 
-      if params[:pending_user_id].present?
-        @pending_other_user = api_find_all(User, [params[:pending_user_id]]).first
-        if !@pending_other_user || !@pending_other_user.grants_right?(@current_user, :merge)
-          @pending_other_user = nil
-          flash[:error] = t("user_not_found", "No active user with that ID was found.")
-        elsif @pending_other_user == @user
-          @pending_other_user = nil
-          flash[:error] = t("cant_self_merge", "You can't merge an account with itself.")
-        end
-      end
+    title = t("Merge Users")
 
-      render :admin_merge
-    end
+    @page_title = title
+    @show_left_side = true
+    @context = @domain_root_account
+
+    add_crumb(@domain_root_account.name, account_url(@domain_root_account))
+    add_crumb(title)
+
+    page_has_instui_topnav
+
+    account_options_for_merge_users = @current_user.associated_accounts.shard(Shard.current).to_a
+    account_options_for_merge_users.push(@domain_root_account) if @domain_root_account && !account_options_for_merge_users.include?(@domain_root_account)
+    account_options_for_merge_users = account_options_for_merge_users.sort_by(&:name).uniq.select { |a| a.grants_any_right?(@current_user, session, :manage_user_logins, :read_roster) }
+
+    js_env({ ADMIN_MERGE_ACCOUNT_OPTIONS: account_options_for_merge_users.map { |a| { id: a.id, name: a.name } } })
+
+    render html: '<div id="admin_merge_mount_point"></div>'.html_safe, layout: true
+  end
+
+  def user_for_merge
+    @user = User.find(params[:user_id])
+
+    return unless authorized_action(@user, @current_user, :merge)
+
+    includes = %w[email]
+    enrollments_for_display = @user.enrollments.current.map { |e| t("%{course_name} (%{enrollment_type})", course_name: e.course.name, enrollment_type: e.readable_type) }
+    pseudonyms_for_display = @user.pseudonyms.active.map { |p| t("%{unique_id} (%{account_name})", unique_id: p.unique_id, account_name: p.account.name) }
+    communication_channels_for_display = @user.communication_channels.unretired.email.map(&:path).uniq
+
+    render json: {
+      **user_json(@user, @current_user, session, includes, @domain_root_account),
+      enrollments: enrollments_for_display,
+      pseudonyms: pseudonyms_for_display,
+      communication_channels: communication_channels_for_display
+    }
   end
 
   def admin_split
@@ -2404,9 +2488,11 @@ class UsersController < ApplicationController
     return unless authorized_action(@user, @current_user, :merge)
 
     merge_data = UserMergeData.active.splitable.where(user_id: @user).shard(@user).preload(:from_user).to_a
-    js_env ADMIN_SPLIT_USER: user_display_json(@user),
-           ADMIN_SPLIT_URL: api_v1_split_url(@user),
-           ADMIN_SPLIT_USERS: merge_data.map { |md| user_display_json(md.from_user) }
+    js_env({
+             ADMIN_SPLIT_USER: user_display_json(@user),
+             ADMIN_SPLIT_URL: api_v1_split_url(@user),
+             ADMIN_SPLIT_USERS: merge_data.map { |md| user_display_json(md.from_user) }
+           })
   end
 
   def mark_avatar_image
@@ -2487,14 +2573,14 @@ class UsersController < ApplicationController
 
         if @courses.all? { |_c, e| e.blank? }
           flash[:error] = t("errors.no_teacher_courses", "There are no courses shared between this teacher and student")
-          redirect_to_referrer_or_default(root_url)
+          redirect_back_or_to root_url
         end
 
       else # implied params[:course_id]
         course = Course.find(params[:course_id])
         if !course.user_has_been_instructor?(@teacher)
           flash[:error] = t("errors.user_not_teacher", "That user is not a teacher in this course")
-          redirect_to_referrer_or_default(root_url)
+          redirect_back_or_to root_url
         elsif authorized_action(course, @current_user, :read_reports) && authorized_action(course, @current_user, :view_all_grades)
           enrollments = course.apply_enrollment_visibility(course.all_student_enrollments, @teacher)
           @courses[course] = teacher_activity_report(@teacher, course, enrollments)
@@ -2539,7 +2625,7 @@ class UsersController < ApplicationController
   #
   # Avatars:
   # When both users have avatars, only the destination_users avatar will remain.
-  # When one user has an avatar, will it will end up on the destination_user.
+  # When one user has an avatar, it will end up on the destination_user.
   #
   # Terms of Use:
   # If either user has accepted terms of use, it will be be left as accepted.
@@ -2611,7 +2697,7 @@ class UsersController < ApplicationController
       into_user = api_find(User, params[:destination_user_id], account: destination_account)
 
       if authorized_action(into_user, @current_user, :merge)
-        UserMerge.from(user).into into_user
+        UserMerge.from(user).into(into_user, merger: @current_user)
         render(json: user_json(into_user,
                                @current_user,
                                session,
@@ -2715,12 +2801,7 @@ class UsersController < ApplicationController
 
     # returns the original list in :invited_users (with ids) if successfully added, or in :errored_users if not
     get_context
-    manage_perm = if @context.root_account.feature_enabled? :granular_permissions_manage_users
-                    :allow_course_admin_actions
-                  else
-                    :manage_admin_users
-                  end
-    return unless authorized_action(@context, @current_user, [:manage_students, manage_perm])
+    return unless authorized_action(@context, @current_user, %i[manage_students allow_course_admin_actions])
 
     root_account = context.root_account
     unless root_account.open_registration? || root_account.grants_right?(@current_user, session, :manage_user_logins)
@@ -2772,10 +2853,18 @@ class UsersController < ApplicationController
               existing_users:
             )
           end
-      elsif user.save
-        invited_users << user_hash.merge(id: user.id, user_token: user.token)
       else
-        errored_users << user_hash.merge(user.errors.as_json)
+        # I didn't want a long running transaction for all the users so we get a single transaction
+        # per user. This call to save creates causes the cc and user to changing triggering to
+        # potential syncs, hence the transaction debouncing
+        user_saved = User.transaction do
+          user.save
+        end
+        if user_saved
+          invited_users << user_hash.merge(id: user.id, user_token: user.token)
+        else
+          errored_users << user_hash.merge(Api::Errors::Reporter.to_json(user.errors))
+        end
       end
     end
     render json: { invited_users:, errored_users: }
@@ -2836,7 +2925,7 @@ class UsersController < ApplicationController
   end
 
   # @API Get a users most recently graded submissions
-  #
+  # Returns a list of the user's most recently graded submissions.
   # @example_request
   #     curl https://<canvas>/api/v1/users/<user_id>/graded_submissions \
   #          -X POST \
@@ -2885,6 +2974,7 @@ class UsersController < ApplicationController
     user = api_find(User, params[:id])
     if user && authorized_action(@domain_root_account, @current_user, :manage_site_settings)
       user.clear_caches
+      user.update_account_associations
       render json: { status: "ok" }
     end
   end
@@ -2916,7 +3006,7 @@ class UsersController < ApplicationController
 
     # find last interactions
     last_comment_dates = SubmissionCommentInteraction.in_course_between(course, teacher.id, ids)
-    last_comment_dates.each do |(user_id, _author_id), date| # rubocop:disable Style/HashEachMethods
+    last_comment_dates.each do |(user_id, _author_id), date|
       next unless (student = data[user_id])
 
       student[:last_interaction] = [student[:last_interaction], date].compact.max
@@ -2946,20 +3036,6 @@ class UsersController < ApplicationController
       student[:ungraded] << submission
     end
 
-    if course.root_account.enable_user_notes?
-      data.each_value { |v| v[:last_user_note] = nil }
-      # find all last user note times in one query
-      note_dates = UserNote.active
-                           .group(:user_id)
-                           .where("created_by_id = ? AND user_id IN (?)", teacher, ids)
-                           .maximum(:created_at)
-      note_dates.each do |user_id, date|
-        next unless (student = data[user_id])
-
-        student[:last_user_note] = date
-      end
-    end
-
     Canvas::ICU.collate_by(data.values) { |e| e[:enrollment].user.sortable_name }
   end
 
@@ -2979,6 +3055,26 @@ class UsersController < ApplicationController
   end
 
   private
+
+  def load_dashboard_learning_agent_env
+    return unless @current_user
+    return unless @current_user.associated_root_accounts
+                               .any? { |a| a.feature_allowed?(:athena_learning_agent_button) }
+
+    has_flagged_course = Rails.cache.fetch_with_batched_keys(
+      "learning_agent_dashboard/v1",
+      batch_object: @current_user,
+      batched_keys: :enrollments,
+      expires_in: 5.minutes
+    ) do
+      @current_user.enrollments
+                   .active_by_date
+                   .where(type: "StudentEnrollment")
+                   .preload(:course)
+                   .any? { |e| e.course.feature_enabled?(:athena_learning_agent_button) }
+    end
+    load_learning_agent_env if has_flagged_course
+  end
 
   def google_drive_client
     settings = Canvas::Plugin.find(:google_drive).try(:settings) || {}
@@ -3081,6 +3177,7 @@ class UsersController < ApplicationController
   def api_show_includes
     allowed_includes = ["uuid", "last_login"]
     allowed_includes << "avatar_state" if @user.grants_right?(@current_user, :manage_user_details)
+    allowed_includes << "confirmation_url" if @domain_root_account.grants_right?(@current_user, :manage_user_logins)
     includes = %w[first_name last_name locale avatar_url permissions email effective_locale]
     includes += Array.wrap(params[:include]) & allowed_includes
     includes
@@ -3103,22 +3200,7 @@ class UsersController < ApplicationController
     @pseudonym = nil
     @user = nil
     if sis_user_id && value_to_boolean(params[:enable_sis_reactivation])
-      @pseudonym = @context.pseudonyms.where(sis_user_id:, workflow_state: "deleted").first
-      if @pseudonym
-        @pseudonym.workflow_state = "active"
-        @pseudonym.save!
-        @user = @pseudonym.user
-        @user.workflow_state = "registered"
-        @user.update_account_associations
-        if params[:user]&.dig(:skip_registration) && params[:communication_channel]&.dig(:skip_confirmation)
-          cc = CommunicationChannel.where(user_id: @user.id, path_type: :email).order(updated_at: :desc).first
-          if cc
-            cc.pseudonym = @pseudonym
-            cc.workflow_state = "active"
-            cc.save!
-          end
-        end
-      end
+      perform_sis_reactivation(sis_user_id)
     end
 
     if @pseudonym.nil?
@@ -3145,7 +3227,7 @@ class UsersController < ApplicationController
     cc_params = params[:communication_channel]
 
     if cc_params
-      cc_type = cc_params[:type] || CommunicationChannel::TYPE_EMAIL
+      cc_type = (cc_params[:type] || CommunicationChannel::TYPE_EMAIL).downcase
       cc_addr = cc_params[:address] || params[:pseudonym][:unique_id]
 
       cc_addr = nil if cc_type == CommunicationChannel::TYPE_EMAIL && !EmailAddressValidator.valid?(cc_addr)
@@ -3197,7 +3279,7 @@ class UsersController < ApplicationController
       includes << "terms_of_use" unless accepted_terms.nil?
     end
     @user.name ||= params[:pseudonym][:unique_id]
-    skip_registration = value_to_boolean(params[:user].try(:[], :skip_registration))
+    skip_registration = manage_user_logins && value_to_boolean(params[:user].try(:[], :skip_registration))
     unless @user.registered?
       @user.workflow_state = if require_password || skip_registration
                                # no email confirmation required (self_enrollment_code and password
@@ -3277,30 +3359,40 @@ class UsersController < ApplicationController
       @cc.confirmation_redirect = cc_confirmation_redirect
     end
 
-    if @recaptcha_errors.nil? && @user.valid? && @pseudonym.valid? && (@invalid_observee_creds.nil? & @invalid_observee_code.nil?)
-      # saving the user takes care of the @pseudonym and @cc, so we can't call
-      # save_without_session_maintenance directly. we don't want to auto-log-in
-      # unless the user is registered/pre_registered (if the latter, he still
-      # needs to confirm his email and set a password, otherwise he can't get
-      # back in once his session expires)
-      if @current_user
-        @pseudonym.send(:skip_session_maintenance=, true)
-      else # automagically logged in
-        PseudonymSession.new(@pseudonym).save unless @pseudonym.new_record?
-      end
-      @user.save!
+    save_user = @recaptcha_errors.nil? && @user.valid? && @pseudonym.valid? && (@invalid_observee_creds.nil? & @invalid_observee_code.nil?)
 
-      if @observee && !@user.as_observer_observation_links.where(user_id: @observee, root_account: @context).exists?
-        UserObservationLink.create_or_restore(student: @observee, observer: @user, root_account: @context)
-        @pairing_code&.destroy
-      end
+    message_sent = User.transaction do
+      if save_user
+        # saving the user takes care of the @pseudonym and @cc, so we can't call
+        # save_without_session_maintenance directly. we don't want to auto-log-in
+        # unless the user is registered/pre_registered (if the latter, he still
+        # needs to confirm his email and set a password, otherwise he can't get
+        # back in once his session expires)
+        if @current_user
+          @pseudonym.send(:skip_session_maintenance=, true)
+        else # automagically logged in
+          PseudonymSession.new(@pseudonym).save unless @pseudonym.new_record?
+        end
 
-      if notify_policy.is_self_registration?
-        registration_params = params.fetch(:user, {}).merge(remote_ip: request.remote_ip, cookies:)
-        @user.new_registration(registration_params)
-      end
-      message_sent = notify_policy.dispatch!(@user, @pseudonym, @cc) if @cc && !skip_confirmation
+        @user.save!
+        # Explicitly save communication channel if it exists (especially when reactivating a retired CC)
+        # @user.save! only auto-saves new associated records, not existing ones that were found and modified
+        @cc.save! if @cc&.changed?
 
+        if @observee && !@user.as_observer_observation_links.where(user_id: @observee, root_account: @context).exists?
+          UserObservationLink.create_or_restore(student: @observee, observer: @user, root_account: @context)
+          @pairing_code&.destroy
+        end
+
+        if notify_policy.is_self_registration?
+          registration_params = params.fetch(:user, {}).merge(remote_ip: request.remote_ip, cookies:)
+          @user.new_registration(registration_params)
+        end
+        notify_policy.dispatch!(@user, @pseudonym, @cc) if @cc && !skip_confirmation
+      end
+    end
+
+    if save_user
       data = if api_request?
                user_json(@user, @current_user, session, includes)
              else
@@ -3309,20 +3401,26 @@ class UsersController < ApplicationController
 
       # if they passed a destination, and it matches the current canvas installation,
       # add a session_token to it for the newly created user and return it
-      if params[:destination] && password_provided &&
-         (_routes.recognize_path(params[:destination]) rescue false) &&
-         (uri = URI.parse(params[:destination]) rescue nil) &&
-         uri.host == request.host &&
-         uri.port == request.port
+      begin
+        if params[:destination] && password_provided &&
+           _routes.recognize_path(params[:destination]) &&
+           (uri = URI.parse(params[:destination])) &&
+           uri.host == request.host &&
+           uri.port == request.port
 
-        # add session_token to the query
-        qs = URI.decode_www_form(uri.query || "")
-        qs.delete_if { |(k, _v)| k == "session_token" }
-        qs << ["session_token", SessionToken.new(@pseudonym.id)]
-        uri.query = URI.encode_www_form(qs)
+          # add session_token to the query
+          qs = URI.decode_www_form(uri.query || "")
+          qs.delete_if { |(k, _v)| k == "session_token" }
+          qs << ["session_token", SessionToken.new(@pseudonym.id)]
+          uri.query = URI.encode_www_form(qs)
 
-        data["destination"] = uri.to_s
-      elsif (oauth = session[:oauth2])
+          data["destination"] = uri.to_s
+        end
+      rescue ActionController::RoutingError, URI::InvalidURIError
+        # ignore
+      end
+
+      if !data.key?("destination") && (oauth = session[:oauth2])
         provider = Canvas::OAuth::Provider.new(oauth[:client_id], oauth[:redirect_uri], oauth[:scopes], oauth[:purpose])
         data["destination"] = Canvas::OAuth::Provider.confirmation_redirect(self, provider, @user).to_s
       end
@@ -3331,14 +3429,33 @@ class UsersController < ApplicationController
     else
       errors = {
         errors: {
-          user: @user.errors.as_json[:errors],
-          pseudonym: @pseudonym ? @pseudonym.errors.as_json[:errors] : {},
-          observee: @invalid_observee_creds ? @invalid_observee_creds.errors.as_json[:errors] : {},
-          pairing_code: @invalid_observee_code ? @invalid_observee_code.errors.as_json[:errors] : {},
+          user: ::Api::Errors::Reporter.to_json(@user.errors)[:errors],
+          pseudonym: @pseudonym ? ::Api::Errors::Reporter.to_json(@pseudonym.errors)[:errors] : {},
+          observee: @invalid_observee_creds ? ::Api::Errors::Reporter.to_json(@invalid_observee_creds.errors)[:errors] : {},
+          pairing_code: @invalid_observee_code ? ::Api::Errors::Reporter.to_json(@invalid_observee_code.errors)[:errors] : {},
           recaptcha: @recaptcha_valid ? nil : @recaptcha_errors
         }
       }
       render json: errors, status: :bad_request
+    end
+  end
+
+  def perform_sis_reactivation(sis_user_id)
+    @pseudonym = @context.pseudonyms.where(sis_user_id:, workflow_state: "deleted").first
+    if @pseudonym
+      @pseudonym.workflow_state = "active"
+      @pseudonym.save!
+      @user = @pseudonym.user
+      @user.workflow_state = "registered"
+      @user.update_account_associations
+      if params[:user]&.dig(:skip_registration) && params[:communication_channel]&.dig(:skip_confirmation)
+        cc = CommunicationChannel.where(user_id: @user.id, path_type: :email).order(updated_at: :desc).first
+        if cc
+          cc.pseudonym = @pseudonym
+          cc.workflow_state = "active"
+          cc.save!
+        end
+      end
     end
   end
 
@@ -3353,7 +3470,7 @@ class UsersController < ApplicationController
     return nil unless @access_token.nil?
 
     response = CanvasHttp.post("https://www.google.com/recaptcha/api/siteverify", form_data: {
-                                 secret: DynamicSettings.find(tree: :private)["recaptcha_server_key"],
+                                 secret: Rails.application.credentials.dig(:recaptcha_keys, :server_key),
                                  response: recaptcha_response
                                })
 
@@ -3366,5 +3483,156 @@ class UsersController < ApplicationController
     else
       raise "Error connecting to recaptcha #{response}"
     end
+  end
+
+  def locale_dates_for(course, current_course)
+    return { start_at_locale: nil, end_at_locale: nil } unless current_course&.locale.present?
+
+    I18n.with_locale(current_course.locale) do
+      {
+        start_at_locale: datetime_string(course.start_at, :verbose, nil, shorten_midnight: true),
+        end_at_locale: datetime_string(course.conclude_at, :verbose, nil, shorten_midnight: true)
+      }
+    end
+  end
+
+  def fetch_courses_with_grades(observed_user = nil)
+    target_user = observed_user || @current_user
+
+    # Use menu_courses to get filtered course list (handles favorites, invited enrollments, etc.)
+    # Pass limit directly to menu_courses for thread-safe, request-isolated behavior
+    courses = target_user.menu_courses(nil, { observee_user: observed_user, limit: 50 })
+
+    return [] if courses.empty?
+
+    # Preload enrollments and scores for efficient querying
+    course_ids = courses.map(&:id)
+    enrollments_by_course = target_user.enrollments
+                                       .not_deleted
+                                       .shard(target_user.in_region_associated_shards)
+                                       .where(course_id: course_ids)
+                                       .preload(:scores, :enrollment_state, :course_section)
+                                       .index_by(&:course_id)
+
+    # Filter courses for grade widget display
+    # While menu_courses provides navigation courses (includes invited, homerooms, etc.),
+    # the grade widget should only show courses with active enrollments and meaningful grades
+    courses = courses.reject do |course|
+      enrollment = enrollments_by_course[course.id]
+
+      # Exclude if no enrollment
+      next true if enrollment.nil?
+
+      # Exclude if enrollment is invited/pending
+      next true if %w[invited creation_pending].include?(enrollment.workflow_state)
+
+      # Exclude if enrollment dates are in the past
+      next true if enrollment.respond_to?(:section_or_course_date_in_past?) && enrollment.section_or_course_date_in_past?
+
+      # Exclude homeroom courses (no grades to display)
+      next true if course.homeroom_course?
+
+      false
+    end
+
+    # For observers: only show courses where observer has enrollment linked to this specific student
+    if observed_user
+      observer_linked_course_ids = @current_user.cached_course_ids_for_observed_user(observed_user)
+      courses = courses.select { |c| observer_linked_course_ids.include?(c.id) }
+    end
+
+    return [] if courses.empty?
+
+    # Update course_ids after filtering
+    course_ids = courses.map(&:id)
+
+    # For observers, get observer's enrollments to check read_grades permission
+    observer_enrollments_by_course = if target_user.id == @current_user.id
+                                       {}
+                                     else
+                                       @current_user.enrollments
+                                                    .not_deleted
+                                                    .shard(@current_user.in_region_associated_shards)
+                                                    .where(
+                                                      course_id: course_ids,
+                                                      type: "ObserverEnrollment",
+                                                      associated_user_id: observed_user.id
+                                                    )
+                                                    .index_by(&:course_id)
+                                     end
+
+    course_data = courses.filter_map do |course|
+      enrollment = enrollments_by_course[course.id]
+      next unless enrollment
+
+      # Check grade visibility
+      can_read_grades = if target_user.id == @current_user.id
+                          !course.hide_final_grades? || course.grants_any_right?(@current_user, :view_all_grades, :manage_grades)
+                        else
+                          observer_enrollment = observer_enrollments_by_course[course.id]
+                          observer_enrollment&.grants_right?(@current_user, :read_grades) || course.grants_any_right?(@current_user, :view_all_grades, :manage_grades)
+                        end
+
+      # Get grade data if visible
+      display_grade = nil
+      grading_scheme = "percentage"
+      last_updated = nil
+
+      if can_read_grades
+        display_grade = enrollment.effective_current_score(course_score: true)
+        course_score = enrollment.find_score(course_score: true)
+        last_updated = course_score&.updated_at
+
+        if course.grading_standard_enabled? && course.grading_standard
+          grading_scheme = course.grading_standard.data
+        end
+      end
+
+      nickname = @current_user.course_nickname(course)
+      {
+        courseId: course.id.to_s,
+        courseCode: course.course_code || "N/A",
+        courseName: nickname || course.name,
+        originalName: course.name,
+        currentGrade: display_grade,
+        gradingScheme: grading_scheme,
+        lastUpdated: last_updated&.iso8601,
+        courseColor: @current_user.custom_colors[course.asset_string],
+        term: course.enrollment_term&.name,
+        image: course.image
+      }
+    end
+
+    course_data.sort_by { |course| course[:courseName].downcase }
+  end
+
+  def should_show_widget_dashboard?
+    return false if k5_user?
+
+    # Educators with the educator_dashboard flag bypass the widget_dashboard
+    # flag check — the educator_dashboard flag itself is their opt-in
+    return true if should_show_educator_dashboard?
+
+    # Single feature flag lookup to avoid redundant queries
+    flag = @domain_root_account&.lookup_feature_flag(:widget_dashboard)
+    return false unless flag&.enabled? || flag&.can_override?
+
+    # Check user preference (pass flag to avoid re-lookup)
+    return false unless @current_user.prefers_widget_dashboard?(@domain_root_account, flag)
+
+    if @current_user.observer_enrollments.active_or_pending.any?
+      # only show widget dashboard if observer is actively observing a student
+      return true if @selected_observed_user && @selected_observed_user != @current_user
+    elsif !@current_user.active_non_student_enrollment? && !@current_user.account_membership?
+      return true
+    end
+    false
+  end
+
+  def should_show_educator_dashboard?
+    return false if k5_user?
+    return false unless @domain_root_account&.feature_enabled?(:educator_dashboard)
+
+    @current_user.educator_dashboard_user?
   end
 end

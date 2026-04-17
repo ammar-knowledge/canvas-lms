@@ -17,12 +17,11 @@
  */
 
 import $ from 'jquery'
-import {intersection} from 'lodash'
+import {intersection} from 'es-toolkit/compat'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {legacyRender, legacyUnmountComponentAtNode} from '@canvas/react'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import decodeFromHex from '@canvas/util/decodeFromHex'
-import ColorPicker from '@canvas/color-picker'
 import userSettings from '@canvas/user-settings'
 import contextListTemplate from '../jst/contextList.handlebars'
 import forceScreenreaderToReparse from 'force-screenreader-to-reparse'
@@ -30,9 +29,10 @@ import 'jquery-kyle-menu'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
 import 'jquery-tinypubsub'
 import AccountCalendarsModal from '../react/AccountCalendarsModal'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert} from '@instructure/platform-alerts'
+import {CalendarColorPicker} from '../react/CalendarColorPicker'
 
-const I18n = useI18nScope('calendar_sidebar')
+const I18n = createI18nScope('calendar_sidebar')
 
 class VisibleContextManager {
   constructor(contexts, selectedContexts, $holder) {
@@ -172,11 +172,9 @@ function generateEmptyState() {
 
 function setupCalendarFeedsWithSpecialAccessibilityConsiderationsForNVDA() {
   const $calendarFeedModalContent = $('#calendar_feed_box')
-  const $calendarFeedModalOpener = $('.dialog_opener[aria-controls="calendar_feed_box"]')
-  // We need to get the modal initialized early rather than wait for
-  // .dialog_opener to open it so we can attach the event to it the first
-  // time.  We extend so that we still get all the magic that .dialog_opener
-  // should give us.
+  const $calendarFeedModalOpener = $('#calendar-feed-button')
+  // We need to initialize the modal early so we can attach accessibility
+  // enhancements to it.
   $calendarFeedModalContent.dialog(
     $.extend(
       {
@@ -186,31 +184,46 @@ function setupCalendarFeedsWithSpecialAccessibilityConsiderationsForNVDA() {
         create: (e, _ui) => {
           e.target.parentElement.setAttribute(
             'aria-labelledby',
-            e.target.parentElement.querySelector('.ui-dialog-title').id
+            e.target.parentElement.querySelector('.ui-dialog-title').id,
           )
+          // Replace the close button with a proper button element
+          const $closeButton = $(e.target.parentElement).find('.ui-dialog-titlebar-close')
+          const $newCloseButton = $('<button>')
+            .addClass('ui-dialog-titlebar-close ui-corner-all')
+            .attr('type', 'button')
+            .attr('aria-label', I18n.t('Close'))
+            .html('<span class="ui-icon ui-icon-closethick"></span>')
+            .on('click', event => {
+              event.preventDefault()
+              $calendarFeedModalContent.dialog('close')
+            })
+          $closeButton.replaceWith($newCloseButton)
+        },
+        close: () => {
+          forceScreenreaderToReparse($('#application')[0])
+          $('#calendar-feed-button').focus()
         },
       },
-      $calendarFeedModalOpener.data('dialogOpts')
-    )
+      $calendarFeedModalOpener.data('dialogOpts'),
+    ),
   )
 
-  $calendarFeedModalContent.on('dialogclose', () => {
-    forceScreenreaderToReparse($('#application')[0])
-    $('#calendar-feed .dialog_opener').focus()
+  $calendarFeedModalOpener.on('click', () => {
+    $calendarFeedModalContent.dialog('open')
   })
 }
 
 function setupAccountCalendarDialog(getSelectedOtherCalendars, onOtherCalendarsChange) {
-  ReactDOM.unmountComponentAtNode($(`#manage-accounts-btn`)[0])
+  legacyUnmountComponentAtNode($(`#manage-accounts-btn`)[0])
 
-  ReactDOM.render(
+  legacyRender(
     <AccountCalendarsModal
       getSelectedOtherCalendars={getSelectedOtherCalendars}
       onSave={onOtherCalendarsChange}
       calendarsPerRequest={100}
       featureSeen={ENV.CALENDAR.ACCOUNT_CALENDAR_EVENTS_SEEN}
     />,
-    $(`#manage-accounts-btn`)[0]
+    $(`#manage-accounts-btn`)[0],
   )
 }
 
@@ -223,7 +236,7 @@ function refreshOtherCalendarsSection($holder, otherCalendars, notify) {
       contexts: otherCalendars,
       type: 'other-calendars',
       includeRemoveOption: 'calendars',
-    })
+    }),
   )
   notify()
 }
@@ -258,7 +271,7 @@ export default function sidebar(contexts, selectedContexts, dataSource, onContex
   setupCalendarFeedsWithSpecialAccessibilityConsiderationsForNVDA()
 
   $calendarHolder.html(
-    contextListTemplate({contexts: calendars, type: 'calendars', includeRemoveOption: 'calendars'})
+    contextListTemplate({contexts: calendars, type: 'calendars', includeRemoveOption: 'calendars'}),
   )
   const visibleContexts = new VisibleContextManager(contexts, selectedContexts, $combineHolder)
 
@@ -301,7 +314,7 @@ export default function sidebar(contexts, selectedContexts, dataSource, onContex
 
     const getSelectedOtherCalendars = () => {
       const currentSelection = otherCalendars.filter(oC =>
-        visibleContexts.enabledAccounts.includes(oC.asset_string)
+        visibleContexts.enabledAccounts.includes(oC.asset_string),
       )
       return convertAccountCalendars(currentSelection)
     }
@@ -335,39 +348,13 @@ export default function sidebar(contexts, selectedContexts, dataSource, onContex
   })
 
   $combineHolder.on('click keyclick', '.ContextList__MoreBtn', function (_event) {
-    const positions = {
-      top: $(this).offset().top - $(window).scrollTop(),
-      left: $(this).offset().left - $(window).scrollLeft(),
-    }
-
     const assetString = $(this).closest('li').data('context')
 
     // ensures previously picked color clears
-    ReactDOM.unmountComponentAtNode($(`#calendars_color_picker_holder`)[0])
-
-    ReactDOM.render(
-      <ColorPicker
-        isOpen={true}
-        positions={positions}
-        assetString={assetString}
-        afterClose={() => forceScreenreaderToReparse($('#application')[0])}
-        afterUpdateColor={color => {
-          color = `#${color}`
-          const $existingStyles = $('#calendar_color_style_overrides')
-          const $newStyles = $('<style>')
-          $newStyles.text(
-            `.group_${assetString},
-            .group_${assetString}:hover,
-            .group_${assetString}:focus{
-              color: ${color};
-              border-color: ${color};
-              background-color: ${color};
-            }`
-          )
-          $existingStyles.append($newStyles)
-        }}
-      />,
-      $(`#calendars_color_picker_holder`)[0]
+    legacyUnmountComponentAtNode($(`#calendars_color_picker_holder`)[0])
+    legacyRender(
+      <CalendarColorPicker assetString={assetString} />,
+      $(`#calendars_color_picker_holder`)[0],
     )
   })
 

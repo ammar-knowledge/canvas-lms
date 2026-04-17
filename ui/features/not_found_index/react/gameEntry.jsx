@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render} from '@canvas/react'
 import OfficialNotFoundGame from './frogger/OfficialNotFoundGame'
 import SpaceInvaders from './space_invaders/SpaceInvaders'
 import SlidePuzzle from './slide_puzzle/SlidePuzzle'
@@ -26,7 +26,7 @@ export const renderGameApp = domElement => {
   const AppRootElement = document.getElementById(domElement)
   const gamePool = [<OfficialNotFoundGame />, <SpaceInvaders />, <SlidePuzzle />]
   const index = Math.floor(Math.random() * 3)
-  ReactDOM.render(gamePool[index], AppRootElement)
+  render(gamePool[index], AppRootElement)
 }
 
 export const renderGameIntoDom = domElement => {

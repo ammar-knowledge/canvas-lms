@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {Text} from '@instructure/ui-text'
 import {List} from '@instructure/ui-list'
@@ -26,15 +26,19 @@ import {Avatar} from '@instructure/ui-avatar'
 import {Spinner} from '@instructure/ui-spinner'
 import {Link} from '@instructure/ui-link'
 import {View} from '@instructure/ui-view'
+import {IconExternalLinkLine} from '@instructure/ui-icons'
 import LogoutButton from '../LogoutButton'
 import HighContrastModeToggle from './HighContrastModeToggle'
+import DyslexicFontToggle from './UseDyslexicFontToggle'
+import WidgetDashboardToggle from './WidgetDashboardToggle'
 import {AccessibleContent} from '@instructure/ui-a11y-content'
-import {useQuery} from '@canvas/query'
 import profileQuery from '../queries/profileQuery'
 import {getUnreadCount} from '../queries/unreadCountQuery'
 import type {ProfileTab, TabCountsObj} from '../../../../api.d'
+import {useQuery} from '@tanstack/react-query'
+import {sessionStoragePersister} from '@instructure/platform-query'
 
-const I18n = useI18nScope('ProfileTray')
+const I18n = createI18nScope('ProfileTray')
 
 // Trying to keep this as generalized as possible, but it's still a bit
 // gross matching on the id of the tray tabs given to us by Rails
@@ -59,12 +63,15 @@ function CountBadge({counts, id}: {counts: TabCountsObj; id: string}) {
   )
 }
 
-function ProfileTabLink({id, html_url, label, counts}: ProfileTab) {
+function ProfileTabLink({id, html_url, label, counts, type}: ProfileTab) {
+  const isNavMenuLink = type === 'external' && id?.startsWith('nav_menu_link_')
+  const target = isNavMenuLink || html_url.includes('display=borderless') ? '_blank' : undefined
   return (
     <View className={`profile-tab-${id}`} as="div" margin="small 0">
-      <Link isWithinText={false} href={html_url}>
+      <Link isWithinText={false} href={html_url} target={target}>
         {label}
         <CountBadge counts={counts} id={id} />
+        {isNavMenuLink && <IconExternalLinkLine size="x-small" style={{paddingLeft: '0.3em'}} />}
       </Link>
     </View>
   )
@@ -78,11 +85,11 @@ export default function ProfileTray() {
   } = useQuery<ProfileTab[], Error>({
     queryKey: ['profile'],
     queryFn: profileQuery,
-    fetchAtLeastOnce: true,
+    persister: sessionStoragePersister.persisterFn,
   })
 
   const countsEnabled = Boolean(
-    window.ENV.current_user_id && !window.ENV.current_user?.fake_student
+    window.ENV.current_user_id && !window.ENV.current_user?.fake_student,
   )
 
   const {data: unreadContentSharesCount} = useQuery({
@@ -90,7 +97,7 @@ export default function ProfileTray() {
     queryFn: getUnreadCount,
     staleTime: 60 * 60 * 1000, // 1 hour
     enabled: countsEnabled && ENV.CAN_VIEW_CONTENT_SHARES,
-    fetchAtLeastOnce: true,
+    persister: sessionStoragePersister.persisterFn,
   })
 
   const counts: TabCountsObj = {
@@ -102,6 +109,15 @@ export default function ProfileTray() {
   const userAvatarURL = window.ENV.current_user.avatar_is_fallback
     ? ''
     : window.ENV.current_user.avatar_image_url
+
+  // Check if we have any accessibility settings to show
+  const hasAccessibilitySettings = true // High contrast is always available
+  const hasDyslexicFont = 'use_dyslexic_font' in window.ENV
+
+  // Check if we have any early access settings to show
+  // Toggle shows when feature is "allowed" (overridable), not when it's locked "on"
+  const hasWidgetDashboard = window.ENV.widget_dashboard_overridable !== undefined
+  const hasEarlyAccessSettings = hasWidgetDashboard
 
   return (
     <View as="div" padding="medium">
@@ -143,8 +159,27 @@ export default function ProfileTray() {
             </List.Item>
           ))}
       </List>
-      <hr role="presentation" />
-      <HighContrastModeToggle />
+
+      {hasAccessibilitySettings && (
+        <>
+          <hr role="presentation" />
+          <Heading level="h3" as="h3" margin="small 0">
+            {I18n.t('Accessibility Settings')}
+          </Heading>
+          <HighContrastModeToggle />
+          {hasDyslexicFont && <DyslexicFontToggle />}
+        </>
+      )}
+
+      {hasEarlyAccessSettings && (
+        <>
+          <hr role="presentation" />
+          <Heading level="h3" as="h3" margin="small 0">
+            {I18n.t('Early Adopter Program Settings')}
+          </Heading>
+          {hasWidgetDashboard && <WidgetDashboardToggle />}
+        </>
+      )}
     </View>
   )
 }

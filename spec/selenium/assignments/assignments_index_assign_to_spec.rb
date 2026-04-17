@@ -15,12 +15,11 @@
 #
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
+
 require_relative "../common"
-require_relative "../../spec_helper"
 require_relative "page_objects/assignments_index_page"
 require_relative "../helpers/items_assign_to_tray"
 require_relative "../helpers/context_modules_common"
-require_relative "../../helpers/selective_release_common"
 
 shared_examples_for "selective_release assign to tray" do |context|
   include AssignmentsIndexPage
@@ -117,6 +116,18 @@ shared_examples_for "selective_release assign to tray" do |context|
     expect(assign_to_until_time(0).attribute("value")).to eq("9:00 PM")
   end
 
+  it "does not Save assigment if no changes have been made" do
+    get @mod_url
+
+    click_manage_assignment_button(@assignment1.id)
+    click_assign_to_menu_link(@assignment1.id)
+
+    expect(item_tray_exists?).to be true
+    click_save_button
+    expect(element_exists?(loading_spinner_selector)).to be_falsey
+    expect(item_tray_exists?).to be false
+  end
+
   it "assigns student for a NQ quiz and saves" do
     new_quiz_assignment = @course.assignments.create!(title: "new quizzes assignment")
     new_quiz_assignment.quiz_lti!
@@ -204,10 +215,8 @@ describe "assignments index menu tool placement" do
   include AssignmentsIndexPage
   include ItemsAssignToTray
   include ContextModulesCommon
-  include SelectiveReleaseCommon
 
   before :once do
-    differentiated_modules_on
     course_with_teacher(active_all: true)
     @assignment1 = @course.assignments.create(name: "test assignment", points_possible: 25)
 
@@ -231,7 +240,7 @@ describe "assignments index menu tool placement" do
       user_session(@teacher)
     end
 
-    include_examples "selective_release assign to tray", :assignment_index
+    it_behaves_like "selective_release assign to tray", :assignment_index
   end
 
   context "assign to tray on course homepage with default assignments index" do
@@ -240,6 +249,6 @@ describe "assignments index menu tool placement" do
       @course.update!(default_view: "assignments")
     end
 
-    include_examples "selective_release assign to tray", :course_homepage
+    it_behaves_like "selective_release assign to tray", :course_homepage
   end
 end

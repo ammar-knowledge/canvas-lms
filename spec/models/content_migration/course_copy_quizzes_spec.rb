@@ -165,7 +165,7 @@ describe ContentMigration do
       }.with_indifferent_access
       sp.quiz_questions.create!(question_data: data)
       sp.generate_quiz_data
-      sp.published_at = Time.now
+      sp.published_at = Time.zone.now
       sp.workflow_state = "available"
       sp.save!
 
@@ -500,7 +500,7 @@ describe ContentMigration do
         link to some other course: <a href="/courses/#{@copy_from.id + @copy_to.id}">Cool Course</a>
         canvas image: <img style="max-width: 723px;" src="/images/preview.png" alt="">
       HTML
-      @question = @bank.assessment_questions.create!(question_data: data)
+      @question = @bank.assessment_questions.create!(question_data: data, updating_user: @user)
       expect(@question.reload.question_data["question_text"]).to match %r{/assessment_questions/}
 
       run_course_copy
@@ -519,7 +519,7 @@ describe ContentMigration do
         media comment: <a id="media_comment_0_l4l5n0wt" class="instructure_inline_media_comment video_comment" href="/media_objects/0_l4l5n0wt">this is a media comment</a>
         media object: <iframe style="width: 400px; height: 225px; display: inline-block;" title="this is a media comment" data-media-type="video" src="/media_objects_iframe/0_l4l5n0wt?type=video" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="0_l4l5n0wt"></iframe>
       HTML
-      @question = @bank.assessment_questions.create!(question_data: data)
+      @question = @bank.assessment_questions.create!(question_data: data, updating_user: @user)
 
       run_course_copy
 
@@ -527,10 +527,10 @@ describe ContentMigration do
       expect(bank.assessment_questions.count).to eq 1
       aq = bank.assessment_questions.first
       # TODO: fix media attachments not being copied to assessment question context like other attachments
-      new_att = @copy_to.attachments.take
+      new_att = bank.assessment_questions.first.attachments.take
       translated_body = <<~HTML.strip
-        media comment: <iframe id="media_comment_0_l4l5n0wt" class="instructure_inline_media_comment video_comment" style="width: 320px; height: 240px; display: inline-block;" title="this is a media comment" data-media-type="video" src="/media_attachments_iframe/#{new_att.id}?embedded=true&amp;type=video" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="0_l4l5n0wt"></iframe>
-        media object: <iframe style="width: 400px; height: 225px; display: inline-block;" title="this is a media comment" data-media-type="video" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="0_l4l5n0wt" src="/media_attachments_iframe/#{new_att.id}?embedded=true&amp;type=video"></iframe>
+        media comment: <iframe id="media_comment_0_l4l5n0wt" class="instructure_inline_media_comment video_comment" style="width: 320px; height: 240px; display: inline-block;" title="this is a media comment" data-media-type="video" src="/media_attachments_iframe/#{new_att.id}?verifier=#{new_att.uuid}&embedded=true&amp;type=video" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="0_l4l5n0wt"></iframe>
+        media object: <iframe style="width: 400px; height: 225px; display: inline-block;" title="this is a media comment" data-media-type="video" allowfullscreen="allowfullscreen" allow="fullscreen" data-media-id="0_l4l5n0wt" src="/media_attachments_iframe/#{new_att.id}?verifier=#{new_att.uuid}&embedded=true&amp;type=video"></iframe>
       HTML
 
       expect(aq.question_data["question_text"]).to match_ignoring_whitespace(translated_body)
@@ -561,7 +561,7 @@ describe ContentMigration do
                          { migration_id: "QUE_1017_A2", html: "<strong>html answer 2</strong>", comments_html: "<i>comment</i>", text: "", weight: 0, id: 2279 }] }.with_indifferent_access
 
       q1 = @copy_from.quizzes.create!(title: "quiz1")
-      q1.quiz_questions.create!(question_data: data)
+      q1.quiz_questions.create!(question_data: data, updating_user: @user)
 
       run_course_copy
 
@@ -704,7 +704,7 @@ describe ContentMigration do
 
       quiz = @copy_from.quizzes.create!(title: "survey pub", quiz_type: "survey")
       qq_from = quiz.quiz_questions.new(assessment_question: aq_from)
-      qq_from.write_attribute(:question_data, data)
+      qq_from["question_data"] = data
       qq_from.save!
       quiz.generate_quiz_data
       quiz.save!
@@ -733,7 +733,7 @@ describe ContentMigration do
       q = @copy_from.quizzes.create!(title: "survey pub", quiz_type: "survey")
       q.quiz_questions.create!(question_data: data)
       q.generate_quiz_data
-      q.published_at = Time.now
+      q.published_at = Time.zone.now
       q.workflow_state = "available"
       q.save!
 
@@ -955,8 +955,8 @@ describe ContentMigration do
       bank1_copy = @copy_to.assessment_question_banks.where(migration_id: mig_id(bank1)).first
       bank2_copy = @copy_to.assessment_question_banks.where(migration_id: mig_id(bank2)).first
 
-      expect(bank1_copy).to_not be_nil
-      expect(bank2_copy).to_not be_nil
+      expect(bank1_copy).not_to be_nil
+      expect(bank2_copy).not_to be_nil
 
       quiz_copy = @copy_to.quizzes.where(migration_id: mig_id(quiz)).first
       expect(quiz_copy.quiz_groups.count).to eq 2
@@ -1005,7 +1005,7 @@ describe ContentMigration do
       expect(q_copy.quiz_questions.count).to eq 3
       q_copy.quiz_questions.each do |qq|
         # should link quiz questions
-        expect(qq.assessment_question_id).to_not be_nil
+        expect(qq.assessment_question_id).not_to be_nil
       end
 
       @cm.copy_options = { all_quizzes: true }
@@ -1026,7 +1026,7 @@ describe ContentMigration do
       expect(q_copy.quiz_questions.count).to eq 3
       q_copy.quiz_questions.each do |qq|
         # should re-link them
-        expect(qq.assessment_question_id).to_not be_nil
+        expect(qq.assessment_question_id).not_to be_nil
       end
     end
 
@@ -1102,7 +1102,7 @@ describe ContentMigration do
       other_quiz = @copy_from.quizzes.create!(title: "other quiz")
       other_quiz.quiz_questions.create!(question_data: data)
       other_quiz.generate_quiz_data
-      other_quiz.published_at = Time.now
+      other_quiz.published_at = Time.zone.now
       other_quiz.workflow_state = "available"
       other_quiz.save!
 
@@ -1135,7 +1135,7 @@ describe ContentMigration do
       other_quiz = @copy_from.quizzes.create!(title: "other quiz")
       other_quiz.quiz_questions.create!(question_data: data)
       other_quiz.generate_quiz_data
-      other_quiz.published_at = Time.now
+      other_quiz.published_at = Time.zone.now
       other_quiz.workflow_state = "available"
       other_quiz.save!
 
@@ -1194,9 +1194,8 @@ describe ContentMigration do
       end
 
       it "copies only noop overrides" do
-        account = Account.default
-        account.settings[:conditional_release] = { value: true }
-        account.save!
+        @copy_from.conditional_release = true
+        @copy_from.save!
         due_at = 1.hour.from_now.round
         assignment_override_model(quiz: @quiz_plain, set_type: "Noop", set_id: 1, title: "Tag 3")
         assignment_override_model(quiz: @quiz_assigned, set_type: "Noop", set_id: 1, title: "Tag 4", due_at:)
@@ -1233,9 +1232,18 @@ describe ContentMigration do
         "answers" => [{ "id" => 1, "text" => "Correct", "weight" => 100 },
                       { "id" => 2, "text" => "inorrect", "weight" => 0 }],
       }
-      aq = bank1.assessment_questions.create!(question_data: data)
+      aq = bank1.assessment_questions.create!(question_data: data, updating_user: @user)
 
       run_course_copy
+
+      @cm = ContentMigration.create!(
+        context: @copy_to,
+        user: @user,
+        source_course: @copy_from,
+        migration_type: "course_copy_importer",
+        copy_options: { everything: "1" },
+        migration_settings: { import_immediately: true }
+      )
 
       run_course_copy # run it twice
 

@@ -115,7 +115,7 @@ describe('HistoryActions', () => {
       },
     ]
     expect(fetchHistorySuccess(response.data, response.headers).payload.items).toEqual(
-      expectedItems
+      expectedItems,
     )
   })
 
@@ -147,6 +147,32 @@ describe('HistoryActions', () => {
     const {pointsPossibleCurrent} = fetchHistorySuccess(response.data, response.headers).payload
       .items[0]
     expect(pointsPossibleCurrent).toBe('–')
+  })
+
+  test('fetchHistorySuccess returns "0" pointsPossibleAfter when an assignment has zero points possible', () => {
+    const response = {
+      data: {
+        events: [{points_possible_after: 0, links: {}}],
+        linked: {assignments: []},
+      },
+      headers: {},
+    }
+    const {pointsPossibleAfter} = fetchHistorySuccess(response.data, response.headers).payload
+      .items[0]
+    expect(pointsPossibleAfter).toBe('0')
+  })
+
+  test('fetchHistorySuccess returns "0" pointsPossibleBefore when an assignment had zero points possible', () => {
+    const response = {
+      data: {
+        events: [{points_possible_before: 0, links: {}}],
+        linked: {assignments: []},
+      },
+      headers: {},
+    }
+    const {pointsPossibleBefore} = fetchHistorySuccess(response.data, response.headers).payload
+      .items[0]
+    expect(pointsPossibleBefore).toBe('0')
   })
 
   test('fetchHistorySuccess returns "–" pointsPossibleAfter when an assignment now has no points possible', () => {
@@ -183,7 +209,7 @@ describe('HistoryActions', () => {
     const response = defaultResponse()
     const expectedUrl = 'http://example.com/3?&page=bookmark:asdf'
     expect(fetchHistoryNextPageSuccess(response.data, response.headers).payload.link).toBe(
-      expectedUrl
+      expectedUrl,
     )
   })
 
@@ -224,7 +250,7 @@ describe('HistoryActions', () => {
   test('fetchHistoryNextPageSuccess creates an action with type FETCH_HISTORY_NEXT_PAGE_SUCCESS', () => {
     const response = defaultResponse()
     expect(fetchHistoryNextPageSuccess(response.data, response.headers).type).toBe(
-      FETCH_HISTORY_NEXT_PAGE_SUCCESS
+      FETCH_HISTORY_NEXT_PAGE_SUCCESS,
     )
   })
 
@@ -254,7 +280,7 @@ describe('HistoryActions', () => {
       },
     ]
     expect(fetchHistoryNextPageSuccess(response.data, response.headers).payload.items).toEqual(
-      expectedItems
+      expectedItems,
     )
   })
 
@@ -262,7 +288,7 @@ describe('HistoryActions', () => {
     const response = defaultResponse()
     const expectedUrl = 'http://example.com/3?&page=bookmark:asdf'
     expect(fetchHistoryNextPageSuccess(response.data, response.headers).payload.link).toBe(
-      expectedUrl
+      expectedUrl,
     )
   })
 

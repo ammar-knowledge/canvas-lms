@@ -18,22 +18,23 @@
 
 import {arrayOf, bool, element, func, shape, string} from 'prop-types'
 import CanvasFiles from './CanvasFiles/index'
-import errorShipUrl from '@canvas/images/ErrorShip.svg'
+import errorShipUrl from '@instructure/platform-images/assets/ErrorShip.svg'
 import {USER_GROUPS_QUERY} from '@canvas/assignments/graphql/student/Queries'
 import {Flex} from '@instructure/ui-flex'
-import GenericErrorPage from '@canvas/generic-error-page'
+import {GenericErrorPage} from '@instructure/platform-generic-error-page'
+import {reportError, canvasErrorPageTranslations} from '@canvas/error-page-utils'
 import {IconFolderLine, IconLtiLine} from '@instructure/ui-icons'
 import iframeAllowances from '@canvas/external-apps/iframeAllowances'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Img} from '@instructure/ui-img'
-import LoadingIndicator from '@canvas/loading-indicator'
-import {useQuery} from 'react-apollo'
+import {LoadingIndicator} from '@instructure/platform-loading-indicator'
+import {useQuery} from '@apollo/client'
 import React, {useEffect, useState} from 'react'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import TakePhotoUrl from '../../../../images/TakePhoto.svg'
 import {Text} from '@instructure/ui-text'
 import WebcamCapture from './WebcamCapture'
-import WithBreakpoints, {breakpointsShape} from '@canvas/with-breakpoints'
+import {WithBreakpoints} from '@instructure/platform-with-breakpoints'
 
 import {View} from '@instructure/ui-view'
 
@@ -41,7 +42,7 @@ import {Button, CloseButton} from '@instructure/ui-buttons'
 import {Heading} from '@instructure/ui-heading'
 import {Modal} from '@instructure/ui-modal'
 
-const I18n = useI18nScope('assignments_2_MoreOptions')
+const I18n = createI18nScope('assignments_2_MoreOptions')
 
 // An "abstract" component that renders a button allowing the user to upload a
 // file via an interface supplied by the caller.
@@ -101,8 +102,8 @@ function BaseUploadTool({children, hideFooter, icon, label, renderFooter, title}
       withBackground={false}
     >
       <Flex direction="row" justifyItems="center" padding="xxx-small 0">
-        <Flex.Item>{icon}</Flex.Item>
-        <Flex.Item margin="0 small">
+        <Flex.Item margin="0 0 0 small">{icon}</Flex.Item>
+        <Flex.Item margin="0 small" shouldShrink>
           <ScreenReaderContent>{I18n.t('Submit file using %{label}', {label})}</ScreenReaderContent>
           <Text color="primary" size="large">
             {label}
@@ -193,6 +194,8 @@ function CanvasFileChooser({allowedExtensions, courseID, onFileSelect, userID}) 
     contents = (
       <GenericErrorPage
         imageUrl={errorShipUrl}
+        onReportError={reportError}
+        translations={canvasErrorPageTranslations}
         errorSubject={I18n.t('User groups query error')}
         errorCategory={I18n.t('Assignments 2 Student Error Page')}
       />
@@ -331,7 +334,6 @@ function MoreOptions({
 
 MoreOptions.propTypes = {
   allowedExtensions: arrayOf(string),
-  breakpoints: breakpointsShape,
   courseID: string.isRequired,
   handleCanvasFiles: func,
   handleWebcamPhotoUpload: func,

@@ -86,9 +86,6 @@
     "clear_2084585f": {
         "message": "Очистити"
     },
-    "clear_selected_file_82388e50": {
-        "message": "Очистити вибраний файл"
-    },
     "click_to_embed_imagename_c41ea8df": {
         "message": "Натисніть на вбудоване { imageName }"
     },
@@ -104,6 +101,9 @@
     "collaborations_5c56c15f": {
         "message": "Сумісна робота"
     },
+    "color_a363e1b0": {
+        "message": "Колір"
+    },
     "computer_1d7dfa6f": {
         "message": "Комп''ютер"
     },
@@ -115,9 +115,6 @@
     },
     "content_type_2cf90d95": {
         "message": "Тип вмісту"
-    },
-    "copy_9748f9f": {
-        "message": "Копіювати"
     },
     "copyright_holder_66ee111": {
         "message": "Правовласник:"
@@ -151,6 +148,9 @@
     },
     "deep_purple_bb3e2907": {
         "message": "Темно-фіолетовий"
+    },
+    "default_9db103d": {
+        "message": "За замовчуванням"
     },
     "delimiters_4db4840d": {
         "message": "Розділювачі"
@@ -359,6 +359,9 @@
     "operators_a2ef9a93": {
         "message": "Оператори"
     },
+    "options_3ab0ea65": {
+        "message": "Параметри"
+    },
     "orange_81386a62": {
         "message": "Помаранчевий"
     },
@@ -385,6 +388,9 @@
     },
     "previous_bd2ac015": {
         "message": "Попередній"
+    },
+    "processing_8c569014": {
+        "message": "Обробка..."
     },
     "published_c944a23d": {
         "message": "опубліковано"
@@ -413,14 +419,14 @@
     "relationships_6602af70": {
         "message": "Зв''язки"
     },
+    "remove_f47dc62a": {
+        "message": "Видалити"
+    },
     "replace_e61834a7": {
         "message": "Замінити"
     },
     "reset_95a81614": {
         "message": "Скинути"
-    },
-    "retry_ebd5f8ba": {
-        "message": "Спробувати ще раз"
     },
     "rich_content_editor_2708ef21": {
         "message": "Редактор збагаченого контенту"
@@ -446,6 +452,9 @@
     "submit_a3cc6859": {
         "message": "Підтвердити"
     },
+    "submitting_b90fac62": {
+        "message": "Надсилання..."
+    },
     "syllabus_f191f65b": {
         "message": "Навчальний план"
     },
@@ -455,17 +464,11 @@
     "the_document_preview_is_currently_being_processed__7d9ea135": {
         "message": "Попередній перегляд документа в даний момент обробляється. Будь-ласка спробуйте пізніше."
     },
-    "the_following_content_is_partner_provided_ed1da756": {
-        "message": "Наступний контент наданий партнером"
-    },
     "the_material_is_in_the_public_domain_279c39a3": {
         "message": "Матеріал в публічному домені"
     },
     "the_material_is_licensed_under_creative_commons_3242cb5e": {
         "message": "Матеріал опубліковано під ліцензією Creative Commons"
-    },
-    "the_preceding_content_is_partner_provided_d753928c": {
-        "message": "Попередній контент наданий партнером"
     },
     "this_document_cannot_be_displayed_within_canvas_7aba77be": {
         "message": "Цей документ не може бути показаний в Canvas."
@@ -484,6 +487,9 @@
     },
     "up_c553575d": {
         "message": "вверх"
+    },
+    "upload_8b403d05": {
+        "message": "Завантажити"
     },
     "upload_media_ce31135a": {
         "message": "Завантажити медіа контент"

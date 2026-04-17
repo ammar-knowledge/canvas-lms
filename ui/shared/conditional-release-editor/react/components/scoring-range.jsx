@@ -26,10 +26,10 @@ import ScoreInput from './score-input'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import AssignmentSet from './assignment-set'
 import * as actions from '../actions'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {transformScore, getScoringRangeSplitWarning} from '../score-helpers'
 
-const I18n = useI18nScope('conditional_release')
+const I18n = createI18nScope('conditional_release')
 
 const {object, func, bool} = PropTypes
 
@@ -46,6 +46,7 @@ class ScoringRange extends React.Component {
       isBottom: bool,
       onScoreChanged: func,
       onAddItems: func,
+      readOnly: bool,
 
       // action props
       removeAssignment: func.isRequired,
@@ -94,18 +95,17 @@ class ScoringRange extends React.Component {
       return this.renderScoreLabel(
         this.props.range.get('lower_bound'),
         I18n.t('Lower Bound'),
-        false
+        false,
       )
     } else {
       return (
         <ScoreInput
           score={this.props.range.get('lower_bound')}
-          label={I18n.t('Division cutoff %{cutoff_value}', {
-            cutoff_value: this.props.path.range + 1,
-          })}
+          label={I18n.t('Cutoff Points')}
           error={this.props.range.get('error')}
           onScoreChanged={this.props.onScoreChanged}
           triggerAssignment={this.props.triggerAssignment}
+          readOnly={this.props.readOnly}
         />
       )
     }
@@ -133,7 +133,7 @@ class ScoringRange extends React.Component {
   removeAssignment(path, asg) {
     this.props.removeAssignment({path})
     this.props.setAriaAlert(
-      I18n.t('Removed assignment %{assignment_name}', {assignment_name: asg.get('name')})
+      I18n.t('Removed assignment %{assignment_name}', {assignment_name: asg.get('name')}),
     )
     setTimeout(() => this.titleRef.current.focus(), 1)
   }
@@ -157,6 +157,7 @@ class ScoringRange extends React.Component {
             moveAssignment={this.props.moveAssignment}
             disableSplit={sets.size >= MAX_SETS}
             setGlobalWarning={this.props.setGlobalWarning}
+            readOnly={this.props.readOnly}
           />
         )
       })
@@ -167,12 +168,12 @@ class ScoringRange extends React.Component {
     const upperBound = transformScore(
       this.props.range.get('upper_bound'),
       this.props.triggerAssignment,
-      true
+      true,
     )
     const lowerBound = transformScore(
       this.props.range.get('lower_bound'),
       this.props.triggerAssignment,
-      false
+      false,
     )
 
     const rangeTitle = I18n.t('Scoring range %{upperBound} to %{lowerBound}', {
@@ -189,19 +190,27 @@ class ScoringRange extends React.Component {
           <div className="cr-scoring-range__bound cr-scoring-range__upper-bound">
             {this.renderUpperBound()}
           </div>
-          <button
-            type="button"
-            className="cr-scoring-range__add-assignment-button"
-            aria-label={I18n.t('Add Items to Score Range')}
-            onClick={this.handleAddItems}
+          <div
+            className={`cr-scoring-range__center${this.props.readOnly ? ' cr-scoring-range__center--read-only' : ''}`}
           >
-            +
-          </button>
-          <div className="cr-scoring-range__bound cr-scoring-range__lower-bound">
+            {!this.props.readOnly && (
+              <button
+                type="button"
+                className="cr-scoring-range__add-assignment-button"
+                aria-label={I18n.t('Add Items to Score Range')}
+                onClick={this.handleAddItems}
+              >
+                +
+              </button>
+            )}
+            <div className="cr-scoring-range__assignments">{this.renderAssignmentSets()}</div>
+          </div>
+          <div
+            className={`cr-scoring-range__bound cr-scoring-range__lower-bound${this.props.readOnly ? ' cr-scoring-range__lower-bound--read-only' : ''}`}
+          >
             {this.renderLowerBound()}
           </div>
         </div>
-        <div className="cr-scoring-range__assignments">{this.renderAssignmentSets()}</div>
       </div>
     )
   }

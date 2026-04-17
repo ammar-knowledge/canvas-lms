@@ -39,6 +39,7 @@ import {
   percentToPx,
   getElementDimensions,
   type SizeType,
+  // @ts-expect-error
 } from '../../numToMeasurement'
 
 const Indicators = styled.div<{bound?: 'row' | 'column'}>`
@@ -138,7 +139,7 @@ export const Resizer = ({propKey, children, ...props}: any) => {
   })
 
   const resizable = useRef<Resizable | null>(null)
-  const isResizing = useRef<Boolean>(false)
+  const isResizing = useRef<boolean>(false)
   const editingDimensions = useRef<any>(null)
   const nodeDimensions = useRef<SizeType>({width: nodeWidth, height: nodeHeight})
 

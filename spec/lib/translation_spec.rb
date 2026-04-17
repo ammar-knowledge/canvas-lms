@@ -16,142 +16,185 @@
 #
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
-#
 
-NO_SRC_LANG = {
-  endpoint_name: "translation-endpoint",
-  body: { inputs: { src_lang: "es", tgt_lang: "en", text: "¿Dónde está el baño?" } }.to_json,
-  content_type: "application/json",
-  accept: "application/json"
-}.freeze
+TranslationResponse = Struct.new(:translation, :source_language)
 
-USER_LOCALE_SET = {
-  endpoint_name: "translation-endpoint",
-  body: { inputs: { src_lang: "es", tgt_lang: "sv", text: "¿Dónde está el baño?" } }.to_json,
-  content_type: "application/json",
-  accept: "application/json"
-}.freeze
+describe Translation do
+  let(:user) { User.create!(name: "Test User") }
 
-class MockResponse
-  def read
-    { translated_text: "translated" }.to_json
-  end
-end
+  describe "#available?" do
+    context "when CedarClient is defined and enabled" do
+      before { stub_const("CedarClient", class_double(CedarClient, enabled?: true)) }
 
-class MockCredentials
-  def set?
-    true
-  end
-end
-
-require "aws-sdk-sagemakerruntime"
-
-describe "Translation" do
-  before do
-    # Mock DynamicSettings to return our endpoint.
-    allow(DynamicSettings).to receive(:find).with(any_args).and_call_original
-    allow(DynamicSettings).to receive(:find).with(tree: :private).and_return({ "sagemaker.yml" => { "endpoint_name" => "translation-endpoint" }.to_yaml })
-
-    # Mock statsd to allow it to receive what we expect
-    allow(InstStatsd::Statsd).to receive(:increment)
-
-    # Mock the runtime and the credential provider
-    @runtime_mock = instance_double("Aws::SageMakerRuntime::Client")
-    allow(Canvas::AwsCredentialProvider).to receive(:new).and_return(MockCredentials.new)
-    allow(Aws::SageMakerRuntime::Client).to receive(:new).and_return(@runtime_mock)
-
-    # Mock the response that the runtime returns.
-    @mock_response = instance_double("Response")
-    allow(@mock_response).to receive(:body).and_return(MockResponse.new)
-    allow(@runtime_mock).to receive(:invoke_endpoint).and_return(@mock_response)
-
-    # Mock user
-    @user = user_factory(active_all: true)
-  end
-
-  describe ":create" do
-    it "detects src_lang if not present" do
-      Translation.create(tgt_lang: "en", text: "¿Dónde está el baño?")
-      expect(@runtime_mock).to have_received(:invoke_endpoint).with(NO_SRC_LANG)
+      it "returns true" do
+        expect(Translation.available?).to be true
+      end
     end
 
-    it "trims locale for src_lang" do
-      expect(CLD).to receive(:detect_language).and_return({ code: "es-ES" })
-      Translation.create(tgt_lang: "en", text: "¿Dónde está el baño?")
-      expect(@runtime_mock).to have_received(:invoke_endpoint).with(NO_SRC_LANG)
-    end
+    context "when CedarClient is defined but not enabled" do
+      before { stub_const("CedarClient", class_double(CedarClient, enabled?: false)) }
 
-    it "requires user or tgt lang set" do
-      expect(Translation.create(text: "hello, world")).to be_nil
-    end
-
-    it "uses trimmed user locale if tgt_lang not set" do
-      @user.locale = "sv-x-k12"
-      Translation.create(user: @user, src_lang: "es", text: "¿Dónde está el baño?")
-      expect(@runtime_mock).to have_received(:invoke_endpoint).with(USER_LOCALE_SET)
-    end
-
-    it "increments the translation metric" do
-      Translation.create(tgt_lang: "en", text: "¿Dónde está el baño?")
-      expect(InstStatsd::Statsd).to have_received(:increment).with("translation.create.es.en")
+      it "returns false" do
+        expect(Translation.available?).to be false
+      end
     end
   end
 
-  describe ":translated_languages" do
-    it "does not translate controls if locale is english" do
-      @user.locale = "en"
-      allow(Translation).to receive(:create)
-      Translation.translated_languages(@user)
-      expect(Translation).not_to have_received(:create)
+  describe "#translate_text" do
+    let(:text) { "Hello, world!" }
+    let(:tgt_lang) { "es" }
+    let(:options) { { root_account_uuid: "1234567890", feature_slug: "discussion", current_user: user } }
+
+    context "when available" do
+      before do
+        stub_const("CedarClient", class_double(CedarClient, enabled?: true))
+        allow(CedarClient).to receive(:translate_text).and_return(
+          TranslationResponse.new(
+            translation: "Hola, mundo!",
+            source_language: "en"
+          )
+        )
+      end
+
+      it "calls CedarClient.translate_text with correct parameters" do
+        expect(CedarClient).to receive(:translate_text).with(
+          content: text,
+          target_language: tgt_lang,
+          feature_slug: "discussion",
+          root_account_uuid: "1234567890",
+          current_user: user
+        )
+        Translation.translate_text(text:, tgt_lang:, options:)
+      end
+
+      it "returns the translated text" do
+        expect(Translation.translate_text(text:, tgt_lang:, options:)).to eq("Hola, mundo!")
+      end
+
+      it "collects translation stats" do
+        allow(Translation).to receive(:collect_translation_stats)
+        Translation.translate_text(text:, tgt_lang:, options:)
+        expect(Translation).to have_received(:collect_translation_stats).with(
+          src_lang: "en",
+          tgt_lang:,
+          type: "discussion"
+        )
+      end
+
+      it "raises TextTooLongError if text is too long" do
+        long_text = "a" * 5001
+        allow(CedarClient).to receive(:translate_text).and_raise(InstructureMiscPlugin::Extensions::CedarClient::ContentTooLongError)
+        expect { Translation.translate_text(text: long_text, tgt_lang:, options:) }.to raise_error(Translation::TextTooLongError)
+      end
+
+      it "raises UnsupportedLanguageError if language is not supported" do
+        allow(CedarClient).to receive(:translate_text).and_raise(InstructureMiscPlugin::Extensions::CedarClient::UnsupportedLanguageError)
+        expect { Translation.translate_text(text: "Ph'nglui mglw'nafh Cthulhu R'lyeh wgah'nagl fhtagn", tgt_lang: "??", options:) }.to raise_error(Translation::UnsupportedLanguageError)
+      end
+
+      it "raises ValidationError if required parameter is missing or empty" do
+        allow(CedarClient).to receive(:translate_text).and_raise(InstructureMiscPlugin::Extensions::CedarClient::ValidationError)
+        expect { Translation.translate_text(text: "", tgt_lang:, options:) }.to raise_error(Translation::ValidationError)
+      end
     end
 
-    it "does not translate if no locale" do
-      allow(Translation).to receive(:create)
-      Translation.translated_languages(@user)
-      expect(Translation).not_to have_received(:create)
+    context "when not available" do
+      before { allow(Translation).to receive(:available?).and_return(false) }
+
+      it "returns nil" do
+        expect(Translation.translate_text(text:, tgt_lang:, options:)).to be_nil
+      end
     end
 
-    it "translates if non-english locale is set" do
-      @user.locale = "es"
-      allow(Translation).to receive(:create)
-      Translation.translated_languages(@user)
-      expect(Translation).to have_received(:create).exactly(Translation.languages.length).times
-    end
+    context "when tgt_lang is nil" do
+      before { allow(Translation).to receive(:available?).and_return(true) }
 
-    it "uses the cache if key is present" do
-      # Arrange
-      @user.locale = "es"
-      allow(Canvas.redis).to receive(:get).with(["translated_languages", @user.locale].cache_key).and_return({ language: "languages" }.to_json)
-
-      # Act
-      resp = Translation.translated_languages(@user)
-
-      # Assert
-      expect(resp).to eq({ "language" => "languages" })
-    end
-
-    it "caches the translation results" do
-      # Arrange
-      allow(Canvas.redis).to receive(:set)
-      @user.locale = "es"
-
-      # Act
-      Translation.translated_languages(@user)
-
-      # Assert
-      expect(Canvas.redis).to have_received(:set).exactly(1)
+      it "returns nil" do
+        expect(Translation.translate_text(text:, tgt_lang: nil, options:)).to be_nil
+      end
     end
   end
 
-  describe ":language_matches_user_locale?" do
-    it "does match" do
-      @user.locale = "es"
-      expect(Translation.language_matches_user_locale?(@user, "¿Dónde está el baño?")).to be_truthy
+  describe "#translate_html" do
+    let(:html_string) { "<p>Hello, world!</p>" }
+    let(:tgt_lang) { "es" }
+    let(:options) { { root_account_uuid: "939393", feature_slug: "discussion", current_user: user } }
+
+    context "when available" do
+      before do
+        stub_const("CedarClient", class_double(CedarClient, enabled?: true))
+        allow(CedarClient).to receive(:translate_html).and_return(
+          TranslationResponse.new(
+            translation: "<p>Hola, mundo!</p>",
+            source_language: "en"
+          )
+        )
+      end
+
+      it "calls CedarClient.translate_html with correct parameters" do
+        expect(CedarClient).to receive(:translate_html).with(
+          content: html_string,
+          target_language: tgt_lang,
+          feature_slug: "discussion",
+          root_account_uuid: "939393",
+          current_user: user
+        )
+        Translation.translate_html(html_string:, tgt_lang:, options:)
+      end
+
+      it "returns the translated html" do
+        expect(Translation.translate_html(html_string:, tgt_lang:, options:)).to eq("<p>Hola, mundo!</p>")
+      end
+
+      it "collects translation stats" do
+        allow(Translation).to receive(:collect_translation_stats)
+        Translation.translate_html(html_string:, tgt_lang:, options:)
+        expect(Translation).to have_received(:collect_translation_stats).with(
+          src_lang: "en",
+          tgt_lang:,
+          type: "discussion"
+        )
+      end
+
+      it "raises TextTooLongError if html_string is too long" do
+        long_html = "<p>" + ("a" * 5000) + "</p>"
+        allow(CedarClient).to receive(:translate_html).and_raise(InstructureMiscPlugin::Extensions::CedarClient::ContentTooLongError, "Content too long")
+        expect { Translation.translate_html(html_string: long_html, tgt_lang:, options:) }.to raise_error(Translation::TextTooLongError)
+      end
+
+      it "raises UnsupportedLanguageError if language is not supported" do
+        allow(CedarClient).to receive(:translate_html).and_raise(InstructureMiscPlugin::Extensions::CedarClient::UnsupportedLanguageError)
+        expect { Translation.translate_html(html_string: "<p>Ph'nglui mglw'nafh Cthulhu R'lyeh wgah'nagl fhtagn</p>", tgt_lang: "??", options:) }.to raise_error(Translation::UnsupportedLanguageError)
+      end
+
+      it "raises ValidationError if required parameter is missing or empty" do
+        allow(CedarClient).to receive(:translate_html).and_raise(InstructureMiscPlugin::Extensions::CedarClient::ValidationError)
+        expect { Translation.translate_html(html_string: "", tgt_lang:, options:) }.to raise_error(Translation::ValidationError)
+      end
     end
 
-    it "does not match" do
-      @user.locale = "en"
-      expect(Translation.language_matches_user_locale?(@user, "¿Dónde está el baño?")).to be_falsey
+    context "when not available" do
+      before { allow(Translation).to receive(:available?).and_return(false) }
+
+      it "returns nil" do
+        expect(Translation.translate_html(html_string:, tgt_lang:, options:)).to be_nil
+      end
+    end
+  end
+
+  describe ".languages" do
+    subject { described_class.languages }
+
+    let(:language_abbrs) do
+      %w[ca de en es fr nl pt-BR ru sv zh-Hans]
+    end
+
+    it "returns the proper list" do
+      expect(subject.pluck(:id)).to match_array(language_abbrs)
+    end
+
+    it "returns the list of languages in name asc" do
+      expect(subject.pluck(:name).sort).to eq(subject.pluck(:name))
     end
   end
 end

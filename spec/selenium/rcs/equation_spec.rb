@@ -23,6 +23,7 @@ describe "equation editor" do
   include_context "in-process server selenium tests"
   include QuizzesCommon
   include RCENextPage
+
   it "keeps cursor position when clicking close" do
     course_with_teacher_logged_in
     quiz_model(course: @course)
@@ -30,6 +31,7 @@ describe "equation editor" do
     wait_for_tiny(f("#quiz_description"))
     type_in_tiny "textarea", "foo"
     equation_editor_button.click
+    wait_for_selector("[aria-label='Equation Editor']")
     expect(equation_editor_modal_exists?).to be true
     equation_editor_close_button.click
     type_in_tiny "textarea#quiz_description", "bar"

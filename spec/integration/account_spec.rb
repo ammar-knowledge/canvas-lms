@@ -21,9 +21,12 @@
 require "nokogiri"
 
 describe AccountsController do
+  include AccountDomainSpecHelper
+
   context "SAML meta data" do
     before do
       skip("requires SAML extension") unless AuthenticationProvider::SAML.enabled?
+      stub_host_for_environment_specific_domain("test.host")
       @account = Account.create!(name: "test")
     end
 
@@ -35,6 +38,7 @@ describe AccountsController do
 
     it "uses the correct entity_id" do
       allow(HostUrl).to receive(:default_host).and_return("bob.cody.instructure.com")
+      stub_host_for_environment_specific_domain("bob.cody.instructure.com")
       @aac = @account.authentication_providers.create!(auth_type: "saml")
 
       get "/saml2"

@@ -96,9 +96,9 @@ describe "course settings" do
 
     it "hides most tabs if set" do
       get "/courses/#{@course.id}/settings"
-      expect(ff("#course_details_tabs > ul li").length).to eq 2
-      expect(f("#course_details_tab")).to be_displayed
-      expect(f("#sections_tab")).to be_displayed
+      expect(ff("[role='tab']").length).to eq 2
+      expect(f("#tab-details-selected")).to be_displayed
+      expect(f("#tab-sections")).to be_displayed
     end
 
     it "shows synced subjects" do
@@ -125,7 +125,7 @@ describe "course settings" do
 
       it "displays the course settings tab" do
         get "/courses/#{course.id}/settings"
-        expect(f("#integrations_tab")).to be_displayed
+        expect(f("#tab-integrations")).to be_displayed
       end
     end
   end
@@ -143,10 +143,32 @@ describe "course settings" do
       fj(".grading_standard_select:visible a").click
       fj("button.select_grading_standard_link:visible").click
       f(".done_button").click
-      wait_for_new_page_load(submit_form("#course_form"))
+      wait_for_new_page_load { submit_form("#course_form") }
 
       @course.reload
       expect(@course.grading_standard).to eq(@standard)
+    end
+
+    context "content security policy" do
+      it "renders content security policy options" do
+        @account.enable_feature!(:javascript_csp)
+        @account.enable_csp!
+        account_admin_user(active_all: true, account: @account)
+
+        user_session(@admin)
+        get "/courses/#{@course.id}/settings"
+        expect(f("#course_disable_csp")).to be_displayed
+      end
+
+      it "does not render when CSP is not enabled" do
+        @account.disable_feature!(:javascript_csp)
+        @account.disable_csp!
+        account_admin_user(active_all: true, account: @account)
+
+        user_session(@admin)
+        get "/courses/#{@course.id}/settings"
+        expect(f("body")).not_to contain_css("#course_disable_csp")
+      end
     end
 
     context "as a ta" do
@@ -250,16 +272,6 @@ describe "course settings" do
       end
     end
 
-    it "allows selection of existing course grading standard" do
-      skip "FOO-4220" # TODO: re-enable this test before merging EVAL-3171
-      test_select_standard_for @course
-    end
-
-    it "allows selection of existing account grading standard" do
-      skip "FOO-4220" # TODO: re-enable this test before merging EVAL-3171
-      test_select_standard_for @course.root_account
-    end
-
     it "shows the self enrollment code and url once enabled" do
       a = Account.default
       a.courses << @course
@@ -296,7 +308,7 @@ describe "course settings" do
       @course.update(self_enrollment: true)
       MasterCourses::MasterTemplate.set_as_master_course(@course)
       get "/courses/#{@course.id}/settings"
-      expect(f(".self_enrollment_message")).to_not be_displayed
+      expect(f(".self_enrollment_message")).not_to be_displayed
     end
 
     it "enables announcement limit if show announcements enabled" do
@@ -311,43 +323,6 @@ describe "course settings" do
       course_show_announcements_on_home_page.location_once_scrolled_into_view
       course_show_announcements_on_home_page.click
       expect(home_page_announcement_limit).not_to be_disabled
-    end
-
-    describe "course paces setting" do
-      describe "when the course paces feature flag is enabled" do
-        before do
-          @account.enable_feature!(:course_paces)
-        end
-
-        it "displays the course paces setting (and if checked, the caution text)" do
-          get "/courses/#{@course.id}/settings"
-
-          expect(element_exists?(".course-paces-row")).to be_truthy
-
-          caution_text = "Course Pacing is in active development."
-          course_paces_checkbox = f("#course_enable_course_paces")
-          course_paces_checkbox.location_once_scrolled_into_view
-          course_paces_checkbox.click
-          wait_for_ajaximations
-          expect(f(".course-paces-row")).to include_text caution_text
-
-          course_paces_checkbox.click
-          wait_for_ajaximations
-          expect(f(".course-paces-row")).not_to include_text caution_text
-        end
-      end
-
-      describe "when the course paces feature flag is disabled" do
-        before do
-          @account.disable_feature!(:course_paces)
-        end
-
-        it "does not display the course paces setting" do
-          get "/courses/#{@course.id}/settings"
-
-          expect(element_exists?(".course-paces-row")).to be_falsey
-        end
-      end
     end
 
     it "shows participation by default" do
@@ -383,7 +358,7 @@ describe "course settings" do
         expect(f("body")).not_to contain_jqcss("#course_hide_distribution_graphs")
         expect(f("#course_hide_final_grades")).to be_present
         # Verify that other parts of the settings are not visilbe when they shouldn't be
-        expect(f("#tab-sections").css_value("display")).to eq "none"
+        expect(f("#sections").attribute("aria-hidden")).to eq "true"
       end
 
       it "is shown when only restrict_quantitative_data account locked setting and feature flags are ON" do
@@ -419,6 +394,15 @@ describe "course settings" do
     it "does not show cog menu for disabling or moving on home nav item" do
       get "/courses/#{@course.id}/settings#tab-navigation"
       expect(admin_cog("#nav_edit_tab_id_0")).to be_falsey
+    end
+
+    it "does not show Home tab when in a horizon course" do
+      @course.account.enable_feature!(:horizon_course_setting)
+      @course.update!(horizon_course: true)
+      @course.save!
+      get "/courses/#{@course.id}/settings#tab-navigation"
+      # The Home tab always has this ID
+      expect(element_exists?("#nav_edit_tab_id_0")).to be_falsey
     end
 
     it "changes course details" do
@@ -465,26 +449,83 @@ describe "course settings" do
     end
 
     it "disables from Course Navigation tab", priority: "1" do
-      get "/courses/#{@course.id}/settings#tab-navigation"
-      ff(".al-trigger")[0].click
-      ff(".icon-x")[0].click
-      wait_for_ajaximations
-      f("#nav_form button.btn.btn-primary").click
-      wait_for_ajaximations
-      enter_student_view
-      wait_for_ajaximations
+      @course.root_account.enable_feature!(:course_settings_navigation_react)
       get "/courses/#{@course.id}/settings#tab-navigation"
       wait_for_ajaximations
-      expect(f("#content")).not_to contain_link("Home")
+
+      # Syllabus starts enabled
+      expect(f("#syllabus-link")).not_to have_attribute("aria-label", "Disabled. Not visible to students")
+
+      # Wait for React component to render - look for enabled tabs container
+      wait_for(method: nil, timeout: 5) { element_exists?('[data-rbd-droppable-id="enabled-tabs"]') }
+      # Find settings buttons within nav items. TAB_SYLLABUS = 1 (defined in Course model)
+      settings_buttons = ff('#nav_edit_tab_id_1 button[type="button"]')
+
+      # Click the settings button for the first movable tab
+      settings_buttons[0].click
+      # Click the "Disable" menu item - use span instead of li since InstUI uses spans
+      fj("[role='menuitem']:contains('Disable')").click
+      wait_for_ajaximations
+      fj("button:contains('Save')").click
+      wait_for_ajaximations
+
+      expect(f("#syllabus-link")).to have_attribute("aria-label", "Disabled. Not visible to students")
     end
 
-    describe "move dialog" do
-      it "returns focus to cog menu button when disabling an item" do
-        get "/courses/#{@course.id}/settings#tab-navigation"
-        cog_menu_button = ff(".al-trigger")[2]
-        cog_menu_button.click # open the menu
-        ff(".disable_nav_item_link")[2].click # click "Disable"
-        check_element_has_focus(cog_menu_button)
+    context "participation" do
+      it "allows setting both dates as empty" do
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        fj("button:contains('Update Course Details')").click
+        expect(fj("span:contains('Course was successfully updated')")).to be_present
+      end
+
+      it "allows end date to be empty" do
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        start_date = ff("input[id*='TextInput_']")[0]
+        start_date.send_keys(Time.zone.now.to_s)
+        start_date.send_keys(:tab)
+
+        fj("button:contains('Update Course Details')").click
+        expect(fj("span:contains('Course was successfully updated')")).to be_present
+      end
+
+      it "allows start date to be empty" do
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        end_date = ff("input[id*='TextInput_']")[1]
+        end_date.send_keys(Time.zone.now.to_s)
+        end_date.send_keys(:tab)
+
+        fj("button:contains('Update Course Details')").click
+        expect(fj("span:contains('Course was successfully updated')")).to be_present
+      end
+
+      it "gives a validation when end is greater than start" do
+        current_date = Time.zone.now
+        yesterday = current_date - 1.day
+        get "/courses/#{@course.id}/settings"
+
+        f("input[title='Term']").click
+        fj("li[class*='optionItem']:contains('Course')").click
+        start_date = ff("input[id*='TextInput_']")[0]
+        start_date.send_keys(current_date.to_s)
+        end_date = ff("input[id*='TextInput_']")[1]
+        end_date.send_keys(yesterday.to_s)
+        end_date.send_keys(:tab)
+
+        fj("button:contains('Update Course Details')").click
+        # Adding expectation for the error shown after the end field
+        expect(fj("span:contains('The end date can not occur before the start date.')")).to be_present
+        # Adding expectation for the error shown in the Flash notification
+        expect(fj("span:contains('The course end date can not occur before the course start date.')")).to be_present
       end
     end
 
@@ -595,8 +636,8 @@ describe "course settings" do
 
     get "/courses/#{@course.id}/settings"
 
-    expect(f("#course_restrict_student_past_view")).to_not be_displayed
-    expect(f("#course_restrict_student_future_view")).to_not be_displayed
+    expect(f("#course_restrict_student_past_view")).not_to be_displayed
+    expect(f("#course_restrict_student_future_view")).not_to be_displayed
   end
 
   it "disables editing settings if :manage rights are not granted" do
@@ -604,14 +645,14 @@ describe "course settings" do
     user_session(@user)
     role = custom_account_role("role", account: @account)
     @account.role_overrides.create!(permission: "read_course_content", role:, enabled: true)
-    @account.role_overrides.create!(permission: "manage_content", role:, enabled: false)
+    @account.role_overrides.create!(permission: "manage_course_content_edit", role:, enabled: false)
     @course.account.account_users.create!(user: @user, role:)
 
     get "/courses/#{@course.id}/settings"
 
-    ffj("#tab-details input:visible").each do |input|
-      expect(input).to be_disabled
-    end
+    inputs = ffj("#tab-details-mount input:visible")
+    expect(inputs).to all(be_disabled)
+
     expect(f("#content")).not_to contain_css(".course_form button[type='submit']")
   end
 

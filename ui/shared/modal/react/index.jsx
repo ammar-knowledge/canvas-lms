@@ -18,15 +18,15 @@
 
 import React from 'react'
 import $ from 'jquery'
-import {isFunction} from 'lodash'
+import {isFunction} from 'es-toolkit/compat'
 import preventDefault from '@canvas/util/preventDefault'
 import ReactModal from '@canvas/react-modal'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ModalContent from './content'
 import ModalButtons from './buttons'
 
-const I18n = useI18nScope('modal')
+const I18n = createI18nScope('modal')
 
 const modalOverrides = {
   overlay: {
@@ -106,9 +106,9 @@ export default class Modal extends React.Component {
         buttons = child
       } else {
         // Warning if you don't include a component of the right type
-        // eslint-disable-next-line no-console
+
         console.warn(
-          'Modal chilren must be wrapped in either a modal-content or modal-buttons component.'
+          'Modal chilren must be wrapped in either a modal-content or modal-buttons component.',
         )
       }
     })

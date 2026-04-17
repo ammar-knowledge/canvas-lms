@@ -18,7 +18,7 @@
 
 import React from 'react'
 import {DropTarget, DragSource} from 'react-dnd'
-import {flowRight as compose} from 'lodash'
+import {flowRight as compose} from 'es-toolkit/compat'
 import ItemTypes from './Types'
 
 const cardSource = {
@@ -68,5 +68,5 @@ export default compose(
   DragSource(ItemTypes.CARD, cardSource, (connect, monitor) => ({
     connectDragSource: connect.dragSource(),
     isDragging: monitor.isDragging(),
-  }))
+  })),
 )(({cardComponent: Card, ...rest}) => <Card {...rest} />)

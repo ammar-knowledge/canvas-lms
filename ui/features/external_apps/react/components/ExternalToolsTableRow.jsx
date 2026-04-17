@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {bool, func, number, object} from 'prop-types'
 import {Checkbox} from '@instructure/ui-checkbox'
@@ -31,11 +31,11 @@ import ConfigureExternalToolButton from './ConfigureExternalToolButton'
 import ReregisterExternalToolButton from './ReregisterExternalToolButton'
 import store from '../lib/ExternalAppsStore'
 import classMunger from '../lib/classMunger'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert} from '@instructure/platform-alerts'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
 import ExternalToolMigrationInfo from './ExternalToolMigrationInfo'
 
-const I18n = useI18nScope('external_tools')
+const I18n = createI18nScope('external_tools')
 
 const MAX_FAVS = 2 // RCE and Top Navigation share this value
 export default class ExternalToolsTableRow extends React.Component {
@@ -44,7 +44,6 @@ export default class ExternalToolsTableRow extends React.Component {
     canAdd: bool.isRequired,
     canEdit: bool.isRequired,
     canDelete: bool.isRequired,
-    canAddEdit: bool.isRequired,
     setFocusAbove: func.isRequired,
     rceFavoriteCount: number.isRequired,
     topNavFavoriteCount: number.isRequired,
@@ -171,8 +170,7 @@ export default class ExternalToolsTableRow extends React.Component {
   }
 
   renderButtons = () => {
-    const permsToRenderSettingsCog =
-      this.props.canEdit || this.props.canDelete || this.props.canAddEdit
+    const permsToRenderSettingsCog = this.props.canEdit || this.props.canDelete
     const {tool} = this.props
     if (tool.installed_locally && !tool.restricted_by_master_course && permsToRenderSettingsCog) {
       let configureButton = null
@@ -217,7 +215,6 @@ export default class ExternalToolsTableRow extends React.Component {
               <EditExternalToolButton
                 tool={tool}
                 canEdit={this.props.canEdit && !this.is13Tool}
-                canAddEdit={this.props.canAddEdit && !this.is13Tool}
                 returnFocus={this.returnFocus}
               />
               <ExternalToolPlacementButton
@@ -228,7 +225,6 @@ export default class ExternalToolsTableRow extends React.Component {
               <ReregisterExternalToolButton
                 tool={tool}
                 canAdd={this.props.canAdd}
-                canAddEdit={this.props.canAddEdit}
                 returnFocus={this.returnFocus}
               />
               {this.is13Tool ? (
@@ -237,7 +233,6 @@ export default class ExternalToolsTableRow extends React.Component {
               <DeleteExternalToolButton
                 tool={tool}
                 canDelete={this.props.canDelete}
-                canAddEdit={this.props.canAddEdit}
                 returnFocus={this.returnFocus}
               />
             </ul>
@@ -262,7 +257,6 @@ export default class ExternalToolsTableRow extends React.Component {
     const {tool} = this.props
     const show_top_nav_toggles = !!ENV.FEATURES?.top_navigation_placement
 
-
     return (
       <tr className="ExternalToolsTableRow external_tool_item">
         <td className="e-tool-table-data center-text">{this.locked()}</td>
@@ -271,24 +265,19 @@ export default class ExternalToolsTableRow extends React.Component {
           className={`${this.nameClassNames()} e-tool-table-data`}
           title={tool.name}
         >
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          {tool.name} {this.disabledFlag()}
-           {(ENV.FEATURES.lti_migration_info && tool.migration_running) ? (
-
-              <ExternalToolMigrationInfo 
-              tool={tool}
-              canAddEdit={this.props.canAddEdit}/>
-                
-              ) : null}
-        </div>
-         
+          <div style={{display: 'flex', alignItems: 'center'}}>
+            {tool.name} {this.disabledFlag()}
+            {tool.migration_running ? <ExternalToolMigrationInfo tool={tool} /> : null}
+          </div>
         </td>
         {this.props.showLTIFavoriteToggles && show_top_nav_toggles && (
           <td>
             {canBeTopNavFavorite(tool) ? (
               <Checkbox
                 variant="toggle"
-                label={<ScreenReaderContent>{I18n.t('Top Navigation Favorite')}</ScreenReaderContent>}
+                label={
+                  <ScreenReaderContent>{I18n.t('Top Navigation Favorite')}</ScreenReaderContent>
+                }
                 value={tool.app_id}
                 onChange={this.handleFavoriteChange('top_nav')}
                 checked={tool.is_top_nav_favorite}
@@ -308,7 +297,11 @@ export default class ExternalToolsTableRow extends React.Component {
                 value={tool.app_id}
                 onChange={this.handleFavoriteChange('rce')}
                 checked={tool.is_rce_favorite}
-                disabled={!tool.is_rce_favorite && this.props.rceFavoriteCount >= MAX_FAVS}
+                disabled={
+                  !tool.is_rce_favorite &&
+                  this.props.rceFavoriteCount >= MAX_FAVS &&
+                  !INST.editorButtons?.find(b => b.id === tool.app_id)?.on_by_default
+                }
               />
             ) : (
               I18n.t('NA')

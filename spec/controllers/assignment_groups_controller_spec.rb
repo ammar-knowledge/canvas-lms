@@ -18,7 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../spec_helper"
 require_relative "../apis/api_spec_helper"
 
 describe AssignmentGroupsController do
@@ -34,6 +33,168 @@ describe AssignmentGroupsController do
     let(:assignments_ids) do
       json_response = json_parse(response.body)
       json_response.first["assignments"].pluck("id")
+    end
+
+    context "with cache" do
+      specs_require_cache(:redis_cache_store)
+      it "returns assignments for students" do
+        course_with_teacher(active_all: true)
+        @student = student_in_course(course: @course, active_enrollment: true, name: "Pedro").user
+        user_session(@student)
+        assignment1 = @course.assignments.create!(title: "assignment 1", assignment_group: @group, workflow_state: "published")
+        assignment2 = @course.assignments.create!(title: "assignment 2", assignment_group: @group, workflow_state: "published")
+        assignment3 = @course.assignments.create!(title: "assignment 3", assignment_group: @group, workflow_state: "published")
+        get :index,
+            params: {
+              course_id: @course.id,
+              include: ["assignments"],
+              format: "json"
+            }
+
+        group = json_parse(response.body).first
+        assignments = group["assignments"]
+        expect(assignments.pluck("id")).to match_array([assignment1.id, assignment2.id, assignment3.id])
+
+        assignment4 = @course.assignments.create!(title: "assignment 4", assignment_group: @group, workflow_state: "published")
+        assignment5 = @course.assignments.create!(title: "assignment 5", assignment_group: @group, workflow_state: "published")
+        assignment6 = @course.assignments.create!(title: "assignment 6", assignment_group: @group, workflow_state: "published")
+        get :index,
+            params: {
+              course_id: @course.id,
+              include: ["assignments"],
+              format: "json"
+            }
+
+        group = json_parse(response.body).first
+        assignments = group["assignments"]
+        expect(assignments.pluck("id")).to match_array([assignment1.id, assignment2.id, assignment3.id, assignment4.id, assignment5.id, assignment6.id])
+      end
+    end
+
+    context "checks new quizzes quiz type" do
+      let(:root_account) { Account.default }
+
+      before(:once) do
+        account_admin_user(account: root_account)
+      end
+
+      before do
+        course_with_teacher(active_all: true)
+        course_group
+        user_session(@admin)
+      end
+
+      context "ungraded survey filtering" do
+        it "excludes assignments with new_quizzes type ungraded_survey from the response" do
+          regular_assignment = @course.assignments.create!(
+            title: "Regular Assignment",
+            assignment_group: @group,
+            workflow_state: "published"
+          )
+          ungraded_survey_assignment = @course.assignments.create!(
+            title: "Ungraded Survey Assignment",
+            assignment_group: @group,
+            workflow_state: "published",
+            settings: {
+              "new_quizzes" => {
+                "type" => "ungraded_survey"
+              }
+            }
+          )
+          graded_quiz_assignment = @course.assignments.create!(
+            title: "Graded Quiz Assignment",
+            assignment_group: @group,
+            workflow_state: "published",
+            settings: {
+              "new_quizzes" => {
+                "type" => "graded_quiz"
+              }
+            }
+          )
+
+          get :index,
+              params: {
+                course_id: @course.id,
+                include: %w[assignments],
+              },
+              format: "json"
+
+          expect(response).to be_successful
+          group = json_parse(response.body).first
+          assignments = group["assignments"]
+          assignment_ids = assignments.pluck("id")
+          assignment_titles = assignments.pluck("name")
+
+          expect(assignment_ids).to include(regular_assignment.id)
+          expect(assignment_ids).to include(graded_quiz_assignment.id)
+          expect(assignment_ids).not_to include(ungraded_survey_assignment.id)
+
+          expect(assignment_titles).to include("Regular Assignment")
+          expect(assignment_titles).to include("Graded Quiz Assignment")
+          expect(assignment_titles).not_to include("Ungraded Survey Assignment")
+        end
+
+        it "includes assignments with null settings" do
+          assignment_null_settings = @course.assignments.create!(
+            title: "Assignment with Settings null",
+            assignment_group: @group,
+            workflow_state: "published",
+            settings: nil
+          )
+
+          get :index,
+              params: {
+                course_id: @course.id,
+                include: %w[assignments],
+              },
+              format: "json"
+
+          expect(response).to be_successful
+
+          group = json_parse(response.body).first
+          assignments = group["assignments"]
+          assignment_ids = assignments.pluck("id")
+
+          expect(assignment_ids).to include(assignment_null_settings.id)
+        end
+
+        it "includes assignments with settings->new_quizzes null" do
+          assignment_with_null_new_quizzes = @course.assignments.create!(
+            title: "Assignment with New Quizzes null",
+            assignment_group: @group,
+            workflow_state: "published",
+            settings: {
+              "new_quizzes" => nil
+            }
+          )
+          assignment_with_other_keys = @course.assignments.create!(
+            title: "Assignment with other keys",
+            assignment_group: @group,
+            workflow_state: "published",
+            settings: {
+              lockdown_browser: {
+                require_lockdown_browser: false
+              }
+            }
+          )
+
+          get :index,
+              params: {
+                course_id: @course.id,
+                include: %w[assignments],
+              },
+              format: "json"
+
+          expect(response).to be_successful
+
+          group = json_parse(response.body).first
+          assignments = group["assignments"]
+          assignment_ids = assignments.pluck("id")
+
+          expect(assignment_ids).to include(assignment_with_null_new_quizzes.id)
+          expect(assignment_ids).to include(assignment_with_other_keys.id)
+        end
+      end
     end
 
     describe "filtering by grading period and overrides" do
@@ -146,7 +307,7 @@ describe AssignmentGroupsController do
           user_session(@admin)
           get :index, params: index_params.merge(grading_period_id: feb_grading_period.id), format: :json
           expect(assignments_ids).to include assignment_with_override.id
-          expect(assignments_ids).to_not include assignment.id
+          expect(assignments_ids).not_to include assignment.id
         end
 
         it "includes an assignment if any of its overrides fall within the given grading period" do
@@ -161,7 +322,7 @@ describe AssignmentGroupsController do
            "date for the requesting user falls within the given grading period" do
           user_session(student)
           get :index, params: index_params.merge(grading_period_id: jan_grading_period.id, scope_assignments_to_student: true), format: :json
-          expect(assignments_ids).to_not include assignment_with_override.id
+          expect(assignments_ids).not_to include assignment_with_override.id
           expect(assignments_ids).to include assignment.id
         end
 
@@ -173,7 +334,7 @@ describe AssignmentGroupsController do
           override.assignment_override_students.create!(user: fake_student)
           user_session(fake_student)
           get :index, params: index_params.merge(grading_period_id: jan_grading_period.id, scope_assignments_to_student: true), format: :json
-          expect(assignments_ids).to_not include assignment_with_override.id
+          expect(assignments_ids).not_to include assignment_with_override.id
           expect(assignments_ids).to include assignment.id
         end
 
@@ -321,6 +482,40 @@ describe AssignmentGroupsController do
           expect_any_instance_of(Assignment).not_to receive(:students_with_visibility)
           get "index", params: { course_id: @course.id, include: ["assignments", "assignment_visibility"] }, format: :json
           expect(response).to be_successful
+        end
+      end
+
+      describe "with inactive student enrollment", type: :request do
+        before do
+          @assignment = @course.assignments.create!(
+            title: "assignment",
+            assignment_group: @course.assignment_groups.first,
+            workflow_state: "published"
+          )
+          override = @assignment.assignment_overrides.create!(set_type: "ADHOC")
+          override.assignment_override_students.create!(user: @student)
+          @student.enrollments.first.deactivate
+        end
+
+        it "excludes overrides for that student" do
+          json = api_call_as_user(@teacher,
+                                  :get,
+                                  "/api/v1/courses/#{@course.id}/assignment_groups",
+                                  {
+                                    controller: "assignment_groups",
+                                    action: "index",
+                                    format: "json",
+                                    course_id: @course.id,
+                                    include: ["assignments", "all_dates"]
+                                  })
+
+          expect(json[0]["assignments"][0]["all_dates"]).to eq([{
+                                                                 "due_at" => nil,
+                                                                 "unlock_at" => nil,
+                                                                 "lock_at" => nil,
+                                                                 "base" => true,
+                                                                 "title" => "Everyone"
+                                                               }])
         end
       end
     end
@@ -588,9 +783,9 @@ describe AssignmentGroupsController do
         )
       end
 
-      context "peer_reviews_for_a2 FF disabled" do
+      context "assignments_2_student FF disabled" do
         before(:once) do
-          @course.disable_feature! :peer_reviews_for_a2
+          @course.disable_feature! :assignments_2_student
         end
 
         it "does not include assessment_requests when the current user is a teacher" do
@@ -612,9 +807,9 @@ describe AssignmentGroupsController do
         end
       end
 
-      context "peer_reviews_for_a2 FF enabled" do
+      context "assignments_2_student FF enabled" do
         before(:once) do
-          @course.enable_feature! :peer_reviews_for_a2
+          @course.enable_feature! :assignments_2_student
         end
 
         it "does not include assessment_requests when the current user is a teacher" do
@@ -667,7 +862,7 @@ describe AssignmentGroupsController do
       before do
         course_with_teacher(active_all: true)
         @student1 = student_in_course(course: @course, active_enrollment: true).user
-        @course.root_account.enable_feature!(:discussion_checkpoints)
+        @course.account.enable_feature!(:discussion_checkpoints)
         assignment = @course.assignments.create!(has_sub_assignments: true)
         assignment.sub_assignments.create!(context: @course, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC, due_at: 2.days.from_now)
         assignment.sub_assignments.create!(context: @course, sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY, due_at: 3.days.from_now)

@@ -753,6 +753,24 @@
 #         }
 #       }
 #     }
+#
+# @model BasicUser
+#     {
+#       "id": "BasicUser",
+#       "properties": {
+#         "id": {
+#           "description": "The user's ID",
+#           "example": "123456",
+#           "type": "string"
+#         },
+#         "name": {
+#           "description": "The user's name",
+#           "example": "Dankey Kang",
+#           "type": "string"
+#         }
+#       }
+#     }
+#
 class AssignmentsApiController < ApplicationController
   before_action :require_context
   before_action :require_user_visibility, only: [:user_index]
@@ -761,6 +779,7 @@ class AssignmentsApiController < ApplicationController
   include Api::V1::AssignmentOverride
   include Api::V1::Quiz
   include Api::V1::Progress
+  include Api::V1::AccessibilityResourceScan
 
   # @API List assignments
   # Returns the paginated list of assignments for the current course or assignment group.
@@ -817,7 +836,7 @@ class AssignmentsApiController < ApplicationController
   #   Optional information:
   #   When the root account has the feature `newquizzes_on_quiz_page` enabled
   #   and this argument is set to "Quiz" the response will be serialized into a
-  #   quiz format({file:doc/api/quizzes.html#Quiz});
+  #   {file:quizzes.html#Quiz quiz format};
   #   When this argument isn't specified the response will be serialized into an
   #   assignment format;
   #
@@ -847,8 +866,7 @@ class AssignmentsApiController < ApplicationController
     return unless authorized_action(old_assignment, @current_user, :create)
 
     if target_course.present?
-      course_permission = target_course.root_account.feature_enabled?(:granular_permissions_manage_assignments) ? :manage_assignments_add : :manage_assignments
-      return unless authorized_action(target_course, @current_user, course_permission)
+      return unless authorized_action(target_course, @current_user, :manage_assignments_add)
     end
 
     new_assignment = old_assignment.duplicate(
@@ -907,6 +925,8 @@ class AssignmentsApiController < ApplicationController
       end
       target_assignment.migration_id = nil
       target_assignment.save!
+
+      target_assignment.restore_module_content_tags_to(new_assignment:)
     end
     positions_in_group = Assignment.active.where(
       assignment_group_id: target_assignment.assignment_group_id
@@ -949,27 +969,27 @@ class AssignmentsApiController < ApplicationController
     target_assignment.workflow_state = "outcome_alignment_cloning"
     target_assignment.duplication_started_at = Time.zone.now
     target_assignment.save!
+
+    begin
+      OutcomesService::Service.start_outcome_alignment_service_clone(
+        target_course,
+        original_assignment_id: old_assignment.id,
+        copied_assignment_id: target_assignment.id,
+        new_context_id: target_course.id,
+        original_context_id: old_assignment.context.id
+      )
+    rescue => e
+      Rails.logger.error("Failed to retry outcome alignment service clone: #{e.message}")
+      target_assignment.workflow_state = "failed_to_clone_outcome_alignment"
+      target_assignment.save!
+    end
+
     result_json = if use_quiz_json?
                     quiz_json(target_assignment, @context, @current_user, session, {}, QuizzesNext::QuizSerializer)
                   else
                     assignment_json(target_assignment, @current_user, session)
                   end
     result_json["new_positions"] = { target_assignment.id => target_assignment.position }
-    Canvas::LiveEvents.quizzes_next_quiz_duplicated(
-      {
-        original_course_uuid: old_assignment.context.uuid,
-        new_course_uuid: target_course.uuid,
-        new_course_resource_link_id: target_course.lti_context_id,
-        domain: target_course.root_account&.domain(ApplicationController.test_cluster_name),
-        new_course_name: target_course.name,
-        created_on_blueprint_sync: false,
-        resource_map_url: "",
-        remove_alignments: false,
-        original_assignment_resource_link_id: old_assignment.lti_resource_link_id,
-        new_assignment_resource_link_id: target_assignment.lti_resource_link_id,
-        status: "outcome_alignment_cloning"
-      }
-    )
     render json: result_json
   end
 
@@ -980,7 +1000,8 @@ class AssignmentsApiController < ApplicationController
                                        .eager_load(:assignment_group)
                                        .preload(:rubric_association, :rubric)
                                        .reorder("assignment_groups.position, assignments.position, assignments.id")
-      scope = Assignment.search_by_attribute(scope, :title, params[:search_term])
+      assignment_search_min_length = 1
+      scope = Assignment.search_by_attribute(scope, :title, params[:search_term], min_length: assignment_search_min_length)
       include_params = Array(params[:include])
 
       if params[:bucket]
@@ -1019,7 +1040,7 @@ class AssignmentsApiController < ApplicationController
           scope = if @context.grants_right?(user, :read_as_admin)
                     scope.with_latest_due_date.reorder(Arel.sql("latest_due_date, #{Assignment.best_unicode_collation_key("assignments.title")}, assignment_groups.position, assignments.position, assignments.id"))
                   else
-                    scope.with_user_due_date(user).reorder(Arel.sql("user_due_date, #{Assignment.best_unicode_collation_key("assignments.title")}, assignment_groups.position, assignments.position, assignments.id"))
+                    scope.with_user_due_date(user).reorder(Arel.sql("submissions.cached_due_date, #{Assignment.best_unicode_collation_key("assignments.title")}, assignment_groups.position, assignments.position, assignments.id"))
                   end
         end
       end
@@ -1057,17 +1078,13 @@ class AssignmentsApiController < ApplicationController
       include_visibility = include_params.include?("assignment_visibility") && @context.grants_any_right?(user, :read_as_admin, :manage_grades, *RoleOverride::GRANULAR_MANAGE_ASSIGNMENT_PERMISSIONS)
 
       if include_visibility
-        assignment_visibilities = if Account.site_admin.feature_enabled?(:selective_release_backend)
-                                    AssignmentVisibility::AssignmentVisibilityService.users_with_visibility_by_assignment(course_id: @context.id, assignment_ids: assignments.map(&:id))
-                                  else
-                                    AssignmentStudentVisibility.users_with_visibility_by_assignment(course_id: @context.id, assignment_id: assignments.map(&:id))
-                                  end
+        assignment_visibilities = AssignmentVisibility::AssignmentVisibilityService.users_with_visibility_by_assignment(course_id: @context.id, assignment_ids: assignments.map(&:id))
       end
 
       needs_grading_by_section_param = params[:needs_grading_count_by_section] || false
       needs_grading_count_by_section = value_to_boolean(needs_grading_by_section_param)
 
-      if @context.grants_any_right?(user, :manage_assignments, :manage_assignments_edit)
+      if @context.grants_right?(user, :manage_assignments_edit)
         Assignment.preload_can_unpublish(assignments)
       end
 
@@ -1093,14 +1110,28 @@ class AssignmentsApiController < ApplicationController
 
       DatesOverridable.preload_override_data_for_objects(assignments)
 
+      if @context.feature_enabled?(:peer_review_allocation_and_grading)
+        # Only preload for Assignment instances since SubAssignment and PeerReviewSubAssignment
+        # cannot have AssessmentRequests
+        assignment_instances = assignments.grep(Assignment)
+        Assignment.preload_peer_review_submissions(assignment_instances) if assignment_instances.any?
+      end
+
+      # Prewarm the request cache for needs_grading_count so that assignment_json
+      # can read results without triggering per-assignment queries.
+      # Permission check must match the condition in assignment_json:
+      #   include_needs_grading_count && assignment.context.grants_right?(user, :manage_grades)
+      # exclude_response_fields is not passed from this action so needs_grading_count
+      # is never excluded here — manage_grades is the only effective condition.
+      if @context.grants_right?(user, session, :manage_grades)
+        grading_query = Assignments::NeedsGradingCountQuery.new(assignments, user)
+        grading_query.count
+        grading_query.count_by_section if needs_grading_count_by_section
+      end
+
       assignments.map do |assignment|
         visibility_array = assignment_visibilities[assignment.id] if assignment_visibilities
         submission = submissions[assignment.id]
-        needs_grading_course_proxy = if @context.grants_right?(user, session, :manage_grades)
-                                       Assignments::NeedsGradingCountQuery::CourseProxy.new(@context, user)
-                                     else
-                                       nil
-                                     end
 
         assignment_json(assignment,
                         user,
@@ -1110,7 +1141,6 @@ class AssignmentsApiController < ApplicationController
                         include_visibility:,
                         assignment_visibilities: visibility_array,
                         needs_grading_count_by_section:,
-                        needs_grading_course_proxy:,
                         include_all_dates:,
                         bucket: params[:bucket],
                         include_overrides: include_override_objects,
@@ -1124,13 +1154,32 @@ class AssignmentsApiController < ApplicationController
     end
   end
 
+  # @API List group members for a student on an assignment
+  # Returns student ids and names for the group.
+  #
+  # @example_request
+  #   curl https://<canvas>/api/v1/courses/1/assignments/1/users/1/group_members
+  #
+  # @returns [BasicUser]
+  def student_group_members
+    assignment = api_find(@context.active_assignments, params[:assignment_id])
+    if authorized_action(assignment, @current_user, :read)
+      student = @context.students.find(params[:user_id])
+      _, students = assignment.group_students(student)
+      render json: students.map { |user| { id: user.id.to_s, name: user.name } }
+    end
+  end
+
   # @API Get a single assignment
   # Returns the assignment with the given id.
-  # @argument include[] [String, "submission"|"assignment_visibility"|"overrides"|"observed_users"|"can_edit"|"score_statistics"|"ab_guid"]
+  # @argument include[] [String, "submission"|"assignment_visibility"|"overrides"|"observed_users"|"can_edit"|"score_statistics"|"ab_guid"|"peer_review"]
   #   Associations to include with the assignment. The "assignment_visibility" option
   #   requires that the Differentiated Assignments course feature be turned on. If
   #   "observed_users" is passed, submissions for observed users will also be included.
   #   For "score_statistics" to be included, the "submission" option must also be set.
+  #   The "peer_review" option returns peer review sub assignment data if it exists, regardless
+  #   of the Peer Review Allocation and Grading feature state. If no peer review sub assignment
+  #   exists, the feature must be enabled to receive a null value; otherwise the key is omitted.
   # @argument override_assignment_dates [Boolean]
   #   Apply assignment overrides to the assignment, defaults to true.
   # @argument needs_grading_count_by_section [Boolean]
@@ -1172,7 +1221,8 @@ class AssignmentsApiController < ApplicationController
         include_can_submit: included_params.include?("can_submit"),
         include_webhook_info: included_params.include?("webhook_info"),
         include_ab_guid: included_params.include?("ab_guid"),
-        include_checkpoints: included_params.include?("checkpoints")
+        include_checkpoints: included_params.include?("checkpoints"),
+        include_peer_review: included_params.include?("peer_review"),
       }
 
       result_json = if use_quiz_json?
@@ -1365,6 +1415,33 @@ class AssignmentsApiController < ApplicationController
   #
   #   Only applies when submission_types includes "student_annotation".
   #
+  # @argument assignment[asset_processors][] [Array]
+  #   Document processors for this assignment. New document processors can only be added
+  #   via the interactive LTI Deep Linking flow (in a browser), not via API token or JWT authentication.
+  #   Deletion of document processors (passing an empty array) is allowed via API.
+  #
+  # @argument assignment[peer_review][points_possible] [Float]
+  #   The maximum points possible for peer reviews.
+  #
+  # @argument assignment[peer_review][grading_type] ["pass_fail"|"percent"|"letter_grade"|"gpa_scale"|"points"]
+  #  The strategy used for grading peer reviews.
+  #  Defaults to "points" if this field is omitted.
+  #
+  # @argument assignment[peer_review][due_at] [DateTime]
+  #   The day/time the peer reviews are due. Must be between the lock dates if there are lock dates.
+  #   Accepts times in ISO 8601 format, e.g. 2025-08-20T12:10:00Z.
+  #
+  # @argument assignment[peer_review][lock_at] [DateTime]
+  #   The day/time the peer reviews are locked after. Must be after the due date if there is a due date.
+  #   Accepts times in ISO 8601 format, e.g. 2025-08-25T12:10:00Z.
+  #
+  # @argument assignment[peer_review][unlock_at] [DateTime]
+  #   The day/time the peer reviews are unlocked. Must be before the due date if there is a due date.
+  #   Accepts times in ISO 8601 format, e.g. 2025-08-15T12:10:00Z.
+  #
+  # @argument assignment[peer_review][peer_review_overrides][] [AssignmentOverride]
+  #   List of overrides for the peer reviews.
+  #
   # @returns Assignment
   def create
     @assignment = @context.assignments.build
@@ -1377,7 +1454,12 @@ class AssignmentsApiController < ApplicationController
                                      @current_user,
                                      @context,
                                      calculate_grades: params.delete(:calculate_grades))
-      render_create_or_update_result(result)
+
+      opts = {
+        include_peer_review: @assignment.context.feature_enabled?(:peer_review_allocation_and_grading)
+      }
+
+      render_create_or_update_result(result, opts)
     end
   rescue ActiveRecord::RecordNotUnique => e
     message = if e.message.include?("sis_source_id")
@@ -1574,8 +1656,39 @@ class AssignmentsApiController < ApplicationController
   #
   #   Only applies when submission_types includes "student_annotation".
   #
+  # @argument assignment[asset_processors][] [Array]
+  #   Document processors for this assignment. New document processors can only be added
+  #   via the interactive LTI Deep Linking flow (in a browser), not via API token or JWT authentication.
+  #   Deletion of document processors (passing an empty array) is allowed via API.
+  #
   # @argument assignment[force_updated_at] [Boolean]
   #   If true, updated_at will be set even if no changes were made.
+  #
+  # @argument assignment[peer_review][points_possible] [Float]
+  #   The maximum points possible for peer reviews.
+  #
+  # @argument assignment[peer_review][grading_type] ["pass_fail"|"percent"|"letter_grade"|"gpa_scale"|"points"]
+  #  The strategy used for grading peer reviews.
+  #  Defaults to "points" if this field is omitted.
+  #
+  # @argument assignment[peer_review][due_at] [DateTime]
+  #   The day/time the peer reviews are due. Must be between the lock dates if there are lock dates.
+  #   Accepts times in ISO 8601 format, e.g. 2025-08-20T12:10:00Z.
+  #
+  # @argument assignment[peer_review][lock_at] [DateTime]
+  #   The day/time the peer reviews are locked after. Must be after the due date if there is a due date.
+  #   Accepts times in ISO 8601 format, e.g. 2025-08-25T12:10:00Z.
+  #
+  # @argument assignment[peer_review][unlock_at] [DateTime]
+  #   The day/time the peer reviews are unlocked. Must be before the due date if there is a due date.
+  #   Accepts times in ISO 8601 format, e.g. 2025-08-15T12:10:00Z.
+  #
+  # @argument assignment[peer_review][peer_review_overrides][] [AssignmentOverride]
+  #   List of overrides for the peer reviews.
+  #   When updating overrides:
+  #   - Include "id" to update an existing override
+  #   - Omit "id" to create a new override
+  #   - Omit an override from the list to delete it
   #
   # @returns Assignment
   def update
@@ -1595,6 +1708,8 @@ class AssignmentsApiController < ApplicationController
 
       @assignment.skip_downstream_changes! if params[:skip_downstream_changes].present?
       result = update_api_assignment(@assignment, params.require(:assignment), @current_user, @context, opts)
+
+      opts[:include_peer_review] = @assignment.context.feature_enabled?(:peer_review_allocation_and_grading)
       render_create_or_update_result(result, opts)
     end
   end
@@ -1637,7 +1752,7 @@ class AssignmentsApiController < ApplicationController
   #
   # @returns Progress
   def bulk_update
-    return render_json_unauthorized unless @context.grants_any_right?(@current_user, session, :manage_assignments, :manage_assignments_edit)
+    return render_json_unauthorized unless @context.grants_right?(@current_user, session, :manage_assignments_edit)
 
     data = params.permit(_json: [:id, all_dates: %i[id base due_at unlock_at lock_at]]).to_h[:_json]
     return render json: { message: "expected array" }, status: :bad_request unless data.is_a?(Array)
@@ -1658,6 +1773,24 @@ class AssignmentsApiController < ApplicationController
     render json: progress_json(progress, @current_user, session)
   end
 
+  def accessibility_scan
+    return render_unauthorized_action unless @context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
+    return render_unauthorized_action unless @context.a11y_checker_enabled?
+
+    @assignment = api_find(@context.active_assignments, params[:assignment_id])
+    scan = Accessibility::ResourceScannerService.new(resource: @assignment).call_sync
+    render json: accessibility_resource_scan_json(scan)
+  end
+
+  def accessibility_queue_scan
+    return render_unauthorized_action unless @context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
+    return render_unauthorized_action unless @context.a11y_checker_enabled?
+
+    @assignment = api_find(@context.active_assignments, params[:assignment_id])
+    scan = Accessibility::ResourceScannerService.new(resource: @assignment).call
+    render json: accessibility_resource_scan_json(scan)
+  end
+
   private
 
   def assignment_json_opts
@@ -1673,8 +1806,9 @@ class AssignmentsApiController < ApplicationController
       render json: assignment_json(@assignment, @current_user, session, opts), status: result
     else
       status = (result == :forbidden) ? :forbidden : :bad_request
-      errors = @assignment.errors.as_json[:errors]
+      errors = ::Api::Errors::Reporter.to_json(@assignment.errors)[:errors]
       errors["published"] = errors.delete(:workflow_state) if errors.key?(:workflow_state)
+
       render json: { errors: }, status:
     end
   end
@@ -1763,11 +1897,11 @@ class AssignmentsApiController < ApplicationController
 
   def track_update_metrics(assignment, _params)
     if assignment.hide_in_gradebook_changed?(to: true)
-      InstStatsd::Statsd.increment("assignment.hide_in_gradebook")
+      InstStatsd::Statsd.distributed_increment("assignment.hide_in_gradebook")
     end
   end
 
   def track_create_metrics(assignment)
-    InstStatsd::Statsd.increment("assignment.hide_in_gradebook") if assignment.hide_in_gradebook
+    InstStatsd::Statsd.distributed_increment("assignment.hide_in_gradebook") if assignment.hide_in_gradebook
   end
 end

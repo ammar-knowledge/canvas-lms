@@ -59,7 +59,7 @@ class PermissionsIndex
     end
 
     def role_link_css(role_name)
-      "th[aria-label=#{role_name}] button"
+      "th[data-role-name='#{role_name}'] button"
     end
 
     def role_link(role_name)
@@ -138,7 +138,7 @@ class PermissionsIndex
 
     def grid_permission_state(permission, role)
       icons = ff("##{permission}_#{role} svg")
-      if icons[icons.length - 2].attribute("name") == "IconTrouble"
+      if icons[-2].attribute("name") == "IconTrouble"
         state = "Disabled"
       elsif icons[cons.length - 2].attribute("name") == "IconPublish"
         state = "Enabled"

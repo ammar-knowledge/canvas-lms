@@ -17,12 +17,12 @@
  */
 
 import {string} from 'prop-types'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {ContextModule} from './ContextModule'
 
 export const AssignmentOverride = {
   fragment: gql`
-    fragment AssignmentOverride on AssignmentOverride {
+    fragment EditV2AssignmentOverride on AssignmentOverride {
       _id
       id
       dueAt
@@ -30,7 +30,7 @@ export const AssignmentOverride = {
       unlockAt
       unassignItem
       contextModule {
-        ...ContextModule
+        ...EditV2ContextModule
       }
       set {
         ... on AdhocStudents {
@@ -38,6 +38,7 @@ export const AssignmentOverride = {
           students {
             _id
             id
+            name
           }
         }
         ... on Course {
@@ -59,6 +60,7 @@ export const AssignmentOverride = {
         ... on Group {
           id
           name
+          nonCollaborative
           _id
         }
       }

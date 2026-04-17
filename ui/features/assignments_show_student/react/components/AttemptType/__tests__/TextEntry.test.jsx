@@ -16,14 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {act, render, waitFor} from '@testing-library/react'
+import {act, render, waitFor, fireEvent} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {mockSubmission} from '@canvas/assignments/graphql/studentMocks'
-import React from 'react'
-import TextEntry from '../TextEntry'
-import StudentViewContext from '../../Context'
+import React, {createRef} from 'react'
+import TextEntry, {ERROR_MESSAGE} from '../TextEntry'
+import StudentViewContext from '@canvas/assignments/react/StudentViewContext'
 
-jest.mock(
+vi.mock(
   '@instructure/canvas-rce/es/rce/plugins/instructure_rce_external_tools/lti11-content-items/RceLti11ContentItem',
   () => ({
     RceLti11ContentItem: {
@@ -31,8 +31,17 @@ jest.mock(
         codePayload: `<a href="${contentItem.url}" title="${contentItem.title}" target="${contentItem.linkTarget}">${contentItem.title}</a>`,
       }),
     },
-  })
+  }),
 )
+
+// Mock getTranslations to resolve immediately, avoiding the "Loading..." state in RCE
+vi.mock('@instructure/canvas-rce/es/getTranslations', async importOriginal => {
+  const original = await importOriginal()
+  return {
+    ...original,
+    default: () => Promise.resolve(),
+  }
+})
 
 async function makeProps(opts = {}) {
   const mockedSubmission =
@@ -43,13 +52,14 @@ async function makeProps(opts = {}) {
     }))
 
   return {
-    createSubmissionDraft: jest.fn(),
+    createSubmissionDraft: vi.fn(),
     editingDraft: opts.editingDraft || false,
     focusOnInit: false,
     readOnly: opts.readOnly || false,
-    onContentsChanged: jest.fn(),
+    onContentsChanged: vi.fn(),
     submission: mockedSubmission,
-    updateEditingDraft: jest.fn(),
+    updateEditingDraft: vi.fn(),
+    submitButtonRef: createRef(),
   }
 }
 
@@ -67,21 +77,21 @@ describe('TextEntry', () => {
   })
 
   beforeEach(() => {
-    jest.useFakeTimers()
+    vi.useFakeTimers()
   })
 
   afterEach(async () => {
-    await act(async () => jest.runOnlyPendingTimers())
-    jest.useRealTimers()
+    await act(async () => vi.runOnlyPendingTimers())
+    vi.useRealTimers()
   })
 
   const renderEditor = async props => {
     const propsToRender = props || (await makeProps())
     const retval = render(<TextEntry {...propsToRender} />)
     await waitFor(() => {
-      expect(tinymce.editors[0]).toBeDefined()
+      expect(tinymce.get('textentry_text')).toBeDefined()
     })
-    fakeEditor = tinymce.editors[0]
+    fakeEditor = tinymce.get('textentry_text')
     return retval
   }
 
@@ -110,12 +120,12 @@ describe('TextEntry', () => {
               value={{isObserver: true, allowChangesToSubmission: false}}
             >
               <TextEntry {...props} />
-            </StudentViewContext.Provider>
+            </StudentViewContext.Provider>,
           )
           await waitFor(() => {
-            expect(tinymce.editors[0]).toBeDefined()
+            expect(tinymce.get('textentry_text')).toBeDefined()
           })
-          fakeEditor = tinymce.editors[0]
+          fakeEditor = tinymce.get('textentry_text')
           await waitFor(() => {
             expect(fakeEditor.readonly).toStrictEqual(true)
           })
@@ -196,6 +206,28 @@ describe('TextEntry', () => {
           expect(queryByTestId('text-editor')).not.toBeInTheDocument()
         })
 
+        it('applies CSS containment to read-only content to prevent overlay attacks', async () => {
+          const props = await makeProps({
+            readOnly: true,
+            submission: {
+              id: '1',
+              _id: '1',
+              body: '<div style="position: fixed; z-index: 9999;">overlay</div>',
+              state: 'submitted',
+            },
+          })
+          const {queryByTestId} = await renderEditor(props)
+          const container = queryByTestId('read-only-content')
+          expect(container).toBeInTheDocument()
+          expect(container).toHaveStyle({
+            contain: 'layout',
+            position: 'relative',
+            overflow: 'auto',
+            minHeight: '400px',
+            width: '100%',
+          })
+        })
+
         it('renders the content in the rce component when readOnly is false', async () => {
           const props = await makeProps({
             readOnly: false,
@@ -237,7 +269,7 @@ describe('TextEntry', () => {
           submissionDraft: {body: 'hello?'},
         },
       })
-      const setModeSpy = jest.spyOn(fakeEditor.mode, 'set')
+      const setModeSpy = vi.spyOn(fakeEditor.mode, 'set')
 
       rerender(<TextEntry {...updatedProps} />)
 
@@ -256,7 +288,7 @@ describe('TextEntry', () => {
           submissionDraft: {body: 'hello, again'},
         },
       })
-      const setContentSpy = jest.spyOn(fakeEditor, 'setContent')
+      const setContentSpy = vi.spyOn(fakeEditor, 'setContent')
       rerender(<TextEntry {...newProps} />)
       expect(setContentSpy).toHaveBeenCalledWith('hello, again')
     })
@@ -273,7 +305,7 @@ describe('TextEntry', () => {
           submissionDraft: {body: 'hello'},
         },
       })
-      const setContentSpy = jest.spyOn(fakeEditor, 'setContent')
+      const setContentSpy = vi.spyOn(fakeEditor, 'setContent')
       rerender(<TextEntry {...newProps} />)
       expect(setContentSpy).not.toHaveBeenCalled()
     })
@@ -283,7 +315,7 @@ describe('TextEntry', () => {
       const newProps = await makeProps({
         submission: {...initialSubmission, grade: 0, state: 'graded'},
       })
-      jest.spyOn(fakeEditor, 'setContent')
+      vi.spyOn(fakeEditor, 'setContent')
 
       rerender(<TextEntry {...newProps} />)
       expect(fakeEditor.setContent).not.toHaveBeenCalled()
@@ -328,7 +360,7 @@ describe('TextEntry', () => {
       // At the moment, the fake editor throws an error if we call insertCode,
       // so we mock it out. For now this is fine since we don't actually care
       // about the implementation (only that it was called).
-      insertCode = jest.fn()
+      insertCode = vi.fn()
       fakeEditor.rceWrapper.insertCode = insertCode
     })
 
@@ -339,7 +371,7 @@ describe('TextEntry', () => {
 
     it('inserts a link for each content item if the message is A2ExternalContentReady', async () => {
       window.postMessage(realEvent, '*')
-      await act(async () => jest.runOnlyPendingTimers())
+      await act(async () => vi.runOnlyPendingTimers())
       await waitFor(() => {
         expect(insertCode).toHaveBeenCalledTimes(2)
         expect(insertCode).toHaveBeenNthCalledWith(1, expect.stringContaining('first item'))
@@ -372,13 +404,13 @@ describe('TextEntry', () => {
       await renderEditor(props)
 
       fakeEditor.setContent('I')
-      jest.advanceTimersByTime(500)
+      vi.advanceTimersByTime(500)
       fakeEditor.setContent('I am editing')
-      jest.advanceTimersByTime(500)
+      vi.advanceTimersByTime(500)
       fakeEditor.setContent('I am still editing')
 
       expect(props.createSubmissionDraft).not.toHaveBeenCalled()
-      jest.advanceTimersByTime(1250)
+      vi.advanceTimersByTime(1250)
 
       expect(props.createSubmissionDraft).toHaveBeenCalled()
     })
@@ -388,12 +420,12 @@ describe('TextEntry', () => {
       await renderEditor(props)
 
       fakeEditor.setContent('I')
-      jest.advanceTimersByTime(500)
+      vi.advanceTimersByTime(500)
       fakeEditor.setContent('I am')
-      jest.advanceTimersByTime(500)
+      vi.advanceTimersByTime(500)
       fakeEditor.setContent('I am editing')
 
-      jest.advanceTimersByTime(5000)
+      vi.advanceTimersByTime(5000)
       expect(props.createSubmissionDraft).toHaveBeenCalledTimes(1)
     })
 
@@ -401,7 +433,7 @@ describe('TextEntry', () => {
       const props = await makeProps({readOnly: true})
       await renderEditor(props)
 
-      jest.advanceTimersByTime(3000)
+      vi.advanceTimersByTime(3000)
       expect(props.createSubmissionDraft).not.toHaveBeenCalled()
     })
 
@@ -419,7 +451,7 @@ describe('TextEntry', () => {
       })
       rerender(<TextEntry {...newProps} />)
 
-      jest.advanceTimersByTime(3000)
+      vi.advanceTimersByTime(3000)
       expect(newProps.createSubmissionDraft).not.toHaveBeenCalled()
     })
 
@@ -428,7 +460,7 @@ describe('TextEntry', () => {
       await renderEditor(props)
 
       fakeEditor.setContent('hello there!')
-      jest.advanceTimersByTime(1500)
+      vi.advanceTimersByTime(1500)
 
       expect(props.createSubmissionDraft).toHaveBeenCalled()
 
@@ -450,11 +482,45 @@ describe('TextEntry', () => {
       const {unmount} = await renderEditor(props)
 
       fakeEditor.setContent('oh no')
-      jest.advanceTimersByTime(100)
+      vi.advanceTimersByTime(100)
       unmount()
 
-      jest.advanceTimersByTime(3000)
+      vi.advanceTimersByTime(3000)
       expect(props.createSubmissionDraft).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('validation', () => {
+    it('displays error when meetsTextEntryCriteria is false and user clicks submit', async () => {
+      const props = await makeProps({
+        submission: {
+          id: '1',
+          _id: '1',
+          submissionDraft: {meetsTextEntryCriteria: false},
+        },
+      })
+      const mockButton = document.createElement('button')
+      props.submitButtonRef.current = mockButton
+      const {getByText} = await renderEditor(props)
+      fireEvent.click(props.submitButtonRef.current)
+      expect(getByText(ERROR_MESSAGE)).toBeInTheDocument()
+    })
+
+    it('clears errors when user starts typing in rce', async () => {
+      const props = await makeProps({
+        submission: {
+          id: '1',
+          _id: '1',
+          submissionDraft: {meetsTextEntryCriteria: false},
+        },
+      })
+      const mockButton = document.createElement('button')
+      props.submitButtonRef.current = mockButton
+      const {getByText, queryByText} = await renderEditor(props)
+      fireEvent.click(props.submitButtonRef.current)
+      expect(getByText(ERROR_MESSAGE)).toBeInTheDocument()
+      fakeEditor.setContent('clear errors')
+      expect(queryByText(ERROR_MESSAGE)).not.toBeInTheDocument()
     })
   })
 })

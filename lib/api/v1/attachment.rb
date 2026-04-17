@@ -19,6 +19,7 @@
 #
 
 module Api::V1::Attachment
+  include Api::V1::EstimatedDuration
   include Api::V1::Json
   include Api::V1::Locked
   include Api::V1::Progress
@@ -39,22 +40,32 @@ module Api::V1::Attachment
     if options[:can_view_hidden_files] && options[:context]
       options[:master_course_status] = setup_master_course_restrictions(files, options[:context])
     end
+
+    ActiveRecord::Associations::Preloader.new(records: files, associations: [:root_account, :last_attachment_upload_status]).call
+
     files.map do |f|
       attachment_json(f, user, url_options, options)
     end
   end
 
   def attachment_json(attachment, user, url_options = {}, options = {})
-    hash = attachment.slice("id", "uuid", "folder_id", "display_name", "filename")
+    hash = attachment.slice("id", "folder_id", "display_name", "filename")
+
+    if (attachment.context_type == "User" && attachment.context_id == user&.id) || !attachment.root_account.feature_enabled?(:deprecate_uuid_in_files_api)
+      hash["uuid"] = attachment.uuid
+    end
+
     hash["upload_status"] = AttachmentUploadStatus.upload_status(attachment)
 
-    if options[:can_view_hidden_files] && options[:context] && options[:include].include?("blueprint_course_status") && !options[:master_course_status]
+    if options[:can_view_hidden_files] && options[:context] && options[:include]&.include?("blueprint_course_status") && !options[:master_course_status]
       options[:master_course_status] = setup_master_course_restrictions([attachment], options[:context])
     end
 
     if options[:master_course_status]
       hash.merge!(attachment.master_course_api_restriction_data(options[:master_course_status]))
     end
+
+    hash["view"] = options[:view] if options[:view]
 
     return hash if options[:only]&.include?("names")
 
@@ -81,6 +92,7 @@ module Api::V1::Attachment
     downloadable = skip_permission_checks || !attachment.locked_for?(user, check_policies: true)
 
     if downloadable
+      url_options[:location] = nil unless attachment.root_account.feature_enabled?(:file_association_access)
       # using the multi-parameter form because not every class that mixes in
       # this api helper also mixes in ApplicationHelper (I'm looking at you,
       # DiscussionTopic::MaterializedView), and in those cases we need to
@@ -92,9 +104,22 @@ module Api::V1::Attachment
         url = thumbnail_url
       else
         h = { download: "1", download_frd: "1" }
-        h[:verifier] = options[:verifier] if options[:verifier].present?
-        h[:verifier] ||= attachment.uuid unless options[:omit_verifier_in_app] && ((respond_to?(:in_app?, true) && in_app?) || @authenticated_with_jwt)
-        url = file_download_url(attachment, h.merge(url_options))
+
+        unless attachment.root_account.feature_enabled?(:disable_adding_uuid_verifier_in_api)
+          h[:verifier] = url_options[:verifier] if url_options[:verifier].present?
+          h[:verifier] ||= attachment.uuid unless options[:omit_verifier_in_app] && ((respond_to?(:in_app?, true) && in_app?) || @authenticated_with_jwt)
+        end
+
+        if url_options[:location].present?
+          h[:location] = url_options[:location]
+        end
+
+        h.merge!(options.slice(:access_token, :instfs_id)) if options[:access_token].present? && options[:instfs_id].present?
+
+        final_options = url_options.is_a?(Hash) ? url_options.dup : url_options.to_h
+        final_options.merge!(h)
+
+        url = file_download_url(attachment, final_options)
       end
       # and svg can stand in as its own thumbnail, but let's be reasonable about their size
       if !thumbnail_url && attachment.content_type == "image/svg+xml" && attachment.size < 16_384 # 16k
@@ -133,22 +158,25 @@ module Api::V1::Attachment
       hash["visibility_level"] = attachment.visibility_level
     end
 
+    if attachment.context.try(:horizon_course?) && attachment.estimated_duration&.marked_for_destruction? == false
+      hash["estimated_duration"] = estimated_duration_json(attachment.estimated_duration, user, nil)
+    end
+
     if includes.include? "user"
       context = attachment.context
       context = :profile if context == user
       hash["user"] = user_display_json(attachment.user, context)
     end
     if includes.include? "preview_url"
-
       url_opts = {
-        moderated_grading_allow_list: options[:moderated_grading_allow_list],
         enable_annotations: options[:enable_annotations],
         enrollment_type: options[:enrollment_type],
         anonymous_instructor_annotations: options[:anonymous_instructor_annotations],
-        submission_id: options[:submission_id]
+        submission_id: options[:submission_id],
+        access_token: options[:access_token],
+        instfs_id: options[:instfs_id]
       }
-      hash["preview_url"] = attachment.crocodoc_url(user, url_opts) ||
-                            attachment.canvadoc_url(user, url_opts)
+      hash["preview_url"] = attachment.canvadoc_url(user, url_opts)
     end
     if includes.include?("canvadoc_document_id")
       hash["canvadoc_document_id"] = attachment&.canvadoc&.document_id
@@ -157,8 +185,13 @@ module Api::V1::Attachment
       url_opts = {
         annotate: 0
       }
-      url_opts[:verifier] = options[:verifier] if options[:verifier].present?
+      url_opts[:verifier] = url_options[:verifier] if url_options[:verifier].present?
       url_opts[:verifier] ||= attachment.uuid if downloadable && !options[:omit_verifier_in_app] && !((respond_to?(:in_app?, true) && in_app?) || @authenticated_with_jwt)
+      url_opts[:location] = url_options[:location] if url_options[:location].present?
+
+      if options[:access_token].present? && options[:instfs_id].present?
+        url_opts.merge!(options.slice(:access_token, :instfs_id))
+      end
       hash["preview_url"] = context_url(attachment.context, :context_file_file_preview_url, attachment, url_opts)
     end
     if includes.include? "usage_rights"
@@ -248,7 +281,7 @@ module Api::V1::Attachment
   end
 
   def validate_on_duplicate(params)
-    if params[:on_duplicate] && !%w[rename overwrite].include?(params[:on_duplicate])
+    if params[:on_duplicate] && !%w[rename overwrite error].include?(params[:on_duplicate])
       render status: :bad_request, json: {
         message: "invalid on_duplicate option"
       }
@@ -267,6 +300,13 @@ module Api::V1::Attachment
   # error on failure.
   def api_attachment_preflight(context, request, opts = {})
     params = opts[:params] || request.params
+
+    if opts[:submit_assignment]
+      # as: auto_submitted
+      RequestContext::Generator.add_meta_header("as", "1")
+    else
+      RequestContext::Generator.add_meta_header("as", "0")
+    end
 
     # Handle deprecated folder path
     params[:parent_folder_path] ||= params[:folder]
@@ -326,6 +366,10 @@ module Api::V1::Attachment
                        else
                          current_user
                        end
+
+    if params[:on_duplicate] == "error" && folder && folder.active_file_attachments.where(display_name: infer_upload_filename(params)).exists?
+      return render json: { message: "file already exists; use on_duplicate='overwrite' or 'rename'" }, status: :conflict
+    end
 
     if InstFS.enabled?
       additional_capture_params = {}
@@ -437,6 +481,9 @@ module Api::V1::Attachment
     attachment.workflow_state = opts[:temporary] ? "unattached_temporary" : "unattached"
     attachment.modified_at = Time.now.utc
     attachment.category = params[:category] if params[:category].present?
+    if context.try(:horizon_course?) && params[:estimated_duration_attributes].present?
+      attachment.estimated_duration_attributes = params[:estimated_duration_attributes].slice(:minutes)
+    end
     attachment.save!
     attachment
   end

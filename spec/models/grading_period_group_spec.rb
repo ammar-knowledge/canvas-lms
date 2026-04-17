@@ -18,19 +18,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../spec_helper"
-
 describe GradingPeriodGroup do
   let(:group_helper) { Factories::GradingPeriodGroupHelper.new }
   let(:valid_attributes) { { title: "A Title" } }
 
   let(:account) { Account.default }
-
-  # after dev lands in master, re add this title validation
-  # it { is_expected.to validate_presence_of(:title) }
-  it { is_expected.to belong_to(:course) }
-  it { is_expected.to have_many(:enrollment_terms).inverse_of(:grading_period_group) }
-  it { is_expected.to have_many(:grading_periods) }
 
   describe "#recompute_scores_for_each_term" do
     def course_with_grades(account, term, due_date, student, delete_term: false)

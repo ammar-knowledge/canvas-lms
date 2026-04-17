@@ -16,9 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {useCallback, useMemo, useState} from 'react'
-import {intersection, some} from 'lodash'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import React, {useCallback, useMemo, useRef, useState} from 'react'
+import {intersection, some} from 'es-toolkit/compat'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Button} from '@instructure/ui-buttons'
 import {IconWarningLine} from '@instructure/ui-icons'
 import {View} from '@instructure/ui-view'
@@ -33,7 +33,6 @@ import type {
 } from '../../../types'
 import {
   computeAssignmentDetailText,
-  disableGrading,
   isInPastGradingPeriodAndNotAdmin,
 } from '../../../utils/gradebookUtils'
 import MessageStudentsWhoModal from './MessageStudentsWhoModal'
@@ -42,8 +41,9 @@ import {CurveGradesModal} from './CurveGradesModal'
 import SubmissionDownloadModal from './SubmissionDownloadModal'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {MSWLaunchContext} from '@canvas/message-students-dialog/react/MessageStudentsWhoDialog'
+import {disableGrading} from '../../../utils/gradeInputUtils'
 
-const I18n = useI18nScope('enhanced_individual_gradebook')
+const I18n = createI18nScope('enhanced_individual_gradebook')
 
 export type AssignmentInformationComponentProps = {
   assignment?: AssignmentConnection
@@ -62,13 +62,14 @@ export default function AssignmentInformation({
   submissions = [],
   handleSetGrades,
 }: AssignmentInformationComponentProps) {
-  const {gradedSubmissions, scores} = useMemo(
-    () => ({
-      gradedSubmissions: submissions.filter(s => s.score !== null && s.score !== undefined),
-      scores: submissions.map(s => s.score ?? 0),
-    }),
-    [submissions]
-  )
+  const {gradedSubmissions, scores} = useMemo(() => {
+    // Exclude ungraded (null/undefined score) submissions from score calculations
+    const gradedSubmissions = submissions.filter(s => s.score != null)
+    return {
+      gradedSubmissions,
+      scores: gradedSubmissions.map(s => s.score as number),
+    }
+  }, [submissions])
 
   if (!assignment) {
     return (
@@ -90,7 +91,7 @@ export default function AssignmentInformation({
   const {downloadAssignmentSubmissionsUrl, contextUrl, groupWeightingScheme} = gradebookOptions
   const downloadSubmissionsUrl = (downloadAssignmentSubmissionsUrl ?? '').replace(
     ':assignment',
-    assignment.id
+    assignment.id,
   )
   const {hasSubmittedSubmissions, submissionTypes, htmlUrl} = assignment
   const showSubmissionDownloadButton = () => {
@@ -110,6 +111,7 @@ export default function AssignmentInformation({
     online_upload: I18n.t('Online upload'),
     media_recording: I18n.t('Media recording'),
     student_annotation: I18n.t('Student annotation'),
+    peer_review: I18n.t('Peer review'),
   }
 
   const readableSubmissionTypes = submissionTypes
@@ -155,7 +157,7 @@ export default function AssignmentInformation({
               >
                 <ScreenReaderContent>{I18n.t('Warning')}</ScreenReaderContent>
                 {I18n.t(
-                  'Assignments in this group have no points possible and cannot be included in grade calculation.'
+                  'Assignments in this group have no points possible and cannot be included in grade calculation.',
                 )}
               </Link>
             </View>
@@ -164,6 +166,8 @@ export default function AssignmentInformation({
             <Link
               href={speedGraderUrl()}
               isWithinText={false}
+              target="_blank"
+              rel="noopener"
               data-testid="assignment-speedgrader-link"
             >
               {I18n.t('See this assignment in speedgrader')}
@@ -209,7 +213,7 @@ type AssignmentScoreDetailsProps = {
 function AssignmentScoreDetails({assignment, scores}: AssignmentScoreDetailsProps) {
   const {average, max, min} = useMemo(
     () => computeAssignmentDetailText(assignment, scores),
-    [assignment, scores]
+    [assignment, scores],
   )
   return (
     <View as="div" className="pad-box bottom-only ic-Table-responsive-x-scroll">
@@ -253,6 +257,16 @@ function AssignmentActions({
 }: AssignmentActionsProps) {
   const [showMessageStudentsWhoModal, setShowMessageStudentsWhoModal] = useState(false)
   const [showSetDefaultGradeModal, setShowSetDefaultGradeModal] = useState(false)
+  const defaultGradeButtonRef = useRef<Element | null>(null)
+
+  const focusDefaultGradeButton = useCallback(() => {
+    requestAnimationFrame(() => {
+      const el = defaultGradeButtonRef.current
+      if (el instanceof HTMLElement) {
+        el.focus()
+      }
+    })
+  }, [])
 
   const onSetGrades = useCallback(
     (updatedSubmissions: SubmissionGradeChange[]) => {
@@ -260,9 +274,15 @@ function AssignmentActions({
       if (updatedSubmissions.length) {
         handleSetGrades(updatedSubmissions)
       }
+      focusDefaultGradeButton()
     },
-    [handleSetGrades]
+    [handleSetGrades, focusDefaultGradeButton],
   )
+
+  const handleDefaultGradeClose = useCallback(() => {
+    setShowSetDefaultGradeModal(false)
+    focusDefaultGradeButton()
+  }, [focusDefaultGradeButton])
 
   return (
     <>
@@ -293,6 +313,9 @@ function AssignmentActions({
             onClick={() => setShowSetDefaultGradeModal(true)}
             data-testid="default-grade-button"
             disabled={disableGrading(assignment)}
+            elementRef={el => {
+              defaultGradeButtonRef.current = el
+            }}
           >
             {I18n.t('Set default grade')}
           </Button>
@@ -301,7 +324,7 @@ function AssignmentActions({
             gradebookOptions={gradebookOptions}
             submissions={submissions}
             modalOpen={showSetDefaultGradeModal}
-            handleClose={() => setShowSetDefaultGradeModal(false)}
+            handleClose={handleDefaultGradeClose}
             handleSetGrades={onSetGrades}
           />
         </>
@@ -309,7 +332,7 @@ function AssignmentActions({
           <View padding="0 0 0 xx-small">
             <Text data-testid="default-grade-warning">
               {I18n.t(
-                'Unable to set default grade because this assignment is due in a closed grading period for at least one student'
+                'Unable to set default grade because this assignment is due in a closed grading period for at least one student',
               )}
             </Text>
           </View>
@@ -328,7 +351,7 @@ function AssignmentActions({
           <View padding="0 0 0 xx-small">
             <Text data-testid="curve-grade-warning">
               {I18n.t(
-                'Unable to curve grades because this assignment is due in a closed grading period for at least one student'
+                'Unable to curve grades because this assignment is due in a closed grading period for at least one student',
               )}
             </Text>
           </View>

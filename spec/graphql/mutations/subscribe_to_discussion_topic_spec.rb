@@ -77,4 +77,17 @@ RSpec.describe Mutations::SubscribeToDiscussionTopic do
     @topic.reload
     expect(@topic.subscribed?(@teacher)).to be false
   end
+
+  it "returns not found if user cannot read the topic" do
+    result = run_mutation({ id: @topic.id, subscribed: true }, user_model)
+    expect(result.dig("errors", 0, "message")).to eq "not found"
+  end
+
+  it "cannot subscribe without a post" do
+    @topic.update_attribute(:require_initial_post, true)
+    student = student_in_course(course: @course, active_all: true).user
+    result = run_mutation({ id: @topic.id, subscribed: true }, student)
+    expect(result["errors"]).not_to be_nil
+    expect(result.dig("errors", 0, "message")).to eq "unauthorized"
+  end
 end

@@ -18,20 +18,20 @@
 import React from 'react'
 import {render, waitFor} from '@testing-library/react'
 import {SearchField} from '../components/SearchField'
-import '@testing-library/jest-dom/extend-expect'
 import {DEFAULT_SEARCH_DELAY} from '../utils/constants'
 import userEvent from '@testing-library/user-event'
 
-jest.mock('lodash', () => ({
+vi.mock('es-toolkit/compat', () => ({
   debounce: fn => {
-    fn.cancel = jest.fn()
+    fn.cancel = vi.fn()
     return fn
   },
 }))
 
-jest.mock('@instructure/ui-text-input', () => ({
+vi.mock('@instructure/ui-text-input', () => ({
   TextInput: React.forwardRef((props, ref) => {
-    const {onSearchEvent, searchInputRef, renderLabel, renderBeforeInput, ...rest} = props
+    const {onSearchEvent, renderLabel, renderBeforeInput, ...rest} = props
+
     return (
       <div>
         {renderLabel}
@@ -44,15 +44,22 @@ jest.mock('@instructure/ui-text-input', () => ({
 
 describe('SearchField Component', () => {
   it('renders correctly', () => {
-    const {getByPlaceholderText} = render(<SearchField onSearchEvent={jest.fn()} />)
+    const {getByPlaceholderText} = render(
+      <SearchField id="search-field" name="search" onSearchEvent={vi.fn()} />,
+    )
     const inputElement = getByPlaceholderText('Search...')
     expect(inputElement).toBeInTheDocument()
   })
 
   it('calls onSearchEvent with the correct value after debounce', async () => {
-    const onSearchEventMock = jest.fn()
+    const onSearchEventMock = vi.fn()
     const {getByPlaceholderText} = render(
-      <SearchField onSearchEvent={onSearchEventMock} searchInputRef={jest.fn()} />
+      <SearchField
+        id="search-field"
+        name="search"
+        onSearchEvent={onSearchEventMock}
+        searchInputRef={vi.fn()}
+      />,
     )
     const inputElement = getByPlaceholderText('Search...')
 
@@ -62,7 +69,7 @@ describe('SearchField Component', () => {
       () => {
         expect(onSearchEventMock).toHaveBeenCalledWith({searchTerm: 'test'})
       },
-      {timeout: DEFAULT_SEARCH_DELAY}
+      {timeout: DEFAULT_SEARCH_DELAY},
     )
   })
 })

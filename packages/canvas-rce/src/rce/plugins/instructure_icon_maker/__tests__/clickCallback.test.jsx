@@ -16,14 +16,26 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import React from 'react'
 import clickCallback, {ICONS_TRAY_CONTAINER_ID} from '../clickCallback'
-import ReactDOM from 'react-dom'
 import FakeEditor from '../../../__tests__/FakeEditor'
-import {waitFor} from '@testing-library/react'
+import {waitFor} from '@testing-library/dom'
+import {act} from '@testing-library/react'
 
-jest.mock('react-dom', () => ({
-  ...jest.requireActual('react-dom'),
-  unmountComponentAtNode: jest.fn(),
+jest.mock('../components/IconMakerTray', () => ({
+  IconMakerTray: () => <div data-testid="icon-name" />,
+}))
+
+jest.mock('../../shared/StoreContext', () => ({
+  StoreProvider: ({children}) => children({}),
+}))
+
+jest.mock('../../../../bridge', () => ({
+  __esModule: true,
+  default: {
+    trayProps: {get: () => ({})},
+    canvasOrigin: 'http://localhost',
+  },
 }))
 
 describe('clickCallback()', () => {
@@ -33,7 +45,9 @@ describe('clickCallback()', () => {
     beforeEach(() => (document.body.innerHTML = ''))
 
     it('creates the container', async () => {
-      subject('create_icon_maker_icon')
+      await act(async () => {
+        await subject('create_icon_maker_icon')
+      })
 
       await waitFor(() => {
         expect(document.getElementById(ICONS_TRAY_CONTAINER_ID)).toBeTruthy()
@@ -41,7 +55,9 @@ describe('clickCallback()', () => {
     })
 
     it('mounts the component', async () => {
-      subject('create_icon_maker_icon')
+      await act(async () => {
+        await subject('create_icon_maker_icon')
+      })
 
       await waitFor(() => {
         expect(document.querySelector('[data-testid="icon-name"]')).toBeTruthy()
@@ -51,7 +67,9 @@ describe('clickCallback()', () => {
 
   describe('when the container exists', () => {
     beforeEach(async () => {
-      subject('edit_icon_maker_icon')
+      await act(async () => {
+        await subject('edit_icon_maker_icon')
+      })
 
       await waitFor(() => {
         expect(document.querySelector('[data-testid="icon-name"]')).toBeTruthy()
@@ -59,9 +77,10 @@ describe('clickCallback()', () => {
     })
 
     it('re-mounts the component', async () => {
-      subject('create_icon_maker_icon')
+      await act(async () => {
+        await subject('create_icon_maker_icon')
+      })
 
-      await waitFor(() => expect(ReactDOM.unmountComponentAtNode).toHaveBeenCalled())
       await waitFor(() => {
         expect(document.querySelector('[data-testid="icon-name"]')).toBeTruthy()
       })

@@ -78,45 +78,35 @@ describe "jquery ui" do
     active.send_keys(:tab)
     expect(active.tag_name).to eq "input"
     active.send_keys(:tab)
-    expect(active.tag_name).to eq "a"
+    expect(active.tag_name).to eq "button"
     active.send_keys(:tab)
     expect(active.tag_name).to eq "select"
   end
 
-  it "captures shift-tabbing" do
-    skip_if_chrome("fragile")
-    create_simple_modal
-    active.click # sometimes the viewport doesn't have focus
-    expect(active.tag_name).to eq "select"
-    shift_tab
-    expect(active.tag_name).to eq "button"
-    shift_tab
-    expect(active.tag_name).to eq "input"
-    shift_tab
-    expect(active.tag_name).to eq "select"
-  end
+  # We need to find alternate test case for calendar since the
+  # calender widget has been replaced with InstUI in the assignments modal
 
-  context "calendar widget" do
-    it "lets you replace content by selecting and typing instead of appending" do
-      get "/courses/#{@course.id}/assignments"
+  # context "calendar widget" do
+  #   it "lets you replace content by selecting and typing instead of appending" do
+  #     get "/courses/#{@course.id}/assignments"
 
-      f(".add_assignment").click
-      wait_for_ajaximations
-      f(".ui-datepicker-trigger").click
-      wait_for_ajaximations
-      f(".ui-datepicker-time-hour").send_keys("12")
-      f(".ui-datepicker-time-minute").send_keys("00")
-      f(".ui-datepicker-ok").click
-      wait_for_ajaximations
+  #     f(".add_assignment").click
+  #     wait_for_ajaximations
+  #     f(".ui-datepicker-trigger").click
+  #     wait_for_ajaximations
+  #     f(".ui-datepicker-time-hour").send_keys("12")
+  #     f(".ui-datepicker-time-minute").send_keys("00")
+  #     f(".ui-datepicker-ok").click
+  #     wait_for_ajaximations
 
-      f(".ui-datepicker-trigger").click
-      wait_for_ajaximations
+  #     f(".ui-datepicker-trigger").click
+  #     wait_for_ajaximations
 
-      driver.execute_script("$('#ui-datepicker-time-hour').select();")
-      f("#ui-datepicker-time-hour").send_keys("5")
-      expect(f("#ui-datepicker-time-hour")).to have_attribute("value", "5")
-    end
-  end
+  #     driver.execute_script("$('#ui-datepicker-time-hour').select();")
+  #     f("#ui-datepicker-time-hour").send_keys("5")
+  #     expect(f("#ui-datepicker-time-hour")).to have_attribute("value", "5")
+  #   end
+  # end
 
   context "dialog titles" do
     # jquery ui doesn't escape dialog titles by default (even when inferred from
@@ -125,9 +115,9 @@ describe "jquery ui" do
     # wrap it in a jquery object.
     #
     # see http://bugs.jqueryui.com/ticket/6016
-    it "html-escapes ignored in dialog titles" do
+    it "html-escapes inferred dialog titles" do
       title = "<b>this</b> is the title"
-      expect(driver.execute_script(<<~JS)).to eq "this is the title"
+      expect(driver.execute_script(<<~JS)).to eq title
         return $('<div id="jqueryui_test" title="#{title}">hello</div>')
           .dialog({
             modal: true,
@@ -165,9 +155,9 @@ describe "jquery ui" do
       JS
     end
 
-    it "html-escapes are now ignored in dialog titles" do
+    it "html-escapes explicit string dialog titles" do
       title = "<b>this</b> is the title"
-      expect(driver.execute_script(<<~JS)).to eq "this is the title"
+      expect(driver.execute_script(<<~JS)).to eq title
         return $('<div id="jqueryui_test">hello again</div>')
           .dialog({
             title: #{title.inspect},
@@ -180,42 +170,13 @@ describe "jquery ui" do
       JS
 
       new_title = "and now <i>this</i> is the title"
-      expect(driver.execute_script(<<~JS)).to eq "and now this is the title"
+      expect(driver.execute_script(<<~JS)).to eq new_title
         return $('#jqueryui_test')
           .dialog()
           .dialog('option', 'title', #{new_title.inspect})
           .parent('.ui-dialog')
           .find('.ui-dialog-title')
           .text();
-      JS
-    end
-
-    it "accepts jquery object dialog titles" do
-      skip("FOO-4258, might be able to re-enable this test after jquery-ui upgrade")
-      title = "<i>i want formatting <b>for realz</b></i>"
-      expect(driver.execute_script(<<~JS)).to eq title
-        return $('<div id="jqueryui_test">here we go</div>')
-          .dialog({
-            title: $(#{title.inspect}),
-            modal: true,
-            zIndex: 1000
-          })
-          .parent('.ui-dialog')
-          .find('.ui-dialog-title')
-          .html();
-      JS
-
-      new_title = "<i>i <b>still</b> want formatting</i>"
-      expect(driver.execute_script(<<~JS)).to eq new_title
-        return $('#jqueryui_test')
-          .dialog({
-            modal: true,
-            zIndex: 1000
-          })
-          .dialog('option', 'title', $(#{new_title.inspect}))
-          .parent('.ui-dialog')
-          .find('.ui-dialog-title')
-          .html();
       JS
     end
   end

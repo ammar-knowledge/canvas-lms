@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class AssignmentOverride < ActiveRecord::Base
+class AssignmentOverride < ApplicationRecord
   include Workflow
   include TextHelper
 
@@ -43,6 +43,8 @@ class AssignmentOverride < ActiveRecord::Base
   belongs_to :discussion_topic, inverse_of: :assignment_overrides
   belongs_to :attachment, inverse_of: :assignment_overrides
   belongs_to :set, polymorphic: %i[group course_section course], exhaustive: false
+  belongs_to :parent_override, class_name: "AssignmentOverride", optional: true
+  has_many :child_overrides, class_name: "AssignmentOverride", foreign_key: "parent_override_id", inverse_of: :parent_override, dependent: :destroy
   has_many :assignment_override_students, -> { where(workflow_state: "active") }, inverse_of: :assignment_override, dependent: :destroy, validate: false
   validates :assignment_version, presence: { if: :assignment }
   validates :title, :workflow_state, presence: true
@@ -64,6 +66,8 @@ class AssignmentOverride < ActiveRecord::Base
   validates :set_id, uniqueness: { scope: %i[attachment_id set_type workflow_state],
                                    if: ->(override) { override.attachment? && override.active? && concrete_set.call(override) } }
 
+  validate :validate_parent_override_for_sub_assignment
+
   before_create :set_root_account_id
 
   validate if: concrete_set do |record|
@@ -72,8 +76,14 @@ class AssignmentOverride < ActiveRecord::Base
       when CourseSection
         record.errors.add :set, "not from assignment's course" unless record.set.course_id == record.assignment.context_id
       when Group
+        is_non_collaborative = record.set.non_collaborative?
         valid_group_category_id = record.assignment.effective_group_category_id
-        record.errors.add :set, "not from assignment's group category" unless record.set.group_category_id == valid_group_category_id
+
+        if is_non_collaborative && !record.assignment.context.account.allow_assign_to_differentiation_tags?
+          record.errors.add :set, "not allowed to assign to assignment"
+        elsif !is_non_collaborative && record.set.group_category_id != valid_group_category_id
+          record.errors.add :set, "not from assignment's group category"
+        end
       when Course
         record.errors.add :set, "not from assignment's course" unless record.set.id == record.assignment.context_id
       end
@@ -96,7 +106,7 @@ class AssignmentOverride < ActiveRecord::Base
     record.assignment_override_students.each do |s|
       next if s.valid?
 
-      s.errors.each do |_, error| # rubocop:disable Style/HashEachMethods
+      s.errors.each do |error|
         record.errors.add(:assignment_override_students,
                           error.type,
                           message: error.message)
@@ -142,8 +152,18 @@ class AssignmentOverride < ActiveRecord::Base
       (set.any? && overridable.context.current_enrollments.where(user_id: set).exists?)
   end
 
+  def validate_parent_override_for_sub_assignment
+    if assignment.is_a?(SubAssignment) || assignment.is_a?(PeerReviewSubAssignment)
+      if parent_override_id.blank?
+        errors.add(:parent_override_id, "must be present for overrides belonging to SubAssignment or PeerReviewSubAssignment")
+      end
+    elsif parent_override_id.present?
+      errors.add(:parent_override_id, "can only be set for overrides belonging to SubAssignment or PeerReviewSubAssignment")
+    end
+  end
+
   def update_grading_period_grades
-    return true unless due_at_overridden && saved_change_to_due_at? && !saved_change_to_id?
+    return true unless due_at_overridden && saved_change_to_due_at? && !previously_new_record?
 
     course = overridable&.context || quiz&.assignment&.context
     return true unless course&.grading_periods?
@@ -199,6 +219,9 @@ class AssignmentOverride < ActiveRecord::Base
   end
 
   def update_due_date_smart_alerts
+    return unless assignment&.context&.active_now?
+    return if assignment&.workflow_state != "published"
+
     if due_at.nil? || due_at < Time.zone.now
       ScheduledSmartAlert.find_by(context_type: self.class.name, context_id: id, alert_type: :due_date_reminder)&.destroy
     else
@@ -252,6 +275,7 @@ class AssignmentOverride < ActiveRecord::Base
   def destroy
     transaction do
       assignment_override_students.reload.destroy_all
+      child_overrides.reload.each(&:destroy)
       self.workflow_state = "deleted"
       default_values
       save!(validate: false)
@@ -261,6 +285,8 @@ class AssignmentOverride < ActiveRecord::Base
   end
 
   scope :active, -> { where(workflow_state: "active") }
+
+  scope :adhoc, -> { where(set_type: "ADHOC") }
 
   scope :visible_students_only, lambda { |visible_ids|
     scope = select("assignment_overrides.*")
@@ -301,17 +327,16 @@ class AssignmentOverride < ActiveRecord::Base
     set_type == "ADHOC"
   end
 
+  def course_section?
+    set_type == "CourseSection"
+  end
+
   def mastery_paths?
     set_type == SET_TYPE_NOOP && set_id == NOOP_MASTERY_PATHS
   end
 
   # override set read accessor and set_id read/write accessors so that reading
-  # set/set_id or setting set_id while set_type=ADHOC doesn't try and find the
-  # ADHOC model
-  def set_id
-    read_attribute(:set_id)
-  end
-
+  # set while set_type=ADHOC doesn't try and find the # ADHOC model
   def set
     case self.set_type
     when "ADHOC"
@@ -320,14 +345,6 @@ class AssignmentOverride < ActiveRecord::Base
       super
     else
       nil
-    end
-  end
-
-  def set_id=(id)
-    if ["ADHOC", SET_TYPE_NOOP].include? self.set_type
-      write_attribute(:set_id, id)
-    else
-      super
     end
   end
 
@@ -414,19 +431,19 @@ class AssignmentOverride < ActiveRecord::Base
     new_due_at = CanvasTime.fancy_midnight(new_due_at)
     new_all_day, new_all_day_date = Assignment.all_day_interpretation(
       due_at: new_due_at,
-      due_at_was: read_attribute(:due_at),
-      all_day_was: read_attribute(:all_day),
-      all_day_date_was: read_attribute(:all_day_date)
+      due_at_was: due_at,
+      all_day_was: all_day,
+      all_day_date_was: all_day_date
     )
 
-    write_attribute(:due_at, new_due_at)
-    write_attribute(:all_day, new_all_day)
-    write_attribute(:all_day_date, new_all_day_date)
+    super
+    self.all_day = new_all_day
+    self.all_day_date = new_all_day_date
   end
 
   def lock_at=(new_lock_at)
     new_lock_at = self.class.type_for_attribute(:lock_at).cast(new_lock_at) if new_lock_at.is_a?(String)
-    write_attribute(:lock_at, CanvasTime.fancy_midnight(new_lock_at))
+    super(CanvasTime.fancy_midnight(new_lock_at))
   end
 
   def availability_expired?
@@ -448,6 +465,17 @@ class AssignmentOverride < ActiveRecord::Base
       lock_at:,
       unlock_at:,
       override: self }
+  end
+
+  def as_hash_for(user)
+    hash = as_hash
+
+    # Remove sensitive information if appropriate
+    if set_type == "Group" && !set.grants_right?(user, :read)
+      hash.delete(:title)
+    end
+
+    hash
   end
 
   def applies_to_students
@@ -508,7 +536,7 @@ class AssignmentOverride < ActiveRecord::Base
   def destroy_if_empty_set
     return unless set_type == "ADHOC"
 
-    assignment_override_students.reload if id_before_last_save.nil? # fixes a problem with rails 4.2 caching an empty association scope
+    assignment_override_students.reload if previously_new_record? # fixes a problem with rails 4.2 caching an empty association scope
     destroy if set.empty?
   end
 
@@ -540,6 +568,39 @@ class AssignmentOverride < ActiveRecord::Base
   end
 
   def set_root_account_id
-    write_attribute(:root_account_id, root_account_id) unless read_attribute(:root_account_id)
+    self.root_account_id = root_account_id unless self[:root_account_id]
+  end
+
+  def sub_assignment_due_dates
+    child_overrides.active.preload(:assignment).map do |child|
+      {
+        sub_assignment_tag: child.assignment&.sub_assignment_tag,
+        due_at: child.due_at
+      }
+    end
+  end
+
+  def peer_review_override
+    return nil unless assignment
+
+    peer_review_sub = assignment.peer_review_sub_assignment
+    return nil unless peer_review_sub
+
+    peer_review_sub.active_assignment_overrides.find_by(parent_override_id: id)
+  end
+
+  def peer_review_dates_for_override(peer_review_overrides = nil)
+    peer_review_overrides ||= assignment&.peer_review_overrides_for_dates
+    return nil unless peer_review_overrides
+
+    peer_review_sub = peer_review_overrides[:peer_review_sub]
+    override = peer_review_overrides[:overrides][id]
+    source = override || peer_review_sub
+
+    {
+      due_at: source.due_at,
+      unlock_at: source.unlock_at,
+      lock_at: source.lock_at
+    }
   end
 end

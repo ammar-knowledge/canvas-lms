@@ -27,9 +27,15 @@ class Auditors::GradeChange
   # Cassandra, since it stores them with the placeholder assignment ID above.
   # If we're querying ActiveRecord, we swap this out for an actual IS NULL
   # query instead.
-  COURSE_OVERRIDE_ASSIGNMENT = OpenStruct.new(id: NULL_PLACEHOLDER, global_id: NULL_PLACEHOLDER).freeze
+  class DummyAssignment
+    def id
+      NULL_PLACEHOLDER
+    end
+    alias_method :global_id, :id
+  end
+  COURSE_OVERRIDE_ASSIGNMENT = DummyAssignment.new.freeze
 
-  OverrideGradeChange = Struct.new(:grader, :old_grade, :old_score, :score, keyword_init: true)
+  OverrideGradeChange = Struct.new(:grader, :old_grade, :old_score, :score)
 
   class Record < Auditors::Record
     attributes :account_id,
@@ -156,7 +162,7 @@ class Auditors::GradeChange
 
     delegate :root_account, to: :account
     delegate :account, to: :context
-    delegate :assignment, to: :submission
+    delegate :assignment, :autograded?, to: :submission, allow_nil: true
 
     def course
       context if context_type == "Course"
@@ -202,10 +208,6 @@ class Auditors::GradeChange
     def in_grading_period?
       grading_period_id != Auditors::GradeChange::NULL_PLACEHOLDER
     end
-
-    delegate :assignment, :autograded?, to: :submission, allow_nil: true
-    delegate :account, to: :context
-    delegate :root_account, to: :account
   end
 
   def self.filter_by_assignment(scope)

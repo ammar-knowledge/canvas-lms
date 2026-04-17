@@ -16,6 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 import {
   doUpdateSettings,
   sliceSyncSettings,
@@ -24,9 +26,14 @@ import {
   SYNC_SETTINGS,
 } from '../lib/settingsHelper'
 import {defaultState} from '../lib/settingsReducer'
-import fetchMock from 'fetch-mock'
+
+const server = setupServer()
 
 describe('MicrosoftSyncAccountSettings settingsHelper', () => {
+  beforeAll(() => server.listen())
+  afterAll(() => server.close())
+  afterEach(() => server.resetHandlers())
+
   describe('doUpdateSettings', () => {
     const expectedBody = {
       microsoft_sync_tenant: 'testtenant.com',
@@ -37,29 +44,36 @@ describe('MicrosoftSyncAccountSettings settingsHelper', () => {
     }
 
     let oldEnv
+    let lastRequestUrl = ''
+    let lastRequestBody = null
+
     beforeAll(() => {
       oldEnv = ENV
       ENV = {
-        CONTEXT_BASE_URL: 'accounts/4',
+        CONTEXT_BASE_URL: '/accounts/4',
       }
-      fetchMock.mock('*', 200)
     })
-    beforeEach(() => {})
 
-    afterEach(() => {
-      fetchMock.resetHistory()
+    beforeEach(() => {
+      lastRequestUrl = ''
+      lastRequestBody = null
+      server.use(
+        http.put('/api/v1/accounts/4', async ({request}) => {
+          lastRequestUrl = request.url
+          lastRequestBody = await request.json()
+          return HttpResponse.json({}, {status: 200})
+        }),
+      )
     })
 
     afterAll(() => {
       ENV = oldEnv
-      fetchMock.reset()
     })
 
     it('calls to the correct URL', async () => {
       await doUpdateSettings(expectedBody)
 
-      expect(fetchMock.called()).toBeTruthy()
-      expect(fetchMock.lastCall()[0]).toBe(`/api/v1/${ENV.CONTEXT_BASE_URL}`)
+      expect(lastRequestUrl).toContain(`/api/v1${ENV.CONTEXT_BASE_URL}`)
     })
 
     it('calls with the correct body format', async () => {
@@ -67,8 +81,7 @@ describe('MicrosoftSyncAccountSettings settingsHelper', () => {
         ...expectedBody,
       })
 
-      expect(fetchMock.called()).toBeTruthy()
-      expect(JSON.parse(fetchMock.lastCall()[1].body)).toStrictEqual({
+      expect(lastRequestBody).toStrictEqual({
         account: {
           settings: {
             ...expectedBody,
@@ -99,24 +112,24 @@ describe('MicrosoftSyncAccountSettings settingsHelper', () => {
     it('invalidates a blank tenant', () => {
       const errors = getTenantErrorMessages(createState(''))
 
-      expect(errors.length).toBe(1)
+      expect(errors).toHaveLength(1)
       expect(errors[0].text).toBe(
-        'To toggle Microsoft Teams Sync you need to input a tenant domain.'
+        'To toggle Microsoft Teams Sync you need to input a tenant domain.',
       )
     })
 
     it('invalidates a tenant with an invalid domain name', () => {
       const errors = getTenantErrorMessages(createState('purpleoranges.com$!'))
 
-      expect(errors.length).toBe(1)
+      expect(errors).toHaveLength(1)
       expect(errors[0].text).toBe(
-        'Please provide a valid tenant domain. Check your Azure Active Directory settings to find it.'
+        'Please provide a valid tenant domain. Check your Azure Active Directory settings to find it.',
       )
     })
 
     it('validates a valid tenant', () => {
       const errors = getTenantErrorMessages(createState('canvastest2.onmicrosoft.com'))
-      expect(errors.length).toBe(0)
+      expect(errors).toHaveLength(0)
     })
   })
 
@@ -126,7 +139,7 @@ describe('MicrosoftSyncAccountSettings settingsHelper', () => {
 
       const errors = getSuffixErrorMessages({microsoft_sync_login_attribute_suffix: suffix})
 
-      expect(errors.length).toBe(1)
+      expect(errors).toHaveLength(1)
     })
 
     it('invalidates suffixes that have whitespace in them', () => {
@@ -134,7 +147,7 @@ describe('MicrosoftSyncAccountSettings settingsHelper', () => {
 
       const errors = getSuffixErrorMessages({microsoft_sync_login_attribute_suffix: suffix})
 
-      expect(errors.length).toBe(1)
+      expect(errors).toHaveLength(1)
     })
   })
 })

@@ -16,15 +16,13 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* eslint-disable no-void */
-
 import {extend} from '@canvas/backbone/utils'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {map, find, extend as lodashExtend} from 'lodash'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {map, find, extend as lodashExtend} from 'es-toolkit/compat'
 import Backbone from '@canvas/backbone'
 import CalculationMethodContent from '@canvas/grading/CalculationMethodContent'
 
-const I18n = useI18nScope('modelsOutcome')
+const I18n = createI18nScope('modelsOutcome')
 
 extend(Outcome, Backbone.Model)
 
@@ -32,23 +30,26 @@ function Outcome() {
   return Outcome.__super__.constructor.apply(this, arguments)
 }
 
-Outcome.prototype.defaults = {
-  mastery_points: 3,
-  points_possible: 5,
-  ratings: [
-    {
-      description: I18n.t('criteria.exceeds_expectations', 'Exceeds Expectations'),
-      points: 5,
-    },
-    {
-      description: I18n.t('criteria.meets_expectations', 'Meets Expectations'),
-      points: 3,
-    },
-    {
-      description: I18n.t('criteria.does_not_meet_expectations', 'Does Not Meet Expectations'),
-      points: 0,
-    },
-  ],
+// note that Backbone automatically calls the default function upon model instantiation
+Outcome.prototype.defaults = function () {
+  return {
+    mastery_points: 3,
+    points_possible: 5,
+    ratings: [
+      {
+        description: I18n.t('criteria.exceeds_expectations', 'Exceeds Expectations'),
+        points: 5,
+      },
+      {
+        description: I18n.t('criteria.meets_expectations', 'Meets Expectations'),
+        points: 3,
+      },
+      {
+        description: I18n.t('criteria.does_not_meet_expectations', 'Does Not Meet Expectations'),
+        points: 0,
+      },
+    ],
+  }
 }
 
 Outcome.prototype.setMasteryScales = function () {
@@ -61,14 +62,14 @@ Outcome.prototype.setMasteryScales = function () {
         return function (r) {
           return r.mastery
         }
-      })(this)
+      })(this),
     ).points,
-    // eslint-disable-next-line prefer-spread
+
     points_possible: Math.max.apply(
       Math,
       map(ratings, function (r) {
         return r.points
-      })
+      }),
     ),
   })
 }
@@ -101,7 +102,7 @@ Outcome.prototype.initialize = function () {
           calculation_int: _this.defaultCalculationInt(),
         })
       }
-    })(this)
+    })(this),
   )
   return Outcome.__super__.initialize.apply(this, arguments)
 }

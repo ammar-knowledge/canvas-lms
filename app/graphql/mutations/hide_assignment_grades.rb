@@ -22,8 +22,8 @@ class Mutations::HideAssignmentGrades < Mutations::BaseMutation
   graphql_name "HideAssignmentGrades"
 
   argument :assignment_id, ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Assignment")
-  argument :section_ids, [ID], required: false, prepare: GraphQLHelpers.relay_or_legacy_ids_prepare_func("Section")
   argument :only_student_ids, [ID], required: false, prepare: GraphQLHelpers.relay_or_legacy_ids_prepare_func("User")
+  argument :section_ids, [ID], required: false, prepare: GraphQLHelpers.relay_or_legacy_ids_prepare_func("Section")
   argument :skip_student_ids, [ID], required: false, prepare: GraphQLHelpers.relay_or_legacy_ids_prepare_func("User")
 
   field :assignment, Types::AssignmentType, null: true
@@ -32,7 +32,7 @@ class Mutations::HideAssignmentGrades < Mutations::BaseMutation
 
   def resolve(input:)
     begin
-      assignment = Assignment.find(input[:assignment_id])
+      assignment = AbstractAssignment.find_assignment_or_peer_review(input[:assignment_id])
       course = assignment.context
       sections = input[:section_ids] ? course.course_sections.where(id: input[:section_ids]) : nil
     rescue ActiveRecord::RecordNotFound
@@ -62,7 +62,7 @@ class Mutations::HideAssignmentGrades < Mutations::BaseMutation
       progress.process_job(
         assignment,
         :hide_submissions,
-        { preserve_method_args: true },
+        { preserve_method_args: true, priority: Delayed::HIGH_PRIORITY },
         progress:,
         submission_ids: submissions_scope.pluck(:id),
         skip_content_participation_refresh: false

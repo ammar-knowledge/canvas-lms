@@ -28,16 +28,17 @@ end
 class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
   include Api
   include Api::V1::AssignmentOverride
+  include DiscussionTopicsHelper
 
   graphql_name "CreateDiscussionTopic"
 
+  argument :anonymous_state, Types::DiscussionTopicAnonymousStateType, required: false
+  argument :assignment, Mutations::AssignmentBase::AssignmentCreate, required: false
+  argument :context_id, GraphQL::Schema::Object::ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Context")
+  argument :context_type, Types::DiscussionTopicContextType, required: true
   argument :discussion_type, Types::DiscussionTopicDiscussionType, required: false
   argument :is_announcement, Boolean, required: false
   argument :is_anonymous_author, Boolean, required: false
-  argument :anonymous_state, Types::DiscussionTopicAnonymousStateType, required: false
-  argument :context_id, GraphQL::Schema::Object::ID, required: true, prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Context")
-  argument :context_type, Types::DiscussionTopicContextType, required: true
-  argument :assignment, Mutations::AssignmentBase::AssignmentCreate, required: false
   argument :ungraded_discussion_overrides, [Mutations::AssignmentBase::AssignmentOverrideCreateOrUpdate], required: false
 
   # most arguments inherited from DiscussionBase
@@ -62,18 +63,19 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
       return validation_error(I18n.t("You are not able to create an anonymous discussion"))
     end
 
-    if anonymous_state && discussion_topic_context.is_a?(Group)
-      return validation_error(I18n.t("You are not able to create an anonymous discussion in a group"))
+    if anonymous_state && (discussion_topic_context.is_a?(Group) || input[:group_category_id].present?)
+      return validation_error(I18n.t("You are not able to create a group anonymous discussion"))
     end
 
-    # TODO: return an error when user tries to create a graded anonymous discussion
-
-    if input[:todo_date] && !discussion_topic_context.grants_any_right?(current_user, session, :manage_content, :manage_course_content_add)
+    if input[:todo_date] && !discussion_topic_context.grants_right?(current_user, session, :manage_course_content_add)
       return validation_error(I18n.t("You do not have permission to add this topic to the student to-do list."))
     end
 
     # validate course id for discussion topic and assignment match
     if input.key?(:assignment) && input[:assignment].present?
+      if anonymous_state
+        return validation_error(I18n.t("You are not able to create a graded anonymous discussion")) if input[:assignment].present?
+      end
       assignment_context_id = GraphQLHelpers.parse_relay_or_legacy_id(input[:assignment].to_h[:course_id], "Course")
       if assignment_context_id != discussion_topic_context.id.to_s
         return validation_error(I18n.t("Assignment context_id must match discussion topic context_id"))
@@ -83,6 +85,12 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
     # TODO: return an error when user tries to add a todo_date to a graded discussion
 
     is_announcement = input[:is_announcement] || false
+
+    if input[:checkpoints].present?
+      # If discussion topic has checkpoints, the sum of possible points cannot exceed the max for the assignment
+      err_message = validate_possible_points_with_checkpoints(input)
+      return validation_error(err_message) unless err_message.nil?
+    end
 
     # TODO: On update, we load here instead of creating a new one.
     discussion_topic = is_announcement ? Announcement.new : DiscussionTopic.new
@@ -102,7 +110,7 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
       discussion_topic.anonymous_state = anonymous_state
     end
 
-    if (!input.key?(:ungraded_discussion_overrides) && !Account.site_admin.feature_enabled?(:selective_release_ui_api)) || is_announcement
+    if is_announcement
       # TODO: deprecate discussion_topic_section_visibilities for assignment_overrides LX-1498
       set_sections(input[:specific_sections], discussion_topic)
       invalid_sections = verify_specific_section_visibilities(discussion_topic) || []
@@ -112,9 +120,15 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
       end
     end
 
+    # Validating default expand input data
+    if input.key?(:expanded) && input.key?(:expanded_locked) && !input[:expanded] && input[:expanded_locked]
+      return validation_error(I18n.t("Cannot set default thread state locked, when threads are collapsed"))
+    end
+
     process_common_inputs(input, is_announcement, discussion_topic)
     process_future_date_inputs(input.slice(:delayed_post_at, :lock_at), discussion_topic)
     process_locked_parameter(input[:locked], discussion_topic)
+    save_lock_preferences(input[:locked], discussion_topic)
 
     if input.key?(:assignment) && input[:assignment].present?
       working_assignment = Mutations::CreateAssignment.new(object:, context:, field: nil)
@@ -123,12 +137,21 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
       if working_assignment[:errors].present?
         return validation_error(working_assignment[:errors])
       elsif working_assignment.present?
-        discussion_topic.assignment = working_assignment&.[](:assignment)
+        created_assignment = working_assignment[:assignment]
+
+        discussion_topic.assignment = created_assignment
+        discussion_topic.lock_at = created_assignment.lock_at
+        discussion_topic.unlock_at = created_assignment.unlock_at
+      end
+
+      if input.dig(:assignment, :for_checkpoints) && AssignmentUtil.due_date_required_for_account?(discussion_topic_context) && input[:assignment][:post_to_sis] && any_due_at_nil?(input[:checkpoints])
+        return validation_error(I18n.t("Due dates cannot be blank when Post to Sis is checked"))
       end
 
       # Assignment must be present to set checkpoints
       if input[:checkpoints]&.count == DiscussionTopic::REQUIRED_CHECKPOINT_COUNT
         return validation_error(I18n.t("If checkpoints are defined, forCheckpoints: true must be provided to the discussion topic assignment.")) unless input.dig(:assignment, :for_checkpoints)
+        return validation_error(I18n.t("If Restrict Quantitative Data is enabled, checkpoints cannot be created")) if discussion_topic_context.is_a?(Course) && discussion_topic_context.settings[:restrict_quantitative_data]
 
         input[:checkpoints].each do |checkpoint|
           dates = checkpoint[:dates]
@@ -138,7 +161,8 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
             checkpoint_label: checkpoint[:checkpoint_label],
             points_possible: checkpoint[:points_possible],
             dates:,
-            replies_required: checkpoint[:replies_required]
+            replies_required: checkpoint[:replies_required],
+            updating_user: current_user
           )
         end
       end
@@ -170,6 +194,14 @@ class Mutations::CreateDiscussionTopic < Mutations::DiscussionBase
       Group.find(context_id)
     else
       nil
+    end
+  end
+
+  def any_due_at_nil?(checkpoints_data)
+    checkpoints_data.any? do |ck|
+      ck[:dates].any? do |date_entry|
+        date_entry[:due_at].nil?
+      end
     end
   end
 end

@@ -17,11 +17,11 @@
  */
 
 import {string} from 'prop-types'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 export const AssignmentGroup = {
   fragment: gql`
-    fragment AssignmentGroup on AssignmentGroup {
+    fragment EditV2AssignmentGroup on AssignmentGroup {
       _id
       id
       name

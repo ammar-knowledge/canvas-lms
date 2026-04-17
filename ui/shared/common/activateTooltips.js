@@ -146,7 +146,7 @@ function using(position, feedback) {
         // if tooltip was positioned mostly above/below trigger then: "vertical"
         // else since the tooltip was positioned more to the left or right: "horizontal"
         feedback.important,
-      ].join(' ')
+      ].join(' '),
     )
 }
 
@@ -178,7 +178,12 @@ $('body').on('mouseenter focusin', '[data-tooltip]', function (_event) {
     .removeAttr('data-tooltip')
     .timeoutTooltip(opts)
     .timeoutTooltip('open')
-    .click(() => $this.timeoutTooltip('close'))
+    .click(() => {
+      // Check if tooltip widget instance exists before calling methods
+      if ($this.data('ui-tooltip')) {
+        $this.timeoutTooltip('close')
+      }
+    })
 })
 
 const restartTooltip = event => (tooltipsToShortCirtuit[event.target] = false)

@@ -25,13 +25,34 @@ module Types
     implements Interfaces::TimestampInterface
     implements Interfaces::LegacyIDInterface
 
-    field :workflow_state, String, null: false
     field :asset_id, String, null: false
     field :available, Boolean, method: :available?, null: true
+    field :workflow_state, String, null: false
 
     field :user, UserType, null: false
     def user
       load_association(:user)
+    end
+
+    field :submission, SubmissionType, null: true do
+      description "The submission being peer reviewed"
+    end
+    def submission
+      load_association(:asset)
+    end
+
+    field :submission_comments, [SubmissionCommentType], null: true do
+      description "Assessor's comments for the submission being peer reviewed"
+    end
+    def submission_comments
+      load_association(:submission_comments)
+    end
+
+    field :rubric_assessment, RubricAssessmentType, null: true do
+      description "Assessor's rubric assessment for the submission being peer reviewed"
+    end
+    def rubric_assessment
+      load_association(:rubric_assessment)
     end
 
     field :anonymized_user, UserType, null: true

@@ -16,15 +16,15 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {groupBy, map, reduce, union} from 'lodash'
+import {groupBy, union, map, reduce} from 'es-toolkit/compat'
 import React from 'react'
 import PropTypes from 'prop-types'
 import DueDateTokenWrapper from './DueDateTokenWrapper'
 import DueDateCalendars from './DueDateCalendars'
 import DueDateRemoveRowLink from './DueDateRemoveRowLink'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('DueDateRow')
+const I18n = createI18nScope('DueDateRow')
 
 class DueDateRow extends React.Component {
   static propTypes = {
@@ -71,14 +71,14 @@ class DueDateRow extends React.Component {
         } else {
           return 'adhocOverrides'
         }
-      }
+      },
     )
 
     return union(
       this.tokenizedSections(sectionOverrides),
       this.tokenizedGroups(groupOverrides),
       this.tokenizedAdhoc(adhocOverrides),
-      this.tokenizedNoop(noopOverrides)
+      this.tokenizedNoop(noopOverrides),
     )
   }
 
@@ -110,7 +110,7 @@ class DueDateRow extends React.Component {
         const tokensForStudents = map(ov.get('student_ids'), this.tokenFromStudentId.bind(this))
         return overrideTokens.concat(tokensForStudents)
       },
-      []
+      [],
     )
   }
 

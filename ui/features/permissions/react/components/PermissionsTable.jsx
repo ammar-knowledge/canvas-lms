@@ -16,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {Component, Fragment} from 'react'
 import {arrayOf, func} from 'prop-types'
 import {connect} from 'react-redux'
 import $ from 'jquery'
-import {maxBy} from 'lodash'
+import {maxBy} from 'es-toolkit/compat'
 // For screenreaderFlashMessageExclusive  Maybe there's a better way
 import '@canvas/rails-flash-notifications'
 
@@ -32,12 +32,11 @@ import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 
 import actions from '../actions'
-import {GROUP_PERMISSION_DESCRIPTIONS} from '../templates/groupPermissionDescriptions'
-import {ConnectedPermissionButton} from './PermissionButton'
-import {ConnectedGranularCheckbox} from './GranularCheckbox'
+import PermissionButton from './PermissionButton'
+import GranularCheckbox from './GranularCheckbox'
 import propTypes from '@canvas/permissions/react/propTypes'
 
-const I18n = useI18nScope('permissions')
+const I18n = createI18nScope('permissions')
 
 const GRANULAR_PERMISSION_TAG = 'ic-permissions__grp-tag'
 
@@ -45,6 +44,7 @@ export default class PermissionsTable extends Component {
   static propTypes = {
     roles: arrayOf(propTypes.role).isRequired,
     permissions: arrayOf(propTypes.permission).isRequired,
+    permissionGroups: propTypes.permissionGroups.isRequired,
     setAndOpenRoleTray: func.isRequired,
     setAndOpenPermissionTray: func.isRequired,
   }
@@ -87,7 +87,7 @@ export default class PermissionsTable extends Component {
     // operation that JUST happened.
     if (!this.tableRef.current) return
     const newGranulars = this.tableRef.current.querySelectorAll(
-      `tr.${GRANULAR_PERMISSION_TAG}-${this.justExpanded}`
+      `tr.${GRANULAR_PERMISSION_TAG}-${this.justExpanded}`,
     )
     if (newGranulars.length === 0) return
 
@@ -133,7 +133,7 @@ export default class PermissionsTable extends Component {
             <th
               key={role.id}
               scope="col"
-              aria-label={role.label}
+              data-role-name={role.label}
               className="ic-permissions__top-header__col-wrapper-th"
             >
               <div className="ic-permissions__top-header__col-wrapper">
@@ -167,11 +167,12 @@ export default class PermissionsTable extends Component {
     const granulars = perm.granular_permissions
     const hasGranulars = granulars?.length > 0
     const isGranular = perm.granular_permission_group
+    const {permissionGroups} = this.props
 
     const toggleExpanded = () => {
       this.setState(prevState => {
         // Need to make a copy to avoid mutating existing state
-        // eslint-disable-next-line prefer-object-spread
+
         const expanded = Object.assign({}, prevState.expanded)
         expanded[name] = !expanded[name]
 
@@ -188,13 +189,14 @@ export default class PermissionsTable extends Component {
     }
 
     function renderGroupDescription() {
-      const description = GROUP_PERMISSION_DESCRIPTIONS[name]
-      if (typeof description !== 'function') return null
+      const description =
+        (perm.contextType == 'Course' && permissionGroups[name].course_subtitle) ||
+        permissionGroups[name].subtitle
 
       return [
         <br key="group-description-br" />,
         <Text key="group-description-text" weight="light" size="small">
-          {description(perm.contextType)}
+          {description}
         </Text>,
       ]
     }
@@ -246,7 +248,7 @@ export default class PermissionsTable extends Component {
         {this.renderLeftHeader(permission)}
         {this.props.roles.map(role => (
           <td key={role.id}>
-            <ConnectedGranularCheckbox
+            <GranularCheckbox
               permission={role.permissions[permission.permission_name]}
               permissionName={permission.permission_name}
               permissionLabel={permission.label}
@@ -271,7 +273,7 @@ export default class PermissionsTable extends Component {
                 {this.props.roles.map(role => (
                   <td key={role.id} id={`${perm.permission_name}_role_${role.id}`}>
                     <div className="ic-permissions__cell-content">
-                      <ConnectedPermissionButton
+                      <PermissionButton
                         permission={role.permissions[perm.permission_name]}
                         permissionName={perm.permission_name}
                         permissionLabel={perm.label}
@@ -305,6 +307,7 @@ function mapStateToProps(state, ownProps) {
   const stateProps = {
     roles: state.roles.filter(r => r.displayed),
     permissions: state.permissions.filter(p => p.displayed),
+    permissionGroups: state.permissionGroups,
   }
   return {...ownProps, ...stateProps}
 }
@@ -316,5 +319,5 @@ const mapDispatchToProps = {
 
 export const ConnectedPermissionsTable = connect(
   mapStateToProps,
-  mapDispatchToProps
+  mapDispatchToProps,
 )(PermissionsTable)

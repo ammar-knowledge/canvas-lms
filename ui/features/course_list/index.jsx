@@ -17,58 +17,59 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender, legacyUnmountComponentAtNode} from '@canvas/react'
 import {CreateCourseModal} from '@canvas/create-course-modal/react/CreateCourseModal'
 import $ from 'jquery'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import ready from '@instructure/ready'
 
-const I18n = useI18nScope('course_list')
-
-function success(target) {
-  const courseName = target[0].dataset.courseName
-  const favorited_tooltip = I18n.t(
-    'favorited_tooltip',
-    'Click to remove %{course_name} from the courses menu.',
-    {course_name: courseName}
-  )
-  const nonfavorite_tooltip = I18n.t(
-    'nonfavorited_tooltip',
-    'Click to add %{course_name} to the courses menu.',
-    {course_name: courseName}
-  )
-  const notfavoritable_tooltip = I18n.t(
-    '%{course_name} cannot be added to the courses menu unless the course is active.',
-    {course_name: courseName}
-  )
-
-  if (target.hasClass('course-list-favorite-course')) {
-    target.removeClass('course-list-favorite-course')
-    if (target.hasClass('course-list-not-favoritable')) {
-      target.removeAttr('data-favorite-url') // Remove the data so it won't be used later.
-      target.off('click keyclick')
-      target.attr('title', notfavoritable_tooltip)
-      target.data('ui-tooltip-title', notfavoritable_tooltip)
-      target.children('.screenreader-only').text(notfavoritable_tooltip)
-      return
-    }
-
-    target.attr('title', nonfavorite_tooltip)
-    // The tooltip wouldn't update with just changing the title so
-    // it's forced to do so here. Same below in the else case.
-    target.data('ui-tooltip-title', nonfavorite_tooltip)
-    target.children('.screenreader-only').text(nonfavorite_tooltip)
-    target.children('.course-list-favorite-icon').toggleClass('icon-star icon-star-light')
-  } else {
-    target.addClass('course-list-favorite-course')
-    target.attr('title', favorited_tooltip)
-    target.data('ui-tooltip-title', favorited_tooltip)
-    target.children('.screenreader-only').text(favorited_tooltip)
-    target.children('.course-list-favorite-icon').toggleClass('icon-star icon-star-light')
-  }
-}
+const I18n = createI18nScope('course_list')
 
 ready(() => {
+  function success(target) {
+    const courseName = target[0].dataset.courseName
+    const favorited_tooltip = I18n.t(
+      'favorited_tooltip',
+      'Click to remove %{course_name} from the courses menu.',
+      {course_name: courseName},
+    )
+    const nonfavorite_tooltip = I18n.t(
+      'nonfavorited_tooltip',
+      'Click to add %{course_name} to the courses menu.',
+      {course_name: courseName},
+    )
+    const notfavoritable_tooltip = I18n.t(
+      '%{course_name} cannot be added to the courses menu unless the course is active.',
+      {course_name: courseName},
+    )
+
+    if (target.hasClass('course-list-favorite-course')) {
+      target.removeClass('course-list-favorite-course')
+      if (target.hasClass('course-list-not-favoritable')) {
+        target.removeAttr('data-favorite-url') // Remove the data so it won't be used later.
+        target.off('click keyclick')
+        target.attr('title', notfavoritable_tooltip)
+        target.data('ui-tooltip-title', notfavoritable_tooltip)
+        target.children('.screenreader-only').text(notfavoritable_tooltip)
+        target.hide()
+        return
+      }
+
+      target.attr('title', nonfavorite_tooltip)
+      // The tooltip wouldn't update with just changing the title so
+      // it's forced to do so here. Same below in the else case.
+      target.data('ui-tooltip-title', nonfavorite_tooltip)
+      target.children('.screenreader-only').text(nonfavorite_tooltip)
+      target.children('.course-list-favorite-icon').toggleClass('icon-star icon-star-light')
+    } else {
+      target.addClass('course-list-favorite-course')
+      target.attr('title', favorited_tooltip)
+      target.data('ui-tooltip-title', favorited_tooltip)
+      target.children('.screenreader-only').text(favorited_tooltip)
+      target.children('.course-list-favorite-icon').toggleClass('icon-star icon-star-light')
+    }
+  }
+
   $('[data-favorite-url]').on('click keyclick', function (event) {
     event.preventDefault()
     const url = $(this).data('favoriteUrl')
@@ -85,17 +86,17 @@ ready(() => {
     const container = document.getElementById('create_subject_modal_container')
     if (container) {
       startButton.addEventListener('click', () => {
-        ReactDOM.render(
+        legacyRender(
           <CreateCourseModal
             isModalOpen={true}
             setModalOpen={isOpen => {
-              if (!isOpen) ReactDOM.unmountComponentAtNode(container)
+              if (!isOpen) legacyUnmountComponentAtNode(container)
             }}
             permissions={ENV.CREATE_COURSES_PERMISSIONS.PERMISSION}
             restrictToMCCAccount={ENV.CREATE_COURSES_PERMISSIONS.RESTRICT_TO_MCC_ACCOUNT}
             isK5User={ENV.K5_USER}
           />,
-          container
+          container,
         )
       })
     }

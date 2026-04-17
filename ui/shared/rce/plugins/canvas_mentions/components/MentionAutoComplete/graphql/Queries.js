@@ -16,18 +16,23 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 export const MENTIONABLE_USERS_QUERY = gql`
-  query GetMentionableUsers($discussionTopicId: ID!, $searchTerm: String!) {
+  query GetMentionableUsers($discussionTopicId: ID!, $searchTerm: String!, $after: String) {
     legacyNode(_id: $discussionTopicId, type: Discussion) {
       ... on Discussion {
         id
-        mentionableUsersConnection(searchTerm: $searchTerm) {
+        mentionableUsersConnection(searchTerm: $searchTerm, first: 20, after: $after) {
           nodes {
             id
             _id
             name
+            shortName
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
           }
         }
       }

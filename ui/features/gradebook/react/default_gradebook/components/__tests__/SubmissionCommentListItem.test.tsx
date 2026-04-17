@@ -33,7 +33,7 @@ describe('SubmissionCommentListItem', () => {
       createdAt: new Date(),
       editedAt: null,
       currentUserIsAuthor: true,
-      comment: 'a comment',
+      comment: '<p>a comment</p>',
       editing: false,
       editSubmissionComment() {},
       last: false,
@@ -49,7 +49,7 @@ describe('SubmissionCommentListItem', () => {
   }
 
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   test('it has an Avatar with the proper properties', function () {
@@ -77,13 +77,18 @@ describe('SubmissionCommentListItem', () => {
     expect(screen.getByText('An Author')).toBeInTheDocument()
   })
 
-  test('include the comment', function () {
+  test('includes the comment without html tags', function () {
     mountComponent()
-    expect(screen.getByText('a comment')).toBeInTheDocument()
+    expect(screen.getByTestId('comment').textContent).toBe('a comment')
+  })
+
+  test('preserves \n formatting in a comment', function () {
+    mountComponent({comment: 'formatted\ncomment'})
+    expect(screen.getByTestId('comment').innerHTML).toBe('formatted<br>\ncomment')
   })
 
   test('clicking the edit icon calls editSubmissionComment with the comment id', function () {
-    const editSubmissionComment = jest.fn()
+    const editSubmissionComment = vi.fn()
     wrapper = mountComponent({editSubmissionComment})
     fireEvent.click(wrapper.container.querySelector('svg[name="IconEdit"]'))
     expect(editSubmissionComment).toHaveBeenCalledTimes(1)
@@ -91,13 +96,13 @@ describe('SubmissionCommentListItem', () => {
   })
 
   test('renders a SubmissionCommentUpdateForm if editing', function () {
-    const updateForm = (SubmissionCommentUpdateForm.prototype.componentDidMount = jest.fn())
+    const updateForm = (SubmissionCommentUpdateForm.prototype.componentDidMount = vi.fn())
     wrapper = mountComponent({editing: true})
     expect(updateForm).toHaveBeenCalledTimes(1)
   })
 
   test('does not render a SubmissionCommentUpdateForm if not editing', function () {
-    const updateForm = (SubmissionCommentUpdateForm.prototype.componentDidMount = jest.fn())
+    const updateForm = (SubmissionCommentUpdateForm.prototype.componentDidMount = vi.fn())
     wrapper = mountComponent()
     expect(updateForm).toHaveBeenCalledTimes(0)
   })
@@ -163,8 +168,8 @@ describe('SubmissionCommentListItem', () => {
     }
 
     test('clicking the trash icon calls deleteSubmissionComment', function () {
-      const confirmStub = jest.spyOn(window, 'confirm').mockReturnValue(true)
-      const deleteSubmissionComment = jest.fn()
+      const confirmStub = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      const deleteSubmissionComment = vi.fn()
       deleteSubmissionMountComponent({id: '42', deleteSubmissionComment})
       fireEvent.click(wrapper.container.querySelector('svg[name="IconTrash"]'))
       expect(confirmStub).toHaveBeenCalledTimes(1)
@@ -174,8 +179,8 @@ describe('SubmissionCommentListItem', () => {
     })
 
     test('when confirm is false, deleteSubmissionComment is not called', function () {
-      jest.spyOn(window, 'confirm').mockReturnValue(false)
-      const deleteSubmissionComment = jest.fn()
+      vi.spyOn(window, 'confirm').mockReturnValue(false)
+      const deleteSubmissionComment = vi.fn()
       deleteSubmissionMountComponent({deleteSubmissionComment})
       fireEvent.click(wrapper.container.querySelector('svg[name="IconTrash"]'))
       expect(deleteSubmissionComment).toHaveBeenCalledTimes(0)

@@ -17,14 +17,16 @@
 
 import $ from 'jquery'
 import CourseRestore from './CourseRestore'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import '@canvas/forms/jquery/jquery.instructure_forms'
 
-const I18n = useI18nScope('user_restore')
+const I18n = createI18nScope('user_restore')
 
 export default class UserRestore extends CourseRestore {
   searchUrl() {
-    return `/accounts/${this.get('account_id')}/users/${this.get('id')}.json`
+    return `/accounts/${this.get('account_id')}/users/${this.get(
+      'id',
+    )}.json?include_deleted_users=true`
   }
 
   // @api public
@@ -32,8 +34,18 @@ export default class UserRestore extends CourseRestore {
     this.trigger('restoring')
     const deferred = $.Deferred()
 
-    let restoreError
-    let restoreSuccess
+    const restoreError = (_response = {}) => {
+      $.flashError(
+        I18n.t('There was an error attempting to restore the user. User was not restored.'),
+      )
+      return deferred.reject()
+    }
+
+    const restoreSuccess = response => {
+      this.set({login_id: response.login_id, restored: true})
+      this.trigger('doneRestoring')
+      return deferred.resolve()
+    }
 
     const ajaxRequest = (url, method = 'GET') =>
       $.ajax({
@@ -42,19 +54,6 @@ export default class UserRestore extends CourseRestore {
         success: restoreSuccess,
         error: restoreError,
       })
-
-    restoreError = (_response = {}) => {
-      $.flashError(
-        I18n.t('There was an error attempting to restore the user. User was not restored.')
-      )
-      return deferred.reject()
-    }
-
-    restoreSuccess = response => {
-      this.set({login_id: response.login_id, restored: true})
-      this.trigger('doneRestoring')
-      return deferred.resolve()
-    }
 
     ajaxRequest(`/api/v1/accounts/${this.get('account_id')}/users/${this.get('id')}/restore`, 'PUT')
     return deferred

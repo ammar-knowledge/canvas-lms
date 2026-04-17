@@ -16,9 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
-import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import type React from 'react'
+import type {Root} from 'react-dom/client'
+import {render} from '@canvas/react'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Button} from '@instructure/ui-buttons'
 import {View} from '@instructure/ui-view'
 import Modal from './InstuiModal'
@@ -33,7 +34,12 @@ import {Text} from '@instructure/ui-text'
 export type ConfirmProps = {
   title: string
   heading?: string
-  message: React.ReactNode
+  message?: React.ReactNode
+
+  /**
+   * To facilitate rich-text and rich-text I18n (I18n with wrapper(s))
+   */
+  messageDangerouslySetInnerHTML?: {__html: string}
 
   /**
    * defaults to primary except when calling confirmDanger()
@@ -52,7 +58,7 @@ export type ConfirmProps = {
 }
 
 export function confirmDanger(
-  confirmProps: Omit<ConfirmProps, 'confirmButtonColor'>
+  confirmProps: Omit<ConfirmProps, 'confirmButtonColor'>,
 ): Promise<boolean> {
   return confirm({
     ...confirmProps,
@@ -67,24 +73,28 @@ export function confirm(confirmProps: ConfirmProps): Promise<boolean> {
     container.setAttribute('style', 'max-width:5em;margin:1rem auto;')
     container.setAttribute('class', 'flashalert-message')
     alertContainer.appendChild(container)
+
+    let root: Root | null = null
+
     const handleConfirm = () => {
-      ReactDOM.unmountComponentAtNode(container)
+      root?.unmount()
       alertContainer.removeChild(container)
       resolve(true)
     }
     const handleCancel = () => {
-      ReactDOM.unmountComponentAtNode(container)
+      root?.unmount()
       alertContainer.removeChild(container)
       resolve(false)
     }
-    ReactDOM.render(
+
+    root = render(
       <ConfirmationModal {...confirmProps} onConfirm={handleConfirm} onCancel={handleCancel} />,
-      container
+      container,
     )
   })
 }
 
-const I18n = useI18nScope('modal')
+const I18n = createI18nScope('modal')
 
 type ConfirmationModalProps = ConfirmProps & {
   onConfirm: () => void
@@ -95,6 +105,7 @@ const ConfirmationModal = ({
   title: label,
   heading,
   message,
+  messageDangerouslySetInnerHTML,
   confirmButtonColor: confirmColor,
   confirmButtonLabel: confirmText,
   cancelButtonLabel: cancelText,
@@ -112,14 +123,17 @@ const ConfirmationModal = ({
       <Modal.Body>
         {heading && <Heading level="h3">{heading}</Heading>}
         {typeof message === 'string' ? <Text as="p">{message}</Text> : message}
+        {messageDangerouslySetInnerHTML && (
+          <Text as="p" dangerouslySetInnerHTML={messageDangerouslySetInnerHTML} />
+        )}
       </Modal.Body>
 
       <Modal.Footer>
-        <View as="div" margin="small 0 0 0">
-          <Button margin="x-small" onClick={onCancel}>
+        <View as="div" margin="x-small 0 x-small 0">
+          <Button margin="0 x-small" onClick={onCancel}>
             {cancelText || I18n.t('Cancel')}
           </Button>
-          <Button margin="x-small" color={confirmColor || 'primary'} onClick={onConfirm}>
+          <Button margin="0 x-small" color={confirmColor || 'primary'} onClick={onConfirm}>
             {confirmText || I18n.t('Confirm')}
           </Button>
         </View>
@@ -138,7 +152,7 @@ function getConfirmContainer() {
     confirmContainer.id = messageHolderId
     confirmContainer.setAttribute(
       'style',
-      'position: fixed; top: 0; left: 0; width: 100%; z-index: 100000;'
+      'position: fixed; top: 0; left: 0; width: 100%; z-index: 100000;',
     )
     document.body.appendChild(confirmContainer)
   }

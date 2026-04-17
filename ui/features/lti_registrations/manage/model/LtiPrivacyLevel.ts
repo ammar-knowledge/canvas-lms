@@ -16,9 +16,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import * as z from 'zod'
-import {useScope as useI18nScope} from '@canvas/i18n'
-
-const I18n = useI18nScope('external_tools')
 
 /**
  * The set of Privacy Levels that a tool can be configured with.
@@ -40,45 +37,17 @@ export const AllLtiPrivacyLevels = [
 export const ZLtiPrivacyLevel = z.enum(AllLtiPrivacyLevels)
 
 /**
+ * The default privacy level for an LTI tool, if one isn't provided.
+ */
+export const DefaultLtiPrivacyLevel = LtiPrivacyLevels.Anonymous
+
+/**
  * Returns true if the given value is a valid LTI privacy level.
  * @param setting
  * @returns
  */
 export const isLtiPrivacyLevel = (setting: unknown): setting is LtiPrivacyLevel =>
   Object.values(LtiPrivacyLevels).includes(setting as LtiPrivacyLevel)
-
-const LtiPrivacyLevelTranslations: Record<LtiPrivacyLevel, string> = {
-  [LtiPrivacyLevels.Public]: I18n.t('All user data'),
-  [LtiPrivacyLevels.NameOnly]: I18n.t("User's name only"),
-  [LtiPrivacyLevels.EmailOnly]: I18n.t("User's email only"),
-  [LtiPrivacyLevels.Anonymous]: I18n.t('None (Anonymized)'),
-}
-
-const LtiPrivacyLevelDescriptions: Record<LtiPrivacyLevel, string> = {
-  [LtiPrivacyLevels.Public]: I18n.t(
-    'Includes: Canvas ID, Name, First Name, Last Name, SIS ID, Avatar, and Email Address'
-  ),
-  [LtiPrivacyLevels.NameOnly]: I18n.t(
-    'Includes: Canvas ID, Name, First Name, Last Name, SIS ID, and Avatar'
-  ),
-  [LtiPrivacyLevels.EmailOnly]: I18n.t('Includes: Canvas ID and Email Address'),
-  [LtiPrivacyLevels.Anonymous]: I18n.t('Includes: Canvas ID'),
-}
-
-/**
- * Returns the translation for the given LTI privacy level.
- * @param level
- * @returns string that contains a human readable translation
- */
-export const i18nLtiPrivacyLevel = (level: LtiPrivacyLevel) => LtiPrivacyLevelTranslations[level]
-
-/**
- * Returns the description for the given LTI privacy level.
- * @param level
- * @returns string that contains a human readable description of what information a privacy level includes
- */
-export const i18nLtiPrivacyLevelDescription = (level: LtiPrivacyLevel) =>
-  LtiPrivacyLevelDescriptions[level]
 
 /**
  * Identifier for an LTI privacy setting.

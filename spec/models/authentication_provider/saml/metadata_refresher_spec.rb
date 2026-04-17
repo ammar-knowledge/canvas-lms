@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../../spec_helper"
-
 describe AuthenticationProvider::SAML::MetadataRefresher do
   let(:subject) { AuthenticationProvider::SAML::MetadataRefresher }
 
@@ -42,14 +40,14 @@ describe AuthenticationProvider::SAML::MetadataRefresher do
 
     it "doesn't populate if nothing changed" do
       expect(subject).to receive(:refresh_if_necessary).with(saml1.global_id, "1").and_return(false)
-      expect(saml1).not_to receive(:populate_from_metadata_xml)
+      expect(saml1).not_to receive(:metadata=)
 
       subject.refresh_providers
     end
 
     it "does populate, but doesn't save, if the XML changed, but nothing changes on the model" do
       expect(subject).to receive(:refresh_if_necessary).with(saml1.global_id, "1").and_return("xml")
-      expect_any_instantiation_of(saml1).to receive(:populate_from_metadata_xml).with("xml")
+      expect_any_instantiation_of(saml1).to receive(:metadata=).with("xml")
       expect_any_instantiation_of(saml1).not_to receive(:save!)
 
       subject.refresh_providers
@@ -57,7 +55,7 @@ describe AuthenticationProvider::SAML::MetadataRefresher do
 
     it "populates and saves" do
       expect(subject).to receive(:refresh_if_necessary).with(saml1.global_id, "1").and_return("xml")
-      expect_any_instantiation_of(saml1).to receive(:populate_from_metadata_xml).with("xml")
+      expect_any_instantiation_of(saml1).to receive(:metadata=).with("xml")
       expect_any_instantiation_of(saml1).to receive(:changed?).and_return(true)
       expect_any_instantiation_of(saml1).to receive(:save!).once
 
@@ -71,10 +69,19 @@ describe AuthenticationProvider::SAML::MetadataRefresher do
 
       subject.refresh_providers
     end
+
+    it "uses MDQ-constructed metadata URIs" do
+      expect(subject).to receive(:refresh_if_necessary)
+        .with(saml1.global_id, "https://mdq.incommon.org/entities/urn%3Amace%3Aincommon%3Amyschool.edu")
+        .and_return(false)
+
+      saml1.update!(metadata_uri: AuthenticationProvider::SAML::InCommon::URN, idp_entity_id: "urn:mace:incommon:myschool.edu")
+      subject.refresh_providers
+    end
   end
 
   describe ".refresh_if_necessary" do
-    let(:redis) { double("redis") }
+    let(:redis) { instance_double(Redis) }
 
     before do
       allow(Canvas).to receive_messages(redis_enabled?: true, redis:)
@@ -96,7 +103,7 @@ describe AuthenticationProvider::SAML::MetadataRefresher do
 
     it "returns false if not modified" do
       expect(redis).to receive(:get).and_return("MyETag")
-      response = double("response")
+      response = instance_double(Net::HTTPResponse)
       expect(response).to receive(:is_a?).with(Net::HTTPNotModified).and_return(true)
 
       expect(CanvasHttp).to receive(:get).with("url", { "If-None-Match" => "MyETag" }).and_yield(response)
@@ -106,11 +113,11 @@ describe AuthenticationProvider::SAML::MetadataRefresher do
 
     it "sets the ETag if provided" do
       expect(redis).to receive(:get).and_return(nil)
-      response = double("response")
+      response = instance_double(Net::HTTPResponse)
       expect(response).to receive(:is_a?).with(Net::HTTPNotModified).and_return(false)
       expect(response).to receive(:value)
       allow(response).to receive(:[]).with("ETag").and_return("NewETag")
-      expect(redis).to receive(:set).with("saml_1_etag", "NewETag")
+      expect(redis).to receive(:set).with("auth_provider_refresh_572d4e421e5e6b9bc11d815e8a027112_etag", "NewETag")
       expect(response).to receive(:body).and_return("xml")
 
       expect(CanvasHttp).to receive(:get).with("url", {}).and_yield(response)

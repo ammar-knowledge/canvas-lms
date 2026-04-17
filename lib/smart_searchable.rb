@@ -39,6 +39,7 @@ module SmartSearchable
     def use_smart_search(title_column:, body_column:, index_scope:, search_scope:)
       class_eval do
         include HtmlTextHelper
+
         has_many :embeddings, class_name: embedding_class_name, inverse_of: table_name.singularize.to_sym
         cattr_accessor :search_title_column, :search_body_column
         attr_accessor :skip_embeddings
@@ -66,6 +67,7 @@ module SmartSearchable
 
   def should_generate_embeddings?
     return false if deleted? || skip_embeddings
+    return false unless context.is_a?(Course)
     return false unless SmartSearch.smart_search_available?(context)
 
     saved_changes.key?(self.class.search_title_column) || saved_changes.key?(self.class.search_body_column) ||
@@ -78,6 +80,8 @@ module SmartSearchable
       embedding = SmartSearch.generate_embedding(chunk)
       embeddings.create!(embedding: embedding.to_json, version: SmartSearch::EMBEDDING_VERSION)
     end
+  rescue Aws::BedrockRuntime::Errors::ServiceUnavailableException => e
+    Canvas::Errors.capture_exception(:smart_search, e, :warn)
   end
   handle_asynchronously :generate_embeddings, priority: Delayed::LOW_PRIORITY
 

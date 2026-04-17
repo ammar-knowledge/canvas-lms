@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render} from '@canvas/react'
 import CoursePublishButton from '@canvas/courses/react/CoursePublishButton'
 
 import ready from '@instructure/ready'
@@ -30,6 +30,6 @@ ready(() => {
       courseId: ENV.COURSE_ID || ENV.COURSE.id,
       shouldRedirect: false,
     })
-    ReactDOM.render(publishButton, coursePublishButtonContainer)
+    render(publishButton, coursePublishButtonContainer)
   }
 })

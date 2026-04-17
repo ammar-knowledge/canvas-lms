@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {chain, difference, find, isEmpty, union} from 'lodash'
+import {difference, isEmpty, union, find} from 'es-toolkit/compat'
 import AssignmentOverride from '@canvas/assignments/backbone/models/AssignmentOverride'
 import Section from '@canvas/sections/backbone/models/Section'
 
@@ -75,7 +75,7 @@ const TokenActions = {
     const newOverride = existingOverride.set('student_ids', newStudentIds)
     newOverride.unset('title', {silent: true})
 
-    return chain(overridesFromRow).difference([existingOverride]).union([newOverride]).value()
+    return union(difference(overridesFromRow, [existingOverride]), [newOverride])
   },
 
   createNewAdhocOverrideForRow(newToken, overridesFromRow) {
@@ -129,7 +129,7 @@ const TokenActions = {
   removeForType(selector, tokenToRemove, overridesFromRow) {
     const overrideToRemove = find(
       overridesFromRow,
-      override => override.get(selector) == tokenToRemove[selector]
+      override => override.get(selector) == tokenToRemove[selector],
     )
 
     return difference(overridesFromRow, [overrideToRemove])
@@ -138,7 +138,7 @@ const TokenActions = {
   removeDefaultSection(overridesFromRow) {
     return this.handleTokenRemove(
       {course_section_id: Section.defaultDueDateSectionID},
-      overridesFromRow
+      overridesFromRow,
     )
   },
 
@@ -152,7 +152,7 @@ const TokenActions = {
 
     const newOverride = adhocOverride.set('student_ids', newStudentIds)
     newOverride.unset('title', {silent: true})
-    return chain(overridesFromRow).difference([adhocOverride]).union([newOverride]).value()
+    return union(difference(overridesFromRow, [adhocOverride]), [newOverride])
   },
 
   setOverrideInitializer(rowKey, dates) {

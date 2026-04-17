@@ -30,7 +30,7 @@ module Lti
     include ::Lti::IMS::Concerns::AdvantageServices
     include Api::V1::ExternalTools
 
-    before_action :verify_target_developer_key, only: [:create, :update]
+    before_action :verify_target_developer_key, only: :create
 
     MIME_TYPE = "application/vnd.canvas.contextexternaltools+json"
 
@@ -43,16 +43,18 @@ module Lti
     }.freeze.with_indifferent_access
 
     def create
-      tool = target_developer_key.tool_configuration.new_external_tool(context)
-      tool.check_for_duplication(params[:verify_uniqueness].present?)
-
-      if tool.errors.blank? && tool.save
-        invalidate_nav_tabs_cache(tool)
-        render json: external_tool_json(tool, context, @current_user, session), content_type: MIME_TYPE
-      else
-        tool.destroy if tool.persisted?
-        render json: tool.errors, status: :bad_request, content_type: MIME_TYPE
+      if context.root_account.feature_enabled?(:lock_lti_registrations) &&
+         target_developer_key.lti_registration&.lock_deploying?
+        return render json: { errors: [{ message: "This app has been locked by an administrator and cannot be installed via client ID." }] },
+                      status: :forbidden,
+                      content_type: MIME_TYPE
       end
+      tool = target_developer_key.lti_registration.new_external_tool(context, verify_uniqueness: params[:verify_uniqueness].present?, current_user: @current_user)
+
+      ContextExternalTool.invalidate_nav_tabs_cache(tool, @domain_root_account)
+      render json: external_tool_json(tool, context, @current_user, session), content_type: MIME_TYPE
+    rescue Lti::ContextExternalToolErrors => e
+      render json: e.errors, status: :bad_request
     end
 
     def show
@@ -98,12 +100,6 @@ module Lti
 
     def message_type
       params[:message_type] || "live-event"
-    end
-
-    def invalidate_nav_tabs_cache(tool)
-      if tool.has_placement?(:user_navigation) || tool.has_placement?(:course_navigation) || tool.has_placement?(:account_navigation)
-        Lti::NavigationCache.new(@domain_root_account).invalidate_cache_key
-      end
     end
   end
 end

@@ -206,6 +206,10 @@ module CoursePacesPageObject
     "//span[@data-testid = 'skip-weekends-toggle']"
   end
 
+  def skip_selected_days_xpath_selector
+    "[data-testid= 'skip-selected-days']"
+  end
+
   def skip_weekends_checkbox_selector
     "[data-testid='skip-weekends-toggle']"
   end
@@ -301,6 +305,26 @@ module CoursePacesPageObject
     "[data-testid='pace-info']"
   end
 
+  def pace_course_stats_info_selector
+    "[data-testid='course-stats-info']"
+  end
+
+  def pace_start_date_input_selector
+    "[data-testid='start-date-input']"
+  end
+
+  def pace_end_date_input_selector
+    "[data-testid='end-date-input']"
+  end
+
+  def pace_weeks_number_input_selector
+    "[data-testid='weeks-number-input']"
+  end
+
+  def pace_days_number_input_selector
+    "[data-testid='days-number-input']"
+  end
+
   def remove_pace_button_selector
     "[data-testid='remove-pace-button']"
   end
@@ -340,6 +364,18 @@ module CoursePacesPageObject
 
   def reset_all_x_button_selector
     "[data-testid='reset-changes-modal'] [data-testid='instui-modal-close'] button"
+  end
+
+  def save_draft_button_selector
+    "[data-testid='save-pace-draft-button']"
+  end
+
+  def draft_pace_status_pill_selector
+    "[data-testid='draft-pace-status-pill']"
+  end
+
+  def direct_publish_draft_button_selector
+    "[data-testid='direct-publish-draft-pace-button']"
   end
 
   #------------------------- Elements --------------------------------
@@ -540,6 +576,10 @@ module CoursePacesPageObject
     fxpath(skip_weekends_checkbox_xpath_selector)
   end
 
+  def show_skip_selected_days
+    f(skip_selected_days_xpath_selector)
+  end
+
   def student_course_pace(student_name)
     fj(student_course_pace_selector(student_name))
   end
@@ -604,6 +644,26 @@ module CoursePacesPageObject
 
   def pace_info
     f(pace_info_selector)
+  end
+
+  def pace_course_stats_info
+    f(pace_course_stats_info_selector)
+  end
+
+  def pace_start_date_input
+    f(pace_start_date_input_selector)
+  end
+
+  def pace_end_date_input
+    f(pace_end_date_input_selector)
+  end
+
+  def pace_weeks_number_input
+    f(pace_weeks_number_input_selector)
+  end
+
+  def pace_days_number_input
+    f(pace_days_number_input_selector)
   end
 
   def remove_pace_button
@@ -691,7 +751,6 @@ module CoursePacesPageObject
 
   def force_main_menu_clicked(selector_to_verify)
     unless element_exists?(selector_to_verify)
-      puts "retrying the main menu click"
       click_main_course_pace_menu
     end
   end
@@ -707,8 +766,7 @@ module CoursePacesPageObject
   def click_section_course_pace(section_name)
     # This check reduces the flakiness of the clicking in this menu.  Keeping
     # the puts line for verification in the logs
-    unless element_exists?(section_cp_xpath_selector(section_name), true)
-      puts "Section course pace selector didn't exist so retrying click"
+    unless element_exists?(section_cp_xpath_selector(section_name), xpath: true)
       click_section_menu_item
     end
 
@@ -718,8 +776,7 @@ module CoursePacesPageObject
   def click_student_course_pace(student_name)
     # This check reduces the flakiness of the clicking in this menu.  Keeping
     # the puts line for verification in the logs
-    unless element_exists?(student_cp_xpath_selector(student_name), true)
-      puts "Student course pace selector didn't exist so retrying click"
+    unless element_exists?(student_cp_xpath_selector(student_name), xpath: true)
       click_students_menu_item
     end
 
@@ -742,6 +799,10 @@ module CoursePacesPageObject
 
   def click_weekends_checkbox
     skip_weekends_checkbox.click
+  end
+
+  def click_show_skip_selected_days
+    show_skip_selected_days.click
   end
 
   #------------------------- Redesign Elements -----------------------
@@ -867,7 +928,7 @@ module CoursePacesPageObject
   end
 
   def skip_weekends_exists?
-    element_exists?(skip_weekends_checkbox_xpath_selector, true)
+    element_exists?(skip_weekends_checkbox_xpath_selector, xpath: true)
   end
 
   def update_module_item_duration(item_number, duration)

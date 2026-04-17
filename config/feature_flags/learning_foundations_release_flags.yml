@@ -1,50 +1,4 @@
 ---
-buttons_and_icons_root_account:
-  state: allowed
-  applies_to: RootAccount
-  display_name: RCE Icon Maker
-  description: |-
-    Manage a library of custom icons from the RCE.
-  environments:
-    production:
-      state: hidden
-
-explicit_latex_typesetting:
-  state: hidden
-  display_name: Explicit LaTeX Typesetting
-  description: |-
-    Instead of typesetting LaTeX anywhere, only typeset LaTeX where
-    it is explicitly enabled.
-  applies_to: SiteAdmin
-
-rce_transform_loaded_content:
-  state: hidden
-  display_name: Transform RCE Content on Load
-  description: |-
-    Transforms absolute URLs to relative URLs and removes extraneous attributes from RCE content on load.
-    Needed for the RCE to function fully in New Quizzes.
-  applies_to: RootAccount
-  environments:
-    development:
-      state: allowed_on
-    beta:
-      state: allowed_on
-    ci:
-      state: allowed_on
-
-media_links_use_attachment_id:
-  state: hidden
-  display_name: Use Attachment IDs in Media Links
-  description: |-
-    Use attachment ids in media links so that users are always pointed to the correct instance of media
-    instead of the original
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on
-    development:
-      state: allowed_on
-
 assignments_2_student:
   state: hidden
   display_name: Assignment Enhancements - Student
@@ -62,17 +16,10 @@ assignments_2_teacher:
   applies_to: Course
   root_opt_in: true
   environments:
+    development:
+      state: disabled
     production:
       state: disabled
-
-auto_show_cc:
-  type: setting
-  state: allowed
-  display_name: Auto Show Closed Captions
-  description: |-
-    Automatically show closed captions in the user's current
-    language (if available) when playing canvas media.
-  applies_to: User
 
 confetti_branding:
   state: 'hidden'
@@ -80,22 +27,14 @@ confetti_branding:
   description: Applies account branding to confetti splashes
   applies_to: SiteAdmin
 
-course_paces:
+course_paces_skip_selected_days:
   state: hidden
-  display_name: 'Course Pacing'
-  description:
-    wrapper: <a href="https://community.canvaslms.com/t5/Course-Pacing-Feature-Preview/gh-p/course_pacing">\1</a>
-    course_paces_description: |-
-      Course Pacing adds support for rolling enrollments to Canvas;
-      automatically distributing due dates for students with different
-      start dates based on an instructor's defined pace. Learn more and give
-      feedback by joining the *Course Pacing User Group*.
-  applies_to: Account
+  display_name: 'Course Pacing Skip Selected Days'
+  description: Course pacing removes support for exclude weekends field and add the ability to select specific days of the week.
+  applies_to: RootAccount
   beta: true
   environments:
     development:
-      state: allowed_on
-    beta:
       state: allowed_on
     ci:
       state: allowed_on
@@ -130,57 +69,10 @@ render_both_to_do_lists:
   description: |-
     Renders both To Do lists on the dashboard sidebar for teachers with student enrollments.
 
-course_paces_for_students:
-  state: hidden
-  display_name: 'Per Student Course Paces'
-  description: Enable unique course paces for students.
-  applies_to: SiteAdmin
-
-course_paces_redesign:
-  state: hidden
-  display_name: 'Course Pacing Redesign'
-  description: Enable the redesigned course pacing user experience.
-  applies_to: SiteAdmin
-
-deprecate_faculty_journal:
-  state: hidden
-  display_name: 'Faculty Journal Deprecation'
-  description: Enable the deprecation of the faculty journal functionality.
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on
-    development:
-      state: allowed_on
-
 blueprint_line_item_support:
   state: hidden
   display_name: 'Blueprint Resource ID Support'
   description: Allows blueprint courses to keep track of assignment's resource id changes.
-  applies_to: SiteAdmin
-
-permanent_page_links:
-  state: hidden
-  display_name: 'Permanent Page Links'
-  description: |-
-    When the title to a page is changed, old links to that page will link to the correct page.
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on
-    development:
-      state: allowed_on
-
-authenticated_iframe_content:
-  state: hidden
-  display_name: 'Authenticated IFrame Content'
-  description: This flag changes the way RCE content is loaded in iframes to proxy the request through canvas.
-  applies_to: SiteAdmin
-
-content_migration_asset_map_v2:
-  state: hidden
-  display_name: Content Migration Asset Map v2
-  description: Adds Additional Fields to the Content Migration Asset Map
   applies_to: SiteAdmin
 
 instui_for_import_page:
@@ -189,49 +81,11 @@ instui_for_import_page:
   description: |-
     If enabled, the course import page will use InstUI components
   applies_to: SiteAdmin
-
-selective_release_backend:
-  state: hidden
-  display_name: Selective Release - Backend Changes
-  description: |-
-    Selective Release is a feature that allows modules and module items to
-    be assigned to specific individuals and groups. This is the first of two flags
-    that must be enabled to use this feature. When this flag is enabled, the
-    transparent backend changes that support assigning modules and module items will
-    be enabled. As long as no module-type AssignmentOverrides exist, enabling this
-    feature is backwards-compatible, and exists to ensure that the backend changes
-    are performant.
-  applies_to: SiteAdmin
   environments:
     ci:
-      state: allowed_on # enable for automated testings builds and local testing
+      state: allowed_on
     development:
-      state: allowed_on # enable for local development
-
-selective_release_ui_api:
-  state: hidden
-  display_name: Selective Release - UI/API Changes
-  description: |-
-    Selective Release is a feature that allows modules and module items to
-    be assigned to specific individuals and groups. The selective_release_backend
-    flag MUST be enabled before this flag can be enabled. When this flag is enabled,
-    the UI and API that allow users to create module-type AssignmentOverrides will be
-    enabled, and thus the feature will be fully functional.
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on # enable for automated testings builds and local testing
-    development:
-      state: allowed_on # enable for local development
-
-selective_release_edit_page:
-  state: hidden
-  display_name: Selective Release - Edit Page
-  description: |-
-    If enabled, with selective release the edit page for assignments, quizzes, pages,
-    and discussions will have the assign to functionality directly in the page instead
-    of in a tray.
-  applies_to: SiteAdmin
+      state: allowed_on
 
 differentiated_files:
   state: hidden
@@ -239,21 +93,6 @@ differentiated_files:
   description: |-
     If enabled, files become assignable to specific individuals and groups using the
     same interface that other learning object use.
-  applies_to: SiteAdmin
-
-learner_passport:
-  state: hidden
-  applies_to: RootAccount
-  root_opt_in: true
-  display_name: Learner Passport Prototype
-  description: An in-progress working prototype of the Learner Passport feature.
-
-precise_link_replacements:
-  state: hidden
-  display_name: Precise link replacement on content migrations
-  description: |-
-    Apply link replacement logic to a select list of
-    elements only, as opposed to all texts
   applies_to: SiteAdmin
 
 observer_appointment_groups:
@@ -269,32 +108,12 @@ observer_appointment_groups:
     development:
       state: allowed_on
 
-block_editor:
-  applies_to: Account
-  state: hidden
-  display_name: Block Editor
-  description: |-
-    Enable the new block editor for the rich content editor.
-  beta: true
-
 instui_header:
   state: hidden
   display_name: Use InstUI new headers
   description: |-
     If enabled, pages will use the new InstUI headers
   applies_to: SiteAdmin
-
-rce_find_replace:
-  state: hidden
-  display_name: Find and Replace RCE Plugin
-  description: |-
-    Enable a plugin which can find and replace content when editing in an RCE
-  applies_to: SiteAdmin
-  environments:
-    ci:
-      state: allowed_on
-    development:
-      state: allowed_on
 
 dashboard_graphql_integration:
   state: hidden
@@ -303,3 +122,226 @@ dashboard_graphql_integration:
     Integrate GraphQL queries and mutations for the Dashboard to improve loading speed
     and simplify data fetching logic.
   applies_to: SiteAdmin
+
+modules_page_hide_blueprint_lock_icon_for_children:
+  state: hidden
+  display_name: Hide Blueprint Lock Icon on child course Modules Page
+  description: |-
+    If enabled, the blueprint lock icon will be hidden on the modules page. This is a performance hack and should only
+    be used for customers with a large number of content items (2000+) in a course.
+  applies_to: Account
+
+modules_teacher_module_selection:
+  state: hidden
+  display_name: Allow teachers to select a single module to show on the modules page for teachers
+  description: |-
+    If enabled, teachers will be able to a single module to show on the modules page for teachers.
+  applies_to: Account
+
+modules_student_module_selection:
+  state: hidden
+  display_name: Allow teachers to select a single module to show on the modules page for students
+  description: |-
+    If enabled, teachers will be able to a single module to show on the modules page for students.
+  applies_to: Account
+
+modules_requirements_allow_percentage:
+  state: hidden
+  applies_to: RootAccount
+  display_name: Module Requirements Allow Set By Percentage
+  description: Allows for Module Requirements to be set by percentage.
+
+calendar_events_api_pagination_enhancements:
+  state: hidden
+  display_name: Calendar Events API Pagination Enhancements
+  description: |-
+    Improves API pagination handling for assignment events on user calendar.
+  applies_to: RootAccount
+
+modules_page_rewrite:
+  state: hidden
+  display_name: Modules Page Rewrite Teacher View
+  description: |-
+    If enabled, the modules page will use the new modules page rewrite.
+  applies_to: RootAccount
+
+graphql_persisted_queries:
+  state: hidden
+  display_name: Persisted GraphQL Queries
+  description: |-
+    Allows invocation of GraphQL queries by operation name.
+  applies_to: RootAccount
+
+modules_perf:
+  state: hidden
+  display_name: Modules Performance Improvements
+  description: |-
+    Improves modules page performance on courses with a large number of modules or module items.
+  applies_to: Account
+
+modules_page_rewrite_student_view:
+  state: hidden
+  display_name: Modules Page Rewrite Student View
+  description: |-
+    If enabled, the modules page will use the new modules page rewrite on student view.
+  applies_to: Course
+
+module_external_url_seamless_redirect:
+  state: hidden
+  display_name: Seamless External URL Redirect for Modules
+  description: |-
+    When enabled, external URL module items set to "Load in New Tab" will open
+    seamlessly in a new tab. The Canvas intermediate page (which tracks progression)
+    will automatically redirect to the external URL using native browser navigation.
+  applies_to: SiteAdmin
+  environments:
+    development:
+      state: allowed
+    ci:
+      state: allowed
+
+create_external_apps_side_tray_overrides:
+  state: hidden
+  display_name: Enable External Apps Side Tray
+  description: |-
+    If enabled, an External Apps menu item will appear in the Module popover menu. When clicked, a side tray
+    displaying the external apps will appear
+  applies_to: SiteAdmin
+  environments:
+    ci:
+      state: allowed_on
+    development:
+      state: allowed_on
+
+use_dyslexic_font:
+  state: allowed
+  display_name: Use a dyslexia friendly font
+  description: |-
+    When enabled, this setting replaces the default font in Canvas with OpenDyslexic,
+    an open source font created to help increase readability for readers with dyslexia.
+  applies_to: User
+
+
+wiki_page_mastery_path_no_assignment_group:
+  state: hidden
+  display_name: In MasteryPaths WikiPages Hidden Assignment has not Assignment Group
+  description: |-
+    In WikiPage create/update annd assign to Mastery Path hidden Assignment has not an Assignment Group.
+  applies_to: SiteAdmin
+  environments:
+    ci:
+      state: allowed_on
+    development:
+      state: allowed_on
+
+blueprint_support_sync_for_folder_movement_to_root_folder:
+  state: hidden
+  display_name: Blueprint support sync for folder movement to root folder
+  description: |-
+    Moving a folder from a sub folder to the root folder then bp sync should sync over the change.
+  applies_to: SiteAdmin
+  environments:
+    ci:
+      state: allowed_on
+    development:
+      state: allowed_on
+
+syllabus_versioning:
+  state: hidden
+  display_name: Course Syllabus Versioning
+  description: |-
+    Enables full version history tracking for course syllabus content using SimplyVersioned.
+    Provides complete audit trail, recovery capabilities, and API access for syllabus changes.
+    Includes UI for viewing version history and reverting to previous versions.
+  applies_to: Account
+  environments:
+    development:
+      state: allowed_on
+    ci:
+      state: allowed_on
+
+planner_submittable_completion_filter:
+  state: hidden
+  display_name: Planner Submittable Completion Filter
+  description: |-
+    When enabled, the planner's complete/incomplete filters will correctly
+    account for graded quizzes, graded discussions, and wiki page assignments
+    whose completion state is tracked via a planner override on the submittable
+    object rather than the assignment directly.
+  applies_to: SiteAdmin
+  environments:
+    development:
+      state: allowed_on
+    ci:
+      state: allowed_on
+
+widget_dashboard:
+  state: hidden
+  display_name: Customizable Dashboard for Learners
+  description: |-
+    When enabled, this allows learners to add, remove, and rearrange dashboard widgets.
+  applies_to: RootAccount
+
+widget_dashboard_dark_mode:
+  state: hidden
+  display_name: Widget Dashboard Dark Mode
+  description: |-
+    When enabled, users can toggle a dark color theme for the widget dashboard.
+  applies_to: RootAccount
+  environments:
+    development:
+      state: allowed_on
+    ci:
+      state: allowed_on
+
+platform_ui_unified_widgets_dashboard:
+  state: hidden
+  display_name: Platform UI - Unified Widgets Dashboard
+  description: Use dashboard imported from Platform UI.
+  applies_to: SiteAdmin
+
+study_assist:
+  state: hidden
+  root_opt_in: true
+  applies_to: Course
+  display_name: IgniteAI Study Tools
+  description: |-
+    Enables IgniteAI Study Tools for courses. When enabled, students can
+    access AI-powered study tools within their course. Root account
+    administrators must enable this feature before subaccounts or courses
+    can use it.
+
+study_assist_summarize:
+  state: allowed_on
+  applies_to: Course
+  visible_on: study_assist_visible_on_hook
+  display_name: IgniteAI Study Tools - Summarize
+  description: |-
+    Enables the Summarize tool in IgniteAI Study Tools.
+    When disabled, students will not see the Summarize option.
+
+study_assist_quiz_me:
+  state: allowed_on
+  applies_to: Course
+  visible_on: study_assist_visible_on_hook
+  display_name: IgniteAI Study Tools - Quiz Me
+  description: |-
+    Enables the Quiz Me tool in IgniteAI Study Tools.
+    When disabled, students will not see the Quiz Me option.
+
+study_assist_flashcards:
+  state: allowed_on
+  applies_to: Course
+  visible_on: study_assist_visible_on_hook
+  display_name: IgniteAI Study Tools - Flashcards
+  description: |-
+    Enables the Flashcards tool in IgniteAI Study Tools.
+    When disabled, students will not see the Flashcards option.
+
+notebook:
+  state: hidden
+  applies_to: Account
+  display_name: Notebook
+  description: |-
+    Enables the Notebook feature. When enabled, students can
+    highlight text on wiki pages and take notes.

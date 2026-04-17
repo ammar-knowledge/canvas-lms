@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-class EnrollmentState < ActiveRecord::Base
+class EnrollmentState < ApplicationRecord
   PENDING_STATES = %w[pending_active pending_invited creation_pending].freeze
   # a 1-1 table with enrollments
   # that was really only a separate table because enrollments had a billion columns already
@@ -51,7 +51,7 @@ class EnrollmentState < ActiveRecord::Base
 
   # check if we've manually marked the enrollment state as potentially out of date (or if the stored date trigger has past)
   def state_needs_recalculation?
-    !state_is_current? || (state_valid_until && state_valid_until < Time.now)
+    !state_is_current? || (state_valid_until && state_valid_until < Time.zone.now)
   end
 
   def active?
@@ -154,10 +154,10 @@ class EnrollmentState < ActiveRecord::Base
   def calculate_state_based_on_dates
     wf_state = enrollment.workflow_state
     ranges = enrollment.enrollment_dates
-    now = Time.now
+    now = Time.zone.now
 
     # start_at <= now <= end_at, allowing for open ranges on either end
-    if (range = ranges.detect { |start_at, end_at| (start_at || now) <= now && now <= (end_at || now) })
+    if (range = ranges.detect { |start_at, end_at| now.between?(start_at || now, end_at || now) })
       # we're in the middle of the start-end so the state is just the same as the workflow state
       self.state = wf_state
       start_at, end_at = range
@@ -257,7 +257,7 @@ class EnrollmentState < ActiveRecord::Base
 
   def self.process_states_for(enrollments)
     enrollments = Array(enrollments)
-    Canvas::Builders::EnrollmentDateBuilder.preload(enrollments, false)
+    Canvas::Builders::EnrollmentDateBuilder.preload(enrollments, use_cache: false)
 
     enrollments.each do |enrollment|
       enrollment.enrollment_state.skip_touch_user = true

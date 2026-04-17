@@ -61,7 +61,7 @@ module AccountReports
 
     def include_enrollment_state
       if @account_report.value_for_param("include_enrollment_state")
-        state = @account_report.parameters["include_enrollment_state"]
+        state = value_to_boolean(@account_report.parameters["include_enrollment_state"])
       end
       state
     end
@@ -99,9 +99,8 @@ module AccountReports
                  AND e.root_account_id = courses.root_account_id
                  AND e.type = 'StudentEnrollment'
                INNER JOIN #{CourseSection.quoted_table_name} cs ON cs.id = e.course_section_id
-               INNER JOIN #{Pseudonym.quoted_table_name} p ON e.user_id = p.user_id
+               INNER JOIN #{ordered_pseudonyms(Pseudonym.active)} p ON e.user_id = p.user_id
                  AND courses.root_account_id = p.account_id
-                 AND p.workflow_state <> 'deleted'
                INNER JOIN #{User.quoted_table_name} u ON u.id = p.user_id")
                             .where("NOT EXISTS (SELECT s.user_id
                            FROM #{Submission.quoted_table_name} s
@@ -170,9 +169,8 @@ module AccountReports
                  AND c.workflow_state = 'available'
                INNER JOIN #{CourseSection.quoted_table_name} s ON s.id = enrollments.course_section_id
                  AND s.workflow_state = 'active'
-               INNER JOIN #{Pseudonym.quoted_table_name} p ON p.user_id = enrollments.user_id
+               INNER JOIN #{ordered_pseudonyms(Pseudonym.active_only)} p ON p.user_id = enrollments.user_id
                  AND p.account_id = enrollments.root_account_id
-                 AND p.workflow_state = 'active'
                INNER JOIN #{User.quoted_table_name} u ON u.id = p.user_id")
                          .where("enrollments.type = 'StudentEnrollment'
                AND enrollments.workflow_state = 'active'")
@@ -242,7 +240,7 @@ module AccountReports
     def last_user_access
       report_extra_text
 
-      students = root_account.pseudonyms.joins(:user)
+      students = root_account.pseudonyms.not_instructure_identity.joins(:user)
       students = add_user_sub_account_scope(students)
 
       courses = term.courses if term
@@ -323,26 +321,35 @@ module AccountReports
       headers = []
       headers << "user id"
       headers << "user name"
+      headers << "id"
+      headers << "purpose"
       headers << "token hint"
+      headers << "visible token"
+      headers << "creation"
       headers << "expiration"
       headers << "last used"
+      headers << "status"
       headers << "dev key id"
       headers << "dev key name"
 
       columns = []
       columns << "access_tokens.user_id"
       columns << "users.sortable_name"
+      columns << "access_tokens.id"
+      columns << "access_tokens.purpose"
       columns << "access_tokens.token_hint"
+      columns << "access_tokens.created_at"
       columns << "access_tokens.permanent_expires_at"
       columns << "access_tokens.last_used_at"
+      columns << "access_tokens.workflow_state"
       columns << "access_tokens.developer_key_id"
 
-      user_tokens = root_account.pseudonyms
-                                .select(columns)
-                                .joins(user: :access_tokens).order("users.id, sortable_name, last_used_at DESC")
-      user_tokens = user_tokens.where.not(pseudonyms: { workflow_state: "deleted" }) unless @include_deleted
+      user_tokens = AccessToken.joins(:user)
+                               .joins("INNER JOIN #{ordered_pseudonyms(root_account.pseudonyms)} pseudonyms ON access_tokens.user_id = pseudonyms.user_id")
+                               .select(columns)
+                               .order("access_tokens.user_id, sortable_name, last_used_at DESC")
 
-      user_tokens = add_user_sub_account_scope(user_tokens)
+      user_tokens = filter_user_tokens(user_tokens)
 
       write_report headers do |csv|
         user_tokens.find_each do |token|
@@ -351,9 +358,14 @@ module AccountReports
           row = []
           row << token[:user_id]
           row << token[:sortable_name]
-          row << token[:token_hint]
+          row << token[:id]
+          row << token[:purpose]
+          row << token[:token_hint] # exclude shard on purpose
+          row << token.visible_token
+          row << (token[:created_at] ? default_timezone_format(token[:created_at]) : "never")
           row << (token[:permanent_expires_at] ? default_timezone_format(token[:permanent_expires_at]) : "never")
           row << (token[:last_used_at] ? default_timezone_format(token[:last_used_at]) : "never")
+          row << token[:workflow_state]
           row << token[:developer_key_id]
           row << dev_key&.name
           csv << row
@@ -361,11 +373,26 @@ module AccountReports
       end
     end
 
+    private
+
     def developer_key(dev_key_id)
       @dev_keys ||= {}
       return @dev_keys[dev_key_id] if @dev_keys.include?(dev_key_id)
 
       @dev_keys[dev_key_id] = DeveloperKey.find_by(id: dev_key_id)
+    end
+
+    def exclude_deleted_and_expired_access_tokens?
+      return false unless @account_report.value_for_param("exclude_deleted_and_expired")
+
+      value_to_boolean(@account_report.parameters["exclude_deleted_and_expired"])
+    end
+
+    def filter_user_tokens(scope)
+      scope = scope.active if exclude_deleted_and_expired_access_tokens?
+      scope = scope.where.not(pseudonyms: { workflow_state: "deleted" }) unless @include_deleted
+
+      add_user_sub_account_scope(scope)
     end
   end
 end

@@ -51,6 +51,14 @@ describe "Outcome Results API", type: :request do
     assignment
   end
 
+  let_once(:live_assessment) do
+    LiveAssessments::Assessment.create!(
+      key: "live_assess",
+      title: "MagicMarker",
+      context: @course
+    )
+  end
+
   let_once(:outcome_rubric_association) do
     create_outcome_rubric_association
   end
@@ -73,6 +81,18 @@ describe "Outcome Results API", type: :request do
                  (create_outcome_assignment if opts[:new]) ||
                  outcome_assignment
     assignment.find_or_create_submission(student)
+  end
+
+  def create_outcome_live_assessment
+    @outcome.align(live_assessment, @course)
+    LiveAssessments::Result.create!(
+      user: outcome_student,
+      assessor_id: outcome_teacher.id,
+      assessment_id: live_assessment.id,
+      passed: true,
+      assessed_at: Time.zone.now
+    )
+    live_assessment.generate_submissions_for([outcome_student])
   end
 
   def create_outcome_assessment(opts = {})
@@ -182,7 +202,7 @@ describe "Outcome Results API", type: :request do
                      action: "rollups",
                      format: "json",
                      course_id: outcome_course.id.to_s)
-        assert_status(403)
+        assert_forbidden
       end
 
       it "allows students to read their own results" do
@@ -206,13 +226,13 @@ describe "Outcome Results API", type: :request do
                      format: "json",
                      course_id: outcome_course.id.to_s,
                      user_ids: [outcome_students[1].id])
-        assert_status(403)
+        assert_forbidden
       end
 
       it "does not allow students to read other users' results via csv" do
         user_session outcome_students[0]
         get "/courses/#{@course.id}/outcome_rollups.csv"
-        assert_status(403)
+        assert_forbidden
       end
 
       it "requires an existing context" do
@@ -507,6 +527,51 @@ describe "Outcome Results API", type: :request do
             CSV
           end
 
+          context "outcomes without results" do
+            before do
+              # Create an additional outcome with no results
+              outcome_model(context: outcome_course, title: "unassessed outcome")
+            end
+
+            it "doesn't display outcomes without result when exclude[]=missing_outcome_results is present" do
+              user_session @user
+              get "/courses/#{@course.id}/outcome_rollups.csv?exclude[]=missing_outcome_results"
+              expect(response).to be_successful
+              expect(response.body).to eq <<~CSV
+                Student name,Student ID,Student SIS ID,new outcome result,new outcome mastery points
+                #{@concluded_student.name},#{@concluded_student.id},N/A,3.0,3.0
+                #{@inactive_student.name},#{@inactive_student.id},N/A,3.0,3.0
+                #{outcome_student.name},#{outcome_student.id},N/A,3.0,3.0
+                #{@no_results_student.name},#{@no_results_student.id},N/A,,3.0
+              CSV
+            end
+
+            it "displays outcomes without result when exclude[]=missing_outcome_results is not present" do
+              user_session @user
+              get "/courses/#{@course.id}/outcome_rollups.csv"
+              expect(response).to be_successful
+              expect(response.body).to eq <<~CSV
+                Student name,Student ID,Student SIS ID,new outcome result,new outcome mastery points,unassessed outcome result,unassessed outcome mastery points
+                #{@concluded_student.name},#{@concluded_student.id},N/A,3.0,3.0,,3.0
+                #{@inactive_student.name},#{@inactive_student.id},N/A,3.0,3.0,,3.0
+                #{outcome_student.name},#{outcome_student.id},N/A,3.0,3.0,,3.0
+                #{@no_results_student.name},#{@no_results_student.id},N/A,,3.0,,3.0
+              CSV
+            end
+
+            it "displays outcomes without result when exclude[]=missing_user_rollups is present" do
+              user_session @user
+              get "/courses/#{@course.id}/outcome_rollups.csv?exclude[]=missing_user_rollups"
+              expect(response).to be_successful
+              expect(response.body).to eq <<~CSV
+                Student name,Student ID,Student SIS ID,new outcome result,new outcome mastery points,unassessed outcome result,unassessed outcome mastery points
+                #{@concluded_student.name},#{@concluded_student.id},N/A,3.0,3.0,,3.0
+                #{@inactive_student.name},#{@inactive_student.id},N/A,3.0,3.0,,3.0
+                #{outcome_student.name},#{outcome_student.id},N/A,3.0,3.0,,3.0
+              CSV
+            end
+          end
+
           context "users with multiple enrollments" do
             before do
               @section1 = add_section "s1", course: outcome_course
@@ -603,7 +668,7 @@ describe "Outcome Results API", type: :request do
             rollup["scores"].each do |score|
               expect(score.keys.sort).to eq %w[count hide_points links score submitted_at title]
               expect(score["count"]).to eq 1
-              expect([0, 1]).to include(score["score"])
+              expect(score["score"]).to be_in [0, 1]
               expect(score["links"].keys.sort).to eq %w[outcome]
               expect(score["links"]["outcome"]).to eq outcome_object.id.to_s
             end
@@ -680,7 +745,7 @@ describe "Outcome Results API", type: :request do
             rollup["scores"].each do |score|
               expect(score.keys.sort).to eq %w[count hide_points links score submitted_at title]
               expect(score["count"]).to eq 1
-              expect([0, 2]).to include(score["score"])
+              expect(score["score"]).to be_in [0, 2]
               expect(score["links"].keys.sort).to eq %w[outcome]
               expect(score["links"]["outcome"]).to eq outcome_object.id.to_s
             end
@@ -778,19 +843,74 @@ describe "Outcome Results API", type: :request do
           )
         end
 
-        it "side loads users" do
-          outcome_assessment
-          api_call(:get,
-                   outcome_rollups_url(outcome_course, include: ["users"]),
-                   controller: "outcome_results",
-                   action: "rollups",
-                   format: "json",
-                   course_id: outcome_course.id.to_s,
-                   include: ["users"])
-          json = JSON.parse(response.body)
-          expect(json["linked"]).to be_present
-          expect(json["linked"]["users"]).to be_present
-          expect(json["linked"]["users"][0]["id"]).to eq outcome_student.id.to_s
+        describe "users" do
+          before do
+            outcome_student.pseudonyms.create!(
+              unique_id: "os-login-id",
+              sis_user_id: "os-sis-user-id",
+              integration_id: "os-integration-id",
+              account: Account.default
+            )
+          end
+
+          it "side loads users" do
+            outcome_assessment
+            api_call(:get,
+                     outcome_rollups_url(outcome_course, include: ["users"]),
+                     controller: "outcome_results",
+                     action: "rollups",
+                     format: "json",
+                     course_id: outcome_course.id.to_s,
+                     include: ["users"])
+            json = JSON.parse(response.body)
+            expect(json["linked"]).to be_present
+            expect(json["linked"]["users"].size).to be > 0
+            user = json["linked"]["users"][0]
+            expect(user["id"]).to eq outcome_student.id.to_s
+            expect(user["display_name"]).to eq outcome_student.short_name
+            expect(user["sortable_name"]).to eq outcome_student.sortable_name
+            expect(user["name"]).to eq outcome_student.name
+            expect(user["integration_id"]).to eq "os-integration-id"
+            expect(user["login_id"]).to eq "os-login-id"
+            expect(user["sis_id"]).to eq "os-sis-user-id"
+          end
+
+          it "exclude login_id when view_user_logins is disabled" do
+            RoleOverride.create!(context: Account.default,
+                                 role: teacher_role,
+                                 permission: "view_user_logins",
+                                 enabled: false)
+            api_call(:get,
+                     outcome_rollups_url(outcome_course, include: ["users"]),
+                     controller: "outcome_results",
+                     action: "rollups",
+                     format: "json",
+                     course_id: outcome_course.id.to_s,
+                     include: ["users"])
+            json = JSON.parse(response.body)
+            expect(json["linked"]["users"].size).to be > 0
+            user = json["linked"]["users"][0]
+            expect(user.keys).not_to include "login_id"
+          end
+
+          it "exclude sis data when read_sis is disabled" do
+            RoleOverride.create!(context: Account.default,
+                                 role: teacher_role,
+                                 permission: "read_sis",
+                                 enabled: false)
+            api_call(:get,
+                     outcome_rollups_url(outcome_course, include: ["users"]),
+                     controller: "outcome_results",
+                     action: "rollups",
+                     format: "json",
+                     course_id: outcome_course.id.to_s,
+                     include: ["users"])
+            json = JSON.parse(response.body)
+            expect(json["linked"]["users"].size).to be > 0
+            user = json["linked"]["users"][0]
+            expect(user.keys).not_to include "sis_id"
+            expect(user.keys).not_to include "integration_id"
+          end
         end
 
         it "side loads alignments" do
@@ -816,26 +936,27 @@ describe "Outcome Results API", type: :request do
           expect(alignments[1]["name"]).to eq outcome_rubric.title
           expect(alignments[1]["html_url"]).to eq course_rubric_url(outcome_course, outcome_rubric)
         end
-      end
 
-      describe "contributing_scores parameter" do
-        it "contributing_scores are included in rollups" do
-          outcome_assessment
+        it "side loads alignments with live assessment" do
+          create_outcome_live_assessment
           api_call(:get,
-                   outcome_rollups_url(outcome_course, contributing_scores: true),
+                   outcome_rollups_url(outcome_course, include: ["outcomes.alignments"]),
                    controller: "outcome_results",
                    action: "rollups",
                    format: "json",
                    course_id: outcome_course.id.to_s,
-                   contributing_scores: true)
+                   include: ["outcomes.alignments"])
           json = JSON.parse(response.body)
-          score_links = json["rollups"][0]["scores"][0]["links"]
-          expect(score_links["outcome"]).to be_present
-          cs = score_links["contributing_scores"][0]
-          expect(cs["association_id"]).to be_present
-          expect(cs["association_type"]).to eq "RubricAssociation"
-          expect(cs["title"]).to eq "User, outcome assignment"
-          expect(cs["score"]).to be_present
+          expect(json["linked"]).to be_present
+          expect(json["linked"]["outcomes.alignments"]).to be_present
+          alignments = json["linked"]["outcomes.alignments"]
+          alignments.sort_by! { |a| a["id"] }
+          expect(alignments[0]["id"]).to eq outcome_assignment.asset_string
+          expect(alignments[0]["name"]).to eq outcome_assignment.name
+          expect(alignments[0]["html_url"]).to eq course_assignment_url(outcome_course, outcome_assignment)
+          expect(alignments[1]["id"]).to eq live_assessment.asset_string
+          expect(alignments[1]["name"]).to eq live_assessment.title
+          expect(alignments[1]["html_url"]).to eq ""
         end
       end
     end

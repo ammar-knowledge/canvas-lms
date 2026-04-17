@@ -22,6 +22,7 @@ module Api::V1::Group
   include Api::V1::Json
   include Api::V1::Context
   include Api::V1::Tab
+  include SectionRestrictionsHelper
 
   GROUP_MEMBER_LIMIT = 1000
 
@@ -44,11 +45,18 @@ module Api::V1::Group
 
     hash = api_json(group, user, session, API_GROUP_JSON_OPTS, permissions_to_include)
     hash.merge!(context_data(group))
+    hash["context_name"] = group.context.name
     image = group.avatar_attachment
     hash["avatar_url"] = image && thumbnail_image_url(image)
     hash["role"] = group.group_category.role if group.group_category
     # hash['leader_id'] = group.leader_id
     hash["leader"] = group.leader ? user_display_json(group.leader, group) : nil
+
+    # Apply section restrictions to members_count if applicable
+    if user_has_section_restrictions?(group.context, user)
+      restricted_member_count = count_visible_group_members(group, user)
+      hash["members_count"] = restricted_member_count
+    end
 
     if includes.include?("users")
       users = if group.grants_right?(@current_user, :read_as_admin)
@@ -56,6 +64,13 @@ module Api::V1::Group
               else
                 group.participating_users_in_context(sort: true, include_inactive_users: options[:include_inactive_users]).limit(GROUP_MEMBER_LIMIT).distinct
               end
+
+      # Apply section restrictions to users list if applicable
+      if user_has_section_restrictions?(group.context, user)
+        student_ids_in_sections = get_visible_student_ids_in_course(group.context, user)
+        users = users.where(id: student_ids_in_sections)
+      end
+
       active_user_ids = nil
       if options[:include_inactive_users]
         active_user_ids = group.participating_users_in_context.pluck("id").to_set
@@ -70,6 +85,7 @@ module Api::V1::Group
         json
       end
     end
+
     if includes.include?("group_category")
       hash["group_category"] = group.group_category && group_category_json(group.group_category, user, session)
     end
@@ -90,6 +106,9 @@ module Api::V1::Group
     if includes.include?("can_message")
       hash["can_message"] = group.grants_right?(@current_user, :send_messages)
     end
+
+    hash["non_collaborative"] = group.non_collaborative?
+
     hash
   end
 
@@ -97,7 +116,7 @@ module Api::V1::Group
     includes = options[:include] || []
     hash = api_json(membership, user, session, API_GROUP_MEMBERSHIP_JSON_OPTS)
     if includes.include?("just_created")
-      hash["just_created"] = membership.just_created || false
+      hash["just_created"] = membership.previously_new_record? || false
     end
     if membership.group.root_account.grants_any_right?(user, session, :read_sis, :manage_sis)
       hash["sis_group_id"] = membership.group.sis_source_id
@@ -106,5 +125,12 @@ module Api::V1::Group
       hash["sis_import_id"] = membership.sis_batch_id
     end
     hash
+  end
+
+  private
+
+  def count_visible_group_members(group, user)
+    visible_student_ids = get_visible_student_ids_in_course(group.context, user)
+    group.users.where(id: visible_student_ids).count
   end
 end

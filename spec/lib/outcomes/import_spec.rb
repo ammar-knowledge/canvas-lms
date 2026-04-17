@@ -329,9 +329,10 @@ RSpec.describe Outcomes::Import do
         expect(existing_outcome.reload.calculation_method).to eq "highest"
         importer.import_outcome(
           **outcome_attributes,
-          calculation_method: nil
+          calculation_method: nil,
+          calculation_int: 50
         )
-        expect(existing_outcome.reload.calculation_method).to eq "decaying_average"
+        expect(existing_outcome.reload.calculation_method).to eq "standard_decaying_average"
       end
 
       it "defaults to standard_decaying_average if no calculation_method is given and new Decaying Average FF is ON" do
@@ -432,7 +433,7 @@ RSpec.describe Outcomes::Import do
 
     it "restores deleted outcome" do
       existing_outcome.update!(workflow_state: "deleted")
-      importer.import_outcome(**outcome_attributes.merge(workflow_state: ""))
+      importer.import_outcome(**outcome_attributes, workflow_state: "")
       expect(existing_outcome.reload.workflow_state).to eq "active"
     end
 
@@ -564,7 +565,8 @@ RSpec.describe Outcomes::Import do
     end
 
     context "with friendly_description" do
-      fd = "A friendly description"
+      let(:fd) { "A friendly description" }
+
       it "creates an OutcomeFriendlyDescription if the imported outcome has a friendly_description" do
         expect(OutcomeFriendlyDescription.find_by(description: fd)).to be_nil
         importer.import_outcome(**outcome_attributes, friendly_description: fd)

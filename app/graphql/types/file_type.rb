@@ -47,6 +47,16 @@ module Types
 
     field :word_count, Integer, null: true
 
+    field :file_state, String, null: true
+
+    field :locked, Boolean
+
+    field :lock_at, Types::DateTimeType, null: true
+
+    field :unlock_at, Types::DateTimeType, null: true
+
+    field :viewed_at, Types::DateTimeType, null: true
+
     field :size, String, null: true
     def size
       ActiveSupport::NumberHelper.number_to_human_size(object.size)
@@ -56,24 +66,65 @@ module Types
     def thumbnail_url
       return if object.locked_for?(current_user, check_policies: true)
 
-      authenticated_thumbnail_url(object)
+      Loaders::ThumbnailLoader.for.load(object).then do |preloaded_attachment|
+        authenticated_thumbnail_url(preloaded_attachment)
+      end
     end
 
     field :usage_rights, UsageRightsType, null: true
     delegate :usage_rights, to: :object
 
-    field :url, Types::UrlType, null: true
-    def url
-      return if object.locked_for?(current_user, check_policies: true)
+    field :folder, Types::FolderType, null: true
+    def folder
+      return nil unless object.folder_id
 
-      opts = {
-        download: "1",
-        download_frd: "1",
-        host: context[:request].host_with_port,
-        protocol: context[:request].protocol
-      }
-      opts[:verifier] = object.uuid if context[:in_app]
-      GraphQLHelpers::UrlHelpers.file_download_url(object, opts)
+      load_association(:folder)
+    end
+
+    field :url, Types::UrlType, null: true, extras: [:parent]
+    def url(parent:)
+      return if attachment_access_blocked?(parent)
+
+      # Check if this file belongs to a peer review submission
+      if parent.is_a?(Submission)
+        assignment = parent.assignment
+
+        # Check if current user is a peer reviewer (cached to prevent N+1
+        # when multiple files are loaded for the same submission)
+        is_peer_reviewer = assignment&.peer_reviews && parent.peer_reviewer_for?(current_user)
+
+        # Use anonymous route for anonymous peer reviews
+        # This follows the same pattern as SpeedGrader (speed_grader.html.erb line 177-180)
+        if is_peer_reviewer
+          if assignment.anonymous_peer_reviews
+            return GraphQLHelpers::UrlHelpers.url_for(
+              controller: "submissions/anonymous_downloads",
+              action: "show",
+              course_id: assignment.context_id,
+              assignment_id: assignment.id,
+              anonymous_id: parent.anonymous_id,
+              download: object.id,
+              host: context[:request].host_with_port,
+              protocol: context[:request].protocol,
+              only_path: false
+            )
+          else
+            return GraphQLHelpers::UrlHelpers.url_for(
+              controller: "submissions/downloads",
+              action: "show",
+              course_id: assignment.context_id,
+              assignment_id: assignment.id,
+              id: parent.user_id,
+              download: object.id,
+              host: context[:request].host_with_port,
+              protocol: context[:request].protocol,
+              only_path: false
+            )
+          end
+        end
+      end
+
+      build_standard_file_url
     end
 
     field :submission_preview_url, Types::UrlType, null: true, extras: [:parent] do
@@ -84,7 +135,7 @@ module Types
         return unless submission_id ||= parent&.id
       end
 
-      return if object.locked_for?(current_user, check_policies: true)
+      return if attachment_access_blocked?(parent)
 
       Loaders::IDLoader.for(Submission).load(submission_id).then do |submission|
         next unless submission.grants_right?(current_user, session, :read)
@@ -108,6 +159,35 @@ module Types
 
     private
 
+    # locked_for? checks only attachment-level locks. Mirror
+    # AttachmentHelper#access_allowed: a Submission :read grant overrides
+    # the lock. (AttachmentHelper#access_allowed can't be called here —
+    # it needs controller state.)
+    def attachment_access_blocked?(parent)
+      if Account.site_admin.feature_enabled?(:peer_reviewer_locked_file_access) &&
+         parent.is_a?(Submission) && parent.grants_right?(current_user, session, :read)
+        return false
+      end
+
+      object.locked_for?(current_user, check_policies: true)
+    end
+
+    def build_standard_file_url
+      opts = {
+        download: "1",
+        download_frd: "1",
+        host: context[:request].host_with_port,
+        protocol: context[:request].protocol,
+        location: (context[:asset_location] if context[:domain_root_account]&.feature_enabled?(:file_association_access_conversation) || context[:domain_root_account]&.feature_enabled?(:file_association_access))
+      }
+
+      unless context[:domain_root_account]&.feature_enabled?(:disable_adding_uuid_verifier_in_api)
+        opts[:verifier] = object.uuid if context[:in_app]
+      end
+
+      GraphQLHelpers::UrlHelpers.file_download_url(object, opts)
+    end
+
     def load_submission_associations(submission)
       Loaders::AssociationLoader.for(Submission, :assignment).load(submission).then do |assignment|
         Loaders::AssociationLoader.for(Assignment, :context).load(assignment).then do |course|
@@ -126,8 +206,7 @@ module Types
 
     def get_canvadoc_url(course, assignment, submission)
       opts = {
-        anonymous_instructor_annotations: course.grants_right?(current_user, :manage_grade) && assignment.anonymous_instructor_annotations,
-        moderated_grading_allow_list: submission.moderated_grading_allow_list,
+        anonymous_instructor_annotations: assignment.anonymous_instructor_annotations && course.grants_right?(current_user, :manage_grades),
         submission_id: submission.id,
         enable_annotations: true,
         enrollment_type: CoursesHelper.user_type(course, current_user)

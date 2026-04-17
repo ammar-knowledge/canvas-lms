@@ -17,11 +17,11 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render} from '@canvas/react'
 import Confetti from './Confetti'
 
 export {Confetti}
 
 export default function renderConfettiApp(env, elt) {
-  ReactDOM.render(<Confetti />, elt)
+  render(<Confetti />, elt)
 }

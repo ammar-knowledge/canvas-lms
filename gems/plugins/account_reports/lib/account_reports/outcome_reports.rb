@@ -126,7 +126,7 @@ module AccountReports
         account_id: account.id,
         root_account_id: root_account.id
       }
-      students = root_account.pseudonyms.except(:preload)
+      students = root_account.pseudonyms.not_instructure_identity.except(:preload)
                              .select(<<~SQL.squish)
                                pseudonyms.id,
                                u.sortable_name        AS "student name",
@@ -174,7 +174,8 @@ module AccountReports
                                INNER JOIN #{Account.quoted_table_name} acct ON acct.id = c.account_id
                                INNER JOIN #{CourseSection.quoted_table_name} s ON s.id = e.course_section_id
                                INNER JOIN #{Assignment.quoted_table_name} a ON (a.context_id = c.id
-                                                            AND a.context_type = 'Course')
+                                                            AND a.context_type = 'Course'
+                                                            AND a.type = 'Assignment')
                                INNER JOIN #{ContentTag.quoted_table_name} ct ON (ct.content_id = a.id
                                                               AND ct.content_type = 'Assignment')
                                INNER JOIN #{LearningOutcome.quoted_table_name} lo ON lo.id = ct.learning_outcome_id
@@ -312,6 +313,7 @@ module AccountReports
     # that have results. This prevents us from loading all this information just to
     # later discard it because there are no results from outcome service.
     def decorate_result(account, course, assignment, outcome, os_result)
+      is_inst_id = Pseudonym.column_names.include?("is_inst_id")
       students = User.select(<<~SQL.squish)
         distinct on (users.id, p.id, s.id)
         users.sortable_name                         AS "student name",
@@ -328,8 +330,10 @@ module AccountReports
       SQL
                      .joins(<<~SQL.squish)
                        INNER JOIN #{Enrollment.quoted_table_name} e ON e.type = 'StudentEnrollment' AND e.root_account_id = #{course.root_account.id}
-                         AND e.course_id = #{course.id} AND e.user_id = users.id #{@include_deleted ? "" : "AND e.workflow_state <> 'deleted'"}
-                       INNER JOIN #{Pseudonym.quoted_table_name} p ON p.user_id = users.id #{@include_deleted ? "" : "AND p.workflow_state<>'deleted'"}
+                         AND e.course_id = #{course.id} AND e.user_id = users.id #{"AND e.workflow_state <> 'deleted'" unless @include_deleted}
+                       INNER JOIN #{Pseudonym.quoted_table_name} p ON p.user_id = users.id
+                         #{"AND p.is_inst_id = false" if is_inst_id}
+                         #{"AND p.workflow_state<>'deleted'" unless @include_deleted}
                        INNER JOIN #{CourseSection.quoted_table_name} s ON e.course_section_id = s.id
                        LEFT OUTER JOIN #{Submission.quoted_table_name} subs ON subs.assignment_id = #{os_result[:associated_asset_id].to_i}
                          AND subs.user_id = users.id AND subs.workflow_state <> 'deleted' AND subs.workflow_state <> 'unsubmitted'
@@ -440,6 +444,7 @@ module AccountReports
     end
 
     def outcome_results_scope
+      inst_identity = Pseudonym.column_names.include?("is_inst_id")
       students = account.learning_outcome_links.active
                         .select(<<~SQL.squish)
                           distinct on (#{outcome_order}, p.id, s.id, r.id, qr.id, q.id, a.id, subs.id, qs.id, aq.id)
@@ -487,17 +492,18 @@ module AccountReports
                           INNER JOIN #{ContentTag.quoted_table_name} ct ON r.content_tag_id = ct.id
                           INNER JOIN #{User.quoted_table_name} u ON u.id = r.user_id
                           INNER JOIN #{Pseudonym.quoted_table_name} p on p.user_id = r.user_id
+                            #{"AND p.is_inst_id = false" if inst_identity}
                           INNER JOIN #{Course.quoted_table_name} c ON r.context_id = c.id
                           INNER JOIN #{Account.quoted_table_name} acct ON acct.id = c.account_id
                           INNER JOIN #{Enrollment.quoted_table_name} e ON e.type = 'StudentEnrollment' and e.root_account_id = #{account.root_account.id}
                             AND e.user_id = p.user_id AND e.course_id = c.id
-                            #{@include_deleted ? "" : "AND e.workflow_state <> 'deleted'"}
+                            #{"AND e.workflow_state <> 'deleted'" unless @include_deleted}
                           INNER JOIN #{CourseSection.quoted_table_name} s ON e.course_section_id = s.id
                           LEFT OUTER JOIN #{LearningOutcomeQuestionResult.quoted_table_name} qr on qr.learning_outcome_result_id = r.id
                           LEFT OUTER JOIN #{Quizzes::Quiz.quoted_table_name} q ON q.id = r.association_id
                            AND r.association_type IN ('Quiz', 'Quizzes::Quiz')
-                          LEFT OUTER JOIN #{Assignment.quoted_table_name} a ON (a.id = ct.content_id
-                           AND ct.content_type = 'Assignment') OR a.id = q.assignment_id
+                          LEFT OUTER JOIN #{Assignment.quoted_table_name} a ON a.type = 'Assignment' AND ((a.id = ct.content_id
+                           AND ct.content_type = 'Assignment') OR a.id = q.assignment_id)
                           LEFT OUTER JOIN #{Submission.quoted_table_name} subs ON subs.assignment_id = a.id
                            AND subs.user_id = u.id AND subs.workflow_state <> 'deleted' AND subs.workflow_state <> 'unsubmitted'
                           LEFT OUTER JOIN #{Quizzes::QuizSubmission.quoted_table_name} qs ON r.artifact_id = qs.id
@@ -584,7 +590,7 @@ module AccountReports
 
       os_scope = config_options[:new_quizzes_scope]
 
-      write_report headers, enable_i18n_features do |csv|
+      write_report headers, enable_i18n_features: do |csv|
         write_row = lambda do |row|
           row["assignment url"] = "https://#{host}" \
                                   "/courses/#{row["course id"]}" \
@@ -670,6 +676,7 @@ module AccountReports
     end
 
     COURSE_CACHE_SIZE = 32
+    private_constant :COURSE_CACHE_SIZE
     def find_cached_course(id)
       @course_cache ||= {}
       @course_cache[id] ||= begin

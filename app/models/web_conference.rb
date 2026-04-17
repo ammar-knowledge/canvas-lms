@@ -18,12 +18,13 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class WebConference < ActiveRecord::Base
+class WebConference < ApplicationRecord
   include SendToStream
   include TextHelper
+
   attr_readonly :context_id, :context_type
   belongs_to :context, polymorphic: %i[course group account]
-  has_one :calendar_event, -> { order("updated_at desc") }, inverse_of: :web_conference, dependent: :nullify
+  has_one :calendar_event, -> { order(updated_at: :desc) }, inverse_of: :web_conference, dependent: :nullify
   has_many :web_conference_participants
   has_many :users, through: :web_conference_participants
   has_many :invitees, -> { where(web_conference_participants: { participation_type: "invitee" }) }, through: :web_conference_participants, source: :user
@@ -54,7 +55,7 @@ class WebConference < ActiveRecord::Base
 
   serialize :settings
   def settings
-    read_or_initialize_attribute(:settings, {})
+    self["settings"] ||= {}
   end
 
   # whether they replace the whole hash or just update some values, make sure
@@ -98,13 +99,44 @@ class WebConference < ActiveRecord::Base
     settings&.[](:lti_settings)
   end
 
+  def invite_all_enabled?
+    settings[:invite_all] == true
+  end
+
+  def invite_all_enabled=(value)
+    settings[:invite_all] = value
+    settings_will_change!
+  end
+
+  def remove_observers_enabled?
+    settings[:remove_observers] == true
+  end
+
+  def remove_observers_enabled=(value)
+    settings[:remove_observers] = value
+    settings_will_change!
+  end
+
+  def add_new_enrollment_user(user_id)
+    return unless invite_all_enabled?
+    return unless user_id
+
+    # Respect remove_observers if enabled
+    if remove_observers_enabled? && context.is_a?(Course)
+      observer_ids = context.observers.pluck(:id)
+      return if observer_ids.include?(user_id)
+    end
+
+    invite_users_from_context([user_id])
+  end
+
   def lti_tool_valid
     tool_id = settings.dig(:lti_settings, :tool_id)
     if tool_id.blank?
       errors.add(:settings, "settings[lti_settings][tool_id] must exist for LtiConference")
       return
     end
-    tool = ContextExternalTool.find_external_tool_by_id(tool_id, context)
+    tool = Lti::ToolFinder.from_id(tool_id, context)
     if tool.blank?
       errors.add(:settings, "settings[lti_settings][tool_id] must be a ContextExternalTool instance visible in context")
       return
@@ -246,7 +278,7 @@ class WebConference < ActiveRecord::Base
     (@new_participants ||= []) << user if p.new_record?
     # Once anyone starts attending the conference, mark it as started.
     if type == "attendee"
-      self.started_at ||= Time.now
+      self.started_at ||= Time.zone.now
       save
     end
     p.save
@@ -287,7 +319,7 @@ class WebConference < ActiveRecord::Base
   end
 
   def context_code
-    read_attribute(:context_code) || "#{context_type.underscore}_#{context_id}" rescue nil
+    super || (context_type && "#{context_type.underscore}_#{context_id}")
   end
 
   def infer_conference_settings; end
@@ -299,9 +331,8 @@ class WebConference < ActiveRecord::Base
                   WebConference.conference_types(context).detect { |t| t[:conference_type] == val }
                 end
     if conf_type
-      write_attribute(:conference_type, conf_type[:conference_type])
-      write_attribute(:type, conf_type[:class_name])
-      conf_type[:conference_type]
+      self.type = conf_type[:class_name]
+      super(conf_type[:conference_type])
     else
       nil
     end
@@ -310,7 +341,7 @@ class WebConference < ActiveRecord::Base
   def infer_conference_details
     infer_conference_settings
     self.conference_type ||= config && config[:conference_type]
-    self.context_code = "#{context_type.underscore}_#{context_id}" rescue nil
+    self.context_code = context_type && "#{context_type.underscore}_#{context_id}"
     self.added_user_ids ||= ""
     if title.blank?
       self.title = context.is_a?(Course) ? t("#web_conference.default_name_for_courses", "Course Web Conference") : t("#web_conference.default_name_for_groups", "Group Web Conference")
@@ -357,7 +388,7 @@ class WebConference < ActiveRecord::Base
   end
 
   def restart
-    self.start_at ||= Time.now
+    self.start_at ||= Time.zone.now
     self.end_at = duration && (self.start_at + duration_in_seconds)
     self.started_at ||= self.start_at
     self.ended_at = nil
@@ -366,7 +397,7 @@ class WebConference < ActiveRecord::Base
 
   # Default implementation since most implementations don't support scheduling yet
   def scheduled?
-    self.started_at.nil? && scheduled_date && scheduled_date > Time.now
+    self.started_at.nil? && scheduled_date && scheduled_date > Time.zone.now
   end
 
   # Default implementation since most implementations don't support scheduling yet
@@ -374,11 +405,11 @@ class WebConference < ActiveRecord::Base
     nil
   end
 
-  def active?(force_check = false, allow_check = true)
+  def active?(force_check: false, allow_check: true)
     unless force_check
-      return false if ended_at && Time.now > ended_at
-      return true if self.start_at && (self.end_at.nil? || (self.end_at && Time.now > self.start_at && Time.now < self.end_at))
-      return true if ended_at && Time.now < ended_at
+      return false if ended_at && Time.zone.now > ended_at
+      return true if self.start_at && (self.end_at.nil? || (self.end_at && Time.zone.now > self.start_at && Time.zone.now < self.end_at))
+      return true if ended_at && Time.zone.now < ended_at
       return @conference_active unless @conference_active.nil?
     end
     unless allow_check
@@ -391,20 +422,20 @@ class WebConference < ActiveRecord::Base
     # If somehow the end_at didn't get set, set the end date
     # based on the start time and duration
     if @conference_active && !self.end_at && !long_running?
-      self.start_at ||= Time.now
-      self.end_at = [self.start_at, Time.now].compact.min + duration_in_seconds
+      self.start_at ||= Time.zone.now
+      self.end_at = [self.start_at, Time.zone.now].compact.min + duration_in_seconds
       save
     # If the conference is still active but it's been more than fifteen minutes
     # since it was supposed to end, just go ahead and end it
     elsif @conference_active && self.end_at && self.end_at < 15.minutes.ago && !ended_at
-      self.ended_at = Time.now
+      self.ended_at = Time.zone.now
       self.start_at ||= self.started_at
       self.end_at ||= ended_at
       @conference_active = false
       save
     # If the conference is no longer in use and its end_at has passed,
     # consider it ended
-    elsif @conference_active == false && self.started_at && self.end_at && self.end_at < Time.now && !ended_at
+    elsif @conference_active == false && self.started_at && self.end_at && self.end_at < Time.zone.now && !ended_at
       close
     end
     @conference_active
@@ -415,7 +446,7 @@ class WebConference < ActiveRecord::Base
   end
 
   def close
-    self.ended_at = Time.now
+    self.ended_at = Time.zone.now
     self.start_at ||= started_at
     self.end_at ||= ended_at
     save
@@ -478,41 +509,23 @@ class WebConference < ActiveRecord::Base
     given { |user, session| user && user.id == user_id && context.grants_right?(user, session, :create_conferences) }
     can :initiate and can :close
 
-    #################### Begin legacy permission block #########################
     given do |user, session|
-      user && !context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_all_rights?(user, session, :manage_content, :create_conferences)
-    end
-    can :read and can :join and can :initiate and can :delete and can :close and can :manage_recordings
-
-    given do |user, session|
-      user && !context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        !finished? && context.grants_all_rights?(user, session, :manage_content, :create_conferences)
-    end
-    can :update
-    ##################### End legacy permission block ##########################
-
-    given do |user, session|
-      user && context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_all_rights?(user, session, :manage_course_content_add, :create_conferences)
+      user && context.grants_all_rights?(user, session, :manage_course_content_add, :create_conferences)
     end
     can :read and can :join and can :initiate
 
     given do |user, session|
-      user && context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_all_rights?(user, session, :manage_course_content_delete, :create_conferences)
+      user && context.grants_all_rights?(user, session, :manage_course_content_delete, :create_conferences)
     end
     can :read and can :join and can :delete and can :close
 
     given do |user, session|
-      user && context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        context.grants_all_rights?(user, session, :manage_course_content_edit, :create_conferences)
+      user && context.grants_all_rights?(user, session, :manage_course_content_edit, :create_conferences)
     end
     can :read and can :join and can :manage_recordings
 
     given do |user, session|
-      user && context.root_account.feature_enabled?(:granular_permissions_manage_course_content) &&
-        !finished? && context.grants_all_rights?(user, session, :manage_course_content_edit, :create_conferences)
+      user && !finished? && context.grants_all_rights?(user, session, :manage_course_content_edit, :create_conferences)
     end
     can :update
   end
@@ -601,9 +614,13 @@ class WebConference < ActiveRecord::Base
 
   def self.plugin_types
     plugins.filter_map do |plugin|
-      next unless plugin.enabled? &&
-                  (klass = (plugin.base || "#{plugin.id.classify}Conference").constantize rescue nil) &&
-                  klass < base_class
+      begin
+        next unless plugin.enabled? &&
+                    (klass = (plugin.base || "#{plugin.id.classify}Conference").constantize) &&
+                    klass < base_class
+      rescue NameError
+        next
+      end
 
       plugin.settings.merge(
         conference_type: plugin.id.classify,

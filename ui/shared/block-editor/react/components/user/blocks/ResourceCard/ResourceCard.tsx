@@ -26,10 +26,11 @@ import {TextBlock} from '../TextBlock'
 import {ButtonBlock} from '../ButtonBlock'
 import {IconBlock} from '../IconBlock'
 import {type ResourceCardProps} from './types'
+import {isLastChild} from '../../../../utils'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('block-editor/resource-card')
+const I18n = createI18nScope('block-editor')
 
 const ResourceCard = ({id, title, description, iconName, linkText, linkUrl}: ResourceCardProps) => {
   const [myId] = useState(id)
@@ -93,13 +94,10 @@ ResourceCard.craft = {
     linkUrl: '',
   },
   custom: {
-    isDeletable: (myId: Node, query: any) => {
-      const target = query.node(myId).get()
-      const parent = query.node(target.data.parent).get()
-      if (parent.rules?.canMoveOut) {
-        return parent.rules.canMoveOut([target], parent)
-      }
-      return true
+    isDeletable: (nodeId: string, query: any) => {
+      const parentId = query.node(nodeId).get().data.parent
+      const parent = query.node(parentId).get()
+      return parent?.data.name === 'ResourcesSectionInner' && !isLastChild(nodeId, query)
     },
   },
 }

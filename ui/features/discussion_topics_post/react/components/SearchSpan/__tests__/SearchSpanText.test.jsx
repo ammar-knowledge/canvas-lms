@@ -21,56 +21,57 @@ import React from 'react'
 import {SearchSpan} from '../SearchSpan'
 
 const setup = props => {
-  return render(<SearchSpan searchTerm="" text="" {...props} />)
+  return render(<SearchSpan searchTerm="" htmlBody="" {...props} />)
 }
 
 describe('SearchSpan', () => {
   it('should perform no highlights if no searchTerm is present', () => {
     const {queryAllByTestId} = setup()
-    expect(queryAllByTestId('highlighted-search-item').length).toBe(0)
+    expect(queryAllByTestId('highlighted-search-item')).toHaveLength(0)
   })
 
   it('should highlight search term if found in message', () => {
-    const {queryAllByTestId} = setup({searchTerm: 'Posts', text: 'Posts'})
-    expect(queryAllByTestId('highlighted-search-item').length).toBe(1)
+    const {queryAllByTestId} = setup({searchTerm: 'Posts', htmlBody: 'Posts'})
+    expect(queryAllByTestId('highlighted-search-item')).toHaveLength(1)
   })
 
   it('should not create highlight spans if no term is found', () => {
-    const {queryAllByTestId} = setup({searchTerm: 'Posts', text: 'A message'})
-    expect(queryAllByTestId('highlighted-search-item').length).toBe(0)
+    const {queryAllByTestId} = setup({searchTerm: 'Posts', htmlBody: 'A message'})
+    expect(queryAllByTestId('highlighted-search-item')).toHaveLength(0)
   })
 
   it('should highlight multiple terms in message', () => {
     const {queryAllByTestId} = setup({
       searchTerm: 'here',
-      text: 'a longer message with multiple highlights here and here',
+      htmlBody: 'a longer message with multiple highlights here and here',
     })
-    expect(queryAllByTestId('highlighted-search-item').length).toBe(2)
+    expect(queryAllByTestId('highlighted-search-item')).toHaveLength(2)
   })
 
   it('highlighting should be case-insensitive', () => {
     const {queryAllByTestId} = setup({
       searchTerm: 'here',
-      text: 'here and HeRe',
+      htmlBody: 'here and HeRe',
     })
-    expect(queryAllByTestId('highlighted-search-item').length).toBe(2)
+    expect(queryAllByTestId('highlighted-search-item')).toHaveLength(2)
   })
 
   it('should not highlight when in split screen view', () => {
     const {queryAllByTestId} = setup({
       searchTerm: 'here',
-      text: 'here and HeRe',
+      htmlBody: 'here and HeRe',
       isSplitView: true,
     })
-    expect(queryAllByTestId('highlighted-search-item').length).toBe(0)
+    expect(queryAllByTestId('highlighted-search-item')).toHaveLength(0)
   })
 
   it('should remove inner html tags', () => {
     const container = setup({
       searchTerm: 'strong',
-      text: "Around here, however, we don't look backwards for very long. <strong>We keep moving forward</strong>, opening up new doors and doing new things, because we're curious... and curiosity keeps leading us down new paths.",
+      htmlBody:
+        "Around here, however, we don't look backwards for very long. <strong>We keep moving forward</strong>, opening up new doors and doing new things, because we're curious... and curiosity keeps leading us down new paths.",
     })
-    expect(container.queryAllByTestId('highlighted-search-item').length).toBe(0)
+    expect(container.queryAllByTestId('highlighted-search-item')).toHaveLength(0)
     expect(container.queryByText('strong')).toBeNull()
   })
 
@@ -80,13 +81,13 @@ describe('SearchSpan', () => {
 
     const container = setup({
       searchTerm: 'iframe',
-      text: content,
+      htmlBody: content,
     })
 
     // iframe is in the content 3 times
     expect(content.split('iframe').length - 1).toBe(3)
     // only the 'iframe' text that is not in an html tag should be highlighted.
-    expect(container.queryAllByTestId('highlighted-search-item').length).toBe(1)
+    expect(container.queryAllByTestId('highlighted-search-item')).toHaveLength(1)
     // The iframe html tag wasn't removed
     expect(container.container.innerHTML).toContain('<iframe')
   })
@@ -94,8 +95,8 @@ describe('SearchSpan', () => {
   it('should handle special characters in searchTerm', () => {
     const {queryAllByTestId} = setup({
       searchTerm: '(',
-      text: 'This is a (here) test with (here) special characters',
+      htmlBody: 'This is a (here) test with (here) special characters',
     })
-    expect(queryAllByTestId('highlighted-search-item').length).toBe(2)
+    expect(queryAllByTestId('highlighted-search-item')).toHaveLength(2)
   })
 })

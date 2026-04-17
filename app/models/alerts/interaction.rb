@@ -22,11 +22,11 @@ module Alerts
     def initialize(course, student_ids, teacher_ids)
       data = {}
       student_ids.each { |id| data[id] = {} }
-      @today = Time.now.beginning_of_day
+      @today = Time.zone.now.beginning_of_day
       @start_at = course.start_at || course.created_at
       @last_interaction_for_user = {}
       last_comment_dates = SubmissionCommentInteraction.in_course_between(course, teacher_ids, student_ids)
-      last_comment_dates.each do |(user_id, author_id), date| # rubocop:disable Style/HashEachMethods
+      last_comment_dates.each do |(user_id, author_id), date|
         student = data[user_id]
         (student[:last_interaction] ||= {})[author_id] = date
       end

@@ -25,9 +25,7 @@ class Assignment::BulkUpdate
     @current_user = user
   end
 
-  def grading_periods?
-    @context.grading_periods?
-  end
+  delegate :grading_periods?, to: :@context
 
   def run(progress, assignment_data)
     # assignment_data looks like [:id, :all_dates => [:id, :base, :due_at, :unlock_at, :lock_at]]
@@ -79,12 +77,12 @@ class Assignment::BulkUpdate
     assignments_to_save.each do |assignment|
       if !grading_periods_allow_submittable_update?(assignment, {}) || !assignment.valid?
         all_errors << { "assignment_id" => assignment.id }
-                      .merge(assignment.errors.to_hash.deep_stringify_keys)
+                      .merge(::Api::Errors::Reporter.to_json(assignment.errors).deep_stringify_keys)
       end
       assignment.assignment_overrides.each do |override|
         if !grading_periods_allow_assignment_override_update?(override) || !override.valid?
           all_errors << { "assignment_id" => assignment.id, "assignment_override_id" => override.id }
-                        .merge(override.errors.to_hash.deep_stringify_keys)
+                        .merge(::Api::Errors::Reporter.to_json(override.errors).deep_stringify_keys)
         end
       end
       progress.calculate_completion!(progress_count, progress_total)

@@ -122,7 +122,7 @@ describe AssignmentsHelper do
 
   describe "#assignment_submission_button" do
     before do
-      student_in_course
+      student_in_course(active_all: true)
       assignment_model(course: @course)
       @assignment.update_attribute(:submission_types, "online_upload")
       allow(self).to receive(:can_do).and_return true
@@ -213,7 +213,7 @@ describe AssignmentsHelper do
     end
   end
 
-  describe "#student_peer_review_url_in_a2_for" do
+  describe "#student_peer_review_url" do
     let(:course) { Course.create! }
     let(:assignment) { course.assignments.create(peer_reviews: true, title: "hi") }
     let(:reviewer) { course.enroll_student(User.create!, active_all: true).user }
@@ -226,13 +226,128 @@ describe AssignmentsHelper do
 
     it "creates a URL containing the peer reviewee's user ID as reviewee_id when peer reviewing is not anonymous" do
       expect(self).to receive(:context_url).and_return("")
-      student_peer_review_url_in_a2_for(course, assignment, assessment)
+      student_peer_review_url(course, assignment, assessment)
     end
 
     it "creates a URL containing the peer reviewee's anonymous ID as anonymous_asset_id when peer reviewing is anonymous" do
       assignment.update!(anonymous_peer_reviews: true)
       expect(self).to receive(:context_url).and_return("")
-      student_peer_review_url_in_a2_for(course, assignment, assessment)
+      student_peer_review_url(course, assignment, assessment)
+    end
+  end
+
+  describe "#show_peer_review_widget?" do
+    before(:once) do
+      course_with_teacher(active_all: true)
+      student_in_course(active_all: true)
+      assignment_model(course: @course, peer_reviews: true)
+      @context = @course
+      @current_user = @teacher
+    end
+
+    it "returns false when context is a horizon course" do
+      allow(self).to receive(:can_do).and_return(true)
+      allow(@context).to receive(:horizon_course?).and_return(true)
+      expect(show_peer_review_widget?).to be_falsey
+    end
+
+    it "returns false when user cannot grade the assignment" do
+      allow(self).to receive(:can_do).with(@assignment, @student, :grade).and_return(false)
+      @current_user = @student
+      expect(show_peer_review_widget?).to be_falsey
+    end
+
+    it "returns false when peer_review_allocation_and_grading feature is disabled" do
+      allow(self).to receive(:can_do).and_return(true)
+      allow(@context).to receive(:feature_enabled?).with(:peer_review_allocation_and_grading).and_return(false)
+      expect(show_peer_review_widget?).to be_falsey
+    end
+
+    it "returns false when assignment does not have peer reviews" do
+      allow(self).to receive(:can_do).and_return(true)
+      @assignment.update!(peer_reviews: false)
+      expect(show_peer_review_widget?).to be_falsey
+    end
+
+    it "returns false when assignment has no peer review sub-assignment" do
+      @can_grade = true
+      allow(@context).to receive(:horizon_course?).and_return(false)
+      allow(@context).to receive(:feature_enabled?).with(:peer_review_allocation_and_grading).and_return(true)
+      expect(show_peer_review_widget?).to be_falsey
+    end
+
+    it "returns true when all conditions are met" do
+      @can_grade = true
+      allow(@context).to receive(:horizon_course?).and_return(false)
+      allow(@context).to receive(:feature_enabled?).with(:peer_review_allocation_and_grading).and_return(true)
+      @assignment.create_peer_review_sub_assignment!(peer_reviews: true, peer_review_count: 2)
+      expect(show_peer_review_widget?).to be_truthy
+    end
+  end
+
+  describe "#show_rubric_section?" do
+    before(:once) do
+      course_with_teacher(active_all: true)
+      student_in_course(active_all: true)
+      assignment_model(course: @course)
+      @context = @course
+      @current_user = @teacher
+    end
+
+    it "returns false when context is a horizon course" do
+      allow(self).to receive(:can_do).and_return(true)
+      allow(@context).to receive(:horizon_course?).and_return(true)
+      expect(show_rubric_section?).to be_falsey
+    end
+
+    it "returns false when user cannot update the assignment" do
+      allow(self).to receive(:can_do).with(@assignment, @student, :update).and_return(false)
+      @current_user = @student
+      expect(show_rubric_section?).to be_falsey
+    end
+
+    it "returns true when all conditions are met" do
+      allow(self).to receive(:can_do).and_return(true)
+      allow(@context).to receive(:horizon_course?).and_return(false)
+      expect(show_rubric_section?).to be_truthy
+    end
+  end
+
+  describe "#show_legacy_peer_reviews_link?" do
+    before(:once) do
+      course_with_teacher(active_all: true)
+      assignment_model(course: @course, peer_reviews: true)
+      @context = @course
+    end
+
+    it "returns false when @can_grade is false" do
+      @can_grade = false
+      expect(show_legacy_peer_reviews_link?).to be_falsey
+    end
+
+    it "returns false when assignment does not have peer reviews" do
+      @can_grade = true
+      @assignment.update!(peer_reviews: false)
+      expect(show_legacy_peer_reviews_link?).to be_falsey
+    end
+
+    it "returns false when FF is enabled and assignment has a peer review sub-assignment" do
+      @can_grade = true
+      allow(@assignment.context).to receive(:feature_enabled?).with(:peer_review_allocation_and_grading).and_return(true)
+      @assignment.create_peer_review_sub_assignment!(peer_reviews: true, peer_review_count: 2)
+      expect(show_legacy_peer_reviews_link?).to be_falsey
+    end
+
+    it "returns true when FF is enabled but assignment has no sub-assignment (legacy)" do
+      @can_grade = true
+      allow(@assignment.context).to receive(:feature_enabled?).with(:peer_review_allocation_and_grading).and_return(true)
+      expect(show_legacy_peer_reviews_link?).to be_truthy
+    end
+
+    it "returns true when FF is disabled" do
+      @can_grade = true
+      allow(@assignment.context).to receive(:feature_enabled?).with(:peer_review_allocation_and_grading).and_return(false)
+      expect(show_legacy_peer_reviews_link?).to be_truthy
     end
   end
 end

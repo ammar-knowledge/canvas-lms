@@ -533,7 +533,46 @@ describe AssignmentOverridesController, type: :request do
         @assignment.save!
 
         raw_api_create_override(@course, @assignment, assignment_override: { group_id: @group.id })
-        expect_error("group_id is not valid for non-group assignments")
+        expect_error("group_id is not valid")
+      end
+
+      context "differentiation tags" do
+        before do
+          @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
+          @course.account.save!
+          @course.account.reload
+
+          @group_category = @course.group_categories.create!(name: "Diff Tag Group Set", non_collaborative: true)
+          @group_category.create_groups(1)
+          @differentiation_tag_group_1 = @group_category.groups.first
+        end
+
+        def assert_differentiation_tag_is_assigned
+          api_create_override(@course, @assignment, assignment_override: { group_id: @differentiation_tag_group_1.id })
+
+          @override = @assignment.assignment_overrides.reload.first
+          expect(@override).not_to be_nil
+          expect(@override.set).to eq @differentiation_tag_group_1
+        end
+
+        it "assigns differentiation tag group to group assignment" do
+          assert_differentiation_tag_is_assigned
+        end
+
+        it "assigns differentiation tag group to non group assignment" do
+          @assignment.group_category = nil
+          @assignment.save!
+
+          assert_differentiation_tag_is_assigned
+        end
+
+        it "errors if differentiation tags are not enabled" do
+          @course.account.settings[:allow_assign_to_differentiation_tags] = { value: false }
+          @course.account.save!
+
+          raw_api_create_override(@course, @assignment, assignment_override: { group_id: @differentiation_tag_group_1.id })
+          expect_error("group_id is not valid")
+        end
       end
     end
 
@@ -610,7 +649,7 @@ describe AssignmentOverridesController, type: :request do
       @override.save!
 
       raw_api_create_override(@course, @assignment, assignment_override: { course_section_id: @course.default_section.id })
-      expect_errors("set_id" => [{ "message" => "taken", "attribute" => "set_id", "type" => "taken" }])
+      expect_errors("set_id" => [{ "message" => "has already been taken", "attribute" => "set_id", "type" => "taken" }])
     end
 
     it "errors if you try and duplicate a student in an adhoc set" do
@@ -809,7 +848,7 @@ describe AssignmentOverridesController, type: :request do
 
       it "does not requeue processing if nothing changes" do
         @override.update_attribute(:all_day, false)
-        expect_any_instantiation_of(@assignment).to_not receive(:run_if_overrides_changed_later!)
+        expect_any_instantiation_of(@assignment).not_to receive(:run_if_overrides_changed_later!)
         api_update_override(@course, @assignment, @override, assignment_override: { title: @override.title, student_ids: [@student.id] })
       end
 
@@ -1307,7 +1346,7 @@ describe AssignmentOverridesController, type: :request do
 
       it "fails for user without permissions" do
         student_in_course
-        call_batch_update({ @a.id => [{ id: @a1.id, due_at: Time.zone.now.to_s }] }, expected_status: 401)
+        call_batch_update({ @a.id => [{ id: @a1.id, due_at: Time.zone.now.to_s }] }, expected_status: 403)
       end
 
       it "fails if ids not present" do
@@ -1393,26 +1432,6 @@ describe AssignmentOverridesController, type: :request do
                                  ],
                                  expected_status: 400)
         expect(json["errors"][0]).to eq ["may not specify an override id"]
-      end
-
-      it "succeeds if formatted correctly" do
-        skip "DEMO-119 (1/27/2021)"
-        section = @course.course_sections.create!
-        student = student_in_section(section)
-        date = Time.zone.now.tomorrow
-        @user = @teacher
-
-        json = call_batch_create([
-                                   args_for(@a, nil, course_section_id: section.id, due_at: date),
-                                   args_for(@b, nil, course_section_id: section.id, unlock_at: date),
-                                   args_for(@a, nil, student_ids: [student.id], title: "foo")
-                                 ])
-        override1 = @a.assignment_overrides.find(json[0]["id"])
-        override2 = @b.assignment_overrides.find(json[1]["id"])
-        override3 = @a.assignment_overrides.find(json[2]["id"])
-        validate_override_json(override1, json[0])
-        validate_override_json(override2, json[1])
-        validate_override_json(override3, json[2])
       end
     end
   end

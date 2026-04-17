@@ -25,10 +25,19 @@ require_relative "../pages/gradebook_cells_page"
 require_relative "../pages/gradebook_page"
 require_relative "../pages/student_grades_page"
 
-describe "Moderated Marking" do
+# NOTE: We are aware that we're duplicating some unnecessary testcases, but this was the
+# easiest way to review, and will be the easiest to remove after the feature flag is
+# permanently removed. Testing both flag states is necessary during the transition phase.
+shared_examples "Moderated Marking" do |ff_enabled|
   include_context "in-process server selenium tests"
 
-  before(:once) do
+  before :once do
+    # Set feature flag state for the test run - this affects how the gradebook data is fetched, not the data setup
+    if ff_enabled
+      Account.site_admin.enable_feature!(:performance_improvements_for_gradebook)
+    else
+      Account.site_admin.disable_feature!(:performance_improvements_for_gradebook)
+    end
     Account.default.enable_feature!(:moderated_grading)
 
     # create a course with three teachers
@@ -53,6 +62,12 @@ describe "Moderated Marking" do
       submission_types: "online_text_entry",
       moderated_grading: true
     )
+  end
+
+  before do
+    if ff_enabled
+      allow(Services::PlatformServiceGradebook).to receive(:use_graphql?).and_return(true)
+    end
   end
 
   context "with a final-grader in a moderated assignment" do
@@ -126,6 +141,8 @@ describe "Moderated Marking" do
 
       # go to gradebook
       Gradebook.visit(@moderated_course)
+      # wait for gradebook to load and display data
+      wait_for_ajaximations
 
       # expect grades to be shown
       expect(Gradebook::Cells.get_grade(@student1, @moderated_assignment)).to eq("15")
@@ -214,6 +231,29 @@ describe "Moderated Marking" do
       expect(student_names).to match_array [@student1.name, @student2.name]
     end
 
+    it "displays students in alphabetical order" do
+      alice = student_in_course(course: @moderated_course, name: "Alice Anderson", active_all: true).user
+      bob = student_in_course(course: @moderated_course, name: "Bob Brown", active_all: true).user
+      charlie = student_in_course(course: @moderated_course, name: "Charlie Clark", active_all: true).user
+
+      @moderated_assignment.submit_homework(alice, body: "Alice's submission")
+      @moderated_assignment.submit_homework(bob, body: "Bob's submission")
+      @moderated_assignment.submit_homework(charlie, body: "Charlie's submission")
+
+      @moderated_assignment.grade_student(alice, grade: 10, grader: @teacher2, provisional: true)
+      @moderated_assignment.grade_student(bob, grade: 10, grader: @teacher2, provisional: true)
+      @moderated_assignment.grade_student(charlie, grade: 10, grader: @teacher2, provisional: true)
+
+      refresh_page
+      wait_for_ajaximations
+
+      student_names = ModeratePage.student_table_row_headers.map(&:text)
+
+      expected_start = ["Alice Anderson", "Bob Brown", "Charlie Clark"]
+      actual_start = student_names.first(3)
+      expect(actual_start).to eq expected_start
+    end
+
     it "anonymizes students if anonymous grading is enabled", priority: "1" do
       # enable anonymous grading
       @moderated_assignment.update(anonymous_grading: true)
@@ -256,4 +296,9 @@ describe "Moderated Marking" do
       end
     end
   end
+end
+
+describe "Moderated Marking" do
+  it_behaves_like "Moderated Marking", true
+  it_behaves_like "Moderated Marking", false
 end

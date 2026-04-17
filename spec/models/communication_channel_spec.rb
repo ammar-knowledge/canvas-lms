@@ -24,13 +24,13 @@ describe CommunicationChannel do
   end
 
   before do
-    @pseudonym = double("Pseudonym")
+    @pseudonym = instance_double(Pseudonym)
     allow(@pseudonym).to receive(:destroyed?).and_return(false)
     allow(Pseudonym).to receive(:find_by_user_id).and_return(@pseudonym)
   end
 
   it "creates a new instance given valid attributes" do
-    factory_with_protected_attributes(CommunicationChannel, communication_channel_valid_attributes)
+    CommunicationChannel.create!(communication_channel_valid_attributes)
   end
 
   describe "::trusted_confirmation_redirect?" do
@@ -43,7 +43,7 @@ describe CommunicationChannel do
       CommunicationChannel.instance_variable_set(:@redirect_trust_policies, @cc_redirect_trust_policies)
     end
 
-    let(:account) { double("Account") }
+    let(:account) { instance_double(Account) }
     let(:url) { "http://some.place" }
 
     it "is falsey by default" do
@@ -178,10 +178,17 @@ describe CommunicationChannel do
     expect(cc.reload.confirmation_sent_count).to eq conf_count
   end
 
+  it "does not break with missing context" do
+    @u1 = User.create!
+    cc = communication_channel(@u1, { username: "mortgage@tomnook.com" })
+    cc.send_confirmation!(nil)
+    expect(cc.reload.confirmation_sent_count).to eq 1
+  end
+
   it "is able to reset a confirmation code" do
     communication_channel_model
     old_cc = @cc.confirmation_code
-    @cc.set_confirmation_code(true)
+    @cc.set_confirmation_code(reset: true)
     expect(@cc.confirmation_code).not_to eql(old_cc)
   end
 
@@ -216,7 +223,7 @@ describe CommunicationChannel do
   it "uses a 4-digit confirmation_code for settings other than email" do
     communication_channel_model
     @cc.path_type = "sms"
-    @cc.set_confirmation_code(true)
+    @cc.set_confirmation_code(reset: true)
     expect(@cc.confirmation_code.size).to be(4)
   end
 
@@ -227,10 +234,10 @@ describe CommunicationChannel do
 
   it "provides a confirmation url" do
     expect(HostUrl).to receive(:protocol).and_return("https")
-    expect(HostUrl).to receive(:context_host).and_return("test.canvas.com")
+    expect(HostUrl).to receive(:context_host).and_return("test.canvas.com").at_least(:once)
     expect(CanvasSlug).to receive(:generate).and_return("abc123")
     communication_channel_model
-    mock_request = instance_double("ActionDispatch::Request", host_with_port: "test.canvas.com")
+    mock_request = instance_double(ActionDispatch::Request, host_with_port: "test.canvas.com")
     presenter = CommunicationChannelPresenter.new(@cc, mock_request)
     expect(presenter.confirmation_url).to eql("https://test.canvas.com/register/abc123")
   end
@@ -476,6 +483,17 @@ describe CommunicationChannel do
       expect(cc1.has_merge_candidates?).to be_truthy
     end
 
+    it "does not broadcast merge notification if user has no active pseudonyms" do
+      user2 = User.create!
+      cc2 = communication_channel(user2, { username: "jt@instructure.com", active_cc: true })
+      pseudonym = Account.default.pseudonyms.create!(user: user2, unique_id: "user2")
+      pseudonym.workflow_state = "deleted"
+      pseudonym.save!
+
+      expect(cc2).not_to receive(:dispatch_notifications)
+      cc2.send_merge_notification!
+    end
+
     it "does not return users for push channels" do
       user2 = User.create!
       communication_channel(user2, { username: "push", path_type: CommunicationChannel::TYPE_PUSH, active_cc: true })
@@ -635,8 +653,9 @@ describe CommunicationChannel do
           set_root_account_ids
           after_save_flag_old_microsoft_sync_user_mappings
           consider_building_notification_policies
+          initialize_synced_with_identity
         ]
-        expect(CommunicationChannel._save_callbacks.collect(&:filter).select { |k| k.is_a? Symbol } - accounted_for_callbacks).to eq []
+        expect(CommunicationChannel._save_callbacks.collect(&:filter).grep(Symbol) - accounted_for_callbacks).to eq []
       end
 
       it "stores the details of the last soft bounce" do
@@ -826,7 +845,7 @@ describe CommunicationChannel do
           .exactly(5).times
         cc.update!(path: "foo" + cc.path)
         cc.update!(position: cc.position + 1)
-        expect(cc.workflow_state).to_not eq("active")
+        expect(cc.workflow_state).not_to eq("active")
         cc.update!(workflow_state: "active")
         cc.update!(path_type: described_class::TYPE_PUSH)
         cc.update!(path_type: described_class::TYPE_EMAIL)
@@ -834,14 +853,14 @@ describe CommunicationChannel do
 
       it "doesn't flag old mappings if path type is not email" do
         cc.update!(path_type: described_class::TYPE_SMS, path: "8005551212")
-        expect(MicrosoftSync::UserMapping).to_not receive(:flag_as_needs_updating_if_using_email)
-        cc.update!(path_type: described_class::TYPE_TWITTER)
+        expect(MicrosoftSync::UserMapping).not_to receive(:flag_as_needs_updating_if_using_email)
+        cc.update!(path_type: described_class::TYPE_PUSH)
         cc.update!(path: "instructure")
       end
 
       it "doesn't flag old mappings if nothing relevant has changed" do
-        expect(MicrosoftSync::UserMapping).to_not receive(:flag_as_needs_updating_if_using_email)
-        cc.update!(updated_at: cc.updated_at + 1, last_bounce_at: Time.now)
+        expect(MicrosoftSync::UserMapping).not_to receive(:flag_as_needs_updating_if_using_email)
+        cc.update!(updated_at: cc.updated_at + 1, last_bounce_at: Time.zone.now)
       end
     end
   end
@@ -905,13 +924,13 @@ describe CommunicationChannel do
       expect(cc.e164_path).to eq "+18015555555"
       allow(InstStatsd::Statsd).to receive(:increment)
       account = double
-      allow(account).to receive_messages(feature_enabled?: true, global_id: "totes_an_ID")
+      allow(account).to receive_messages(feature_enabled?: true, global_id: "totes_an_ID", shard: Shard.current)
       expect(Services::NotificationService).to receive(:process).with(
         "otp:#{cc.global_id}",
         anything,
         "sms",
         cc.e164_path,
-        true
+        priority: true
       )
       expect(cc).not_to receive(:send_otp_via_sms_gateway!)
       cc.send_otp!("123456", account)
@@ -927,7 +946,7 @@ describe CommunicationChannel do
         "message.deliver.sms.totes_an_ID",
         {
           short_stat: "message.deliver_per_account",
-          tags: { path_type: "sms", root_account_id: "totes_an_ID" }
+          tags: { path_type: "sms", cluster: "test" }
         }
       )
     end

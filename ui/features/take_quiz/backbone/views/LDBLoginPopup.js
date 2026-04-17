@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import _, {map, isBoolean, extend} from 'lodash'
+import {map, isBoolean, extend, compact} from 'es-toolkit/compat'
 import Backbone from '@canvas/backbone'
 import $ from 'jquery'
 import Markup from '../../jst/LDBLoginPopup.handlebars'
@@ -98,7 +98,7 @@ export default class LDBLoginPopup extends Backbone.View {
     extend(this.options, options)
 
     const windowOptions = map(this.options.window, (v, k) =>
-      [k, isBoolean(v) ? (v ? 'yes' : 'no') : v].join('=')
+      [k, isBoolean(v) ? (v ? 'yes' : 'no') : v].join('='),
     ).join(',')
 
     // @method on
@@ -123,7 +123,6 @@ export default class LDBLoginPopup extends Backbone.View {
     function isStuck() {
       if (whnd) {
         try {
-          // eslint-disable-next-line babel/no-unused-expressions
           whnd.document
         } catch (e) {
           if (/Permission/.test(e.message)) return true
@@ -179,7 +178,6 @@ export default class LDBLoginPopup extends Backbone.View {
 
       const authenticate = this.authenticate(credentials)
 
-      // eslint-disable-next-line promise/catch-or-return
       authenticate.then(rc => {
         $delegate.triggerHandler('login_success')
         whnd.close()
@@ -203,7 +201,7 @@ export default class LDBLoginPopup extends Backbone.View {
       const $head = $(whnd.document.head)
 
       // Inject the stylesheets.
-      _(styleSheets).each(href => {
+      styleSheets.forEach(href => {
         $head.append(`<link rel="stylesheet" href="${htmlEscape(href)}" />`)
       })
 
@@ -241,11 +239,7 @@ export default class LDBLoginPopup extends Backbone.View {
     }
 
     // Store the links to the stylesheets
-    styleSheets = _(document.styleSheets)
-      .chain()
-      .map(styleSheet => styleSheet.href)
-      .compact()
-      .value()
+    styleSheets = compact(map(Array.from(document.styleSheets), styleSheet => styleSheet.href))
 
     $inputSink = $('<div />').on('click', bringToFront).css({
       'z-index': 1000,

@@ -20,7 +20,6 @@
  * From content_migrations_controller.rb
  */
 export interface EnvContentMigrations {
-  SHOW_SELECTABLE_OUTCOMES_IN_IMPORT?: boolean
   UPLOAD_LIMIT?: number
   QUESTION_BANKS?: {
     assessment_question_bank: {
@@ -33,6 +32,17 @@ export interface EnvContentMigrations {
   QUIZZES_NEXT_ENABLED?: boolean
   NEW_QUIZZES_MIGRATION_DEFAULT?: boolean
   NEW_QUIZZES_MIGRATION_REQUIRED?: boolean
+  NEW_QUIZZES_UNATTACHED_BANK_MIGRATIONS?: boolean
   EXPORT_WARNINGS?: string[]
   SHOW_BP_SETTINGS_IMPORT_OPTION?: boolean
+  SHOW_SELECT?: boolean
+  OLD_START_DATE?: string
+  OLD_END_DATE?: string
+  MISSING_POLICY_ENABLED?: boolean
+  current_context?: {
+    id: string
+    name: string
+    type: string
+    url: string
+  }
 }

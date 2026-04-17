@@ -49,29 +49,31 @@ module Api
 
     # This is the official, publicly documented error response formatter for our
     # API JSON error responses.
-    class Reporter < ActiveModel::BetterErrors::HashReporter
-      def to_hash
-        error_list = collection.to_hash.each_with_object([]) do |(attribute, error_message_set), list|
-          error_message_set.each do |error_message|
-            list << format_error_message(attribute, error_message)
+    class Reporter
+      def self.to_json(errors)
+        errors = errors.group_by_attribute.transform_values do |suberrors|
+          suberrors.map do |error|
+            {
+              attribute: (error.attribute == :base) ? nil : error.attribute,
+              message: error.message || "invalid",
+              type: error.type,
+            }
           end
         end
-        { errors: error_list }
+
+        { errors: }
       end
 
-      def format_error_message(attribute, error_message)
-        field = (attribute == :base) ? nil : attribute
-        {
-          field:,
-          message: MessageFormatter.new(base, error_message).format_message,
-          error_code: error_message.type,
-        }
-      end
-    end
+      def self.to_hash(errors)
+        errors = errors.map do |error|
+          {
+            field: (error.attribute == :base) ? nil : error.attribute,
+            message: error.message || ::Api::Errors.errors[error.type].try(:[], :message),
+            error_code: error.type,
+          }
+        end
 
-    class MessageFormatter < ::ActiveModel::BetterErrors::Formatter
-      def format_message
-        error_message.message || ::Api::Errors.errors[error_message.type].try(:[], :message)
+        { errors: }
       end
     end
   end

@@ -86,12 +86,54 @@ class OverrideListPresenter
   def visible_due_dates
     return [] unless assignment
 
-    assignment.dates_hash_visible_to(user).each do |due_date|
-      due_date[:raw] = due_date.dup
-      due_date[:lock_at] = lock_at due_date
-      due_date[:unlock_at] = unlock_at due_date
-      due_date[:due_at] = due_at due_date
-      due_date[:due_for] = due_for due_date
+    overrides = assignment.dates_hash_visible_to(user)
+    overrides = convert_non_collaborative_groups_to_tags_v2(overrides)
+
+    overrides.map do |due_date|
+      result = {}
+      result[:raw] = due_date.dup
+      result[:lock_at] = lock_at(due_date)
+      result[:unlock_at] = unlock_at(due_date)
+      result[:due_at] = due_at(due_date)
+      result[:due_for] = due_for(due_date)
+      result
+    end
+  end
+
+  def convert_non_collaborative_groups_to_tags(overrides)
+    all_group_ids = overrides.reduce([]) do |acc, override|
+      acc + override[:options].reduce([]) do |sub_acc, option|
+        # Groups are formatted as "group-<id>"
+        set_type, set_id = option.split("-")
+        next sub_acc unless set_type == "group"
+
+        sub_acc << set_id.to_i
+      end
+    end
+    # avoids N+1 queries when converting non_collaborative groups to "tag-<id>" format
+    tag_group_ids = Set.new(Group.non_collaborative.where(id: all_group_ids).pluck(:id))
+
+    # converts from "group-<id>" to "tag-<id>" for non-collaborative groups
+    overrides.map do |override|
+      override[:options] = override[:options].map do |option|
+        set_type, set_id = option.split("-")
+        if set_type == "group" && tag_group_ids.include?(set_id.to_i)
+          "tag-#{set_id}"
+        else
+          option
+        end
+      end
+      override
+    end
+  end
+
+  def convert_non_collaborative_groups_to_tags_v2(overrides)
+    all_group_ids = overrides.filter_map { |override| override[:set_id] if override[:set_type] == "Group" }
+    tag_group_ids = Set.new(Group.non_collaborative.where(id: all_group_ids).pluck(:id))
+
+    overrides.map do |override|
+      override[:set_type] = "Tag" if override[:set_type] == "Group" && tag_group_ids.include?(override[:set_id])
+      override
     end
   end
 end

@@ -21,10 +21,10 @@ import {render, screen, waitFor} from '@testing-library/react'
 import MoveItemTray from '../index'
 
 const stubs = {
-  focusOnExit: jest.fn(),
-  formatSaveUrl: jest.fn(),
-  onMoveSuccess: jest.fn(),
-  onExited: jest.fn(),
+  focusOnExit: vi.fn(),
+  formatSaveUrl: vi.fn(),
+  onMoveSuccess: vi.fn(),
+  onExited: vi.fn(),
 }
 const defaultProps = (props = {}) => ({
   title: 'Move Item',
@@ -56,13 +56,13 @@ const renderMoveItemTray = (props = {}) => {
 
 describe('MoveItemTray', () => {
   beforeEach(() => {
-    jest.useFakeTimers()
+    vi.useFakeTimers()
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
-    jest.runOnlyPendingTimers()
-    jest.useRealTimers()
+    vi.clearAllMocks()
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
   })
 
   it('renders the MoveItemTray component', () => {
@@ -112,16 +112,18 @@ describe('MoveItemTray', () => {
         groupId: '5',
         itemId: undefined,
         itemIds: ['2'],
-      })
+      }),
     )
   })
 
   it('calls onFocus on the result of focusOnExit on close', () => {
+    const mockFocusElement = {focus: vi.fn()}
+    stubs.focusOnExit.mockReturnValue(mockFocusElement)
     const {ref} = renderMoveItemTray()
 
     ref.current.onExited()
-    jest.runOnlyPendingTimers()
+    vi.runOnlyPendingTimers()
 
-    expect(stubs.focusOnExit).toHaveBeenCalledTimes(1)
+    expect(mockFocusElement.focus).toHaveBeenCalled()
   })
 })

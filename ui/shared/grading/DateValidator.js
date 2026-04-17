@@ -16,13 +16,13 @@
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 //
 
-import {find, forEach} from 'lodash'
+import {find, forEach} from 'es-toolkit/compat'
 import * as tz from '@instructure/moment-utils'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import GradingPeriodsHelper from './GradingPeriodsHelper'
 import DateHelper from '@canvas/datetime/dateHelper'
 
-const I18n = useI18nScope('DateValidator')
+const I18n = createI18nScope('DateValidator')
 
 const DATE_RANGE_ERRORS = {
   due_at: {
@@ -100,6 +100,21 @@ const DATE_RANGE_ERRORS = {
       },
     },
   },
+  peer_review_due_at: {
+    start_range: {
+      get unlock() {
+        return I18n.t('Due date cannot be before assignment unlock date')
+      },
+      get due() {
+        return I18n.t('Due date cannot be before assignment due date')
+      },
+    },
+    end_range: {
+      get lock() {
+        return I18n.t('Due date cannot be after assignment lock date')
+      },
+    },
+  },
 }
 
 export default class DateValidator {
@@ -122,6 +137,7 @@ export default class DateValidator {
     const currentDateRange = section ? this.getSectionRange(section) : this.dateRange
     const datetimesToValidate = []
     const forIndividualStudents = data.student_ids?.length || data.set_type === 'ADHOC'
+    const peerReviewDueAt = data.peer_review_due_at
 
     if (currentDateRange.start_at && currentDateRange.start_at.date && !forIndividualStudents) {
       datetimesToValidate.push({
@@ -231,21 +247,70 @@ export default class DateValidator {
         type: 'lock',
       })
     }
+
+    // Only validate peer review dates when feature flag is enabled
+    if (ENV.PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED) {
+      // Peer review due date must be >= assignment available from (unlock_at)
+      if (peerReviewDueAt && unlockAt) {
+        datetimesToValidate.push({
+          date: unlockAt,
+          validationDates: {
+            peer_review_due_at: peerReviewDueAt,
+          },
+          range: 'start_range',
+          type: 'unlock',
+        })
+      }
+
+      // Peer review due date must be >= assignment due date
+      if (peerReviewDueAt && dueAt) {
+        datetimesToValidate.push({
+          date: dueAt,
+          validationDates: {
+            peer_review_due_at: peerReviewDueAt,
+          },
+          range: 'start_range',
+          type: 'due',
+        })
+      }
+
+      // Peer review due date must be <= lock_at (assignment available to)
+      if (peerReviewDueAt && lockAt) {
+        datetimesToValidate.push({
+          date: lockAt,
+          validationDates: {
+            peer_review_due_at: peerReviewDueAt,
+          },
+          range: 'end_range',
+          type: 'lock',
+        })
+      }
+    }
+
     const errs = {}
     return this._validateDatetimeSequences(datetimesToValidate, errs)
   }
 
   getSectionRange(section) {
-    if (!section.override_course_and_term_dates) return this.dateRange
-
     const dateRange = {...this.dateRange}
-    if (section.start_at) {
+    const override_course_dates = section.override_course_and_term_dates
+    // if !override_course_dates, then use the earlier start date and the later end date
+    // if override_course_dates, then use the section start and end dates
+    if (
+      section.start_at &&
+      (override_course_dates ||
+        this._formatDatetime(section.start_at) < this._formatDatetime(dateRange.start_at.date))
+    ) {
       dateRange.start_at = {
         date: section.start_at,
         date_context: 'section',
       }
     }
-    if (section.end_at) {
+    if (
+      section.end_at &&
+      (override_course_dates ||
+        this._formatDatetime(section.end_at) > this._formatDatetime(dateRange.end_at.date))
+    ) {
       dateRange.end_at = {
         date: section.end_at,
         date_context: 'section',
@@ -288,20 +353,24 @@ export default class DateValidator {
         switch (datetimeSet.range) {
           case 'start_range':
             forEach(datetimeSet.validationDates, (validationDate, dateType) => {
-              if (
-                validationDate &&
-                this._formatDatetime(datetimeSet.date) > this._formatDatetime(validationDate)
-              ) {
+              const dateFormatted = this._formatDatetime(datetimeSet.date)
+              const validationDateFormatted = this._formatDatetime(validationDate)
+              const isInvalid = datetimeSet.strict
+                ? dateFormatted >= validationDateFormatted
+                : dateFormatted > validationDateFormatted
+              if (validationDate && isInvalid) {
                 errs[dateType] = DATE_RANGE_ERRORS[dateType][datetimeSet.range][datetimeSet.type]
               }
             })
             break
           case 'end_range':
             forEach(datetimeSet.validationDates, (validationDate, dateType) => {
-              if (
-                validationDate &&
-                this._formatDatetime(datetimeSet.date) < this._formatDatetime(validationDate)
-              ) {
+              const dateFormatted = this._formatDatetime(datetimeSet.date)
+              const validationDateFormatted = this._formatDatetime(validationDate)
+              const isInvalid = datetimeSet.strict
+                ? dateFormatted <= validationDateFormatted
+                : dateFormatted < validationDateFormatted
+              if (validationDate && isInvalid) {
                 errs[dateType] = DATE_RANGE_ERRORS[dateType][datetimeSet.range][datetimeSet.type]
               }
             })

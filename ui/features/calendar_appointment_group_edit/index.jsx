@@ -17,15 +17,15 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender} from '@canvas/react'
 import EditPage from './react/EditPage'
 import ready from '@instructure/ready'
 
 ready(() => {
-  ReactDOM.render(
+  legacyRender(
     <EditPage
       appointment_group_id={ENV.APPOINTMENT_GROUP_ID && ENV.APPOINTMENT_GROUP_ID.toString()}
     />,
-    document.getElementById('content')
+    document.getElementById('content'),
   )
 })

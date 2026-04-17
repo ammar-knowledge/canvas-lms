@@ -18,17 +18,23 @@
 
 import React from 'react'
 import useCourseAlignmentStats from '../useCourseAlignmentStats'
-import {createCache} from '@canvas/apollo'
+import {createCache} from '@canvas/apollo-v3'
 import {renderHook, act} from '@testing-library/react-hooks'
 import {courseAlignmentStatsMocks} from '../../../mocks/Management'
-import {MockedProvider} from '@apollo/react-testing'
-import * as FlashAlert from '@canvas/alerts/react/FlashAlert'
+import {MockedProvider} from '@apollo/client/testing'
 import OutcomesContext from '../../contexts/OutcomesContext'
+import {showFlashAlert} from '@instructure/platform-alerts'
 
-jest.mock('@canvas/alerts/react/FlashAlert')
+vi.mock('@instructure/platform-alerts', async () => {
+  const actual = await vi.importActual('@instructure/platform-alerts')
+  return {
+    ...actual,
+    showFlashAlert: vi.fn(),
+  }
+})
 
 describe('useCourseAlignmentStats', () => {
-  let cache, showFlashAlertSpy
+  let cache
   const refetchMocks = [...courseAlignmentStatsMocks(), ...courseAlignmentStatsMocks({id: '2'})]
   const getStats = result => {
     const {
@@ -50,13 +56,12 @@ describe('useCourseAlignmentStats', () => {
   }
 
   beforeEach(() => {
-    jest.useFakeTimers()
+    vi.useFakeTimers()
     cache = createCache()
-    showFlashAlertSpy = jest.spyOn(FlashAlert, 'showFlashAlert')
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   const wrapper = ({
@@ -77,8 +82,8 @@ describe('useCourseAlignmentStats', () => {
       wrapper,
     })
     expect(result.current.loading).toBe(true)
-    expect(result.current.data).toEqual({})
-    await act(async () => jest.runAllTimers())
+    expect(result.current.data).toBeUndefined()
+    await act(async () => vi.runAllTimers())
     expect(result.current.loading).toBe(false)
     expect(getStats(result)).toEqual([2, 1, 4, 5, 3, 3])
   })
@@ -90,8 +95,8 @@ describe('useCourseAlignmentStats', () => {
         mocks: [],
       },
     })
-    await act(async () => jest.runAllTimers())
-    expect(showFlashAlertSpy).toHaveBeenCalledWith({
+    await act(async () => vi.runAllTimers())
+    expect(showFlashAlert).toHaveBeenCalledWith({
       message: 'An error occurred while loading course alignment statistics.',
       type: 'error',
     })
@@ -106,8 +111,8 @@ describe('useCourseAlignmentStats', () => {
       },
     })
     expect(hook.result.current.loading).toBe(true)
-    expect(hook.result.current.data).toEqual({})
-    await act(async () => jest.runAllTimers())
+    expect(hook.result.current.data).toBeUndefined()
+    await act(async () => vi.runAllTimers())
     expect(hook.result.current.loading).toBe(false)
     expect(getStats(hook.result)).toEqual([2, 1, 4, 5, 3, 3])
 
@@ -116,7 +121,7 @@ describe('useCourseAlignmentStats', () => {
     hook.rerender({contextId: '2'})
     hook.rerender({contextId: '1'})
     expect(hook.result.current.loading).toBe(true)
-    await act(async () => jest.runAllTimers())
+    await act(async () => vi.runAllTimers())
     expect(hook.result.current.loading).toBe(false)
     expect(getStats(hook.result)).toEqual([12, 11, 14, 15, 13, 13])
   })

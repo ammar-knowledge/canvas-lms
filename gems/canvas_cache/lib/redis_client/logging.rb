@@ -21,6 +21,7 @@
 class RedisClient
   module Logging
     COMPACT_LINE = "Redis (%{request_time_ms}ms) %{command} %{key} [%{host}]"
+    DATADOG_COMMANDS = %w[get set evalsha del].freeze
     NON_KEY_COMMANDS = %w[eval evalsha].freeze
     SET_COMMANDS = %w[set setex].freeze
 
@@ -53,10 +54,10 @@ class RedisClient
                           end
         end
 
-        if defined?(Marginalia)
-          message[:controller] = Marginalia::Comment.controller
-          message[:action] = Marginalia::Comment.action
-          message[:job_tag] = Marginalia::Comment.job_tag
+        if Rails.application.respond_to?(:config) && Rails.application.config.active_record.query_log_tags_enabled
+          message[:controller] = ActiveRecord::QueryLogs.taggings[:controller].call(ActiveSupport::ExecutionContext.to_h)
+          message[:action] = ActiveRecord::QueryLogs.taggings[:action].call(ActiveSupport::ExecutionContext.to_h)
+          message[:job_tag] = ActiveRecord::QueryLogs.taggings[:job_tag].call
         end
 
         if SET_COMMANDS.include?(command) && Thread.current[:last_cache_generate]
@@ -79,6 +80,23 @@ class RedisClient
           message[:response_size] = 0
         else
           message[:response_size] = response&.size || 0
+        end
+
+        if defined?(InstStatsd) && InstStatsd::Statsd.initialized?
+          by_dbcluster_tags = {
+            command: DATADOG_COMMANDS.include?(message[:command]) ? message[:command] : "other",
+            dbcluster: defined?(Switchman) ? Switchman::Shard.current.database_server.id : "unknown",
+          }
+
+          InstStatsd::Statsd.distributed_increment("canvas.redis.by_dbcluster", tags: by_dbcluster_tags)
+
+          by_controller_tags = {
+            ring: config.ring_tag,
+            controller: message[:controller],
+            command: DATADOG_COMMANDS.include?(message[:command]) ? message[:command] : "other",
+          }
+
+          InstStatsd::Statsd.distributed_increment("canvas.redis.by_controller", tags: by_controller_tags)
         end
 
         logline = format_log_message(message, log_style)

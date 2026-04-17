@@ -1,0 +1,8 @@
+{
+  "name": "@canvas/breadcrumbs",
+  "private": true,
+  "version": "1.0.0",
+  "author": "neme",
+  "main": "./index.ts",
+  "owner": "CFA"
+}

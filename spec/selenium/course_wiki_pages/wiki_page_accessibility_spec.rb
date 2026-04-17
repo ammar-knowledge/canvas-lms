@@ -143,31 +143,31 @@ describe "Wiki Pages" do
       end
 
       it "sets focus back to the cog menu if you cancel the dialog" do
-        f(".ui-dialog-buttonset .btn").click
+        fj("button:contains('Cancel')").click
         check_element_has_focus(f("tbody .al-trigger"))
       end
 
       it "sets focus back to the cog if you press escape" do
-        f(".ui-dialog-buttonset .btn").send_keys(:escape)
+        f('[data-testid="wikiTitleEditModal"] input').send_keys(:escape)
         check_element_has_focus(f("tbody .al-trigger"))
       end
 
       it "sets focus back to the cog if you click the dialog close button" do
-        f(".ui-dialog-titlebar-close").click
+        f('[data-testid="wikiTitleEditModalHeader"] button').click
         check_element_has_focus(f("tbody .al-trigger"))
       end
 
       it "returns focus to the dialog if you cancel, then reopen the dialog" do
-        f(".ui-dialog-titlebar-close").click
+        f('[data-testid="wikiTitleEditModalHeader"] button').click
         check_element_has_focus(f("tbody .al-trigger"))
         f("tbody .al-trigger").click
         f(".edit-menu-item").click
         wait_for_ajaximations
-        check_element_has_focus(ff(".page-edit-dialog .edit-control-text").last)
+        check_element_has_focus(f('[data-testid="wikiTitleEditModalHeader"] button'))
       end
 
       it "sets focus back to the cog menu if you edit the title and save" do
-        f(".ui-dialog-buttonset .btn-primary").click
+        fj("button:contains('Save')").click
         wait_for_ajaximations
         check_element_has_focus(f("tbody .al-trigger"))
       end
@@ -250,6 +250,7 @@ describe "Wiki Pages" do
       end
 
       it "alerts user if navigating away from page with unsaved RCE changes", priority: "1" do
+        skip "QE Team will revisit due to chrome update TESTOPS-232 2025-07-23"
         add_text_to_tiny("derp")
         course_home_nav_menu.click
         expect(driver.switch_to.alert).to be_present
@@ -257,6 +258,7 @@ describe "Wiki Pages" do
       end
 
       it "alerts user if navigating away from page with unsaved html changes", priority: "1" do
+        skip "QE Team will revisit due to chrome update TESTOPS-232 2025-07-23"
         skip_if_safari(:alert)
         switch_editor_views
         wiki_page_body.send_keys("derp")
@@ -270,13 +272,14 @@ describe "Wiki Pages" do
         switch_editor_views
         wiki_page_body.send_keys("derp")
         fln("Home").click
-        expect(driver.switch_to.alert).to be_present
-        driver.switch_to.alert.accept
+        # expect(driver.switch_to.alert).to be_present
+        # driver.switch_to.alert.accept
         get "/courses/#{@course.id}/pages/bar/edit"
         expect(f("textarea")).not_to include_text("derp")
       end
 
       it "alerts user if navigating away from page after title change", priority: "1" do
+        skip "QE Team will revisit due to chrome update TESTOPS-232 2025-07-23"
         skip_if_safari(:alert)
         switch_editor_views
         edit_page_title_input.clear

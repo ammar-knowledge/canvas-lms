@@ -26,8 +26,8 @@ describe('lti.showAlert handler', () => {
 
   beforeEach(() => {
     responseMessages = {
-      sendBadRequestError: jest.fn(),
-      sendSuccess: jest.fn(),
+      sendBadRequestError: vi.fn(),
+      sendSuccess: vi.fn(),
     }
   })
 
@@ -39,7 +39,7 @@ describe('lti.showAlert handler', () => {
     it('sends bad request postMessage', () => {
       handler({message, responseMessages})
       expect(responseMessages.sendBadRequestError).toHaveBeenCalledWith(
-        "Missing required 'body' field"
+        "Missing required 'body' field",
       )
     })
   })
@@ -52,7 +52,7 @@ describe('lti.showAlert handler', () => {
     it('sends bad request postMessage', () => {
       handler({message, responseMessages})
       expect(responseMessages.sendBadRequestError).toHaveBeenCalledWith(
-        "Unsupported value for 'alertType' field"
+        "Unsupported value for 'alertType' field",
       )
     })
   })
@@ -62,11 +62,10 @@ describe('lti.showAlert handler', () => {
     warning: 'flashWarningSafe',
     error: 'flashErrorSafe',
   }).forEach(([alertType, method]) => {
-    // eslint-disable-next-line jest/valid-describe
     describe(`when alertType is ${alertType}`, () => {
       beforeEach(() => {
         message = {body, alertType}
-        jest.spyOn($, method)
+        vi.spyOn($, method)
       })
 
       afterEach(() => {
@@ -90,7 +89,7 @@ describe('lti.showAlert handler', () => {
 
     beforeEach(() => {
       message = {body, title}
-      jest.spyOn($, 'flashMessageSafe')
+      vi.spyOn($, 'flashMessageSafe')
     })
 
     afterEach(() => {
@@ -106,7 +105,7 @@ describe('lti.showAlert handler', () => {
   describe('when title is not found', () => {
     beforeEach(() => {
       message = {body}
-      jest.spyOn($, 'flashMessageSafe')
+      vi.spyOn($, 'flashMessageSafe')
     })
 
     afterEach(() => {

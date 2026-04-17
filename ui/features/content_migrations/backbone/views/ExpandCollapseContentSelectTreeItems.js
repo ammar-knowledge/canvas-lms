@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {each, without} from 'lodash'
+import {without, each} from 'es-toolkit/compat'
 import $ from 'jquery'
 
 const linkedResourceTypes = ['assignments', 'quizzes', 'discussion_topics', 'wiki_pages']
@@ -98,7 +98,7 @@ ExpandCollapseContentSelectTreeItems.prototype.triggerTreeItemFetches = function
 // Trigger linked resources for checkboxes.
 // Exclude the checkbox that you all ready clicked on
 ExpandCollapseContentSelectTreeItems.prototype.triggerLinkedResourcesCheckboxes = function (
-  excludedType
+  excludedType,
 ) {
   const types = without(linkedResourceTypes, excludedType)
   each(
@@ -109,7 +109,7 @@ ExpandCollapseContentSelectTreeItems.prototype.triggerLinkedResourcesCheckboxes 
           silent: true,
         })
       }
-    })(this)
+    })(this),
   )
 }
 

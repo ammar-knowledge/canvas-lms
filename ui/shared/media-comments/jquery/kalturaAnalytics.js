@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import {encodeQueryString} from '@canvas/query-string-encoding'
+import {encodeQueryString} from '@instructure/query-string-encoding'
 import $ from 'jquery'
 import 'jquery.cookie'
-import {clone, throttle} from 'lodash'
+import {clone, throttle} from 'es-toolkit/compat'
 
 // A class to setup kaltura analytics listeners on a mediaElement player
 // for a specific video being played
@@ -207,7 +207,7 @@ class KalturaAnalytics {
         }, 50)
         return (this.mediaElement.listeningToPlaying = true)
       },
-      false
+      false,
     )
   }
 }

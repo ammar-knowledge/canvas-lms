@@ -88,6 +88,11 @@
 #           "example": "Course",
 #           "type": "string"
 #         },
+#         "context_name": {
+#           "description": "The course or account name that the group belongs to.",
+#           "example": "Course 101",
+#           "type": "string"
+#         },
 #         "course_id": {
 #           "example": 3,
 #           "type": "integer"
@@ -131,16 +136,20 @@
 #           "value": { "type": "boolean" }
 #         },
 #         "users": {
-#           "description": "optional: A list of users that are members in the group. Returned only if include[]=users. WARNING: this collection's size is capped (if there are an extremely large number of users in the group (thousands) not all of them will be returned).  If you need to capture all the users in a group with certainty consider using the paginated /api/v1/groups/<group_id>/memberships endpoint.",
+#           "description": "optional: A list of users that are members in the group. Returned only if include[]=users. WARNING: this collection's size is capped (if there are an extremely large number of users in the group (thousands) not all of them will be returned). If you need to capture all the users in a group with certainty or experiencing slow response consider using the paginated /api/v1/groups/<group_id>/users endpoint.",
 #           "type": "array",
 #           "items": { "$ref": "User" }
+#         },
+#         "non_collaborative": {
+#           "description": "Indicates whether this group category is non-collaborative. A value of true means these group categories rely on the manage_tags permissions and do not have collaborative features",
+#           "type": "boolean"
 #         }
 #       }
 #     }
 #
 class GroupsController < ApplicationController
   before_action :get_context
-  before_action :require_user, only: %w[index accept_invitation activity_stream activity_stream_summary]
+  skip_before_action :require_user, only: %i[preview_html public_feed]
   before_action :check_limited_access_for_students, only: %i[create_file]
 
   include Api::V1::Attachment
@@ -148,6 +157,8 @@ class GroupsController < ApplicationController
   include Api::V1::GroupCategory
   include Context
   include K5Mode
+  include GroupPermissionHelper
+  include SectionRestrictionsHelper
 
   SETTABLE_GROUP_ATTRIBUTES = %w[
     name
@@ -171,10 +182,15 @@ class GroupsController < ApplicationController
   end
 
   def unassigned_members
-    category = @context.group_categories.where(id: params[:category_id]).first
+    category = @context.active_combined_group_and_differentiation_tag_categories.where(id: params[:category_id]).first
     return render json: {}, status: :not_found unless category
 
-    page = (params[:page] || 1).to_i rescue 1
+    if category.non_collaborative? && !@context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
+      return render json: { message: "Not authorized to manage differentiation tag." },
+                    status: :unauthorized
+    end
+
+    page = (params[:page] || 1).to_i
     per_page = Api.per_page_for(self, default: 15, max: 100)
     groups = if category && !category.student_organized?
                category.groups.active
@@ -183,7 +199,14 @@ class GroupsController < ApplicationController
              end
 
     users = @context.users_not_in_groups(groups, order: User.sortable_name_order_by_clause("users"))
-                    .paginate(page:, per_page:)
+
+    # Apply section restrictions using helper for check and section IDs
+    if user_has_section_restrictions?(@context, @current_user)
+      user_section_ids = get_user_section_ids(@context, @current_user)
+      users = users.where(enrollments: { course_section_id: user_section_ids })
+    end
+
+    users = users.paginate(page:, per_page:)
 
     if authorized_action(@context, @current_user, :manage)
       json = {
@@ -218,8 +241,11 @@ class GroupsController < ApplicationController
   def index
     return context_index if @context
 
+    page_has_instui_topnav
     includes = { include: params[:include] }
     groups_scope = @current_user.current_groups
+    page_has_instui_topnav
+
     respond_to do |format|
       format.html do
         groups_scope = groups_scope.where(context_type: params[:context_type]) if params[:context_type]
@@ -241,7 +267,7 @@ class GroupsController < ApplicationController
           scope.preload(:group_category, :context)
         end
         @groups = Api.paginate(@groups, self, api_v1_current_user_groups_url)
-        render json: (@groups.map { |g| group_json(g, @current_user, session, includes) })
+        render json: @groups.map { |g| group_json(g, @current_user, session, includes) }
       end
     end
   end
@@ -257,6 +283,12 @@ class GroupsController < ApplicationController
   #   - "tabs": Include the list of tabs configured for each group.  See the
   #     {api:TabsController#index List available tabs API} for more information.
   #
+  # @argument collaboration_state [String]
+  #   Filter groups by their collaboration state:
+  #   - "all": Return both collaborative and non-collaborative groups
+  #   - "collaborative": Return only collaborative groups (default)
+  #   - "non_collaborative": Return only non-collaborative groups
+  #
   # @example_request
   #     curl https://<canvas>/api/v1/courses/1/groups \
   #          -H 'Authorization: Bearer <token>'
@@ -265,29 +297,46 @@ class GroupsController < ApplicationController
   def context_index
     return unless authorized_action(@context, @current_user, :read_roster)
 
-    @groups = all_groups = @context.groups.active
+    page_has_instui_topnav
+    @groups = @context.combined_groups_and_differentiation_tags.active
     unless params[:filter].nil?
-      @groups = all_groups = @groups.left_outer_joins(:users).where("groups.name ILIKE :query OR users.name ILIKE :query", query: "%#{ActiveRecord::Base.sanitize_sql_like(params[:filter])}%")
+      @groups = @groups.left_outer_joins(:users).where("groups.name ILIKE :query OR users.name ILIKE :query", query: "%#{ActiveRecord::Base.sanitize_sql_like(params[:filter])}%")
     end
-    @groups = all_groups = @groups.order(GroupCategory::Bookmarker.order_by, Group::Bookmarker.order_by)
-                                  .eager_load(:group_category).preload(:root_account)
+    unless params[:user_id].nil?
+      @groups = @groups.left_outer_joins(:users).where({ users: { id: params[:user_id] } })
+    end
+    collaboration_state = params[:collaboration_state].presence || "collaborative"
+    case collaboration_state
+    when "collaborative"
+      @groups = @groups.where(non_collaborative: false)
+    when "non_collaborative"
+      return unless authorized_action(@context, @current_user, %i[manage_tags_add manage_tags_manage manage_tags_delete])
 
-    # run this only for students
-    if params[:section_restricted] && @context.is_a?(Course) && @context.user_is_student?(@current_user)
-      is_current_user_section_restricted = @context.membership_for_user(@current_user)&.limit_privileges_to_course_section
-      if is_current_user_section_restricted
-        # Gets all groups in the context
-        group_scope = @context.groups.active.eager_load(:group_category).preload(:root_account)
-        # Find all groups from that scope that can be limited from the section restriction parameter
-        groups_with_restricted_categories_or_teacher_assigned = group_scope.where(group_categories: { self_signup: nil }).or(group_scope.where(group_categories: { self_signup: "restricted" }))
-        # Find all groups that have users with different sections than the current user and DONT have the current_user in them
-        groups_with_no_common_section_with_current_user = groups_with_restricted_categories_or_teacher_assigned.reject { |g| g.has_common_section_with_user?(@current_user) || g.includes_user?(@current_user) }
-        # Remove the groups found above from the groups returned by the api
-        @groups = all_groups -= groups_with_no_common_section_with_current_user
+      @groups = @groups.where(non_collaborative: true)
+    when "all"
+      # IF FAIL, EXCLUDE NON-COLLABORATIVE
+      unless @context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
+        @groups = @groups.where(non_collaborative: false)
       end
     end
 
+    @groups = all_groups = @groups.order(GroupCategory::Bookmarker.order_by, Group::Bookmarker.order_by)
+                                  .eager_load(:group_category).preload(:root_account)
+
+    if params[:section_restricted] && @context.is_a?(Course) && @context.user_is_student?(@current_user) && @context.membership_for_user(@current_user)&.limit_privileges_to_course_section
+      candidate_ids = all_groups
+                      .where(group_categories: { self_signup: [nil, "restricted"] })
+                      .pluck(:id)
+
+      hidden_ids = Group.ids_hidden_by_section_restriction(candidate_ids, @current_user, @context)
+      @groups = all_groups = all_groups.where.not(id: hidden_ids)
+    end
+
     unless api_request?
+      if @context.is_a?(Course) && @context.horizon_course?
+        redirect_to named_context_url(@context, :course_users_path)
+        return
+      end
       # The Groups end-point relies on the People's tab configuration since it's a subsection of it.
       return unless tab_enabled?(Course::TAB_PEOPLE)
 
@@ -312,10 +361,35 @@ class GroupsController < ApplicationController
 
     respond_to do |format|
       format.html do
-        @categories  = @context.group_categories.order(Arel.sql("role <> 'student_organized'"), GroupCategory.best_unicode_collation_key("name")).preload(:root_account)
-        @user_groups = @current_user.group_memberships_for(@context) if @current_user
+        @categories = @context.combined_group_and_differentiation_tag_categories.active.order(Arel.sql("role <> 'student_organized'"), GroupCategory.best_unicode_collation_key("name")).preload(:root_account)
+        case collaboration_state
+        when "collaborative"
+          @categories = @categories.where(non_collaborative: false)
+        when "non_collaborative"
+          @categories = @categories.where(non_collaborative: true)
+        when "all"
+          # IF FAIL, EXCLUDE NON-COLLABORATIVE
+          unless @context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
+            @categories = @categories.where(non_collaborative: false)
+          end
+        end
 
-        if @context.grants_any_right?(@current_user, session, :manage_groups, *RoleOverride::GRANULAR_MANAGE_GROUPS_PERMISSIONS)
+        @user_groups = @current_user.group_memberships_for(@context) if @current_user
+        if @user_groups
+          case collaboration_state
+          when "collaborative"
+            @user_groups = @user_groups.where(non_collaborative: false)
+          when "non_collaborative"
+            @user_groups = @user_groups.where(non_collaborative: true)
+          when "all"
+            # IF FAIL, EXCLUDE NON-COLLABORATIVE
+            unless @context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
+              @user_groups = @user_groups.where(non_collaborative: false)
+            end
+          end
+        end
+
+        if @context.grants_any_right?(@current_user, session, *RoleOverride::GRANULAR_MANAGE_GROUPS_PERMISSIONS)
           categories_json = @categories.map { |cat| group_category_json(cat, @current_user, session, include: %w[progress_url unassigned_users_count groups_count]) }
           uncategorized = @context.groups.active.uncategorized.to_a
           if uncategorized.present?
@@ -325,23 +399,31 @@ class GroupsController < ApplicationController
           end
 
           js_permissions = {
-            can_add_groups: @context.grants_any_right?(@current_user, session, :manage_groups, :manage_groups_add),
-            can_manage_groups: @context.grants_any_right?(@current_user, session, :manage_groups, :manage_groups_manage),
-            can_delete_groups: @context.grants_any_right?(@current_user, session, :manage_groups, :manage_groups_delete)
+            can_add_groups: @context.grants_right?(@current_user, session, :manage_groups_add),
+            can_manage_groups: @context.grants_right?(@current_user, session, :manage_groups_manage),
+            can_delete_groups: @context.grants_right?(@current_user, session, :manage_groups_delete)
           }
 
-          js_env group_categories: categories_json,
-                 group_user_type: @group_user_type,
-                 allow_self_signup: @allow_self_signup,
-                 context_class_name: @context.class.name,
-                 permissions: js_permissions
+          js_env({
+                   group_categories: categories_json,
+                   group_user_type: @group_user_type,
+                   allow_self_signup: @allow_self_signup,
+                   context_class_name: @context.class.name,
+                   permissions: js_permissions
+                 })
 
           if @context.is_a?(Course)
             # get number of sections with students in them so we can enforce a min group size for random assignment on sections
-            js_env(student_section_count: @context.enrollments.active_or_pending.where(type: "StudentEnrollment").distinct.count(:course_section_id))
+            js_env({
+                     student_section_count: @context.enrollments.active_or_pending.where(type: "StudentEnrollment").distinct.count(:course_section_id),
+                     self_signup_deadline_enabled: @context.account.feature_enabled?(:self_signup_deadline)
+                   })
           end
+
           # since there are generally lots of users in an account, always do large roster view
-          @js_env[:IS_LARGE_ROSTER] ||= @context.is_a?(Account)
+          if @context.is_a?(Account)
+            js_env({ IS_LARGE_ROSTER: true }, overwrite: true)
+          end
           render :context_manage_groups
         else
           return render_unauthorized_action if @context.is_a?(Account)
@@ -368,10 +450,61 @@ class GroupsController < ApplicationController
                      @current_user,
                      session,
                      include: Array(params[:include]),
-                     include_inactive_users:)
+                     include_inactive_users:).tap do |json|
+            json[:group_category_name] = g.group_category.name if collaboration_state == "non_collaborative" && params[:user_id]
+            json[:is_single_tag] = g.group_category.single_tag? if collaboration_state == "non_collaborative" && params[:user_id]
+          end
         }
       end
     end
+  end
+
+  # @API Bulk fetch user tags for multiple users in a course
+  #
+  # Returns a mapping of user IDs to arrays of non-collaborative group (tag) IDs for each user in the given course.
+  #
+  # @argument course_id [Integer]
+  #   The ID of the course context (from the route).
+  #
+  # @argument user_ids[] [Integer]
+  #   An array of user IDs to fetch tags for.
+  #
+  # @example_request
+  #     curl "https://<canvas>/api/v1/courses/1/bulk_user_tags?user_ids[]=35&user_ids[]=79" \
+  #          -H 'Authorization: Bearer <token>'
+  #
+  # @returns [Hash]
+  #   A mapping of user IDs to arrays of tag (group) IDs.
+  #   Example:
+  #     {
+  #       "35": [5],
+  #       "79": [3, 4, 5]
+  #     }
+  def bulk_user_tags
+    return unless authorized_action(@context, @current_user, %i[manage_tags_add manage_tags_manage manage_tags_delete])
+
+    course_id = params[:course_id].to_i
+
+    @groups = Group.where(
+      non_collaborative: true,
+      context_type: "Course",
+      context_id: course_id
+    )
+
+    user_ids = Array(params[:user_ids]).map(&:to_i)
+    result = {}
+
+    user_groups = @groups.left_outer_joins(:users)
+                         .where(users: { id: user_ids })
+                         .select("groups.id as group_id, users.id as user_id")
+                         .distinct
+
+    user_groups_by_user = user_groups.group_by(&:user_id)
+
+    user_ids.each do |user_id|
+      result[user_id] = user_groups_by_user[user_id]&.map(&:group_id) || []
+    end
+    render json: result
   end
 
   # @API Get a single group
@@ -394,6 +527,8 @@ class GroupsController < ApplicationController
     find_group
     respond_to do |format|
       format.html do
+        head :unauthorized and return if @group.non_collaborative?
+
         if @group&.context
           add_crumb @group.context.short_name, named_context_url(@group.context, :context_url)
           add_crumb @group.short_name, named_context_url(@group, :context_url)
@@ -401,6 +536,7 @@ class GroupsController < ApplicationController
           add_crumb @group.short_name, named_context_url(@group, :context_url)
         end
         @context = @group
+        page_has_instui_topnav
         assign_localizer
         if @group.deleted? && @group.context
           flash[:notice] = t("notices.already_deleted", "That group has been deleted")
@@ -411,8 +547,8 @@ class GroupsController < ApplicationController
           redirect_to dashboard_url
           return
         end
-        @current_conferences = @group.web_conferences.active.select { |c| c.active? && c.users.include?(@current_user) } rescue []
-        @scheduled_conferences = @context.web_conferences.active.select { |c| c.scheduled? && c.users.include?(@current_user) } rescue []
+        @current_conferences = @group.web_conferences.active.select { |c| c.active? && c.users.include?(@current_user) }
+        @scheduled_conferences = @context.web_conferences.active.select { |c| c.scheduled? && c.users.include?(@current_user) }
         @stream_items = @current_user.try(:cached_recent_stream_items, { contexts: @context }) || []
         if params[:join] && @group.grants_right?(@current_user, :join)
           if @group.full?
@@ -458,7 +594,7 @@ class GroupsController < ApplicationController
   end
 
   def new
-    if authorized_action(@context, @current_user, [:manage_groups, :manage_groups_add])
+    if authorized_action(@context, @current_user, :manage_groups_add)
       @group = @context.groups.build
     end
   end
@@ -502,28 +638,53 @@ class GroupsController < ApplicationController
     if api_request?
       if params[:group_category_id]
         group_category = api_find(GroupCategory.active, params[:group_category_id])
-        return render json: {}, status: bad_request unless group_category
+        return render json: {}, status: :bad_request unless group_category
 
         @context = group_category.context
         attrs[:group_category] = group_category
-        return unless authorized_action(group_category.context, @current_user, [:manage_groups, :manage_groups_add])
+
+        non_collaborative = group_category.non_collaborative?
+
+        unless check_group_authorization(
+          context: @context,
+          current_user: @current_user,
+          action_category: :add,
+          non_collaborative:
+        )
+          return render json: { message: "Not authorized to create groups in this category" }, status: :unauthorized
+        end
       else
         @context = @domain_root_account
         attrs[:group_category] = GroupCategory.communities_for(@context)
       end
     elsif params[:group]
-      group_category_id = params[:group].delete :group_category_id
-      if group_category_id && @context.grants_any_right?(@current_user, session, :manage_groups, :manage_groups_add)
-        group_category = @context.group_categories.where(id: group_category_id).first
+      group_category_id = params[:group].delete(:group_category_id)
+      if group_category_id
+        group_category = @context.active_combined_group_and_differentiation_tag_categories.where(id: group_category_id).first
         return render json: {}, status: :bad_request unless group_category
 
         attrs[:group_category] = group_category
+
+        non_collaborative = group_category.non_collaborative?
+        unless check_group_context_rights(
+          context: @context,
+          current_user: @current_user,
+          action_category: :add,
+          non_collaborative:
+        )
+          if non_collaborative
+            return render json: { message: "Not authorized to create groups in this category" }, status: :unauthorized
+          else
+            # If collaborative and not authorized, fall back to not setting the category
+            attrs[:group_category] = nil
+          end
+        end
       else
         attrs[:group_category] = nil
       end
     end
 
-    attrs.delete :storage_quota_mb unless @context.grants_right? @current_user, session, :manage_storage_quotas
+    attrs.delete :storage_quota_mb unless @context.grants_right?(@current_user, session, :manage_storage_quotas)
     @group = @context.groups.temp_record(attrs.slice(*SETTABLE_GROUP_ATTRIBUTES))
 
     if authorized_action(@group, @current_user, :create)
@@ -558,7 +719,7 @@ class GroupsController < ApplicationController
   # Modifies an existing group.  Note that to set an avatar image for the
   # group, you must first upload the image file to the group, and the use the
   # id in the response as the argument to this function.  See the
-  # {file:file_uploads.html File Upload Documentation} for details on the file
+  # {file:file.file_uploads.html File Upload Documentation} for details on the file
   # upload workflow.
   #
   # @argument name [String]
@@ -656,7 +817,11 @@ class GroupsController < ApplicationController
                     else
                       User.where(id: user_ids)
                     end
+            # Capture users being removed before set_users destroys their memberships
+            removed_user_ids = @group.group_memberships.where.not(user_id: user_ids).pluck(:user_id)
             @memberships = @group.set_users(users)
+            # Invalidate visibility caches for removed users (set_users uses destroy_all which bypasses callbacks)
+            GroupMembership.invalidate_visibility_caches_for_group(@group, removed_user_ids) if removed_user_ids.any?
           end
         end
 
@@ -732,6 +897,10 @@ class GroupsController < ApplicationController
 
   def accept_invitation
     find_group
+    if @group.non_collaborative?
+      return render json: { message: "Not authorized to manage differentiation tag." }, status: :unauthorized
+    end
+
     @membership = @group.group_memberships.where(uuid: params[:uuid]).first if @group
     @membership.accept! if @membership.try(:invited?)
     if @membership.try(:active?)
@@ -774,13 +943,14 @@ class GroupsController < ApplicationController
   end
 
   include Api::V1::User
+
   # @API List group's users
   #
   # Returns a paginated list of users in the group.
   #
   # @argument search_term [String]
   #   The partial name or full ID of the users to match and return in the
-  #   results list. Must be at least 3 characters.
+  #   results list. Must be at least 2 characters.
   #
   # @argument include[] [String, "avatar_url"]
   #   "avatar_url": Include users' avatar_urls.
@@ -798,7 +968,6 @@ class GroupsController < ApplicationController
     return unless authorized_action(@context, @current_user, :read)
 
     search_term = params[:search_term].presence
-
     include_inactive = params[:exclude_inactive].present? ? !value_to_boolean(params[:exclude_inactive]) : true
 
     users = if search_term
@@ -806,6 +975,12 @@ class GroupsController < ApplicationController
             else
               UserSearch.scope_for(@context, @current_user, { include_inactive_enrollments: include_inactive })
             end
+
+    # Apply section restrictions using helper for check and filtering
+    if @context.context_type == "Course" && @context.context.course_sections.active.length > 1 && user_has_section_restrictions?(@context.context, @current_user)
+      student_ids_in_sections = get_visible_student_ids_in_course(@context.context, @current_user)
+      users = users.where(id: student_ids_in_sections)
+    end
 
     includes = Array(params[:include])
     users = Api.paginate(users, self, api_v1_group_users_url)
@@ -820,7 +995,7 @@ class GroupsController < ApplicationController
     end
 
     if (includes.include? "active_status") && (@context.context.is_a? Course)
-      enrollments = Enrollment.where(user_id: json_users.pluck(:id), course_id: @context.context_id)
+      enrollments = Enrollment.active.where(user_id: json_users.pluck(:id), course_id: @context.context_id)
 
       inactive_students = enrollments.group_by(&:user_id).select { |_id, es| es.all?(&:hard_inactive?) }.map(&:first)
       json_users.each do |user|
@@ -833,6 +1008,10 @@ class GroupsController < ApplicationController
 
   def public_feed
     return unless get_feed_context(only: [:group])
+
+    if @context.non_collaborative?
+      return render json: { message: "Not authorized to manage differentiation tag." }, status: :unauthorized unless @context.context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
+    end
 
     title = t(:feed_title, "%{course_or_account_name} Feed", course_or_account_name: @context.full_name)
     link = group_url(@context)
@@ -855,7 +1034,7 @@ class GroupsController < ApplicationController
   # Upload a file to the group.
   #
   # This API endpoint is the first step in uploading a file to a group.
-  # See the {file:file_uploads.html File Upload Documentation} for details on
+  # See the {file:file.file_uploads.html File Upload Documentation} for details on
   # the file upload workflow.
   #
   # Only those with the "Manage Files" permission on a group can upload files
@@ -863,6 +1042,15 @@ class GroupsController < ApplicationController
   # group, or any admin over the group.
   def create_file
     @attachment = Attachment.new(context: @context)
+
+    if params[:group_id].present?
+      group = Group.find_by(id: params[:group_id])
+      return render json: { message: "Group not found" }, status: :not_found unless group
+      return render json: { message: "Not authorized to upload file to Differentiation Tag" }, status: :unauthorized if group.non_collaborative?
+    elsif @context.is_a?(Group) || @context.is_a?(GroupCategory)
+      return render json: { message: "Not authorized to upload file to Differentiation Tag" }, status: :unauthorized if @context.non_collaborative?
+    end
+
     if authorized_action(@attachment, @current_user, :create)
       submit_assignment = value_to_boolean(params[:submit_assignment])
       opts = { check_quota: true, submit_assignment: }
@@ -875,6 +1063,7 @@ class GroupsController < ApplicationController
   end
 
   include Api::V1::PreviewHtml
+
   # @API Preview processed html
   #
   # Preview html content processed for this group
@@ -899,6 +1088,7 @@ class GroupsController < ApplicationController
   end
 
   include Api::V1::StreamItem
+
   # @API Group activity stream
   # Returns the current user's group-specific activity stream, paginated.
   #
@@ -906,6 +1096,9 @@ class GroupsController < ApplicationController
   # stream, in the user api.
   def activity_stream
     get_context
+    if @context.non_collaborative?
+      return render json: { message: "Not authorized to manage differentiation tag." }, status: :unauthorized unless @context.context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
+    end
     if authorized_action(@context, @current_user, :read)
       api_render_stream(contexts: [@context], paginate_url: :api_v1_group_activity_stream_url)
     end
@@ -918,6 +1111,9 @@ class GroupsController < ApplicationController
   # stream summary, in the user api.
   def activity_stream_summary
     get_context
+    if @context.non_collaborative?
+      return render json: { message: "Not authorized to manage differentiation tag." }, status: :unauthorized unless @context.context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
+    end
     if authorized_action(@context, @current_user, :read)
       api_render_stream_summary(contexts: [@context])
     end
@@ -930,7 +1126,7 @@ class GroupsController < ApplicationController
   #
   # @argument permissions[] [String]
   #   List of permissions to check against the authenticated user.
-  #   Permission names are documented in the {api:RoleOverridesController#add_role Create a role} endpoint.
+  #   Permission names are documented in the {api:RoleOverridesController#manageable_permissions List assignable permissions} endpoint.
   #
   # @example_request
   #     curl https://<canvas>/api/v1/groups/<group_id>/permissions \
@@ -955,7 +1151,7 @@ class GroupsController < ApplicationController
       @group = api_find(Group.active, params[:group_id])
     else
       @group = @context if @context.is_a?(Group)
-      @group ||= api_find(@context ? @context.groups : Group, params[:id])
+      @group ||= api_find(@context ? @context.combined_groups_and_differentiation_tags : Group, params[:id])
     end
   end
 end

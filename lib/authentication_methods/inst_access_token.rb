@@ -23,6 +23,18 @@ module AuthenticationMethods
   # defined in the canvas_security gem and the
   # canvas domain itself (users, pseudonyms, accounts, etc)
   module InstAccessToken
+    Canvas::Reloader.on_reload { reload }
+
+    def self.reload
+      @settings = nil
+    end
+
+    def self.settings
+      @settings ||= YAML.safe_load(
+        DynamicSettings.find(tree: :private)["inst_access_token.yml", failsafe: nil] || "{}"
+      )
+    end
+
     # given a POTENTIAL token string, this will validate
     # it as being an InstAccess token and return
     # the token ruby object.
@@ -50,7 +62,7 @@ module AuthenticationMethods
     end
 
     # functionally encapsulates mapping an InstAccess token and a domain root account
-    # to a user/pseudonym.  This is out on it's own because there are some db-state
+    # to a user/pseudonym.  This is out on its own because there are some db-state
     # edge cases (like multiple users with the same UUID due to user merges, etc)
     # that are convenient to test close to the implementation.
     #
@@ -96,6 +108,27 @@ module AuthenticationMethods
       false
     end
 
+    def self.token_matches_tenant?(token, domain_root_account)
+      # The token was not scoped to a single tenant, return true
+      result = true if token.account_uuid.blank?
+
+      result ||= token.account_uuid == domain_root_account.uuid
+      return result if Account.site_admin.feature_enabled? :enforce_service_token_tenant_matching
+
+      unless result || !settings["log_tenant_mismatches"]
+        InstStatsd::Statsd.event(
+          "Service user authorization tenant mismatch",
+          "Token account UUID #{token.account_uuid} does not match domain root account UUID #{domain_root_account.uuid} for client #{token.client_id}",
+          tags: Utils::InstStatsdUtils::Tags.tags_for(domain_root_account.shard),
+          type: "tenant_mismatch",
+          alert_type: :error
+        )
+      end
+
+      # When the feature flag is disabled, always return true
+      true
+    end
+
     def self.blocked?(request)
       blocked_token?(verified_token_for(request))
     end
@@ -107,7 +140,6 @@ module AuthenticationMethods
     def self.find_user_by_uuid_prefer_local(uuid)
       User.active.where(uuid:).order(:id).first
     end
-    private_class_method :find_user_by_uuid_prefer_local
 
     class Authentication
       def initialize(request)
@@ -116,14 +148,12 @@ module AuthenticationMethods
       end
 
       def blocked?
-        return false unless Account.site_admin.feature_enabled?(:site_admin_service_auth)
         return false unless verified_token.try(:jti).present?
 
         RequestThrottle.blocklist.include? verified_token.jti
       end
 
       def tag_identifier
-        return unless Account.site_admin.feature_enabled?(:site_admin_service_auth)
         return unless request.present?
 
         return unless RequestThrottle::SERVICE_HEADER_EXPRESSION.match?(request.user_agent)

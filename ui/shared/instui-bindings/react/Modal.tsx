@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2019 - present Instructure, Inc.
  *
@@ -17,19 +16,20 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
-import React, {ReactElement} from 'react'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import React, {type ReactElement} from 'react'
 
 import {CloseButton} from '@instructure/ui-buttons'
 import {View} from '@instructure/ui-view'
 import {Heading} from '@instructure/ui-heading'
 import {Modal} from '@instructure/ui-modal'
 
-import ErrorBoundary from '@canvas/error-boundary'
-import GenericErrorPage from '@canvas/generic-error-page'
-import errorShipUrl from '@canvas/images/ErrorShip.svg'
+import {ErrorBoundary} from '@instructure/platform-error-boundary'
+import {GenericErrorPage} from '@instructure/platform-generic-error-page'
+import {reportError, canvasErrorPageTranslations} from '@canvas/error-page-utils'
+import errorShipUrl from '@instructure/platform-images/assets/ErrorShip.svg'
 
-const I18n = useI18nScope('canvas_modal')
+const I18n = createI18nScope('canvas_modal')
 
 type Props = {
   children: ReactElement | ReactElement[]
@@ -80,6 +80,8 @@ function CanvasModal({
             errorComponent={
               <GenericErrorPage
                 imageUrl={errorImageUrl}
+                onReportError={reportError}
+                translations={canvasErrorPageTranslations}
                 errorSubject={errorSubject}
                 errorCategory={errorCategory}
               />

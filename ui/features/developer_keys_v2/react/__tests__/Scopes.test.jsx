@@ -19,7 +19,6 @@
 import React from 'react'
 import {render, screen} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import sinon from 'sinon'
 import Scopes from '../Scopes'
 
 const defaultProps = (pending = false, requireScopes = true, onRequireScopesChange = () => {}) => ({
@@ -61,7 +60,7 @@ const defaultProps = (pending = false, requireScopes = true, onRequireScopesChan
 const renderScopes = (pending, requireScopes, onRequireScopesChange) => {
   const ref = React.createRef()
   const wrapper = render(
-    <Scopes {...defaultProps(pending, requireScopes, onRequireScopesChange)} ref={ref} />
+    <Scopes {...defaultProps(pending, requireScopes, onRequireScopesChange)} ref={ref} />,
   )
 
   return {ref, wrapper}
@@ -72,10 +71,6 @@ describe('Scopes', () => {
     let wrapper
 
     beforeEach(() => {
-      window.ENV = {
-        includesFeatureFlagEnabled: true,
-      }
-
       const {wrapper: innerWrapper} = renderScopes()
 
       wrapper = innerWrapper
@@ -83,7 +78,7 @@ describe('Scopes', () => {
 
     it('renders the "includes" checkbox', () => {
       expect(
-        wrapper.container.querySelector("[data-automation='includes-checkbox']")
+        wrapper.container.querySelector("[data-automation='includes-checkbox']"),
       ).toBeInTheDocument()
     })
   })
@@ -107,12 +102,17 @@ describe('Scopes', () => {
   })
 
   it('handles filter input change by setting the filter state', () => {
+    vi.useFakeTimers()
     const {ref} = renderScopes()
     const eventDup = {currentTarget: {value: 'banana'}}
 
     ref.current.handleFilterChange(eventDup)
 
+    // Advance timers to trigger the debounced function (400ms delay)
+    vi.advanceTimersByTime(400)
+
     expect(ref.current.state.filter).toBe('banana')
+    vi.useRealTimers()
   })
 
   it('renders Billboard if requireScopes is false', () => {
@@ -121,7 +121,7 @@ describe('Scopes', () => {
     expect(
       screen.getByRole('heading', {
         name: /when scope enforcement is disabled, tokens have access to all endpoints available to the authorizing user\./i,
-      })
+      }),
     ).toBeInTheDocument()
   })
 
@@ -137,7 +137,7 @@ describe('Scopes', () => {
     expect(
       screen.queryByRole('heading', {
         name: /when scope enforcement is disabled, tokens have access to all endpoints available to the authorizing user\./i,
-      })
+      }),
     ).not.toBeInTheDocument()
   })
 
@@ -153,17 +153,17 @@ describe('Scopes', () => {
     expect(
       screen.getByRole('searchbox', {
         name: /search endpoints/i,
-      })
+      }),
     ).toBeInTheDocument()
   })
 
   it('controls requireScopes change when clicking requireScopes button', async () => {
-    const requireScopesStub = sinon.stub()
+    const requireScopesStub = vi.fn()
 
     renderScopes(false, true, requireScopesStub)
 
     await userEvent.click(screen.getByLabelText(/enforce scopes/i))
 
-    expect(requireScopesStub.called).toBe(true)
+    expect(requireScopesStub).toHaveBeenCalled()
   })
 })

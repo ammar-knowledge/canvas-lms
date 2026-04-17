@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render} from '@canvas/react'
 import {Pill} from '@instructure/ui-pill'
 import type {PillProps} from '@instructure/ui-pill'
 
@@ -29,7 +29,7 @@ export const renderFrontPagePill = (el: HTMLElement, props?: PillProps) => {
     delete props.children
   }
   if (frontPageContainer) {
-    ReactDOM.render(<Pill {...props}>{children}</Pill>, frontPageContainer)
+    render(<Pill {...props}>{children}</Pill>, frontPageContainer)
   }
 
   return <Pill {...props}>{children}</Pill>

@@ -22,16 +22,11 @@ import ContentMigration from '@canvas/content-migrations/backbone/models/Content
 import CopyCourseView from '../CopyCourseView'
 import DateShiftView from '@canvas/content-migrations/backbone/views/DateShiftView'
 import SelectContentCheckboxView from '@canvas/content-migrations/backbone/views/subviews/SelectContentCheckboxView'
-import {isAccessible} from '@canvas/test-utils/jestAssertions'
-import sinon from 'sinon'
+import {isAccessible} from '@canvas/test-utils/assertions'
 
 const fixtues = document.createElement('div')
 fixtues.setAttribute('id', 'fixtures')
 document.body.appendChild(fixtues)
-
-const sandbox = sinon.createSandbox()
-
-const ok = value => expect(value).toBeTruthy()
 
 let contentMigration
 let copyCourseView
@@ -56,31 +51,29 @@ describe('CopyCourseView: Initializer', () => {
     $(fixtues).html('')
   })
 
-  test('it should be accessible', function (done) {
-    isAccessible(copyCourseView, done, {a11yReport: true})
+  test('it should be accessible', async () => {
+    await isAccessible(copyCourseView, {a11yReport: true})
   })
 
-  // passes in QUnit, fails in Jest
-  test.skip('after init, calls updateNewDates when @courseFindSelect.triggers "course_changed" event', function () {
+  test('after init, calls updateNewDates when @courseFindSelect.triggers "course_changed" event', function () {
     $('#fixtures').html(copyCourseView.render().el)
-    const sinonSpy = sandbox.spy(copyCourseView.dateShift, 'updateNewDates')
+    const updateNewDatesSpy = vi.spyOn(copyCourseView.dateShift, 'updateNewDates')
     const course = {
       start_at: 'foo',
       end_at: 'bar',
     }
     copyCourseView.courseFindSelect.trigger('course_changed', course)
-    ok(sinonSpy.calledWith(course), 'Called updateNewDates with passed in object')
+    expect(updateNewDatesSpy).toHaveBeenCalledWith(course)
   })
 
-  // passes in QUnit, fails in Jest
-  test.skip('after init, calls SelectContentCheckbox.courseSelected on @courseFindSelect\'s "course_changed" event', function () {
+  test('after init, calls SelectContentCheckbox.courseSelected on @courseFindSelect\'s "course_changed" event', function () {
     $('#fixtures').html(copyCourseView.render().el)
-    const sinonSpy = sandbox.spy(copyCourseView.selectContent, 'courseSelected')
+    const courseSelectedSpy = vi.spyOn(copyCourseView.selectContent, 'courseSelected')
     const course = {
       start_at: 'foo',
       end_at: 'bar',
     }
     copyCourseView.courseFindSelect.trigger('course_changed', course)
-    ok(sinonSpy.calledWith(course), 'Called updateNewDates with passed in object')
+    expect(courseSelectedSpy).toHaveBeenCalledWith(course)
   })
 })

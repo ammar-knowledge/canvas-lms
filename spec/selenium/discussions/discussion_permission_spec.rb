@@ -25,6 +25,7 @@ require_relative "../helpers/shared_examples_common"
 describe "discussion permissions" do
   include SharedExamplesCommon
   include DiscussionHelpers
+
   include_context "in-process server selenium tests"
   include_context "discussions_page_shared_context"
   extend DiscussionHelpers::SetupContext
@@ -127,7 +128,8 @@ describe "discussion permissions" do
         get discussions_topic_detail_page
         expect(fj(discussion_message)).to be_displayed
         expect(f(discussion_container)).not_to contain_css(discussion_reply_button)
-        expect(f(discussion_container)).not_to contain_css(discussion_edit_button)
+        f('[data-testid="discussion-post-menu-trigger"]').click
+        expect(f(discussion_menu)).not_to contain_css(discussion_edit_button)
       end
     end
 
@@ -160,7 +162,8 @@ describe "discussion permissions" do
         get discussions_topic_detail_page
         expect(fj(discussion_message)).to be_displayed
         expect(f(discussion_reply_button)).to be_displayed
-        expect(f(discussion_container)).not_to contain_css(discussion_edit_button)
+        f('[data-testid="discussion-post-menu-trigger"]').click
+        expect(f(discussion_menu)).not_to contain_css(discussion_edit_button)
       end
     end
 
@@ -198,6 +201,7 @@ describe "discussion permissions" do
         get discussions_topic_detail_page
         expect(fj(discussion_message)).to be_displayed
         expect(f(discussion_container)).not_to contain_css(discussion_reply_button)
+        f('[data-testid="discussion-post-menu-trigger"]').click
         expect(f(discussion_edit_button)).to be_displayed
       end
     end
@@ -231,6 +235,7 @@ describe "discussion permissions" do
         get discussions_topic_detail_page
         expect(fj(discussion_message)).to be_displayed
         expect(f(discussion_reply_button)).to be_displayed
+        f('[data-testid="discussion-post-menu-trigger"]').click
         expect(f(discussion_edit_button)).to be_displayed
       end
     end
@@ -349,7 +354,8 @@ describe "discussion permissions" do
         get discussions_topic_detail_page
         expect(fj(discussion_message)).to be_displayed
         expect(f(discussion_container)).not_to contain_css(discussion_reply_button)
-        expect(f(discussion_container)).not_to contain_css(discussion_edit_button)
+        f('[data-testid="discussion-post-menu-trigger"]').click
+        expect(f(discussion_menu)).not_to contain_css(discussion_edit_button)
       end
     end
 
@@ -382,7 +388,8 @@ describe "discussion permissions" do
         get discussions_topic_detail_page
         expect(fj(discussion_message)).to be_displayed
         expect(f(discussion_reply_button)).to be_displayed
-        expect(f(discussion_container)).not_to contain_css(discussion_edit_button)
+        f('[data-testid="discussion-post-menu-trigger"]').click
+        expect(f(discussion_menu)).not_to contain_css(discussion_edit_button)
       end
     end
 
@@ -415,6 +422,7 @@ describe "discussion permissions" do
         get discussions_topic_detail_page
         expect(fj(discussion_message)).to be_displayed
         expect(f(discussion_container)).not_to contain_css(discussion_reply_button)
+        f('[data-testid="discussion-post-menu-trigger"]').click
         expect(f(discussion_edit_button)).to be_displayed
       end
     end
@@ -448,6 +456,7 @@ describe "discussion permissions" do
         get discussions_topic_detail_page
         expect(fj(discussion_message)).to be_displayed
         expect(f(discussion_reply_button)).to be_displayed
+        f('[data-testid="discussion-post-menu-trigger"]').click
         expect(f(discussion_edit_button)).to be_displayed
       end
 
@@ -491,6 +500,7 @@ describe "discussion permissions" do
         get discussions_topic_detail_page
         expect(fj(discussion_message)).to be_displayed
         expect(f(discussion_reply_button)).to be_displayed
+        f('[data-testid="discussion-post-menu-trigger"]').click
         expect(f(discussion_edit_button)).to be_displayed
       end
     end

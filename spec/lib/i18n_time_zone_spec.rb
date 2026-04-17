@@ -22,11 +22,11 @@ describe I18nTimeZone do
     it "provides an array of i18n tz instances" do
       tzs = I18nTimeZone.all
       expect(tzs.first.class).to eq I18nTimeZone
-      expect(tzs.count).to eq ActiveSupport::TimeZone.all.count # rubocop:disable Rails/RedundantActiveRecordAllMethod
+      expect(tzs.count).to eq ActiveSupport::TimeZone.all.count
     end
   end
 
-  context "#keyify" do
+  describe "#keyify" do
     it "provides a translation key for valid time zone name" do
       t_key = I18nTimeZone["International Date Line West"].keyify
       expect(t_key).to eq "time_zones.international_date_line_west"
@@ -45,7 +45,7 @@ describe I18nTimeZone do
 
     it "has an entry in en locale for every time zone" do
       I18nTimeZone.all.each do |zone|
-        expect(zone.to_s).to_not include("translation missing")
+        expect(zone.to_s).not_to include("translation missing")
       end
     end
   end

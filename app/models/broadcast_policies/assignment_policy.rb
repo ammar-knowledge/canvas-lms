@@ -20,6 +20,7 @@
 module BroadcastPolicies
   class AssignmentPolicy
     extend DatesOverridable::ClassMethods
+
     attr_reader :assignment
 
     def initialize(assignment)
@@ -28,6 +29,7 @@ module BroadcastPolicies
 
     def should_dispatch_assignment_due_date_changed?
       return false if assignment.checkpoints_parent?
+      return false unless assignment.context.active_now?
 
       accepting_messages? &&
         assignment.changed_in_state(:published, fields: :due_at) &&
@@ -69,7 +71,7 @@ module BroadcastPolicies
 
     def accepting_messages?
       context_sendable? &&
-        !assignment.just_created
+        !assignment.previously_new_record?
     end
 
     def created_before(time)
@@ -77,7 +79,7 @@ module BroadcastPolicies
     end
 
     def published_on_create?
-      assignment.just_created && assignment.published?
+      assignment.previously_new_record? && assignment.published?
     end
 
     def just_published?

@@ -182,9 +182,12 @@ export type CamelizedAssignment = {
   moderatedGrading: boolean
   muted: boolean
   name: string
-  pointsPossible: number
+  newQuizzesAnonymousParticipants: boolean
+  parentAssignmentId?: string
+  pointsPossible: number | null
   postManually: boolean
   published: boolean
+  hasRubric: boolean | null
   submissionTypes: string[]
   checkpoints?: {
     tag: string
@@ -209,7 +212,7 @@ export type SubmissionOriginalityData = z.infer<typeof ZSubmissionOriginalityDat
 export const ZVericiteOriginalityData = ZSubmissionOriginalityData.extend(
   z.object({
     provider: z.literal('vericite'),
-  }).shape
+  }).shape,
 )
 
 export type VericiteOriginalityData = z.infer<typeof ZVericiteOriginalityData>
@@ -320,13 +323,13 @@ export type GradingPeriodGrade = {
   assignmentGroups: AssignmentGroupGradeMap
   scoreUnit: 'points' | 'percentage'
   final: {
-    score: number
+    score: number | null
     possible: number
     submission_count?: number
     submissions?: Submission[]
   }
   current: {
-    score: number
+    score: number | null
     possible: number
     submission_count?: number
     submissions?: Submission[]
@@ -364,6 +367,7 @@ export type DeprecatedGradingScheme = {
 
 export type GradeEntryOptions = {
   gradingScheme?: {data: GradingStandard[]; pointsBased: boolean; scalingFactor: number} | null
+  restrictPointsBasedInput?: boolean
 }
 
 export type ProvisionalGrade = {
@@ -383,7 +387,17 @@ export type RubricAssessment = {
   assessor_id: string
   anonymous_assessor_id: string
   assessment_type: string
-  assessor_name: string
+  assessor_name: string | null
+  data: {
+    id: string
+    points: number
+    criterion_id: string
+    learning_outcome_id: string
+    comments: string
+    comments_enabled: boolean
+    description: string
+  }[]
+  updated_at: string
 }
 
 export type SubmissionState =

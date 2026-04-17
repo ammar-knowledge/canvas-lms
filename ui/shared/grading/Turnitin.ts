@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2020 - present Instructure, Inc.
  *
@@ -17,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {max, invert} from 'lodash'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {max, invert} from 'es-toolkit/compat'
 import {originalityReportSubmissionKey} from './originalityReportHelper'
 import type {SubmissionOriginalityData, SubmissionWithOriginalityReport} from './grading.d'
 
-const I18n = useI18nScope('turnitin')
+const I18n = createI18nScope('turnitin')
 
 export const extractDataTurnitin = function (submission: SubmissionWithOriginalityReport) {
   let attachment, i, item, len, plagData, ref, turnitin
@@ -34,7 +33,7 @@ export const extractDataTurnitin = function (submission: SubmissionWithOriginali
     return
   }
   const data: {
-    items: Array<{id: string; data: SubmissionOriginalityData}>
+    items: SubmissionOriginalityData[]
     state: string
   } = {
     items: [],
@@ -72,25 +71,26 @@ export const extractDataTurnitin = function (submission: SubmissionWithOriginali
     'pending',
     'error',
   ]
-  const stateMap = invert(stateList)
+  const stateMap: Record<string, string> = invert(stateList)
   const states = (function () {
     let j, len1
     const ref2 = data.items
     const results: number[] = []
     for (j = 0, len1 = ref2.length; j < len1; j++) {
       item = ref2[j]
-      results.push(parseInt(stateMap[item.state || 'no'], 10))
+      results.push(parseInt(stateMap[item.state || 'no'] ?? '0', 10))
     }
     return results
   })()
-  data.state = stateList[max(states)]
+  const maxState = max(states)
+  data.state = stateList[maxState ?? 0]
   return data
 }
 
 export const extractDataForTurnitin = function (
   submission: SubmissionWithOriginalityReport,
   key: string,
-  urlPrefix: string
+  urlPrefix: string,
 ) {
   let data, type
   data = submission?.turnitin_data

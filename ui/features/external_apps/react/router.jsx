@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender} from '@canvas/react'
 import page from 'page'
 import Root from './components/Root'
 import AppList from './components/AppList'
@@ -39,21 +39,21 @@ const renderAppList = _ctx => {
   if (!window.ENV.APP_CENTER.enabled) {
     page.redirect('/configurations')
   } else {
-    ReactDOM.render(
+    legacyRender(
       <Root>
         <AppList baseUrl={baseUrl} />
       </Root>,
-      targetNodeToRenderIn
+      targetNodeToRenderIn,
     )
   }
 }
 
 const renderAppDetails = ctx => {
-  ReactDOM.render(
+  legacyRender(
     <Root>
       <AppDetails shortName={ctx.params.shortName} baseUrl={baseUrl} store={AppCenterStore} />
     </Root>,
-    targetNodeToRenderIn
+    targetNodeToRenderIn,
   )
 }
 
@@ -61,11 +61,11 @@ const renderConfigurations = _ctx => {
   // router.start is only called when loading the Apps tab
   // so we don't want to try anything here that hasn't happened.
   if (targetNodeToRenderIn) {
-    ReactDOM.render(
+    legacyRender(
       <Root>
         <Configurations pathname={baseUrl} env={window.ENV} />
       </Root>,
-      targetNodeToRenderIn
+      targetNodeToRenderIn,
     )
   }
 }

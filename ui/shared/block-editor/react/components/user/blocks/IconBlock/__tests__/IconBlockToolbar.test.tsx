@@ -22,20 +22,31 @@ import userEvent from '@testing-library/user-event'
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import {useNode} from '@craftjs/core'
 import {IconBlock} from '../IconBlock'
+import {type IconBlockProps} from '../types'
 import {IconBlockToolbar} from '../IconBlockToolbar'
 
-let props = {...IconBlock.craft.defaultProps}
+const user = userEvent.setup()
 
-const mockSetProp = jest.fn((callback: (props: Record<string, any>) => void) => {
+let props: IconBlockProps = {...IconBlock.craft.defaultProps}
+
+const mockSetProp = vi.fn((callback: (props: Record<string, any>) => void) => {
   callback(props)
 })
 
-jest.mock('@craftjs/core', () => {
+vi.mock('@craftjs/core', () => {
   return {
-    useNode: jest.fn(_node => {
+    useNode: vi.fn(_node => {
       return {
         actions: {setProp: mockSetProp},
         props: IconBlock.craft.defaultProps,
+        nodeDomNode: undefined,
+      }
+    }),
+    useEditor: vi.fn(() => {
+      return {
+        query: {
+          getSerializedNodes: vi.fn(() => ({})),
+        },
       }
     }),
   }
@@ -56,7 +67,7 @@ describe('IconBlockToolbar', () => {
     const {getByText} = render(<IconBlockToolbar />)
 
     const btn = getByText('Size').closest('button') as HTMLButtonElement
-    await userEvent.click(btn)
+    await user.click(btn)
 
     const smMenuItem = screen.getByText('Small')
     const medMenuItem = screen.getByText('Medium')
@@ -66,18 +77,18 @@ describe('IconBlockToolbar', () => {
     expect(medMenuItem).toBeInTheDocument()
     expect(lgMenuItem).toBeInTheDocument()
 
-    const li = smMenuItem.closest('li') as HTMLLIElement
-    expect(li.querySelector('svg[name="IconCheck"]')).toBeInTheDocument()
+    const li = smMenuItem?.parentElement?.parentElement as HTMLLIElement
+    expect(li?.querySelector('svg[name="IconCheck"]')).toBeInTheDocument()
   })
 
   it('changes the size prop', async () => {
     const {getByText} = render(<IconBlockToolbar />)
 
     const btn = getByText('Size').closest('button') as HTMLButtonElement
-    await userEvent.click(btn)
+    await user.click(btn)
 
     const lgMenuItem = screen.getByText('Large')
-    await userEvent.click(lgMenuItem)
+    await user.click(lgMenuItem)
 
     expect(mockSetProp).toHaveBeenCalled()
     expect(props.size).toBe('large')
@@ -87,12 +98,31 @@ describe('IconBlockToolbar', () => {
     const {getByText} = render(<IconBlockToolbar />)
 
     const btn = getByText('Select Icon').closest('button') as HTMLButtonElement
-    await userEvent.click(btn)
+    await user.click(btn)
 
     const atom_icon = screen.getByTitle('atom')
-    await userEvent.click(atom_icon)
+    await user.click(atom_icon)
 
     expect(mockSetProp).toHaveBeenCalled()
     expect(props.iconName).toBe('atom')
+  })
+
+  it('sets the color prop', async () => {
+    const {getByText} = render(<IconBlockToolbar />)
+
+    const btn = getByText('Color').closest('button') as HTMLButtonElement
+    await user.click(btn)
+
+    const customColor = screen.getByLabelText('Custom').closest('input') as HTMLInputElement
+    await user.click(customColor)
+
+    const redInput = screen.getByLabelText('Input field for red') as HTMLInputElement
+    await user.type(redInput, '255', {initialSelectionStart: 0, initialSelectionEnd: 3})
+
+    const applybtn = getByText('Apply').closest('button') as HTMLButtonElement
+    await user.click(applybtn)
+
+    expect(mockSetProp).toHaveBeenCalled()
+    expect(props.color).toBe('#ff0000')
   })
 })

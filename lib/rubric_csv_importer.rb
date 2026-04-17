@@ -20,6 +20,7 @@
 
 class RubricCSVImporter
   include RubricImporterErrors
+
   def initialize(attachment)
     @attachment = attachment
   end
@@ -67,7 +68,7 @@ class RubricCSVImporter
       {
         description: rating_description,
         long_description: row[rating_indices[:long_description_indices][index]],
-        points: row[rating_indices[:points_indices][index]].to_i
+        points: row[rating_indices[:points_indices][index]].tr(",", ".").to_f.round(2)
       }
     end.compact
 

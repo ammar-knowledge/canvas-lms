@@ -25,9 +25,9 @@ describe DiscussionTopicPresenter do
   let(:course)     { course_model }
   let(:assignment) do
     Assignment.new(title: "Test Topic",
-                   due_at: Time.now,
-                   lock_at: Time.now + 1.week,
-                   unlock_at: Time.now - 1.week,
+                   due_at: Time.zone.now,
+                   lock_at: 1.week.from_now,
+                   unlock_at: 1.week.ago,
                    submission_types: "discussion_topic")
   end
 
@@ -64,7 +64,7 @@ describe DiscussionTopicPresenter do
   describe "#has_attached_rubric?" do
     it "returns true if assignment has a rubric association with a rubric" do
       expect(assignment).to receive(:rubric)
-        .and_return double
+        .and_return instance_double(Rubric)
       expect(presenter.has_attached_rubric?).to be true
     end
 
@@ -82,7 +82,7 @@ describe DiscussionTopicPresenter do
     end
 
     it "returns true if has_attached_rubric? is true" do
-      expect(assignment).to receive(:rubric).and_return double
+      expect(assignment).to receive(:rubric).and_return instance_double(Rubric)
       expect(presenter.should_show_rubric?(user)).to be true
     end
 

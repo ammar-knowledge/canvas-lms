@@ -55,7 +55,7 @@ describe "master courses - settings" do
   it "prevents creating a blueprint course from associated course", priority: "2" do
     @associated_course = @template.add_child_course!(course_factory(name: "ac1", active_all: true)).child_course
     get "/courses/#{@associated_course.id}/settings"
-    expect(f(".disabled_message")).to be
+    expect(element_exists?("#blueprint_menu")).to be_falsey
   end
 
   it "prevents blueprinting a course with students", priority: "1" do
@@ -63,7 +63,7 @@ describe "master courses - settings" do
     course2 = course_factory(active_all: true)
     course2.enroll_user(student1, "StudentEnrollment", enrollment_state: "active")
     get "/courses/#{course2.id}/settings"
-    expect(f(".disabled_message")).to be
+    expect(f("#blueprint_menu .disabled_message")).to be_displayed
   end
 
   it "prevents adding students to blueprint course", priority: "1" do
@@ -72,33 +72,13 @@ describe "master courses - settings" do
     expect(f("#peoplesearch_select_role")).not_to include_text("Student")
   end
 
-  it "enables blueprint setting based on user permission", priority: 2 do
-    @account.root_account.disable_feature!(:granular_permissions_manage_courses)
+  it "enables blueprint setting based on user permission" do
     role1 = @account.roles.create!(name: "normal admin", base_role_type: "AccountMembership")
-    @account.role_overrides.create!(role: role1, permission: :manage_courses, enabled: true)
-
-    role2 = @account.roles.create!(name: "blueprint admin", base_role_type: "AccountMembership")
-    @account.role_overrides.create!(permission: :manage_courses, enabled: true, role: role2)
-    @account.role_overrides.create!(permission: :manage_master_courses, enabled: true, role: role2)
-
-    normal_admin = account_admin_user(role: role1, name: "Anakin")
-    blueprint_admin = account_admin_user(role: role2, name: "Obi-Wan")
-
-    user_session(normal_admin)
-    get "/courses/#{@test_course.id}/settings"
-    expect(f("#course_blueprint")).to include_text("Yes")
-
-    user_session(blueprint_admin)
-    get "/courses/#{@test_course.id}/settings"
-    expect(fj('.bcs_check-box:contains("Enable course as a Blueprint Course")')).to be_displayed
-  end
-
-  it "enables blueprint setting based on user permission (granular permissions)" do
-    @account.root_account.enable_feature!(:granular_permissions_manage_courses)
-    role1 = @account.roles.create!(name: "normal admin", base_role_type: "AccountMembership")
+    @account.role_overrides.create!(role: role1, permission: :read_course_content, enabled: true)
     @account.role_overrides.create!(role: role1, permission: :manage_courses_admin, enabled: true)
 
     role2 = @account.roles.create!(name: "blueprint admin", base_role_type: "AccountMembership")
+    @account.role_overrides.create!(permission: :read_course_content, enabled: true, role: role2)
     @account.role_overrides.create!(permission: :manage_courses_admin, enabled: true, role: role2)
     @account.role_overrides.create!(permission: :manage_master_courses, enabled: true, role: role2)
 

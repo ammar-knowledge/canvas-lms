@@ -100,7 +100,23 @@
 #           "description": "(Optional) An explanation of why this is locked for the user. Present when locked_for_user is true.",
 #           "example": "This page is locked until September 1 at 12:00am",
 #           "type": "string"
-#         }
+#         },
+#         "editor": {
+#           "description": "The editor used to create and edit this page. May be one of 'rce' or 'block_editor'.",
+#           "example": "rce",
+#           "type": "string",
+#           "allowableValues": {
+#             "values": [
+#               "rce",
+#               "block_editor"
+#             ]
+#           }
+#         },
+#         "block_editor_attributes": {
+#           "description": "The block editor attributes for this page. (optionally included, and only if this is a block editor created page)",
+#           "example": { "id": 278, "version": "0.2", "blocks": "{...block json here...}"},
+#           "type": "object"
+#          }
 #       }
 #     }
 #
@@ -156,16 +172,24 @@
 # To explicitly request by ID, you can use the form `/api/v1/courses/:course_id/pages/page_id:7`.
 #
 class WikiPagesApiController < ApplicationController
+  AI_ALT_TEXT_MAX_LENGTH = 120
+  AI_ALT_TEXT_FEATURE_FLAG_SLUG = "alttext"
+  AI_ALT_TEXT_TYPE = "Base64"
+  AI_ALT_TEXT_MAX_IMAGE_SIZE = 3.megabytes
+  AI_ALT_TEXT_SUPPORTED_IMAGE_TYPES = Attachment.valid_content_types_hash.select { |_, type| type == "image" }.keys.freeze
+
   before_action :require_context
-  before_action :get_wiki_page, except: %i[create index check_title_availability]
-  before_action :require_wiki_page, except: %i[create update update_front_page index check_title_availability]
-  before_action :was_front_page, except: [:index, :check_title_availability]
+  before_action :get_wiki_page, except: %i[create index check_title_availability ai_generate_alt_text]
+  before_action :require_wiki_page, except: %i[create update update_front_page index check_title_availability ai_generate_alt_text]
+  before_action :was_front_page, except: %i[index check_title_availability ai_generate_alt_text]
+  before_action :extract_block_editor_data, only: %i[create update]
   before_action only: %i[show update destroy revisions show_revision revert] do
-    check_differentiated_assignments(@page) if @context.conditional_release? || Account.site_admin.feature_enabled?(:selective_release_backend)
+    check_differentiated_assignments(@page)
   end
 
   include Api::V1::WikiPage
   include Api::V1::Assignment
+  include Api::V1::AccessibilityResourceScan
   include SubmittableHelper
 
   # @API Show front page
@@ -197,7 +221,9 @@ class WikiPagesApiController < ApplicationController
     end
 
     new_page = @page.duplicate
+    new_page.saving_user = @current_user
     new_page.save!
+
     render json: wiki_page_json(new_page, @current_user, session)
   end
 
@@ -255,7 +281,8 @@ class WikiPagesApiController < ApplicationController
   #   pages. If not present, do not filter on published status.
   #
   # @argument include[] [String, "body"]
-  #   - "enrollments": Optionally include the page body with each Page.
+  #   - "body": Optionally include the page body with each Page.
+  #   If this is a block_editor page, returns the block_editor_attributes.
   #
   # @example_request
   #     curl -H 'Authorization: Bearer <token>' \
@@ -269,7 +296,34 @@ class WikiPagesApiController < ApplicationController
       includes = Array(params[:include])
       scope_columns = WikiPage.column_names
       scope_columns -= ["body"] unless includes.include?("body")
-      scope = @context.wiki_pages.select(scope_columns).preload(:user)
+      scope_columns += ["CASE WHEN body IS NULL THEN true ELSE false END AS is_body_null"] if @context.try(:block_content_editor_enabled?)
+      scope = @context.wiki_pages.select(scope_columns)
+      scope = if Account.site_admin.feature_enabled?(:n_plus_one_index_wiki_page_api)
+                scope.preload(
+                  :user,
+                  :assignment_overrides,
+                  :active_assignment_overrides,
+                  :assignment_override_students,
+                  :current_lookup,
+                  :wiki,
+                  :block_editor,
+                  :estimated_duration,
+                  context_module_tags: { context_module: :context },
+                  assignment: [
+                    :assignment_overrides,
+                    :assignment_override_students,
+                    :quiz,
+                    :discussion_topic,
+                    :context_module_tags,
+                    :external_tool_tag,
+                    :rubric_association,
+                    :post_policy,
+                    { context: %i[active_course_sections grading_period_groups enrollment_term] }
+                  ]
+                ).strict_loading(mode: :n_plus_one_only)
+              else
+                scope.preload(:user)
+              end
       scope = if params.key?(:published)
                 value_to_boolean(params[:published]) ? scope.published : scope.unpublished
               else
@@ -285,8 +339,10 @@ class WikiPagesApiController < ApplicationController
       order_clause = case params[:sort]
                      when "title"
                        WikiPage.title_order_by_clause
+                     when "updated_at"
+                       # Match the behavior of the wiki_page_json method where updated_at is set to revised_at
+                       :revised_at
                      when "created_at",
-                       "updated_at",
                        "todo_date"
                        params[:sort].to_sym
                      end
@@ -303,7 +359,11 @@ class WikiPagesApiController < ApplicationController
       if @context.wiki.grants_right?(@current_user, :update)
         mc_status = setup_master_course_restrictions(wiki_pages, @context)
       end
-      render json: wiki_pages_json(wiki_pages, @current_user, session, includes.include?("body"), master_course_status: mc_status)
+      render json: wiki_pages_json(wiki_pages,
+                                   @current_user,
+                                   session,
+                                   include_body: includes.include?("body"),
+                                   master_course_status: mc_status)
     end
   end
 
@@ -338,7 +398,7 @@ class WikiPagesApiController < ApplicationController
   # @argument wiki_page[publish_at] [Optional, DateTime]
   #   Schedule a future date/time to publish the page. This will have no effect unless the
   #   "Scheduled Page Publication" feature is enabled in the account. If a future date is
-  #   supplied, the page will be unpublished and wiki_page[published] will be ignored.
+  #   supplied, the page will be unpublished and +wiki_page[published]+ will be ignored.
   #
   # @example_request
   #     curl -X POST -H 'Authorization: Bearer <token>' \
@@ -355,17 +415,22 @@ class WikiPagesApiController < ApplicationController
     @page = @wiki.build_wiki_page(@current_user, initial_params)
     if authorized_action(@page, @current_user, :create)
       allowed_fields = Set[:title, :body]
-      allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor)
+      allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor) || @context.try(:block_content_editor_enabled?)
+      allowed_fields << :estimated_duration_attributes if @context.is_a?(Course) && @context.horizon_course?
       update_params = get_update_params(allowed_fields)
       assign_todo_date
+      @page.saving_user = @current_user
       if !update_params.is_a?(Symbol) && @page.update(update_params) && process_front_page
         log_asset_access(@page, "wiki", @wiki, "participate")
-        apply_assignment_parameters(assignment_params, @page) if @context.conditional_release? && !Account.site_admin.feature_enabled?(:selective_release_ui_api)
-        render json: wiki_page_json(@page, @current_user, session)
+        create_external_content_ref
+
+        render json: wiki_page_json(@page, @current_user, session, use_block_editor: true)
       else
         render json: @page.errors, status: update_params.is_a?(Symbol) ? update_params : :bad_request
       end
     end
+  rescue InstructureMiscPlugin::Extensions::ContentServiceClient::ClientError => e
+    rescue_content_service_error(e)
   rescue Api::Html::UnparsableContentError => e
     rescue_unparsable_content(e)
   end
@@ -382,8 +447,10 @@ class WikiPagesApiController < ApplicationController
   def show
     if authorized_action(@page, @current_user, :read)
       log_asset_access(@page, "wiki", @wiki)
-      render json: wiki_page_json(@page, @current_user, session)
+      render json: wiki_page_json(@page, @current_user, session, use_block_editor: true)
     end
+  rescue InstructureMiscPlugin::Extensions::ContentServiceClient::ClientError => e
+    rescue_content_service_error(e)
   end
 
   # @API Update/create page
@@ -436,7 +503,7 @@ class WikiPagesApiController < ApplicationController
     if @page.new_record?
       perform_update = true if authorized_action(@page, @current_user, [:create])
       allowed_fields = Set[:title, :body]
-      allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor)
+      allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor) || @context.try(:block_content_editor_enabled?)
     elsif authorized_action(@page, @current_user, [:update, :update_content])
       perform_update = true
       allowed_fields = Set[]
@@ -445,15 +512,22 @@ class WikiPagesApiController < ApplicationController
     if perform_update
       assign_todo_date
       update_params = get_update_params(allowed_fields)
+      @page.saving_user = @current_user
       if !update_params.is_a?(Symbol) && @page.update(update_params) && process_front_page
+        # This ensures the context module's UI items are updated
+        @page.context_module_tags.each { |content_tag| content_tag.context_module&.touch }
+
         log_asset_access(@page, "wiki", @wiki, "participate")
         @page.context_module_action(@current_user, @context, :contributed)
-        apply_assignment_parameters(assignment_params, @page) if @context.conditional_release? && !Account.site_admin.feature_enabled?(:selective_release_ui_api)
-        render json: wiki_page_json(@page, @current_user, session)
+        update_external_content_ref
+
+        render json: wiki_page_json(@page, @current_user, session, use_block_editor: true)
       else
         render json: @page.errors, status: update_params.is_a?(Symbol) ? update_params : :bad_request
       end
     end
+  rescue InstructureMiscPlugin::Extensions::ContentServiceClient::ClientError => e
+    rescue_content_service_error(e)
   rescue Api::Html::UnparsableContentError => e
     rescue_unparsable_content(e)
   end
@@ -534,7 +608,11 @@ class WikiPagesApiController < ApplicationController
                           end
         output_json = nil
         begin
-          output_json = wiki_page_revision_json(revision, @current_user, session, include_content, @page.current_version)
+          output_json = wiki_page_revision_json(revision,
+                                                @current_user,
+                                                session,
+                                                include_content:,
+                                                latest_version: @page.current_version)
         rescue Psych::SyntaxError => e
           # TODO: This should be temporary.  For a long time
           # course exports/imports would corrupt the yaml in the first version
@@ -549,7 +627,11 @@ class WikiPagesApiController < ApplicationController
             revision.yaml = clean_version_yaml
             revision.save
           end
-          output_json = wiki_page_revision_json(revision, @current_user, session, include_content, @page.current_version)
+          output_json = wiki_page_revision_json(revision,
+                                                @current_user,
+                                                session,
+                                                include_content:,
+                                                latest_version: @page.current_version)
         end
         render json: output_json
       end
@@ -578,8 +660,13 @@ class WikiPagesApiController < ApplicationController
       @page.title = @revision.title
       @page.url = @revision.url
       @page.user_id = @current_user.id if @current_user
+      @page.saving_user = @current_user
       if @page.save
-        render json: wiki_page_revision_json(@page.versions.current, @current_user, session, true, @page.current_version)
+        render json: wiki_page_revision_json(@page.versions.current,
+                                             @current_user,
+                                             session,
+                                             include_content: true,
+                                             latest_version: @page.current_version)
       else
         render json: @page.errors, status: :bad_request
       end
@@ -589,13 +676,72 @@ class WikiPagesApiController < ApplicationController
   def check_title_availability
     return render status: :not_found, json: { errors: [message: "The specified resource does not exist."] } unless Account.site_admin.feature_enabled?(:permanent_page_links)
 
-    return render_json_unauthorized unless @context.wiki.grants_right?(@current_user, :read) && tab_enabled?(@context.class::TAB_PAGES)
+    if authorized_action(@context.wiki, @current_user, :read) && tab_enabled?(@context.class::TAB_PAGES)
+      title = params.require(:title)
+      query = @context.wiki.wiki_pages.not_deleted.where(title:)
 
-    title = params.require(:title)
-    render json: { conflict: @context.wiki.wiki_pages.not_deleted.where(title:).count > 0 }
+      current_id = params[:current_page_id].presence
+      query = query.where.not(id: current_id) if current_id
+
+      render json: { conflict: query.exists? }
+    end
+  end
+
+  def ai_generate_alt_text
+    return unless authorized_action(@context, @current_user, RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
+    return render json: { error: "The feature is not available" }, status: :forbidden unless ai_alt_text_feature_enabled?
+    return render json: { error: "AI client is not available" }, status: :forbidden unless CedarClient.enabled?
+    return render json: {}, status: :bad_request unless ai_alt_text_params_valid?
+
+    attachment = Attachment.find(params.require(:attachment_id))
+    return unless authorized_action(attachment, @current_user, :read)
+    return render json: { error: "Image too large" }, status: :bad_request if attachment.size > AI_ALT_TEXT_MAX_IMAGE_SIZE
+
+    unless AI_ALT_TEXT_SUPPORTED_IMAGE_TYPES.include?(attachment.content_type)
+      return render json: { error: "Unsupported image type" }, status: :bad_request
+    end
+
+    base64_source = Base64.strict_encode64(attachment.open.read)
+
+    context_hash = {
+      context: @context,
+      user: @current_user,
+      root_account: @domain_root_account
+    }
+
+    generation_result = CedarClient.generate_alt_text(
+      image: { base64_source:, type: AI_ALT_TEXT_TYPE },
+      feature_slug: AI_ALT_TEXT_FEATURE_FLAG_SLUG,
+      root_account_uuid: @context.root_account.uuid,
+      current_user: @current_user,
+      max_length: AI_ALT_TEXT_MAX_LENGTH,
+      target_language: infer_locale(context_hash)
+    )
+
+    render json: { image: { altText: generation_result.image["altText"] } }
+  end
+
+  def accessibility_scan
+    return render_unauthorized_action unless @context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
+    return render_unauthorized_action unless @context.a11y_checker_enabled?
+
+    scan = Accessibility::ResourceScannerService.new(resource: @page).call_sync
+    render json: accessibility_resource_scan_json(scan)
+  end
+
+  def accessibility_queue_scan
+    return render_unauthorized_action unless @context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS)
+    return render_unauthorized_action unless @context.a11y_checker_enabled?
+
+    scan = Accessibility::ResourceScannerService.new(resource: @page).call
+    render json: accessibility_resource_scan_json(scan)
   end
 
   protected
+
+  def ai_alt_text_feature_enabled?
+    Account.site_admin.feature_enabled?(:block_content_editor_ai_alt_text) && @context.try(:block_content_editor_enabled?)
+  end
 
   def is_front_page_action?
     !!action_name.match(/_front_page$/)
@@ -643,7 +789,8 @@ class WikiPagesApiController < ApplicationController
   def get_update_params(allowed_fields = Set[])
     # normalize parameters
     wiki_page_params = %w[title body notify_of_update published front_page editing_roles publish_at]
-    wiki_page_params += [block_editor_attributes: [:time, :version, { blocks: [data: strong_anything] }]] if @context.account.feature_enabled?(:block_editor)
+    wiki_page_params += [block_editor_attributes: [:time, :version, { blocks: strong_anything }]] if @context.account.feature_enabled?(:block_editor) || @context.try(:block_content_editor_enabled?)
+    wiki_page_params += [estimated_duration_attributes: %i[id minutes _destroy]] if @context.is_a?(Course) && @context.horizon_course?
     page_params = params[:wiki_page] ? params[:wiki_page].permit(*wiki_page_params) : {}
 
     if page_params.key?(:published)
@@ -654,9 +801,10 @@ class WikiPagesApiController < ApplicationController
     end
 
     if page_params.key?(:editing_roles)
-      editing_roles = page_params[:editing_roles].split(",").map(&:strip)
+      editing_roles = (page_params[:editing_roles] || "").split(",").map(&:strip)
+      editing_roles = %w[teachers] if @context.is_a?(Course) && @context.horizon_course?
       invalid_roles = editing_roles.reject { |role| %w[teachers students members public].include?(role) }
-      unless invalid_roles.empty?
+      if invalid_roles.any? || editing_roles.empty?
         @page.errors.add(:editing_roles, t(:invalid_editing_roles, "The provided editing roles are invalid"))
         return :bad_request
       end
@@ -666,13 +814,10 @@ class WikiPagesApiController < ApplicationController
 
     if page_params.key?(:front_page)
       @set_as_front_page = value_to_boolean(page_params.delete(:front_page))
+      @set_as_front_page = false if @context.is_a?(Course) && @context.horizon_course?
       @set_front_page = true if @was_front_page != @set_as_front_page
     end
     change_front_page = !!@set_front_page
-
-    if page_params.key?(:block_editor_attributes)
-      page_params[:block_editor_attributes][:root_account_id] = @context.root_account_id
-    end
 
     # check user permissions
     rejected_fields = Set[]
@@ -692,7 +837,8 @@ class WikiPagesApiController < ApplicationController
 
       unless @page.grants_right?(@current_user, session, :update)
         allowed_fields << :body
-        allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor)
+        allowed_fields << :block_editor_attributes if @context.account.feature_enabled?(:block_editor) || @context.try(:block_content_editor_enabled?)
+        allowed_fields << :estimated_duration_attributes if @context.is_a?(Course) && @context.horizon_course?
         rejected_fields << :title if page_params.include?(:title) && page_params[:title] != @page.title
 
         rejected_fields << :front_page if change_front_page && !@wiki.grants_right?(@current_user, session, :update)
@@ -745,7 +891,7 @@ class WikiPagesApiController < ApplicationController
   def assign_todo_date
     return if params.dig(:wiki_page, :student_todo_at).nil? && params.dig(:wiki_page, :student_planner_checkbox).nil?
 
-    if @page.context.grants_any_right?(@current_user, session, :manage_content, :manage_course_content_edit)
+    if @page.context.grants_right?(@current_user, session, :manage_course_content_edit)
       @page.todo_date = params.dig(:wiki_page, :student_todo_at) if params.dig(:wiki_page, :student_todo_at)
       # Only clear out if the checkbox is explicitly specified in the request
       if params[:wiki_page].key?("student_planner_checkbox") &&
@@ -778,9 +924,45 @@ class WikiPagesApiController < ApplicationController
 
   private
 
+  def ai_alt_text_params_valid?
+    return false if params[:attachment_id].blank?
+
+    true
+  end
+
   def rescue_unparsable_content(error)
     @page.errors.add(:body, error.message) if @page.present?
 
     render json: @page&.errors || {}, status: :bad_request
+  end
+
+  def rescue_content_service_error(error)
+    error_report = ErrorReport.log_error(
+      "content_service_client_error",
+      { message: error.message, service_errors: error.service_errors }
+    )
+    render json: { error: error.message, error_report_id: error_report.id }, status: :service_unavailable
+  end
+
+  def create_external_content_ref
+    return unless @context.account.horizon_block_content_editor?
+
+    @page.create_block_editor_data(user_uuid: @current_user.uuid, data: @block_editor_data)
+  end
+
+  def update_external_content_ref
+    return unless @context.account.horizon_block_content_editor?
+
+    @page.update_block_editor_data(user_uuid: @current_user.uuid, data: @block_editor_data)
+  end
+
+  def extract_block_editor_data
+    return unless params[:wiki_page] && @context.account.horizon_block_content_editor?
+
+    if params[:wiki_page][:block_editor_data].present?
+      # Extract and convert to hash to avoid ActionController::UnfilteredParameters errors
+      block_editor_data_params = params[:wiki_page].delete(:block_editor_data)
+      @block_editor_data = block_editor_data_params.respond_to?(:to_unsafe_h) ? block_editor_data_params.to_unsafe_h : block_editor_data_params
+    end
   end
 end

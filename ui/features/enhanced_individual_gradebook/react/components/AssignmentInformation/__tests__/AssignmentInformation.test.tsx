@@ -20,11 +20,12 @@ import React from 'react'
 import {render} from '@testing-library/react'
 import AssignmentInformation from '../index'
 import type {AssignmentInformationComponentProps} from '../index'
+import type {SubmissionConnection} from '../../../../types'
 import {assignmentInfoDefaultProps, defaultAssignment} from './fixtures'
 
 describe('Assignment Information Tests', () => {
   beforeEach(() => {
-    $.subscribe = jest.fn()
+    $.subscribe = vi.fn()
   })
   const renderAssignmentInformation = (props: AssignmentInformationComponentProps) => {
     return render(<AssignmentInformation {...props} />)
@@ -34,7 +35,7 @@ describe('Assignment Information Tests', () => {
     const props = {...assignmentInfoDefaultProps, assignment: undefined}
     const {getByText} = renderAssignmentInformation(props)
     expect(
-      getByText('Select an assignment to view additional information here.')
+      getByText('Select an assignment to view additional information here.'),
     ).toBeInTheDocument()
   })
 
@@ -44,7 +45,7 @@ describe('Assignment Information Tests', () => {
     const assignmentNameNode = getByTestId('assignment-information-name')
     expect(assignmentNameNode).toHaveAttribute(
       'href',
-      assignmentInfoDefaultProps.assignment?.htmlUrl
+      assignmentInfoDefaultProps.assignment?.htmlUrl,
     )
     expect(assignmentNameNode).toHaveTextContent(name)
   })
@@ -61,6 +62,18 @@ describe('Assignment Information Tests', () => {
     const {getByTestId} = renderAssignmentInformation({...assignmentInfoDefaultProps})
     expect(getByTestId('assignment-submission-info')).toHaveTextContent('Online text entry')
     expect(getByTestId('assignment-submission-info')).toHaveTextContent('Online upload')
+  })
+
+  it('displays peer review submission type correctly', () => {
+    const props = {
+      ...assignmentInfoDefaultProps,
+      assignment: {
+        ...defaultAssignment,
+        submissionTypes: ['peer_review'],
+      },
+    }
+    const {getByTestId} = renderAssignmentInformation(props)
+    expect(getByTestId('assignment-submission-info')).toHaveTextContent('Peer review')
   })
 
   it('does not display the message students who button when the selected assignment is anonymous', () => {
@@ -98,6 +111,95 @@ describe('Assignment Information Tests', () => {
     }
     const {getByTestId} = renderAssignmentInformation(props)
     expect(getByTestId('default-grade-button')).not.toBeDisabled()
+  })
+
+  it('disables Curve Grades Button if Assignment has checkpoints', () => {
+    const props = {
+      ...assignmentInfoDefaultProps,
+      assignment: {
+        ...defaultAssignment,
+        checkpoints: [
+          {
+            dueAt: '2024-09-06T23:59:00-06:00',
+            lockAt: '2024-09-06T23:59:00-06:00',
+            name: 'Discussion 1',
+            pointsPossible: 15,
+            tag: 'reply_to_topic',
+            unlockAt: '2024-09-03T00:00:00-06:00',
+          },
+        ],
+      },
+    }
+    const {getByTestId} = renderAssignmentInformation(props)
+    expect(getByTestId('curve-grades-button')).toBeDisabled()
+  })
+
+  it('enables Curve Grades Button if Assignment checkpoints is empty', () => {
+    const props = {
+      ...assignmentInfoDefaultProps,
+      assignment: {
+        ...defaultAssignment,
+        checkpoints: [],
+      },
+    }
+    const {getByTestId} = renderAssignmentInformation(props)
+    expect(getByTestId('curve-grades-button')).toBeEnabled()
+  })
+
+  describe('assignment score details table', () => {
+    const makeSubmission = (overrides: {
+      id: string
+      score: number | null
+      userId: string
+    }): SubmissionConnection => ({
+      assignmentId: '1',
+      redoRequest: false,
+      submittedAt: null,
+      state: 'graded',
+      ...overrides,
+    })
+
+    it('shows "No graded submissions" for High and Low Score when all submissions are ungraded', () => {
+      const props = {
+        ...assignmentInfoDefaultProps,
+        submissions: [
+          makeSubmission({id: '1', score: null, userId: '1'}),
+          makeSubmission({id: '2', score: null, userId: '2'}),
+        ],
+      }
+      const {getByTestId} = renderAssignmentInformation(props)
+      expect(getByTestId('assignment-max')).toHaveTextContent('No graded submissions')
+      expect(getByTestId('assignment-min')).toHaveTextContent('No graded submissions')
+    })
+
+    it('excludes null scores and uses only numeric scores for High, Low, and Average', () => {
+      const props = {
+        ...assignmentInfoDefaultProps,
+        submissions: [
+          makeSubmission({id: '1', score: 8, userId: '1'}),
+          makeSubmission({id: '2', score: null, userId: '2'}),
+          makeSubmission({id: '3', score: 5, userId: '3'}),
+        ],
+      }
+      const {getByTestId} = renderAssignmentInformation(props)
+      expect(getByTestId('assignment-max')).toHaveTextContent('8')
+      expect(getByTestId('assignment-min')).toHaveTextContent('5')
+      expect(getByTestId('assignment-average')).toHaveTextContent('6.5')
+    })
+
+    it('includes a score of 0 in High and Low Score calculations', () => {
+      const props = {
+        ...assignmentInfoDefaultProps,
+        submissions: [
+          makeSubmission({id: '1', score: 10, userId: '1'}),
+          makeSubmission({id: '2', score: 0, userId: '2'}),
+          makeSubmission({id: '3', score: null, userId: '3'}),
+        ],
+      }
+      const {getByTestId} = renderAssignmentInformation(props)
+      expect(getByTestId('assignment-max')).toHaveTextContent('10')
+      expect(getByTestId('assignment-min')).toHaveTextContent('0')
+    })
   })
 
   describe('assignment in closed grading period', () => {

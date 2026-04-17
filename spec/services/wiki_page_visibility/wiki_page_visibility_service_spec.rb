@@ -17,19 +17,16 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require_relative "../../spec_helper"
 require_relative "../../models/student_visibility/student_visibility_common"
 
 describe WikiPageVisibility::WikiPageVisibilityService do
   include StudentVisibilityCommon
 
   def assignment_ids_visible_to_user(user)
-    AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_student(course_id: @course.id, user_id: user.id).map(&:assignment_id)
+    AssignmentVisibility::AssignmentVisibilityService.assignments_visible_to_students(course_ids: @course.id, user_ids: user.id).map(&:assignment_id)
   end
 
   before :once do
-    Account.site_admin.enable_feature!(:selective_release_backend)
-
     course_factory(active_all: true)
     @section1 = @course.default_section
     @section2 = @course.course_sections.create!(name: "Section 2")
@@ -44,8 +41,18 @@ describe WikiPageVisibility::WikiPageVisibilityService do
     let(:learning_object2) { @page2 }
     let(:learning_object_type) { "wiki_page" }
 
-    it_behaves_like "learning object visiblities"
-    it_behaves_like "learning object visiblities with modules"
+    it_behaves_like "learning object visibilities"
+
+    it_behaves_like "learning object visibilities with modules" do
+      before :once do
+        Account.site_admin.disable_feature!(:visibility_performance_improvements)
+      end
+    end
+    it_behaves_like "learning object visibilities with modules" do
+      before :once do
+        Account.site_admin.enable_feature!(:visibility_performance_improvements)
+      end
+    end
 
     it "does not include unpublished wiki pages" do
       @page1.workflow_state = "unpublished"
@@ -74,6 +81,61 @@ describe WikiPageVisibility::WikiPageVisibilityService do
 
       expect(assignment_ids_visible_to_user(@student1)).to contain_exactly(@page1.assignment.id, @page2.assignment.id)
       expect(assignment_ids_visible_to_user(@student2)).to contain_exactly(@page2.assignment.id)
+    end
+  end
+
+  describe ".invalidate_cache" do
+    it "raises an error when neither course_ids nor wiki_page_ids are provided" do
+      expect do
+        WikiPageVisibility::WikiPageVisibilityService.invalidate_cache(user_ids: [@student1.id])
+      end.to raise_error(ArgumentError, "at least one non nil course_id or wiki_page_id is required (for query performance reasons)")
+    end
+
+    it "deletes the cache when called with course_ids" do
+      WikiPageVisibility::WikiPageVisibilityService.wiki_pages_visible_to_students(
+        course_ids: [@course.id],
+        user_ids: [@student1.id],
+        wiki_page_ids: [@page1.id]
+      )
+
+      expect(Rails.cache).to receive(:delete).and_call_original
+
+      WikiPageVisibility::WikiPageVisibilityService.invalidate_cache(
+        course_ids: [@course.id],
+        user_ids: [@student1.id],
+        wiki_page_ids: [@page1.id]
+      )
+    end
+
+    it "deletes the cache when called with wiki_page_ids only" do
+      WikiPageVisibility::WikiPageVisibilityService.wiki_pages_visible_to_students(
+        wiki_page_ids: [@page1.id, @page2.id]
+      )
+
+      expect(Rails.cache).to receive(:delete).and_call_original
+
+      WikiPageVisibility::WikiPageVisibilityService.invalidate_cache(
+        wiki_page_ids: [@page1.id, @page2.id]
+      )
+    end
+
+    it "accepts include_concluded parameter" do
+      expect do
+        WikiPageVisibility::WikiPageVisibilityService.invalidate_cache(
+          course_ids: [@course.id],
+          include_concluded: false
+        )
+      end.not_to raise_error
+    end
+
+    it "works with multiple user_ids" do
+      expect(Rails.cache).to receive(:delete).and_call_original
+
+      WikiPageVisibility::WikiPageVisibilityService.invalidate_cache(
+        course_ids: [@course.id],
+        user_ids: [@student1.id, @student2.id],
+        wiki_page_ids: [@page1.id]
+      )
     end
   end
 end

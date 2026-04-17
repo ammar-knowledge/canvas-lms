@@ -27,13 +27,13 @@ import {
   buildURL,
 } from '../utilities/apiUtils'
 import {alert} from '../utilities/alertUtils'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {itemsToDays} from '../utilities/daysUtils'
 import {processDashboardCards} from '@canvas/dashboard-card/util/dashboardUtils'
-import {queryClient} from '@canvas/query'
+import {queryClient} from '@instructure/platform-query'
 import {fetchDashboardCardsAsync} from '@canvas/dashboard-card/dashboardCardQueries'
 
-const I18n = useI18nScope('planner')
+const I18n = createI18nScope('planner')
 
 export const {
   startLoadingItems,
@@ -90,14 +90,14 @@ export const {
   'GOT_WAY_FUTURE_ITEM_DATE',
   'GOT_WAY_PAST_ITEM_DATE',
   'GOT_COURSE_LIST',
-  'CLEAR_LOADING'
+  'CLEAR_LOADING',
 )
 
 export const gettingPastItems = createAction(
   'GETTING_PAST_ITEMS',
   (opts = {seekingNewActivity: false}) => {
     return opts
-  }
+  },
 )
 
 export const gotDaysSuccess = createAction('GOT_DAYS_SUCCESS', (newDays, response) => {
@@ -148,7 +148,7 @@ export function getFirstNewActivityDate(fromMoment) {
             response.data[0],
             getState().courses,
             getState().groups,
-            getState().timeZone
+            getState().timeZone,
           )
           dispatch(foundFirstNewActivityDate(first.dateBucketMoment))
         }
@@ -181,7 +181,10 @@ export function getPlannerItems(fromMoment) {
 export function getCourseList() {
   return (dispatch, getState) => {
     if (getState().singleCourse) {
-      return Promise.resolve({data: getState().courses}) // set via INITIAL_OPTIONS
+      const courses = getState().courses
+      // Ensure courses is always an array
+      const coursesArray = Array.isArray(courses) ? courses : []
+      return Promise.resolve({data: coursesArray}) // set via INITIAL_OPTIONS
     }
     const observeeId = observedUserId(getState())
     const observeeParam = observeeId ? `?observed_user_id=${observeeId}` : ''
@@ -226,7 +229,7 @@ function loadPastItems(byScrolling) {
     dispatch(
       gettingPastItems({
         seekingNewActivity: false,
-      })
+      }),
     )
     dispatch(startLoadingPastSaga())
   }
@@ -244,7 +247,7 @@ export const loadPastUntilNewActivity = () => dispatch => {
   dispatch(
     gettingPastItems({
       seekingNewActivity: true,
-    })
+    }),
   )
   dispatch(startLoadingPastUntilNewActivitySaga())
   return 'loadPastUntilNewActivity' // for testing
@@ -254,7 +257,7 @@ export const loadPastUntilToday = () => dispatch => {
   dispatch(
     gettingPastItems({
       seekingNewActivity: false,
-    })
+    }),
   )
   dispatch(startLoadingPastUntilTodaySaga())
   return 'loadPastUntilToday' // for testing
@@ -266,7 +269,7 @@ export function getWeeklyPlannerItems(fromMoment) {
   return (dispatch, getState) => {
     dispatch(startLoadingItems())
     const coursesPromise = getState().singleCourse
-      ? Promise.resolve({data: getState().courses}) // set in INITIAL_OPTIONS for the singleCourse case
+      ? Promise.resolve({data: Array.isArray(getState().courses) ? getState().courses : []}) // set in INITIAL_OPTIONS for the singleCourse case
       : dispatch(getCourseList())
     return coursesPromise
       .then(res => {
@@ -368,8 +371,10 @@ function getWayFutureItem(fromMoment) {
       } else {
         params.context_codes = getContextCodesFromState(state)
       }
+    } else if (state.singleCourse) {
+      params.context_codes = getContextCodesFromState(state)
     } else {
-      params.context_codes = state.singleCourse ? getContextCodesFromState(state) : undefined
+      include = ['account_calendars', 'all_courses']
     }
     const futureMoment = fromMoment.clone().tz('UTC').startOf('day').add(1, 'year')
     const url = buildURL('/api/v1/planner/items', {
@@ -405,8 +410,10 @@ function getWayPastItem(fromMoment) {
       } else {
         params.context_codes = getContextCodesFromState(state)
       }
+    } else if (state.singleCourse) {
+      params.context_codes = getContextCodesFromState(state)
     } else {
-      params.context_codes = state.singleCourse ? getContextCodesFromState(state) : undefined
+      include = ['account_calendars', 'all_courses']
     }
     const pastMoment = fromMoment.clone().tz('UTC').startOf('day').add(-1, 'year')
 
@@ -480,6 +487,8 @@ function fetchParams(loadingOptions) {
         params.context_codes = observedUserContextCodes(loadingOptions.getState())
       }
       params.observed_user_id = observeeId
+    } else if (!loadingOptions.getState().singleCourse) {
+      params.include = ['account_calendars', 'all_courses']
     }
 
     return ['/api/v1/planner/items', {params}]
@@ -497,7 +506,7 @@ function transformItems(loadingOptions, items) {
       item,
       loadingOptions.getState().courses,
       loadingOptions.getState().groups,
-      loadingOptions.getState().timeZone
-    )
+      loadingOptions.getState().timeZone,
+    ),
   )
 }

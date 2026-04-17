@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import _ from 'lodash'
+import {keyBy, sortBy} from 'es-toolkit/compat'
 import StudentDatastore from '../StudentDatastore'
 
 describe('StudentDatastore', () => {
@@ -35,7 +35,7 @@ describe('StudentDatastore', () => {
       const studentIds = ['1101', '1102', '1103']
       studentDatastore.setStudentIds(studentIds)
       const storedStudentIds = studentDatastore.listStudentIds()
-      expect(storedStudentIds.length).toBe(3)
+      expect(storedStudentIds).toHaveLength(3)
       expect(storedStudentIds).toEqual(studentIds)
     })
   })
@@ -46,7 +46,7 @@ describe('StudentDatastore', () => {
       studentDatastore.addUserStudents(students)
       studentDatastore.setStudentIds(['1102'])
       const storedStudents = studentDatastore.listStudents()
-      expect(storedStudents.length).toBe(1)
+      expect(storedStudents).toHaveLength(1)
       expect(storedStudents[0].id).toBe('1102')
     })
 
@@ -55,7 +55,7 @@ describe('StudentDatastore', () => {
       studentDatastore.addTestStudents(students)
       studentDatastore.setStudentIds(['1102'])
       const storedStudents = studentDatastore.listStudents()
-      expect(storedStudents.length).toBe(1)
+      expect(storedStudents).toHaveLength(1)
       expect(storedStudents[0].id).toBe('1102')
     })
   })
@@ -66,8 +66,8 @@ describe('StudentDatastore', () => {
       studentDatastore.addUserStudents(students)
       studentDatastore.setStudentIds(['1101', '1102', '1103'])
       const storedStudents = studentDatastore.listStudents()
-      expect(storedStudents.length).toBe(3)
-      expect(storedStudents).toEqual(_.sortBy(students, 'id'))
+      expect(storedStudents).toHaveLength(3)
+      expect(storedStudents).toEqual(sortBy(students, 'id'))
     })
 
     test('includes test students', () => {
@@ -76,26 +76,26 @@ describe('StudentDatastore', () => {
       studentDatastore.addTestStudents(students.slice(2, 3))
       studentDatastore.setStudentIds(['1101', '1102', '1103'])
       const storedStudents = studentDatastore.listStudents()
-      expect(storedStudents.length).toBe(3)
-      expect(storedStudents).toEqual(_.sortBy(students, 'id'))
+      expect(storedStudents).toHaveLength(3)
+      expect(storedStudents).toEqual(sortBy(students, 'id'))
     })
 
     test('includes students stored directly into the original userStudentMap', () => {
       studentDatastore.setStudentIds(['1101', '1102', '1103'])
       const students = [{id: '1103'}, {id: '1101'}, {id: '1102'}]
-      Object.assign(userStudentMap, _.keyBy(students, 'id'))
+      Object.assign(userStudentMap, keyBy(students, 'id'))
       const storedStudents = studentDatastore.listStudents()
-      expect(storedStudents.length).toBe(3)
-      expect(storedStudents).toEqual(_.sortBy(students, 'id'))
+      expect(storedStudents).toHaveLength(3)
+      expect(storedStudents).toEqual(sortBy(students, 'id'))
     })
 
     test('includes students stored directly into the original testStudentMap', () => {
       studentDatastore.setStudentIds(['1101', '1102', '1103'])
       const students = [{id: '1103'}, {id: '1101'}, {id: '1102'}]
-      Object.assign(testStudentMap, _.keyBy(students, 'id'))
+      Object.assign(testStudentMap, keyBy(students, 'id'))
       const storedStudents = studentDatastore.listStudents()
-      expect(storedStudents.length).toBe(3)
-      expect(storedStudents).toEqual(_.sortBy(students, 'id'))
+      expect(storedStudents).toHaveLength(3)
+      expect(storedStudents).toEqual(sortBy(students, 'id'))
     })
 
     test('includes placeholder students for student ids not matching a stored student object', () => {

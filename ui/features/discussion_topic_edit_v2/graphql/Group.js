@@ -17,11 +17,11 @@
  */
 
 import {shape, string} from 'prop-types'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 export const Group = {
   fragment: gql`
-    fragment Group on Group {
+    fragment EditV2Group on Group {
       _id
       id
       name

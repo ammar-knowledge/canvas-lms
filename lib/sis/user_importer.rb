@@ -20,10 +20,12 @@
 
 module SIS
   class UserImporter < BaseImporter
+    attr_accessor :importer
+
     BATCH_SIZE = 100
 
     def process(messages, login_only: false)
-      importer = Work.new(@batch, @root_account, @logger, messages)
+      self.importer = Work.new(@batch, @root_account, @logger, messages)
       User.skip_updating_account_associations do
         User.process_as_sis(@sis_options) do
           Pseudonym.process_as_sis(@sis_options) do
@@ -48,6 +50,7 @@ module SIS
                     :pseudos_to_set_sis_batch_ids,
                     :users_to_add_account_associations,
                     :users_to_update_account_associations,
+                    :users_to_sync,
                     :roll_back_data
 
       def initialize(batch, root_account, logger, messages)
@@ -63,6 +66,7 @@ module SIS
         @pseudos_to_set_sis_batch_ids = []
         @users_to_add_account_associations = []
         @users_to_update_account_associations = []
+        @users_to_sync = Set.new
         @authentication_providers = {}
       end
 
@@ -125,18 +129,24 @@ module SIS
         until @batched_users.empty?
           user_row = @batched_users.shift
           pseudo = @root_account.pseudonyms.find_by(sis_user_id: user_row.user_id.to_s)
-          if user_row.authentication_provider_id.present?
-            unless @authentication_providers.key?(user_row.authentication_provider_id)
-              begin
-                @authentication_providers[user_row.authentication_provider_id] =
-                  @root_account.authentication_providers.active.find(user_row.authentication_provider_id)
-              rescue ActiveRecord::RecordNotFound
-                @authentication_providers[user_row.authentication_provider_id] = nil
+          pseudo_by_login = begin
+            if user_row.authentication_provider_id.present?
+              unless @authentication_providers.key?(user_row.authentication_provider_id)
+                begin
+                  @authentication_providers[user_row.authentication_provider_id] =
+                    @root_account.authentication_providers.active.find(user_row.authentication_provider_id)
+                rescue ActiveRecord::RecordNotFound
+                  @authentication_providers[user_row.authentication_provider_id] = nil
+                end
               end
+              @root_account.pseudonyms.active.by_unique_id(user_row.login_id).find_by(authentication_provider_id: @authentication_providers[user_row.authentication_provider_id])
+            else
+              @root_account.pseudonyms.active.by_unique_id(user_row.login_id).take
             end
-            pseudo_by_login = @root_account.pseudonyms.active.by_unique_id(user_row.login_id).find_by(authentication_provider_id: @authentication_providers[user_row.authentication_provider_id])
-          else
-            pseudo_by_login = @root_account.pseudonyms.active.by_unique_id(user_row.login_id).take
+          rescue Net::IMAP::StringPrep::ProhibitedCodepoint
+            message = I18n.t("Invalid Unicode characters in login_id '%{login_id}'; skipping", login_id: user_row.login_id)
+            @messages << SisBatch.build_error(user_row.csv, message, sis_batch: @batch, row: user_row.lineno, row_info: user_row.row)
+            next
           end
           pseudo_by_integration = nil
           pseudo_by_integration = @root_account.pseudonyms.find_by(integration_id: user_row.integration_id.to_s) if user_row.integration_id.present?
@@ -186,7 +196,16 @@ module SIS
                 user.name = infer_user_name(user_row, user.name)
               end
               unless user.stuck_sis_fields.include?(:sortable_name)
-                user.sortable_name = infer_sortable_name(user_row, user.sortable_name)
+                # If the user full name is present, infer_sortable_name will return nil so
+                # the user model can infer the sortable name. If the same user_row is uploaded
+                # without changes, this logic causes the user to sync even though there are no changes.
+                new_sortable_name = infer_sortable_name(user_row, user.sortable_name)
+                if new_sortable_name.nil? && !user.sortable_name.nil?
+                  new_sortable_name = User.last_name_first(
+                    user.name, user.sortable_name, likely_already_surname_first: true
+                  )
+                end
+                user.sortable_name = new_sortable_name
               end
               if !user.stuck_sis_fields.include?(:short_name) && user_row.short_name.present?
                 user.short_name = user_row.short_name
@@ -237,7 +256,7 @@ module SIS
           should_add_account_associations = false
           should_update_account_associations = false
 
-          if user_row.pronouns.present? && !user.stuck_sis_fields.include?(:pronouns)
+          if user_row.pronouns.present? && !user.stuck_sis_fields.include?(:pronouns) && @root_account.can_add_pronouns?
             user.pronouns = (user_row.pronouns == "<delete>") ? nil : user_row.pronouns
           end
 
@@ -251,6 +270,12 @@ module SIS
               @messages << SisBatch.build_error(user_row.csv, message, sis_batch: @batch, row: user_row.lineno, row_info: user_row.row)
               next
             end
+
+            # In some scenarios, the user may have had a SIS import to delete them attempted
+            # when the user sync flag was in an off state.
+            #
+            # Re-sync the deleted users to ensure retrying that SIS import succeeds.
+            record_sync_for(user)
 
             # if the pseudonym is already deleted, we're done.
             next if pseudo.workflow_state == "deleted"
@@ -276,7 +301,11 @@ module SIS
           pseudo.account = @root_account
           unless pseudo.stuck_sis_fields.include?(:workflow_state)
             pseudo.workflow_state = status
-            pseudo.deleted_at = Time.now.utc if status == "deleted"
+            pseudo.deleted_at = if status == "deleted"
+                                  Time.now.utc
+                                else
+                                  nil
+                                end
           end
           if pseudo.new_record? && status != "deleted"
             should_add_account_associations = true
@@ -303,9 +332,15 @@ module SIS
 
           begin
             User.transaction(requires_new: true) do
-              if user.changed?
+              sticky_opts = user.sis_stickiness_options
+              if user.changed? || (sticky_opts[:override_sis_stickiness] && sticky_opts[:clear_sis_stickiness] &&
+                 user["stuck_sis_fields"].present?)
                 user_touched = true
-                if !user.save && !user.errors.empty?
+                user_changed = user.changed?
+                user_saved = user.save
+                # need to call save first so we can get the user id
+                record_sync_for(user) if user_saved && user_changed
+                if !user_saved && !user.errors.empty?
                   message = generate_user_warning(user.errors.first.join(" "), user_row.user_id, user_row.login_id)
                   raise ImportError, message
                 end
@@ -316,10 +351,11 @@ module SIS
               if pseudo.changed?
                 pseudo.sis_batch_id = @batch.id if @batch
                 if pseudo.save_without_broadcasting
+                  record_sync_for(user)
                   p_data = SisBatchRollBackData.build_data(sis_batch: @batch, context: pseudo)
                   @roll_back_data << p_data if p_data
                 elsif !pseudo.errors.empty?
-                  message = generate_user_warning(pseudo.errors.first.join(" "), user_row.user_id, user_row.login_id)
+                  message = generate_user_warning(pseudo.errors.first.full_message, user_row.user_id, user_row.login_id)
                   raise ImportError, message
                 end
               end
@@ -372,7 +408,8 @@ module SIS
             other_cc ||= ccs.find { |cc| cc.user_id == user.id && cc.id != sis_cc.try(:id) }
             # Handle the case where the SIS CC changes to match an already existing CC
             if sis_cc && other_cc
-              sis_cc.destroy
+              cc_destroyed = sis_cc.destroy
+              record_sync_for(user) if cc_destroyed
               sis_cc = nil
             end
             cc = sis_cc || other_cc || user.communication_channels.new
@@ -384,6 +421,7 @@ module SIS
             newly_active = cc.path_changed? || (cc.active? && cc.workflow_state_changed?)
             if cc.changed?
               if cc.valid? && cc.save_without_broadcasting
+                record_sync_for(user)
                 cc_data = SisBatchRollBackData.build_data(sis_batch: @batch, context: cc)
                 @roll_back_data << cc_data if cc_data
               else
@@ -412,7 +450,10 @@ module SIS
                 same_user || no_active_pseudos || active_sis_pseudos
               end
               unless other_ccs.empty?
+                # send_merge_notification! will save the communication channel.
+                cc_changed = cc.changed?
                 cc.send_merge_notification!
+                record_sync_for(user) if cc_changed
               end
             end
           elsif user_row.email.present? && EmailAddressValidator.valid?(user_row.email) == false
@@ -421,11 +462,14 @@ module SIS
             next
           end
 
-          if pseudo.changed? || (Pseudonym.sis_stickiness_options[:clear_sis_stickiness] && pseudo.read_attribute("stuck_sis_fields").present?)
+          if pseudo.changed? || (Pseudonym.sis_stickiness_options[:clear_sis_stickiness] && pseudo["stuck_sis_fields"].present?)
             pseudo.sis_batch_id = user_row.sis_batch_id if user_row.sis_batch_id
             pseudo.sis_batch_id = @batch.id if @batch
             if pseudo.valid?
-              pseudo.save_without_broadcasting
+              pseudo_changed = pseudo.changed?
+              if pseudo.save_without_broadcasting
+                record_sync_for(user) if pseudo_changed
+              end
             else
               msg = "A user did not pass validation "
               msg += "(" + "user: #{user_row.user_id}, error: "
@@ -438,13 +482,25 @@ module SIS
           maybe_write_roll_back_data
           if is_new_user_with_password_notification
             cc.workflow_state = "unconfirmed"
-            if pseudo.save_without_broadcasting && cc.save_without_broadcasting
-              pseudo.send_registration_notification!
+            should_sync_user = pseudo.changed? || cc.changed?
+            if pseudo.save_without_broadcasting
+              record_sync_for(user) if should_sync_user
+              if cc.save_without_broadcasting
+                pseudo.send_registration_notification!
+              end
             end
           end
 
           @success_count += 1
         end
+      end
+
+      # If the user, pseudonym, or communication channel was changed, we need to sync the user. Anyplace where we
+      # will update those entities in process_batch, we should call this method. @users_to_sync is a Set so it is ok
+      # if we call this multiple times for the same user. The way sis batch is implemented is not atomic, so it is
+      # better to record that we need to sync the user even if we end up raising an error (like an ImportError).
+      def record_sync_for(user)
+        @users_to_sync << user.id
       end
 
       def existing_login(user_row, root_account)
@@ -478,8 +534,12 @@ module SIS
         end
       end
 
+      def user_can_still_log_in?(to:, user:, sis_user_id:)
+        to.pseudonyms.active.where(user_id: user).where("sis_user_id != ? OR sis_user_id IS NULL", sis_user_id).exists?
+      end
+
       def remove_enrollments_if_last_login(user, user_id)
-        return false if @root_account.pseudonyms.active.where(user_id: user).where("sis_user_id != ? OR sis_user_id IS NULL", user_id).exists?
+        return false if user_can_still_log_in?(to: @root_account, user:, sis_user_id: user_id)
 
         enrollments = @root_account.enrollments.active.where(user_id: user)
                                    .select(:id, :type, :course_id, :course_section_id, :user_id, :workflow_state).to_a
@@ -542,9 +602,10 @@ module SIS
       end
 
       ERRORS_TO_REASONS = {
-        "unique_id is invalid" => "Invalid login_id: '%{login_id}'",
+        "Unique ID is invalid" => "Invalid login_id: '%{login_id}'",
       }.freeze
       DEFAULT_REASON = "Unknown reason: %{message}"
+      private_constant :ERRORS_TO_REASONS, :DEFAULT_REASON
 
       def generate_readable_error_message(options)
         response = ERRORS_TO_REASONS.fetch(options[:message]) { DEFAULT_REASON }

@@ -23,16 +23,16 @@ import {responsiveQuerySizes} from '../../../utils/index'
 import React from 'react'
 import {render} from '@testing-library/react'
 
-jest.mock('../../../utils')
+vi.mock('../../../utils')
 
 beforeAll(() => {
-  window.matchMedia = jest.fn().mockImplementation(() => {
+  window.matchMedia = vi.fn().mockImplementation(() => {
     return {
       matches: true,
       media: '',
       onchange: null,
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
     }
   })
 })
@@ -72,21 +72,21 @@ describe('AssignmentAvailabilityWindow', () => {
     it('should render availability window', () => {
       const container = setup(mockProps())
       expect(
-        container.getByText('Available from Mar 24, 2021 until Apr 4, 2021')
+        container.getByText('Available from Mar 24, 2021 until Apr 4, 2021'),
       ).toBeInTheDocument()
     })
 
     it('should render availability window with time', () => {
       const container = setup(mockProps({showDateWithTime: true}))
       expect(
-        container.getByText('Available from Mar 24, 2021 6am until Apr 4, 2021 5:59am')
+        container.getByText('Available from Mar 24, 2021 6am until Apr 4, 2021 5:59am'),
       ).toBeInTheDocument()
     })
 
     it('should render availability window with time with pipe', () => {
       const container = setup(mockProps({showDateWithTime: true, anonymousState: 'full_anonymity'}))
       expect(
-        container.getByText('| Available from Mar 24, 2021 6am until Apr 4, 2021 5:59am')
+        container.getByText('| Available from Mar 24, 2021 6am until Apr 4, 2021 5:59am'),
       ).toBeInTheDocument()
     })
 
@@ -121,7 +121,7 @@ describe('AssignmentAvailabilityWindow', () => {
     it('should render availability window when showOnMobile is true', () => {
       const container = setup(mockProps({showOnMobile: true}))
       expect(
-        container.queryByText('Available from Mar 24, 2021 until Apr 4, 2021')
+        container.queryByText('Available from Mar 24, 2021 until Apr 4, 2021'),
       ).toBeInTheDocument()
     })
   })

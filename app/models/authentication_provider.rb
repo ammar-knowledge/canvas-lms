@@ -19,12 +19,13 @@
 #
 
 require "net-ldap"
-require "net_ldap_extensions"
 NetLdapExtensions.apply
 
-class AuthenticationProvider < ActiveRecord::Base
+class AuthenticationProvider < ApplicationRecord
   include Workflow
+
   validates :auth_filter, length: { maximum: maximum_text_length, allow_blank: true }
+  validate :not_in_discovery_page
 
   DEBUG_EXPIRE = 30.minutes
 
@@ -59,8 +60,6 @@ class AuthenticationProvider < ActiveRecord::Base
       LinkedIn
     when "openid_connect"
       OpenIDConnect
-    when "twitter"
-      Twitter
     else
       super
     end
@@ -74,7 +73,11 @@ class AuthenticationProvider < ActiveRecord::Base
     false
   end
 
-  def self.enabled?(_account = nil)
+  def self.restorable?
+    false
+  end
+
+  def self.enabled?(_account = nil, _user = nil)
     true
   end
 
@@ -99,18 +102,20 @@ class AuthenticationProvider < ActiveRecord::Base
   end
 
   scope :active, -> { where.not(workflow_state: "deleted") }
+  scope :valid_for_discovery_page, -> { active }
   belongs_to :account
   include ::Canvas::RootAccountCacher
+
   has_many :pseudonyms, inverse_of: :authentication_provider
   acts_as_list scope: { account: self, workflow_state: [nil, "active"] }
 
   def self.valid_auth_types
-    %w[apple canvas cas clever facebook github google ldap linkedin microsoft openid_connect saml saml_idp_discovery twitter].freeze
+    %w[apple canvas cas clever facebook github google ldap linkedin microsoft openid_connect saml saml_idp_discovery].freeze
   end
 
   validates :auth_type,
             inclusion: { in: ->(_) { valid_auth_types },
-                         message: -> { "invalid auth_type, must be one of #{valid_auth_types.join(",")}" } }
+                         message: ->(_object, _data) { "invalid auth_type, must be one of #{valid_auth_types.join(",")}" } }
   validates :account_id, presence: true
   validate :validate_federated_attributes
 
@@ -138,10 +143,56 @@ class AuthenticationProvider < ActiveRecord::Base
     [].freeze
   end
 
-  SENSITIVE_PARAMS = [].freeze
+  def self.sensitive_params
+    [].freeze
+  end
 
   def self.login_button?
     Rails.root.join("app/views/shared/svg/_svg_icon_#{sti_name}.svg").exist?
+  end
+
+  def self.find_restorable_provider(root_account:, auth_type:)
+    provider_class = find_sti_class(auth_type)
+
+    # To be a restore candidate, an authentication provider must be
+    # singleton and explicitly marked as restorable
+    return unless provider_class.singleton? && provider_class.restorable?
+
+    root_account.authentication_providers.where.not(workflow_state: :active).find_by(auth_type:)
+  end
+
+  def used_on_discovery_page?
+    return false unless persisted?
+    return false unless account.discovery_page_allowed?
+    return false unless account.discovery_page_active?
+
+    provider_used = ->(configured_provider) { configured_provider[:authentication_provider_id]&.to_i == id }
+    discovery_configuration = account.settings[:discovery_page]
+
+    discovery_configuration[:primary].any?(&provider_used) || discovery_configuration[:secondary].any?(&provider_used)
+  end
+
+  def creation_timeout_options
+    { raise_on_timeout: true, fallback_timeout_length: 10.seconds, exception_class: Timeout::Error }
+  end
+
+  def login_authentication_provider_path
+    unless self.class.valid_auth_types.include? self.class.sti_name
+      raise ActionController::UrlGenerationError, "No route matches #{self.class.sti_name} authentication provider"
+    end
+
+    base_path = "/login/#{self.class.sti_name}"
+    return base_path if self.class.singleton?
+
+    unless persisted?
+      raise ActionController::UrlGenerationError, "Cannot generate URL for unsaved authentication provider"
+    end
+
+    "#{base_path}/#{id}"
+  end
+
+  def visible_to?(_user)
+    true
   end
 
   def login_attribute_for_pseudonyms
@@ -153,10 +204,21 @@ class AuthenticationProvider < ActiveRecord::Base
     self.workflow_state = "deleted"
     save!
     enable_canvas_authentication
-    delay_if_production.soft_delete_pseudonyms
+    delay_if_production.soft_delete_pseudonyms unless self.class.restorable?
     true
   end
   alias_method :destroy_permanently!, :destroy
+
+  def restore
+    timestamp = updated_at
+    self.workflow_state = "active"
+    if save
+      move_to_bottom
+      fix_position_conflicts
+      delay_if_production.restore_soft_deleted_pseudonyms(timestamp)
+      true
+    end
+  end
 
   def auth_password=(password)
     return if password.blank?
@@ -193,7 +255,7 @@ class AuthenticationProvider < ActiveRecord::Base
   end
 
   def settings
-    read_attribute(:settings) || {}
+    super || {}
   end
 
   def federated_attributes=(value)
@@ -204,6 +266,11 @@ class AuthenticationProvider < ActiveRecord::Base
 
   def federated_attributes
     settings["federated_attributes"] ||= {}
+  end
+
+  def show_mfa_configuration_options?
+    account.mfa_settings != :disabled &&
+      (auth_type != "canvas" || account.mfa_settings != :required)
   end
 
   def mfa_required?
@@ -270,7 +337,8 @@ class AuthenticationProvider < ActiveRecord::Base
     time_zone
   ].freeze
 
-  def provision_user(unique_ids, provider_attributes = {})
+  def provision_user(unique_ids, provider_attributes = {}, default_name = nil)
+    unique_id = nil
     User.transaction(requires_new: true) do
       if unique_ids.is_a?(Hash)
         unique_id = unique_ids[login_attribute]
@@ -278,26 +346,30 @@ class AuthenticationProvider < ActiveRecord::Base
         unique_id = unique_ids
         unique_ids = {}
       end
+      user = User.new(default_name: default_name || unique_id, workflow_state: "registered")
       pseudonym = account.pseudonyms.build
-      pseudonym.user = User.create!(name: unique_id) { |u| u.workflow_state = "registered" }
+      pseudonym.user = user
       pseudonym.authentication_provider = self
       pseudonym.unique_id = unique_id
       pseudonym.unique_ids = unique_ids
-      pseudonym.save!
-      apply_federated_attributes(pseudonym, provider_attributes, purpose: :provisioning)
+      apply_federated_attributes(pseudonym, provider_attributes, purpose: :provisioning, strict: true)
+      try(:post_provision_user, pseudonym:, provider_attributes:)
       pseudonym
     end
   rescue ActiveRecord::RecordNotUnique
     self.class.uncached do
-      pseudonyms.active_only.by_unique_id(unique_id).take!
+      pseudonyms.active_only.by_unique_id(unique_id).take
     end
   end
 
-  def apply_federated_attributes(pseudonym, provider_attributes, purpose: :login)
+  def apply_federated_attributes(pseudonym, provider_attributes, purpose: :login, translate_attributes: true, strict: false)
     user = pseudonym.user
 
-    canvas_attributes = translate_provider_attributes(provider_attributes,
-                                                      purpose:)
+    canvas_attributes = translate_attributes ? translate_provider_attributes(provider_attributes) : provider_attributes.dup
+    # Only should matter when translate_attributes == false, but safe regardless
+    canvas_attributes.delete_if { |k, _| !federated_attributes[k] }
+    canvas_attributes.delete_if { |k, _| federated_attributes[k]["provisioning_only"] } if purpose != :provisioning
+
     given_name = canvas_attributes.delete("given_name")
     surname = canvas_attributes.delete("surname")
     if given_name || surname
@@ -309,68 +381,91 @@ class AuthenticationProvider < ActiveRecord::Base
                            end
     end
 
-    canvas_attributes.each do |(attribute, value)|
-      # ignore attributes with no value sent; we don't process "deletions" yet
-      next unless value
+    User.transaction do
+      canvas_attributes.each do |(attribute, value)|
+        # ignore attributes with no value sent; we don't process "deletions" yet
+        next unless value
 
-      case attribute
-      when "admin_roles"
-        role_names = value.is_a?(String) ? value.split(",").map(&:strip) : value
-        account = pseudonym.account
-        existing_account_users = account.account_users.merge(user.account_users).preload(:role).to_a
-        roles = role_names.filter_map do |role_name|
-          account.get_account_role_by_name(role_name)
-        end
-        roles_to_add = roles - existing_account_users.map(&:role)
-        account_users_to_delete = existing_account_users.select { |au| au.active? && !roles.include?(au.role) }
-        account_users_to_activate = existing_account_users.select { |au| au.deleted? && roles.include?(au.role) }
-        roles_to_add.each do |role|
-          account.account_users.create!(user:, role:)
-        end
-        account_users_to_delete.each(&:destroy)
-        account_users_to_activate.each(&:reactivate)
-      when "sis_user_id", "integration_id"
-        next if value.empty?
+        case attribute
+        when "admin_roles"
+          role_names = value.is_a?(String) ? value.split(",").map(&:strip) : value
+          account = pseudonym.account
+          existing_account_users = account.account_users.merge(user.account_users).preload(:role).to_a
+          roles = role_names.filter_map do |role_name|
+            account.get_account_role_by_name(role_name)
+          end
+          roles_to_add = roles - existing_account_users.map(&:role)
+          account_users_to_delete = existing_account_users.select { |au| au.active? && !roles.include?(au.role) }
+          account_users_to_activate = existing_account_users.select { |au| au.deleted? && roles.include?(au.role) }
+          roles_to_add.each do |role|
+            account.account_users.create!(user:, role:)
+          end
+          account_users_to_delete.each(&:destroy)
+          account_users_to_activate.each(&:reactivate)
+        when "sis_user_id", "integration_id"
+          next if value.empty?
+          next if pseudonym.account.pseudonyms.where(attribute => value).exists?
 
-        pseudonym[attribute] = value
-      when "display_name"
-        user.short_name = value
-      when "email"
-        next if value.empty?
+          pseudonym[attribute] = value
+        when "display_name"
+          user.short_name = value
 
-        cc = user.communication_channels.email.by_path(value).first
-        cc ||= user.communication_channels.email.new(path: value)
-        if self.class.supports_autoconfirmed_email? && federated_attributes.dig("email", "autoconfirm")
-          cc.workflow_state = "active"
-          autoconfirm = true
-        elsif cc.new_record?
-          cc.workflow_state = "unconfirmed"
-        end
-        if cc.changed?
-          cc.save!
-          cc.send_confirmation!(pseudonym.account) unless autoconfirm
-        end
-      when "locale"
-        # convert _ to -, be lenient about case, and perform fallbacks
-        value = value.tr("_", "-")
-        lowercase_locales = I18n.available_locales.map { |locale| locale.to_s.downcase }
-        while value.include?("-")
-          break if lowercase_locales.include?(value.downcase)
+          # Previously, there was an issue where setting the short_name would not
+          # propagate to the name if no other name attributes were set, resulting in
+          # the name being the unique_id. Fix that the first time we get a display_name.
+          if user.name == pseudonym.unique_id
+            user.name = value
+          end
+        when "email"
+          next if value.empty?
 
-          value = value.sub(/(?:x-)?-[^-]*$/, "")
+          autoconfirm = self.class.supports_autoconfirmed_email? && federated_attributes.dig("email", "autoconfirm")
+          Array.wrap(value).uniq.each do |email|
+            cc = user.communication_channels.email.by_path(email).first
+            cc ||= user.communication_channels.email.new(path: email)
+            if autoconfirm
+              cc.workflow_state = "active"
+            elsif cc.new_record?
+              cc.workflow_state = "unconfirmed"
+            end
+            if cc.changed?
+              if cc.save
+                cc.send_confirmation!(pseudonym.account) unless autoconfirm
+              else
+                logger.warn("Unable to save federated email #{email} for user #{user.id}: #{cc.errors.full_messages.join(", ")}")
+              end
+            end
+          end
+        when "locale"
+          lowercase_locales = I18n.available_locales.map { |locale| locale.to_s.downcase }
+
+          Array.wrap(value).uniq.map do |locale|
+            # convert _ to -, be lenient about case
+            locale = locale.tr("_", "-")
+            while locale.include?("-")
+              break if lowercase_locales.include?(locale.downcase)
+
+              locale = locale.sub(/(?:x-)?-[^-]*$/, "")
+            end
+            if (i = lowercase_locales.index(locale.downcase))
+              user.locale = I18n.available_locales[i].to_s
+              break
+            end
+          end
+        else
+          user.send(:"#{attribute}=", value)
         end
-        if (i = lowercase_locales.index(value.downcase))
-          user.locale = I18n.available_locales[i].to_s
-        end
-      else
-        user.send(:"#{attribute}=", value)
       end
-    end
-    if pseudonym.changed? && !pseudonym.save
-      Rails.logger.warn("Unable to save federated pseudonym: #{pseudonym.errors.to_hash}")
-    end
-    if user.changed? && !user.save
-      Rails.logger.warn("Unable to save federated user: #{user.errors.to_hash}")
+
+      save_method = strict ? :save! : :save
+
+      if pseudonym.changed? && !pseudonym.send(save_method)
+        Rails.logger.warn("Unable to save federated pseudonym: #{pseudonym.errors.full_messages.join(", ")}")
+      end
+      if user.changed? && !user.send(save_method)
+        Rails.logger.warn("Unable to save federated user: #{user.errors.full_messages.join(", ")}")
+      end
+      try(:post_federated_attribute_application, pseudonym:, provider_attributes:, purpose:)
     end
   end
 
@@ -401,6 +496,12 @@ class AuthenticationProvider < ActiveRecord::Base
     ::Canvas.redis.set(debug_key(key), value, ex: DEBUG_EXPIRE.to_i, nx: overwrite ? nil : true)
   end
 
+  def duplicated_in_account?
+    return false unless self.class.singleton?
+
+    account.authentication_providers.active.where(auth_type:).where.not(id:).exists?
+  end
+
   protected
 
   def statsd_prefix
@@ -408,6 +509,14 @@ class AuthenticationProvider < ActiveRecord::Base
   end
 
   private
+
+  def not_in_discovery_page
+    return unless workflow_state == "deleted" && workflow_state_was == "active"
+
+    if used_on_discovery_page?
+      errors.add(:base, t("Please remove the authentication provider from the discovery page before deleting it"))
+    end
+  end
 
   BOOLEAN_ATTRIBUTE_PROPERTIES = %w[provisioning_only autoconfirm].freeze
   private_constant :BOOLEAN_ATTRIBUTE_PROPERTIES
@@ -456,11 +565,9 @@ class AuthenticationProvider < ActiveRecord::Base
     end
   end
 
-  def translate_provider_attributes(provider_attributes, purpose:)
+  def translate_provider_attributes(provider_attributes)
     result = {}
     federated_attributes.each do |(canvas_attribute_name, provider_attribute_config)|
-      next if purpose != :provisioning && provider_attribute_config["provisioning_only"]
-
       provider_attribute_name = provider_attribute_config["attribute"]
 
       if provider_attributes.key?(provider_attribute_name)
@@ -471,7 +578,20 @@ class AuthenticationProvider < ActiveRecord::Base
   end
 
   def soft_delete_pseudonyms
-    pseudonyms.find_each(&:destroy)
+    pseudonyms.find_each do |pseudonym|
+      unless pseudonym.deleted?
+        pseudonym.destroy(custom_deleted_at: updated_at)
+      end
+    end
+  end
+
+  def restore_soft_deleted_pseudonyms(timestamp)
+    provider_updated_at_before_restore_timestamp = timestamp
+    pseudonyms.find_each do |pseudonym|
+      if pseudonym.deleted? && pseudonym.deleted_at == provider_updated_at_before_restore_timestamp
+        pseudonym.restore
+      end
+    end
   end
 
   def enable_canvas_authentication

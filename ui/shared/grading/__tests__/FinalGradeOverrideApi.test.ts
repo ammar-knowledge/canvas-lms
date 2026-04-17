@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2018 - present Instructure, Inc.
  *
@@ -17,28 +16,86 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import sinon from 'sinon'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
+import * as FlashAlert from '@instructure/platform-alerts'
+import MockCanvasClient from '@canvas/test-utils/MockCanvasClient'
 
-import FakeServer from '@canvas/network/NaiveRequestDispatch/__tests__/FakeServer'
-import * as FlashAlert from '@canvas/alerts/react/FlashAlert'
+vi.mock('@instructure/platform-alerts')
+import {gql} from '@canvas/apollo-v3'
 import * as FinalGradeOverrideApi from '../FinalGradeOverrideApi'
 import type {FinalGradeOverrideMap} from '../grading.d'
 
 describe('Gradebook FinalGradeOverrideApi', () => {
-  let server
-
-  beforeEach(() => {
-    server = new FakeServer()
+  const server = setupServer()
+  beforeAll(() => {
+    server.listen()
   })
 
   afterEach(() => {
-    server.teardown()
+    server.resetHandlers()
+    vi.clearAllMocks()
+  })
+
+  afterAll(() => {
+    server.close()
+  })
+
+  describe('.updateFinalGradeOverride()', () => {
+    const mutation = gql`
+      mutation SetOverrideScore($input: SetOverrideScoreInput!) {
+        setOverrideScore(input: $input) {
+          grades {
+            customGradeStatusId
+            overrideScore
+          }
+        }
+      }
+    `
+
+    afterEach(() => {
+      MockCanvasClient.uninstall()
+    })
+
+    it('sends null overrideScore when removing an override', async () => {
+      MockCanvasClient.install([
+        {
+          request: {
+            query: mutation,
+            variables: {input: {enrollmentId: '1101', overrideScore: null}},
+          },
+          result: {
+            data: {setOverrideScore: {grades: {overrideScore: null, customGradeStatusId: null}}},
+          },
+        },
+      ])
+      const result = await FinalGradeOverrideApi.updateFinalGradeOverride('1101')
+      expect(result).toBeNull()
+    })
+
+    it('includes gradingPeriodId in variables when provided', async () => {
+      MockCanvasClient.install([
+        {
+          request: {
+            query: mutation,
+            variables: {input: {enrollmentId: '1101', gradingPeriodId: '701', overrideScore: 88.5}},
+          },
+          result: {
+            data: {setOverrideScore: {grades: {overrideScore: 88.5, customGradeStatusId: null}}},
+          },
+        },
+      ])
+      const result = await FinalGradeOverrideApi.updateFinalGradeOverride('1101', '701', {
+        percentage: 88.5,
+      })
+      expect(result).toEqual({percentage: 88.5, customGradeStatusId: null})
+    })
   })
 
   describe('.getFinalGradeOverrides()', () => {
     const url = '/courses/1201/gradebook/final_grade_overrides'
 
-    let responseData
+    let responseData: any
 
     beforeEach(() => {
       responseData = {
@@ -56,7 +113,11 @@ describe('Gradebook FinalGradeOverrideApi', () => {
         },
       }
 
-      server.for(url).respond({status: 200, body: responseData})
+      server.use(
+        http.get(url, () => {
+          return HttpResponse.json(responseData)
+        }),
+      )
     })
 
     function getFinalGradeOverrides() {
@@ -65,8 +126,7 @@ describe('Gradebook FinalGradeOverrideApi', () => {
 
     it('requests final grade overrides for the course with the given course id', async () => {
       await getFinalGradeOverrides()
-      const requests = server.filterRequests(url)
-      expect(requests).toHaveLength(1)
+      // Request verification is implicit with MSW - if the handler is not matched, the test will fail
     })
 
     it('camel-cases .finalGradeOverrides in the response data', async () => {
@@ -99,31 +159,27 @@ describe('Gradebook FinalGradeOverrideApi', () => {
       expect(Object.keys(finalGradeOverrides[1101])).toEqual(['courseGrade'])
     })
 
-    // FOO-4218 - remove or rewrite to remove spies on imports
-    describe.skip('when the request fails', () => {
+    describe('when the request fails', () => {
       beforeEach(() => {
-        server.unsetResponses(url)
-        server.for(url).respond({status: 500, body: {error: 'Server Error'}})
-
-        sinon.stub(FlashAlert, 'showFlashAlert')
-      })
-
-      afterEach(() => {
-        // @ts-expect-error
-        FlashAlert.showFlashAlert.restore()
+        server.use(
+          http.get(url, () => {
+            return HttpResponse.json({error: 'Server Error'}, {status: 500})
+          }),
+        )
       })
 
       it('shows a flash alert', async () => {
         await getFinalGradeOverrides()
-        // @ts-expect-error
-        expect(FlashAlert.showFlashAlert.callCount).toBe(1)
+        expect(FlashAlert.showFlashAlert).toHaveBeenCalledTimes(1)
       })
 
       it('flashes an error', async () => {
         await getFinalGradeOverrides()
-        // @ts-expect-error
-        const [{type}] = FlashAlert.showFlashAlert.lastCall.args
-        expect(type).toBe('error')
+        expect(FlashAlert.showFlashAlert).toHaveBeenCalledWith({
+          message: 'There was a problem loading final grade overrides.',
+          type: 'error',
+          err: null,
+        })
       })
     })
   })

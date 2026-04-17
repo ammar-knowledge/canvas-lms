@@ -17,13 +17,15 @@
  */
 
 import React from 'react'
-import {render, waitFor} from '@testing-library/react'
+import {render} from '@testing-library/react'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 import ReleaseNotesEdit from '../index'
-import useFetchApi from '@canvas/use-fetch-api-hook'
-import fetchMock from 'fetch-mock'
+
+const server = setupServer()
 
 const exampleNote = {
-  id: 'f083d068-2329-4717-9f0d-9e5c7726cc82',
+  id: 'f083d068-2329-4717-9f0d-9e5c5726cc82',
   target_roles: ['user'],
   langs: {
     en: {
@@ -36,21 +38,43 @@ const exampleNote = {
 }
 
 describe('release notes editing parent', () => {
+  beforeAll(() => server.listen())
+  afterEach(() => server.resetHandlers())
+  afterAll(() => server.close())
+
   it('renders spinner while loading', () => {
-    jest.fn().mockImplementation(useFetchApi)
+    const notes = [exampleNote]
+    server.use(
+      http.get('/api/v1/release_notes', async () => {
+        // Never respond to keep it loading
+        await new Promise(() => {})
+      }),
+    )
     const {getByText} = render(<ReleaseNotesEdit envs={['test']} langs={['en', 'es']} />)
     expect(getByText(/loading/i)).toBeInTheDocument()
   })
 
-  it('displays table with successful retrieval and not loading', () => {
+  it('displays table, not spinner, upon successful retrieval', async () => {
     const notes = [exampleNote]
-    fetchMock.getOnce('/api/v1/release_notes?includes%5B%5D=langs&per_page=20&page=null', notes)
-    const {getByText, queryByText} = render(
-      <ReleaseNotesEdit envs={['test']} langs={['en', 'es']} />
+    server.use(
+      http.get('/api/v1/release_notes', () => {
+        return HttpResponse.json(notes)
+      }),
     )
-    waitFor(() => {
-      expect(getByText(notes[0].langs.en.title)).toBeInTheDocument()
-      expect(queryByText(/loading/i)).not.toBeInTheDocument()
-    })
+    const {findByText, queryByText} = render(
+      <ReleaseNotesEdit envs={['test']} langs={['en', 'es']} />,
+    )
+    expect(await findByText(notes[0].langs.en.title)).toBeInTheDocument()
+    expect(queryByText(/loading/i)).toBeNull()
+  })
+
+  it('displays error message upon failed retrieval', async () => {
+    server.use(
+      http.get('/api/v1/release_notes', () => {
+        return HttpResponse.json({error: 'Internal Server Error'}, {status: 500})
+      }),
+    )
+    const {findByText} = render(<ReleaseNotesEdit envs={['test']} langs={['en', 'es']} />)
+    expect(await findByText('API 500 Internal Server Error', {exact: false})).toBeInTheDocument()
   })
 })

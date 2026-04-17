@@ -22,6 +22,12 @@ class AnnouncementsController < ApplicationController
   include Api::V1::DiscussionTopics
 
   before_action :require_context, except: :public_feed
+  skip_before_action :require_user, only: :public_feed
+
+  include HorizonMode
+
+  before_action :load_canvas_career, only: [:index, :show]
+
   before_action { |c| c.active_tab = "announcements" }
 
   include K5Mode
@@ -35,19 +41,21 @@ class AnnouncementsController < ApplicationController
 
     def load_announcements
       can_create = @context.announcements.temp_record.grants_right?(@current_user, session, :create)
-      can_edit = @context.grants_any_right?(@current_user, session, :manage_content, :manage_course_content_edit)
-      can_delete = @context.grants_any_right?(@current_user, session, :manage_content, :manage_course_content_delete)
+      can_edit = @context.grants_right?(@current_user, session, :manage_course_content_edit)
+      can_delete = @context.grants_right?(@current_user, session, :manage_course_content_delete)
 
-      js_env permissions: {
-        create: can_create,
-        moderate: can_create,
-        manage_course_content_edit: can_edit,
-        manage_course_content_delete: can_delete
-      }
-      js_env is_showing_announcements: true
-      js_env atom_feed_url: feeds_announcements_format_path((@context_enrollment || @context).feed_code, :atom)
-      js_env(COURSE_ID: @context.id.to_s) if @context.is_a?(Course)
-      js_env ANNOUNCEMENTS_LOCKED: announcements_locked?
+      js_env({
+               permissions: {
+                 create: can_create,
+                 moderate: can_create,
+                 manage_course_content_edit: can_edit,
+                 manage_course_content_delete: can_delete
+               },
+               is_showing_announcements: true,
+               atom_feed_url: feeds_announcements_format_path((@context_enrollment || @context).feed_code, :atom),
+               ANNOUNCEMENTS_LOCKED: announcements_locked?
+             })
+      js_env({ COURSE_ID: @context.id.to_s }) if @context.is_a?(Course)
     end
   end
 
@@ -58,6 +66,8 @@ class AnnouncementsController < ApplicationController
     return if @context.class.const_defined?(:TAB_ANNOUNCEMENTS) && !tab_enabled?(@context.class::TAB_ANNOUNCEMENTS)
 
     redirect_to named_context_url(@context, :context_url) if @context.is_a?(Course) && @context.elementary_homeroom_course?
+
+    page_has_instui_topnav
 
     log_asset_access(["announcements", @context], "announcements", "other")
     respond_to do |format|
@@ -123,7 +133,7 @@ class AnnouncementsController < ApplicationController
           channel.description = t(:podcast_feed_description_group, "Any media files linked from or embedded within announcements in the group \"%{group}\" will appear in this feed.", group: @context.name)
         end
         channel.link = polymorphic_url([@context, :announcements])
-        channel.pubDate = Time.now.strftime("%a, %d %b %Y %H:%M:%S %z")
+        channel.pubDate = Time.zone.now.strftime("%a, %d %b %Y %H:%M:%S %z")
         elements = Announcement.podcast_elements(announcements, @context)
         elements.each do |item|
           channel.items << item

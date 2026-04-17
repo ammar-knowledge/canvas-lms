@@ -46,6 +46,7 @@ type env = {
 type Props = {
   type: string
   env: env
+  readOnly?: boolean
 }
 
 export const MasteryPathsReactWrapper = (props: Props) => {
@@ -54,10 +55,11 @@ export const MasteryPathsReactWrapper = (props: Props) => {
       ConditionalRelease.attach(
         document.querySelector('#conditional-release-target'),
         props.type,
-        props.env
+        props.env,
+        props.readOnly || false,
       )
     }
-  }, [props.env, props.type])
+  }, [props.env, props.type, props.readOnly])
 
   return <div id="conditional-release-target" />
 }

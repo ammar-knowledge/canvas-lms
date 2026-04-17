@@ -16,11 +16,39 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {sendMessageStudentsWho} from './shared/grading/messageStudentsWhoHelper'
+import MessageStudentsWhoHelper from './shared/grading/messageStudentsWhoHelper'
 import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 import {GlobalInst} from '@canvas/global/inst/GlobalInst'
 import {GlobalRemotes} from '@canvas/global/remotes/GlobalRemotes'
-import EditorJS from '@editorjs/editorjs'
+import {ajaxJSON} from '@canvas/jquery/jquery.ajaxJSON'
+
+// Type definitions for the mocked() utility (test environments only)
+type MockInstance<T extends (...args: any[]) => any> = T & {
+  mockClear: () => MockInstance<T>
+  mockReset: () => MockInstance<T>
+  mockRestore: () => void
+  mockImplementation: (fn: T) => MockInstance<T>
+  mockImplementationOnce: (fn: T) => MockInstance<T>
+  mockReturnValue: (value: ReturnType<T>) => MockInstance<T>
+  mockReturnValueOnce: (value: ReturnType<T>) => MockInstance<T>
+  mockResolvedValue: (value: Awaited<ReturnType<T>>) => MockInstance<T>
+  mockResolvedValueOnce: (value: Awaited<ReturnType<T>>) => MockInstance<T>
+  mockRejectedValue: (value: unknown) => MockInstance<T>
+  mockRejectedValueOnce: (value: unknown) => MockInstance<T>
+  mockName: (name: string) => MockInstance<T>
+  getMockName: () => string
+  mock: {
+    calls: Parameters<T>[]
+    results: Array<{type: 'return' | 'throw'; value: unknown}>
+    instances: unknown[]
+    contexts: unknown[]
+    lastCall: Parameters<T> | undefined
+  }
+}
+
+type DeepMocked<T> = {
+  [K in keyof T]: T[K] extends (...args: any[]) => any ? MockInstance<T[K]> : DeepMocked<T[K]>
+}
 
 declare global {
   interface Global {
@@ -57,14 +85,21 @@ declare global {
      */
     INST: GlobalInst
 
+    /**
+     * Remote locations for various pure front-end functionality.
+     */
+    REMOTES: GlobalRemotes
+
     webkitSpeechRecognition: any
-    messageStudents: (options: ReturnType<typeof sendMessageStudentsWho>) => void
+    messageStudents: (
+      options: ReturnType<typeof MessageStudentsWhoHelper.sendMessageStudentsWho>,
+    ) => void
     updateGrades: () => void
 
     bundles: string[]
     deferredBundles: string[]
     canvasReadyState?: 'loading' | 'complete'
-    block_editor?: EditorJS
+    CANVAS_ACTIVE_BRAND_VARIABLES?: Record<string, unknown>
   }
 
   /**
@@ -83,6 +118,20 @@ declare global {
    */
   const REMOTES: GlobalRemotes
 
+  /**
+   * Type-safe utility to cast a function to its mocked version.
+   * Works in both Jest and Vitest test environments.
+   *
+   * @example
+   * // Instead of:
+   * ;(myFunction as jest.Mock).mockReturnValue('value')
+   *
+   * // Use:
+   * mocked(myFunction).mockReturnValue('value')
+   */
+  function mocked<T extends (...args: any[]) => any>(fn: T): MockInstance<T>
+  function mocked<T extends object>(obj: T): DeepMocked<T>
+
   type ShowIf = {
     (bool?: boolean): JQuery<HTMLElement>
     /**
@@ -93,20 +142,22 @@ declare global {
     (num?: number): JQuery<HTMLElement>
   }
 
-  declare interface JQuery {
+  interface JQuery<TResponse = any> {
+    responseJSON?: TResponse & CanvasApiErrorResponse
     scrollTo: (y: number, x?: number) => void
-    change: any
     confirmDelete: any
     datetime_field: () => JQuery<HTMLInputElement>
     disableWhileLoading: any
     fileSize: (size: number) => string
+    toJSON: () => Record<string, unknown>
+    toggleAccessibly: (visible?: boolean) => JQuery
     fillTemplateData: any
     fillWindowWithMe: (options?: {onResize: () => void}) => JQuery<HTMLElement>
     fixDialogButtons: () => void
     errorBox: (
       message: string,
       scroll?: boolean,
-      override_position?: string | number
+      override_position?: string | number,
     ) => JQuery<HTMLElement>
     getFormData: <T>(obj?: Record<string, unknown>) => T
     live: any
@@ -118,7 +169,6 @@ declare global {
       id: string
       mimeType: string
       submission_id: string
-      crocodoc_session_url?: string
     }) => void
     mediaComment: any
     mediaCommentThumbnail: (size?: 'normal' | 'small') => void
@@ -132,7 +182,9 @@ declare global {
       required: string[]
       success: (data: any) => void
       beforeSubmit?: (data: any) => void
-      error: (response: JQuery.JQueryXHR) => void
+      error?: (data: JQuery.jqXHR) => void
+      onClientSideValidationError?: () => void
+      disableErrorBox?: boolean
     }) => void
     formErrors: (errors: Record<string, string>) => void
     getTemplateData: (options: {textValues: string[]}) => Record<string, unknown>
@@ -140,31 +192,55 @@ declare global {
     loadingImage: (str?: string) => void
   }
 
-  declare interface JQueryStatic {
+  interface CanvasApiErrorResponse {
+    errors: {
+      [key: string]: Array<{
+        message: string
+        type?: string
+      }>
+    }
+  }
+
+  interface JQueryStatic {
     subscribe: (topic: string, callback: (...args: any[]) => void) => void
-    ajaxJSON: (
-      url: string,
-      submit_type?: string,
-      data?: any,
-      success?: any,
-      error?: any,
-      options?: any
-    ) => JQuery.JQueryXHR
-    replaceTags: (string, string, string?) => string
+    replaceTags: (text: string, name: string, value?: string) => string
     raw: (str: string) => string
     getScrollbarWidth: any
     datetimeString: any
     ajaxJSONFiles: any
     isPreviewable: any
+    ajaxJSON: typeof ajaxJSON
+    ui: {
+      keyCode: {
+        ENTER: number
+        ESCAPE: number
+        TAB: number
+        UP: number
+        DOWN: number
+        LEFT: number
+        RIGHT: number
+        SPACE: number
+        BACKSPACE: number
+        DELETE: number
+        HOME: number
+        END: number
+        PAGE_UP: number
+        PAGE_DOWN: number
+      }
+    }
   }
 
-  declare interface Array<T> {
-    flatMap: <Y>(callback: (value: T, index: number, array: T[]) => Y[]) => Y[]
-    flat: <Y>(depth?: number) => Y[]
-  }
-
-  declare interface Object {
-    fromEntries: any
+  interface JQuery {
+    dialog(options?: any): JQuery
+    dialog(method: string, ...args: any[]): any
+    menu(options?: any): JQuery
+    menu(method: string, ...args: any[]): any
+    draggable(options?: any): JQuery
+    draggable(method: string, ...args: any[]): any
+    tooltip(options?: any): JQuery
+    tooltip(method: string, ...args: any[]): any
+    selectmenu(options?: any): JQuery
+    selectmenu(method: string, ...args: any[]): any
   }
 
   // due to overrides in packages/date-js/core.js
@@ -202,6 +278,7 @@ declare global {
     setTimezone(offset: string): Date
     setTimezoneOffset(offset: number): Date
     toString(format?: string): string
+    Deferred<T>(): JQueryDeferred<T>
   }
 }
 

@@ -16,15 +16,15 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender} from '@canvas/react'
 import ready from '@instructure/ready'
 import ContentTypeExternalToolDrawer from '@canvas/trays/react/ContentTypeExternalToolDrawer'
 import {TopNavigationTools, MobileTopNavigationTools} from './react/TopNavigationTools'
 import type {Tool} from '@canvas/global/env/EnvCommon'
 
-const I18n = useI18nScope('common')
+const I18n = createI18nScope('common')
 
 ready(() => {
   const drawerLayoutMountPoint = document.getElementById('drawer-layout-mount-point')
@@ -49,35 +49,37 @@ ready(() => {
   }
 
   function renderExternalToolDrawer(): void {
-    ReactDOM.render(
+    legacyRender(
       <ContentTypeExternalToolDrawer
         tool={selectedTool}
+        // @ts-expect-error
         pageContent={canvasApplicationBody}
         pageContentTitle={I18n.t('Canvas LMS')}
         pageContentMinWidth="40rem"
+        // @ts-expect-error
         pageContentHeight={window.innerHeight}
         trayPlacement="end"
         onDismiss={handleDismissToolDrawer}
         onResize={handleResize}
         open={!!selectedTool}
       />,
-      drawerLayoutMountPoint
+      drawerLayoutMountPoint,
     )
   }
 
   function renderTopNavigationTools(): void {
-    ReactDOM.render(
+    legacyRender(
       <TopNavigationTools tools={ENV.top_navigation_tools} handleToolLaunch={handleToolLaunch} />,
-      topNavToolsMountPoint
+      topNavToolsMountPoint,
     )
 
     if (mobileTopNavToolsMountPoint) {
-      ReactDOM.render(
+      legacyRender(
         <MobileTopNavigationTools
           tools={ENV.top_navigation_tools}
           handleToolLaunch={handleToolLaunch}
         />,
-        mobileTopNavToolsMountPoint
+        mobileTopNavToolsMountPoint,
       )
     }
   }
@@ -86,4 +88,33 @@ ready(() => {
     renderExternalToolDrawer()
     renderTopNavigationTools()
   }
+
+  /*
+   * Fix for href="#" scroll-to-top behavior when top_navigation_placement feature is enabled.
+   *
+   * When top_navigation is on, the HTML element gets a fixed height and the actual
+   * scrollable area becomes #drawer-layout-content. The browser's natural href="#"
+   * behavior tries to scroll the document, but since HTML can't scroll, it fails.
+   * This fix detects the layout mode and redirects the scroll to the correct container.
+   */
+  document.addEventListener(
+    'click',
+    function (e) {
+      if (!(e.target instanceof Element)) return
+      const link = e.target.closest('a[href="#"]')
+      if (link && link.getAttribute('href') === '#') {
+        const htmlCanScroll =
+          document.documentElement.scrollHeight > document.documentElement.clientHeight
+
+        if (!htmlCanScroll) {
+          const drawerContent = document.querySelector('#drawer-layout-content')
+          if (drawerContent && drawerContent.scrollTop > 0) {
+            e.preventDefault()
+            drawerContent.scrollTo({top: 0})
+          }
+        }
+      }
+    },
+    {capture: true},
+  )
 })

@@ -16,17 +16,31 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import $ from 'jquery'
 import React from 'react'
-import { render, fireEvent, screen } from '@testing-library/react'
+import {render, fireEvent, screen} from '@testing-library/react'
 import axios from '@canvas/axios'
 import GradingPeriod from '../AccountGradingPeriod'
-import DateHelper from '@canvas/datetime/dateHelper'
+import * as DateHelper from '@canvas/datetime/dateHelper'
+import {windowConfirm} from '@canvas/util/globalUtils'
 
-jest.mock('@canvas/datetime/dateHelper', () => ({
-  formatDateForDisplay: jest.fn(date => {
-    const options = { year: 'numeric', month: '2-digit', day: '2-digit' };
-    return date.toLocaleDateString('en-US', options);
+vi.mock('@canvas/datetime/dateHelper', async importOriginal => {
+  const actual = await importOriginal()
+  const formatDateForDisplayMock = vi.fn(date => {
+    const options = {year: 'numeric', month: '2-digit', day: '2-digit'}
+    return date.toLocaleDateString('en-US', options)
   })
+  return {
+    ...actual,
+    default: {
+      ...actual.default,
+      formatDateForDisplay: formatDateForDisplayMock,
+    },
+  }
+})
+
+vi.mock('@canvas/util/globalUtils', () => ({
+  windowConfirm: vi.fn(),
 }))
 
 const allPermissions = {read: true, create: true, update: true, delete: true}
@@ -43,16 +57,28 @@ const defaultProps = {
   },
   weighted: true,
   readOnly: false,
-  onEdit: jest.fn(),
+  onEdit: vi.fn(),
   permissions: allPermissions,
   deleteGradingPeriodURL: 'api/v1/accounts/1/grading_periods/%7B%7B%20id%20%7D%7D',
-  onDelete: jest.fn(),
+  onDelete: vi.fn(),
 }
 
 describe('AccountGradingPeriod', () => {
   const renderComponent = (props = {}) => {
     return render(<GradingPeriod {...defaultProps} {...props} />)
   }
+
+  beforeEach(() => {
+    windowConfirm.mockReset()
+    vi.spyOn(axios, 'delete').mockReset()
+    defaultProps.onDelete.mockReset()
+    defaultProps.onEdit.mockReset()
+    DateHelper.default.formatDateForDisplay.mockClear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
 
   it('shows the "edit grading period" button when "update" is permitted', () => {
     renderComponent()
@@ -82,19 +108,23 @@ describe('AccountGradingPeriod', () => {
   it('displays the start date in a friendly format', () => {
     renderComponent()
     expect(screen.getByText(/Starts:/)).toBeInTheDocument()
-    expect(DateHelper.formatDateForDisplay).toHaveBeenCalledWith(defaultProps.period.startDate)
+    expect(DateHelper.default.formatDateForDisplay).toHaveBeenCalledWith(
+      defaultProps.period.startDate,
+    )
   })
 
   it('displays the end date in a friendly format', () => {
     renderComponent()
     expect(screen.getByText(/Ends:/)).toBeInTheDocument()
-    expect(DateHelper.formatDateForDisplay).toHaveBeenCalledWith(defaultProps.period.endDate)
+    expect(DateHelper.default.formatDateForDisplay).toHaveBeenCalledWith(defaultProps.period.endDate)
   })
 
   it('displays the close date in a friendly format', () => {
     renderComponent()
     expect(screen.getByText(/Closes:/)).toBeInTheDocument()
-    expect(DateHelper.formatDateForDisplay).toHaveBeenCalledWith(defaultProps.period.closeDate)
+    expect(DateHelper.default.formatDateForDisplay).toHaveBeenCalledWith(
+      defaultProps.period.closeDate,
+    )
   })
 
   it('displays the weight in a friendly format', () => {
@@ -129,28 +159,30 @@ describe('AccountGradingPeriod', () => {
   })
 
   it('does not delete the period if the user cancels the delete confirmation', () => {
-    window.confirm = jest.fn(() => false)
+    windowConfirm.mockReturnValue(false)
+    const axiosDeleteMock = vi.spyOn(axios, 'delete')
     renderComponent()
     fireEvent.click(screen.getByTitle(/Delete/))
     expect(defaultProps.onDelete).not.toHaveBeenCalled()
+    expect(axiosDeleteMock).not.toHaveBeenCalled()
   })
 
   it('calls onDelete if the user confirms deletion and the axios call succeeds', async () => {
-    window.confirm = jest.fn(() => true)
-    const flashMessageMock = jest.fn()
+    windowConfirm.mockReturnValue(true)
+    const flashMessageMock = vi.fn()
     $.flashMessage = flashMessageMock
-    const axiosDeleteMock = jest.spyOn(axios, 'delete').mockResolvedValue({})
+    const axiosDeleteMock = vi
+      .spyOn(axios, 'delete')
+      .mockImplementation(() => Promise.resolve({status: 200, data: {}}))
 
     renderComponent()
     fireEvent.click(screen.getByTitle(/Delete/))
 
-    // Wait for any promises to resolve
-    await new Promise(resolve => setTimeout(resolve, 0))
+    // Wait for all pending promises to resolve
+    await Promise.resolve()
 
-    expect(axiosDeleteMock).toHaveBeenCalled()
+    expect(axiosDeleteMock).toHaveBeenCalledWith('api/v1/accounts/1/grading_periods/1')
     expect(defaultProps.onDelete).toHaveBeenCalledWith(defaultProps.period.id)
-    expect(flashMessageMock).toHaveBeenCalled()
-
-    axiosDeleteMock.mockRestore()
+    expect(flashMessageMock).toHaveBeenCalledWith('The grading period was deleted')
   })
 })

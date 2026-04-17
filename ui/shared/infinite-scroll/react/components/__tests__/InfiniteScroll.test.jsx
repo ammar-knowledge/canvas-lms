@@ -30,15 +30,15 @@ describe('InfiniteScroll', () => {
   })
 
   beforeEach(() => {
-    loadMore = jest.fn()
+    loadMore = vi.fn()
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   const mockContainer = (container, prop, value) => {
-    jest.spyOn(container, prop, 'get').mockImplementation(() => value)
+    vi.spyOn(container, prop, 'get').mockImplementation(() => value)
   }
 
   describe('with scroll container', () => {
@@ -92,7 +92,7 @@ describe('InfiniteScroll', () => {
       mockContainer(scrollContainer2, 'scrollTop', 0)
 
       const {rerender} = render(
-        <InfiniteScroll {...defaultProps()} scrollContainer={scrollContainer} />
+        <InfiniteScroll {...defaultProps()} scrollContainer={scrollContainer} />,
       )
       rerender(<InfiniteScroll {...defaultProps()} scrollContainer={scrollContainer2} />)
 
@@ -112,16 +112,26 @@ describe('InfiniteScroll', () => {
       mockContainer(scrollContainer, 'clientHeight', 400)
       mockContainer(scrollContainer, 'scrollTop', 0)
 
-      const windowSpy = jest.spyOn(window, 'addEventListener')
+      const windowSpy = vi.spyOn(window, 'addEventListener')
 
       const {rerender} = render(
-        <InfiniteScroll {...defaultProps()} scrollContainer={scrollContainer} />
+        <InfiniteScroll {...defaultProps()} scrollContainer={scrollContainer} />,
       )
       expect(windowSpy.mock.calls.map(c => c[0])).not.toContain('scroll')
 
       rerender(<InfiniteScroll {...defaultProps()} />)
 
       expect(windowSpy.mock.calls.map(c => c[0])).toContain('scroll')
+    })
+
+    it('uses top nav drawer as container if present', () => {
+      const scrollContainer = document.createElement('div')
+      scrollContainer.id = 'drawer-layout-content'
+      document.body.append(scrollContainer)
+
+      const windowSpy = vi.spyOn(window, 'addEventListener')
+      render(<InfiniteScroll {...defaultProps()} />)
+      expect(windowSpy.mock.calls.map(c => c[0])).not.toContain('scroll')
     })
   })
 })

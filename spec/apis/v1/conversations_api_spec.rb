@@ -136,8 +136,50 @@ describe ConversationsController, type: :request do
                         format: "json",
                         include: ["participant_avatars"] })
       json.each do |conversation|
-        conversation["participants"].each do |user|
-          expect(user).to have_key "avatar_url"
+        expect(conversation["participants"]).to all(have_key("avatar_url"))
+      end
+    end
+
+    it "properly responds to include[]=uuid" do
+      conversation(@bob, workflow_state: "read")
+
+      json = api_call(:get,
+                      "/api/v1/conversations.json",
+                      { controller: "conversations",
+                        action: "index",
+                        format: "json",
+                        include: ["uuid"] })
+      json.each do |conversation|
+        expect(conversation["participants"]).to all(have_key("uuid"))
+      end
+    end
+
+    context "uuid in participants" do
+      before do
+        @conversation = conversation(@bob, workflow_state: "read")
+      end
+
+      it "includes correct uuid when requested" do
+        json = api_call(:get,
+                        "/api/v1/conversations",
+                        { controller: "conversations",
+                          action: "index",
+                          format: "json",
+                          include: ["uuid"] })
+
+        participant = json.first["participants"].find { |p| p["id"] == @bob.id }
+        expect(participant["uuid"]).to eq @bob.uuid
+      end
+
+      it "excludes uuid when not requested" do
+        json = api_call(:get,
+                        "/api/v1/conversations",
+                        { controller: "conversations",
+                          action: "index",
+                          format: "json" })
+
+        json.first["participants"].each do |participant|
+          expect(participant).not_to have_key("uuid")
         end
       end
     end
@@ -155,7 +197,7 @@ describe ConversationsController, type: :request do
                         include: ["participant_avatars"] })
       json.each do |conversation|
         conversation["participants"].each do |user|
-          expect(user).to_not have_key "avatar_url"
+          expect(user).not_to have_key "avatar_url"
         end
       end
     end
@@ -336,7 +378,7 @@ describe ConversationsController, type: :request do
                                    "/api/v1/conversations.json?filter=#{@course_1.asset_string}",
                                    { controller: "conversations", action: "index", format: "json", filter: @course_1.asset_string, scope: "default" })
 
-          expect(json_course_1[0]["context_code"]).to_not eq(Account.default.asset_string)
+          expect(json_course_1[0]["context_code"]).not_to eq(Account.default.asset_string)
           expect(json_course_1[0]["context_code"]).to eq(@course_1.asset_string)
         end
       end
@@ -449,7 +491,7 @@ describe ConversationsController, type: :request do
 
     context "sent scope" do
       it "sorts by last authored date" do
-        expected_times = 5.times.to_a.reverse.map { |h| Time.parse((Time.now.utc - h.hours).to_s) }
+        expected_times = 5.times.to_a.reverse.map { |h| Time.zone.parse((Time.now.utc - h.hours).to_s) }
         Timecop.travel(expected_times[0]) do
           @c1 = conversation(@bob)
         end
@@ -599,7 +641,7 @@ describe ConversationsController, type: :request do
         end
         json.each { |c| c["messages"].each { |m| m["participating_user_ids"].sort! } }
         json.each { |c| c.delete("last_authored_message_at") } # This is sometimes not updated. It's a known bug.
-        conversation = @me.all_conversations.order("conversation_id DESC").first
+        conversation = @me.all_conversations.order(conversation_id: :desc).first
         expect(json).to eql [
           {
             "id" => conversation.conversation_id,
@@ -630,6 +672,27 @@ describe ConversationsController, type: :request do
             ]
           }
         ]
+      end
+
+      context "participant uuid" do
+        it "returns correct uuid when requested" do
+          json = api_call(:post,
+                          "/api/v1/conversations",
+                          { controller: "conversations", action: "create", format: "json", include: ["uuid"] },
+                          { recipients: [@bob.id], body: "test", context_code: "course_#{@course.id}" })
+          participant = json.first["participants"].find { |p| p["id"] == @bob.id }
+          expect(participant["uuid"]).to eq @bob.uuid
+        end
+
+        it "excludes uuid when not requested" do
+          json = api_call(:post,
+                          "/api/v1/conversations",
+                          { controller: "conversations", action: "create", format: "json" },
+                          { recipients: [@bob.id], body: "test", context_code: "course_#{@course.id}" })
+          json.first["participants"].each do |participant|
+            expect(participant).not_to have_key("uuid")
+          end
+        end
       end
 
       it "adds a context to a private conversation" do
@@ -687,7 +750,7 @@ describe ConversationsController, type: :request do
                          "/api/v1/conversations",
                          { controller: "conversations", action: "create", format: "json" },
                          { recipients: [@bob.id], body: "test", context_code: "course_#{course2.id}" })
-        expect(json3.first["id"]).to_not eq conv1.id # should make a new one
+        expect(json3.first["id"]).not_to eq conv1.id # should make a new one
       end
 
       it "creates a new conversation if force_new parameter is provided" do
@@ -702,7 +765,7 @@ describe ConversationsController, type: :request do
                          { controller: "conversations", action: "create", format: "json" },
                          { recipients: [@bob.id], body: "test", subject: "subject_2", force_new: "true" })
         conv2 = Conversation.find(json2.first["id"])
-        expect(conv2.id).to_not eq conv1.id # should make a new one
+        expect(conv2.id).not_to eq conv1.id # should make a new one
       end
 
       it "does not break trying to pull cached conversations for re-use" do
@@ -884,7 +947,7 @@ describe ConversationsController, type: :request do
         end
         json.each { |c| c["messages"].each { |m| m["participating_user_ids"].sort! } }
         json.each { |c| c.delete("last_authored_message_at") } # This is sometimes not updated. It's a known bug.
-        conversation = @me.all_conversations.order("conversation_id DESC").first
+        conversation = @me.all_conversations.order(conversation_id: :desc).first
         expect(json).to eql [
           {
             "id" => conversation.conversation_id,
@@ -1052,105 +1115,111 @@ describe ConversationsController, type: :request do
         end
       end
 
-      it "creates a conversation with forwarded messages" do
-        forwarded_message = conversation(@me, sender: @bob).messages.first
-        attachment = @bob.conversation_attachments_folder.attachments.create!(context: @bob, uploaded_data: stub_png_data)
-        forwarded_message.attachment_ids = [attachment.id]
-        forwarded_message.save!
+      context "with double testing disable_adding_uuid_verifier_in_api ff" do
+        before do
+          @attachment = @bob.conversation_attachments_folder.attachments.create!(context: @bob, uploaded_data: stub_png_data)
+        end
 
-        json = api_call(:post,
-                        "/api/v1/conversations",
-                        { controller: "conversations", action: "create", format: "json" },
-                        { recipients: [@billy.id], body: "test", forwarded_message_ids: [forwarded_message.id] })
-        json.each { |c| c.delete("last_authored_message_at") } # This is sometimes not updated. It's a known bug.
-        json.each do |c|
-          c.delete("avatar_url")
-          c["participants"].each do |p|
-            p.delete("avatar_url")
-          end
-        end
-        json.each do |c|
-          c["messages"].each do |m|
-            m["participating_user_ids"].sort!
-            m["forwarded_messages"].each { |fm| fm["participating_user_ids"].sort! }
-          end
-        end
-        conversation = @me.all_conversations.order(Conversation.nulls(:first, :last_message_at, :desc)).order("conversation_id DESC").first
-        expected = [
-          {
-            "id" => conversation.conversation_id,
-            "subject" => nil,
-            "workflow_state" => "read",
-            "last_message" => nil,
-            "last_message_at" => nil,
-            "last_authored_message" => "test",
-            # "last_authored_message_at" => conversation.last_authored_at.to_json[1, 20],
-            "message_count" => 1,
-            "subscribed" => true,
-            "private" => true,
-            "starred" => false,
-            "properties" => ["last_author", "attachments"],
-            "visible" => false,
-            "context_code" => conversation.conversation.context_code,
-            "audience" => [@billy.id],
-            "audience_contexts" => {
-              "groups" => {},
-              "courses" => { @course.id.to_s => ["StudentEnrollment"] }
-            },
-            "participants" => [
-              { "id" => @me.id, "pronouns" => nil, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {} },
-              { "id" => @billy.id, "pronouns" => nil, "name" => @billy.short_name, "full_name" => @billy.name, "common_courses" => { @course.id.to_s => ["StudentEnrollment"] }, "common_groups" => {} },
-              { "id" => @bob.id, "pronouns" => nil, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => { @course.id.to_s => ["StudentEnrollment"] }, "common_groups" => {} }
-            ],
-            "messages" => [
+        double_testing_with_disable_adding_uuid_verifier_in_api_ff do
+          it "creates a conversation with forwarded messages" do
+            forwarded_message = conversation(@me, sender: @bob).messages.first
+            forwarded_message.attachment_ids = [@attachment.id]
+            forwarded_message.save!
+
+            json = api_call(:post,
+                            "/api/v1/conversations",
+                            { controller: "conversations", action: "create", format: "json" },
+                            { recipients: [@billy.id], body: "test", forwarded_message_ids: [forwarded_message.id] })
+            json.each { |c| c.delete("last_authored_message_at") } # This is sometimes not updated. It's a known bug.
+            json.each do |c|
+              c.delete("avatar_url")
+              c["participants"].each do |p|
+                p.delete("avatar_url")
+              end
+            end
+            json.each do |c|
+              c["messages"].each do |m|
+                m["participating_user_ids"].sort!
+                m["forwarded_messages"].each { |fm| fm["participating_user_ids"].sort! }
+              end
+            end
+            conversation = @me.all_conversations.order(Conversation.nulls(:first, :last_message_at, :desc)).order(conversation_id: :desc).first
+            expected = [
               {
-                "id" => conversation.messages.first.id,
-                "created_at" => conversation.messages.first.created_at.to_json[1, 20],
-                "body" => "test",
-                "author_id" => @me.id,
-                "generated" => false,
-                "media_comment" => nil,
-                "attachments" => [],
-                "participating_user_ids" => [@me.id, @billy.id].sort,
-                "forwarded_messages" => [{
-                  "id" => forwarded_message.id,
-                  "created_at" => forwarded_message.created_at.to_json[1, 20],
-                  "body" => "test",
-                  "author_id" => @bob.id,
-                  "generated" => false,
-                  "media_comment" => nil,
-                  "forwarded_messages" => [],
-                  "attachments" => [{
-                    "filename" => attachment.filename,
-                    "url" => "http://www.example.com/files/#{attachment.id}/download?download_frd=1&verifier=#{attachment.uuid}",
-                    "content-type" => "image/png",
-                    "display_name" => "test my file? hai!&.png",
-                    "id" => attachment.id,
-                    "uuid" => attachment.uuid,
-                    "folder_id" => attachment.folder_id,
-                    "size" => attachment.size,
-                    "unlock_at" => nil,
-                    "locked" => false,
-                    "hidden" => false,
-                    "lock_at" => nil,
-                    "locked_for_user" => false,
-                    "hidden_for_user" => false,
-                    "created_at" => attachment.created_at.as_json,
-                    "updated_at" => attachment.updated_at.as_json,
-                    "upload_status" => "success",
-                    "modified_at" => attachment.modified_at.as_json,
-                    "thumbnail_url" => thumbnail_image_url(attachment, attachment.uuid, host: "www.example.com"),
-                    "mime_class" => attachment.mime_class,
-                    "media_entry_id" => attachment.media_entry_id,
-                    "category" => "uncategorized"
-                  }],
-                  "participating_user_ids" => [@me.id, @bob.id].sort
-                }]
+                "id" => conversation.conversation_id,
+                "subject" => nil,
+                "workflow_state" => "read",
+                "last_message" => nil,
+                "last_message_at" => nil,
+                "last_authored_message" => "test",
+                # "last_authored_message_at" => conversation.last_authored_at.to_json[1, 20],
+                "message_count" => 1,
+                "subscribed" => true,
+                "private" => true,
+                "starred" => false,
+                "properties" => ["last_author", "attachments"],
+                "visible" => false,
+                "context_code" => conversation.conversation.context_code,
+                "audience" => [@billy.id],
+                "audience_contexts" => {
+                  "groups" => {},
+                  "courses" => { @course.id.to_s => ["StudentEnrollment"] }
+                },
+                "participants" => [
+                  { "id" => @me.id, "pronouns" => nil, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {} },
+                  { "id" => @billy.id, "pronouns" => nil, "name" => @billy.short_name, "full_name" => @billy.name, "common_courses" => { @course.id.to_s => ["StudentEnrollment"] }, "common_groups" => {} },
+                  { "id" => @bob.id, "pronouns" => nil, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => { @course.id.to_s => ["StudentEnrollment"] }, "common_groups" => {} }
+                ],
+                "messages" => [
+                  {
+                    "id" => conversation.messages.first.id,
+                    "created_at" => conversation.messages.first.created_at.to_json[1, 20],
+                    "body" => "test",
+                    "author_id" => @me.id,
+                    "generated" => false,
+                    "media_comment" => nil,
+                    "attachments" => [],
+                    "participating_user_ids" => [@me.id, @billy.id].sort,
+                    "forwarded_messages" => [{
+                      "id" => forwarded_message.id,
+                      "created_at" => forwarded_message.created_at.to_json[1, 20],
+                      "body" => "test",
+                      "author_id" => @bob.id,
+                      "generated" => false,
+                      "media_comment" => nil,
+                      "forwarded_messages" => [],
+                      "attachments" => [{
+                        "filename" => @attachment.filename,
+                        "url" => "http://www.example.com/files/#{@attachment.id}/download?download_frd=1#{"&verifier=#{@attachment.uuid}" unless disable_adding_uuid_verifier_in_api}",
+                        "content-type" => "image/png",
+                        "display_name" => "test my file? hai!&.png",
+                        "id" => @attachment.id,
+                        "folder_id" => @attachment.folder_id,
+                        "size" => @attachment.size,
+                        "unlock_at" => nil,
+                        "locked" => false,
+                        "hidden" => false,
+                        "lock_at" => nil,
+                        "locked_for_user" => false,
+                        "hidden_for_user" => false,
+                        "created_at" => @attachment.created_at.as_json,
+                        "updated_at" => @attachment.updated_at.as_json,
+                        "upload_status" => "success",
+                        "modified_at" => @attachment.modified_at.as_json,
+                        "thumbnail_url" => thumbnail_image_url(@attachment, @attachment.uuid, host: "www.example.com"),
+                        "mime_class" => @attachment.mime_class,
+                        "media_entry_id" => @attachment.media_entry_id,
+                        "category" => "uncategorized"
+                      }],
+                      "participating_user_ids" => [@me.id, @bob.id].sort
+                    }]
+                  }
+                ]
               }
             ]
-          }
-        ]
-        expect(json).to eq expected
+            expect(json).to eq expected
+          end
+        end
       end
 
       context "cross-shard message forwarding" do
@@ -1186,7 +1255,7 @@ describe ConversationsController, type: :request do
         end
         json.each { |c| c["messages"].each { |m| m["participating_user_ids"].sort! } }
         json.each { |c| c.delete("last_authored_message_at") } # This is sometimes not updated. It's a known bug.
-        conversation = @me.all_conversations.order("conversation_id DESC").first
+        conversation = @me.all_conversations.order(conversation_id: :desc).first
         expect(json).to eql [
           {
             "id" => conversation.conversation_id,
@@ -1392,10 +1461,114 @@ describe ConversationsController, type: :request do
   end
 
   context "conversation" do
-    it "returns the conversation" do
-      conversation = conversation(@bob, context_type: "Course", context_id: @course.id)
+    context "with double testing of verifiers in returned url" do
+      before do
+        @attachment = @me.conversation_attachments_folder.attachments.create!(context: @me, filename: "test.txt", display_name: "test.txt", uploaded_data: StringIO.new("test"))
+      end
 
+      double_testing_with_disable_adding_uuid_verifier_in_api_ff do
+        it "returns the conversation" do
+          conversation = conversation(@bob, context_type: "Course", context_id: @course.id)
+          media_object = MediaObject.new
+          media_object.media_id = "0_12345678"
+          media_object.media_type = "audio"
+          media_object.context = @me
+          media_object.user = @me
+          media_object.title = "test title"
+          media_object.save!
+          conversation.add_message("another", attachment_ids: [@attachment.id], media_comment: media_object)
+
+          conversation.reload
+
+          json = api_call(:get,
+                          "/api/v1/conversations/#{conversation.conversation_id}",
+                          { controller: "conversations", action: "show", id: conversation.conversation_id.to_s, format: "json" })
+          json.delete("avatar_url")
+          json["participants"].each do |p|
+            p.delete("avatar_url")
+          end
+          json["messages"].each { |m| m["participating_user_ids"].sort! }
+          json.delete("last_authored_message_at") # This is sometimes not updated. It's a known bug.
+          expect(json).to eql({
+                                "id" => conversation.conversation_id,
+                                "subject" => nil,
+                                "workflow_state" => "read",
+                                "last_message" => "another",
+                                "last_message_at" => conversation.last_message_at.to_json[1, 20],
+                                "last_authored_message" => "another",
+                                # "last_authored_message_at" => conversation.last_authored_at.to_json[1, 20],
+                                "message_count" => 2,
+                                "subscribed" => true,
+                                "private" => true,
+                                "starred" => false,
+                                "properties" => %w[last_author attachments media_objects],
+                                "visible" => true,
+                                "audience" => [@bob.id],
+                                "audience_contexts" => {
+                                  "groups" => {},
+                                  "courses" => { @course.id.to_s => ["StudentEnrollment"] }
+                                },
+                                "participants" => [
+                                  { "id" => @me.id, "pronouns" => nil, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {} },
+                                  { "id" => @bob.id, "pronouns" => nil, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => { @course.id.to_s => ["StudentEnrollment"] }, "common_groups" => {} }
+                                ],
+                                "messages" => [
+                                  {
+                                    "id" => conversation.messages.first.id,
+                                    "created_at" => conversation.messages.first.created_at.to_json[1, 20],
+                                    "body" => "another",
+                                    "author_id" => @me.id,
+                                    "generated" => false,
+                                    "media_comment" => {
+                                      "media_type" => "audio",
+                                      "media_id" => "0_12345678",
+                                      "display_name" => "test title",
+                                      "content-type" => "audio/mp4",
+                                      "url" => "http://www.example.com/users/#{@me.id}/media_download?entryId=0_12345678&redirect=1&type=mp4"
+                                    },
+                                    "forwarded_messages" => [],
+                                    "attachments" => [
+                                      {
+                                        "filename" => "test.txt",
+                                        "uuid" => @attachment.uuid,
+                                        "url" => "http://www.example.com/files/#{@attachment.id}/download?download_frd=1#{"&verifier=#{@attachment.uuid}" unless disable_adding_uuid_verifier_in_api}",
+                                        "content-type" => "text/plain",
+                                        "display_name" => "test.txt",
+                                        "id" => @attachment.id,
+                                        "folder_id" => @attachment.folder_id,
+                                        "size" => @attachment.size,
+                                        "unlock_at" => nil,
+                                        "locked" => false,
+                                        "hidden" => false,
+                                        "lock_at" => nil,
+                                        "locked_for_user" => false,
+                                        "hidden_for_user" => false,
+                                        "created_at" => @attachment.created_at.as_json,
+                                        "updated_at" => @attachment.updated_at.as_json,
+                                        "upload_status" => "success",
+                                        "thumbnail_url" => nil,
+                                        "modified_at" => @attachment.modified_at.as_json,
+                                        "mime_class" => @attachment.mime_class,
+                                        "media_entry_id" => @attachment.media_entry_id,
+                                        "category" => "uncategorized"
+                                      }
+                                    ],
+                                    "participating_user_ids" => [@me.id, @bob.id].sort
+                                  },
+                                  { "id" => conversation.messages.last.id, "created_at" => conversation.messages.last.created_at.to_json[1, 20], "body" => "test", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @bob.id].sort }
+                                ],
+                                "submissions" => [],
+                                "context_name" => conversation.context_name,
+                                "context_code" => conversation.conversation.context_code,
+                              })
+        end
+      end
+    end
+
+    it "when file_association_access feature flag is enabled, it adds location tag to attachment url" do
       attachment = @me.conversation_attachments_folder.attachments.create!(context: @me, filename: "test.txt", display_name: "test.txt", uploaded_data: StringIO.new("test"))
+      attachment.root_account.enable_feature!(:file_association_access)
+      conversation = conversation(@bob, context_type: "Course", context_id: @course.id)
       media_object = MediaObject.new
       media_object.media_id = "0_12345678"
       media_object.media_type = "audio"
@@ -1403,91 +1576,47 @@ describe ConversationsController, type: :request do
       media_object.user = @me
       media_object.title = "test title"
       media_object.save!
-      conversation.add_message("another", attachment_ids: [attachment.id], media_comment: media_object)
+      message_with_attachment = conversation.add_message("another", attachment_ids: [attachment.id], media_comment: media_object)
 
       conversation.reload
 
       json = api_call(:get,
                       "/api/v1/conversations/#{conversation.conversation_id}",
                       { controller: "conversations", action: "show", id: conversation.conversation_id.to_s, format: "json" })
-      json.delete("avatar_url")
-      json["participants"].each do |p|
-        p.delete("avatar_url")
-      end
-      json["messages"].each { |m| m["participating_user_ids"].sort! }
-      json.delete("last_authored_message_at") # This is sometimes not updated. It's a known bug.
-      expect(json).to eql({
-                            "id" => conversation.conversation_id,
-                            "subject" => nil,
-                            "workflow_state" => "read",
-                            "last_message" => "another",
-                            "last_message_at" => conversation.last_message_at.to_json[1, 20],
-                            "last_authored_message" => "another",
-                            # "last_authored_message_at" => conversation.last_authored_at.to_json[1, 20],
-                            "message_count" => 2,
-                            "subscribed" => true,
-                            "private" => true,
-                            "starred" => false,
-                            "properties" => %w[last_author attachments media_objects],
-                            "visible" => true,
-                            "audience" => [@bob.id],
-                            "audience_contexts" => {
-                              "groups" => {},
-                              "courses" => { @course.id.to_s => ["StudentEnrollment"] }
-                            },
-                            "participants" => [
-                              { "id" => @me.id, "pronouns" => nil, "name" => @me.short_name, "full_name" => @me.name, "common_courses" => {}, "common_groups" => {} },
-                              { "id" => @bob.id, "pronouns" => nil, "name" => @bob.short_name, "full_name" => @bob.name, "common_courses" => { @course.id.to_s => ["StudentEnrollment"] }, "common_groups" => {} }
-                            ],
-                            "messages" => [
-                              {
-                                "id" => conversation.messages.first.id,
-                                "created_at" => conversation.messages.first.created_at.to_json[1, 20],
-                                "body" => "another",
-                                "author_id" => @me.id,
-                                "generated" => false,
-                                "media_comment" => {
-                                  "media_type" => "audio",
-                                  "media_id" => "0_12345678",
-                                  "display_name" => "test title",
-                                  "content-type" => "audio/mp4",
-                                  "url" => "http://www.example.com/users/#{@me.id}/media_download?entryId=0_12345678&redirect=1&type=mp4"
-                                },
-                                "forwarded_messages" => [],
-                                "attachments" => [
-                                  {
-                                    "filename" => "test.txt",
-                                    "url" => "http://www.example.com/files/#{attachment.id}/download?download_frd=1&verifier=#{attachment.uuid}",
-                                    "content-type" => "text/plain",
-                                    "display_name" => "test.txt",
-                                    "id" => attachment.id,
-                                    "uuid" => attachment.uuid,
-                                    "folder_id" => attachment.folder_id,
-                                    "size" => attachment.size,
-                                    "unlock_at" => nil,
-                                    "locked" => false,
-                                    "hidden" => false,
-                                    "lock_at" => nil,
-                                    "locked_for_user" => false,
-                                    "hidden_for_user" => false,
-                                    "created_at" => attachment.created_at.as_json,
-                                    "updated_at" => attachment.updated_at.as_json,
-                                    "upload_status" => "success",
-                                    "thumbnail_url" => nil,
-                                    "modified_at" => attachment.modified_at.as_json,
-                                    "mime_class" => attachment.mime_class,
-                                    "media_entry_id" => attachment.media_entry_id,
-                                    "category" => "uncategorized"
-                                  }
-                                ],
-                                "participating_user_ids" => [@me.id, @bob.id].sort
-                              },
-                              { "id" => conversation.messages.last.id, "created_at" => conversation.messages.last.created_at.to_json[1, 20], "body" => "test", "author_id" => @me.id, "generated" => false, "media_comment" => nil, "forwarded_messages" => [], "attachments" => [], "participating_user_ids" => [@me.id, @bob.id].sort }
-                            ],
-                            "submissions" => [],
-                            "context_name" => conversation.context_name,
-                            "context_code" => conversation.conversation.context_code,
-                          })
+
+      attachment_url = json["messages"].first["attachments"].first["url"]
+      media_comment_url = json["messages"].first["media_comment"]["url"]
+
+      expect(attachment_url).to include("location=#{message_with_attachment.asset_string}")
+      expect(media_comment_url).to include("location=#{message_with_attachment.asset_string}")
+      expect(attachment_url).not_to include("verifier=#{attachment.uuid}")
+    end
+
+    it "when file_association_access feature flag is disabled, it adds verifier tag to attachment url" do
+      attachment = @me.conversation_attachments_folder.attachments.create!(context: @me, filename: "test.txt", display_name: "test.txt", uploaded_data: StringIO.new("test"))
+      attachment.root_account.disable_feature!(:disable_adding_uuid_verifier_in_api)
+      conversation = conversation(@bob, context_type: "Course", context_id: @course.id)
+      media_object = MediaObject.new
+      media_object.media_id = "0_12345678"
+      media_object.media_type = "audio"
+      media_object.context = @me
+      media_object.user = @me
+      media_object.title = "test title"
+      media_object.save!
+      message_with_attachment = conversation.add_message("another", attachment_ids: [attachment.id], media_comment: media_object)
+
+      conversation.reload
+
+      json = api_call(:get,
+                      "/api/v1/conversations/#{conversation.conversation_id}",
+                      { controller: "conversations", action: "show", id: conversation.conversation_id.to_s, format: "json" })
+
+      attachment_url = json["messages"].first["attachments"].first["url"]
+      media_comment_url = json["messages"].first["media_comment"]["url"]
+
+      expect(attachment_url).not_to include("location=#{message_with_attachment.asset_string}")
+      expect(media_comment_url).not_to include("location=#{message_with_attachment.asset_string}")
+      expect(attachment_url).to include("verifier=#{attachment.uuid}")
     end
 
     it "indicates if conversation permissions for the context are missing" do
@@ -1551,18 +1680,25 @@ describe ConversationsController, type: :request do
                       "/api/v1/conversations/#{conversation.conversation_id}",
                       { controller: "conversations", action: "show", id: conversation.conversation_id.to_s, format: "json" })
 
-      expect(json["cannot_reply"]).to_not be_truthy
+      expect(json["cannot_reply"]).not_to be_truthy
     end
 
-    it "still includes attachment verifiers when using session auth" do
-      conversation = conversation(@bob)
-      attachment = @me.conversation_attachments_folder.attachments.create!(context: @me, filename: "test.txt", display_name: "test.txt", uploaded_data: StringIO.new("test"))
-      conversation.add_message("another", attachment_ids: [attachment.id], media_comment: media_object)
-      conversation.reload
-      user_session(@user)
-      get "/api/v1/conversations/#{conversation.conversation_id}"
-      json = json_parse
-      expect(json["messages"][0]["attachments"][0]["url"]).to eq "http://www.example.com/files/#{attachment.id}/download?download_frd=1&verifier=#{attachment.uuid}"
+    context "with testing verifiers with disable_adding_uuid_verifier_in_api ff" do
+      before do
+        @attachment = @me.conversation_attachments_folder.attachments.create!(context: @me, filename: "test.txt", display_name: "test.txt", uploaded_data: StringIO.new("test"))
+      end
+
+      double_testing_with_disable_adding_uuid_verifier_in_api_ff do
+        it "still includes attachment verifiers when using session auth" do
+          conversation = conversation(@bob)
+          conversation.add_message("another", attachment_ids: [@attachment.id], media_comment: media_object)
+          conversation.reload
+          user_session(@user)
+          get "/api/v1/conversations/#{conversation.conversation_id}"
+          json = json_parse
+          expect(json["messages"][0]["attachments"][0]["url"]).to eq "http://www.example.com/files/#{@attachment.id}/download?download_frd=1#{"&verifier=#{@attachment.uuid}" unless disable_adding_uuid_verifier_in_api}"
+        end
+      end
     end
 
     it "uses participant's last_message_at and not consult the most recent message" do
@@ -2369,7 +2505,7 @@ describe ConversationsController, type: :request do
       end
 
       conversation_ids = conversations.map { |c| c.conversation.id }
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
       json = api_call(:put,
                       "/api/v1/conversations",
                       { controller: "conversations", action: "batch_update", format: "json" },
@@ -2377,7 +2513,7 @@ describe ConversationsController, type: :request do
       run_jobs
       progress = Progress.find(json["id"])
       expect(progress.message.to_s).to include "#{conversation_ids.size} conversations processed"
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.unarchived.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.unarchived.legacy")
     end
 
     it "unarchives conversations by marking as unread" do
@@ -2386,7 +2522,7 @@ describe ConversationsController, type: :request do
       end
 
       conversation_ids = conversations.map { |c| c.conversation.id }
-      allow(InstStatsd::Statsd).to receive(:increment)
+      allow(InstStatsd::Statsd).to receive(:distributed_increment)
       json = api_call(:put,
                       "/api/v1/conversations",
                       { controller: "conversations", action: "batch_update", format: "json" },
@@ -2394,7 +2530,7 @@ describe ConversationsController, type: :request do
       run_jobs
       progress = Progress.find(json["id"])
       expect(progress.message.to_s).to include "#{conversation_ids.size} conversations processed"
-      expect(InstStatsd::Statsd).to have_received(:increment).with("inbox.conversation.unarchived.legacy")
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("inbox.conversation.unarchived.legacy")
     end
 
     it "destroys conversations" do
@@ -2538,7 +2674,7 @@ describe ConversationsController, type: :request do
                    "/api/v1/conversations/#{conv.id}/delete_for_all",
                    { controller: "conversations", action: "delete_for_all", format: "json", id: conv.id.to_s },
                    { domain_root_account: Account.site_admin })
-      assert_status(401)
+      assert_forbidden
 
       account_admin_user
       Account.default.pseudonyms.create!(unique_id: "admin", user: @user)
@@ -2546,14 +2682,14 @@ describe ConversationsController, type: :request do
                    "/api/v1/conversations/#{conv.id}/delete_for_all",
                    { controller: "conversations", action: "delete_for_all", format: "json", id: conv.id.to_s },
                    {})
-      assert_status(401)
+      assert_forbidden
 
       @user = @me
       raw_api_call(:delete,
                    "/api/v1/conversations/#{conv.id}/delete_for_all",
                    { controller: "conversations", action: "delete_for_all", format: "json", id: conv.id.to_s },
                    {})
-      assert_status(401)
+      assert_forbidden
 
       expect(@me.all_conversations.size).to be 1
       expect(@joe.conversations.size).to be 1

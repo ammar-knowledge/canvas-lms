@@ -17,10 +17,10 @@
  */
 
 import React, {useRef, useState} from 'react'
-import {useMutation} from 'react-apollo'
+import {useMutation} from '@apollo/client'
 import {CREATE_SUBMISSION} from '@canvas/assignments/graphql/student/Mutations'
 import axios from '@canvas/axios'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import type {CamelizedAssignment} from '@canvas/grading/grading.d'
 import {getFileThumbnail} from '@canvas/util/fileHelper'
 import {uploadFile} from '@canvas/upload-file'
@@ -39,10 +39,9 @@ import {Spinner} from '@instructure/ui-spinner'
 import {Table} from '@instructure/ui-table'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
-// @ts-expect-error
 import UploadFileSVG from '../../../features/assignments_show_student/images/UploadFile.svg'
 
-const I18n = useI18nScope('conversations_2')
+const I18n = createI18nScope('conversations_2')
 
 type AlertType = {
   text: string
@@ -195,8 +194,15 @@ const ProxyUploadModal = ({
     })
   }
 
-  // @ts-expect-error
-  const onUploadRequested = async ({files, onSuccess, onError}) => {
+  const onUploadRequested = async ({
+    files,
+    onSuccess,
+    onError,
+  }: {
+    files: File[]
+    onSuccess: () => void
+    onError: () => void
+  }) => {
     const newFiles = files.map((file: any, i: number) => {
       // "text" is filename in LTI Content Item
       const name = file.name || file.text || file.url
@@ -242,8 +248,8 @@ const ProxyUploadModal = ({
     // This is taken almost verbatim from the uploadFiles method in the
     // upload-file module.  Rather than calling that method, we call uploadFile
     // for each file to track progress for the individual uploads.
-    // @ts-expect-error
-    const assignmentCourseId = assignment.courseId || assignment.course_id
+    const assignmentObj: {courseId?: string; course_id?: string} = assignment
+    const assignmentCourseId = assignmentObj.courseId || assignmentObj.course_id
     const uploadUrl =
       assignment.groupSet?.currentGroup == null
         ? `/api/v1/courses/${assignmentCourseId}/assignments/${assignment.id}/submissions/${student.id}/files`
@@ -271,7 +277,7 @@ const ProxyUploadModal = ({
           null,
           axios,
           onProgress,
-          true
+          true,
         )
       } else {
         promise = uploadFile(
@@ -284,7 +290,7 @@ const ProxyUploadModal = ({
           file,
           axios,
           onProgress,
-          true
+          true,
         )
       }
       uploadPromises.push(promise)
@@ -355,7 +361,7 @@ const ProxyUploadModal = ({
       return
     }
 
-    const cellTheme = {background: theme.variables.colors.backgroundLight}
+    const cellTheme = {background: theme.colors.contrasts.grey1111}
 
     return (
       <Table
@@ -393,13 +399,15 @@ const ProxyUploadModal = ({
     display_name: string
     name: string
     isLoading: boolean
+    loaded?: number
+    total?: number
   }) => {
     // "file" is either a previously-uploaded file or one being uploaded right
     // now.  For the former, we can use the displayName property; files being
     // uploaded don't have that set yet, so use the local name (which we've set
     // to the URL for files from an LTI)
     const displayName = file.display_name || file.name
-    const cellTheme = {background: theme.variables.colors.backgroundLight}
+    const cellTheme = {background: theme.colors.contrasts.grey1111}
     return (
       <Table.Row key={file._id || file.id}>
         <Table.Cell themeOverride={cellTheme}>{getFileThumbnail(file, 'small')}</Table.Cell>
@@ -414,10 +422,10 @@ const ProxyUploadModal = ({
           )}
         </Table.Cell>
         <Table.Cell themeOverride={cellTheme}>
-          {
-            // @ts-expect-error
-            file.isLoading && renderFileProgress(file)
-          }
+          {file.isLoading &&
+            file.loaded !== undefined &&
+            file.total !== undefined &&
+            renderFileProgress({name: file.name, loaded: file.loaded, total: file.total})}
           <ScreenReaderContent>
             {file.isLoading
               ? I18n.t('%{displayName} loading in progress', {displayName})
@@ -539,6 +547,7 @@ const ProxyUploadModal = ({
             Close
           </Button>
           <Button
+            id="proxySubmit" // EVAL-4244
             data-testid="proxySubmit"
             color="primary"
             type="submit"

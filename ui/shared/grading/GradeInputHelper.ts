@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2018 - present Instructure, Inc.
  *
@@ -22,11 +21,33 @@ import {gradeToScoreLowerBound, gradeToScoreUpperBound, indexOfGrade} from './Gr
 import {scoreToGrade} from '@instructure/grading-utils'
 import numberHelper from '@canvas/i18n/numberHelper'
 import type {GradeInput, GradeResult} from './grading.d'
-import {EnvGradebookCommon} from '@canvas/global/env/EnvGradebook'
+import type {GradingStandard} from '@instructure/grading-utils'
+import type {EnvGradebookCommon} from '@canvas/global/env/EnvGradebook'
 import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 
 // Allow unchecked access to ENV variables that should exist in this context
 declare const ENV: GlobalEnv & EnvGradebookCommon
+
+type GradeParseOptions = {
+  enterGradesAs?: string
+  gradingScheme?: GradingStandard[] | null
+  pointsBasedGradingScheme?: boolean
+  pointsPossible?: number | null
+  scalingFactor?: number
+  subAssignmentTag?: string
+  useLowerBound?: boolean
+}
+
+type GradingSchemeData = {
+  data: [string, number][]
+}
+
+type SubmissionForGradeChange = {
+  enteredGrade?: string | null
+  enteredScore?: number | null
+  excused?: boolean
+  late_policy_status?: string | null
+}
 
 const MAX_PRECISION = 15 // the maximum precision of a score persisted to the database
 const PERCENTAGES = /[%％﹪٪]/
@@ -48,7 +69,7 @@ function percentageFromPoints(points: number, pointsPossible: number): number {
   return toNumber(new Big(points).div(pointsPossible).times(100))
 }
 
-function invalid(value, options) {
+function invalid(value: string, options: GradeParseOptions): GradeResult {
   return {
     enteredAs: null,
     late_policy_status: null,
@@ -60,12 +81,16 @@ function invalid(value, options) {
   }
 }
 
-function parseAsGradingScheme(value: number, options): null | GradeInput {
+function parseAsGradingScheme(
+  value: string | number,
+  options: GradeParseOptions,
+): null | GradeInput {
   if (!options.gradingScheme) {
     return null
   }
 
   const gradeToScore = options.useLowerBound ? gradeToScoreLowerBound : gradeToScoreUpperBound
+  // @ts-expect-error - gradeToScore expects number but value can be string (grade letter)
   const percentage = gradeToScore(value, options.gradingScheme)
   if (percentage == null) {
     return null
@@ -77,21 +102,21 @@ function parseAsGradingScheme(value: number, options): null | GradeInput {
     points: options.pointsPossible ? pointsFromPercentage(percentage, options.pointsPossible) : 0,
     schemeKey: scoreToGrade(
       percentage,
-      options.gradingScheme,
+      options.gradingScheme ?? undefined,
       options.pointsBasedGradingScheme,
-      options.scalingFactor
+      options.scalingFactor,
     ),
   }
 }
 
-function parseAsPercent(value: string, options): null | GradeInput {
+function parseAsPercent(value: string, options: GradeParseOptions): null | GradeInput {
   const percentage = numberHelper.parse(value.replace(PERCENTAGES, ''))
   if (Number.isNaN(Number(percentage))) {
     return null
   }
 
   let percent = percentage
-  let points = pointsFromPercentage(percentage, options.pointsPossible)
+  let points = pointsFromPercentage(percentage, options.pointsPossible || 0)
 
   if (!options.pointsPossible) {
     points = numberHelper.parse(value)
@@ -107,14 +132,15 @@ function parseAsPercent(value: string, options): null | GradeInput {
     points,
     schemeKey: scoreToGrade(
       percent,
+      // @ts-expect-error - type mismatch between DeprecatedGradingScheme and GradingStandard from @instructure/grading-utils
       options.gradingScheme,
       options.pointsBasedGradingScheme,
-      options.scalingFactor
+      options.scalingFactor,
     ),
   }
 }
 
-function parseAsPoints(value: string, options): null | GradeInput {
+function parseAsPoints(value: string, options: GradeParseOptions): null | GradeInput {
   const points = numberHelper.parse(value)
   if (Number.isNaN(Number(points))) {
     return null
@@ -128,14 +154,15 @@ function parseAsPoints(value: string, options): null | GradeInput {
     points,
     schemeKey: scoreToGrade(
       percent,
+      // @ts-expect-error - type mismatch between DeprecatedGradingScheme and GradingStandard from @instructure/grading-utils
       options.gradingScheme,
       options.pointsBasedGradingScheme,
-      options.scalingFactor
+      options.scalingFactor,
     ),
   }
 }
 
-function parseForGradingScheme(value, options): GradeResult {
+function parseForGradingScheme(value: string, options: GradeParseOptions): GradeResult {
   const result: null | GradeInput =
     parseAsGradingScheme(value, options) ||
     parseAsPoints(value, options) ||
@@ -156,7 +183,7 @@ function parseForGradingScheme(value, options): GradeResult {
   return invalid(value, options)
 }
 
-function parseForPercent(value, options): GradeResult {
+function parseForPercent(value: string, options: GradeParseOptions): GradeResult {
   const result: null | GradeInput =
     parseAsPercent(value, options) || parseAsGradingScheme(value, options)
 
@@ -175,7 +202,7 @@ function parseForPercent(value, options): GradeResult {
   return invalid(value, options)
 }
 
-function parseForPoints(value, options) {
+function parseForPoints(value: string, options: GradeParseOptions): GradeResult {
   const result =
     parseAsPoints(value, options) ||
     parseAsGradingScheme(value, options) ||
@@ -196,7 +223,7 @@ function parseForPoints(value, options) {
   return invalid(value, options)
 }
 
-function parseForPassFail(value: string, options: {pointsPossible: number}): GradeResult {
+function parseForPassFail(value: string, options: GradeParseOptions): GradeResult {
   const cleanValue = value.toLowerCase()
 
   const result: GradeResult = {
@@ -220,7 +247,7 @@ function parseForPassFail(value: string, options: {pointsPossible: number}): Gra
   return result
 }
 
-export function isExcused(grade) {
+export function isExcused(grade: string | number | null | undefined): boolean {
   return `${grade}`.trim().toLowerCase() === 'ex'
 }
 
@@ -234,7 +261,10 @@ type ParseResult = {
   value: null | number
 }
 
-export function parseEntryValue(value, gradingScheme): ParseResult {
+export function parseEntryValue(
+  value: string | number | null | undefined,
+  gradingScheme: GradingSchemeData | null | undefined,
+): ParseResult {
   const trimmedValue = value != null ? `${value}`.trim() : ''
 
   const result: ParseResult = {
@@ -265,18 +295,21 @@ export function parseEntryValue(value, gradingScheme): ParseResult {
     const keyIndex = indexOfGrade(trimmedValue, gradingScheme.data)
     if (keyIndex !== -1) {
       result.isSchemeKey = true
-      result.value = gradingScheme.data[keyIndex][0]
+      // The value from gradingScheme.data[keyIndex][0] is actually a string (grade letter), not a number
+      // but it gets assigned to result.value which expects number | null
+      // This is a known type inconsistency in the grading scheme data structure
+      result.value = gradingScheme.data[keyIndex][0] as unknown as number
     }
   }
 
   return result
 }
 
-export function isMissing(grade) {
+export function isMissing(grade: string | number | null | undefined): boolean {
   return `${grade}`.trim().toLowerCase() === 'mi'
 }
 
-export function parseTextValue(value: string, options): GradeResult {
+export function parseTextValue(value: string, options: GradeParseOptions): GradeResult {
   const trimmedValue = value != null ? `${value}`.trim() : ''
 
   if (trimmedValue === '') {
@@ -331,7 +364,11 @@ export function parseTextValue(value: string, options): GradeResult {
   }
 }
 
-export function hasGradeChanged(submission, gradeInfo, options) {
+export function hasGradeChanged(
+  submission: SubmissionForGradeChange,
+  gradeInfo: GradeResult,
+  options: GradeParseOptions,
+): boolean {
   if (!gradeInfo.valid) {
     // the given submission is always assumed to be valid
     return true
@@ -361,7 +398,7 @@ export function hasGradeChanged(submission, gradeInfo, options) {
      * different type but otherwise equivalent, get the grading data for the
      * stored grade and compare it to the grading data from the input.
      */
-    const submissionGradeInfo = parseTextValue(submission.enteredGrade, options)
+    const submissionGradeInfo = parseTextValue(submission.enteredGrade || '', options)
     return submissionGradeInfo.grade !== gradeInfo.grade
   }
 

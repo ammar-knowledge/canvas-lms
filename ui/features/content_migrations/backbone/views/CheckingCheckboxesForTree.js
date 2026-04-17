@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {each, defer} from 'lodash'
+import {each, defer} from 'es-toolkit/compat'
 import $ from 'jquery'
 
 function CheckingCheckboxesForTree($tree, bindEvents) {
@@ -61,7 +61,7 @@ CheckingCheckboxesForTree.prototype.checkboxEvents = function (event) {
         return function (cb) {
           return _this.checkModuleOptions($(cb))
         }
-      })(this)
+      })(this),
     )
   }
   // We don't want to manage the focus unless they have are trying to click and use the keyboard
@@ -81,7 +81,7 @@ CheckingCheckboxesForTree.prototype.moduleOptionsEvents = function (event) {
       return function (cb) {
         return _this.checkModuleOptions($(cb))
       }
-    })(this)
+    })(this),
   )
 }
 

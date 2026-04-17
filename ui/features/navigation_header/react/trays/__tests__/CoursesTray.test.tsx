@@ -17,17 +17,22 @@
  */
 
 import React from 'react'
-import {render as testingLibraryRender} from '@testing-library/react'
+import {cleanup, render as testingLibraryRender} from '@testing-library/react'
 import CoursesTray from '../CoursesTray'
-import {QueryProvider, queryClient} from '@canvas/query'
+import {queryClient} from '@instructure/platform-query'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
 import type {GlobalEnv} from '@canvas/global/env/GlobalEnv.d'
 
 declare const window: Window & {ENV: GlobalEnv}
 
 const render = (children: unknown) =>
-  testingLibraryRender(<QueryProvider>{children}</QueryProvider>)
+  testingLibraryRender(<MockedQueryProvider>{children}</MockedQueryProvider>)
 
 describe('CoursesTray', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
   const courses = [
     {
       id: '1',
@@ -111,6 +116,7 @@ describe('CoursesTray', () => {
     window.ENV.K5_USER = false
     window.ENV.FEATURES.courses_popout_sisid = true
     window.ENV.current_user_roles = []
+    ;(window.ENV as any).SETTINGS = {show_sections_in_course_tray: true}
   })
 
   afterEach(() => {
@@ -184,11 +190,24 @@ describe('CoursesTray', () => {
     expect(getByText('Section3, Section4, Section5')).toBeInTheDocument()
   })
 
+  it('does not render sections if setting show_sections_in_course_tray is disabled', () => {
+    ;(window.ENV as any).SETTINGS.show_sections_in_course_tray = false
+    const {queryByText} = render(<CoursesTray />)
+    expect(queryByText('Section3, Section4, Section5')).not.toBeInTheDocument()
+  })
+
   it('renders the correct URL for each course', () => {
     const {getByText} = render(<CoursesTray />)
-    expect(getByText('Course1').getAttribute('href')).toBe('/courses/1')
-    expect(getByText('Course2').getAttribute('href')).toBe('/courses/2')
-    expect(getByText('Course3').getAttribute('href')).toBe('/courses/3')
-    expect(getByText('Course4').getAttribute('href')).toBe('/courses/4')
+    const courses = [
+      {name: 'Course1', url: '/courses/1'},
+      {name: 'Course2', url: '/courses/2'},
+      {name: 'Course3', url: '/courses/3'},
+      {name: 'Course4', url: '/courses/4'},
+    ]
+    courses.forEach(({name, url}) => {
+      const courseLink = getByText(name).closest('a')
+      expect(courseLink).toBeInTheDocument()
+      expect(courseLink).toHaveAttribute('href', url)
+    })
   })
 })

@@ -16,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {shape, string} from 'prop-types'
 
 export const UsageRights = {
   fragment: gql`
-    fragment UsageRights on UsageRights {
+    fragment EditV2UsageRights on UsageRights {
       id
       legalCopyright
       license

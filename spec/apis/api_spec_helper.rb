@@ -104,19 +104,19 @@ def raw_api_call(method, path, params, body_params = {}, headers = {}, opts = {}
     end
     if @use_basic_auth
       user_session(@user)
-    else
+    elsif !opts[:skip_token_auth]
       headers["HTTP_AUTHORIZATION"] = headers["Authorization"] if headers.key?("Authorization")
       if !params.key?(:api_key) && !params.key?(:access_token) && !headers.key?("HTTP_AUTHORIZATION") && @user
         token = access_token_for_user(@user)
         headers["HTTP_AUTHORIZATION"] = "Bearer #{token}"
         account = opts[:domain_root_account] || Account.default
-        p = @user.all_active_pseudonyms(:reload) && SisPseudonym.for(@user, account, type: :implicit, require_sis: false)
+        p = @user.all_active_pseudonyms(reload: true) && SisPseudonym.for(@user, account, type: :implicit, require_sis: false)
         p ||= account.pseudonyms.create!(unique_id: "#{@user.id}@example.com", user: @user)
         allow_any_instantiation_of(p).to receive(:works_for_account?).and_return(true)
       end
     end
     allow(LoadAccount).to receive(:default_domain_root_account).and_return(opts[:domain_root_account]) if opts.key?(:domain_root_account)
-    __send__(method, path, headers:, params: params.except(*route_params.keys).merge(body_params))
+    __send__(method, path, headers:, params: params.except(*route_params.keys).merge(body_params), as: opts[:as])
   end
 end
 
@@ -139,16 +139,22 @@ def api_json_response(objects, opts = nil)
   JSON.parse(objects.to_json(opts.merge(include_root: false)))
 end
 
-def check_document(html, course, attachment, include_verifiers)
+def check_document(html, course, attachment, include_verifiers, location)
   doc = Nokogiri::HTML5.fragment(html)
-  img1 = doc.at_css("img#1")
+  img1 = doc.at_css("img[data-testid='1']")
   expect(img1).to be_present
-  params = include_verifiers ? "?verifier=#{attachment.uuid}" : ""
+  params = if location
+             "?location=#{location}"
+           elsif include_verifiers
+             "?verifier=#{attachment.uuid}"
+           else
+             ""
+           end
   expect(img1["src"]).to eq "http://www.example.com/courses/#{course.id}/files/#{attachment.id}/preview#{params}"
-  img2 = doc.at_css("img#2")
+  img2 = doc.at_css("img[data-testid='2']")
   expect(img2).to be_present
   expect(img2["src"]).to eq "http://www.example.com/courses/#{course.id}/files/#{attachment.id}/download#{params}"
-  img3 = doc.at_css("img#3")
+  img3 = doc.at_css("img[data-testid='3']")
   expect(img3).to be_present
   expect(img3["src"]).to eq "http://www.example.com/courses/#{course.id}/files/#{attachment.id}#{params}"
   video = doc.at_css("video")
@@ -158,30 +164,47 @@ def check_document(html, course, attachment, include_verifiers)
   expect(video["src"]).to match(/entryId=qwerty/)
   expect(doc.css("a").last["data-api-endpoint"]).to match(%r{http://www.example.com/api/v1/courses/#{course.id}/pages/awesome-page})
   expect(doc.css("a").last["data-api-returntype"]).to eq "Page"
+  iframe1 = doc.at_css("iframe[data-testid='1']")
+  expect(iframe1).to be_present
+  expect(iframe1["src"]).to eq "http://www.example.com/media_objects_iframe/m-some_id?type=video"
+  iframe2 = doc.at_css("iframe[data-testid='2']")
+  expect(iframe2).to be_present
+  expect(iframe2["src"]).to eq "http://www.example.com/media_attachments_iframe/#{attachment.id}#{params}"
 end
 
 # passes the cb a piece of user content html text. the block should return the
 # response from the api for that field, which will be verified for correctness.
-def should_translate_user_content(course, include_verifiers = true)
+def should_translate_user_content(course, include_verifiers: true, location: nil)
   attachment = attachment_model(context: course)
+  attachment.root_account.set_feature_flag!(:disable_adding_uuid_verifier_in_api, include_verifiers ? Feature::STATE_OFF : Feature::STATE_ON)
   content = <<~HTML
     <p>
       Hello, students.<br>
-      This will explain everything: <img id="1" src="/courses/#{course.id}/files/#{attachment.id}/preview" alt="important">
-      This won't explain anything:  <img id="2" src="/courses/#{course.id}/files/#{attachment.id}/download" alt="important">
-      This might explain something:  <img id="3" src="/courses/#{course.id}/files/#{attachment.id}" alt="important">
+      This will explain everything: <img data-testid="1" src="/courses/#{course.id}/files/#{attachment.id}/preview" alt="important">
+      This won't explain anything:  <img data-testid="2" src="/courses/#{course.id}/files/#{attachment.id}/download" alt="important">
+      This might explain something:  <img data-testid="3" src="/courses/#{course.id}/files/#{attachment.id}" alt="important">
       Also, watch this awesome video: <a href="/media_objects/qwerty" class="instructure_inline_media_comment video_comment" id="media_comment_qwerty"><img></a>
       And refer to this <a href="/courses/#{course.id}/pages/awesome-page">awesome wiki page</a>.
     </p>
+    <iframe
+      data-testid="1"
+      title="Video player for rick_and_morty_interdimensional_cable.mp4" data-media-type="video"
+      src="/media_objects_iframe/m-some_id?type=video">
+    </iframe>
+    <iframe
+      data-testid="2"
+      title="Video player for rick_and_morty_interdimensional_cable.mp4" data-media-type="video"
+      src="/media_attachments_iframe/#{attachment.id}">
+    </iframe>
   HTML
   html = yield content
-  check_document(html, course, attachment, include_verifiers)
+  check_document(html, course, attachment, include_verifiers, location)
 
   if include_verifiers
     # try again but with cookie auth; shouldn't have verifiers now
     @use_basic_auth = true
     html = yield content
-    check_document(html, course, attachment, false)
+    check_document(html, course, attachment, false, location)
   end
 end
 

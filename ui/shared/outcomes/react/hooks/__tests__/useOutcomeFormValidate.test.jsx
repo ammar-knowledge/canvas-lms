@@ -37,13 +37,13 @@ describe('useOutcomeFormValidate', () => {
   })
 
   beforeEach(() => {
-    focusOnRatingsErrorMock = jest.fn()
-    clearRatingsFocusMock = jest.fn()
-    focusMock = jest.fn()
+    focusOnRatingsErrorMock = vi.fn()
+    clearRatingsFocusMock = vi.fn()
+    focusMock = vi.fn()
   })
 
   afterEach(() => {
-    jest.resetAllMocks()
+    vi.resetAllMocks()
   })
 
   it('creates custom hook with proper exports', () => {
@@ -51,7 +51,7 @@ describe('useOutcomeFormValidate', () => {
       useOutcomeFormValidate({
         focusOnRatingsError: focusOnRatingsErrorMock,
         clearRatingsFocus: clearRatingsFocusMock,
-      })
+      }),
     )
 
     expect(typeof result.current.fieldWithError).toBe('object')
@@ -69,7 +69,7 @@ describe('useOutcomeFormValidate', () => {
       useOutcomeFormValidate({
         focusOnRatingsError: focusOnRatingsErrorMock,
         clearRatingsFocus: clearRatingsFocusMock,
-      })
+      }),
     )
 
     result.current.validateForm({...defaultProps()})
@@ -81,7 +81,7 @@ describe('useOutcomeFormValidate', () => {
       useOutcomeFormValidate({
         focusOnRatingsError: focusOnRatingsErrorMock,
         clearRatingsFocus: clearRatingsFocusMock,
-      })
+      }),
     )
 
     const validateResult = result.current.validateForm({...defaultProps()})
@@ -93,7 +93,7 @@ describe('useOutcomeFormValidate', () => {
       useOutcomeFormValidate({
         focusOnRatingsError: focusOnRatingsErrorMock,
         clearRatingsFocus: clearRatingsFocusMock,
-      })
+      }),
     )
 
     const validateDisplayName = result.current.validateForm({
@@ -127,7 +127,7 @@ describe('useOutcomeFormValidate', () => {
           focusOnRatingsError: focusOnRatingsErrorMock,
           clearRatingsFocus: clearRatingsFocusMock,
         }),
-      {wrapper}
+      {wrapper},
     )
 
     const validateFriendlyDescriptionError = result.current.validateForm({
@@ -156,7 +156,7 @@ describe('useOutcomeFormValidate', () => {
           focusOnRatingsError: focusOnRatingsErrorMock,
           clearRatingsFocus: clearRatingsFocusMock,
         }),
-      {wrapper}
+      {wrapper},
     )
 
     const validateRatingsError = result.current.validateForm({
@@ -196,7 +196,7 @@ describe('useOutcomeFormValidate', () => {
           focusOnRatingsError: focusOnRatingsErrorMock,
           clearRatingsFocus: clearRatingsFocusMock,
         }),
-      {wrapper}
+      {wrapper},
     )
 
     const validateRatingsError = result.current.validateForm({
@@ -220,7 +220,7 @@ describe('useOutcomeFormValidate', () => {
           focusOnRatingsError: focusOnRatingsErrorMock,
           clearRatingsFocus: clearRatingsFocusMock,
         }),
-      {wrapper}
+      {wrapper},
     )
 
     const validateTitleError = result.current.validateForm({

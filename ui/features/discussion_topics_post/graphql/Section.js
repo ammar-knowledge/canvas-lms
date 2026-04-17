@@ -16,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {number, shape, string} from 'prop-types'
 
 export const Section = {
   fragment: gql`
-    fragment Section on Section {
+    fragment DiscussionPostSection on Section {
       _id
       createdAt
       id

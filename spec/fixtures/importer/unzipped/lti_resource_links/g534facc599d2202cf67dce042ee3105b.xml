@@ -12,8 +12,10 @@
     <lticm:property name="param6">a12.5</lticm:property>
     <lticm:property name="param7">5d781f15-c6b0-4901-a1f7-2a77e7bf4982</lticm:property>
     <lticm:property name="param8">+1(855)552-2338</lticm:property>
+    <lticm:property name="param9">0011</lticm:property>
   </blti:custom>
   <blti:extensions platform="canvas.instructure.com">
     <lticm:property name="lookup_uuid">1b302c1e-c0a2-42dc-88b6-c029699a7c7a</lticm:property>
+    <lticm:property name="assignment_migration_id">76cf9398-0f63-4be2-a196-8e21d44716de</lticm:property>
   </blti:extensions>
 </cartridge_basiclti_link>

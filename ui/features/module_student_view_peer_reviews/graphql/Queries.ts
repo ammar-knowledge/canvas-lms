@@ -16,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 const ASSIGNMENT_QUERY = gql`
-  query GetCourseModules($courseId: ID!) {
+  query GetCourseModulesForPeerReviews($courseId: ID!, $cursor: String) {
     course(id: $courseId) {
-      modulesConnection {
+      modulesConnection(first: 100, after: $cursor) {
         nodes {
           id: _id
           moduleItems {
@@ -31,6 +31,11 @@ const ASSIGNMENT_QUERY = gql`
                 _id
                 peerReviews {
                   anonymousReviews
+                  count
+                  pointsPossible
+                }
+                peerReviewSubAssignment {
+                  dueAt
                 }
                 assessmentRequestsForCurrentUser {
                   id: _id
@@ -50,6 +55,10 @@ const ASSIGNMENT_QUERY = gql`
               }
             }
           }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
         }
       }
     }

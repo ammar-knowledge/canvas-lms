@@ -375,21 +375,6 @@ input[type="checkbox"][readonly] {
   @include formFieldState($infoText, $infoText, $infoBackground);
 }
 
-// HTML5 invalid states
-// Shares styles with the .control-group.error above
-input[type]:required:invalid,
-textarea:required:invalid,
-select:required:invalid {
-  color: #b94a48;
-  border-color: #ee5f5b;
-  @include box-shadow(0 0 6px lighten(#ee5f5b, 20%));
-  &:focus {
-    border-color: darken(#ee5f5b, 10%);
-  }
-}
-
-
-
 // FORM ACTIONS
 // ------------
 
@@ -416,7 +401,7 @@ This is the standard form actions button bar at the bottom of every content form
 }
 
 .sticky-footer {
-  background: #F5F5F5;
+  background: #F2F4F4;
   position: sticky;
   z-index: 999;
   right: 0;
@@ -427,7 +412,7 @@ This is the standard form actions button bar at the bottom of every content form
 .form-actions-sticky-footer {
   text-align: direction(right);
   padding: 10px 10px 11px;
-  border-top: 1px solid #C7CDD1;
+  border-top: 1px solid #E8EAEC;
   @include clearfix(); // Adding clearfix to allow for .pull-right button containers
 }
 
@@ -607,7 +592,9 @@ input.search-query {
 
 .form-search,
 .form-inline,
-.form-horizontal {
+.form-horizontal,
+.form-horizontal-wiki-page,
+.form-horizontal-quiz {
   input,
   textarea,
   select,
@@ -671,7 +658,9 @@ legend + .control-group {
 // Horizontal-specific styles
 // --------------------------
 
-.form-horizontal {
+.form-horizontal,
+.form-horizontal-wiki-page,
+.form-horizontal-quiz {
   // Increase spacing between groups
   .control-group {
     margin-bottom: $baseLineHeight;
@@ -747,7 +736,8 @@ legend + .control-group {
 }
 
 @include desktop-only {
-  .form-horizontal .responsive-control-group {
+  .form-horizontal .responsive-control-group,
+  .form-horizontal-wiki-page .responsive-control-group {
     margin-bottom: $baseLineHeight;
   }
 
@@ -761,11 +751,13 @@ legend + .control-group {
 }
 
 @include mobile-only {
-  .form-horizontal .responsive-control-group {
+  .form-horizontal .responsive-control-group,
+  .form-horizontal-wiki-page .responsive-control-group {
     flex-direction: column;
   }
 
-  .form-horizontal .responsive-control-group .control-label {
+  .form-horizontal .responsive-control-group .control-label,
+  .form-horizontal-wiki-page .responsive-control-group .control-label{
     flex-basis: inherit;  // undo cascade
     float: inherit;  // undo cascade
     padding-#{direction(right)}: inherit;

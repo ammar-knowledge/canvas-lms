@@ -18,12 +18,13 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class LearningOutcomeResult < ActiveRecord::Base
+class LearningOutcomeResult < ApplicationRecord
   include Canvas::SoftDeletable
+  include CanvasOutcomesHelper
 
   belongs_to :user
   belongs_to :learning_outcome
-  belongs_to :alignment, class_name: "ContentTag", foreign_key: :content_tag_id
+  belongs_to :alignment, class_name: "ContentTag", foreign_key: :content_tag_id, inverse_of: :learning_outcome_results
   belongs_to :association_object,
              polymorphic:
                    [:rubric_association,
@@ -54,6 +55,7 @@ class LearningOutcomeResult < ActiveRecord::Base
   before_save :infer_defaults
   before_save :ensure_user_uuid
   before_save :set_root_account_id
+  after_commit :rollup_calculation
 
   def calculate_percent!
     scale_data = scale_params
@@ -98,7 +100,7 @@ class LearningOutcomeResult < ActiveRecord::Base
   end
 
   def save_to_version(attempt)
-    InstStatsd::Statsd.increment("learning_outcome_result.create") if new_record?
+    InstStatsd::Statsd.distributed_increment("learning_outcome_result.create") if new_record?
     current_version = versions.current.try(:model)
     if current_version.try(:attempt) && attempt < current_version.attempt
       versions = self.versions.sort_by(&:created_at).reverse.select { |v| v.model.attempt == attempt }
@@ -189,7 +191,7 @@ class LearningOutcomeResult < ActiveRecord::Base
 
   def infer_defaults
     self.learning_outcome_id = alignment.learning_outcome_id
-    self.context_code = "#{context_type.underscore}_#{context_id}" rescue nil
+    self.context_code = context_type && "#{context_type.underscore}_#{context_id}"
     self.original_score ||= score
     self.original_possible ||= possible
     self.original_mastery = mastery if original_mastery.nil?
@@ -256,6 +258,20 @@ class LearningOutcomeResult < ActiveRecord::Base
       return unless parent_has_mastery? && parent_outcome.points_possible.to_f > 0
 
       parent_outcome.mastery_points.to_f / parent_outcome.points_possible.to_f
+    end
+  end
+
+  def rollup_calculation
+    return unless context && user
+
+    begin
+      enqueue_rollup_calculation(course_id: context.id, student_id: user.id)
+    rescue => e
+      Canvas::Errors.capture_exception(:outcome_rollup_callback, e, {
+                                         course_id: context.id,
+                                         user_id: user.id,
+                                         learning_outcome_result_id: id
+                                       })
     end
   end
 end

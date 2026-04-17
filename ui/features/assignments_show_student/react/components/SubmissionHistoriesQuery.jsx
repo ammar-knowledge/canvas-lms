@@ -15,12 +15,12 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
+import {AlertManagerContext} from '@instructure/platform-alerts'
 import {Assignment} from '@canvas/assignments/graphql/student/Assignment'
 import AssignmentToggleDetails from '../AssignmentToggleDetails'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import Header from './Header'
-import {Query} from 'react-apollo'
+import {Query} from '@apollo/client/react/components'
 import React, {Suspense, lazy} from 'react'
 import {shape} from 'prop-types'
 import {Spinner} from '@instructure/ui-spinner'
@@ -28,9 +28,9 @@ import {Submission} from '@canvas/assignments/graphql/student/Submission'
 import {SUBMISSION_HISTORIES_QUERY} from '@canvas/assignments/graphql/student/Queries'
 import ViewManager from './ViewManager'
 import UnavailablePeerReview from '../UnavailablePeerReview'
-import NeedsSubmissionPeerReview from '../NeedsSubmissionPeerReview'
+import NeedsSubmissionPeerReview from '@canvas/assignments/react/NeedsSubmissionPeerReview'
 
-const I18n = useI18nScope('assignments_2_submission_histories_query')
+const I18n = createI18nScope('assignments_2_submission_histories_query')
 
 const LoggedOutTabs = lazy(() => import('./LoggedOutTabs'))
 
@@ -46,7 +46,6 @@ function shouldDisplayUnavailablePeerReview({assignment, reviewerSubmission}) {
   )
 }
 
-// eslint-disable-next-line react/prefer-stateless-function
 class SubmissionHistoriesQuery extends React.Component {
   static propTypes = {
     initialQueryData: shape({

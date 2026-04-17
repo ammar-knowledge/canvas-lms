@@ -18,7 +18,7 @@
 
 import React from 'react'
 import {userEvent} from '@testing-library/user-event'
-import {fireEvent, render, screen, waitFor} from '@testing-library/react'
+import {fireEvent, render, screen, waitFor, cleanup} from '@testing-library/react'
 import LatePoliciesTabPanel from '../LatePoliciesTabPanel'
 import {
   getAutomaticallyApplyGradeForMissingSubmissionsCheckbox,
@@ -34,6 +34,11 @@ import {
 } from './helpers'
 
 describe('LatePoliciesTabPanel', () => {
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
   describe('Missing Submissions', () => {
     /*
      * typically all props would be passed in on initial render, however
@@ -103,7 +108,7 @@ describe('LatePoliciesTabPanel', () => {
     test('when a single character is entered in the input, changeLatePolicy is called once', async () => {
       let mock
       subject(props => {
-        mock = props.changeLatePolicy = jest.fn()
+        mock = props.changeLatePolicy = vi.fn()
       })
       await userEvent.click(getAutomaticallyApplyGradeForMissingSubmissionsCheckbox(screen))
       const input = getGradePercentageForMissingSubmissionsInput(screen)
@@ -115,7 +120,7 @@ describe('LatePoliciesTabPanel', () => {
     test('when clearing the input and then typing one character followed by blurring the input, changeLatePolicy is calle three times', async () => {
       let mock
       subject(props => {
-        mock = props.changeLatePolicy = jest.fn()
+        mock = props.changeLatePolicy = vi.fn()
       })
       await userEvent.click(getAutomaticallyApplyGradeForMissingSubmissionsCheckbox(screen))
       const input = getGradePercentageForMissingSubmissionsInput(screen)
@@ -132,7 +137,7 @@ describe('LatePoliciesTabPanel', () => {
     test('changeLatePolicy passes the difference of 100 - missingSubmissionDeduction', async () => {
       let mock
       subject(props => {
-        mock = props.changeLatePolicy = jest.fn()
+        mock = props.changeLatePolicy = vi.fn()
       })
       await userEvent.click(getAutomaticallyApplyGradeForMissingSubmissionsCheckbox(screen))
       const input = getGradePercentageForMissingSubmissionsInput(screen)
@@ -213,7 +218,7 @@ describe('LatePoliciesTabPanel', () => {
       test('passes "lateSubmissionDeductionEnabled" to parent', async () => {
         let mock
         subject(props => {
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         await userEvent.click(getAutomaticallyApplyDeductionToLateSubmissionsCheckbox(screen))
         expect(mock).toHaveBeenCalledWith({
@@ -239,7 +244,7 @@ describe('LatePoliciesTabPanel', () => {
       beforeEach(async () => {
         subject(props => {
           props.latePolicy.data = getLatePolicyData()
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         await userEvent.click(getAutomaticallyApplyDeductionToLateSubmissionsCheckbox(screen))
         await userEvent.click(getLateSubmissionDeductionIntervalInput(screen))
@@ -291,29 +296,29 @@ describe('LatePoliciesTabPanel', () => {
     test('initializes with an alert showing if passed showAlert: true', () => {
       subject({showAlert: true})
       expect(
-        screen.getByText('Changing the late policy will affect previously graded submissions.')
+        screen.getByText('Changing the late policy will affect previously graded submissions.'),
       ).toBeInTheDocument()
     })
 
     test('does not initialize with an alert showing if passed showAlert: false', () => {
       subject({showAlert: false})
       expect(
-        screen.queryByText('Changing the late policy will affect previously graded submissions.')
+        screen.queryByText('Changing the late policy will affect previously graded submissions.'),
       ).not.toBeInTheDocument()
     })
 
     test('focuses on the missing submission input when the alert closes', () => {
       subject({showAlert: true})
-      const spy = jest.spyOn(getGradePercentageForMissingSubmissionsInput(screen), 'focus')
+      const spy = vi.spyOn(getGradePercentageForMissingSubmissionsInput(screen), 'focus')
       ref.current.closeAlert()
       expect(spy).toHaveBeenCalledTimes(1)
     })
 
     test('does not focus on the missing submission checkbox when the alert closes', () => {
       subject({showAlert: true})
-      const spy = jest.spyOn(
+      const spy = vi.spyOn(
         getAutomaticallyApplyGradeForMissingSubmissionsCheckbox(screen),
-        'focus'
+        'focus',
       )
       ref.current.closeAlert()
       expect(spy).toHaveBeenCalledTimes(0)
@@ -324,13 +329,13 @@ describe('LatePoliciesTabPanel', () => {
         'missing submission input is disabled',
       () => {
         subject({showAlert: true}, {missingSubmissionDeductionEnabled: false})
-        const spy = jest.spyOn(
+        const spy = vi.spyOn(
           getAutomaticallyApplyGradeForMissingSubmissionsCheckbox(screen),
-          'focus'
+          'focus',
         )
         ref.current.closeAlert()
         expect(spy).toHaveBeenCalledTimes(1)
-      }
+      },
     )
 
     test(
@@ -338,10 +343,10 @@ describe('LatePoliciesTabPanel', () => {
         'missing submission input is disabled',
       () => {
         subject({showAlert: true}, {missingSubmissionDeductionEnabled: false})
-        const spy = jest.spyOn(getGradePercentageForMissingSubmissionsInput(screen), 'focus')
+        const spy = vi.spyOn(getGradePercentageForMissingSubmissionsInput(screen), 'focus')
         ref.current.closeAlert()
         expect(spy).toHaveBeenCalledTimes(0)
-      }
+      },
     )
   })
 
@@ -387,20 +392,20 @@ describe('LatePoliciesTabPanel', () => {
     describe('missing submission deduction checkbox', () => {
       test('calls the changeLatePolicy function when the missing submission deduction checkbox is changed', async () => {
         subject(props => {
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         await userEvent.click(getAutomaticallyApplyGradeForMissingSubmissionsCheckbox(screen))
         expect(mock).toHaveBeenCalledWith(
           expect.objectContaining({
             changes: expect.objectContaining({missingSubmissionDeductionEnabled: true}),
-          })
+          }),
         )
       })
 
       test('does not send any changes to the changeLatePolicy function on the second action if the missing submission deduction checkbox is unchecked and then checked', async () => {
         subject(props => {
-          mock = props.changeLatePolicy = jest.fn(
-            () => (props.latePolicy.data.missingSubmissionDeductionEnabled = true)
+          mock = props.changeLatePolicy = vi.fn(
+            () => (props.latePolicy.data.missingSubmissionDeductionEnabled = true),
           )
         })
         await userEvent.click(getAutomaticallyApplyGradeForMissingSubmissionsCheckbox(screen))
@@ -413,7 +418,7 @@ describe('LatePoliciesTabPanel', () => {
     describe('missing submission deduction input', () => {
       test('missing submission input has label describing it', async () => {
         subject()
-        expect(screen.getByText('Grade for missing submissions')).toBeInTheDocument()
+        expect(screen.getByText('Grade for missing submissions %')).toBeInTheDocument()
       })
 
       test('enables the missing deduction input if the missing deduction checkbox is checked', async () => {
@@ -432,7 +437,7 @@ describe('LatePoliciesTabPanel', () => {
 
       test('calls the changeLatePolicy function with a new deduction when the missing submission deduction input is changed and is valid', () => {
         subject(props => {
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         fireEvent.change(getGradePercentageForMissingSubmissionsInput(screen), {
           target: {value: '22'},
@@ -440,13 +445,13 @@ describe('LatePoliciesTabPanel', () => {
         expect(mock).toHaveBeenCalledWith(
           expect.objectContaining({
             changes: {missingSubmissionDeduction: 78},
-          })
+          }),
         )
       })
 
       test('calls the changeLatePolicy function with a validationError if the missing submission deduction input is changed and is not numeric', () => {
         const {container} = subject(props => {
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         fireEvent.change(getGradePercentageForMissingSubmissionsInput(screen), {
           target: {value: 'abc'},
@@ -455,11 +460,11 @@ describe('LatePoliciesTabPanel', () => {
         expect(mock).toHaveBeenCalledWith(
           expect.objectContaining({
             changes: {missingSubmissionDeduction: NaN},
-          })
+          }),
         )
         const props: any = getLatePoliciesTabPanelProps()
         props.latePolicy.data = getDefaultLatePolicyData()
-        const rerender_mock = (props.changeLatePolicy = jest.fn())
+        const rerender_mock = (props.changeLatePolicy = vi.fn())
         props.latePolicy.changes = {missingSubmissionDeduction: NaN}
         container.rerender(<LatePoliciesTabPanel {...props} />)
         fireEvent.blur(getGradePercentageForMissingSubmissionsInput(screen))
@@ -468,13 +473,13 @@ describe('LatePoliciesTabPanel', () => {
             validationErrors: {
               missingSubmissionDeduction: 'Missing submission grade must be numeric',
             },
-          })
+          }),
         )
       })
 
       test('calls the changeLatePolicy function without a validationError for missing submission deduction if a valid input is entered after an invalid input is entered', () => {
         subject(props => {
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
           props.latePolicy.changes = {
             missingSubmissionDeduction: 0,
           }
@@ -487,7 +492,7 @@ describe('LatePoliciesTabPanel', () => {
         expect(mock).toHaveBeenCalledWith(
           expect.objectContaining({
             validationErrors: {},
-          })
+          }),
         )
       })
     })
@@ -496,20 +501,20 @@ describe('LatePoliciesTabPanel', () => {
       test('calls the changeLatePolicy function when the late submission deduction checkbox is changed', async () => {
         subject(props => {
           props.latePolicy.data.lateSubmissionDeductionEnabled = false
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         await userEvent.click(getAutomaticallyApplyDeductionToLateSubmissionsCheckbox(screen))
         expect(mock).toHaveBeenCalledWith(
           expect.objectContaining({
             changes: {lateSubmissionDeductionEnabled: true},
-          })
+          }),
         )
       })
 
       test('does not send any changes to the changeLatePolicy function on the second action if the late submission deduction checkbox is unchecked and then checked', async () => {
         subject(props => {
-          mock = props.changeLatePolicy = jest.fn(
-            () => (props.latePolicy.data.lateSubmissionDeductionEnabled = false)
+          mock = props.changeLatePolicy = vi.fn(
+            () => (props.latePolicy.data.lateSubmissionDeductionEnabled = false),
           )
         })
         await userEvent.click(getAutomaticallyApplyDeductionToLateSubmissionsCheckbox(screen))
@@ -522,7 +527,7 @@ describe('LatePoliciesTabPanel', () => {
         subject(props => {
           props.latePolicy.data.lateSubmissionMinimumPercent = 1
           props.latePolicy.data.lateSubmissionDeductionEnabled = false
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         await userEvent.click(getAutomaticallyApplyDeductionToLateSubmissionsCheckbox(screen))
         expect(mock).toHaveBeenCalledWith(
@@ -531,14 +536,14 @@ describe('LatePoliciesTabPanel', () => {
               lateSubmissionDeductionEnabled: true,
               lateSubmissionMinimumPercentEnabled: true,
             },
-          })
+          }),
         )
       })
 
       test('does not set lateSubmissionMinimumPercentEnabled to true when the late submission deduction checkbox is checked and the late submission minimum percent is zero', async () => {
         subject(props => {
           props.latePolicy.data.lateSubmissionDeductionEnabled = false
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         await userEvent.click(getAutomaticallyApplyDeductionToLateSubmissionsCheckbox(screen))
         expect(mock).toHaveBeenCalledWith(
@@ -546,7 +551,7 @@ describe('LatePoliciesTabPanel', () => {
             changes: {
               lateSubmissionDeductionEnabled: true,
             },
-          })
+          }),
         )
       })
     })
@@ -568,7 +573,7 @@ describe('LatePoliciesTabPanel', () => {
 
       test('calls the changeLatePolicy function with a new deduction when the late submission deduction input is changed and is valid', async () => {
         subject(props => {
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         fireEvent.change(getLateSubmissionDeductionPercentInput(screen), {
           target: {value: '22'},
@@ -576,7 +581,7 @@ describe('LatePoliciesTabPanel', () => {
         expect(mock).toHaveBeenCalledWith(
           expect.objectContaining({
             changes: {lateSubmissionDeduction: 22},
-          })
+          }),
         )
         fireEvent.change(getLateSubmissionDeductionPercentInput(screen), {
           target: {value: '0'},
@@ -584,7 +589,7 @@ describe('LatePoliciesTabPanel', () => {
         expect(mock).toHaveBeenCalledWith(
           expect.objectContaining({
             changes: {lateSubmissionDeduction: 0},
-          })
+          }),
         )
         fireEvent.blur(getLateSubmissionDeductionPercentInput(screen))
         // does not call changeLatePolicy on blur with no changes
@@ -593,7 +598,7 @@ describe('LatePoliciesTabPanel', () => {
 
       test('calls the changeLatePolicy function with a validationError if the late submission deduction input is changed and is not numeric', () => {
         const {container} = subject(props => {
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         fireEvent.change(getLateSubmissionDeductionPercentInput(screen), {
           target: {value: 'abc'},
@@ -602,11 +607,11 @@ describe('LatePoliciesTabPanel', () => {
         expect(mock).toHaveBeenCalledWith(
           expect.objectContaining({
             changes: {lateSubmissionDeduction: NaN},
-          })
+          }),
         )
         const props: any = getLatePoliciesTabPanelProps()
         props.latePolicy.data = getDefaultLatePolicyData()
-        const rerender_mock = (props.changeLatePolicy = jest.fn())
+        const rerender_mock = (props.changeLatePolicy = vi.fn())
         props.latePolicy.changes = {lateSubmissionDeduction: NaN}
         container.rerender(<LatePoliciesTabPanel {...props} />)
         fireEvent.blur(getLateSubmissionDeductionPercentInput(screen))
@@ -615,7 +620,7 @@ describe('LatePoliciesTabPanel', () => {
             validationErrors: {
               lateSubmissionDeduction: 'Late submission deduction must be numeric',
             },
-          })
+          }),
         )
       })
     })
@@ -637,7 +642,7 @@ describe('LatePoliciesTabPanel', () => {
 
       test('calls the changeLatePolicy function when the late submission deduction interval select is changed', async () => {
         subject(props => {
-          mock = props.changeLatePolicy = jest.fn(() => {
+          mock = props.changeLatePolicy = vi.fn(() => {
             props.latePolicy.data.lateSubmissionDeductionEnabled = true
           })
           props.latePolicy.data.lateSubmissionDeductionEnabled = true
@@ -651,7 +656,7 @@ describe('LatePoliciesTabPanel', () => {
             changes: {
               lateSubmissionInterval: 'hour',
             },
-          })
+          }),
         )
       })
     })
@@ -659,7 +664,7 @@ describe('LatePoliciesTabPanel', () => {
     describe('late submission minimum percent input', () => {
       test('calls the changeLatePolicy function with a new percent when the late submission minimum percent input is changed and is valid', () => {
         subject(props => {
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
           props.latePolicy.data.lateSubmissionMinimumPercent = 60
           props.latePolicy.data.lateSubmissionMinimumPercentEnabled = true
         })
@@ -672,14 +677,14 @@ describe('LatePoliciesTabPanel', () => {
             changes: {
               lateSubmissionMinimumPercent: 22,
             },
-          })
+          }),
         )
       })
 
       test('sets lateSubmissionMinimumPercentEnabled to true if the minimum percent is changed from zero to non-zero', async () => {
         const {container, props} = subject(_props => {
           _props.lateSubmissionMinimumPercent = 0
-          mock = _props.changeLatePolicy = jest.fn()
+          mock = _props.changeLatePolicy = vi.fn()
         })
         fireEvent.change(getLowestPossibleGradePercentInput(screen), {
           target: {value: '22'},
@@ -699,7 +704,7 @@ describe('LatePoliciesTabPanel', () => {
         const {container, props} = subject(_props => {
           _props.latePolicy.data.lateSubmissionMinimumPercent = 60
           _props.latePolicy.data.lateSubmissionMinimumPercentEnabled = true
-          mock = _props.changeLatePolicy = jest.fn()
+          mock = _props.changeLatePolicy = vi.fn()
         })
         const elm = screen.getByTestId('late-submission-minimum-percent')
         fireEvent.change(elm, {
@@ -716,13 +721,13 @@ describe('LatePoliciesTabPanel', () => {
               lateSubmissionMinimumPercent: 0,
               lateSubmissionMinimumPercentEnabled: false,
             },
-          })
+          }),
         )
       })
 
       test('calls the changeLatePolicy function with a validationError if the late submission minimum percent input is changed and is not numeric', () => {
         const {container} = subject(props => {
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         fireEvent.change(getLowestPossibleGradePercentInput(screen), {
           target: {value: 'abc'},
@@ -731,11 +736,11 @@ describe('LatePoliciesTabPanel', () => {
         expect(mock).toHaveBeenCalledWith(
           expect.objectContaining({
             changes: {lateSubmissionMinimumPercent: NaN},
-          })
+          }),
         )
         const props: any = getLatePoliciesTabPanelProps()
         props.latePolicy.data = getDefaultLatePolicyData()
-        const rerender_mock = (props.changeLatePolicy = jest.fn())
+        const rerender_mock = (props.changeLatePolicy = vi.fn())
         props.latePolicy.changes = {lateSubmissionMinimumPercent: NaN}
         container.rerender(<LatePoliciesTabPanel {...props} />)
         fireEvent.blur(getLowestPossibleGradePercentInput(screen))
@@ -744,7 +749,7 @@ describe('LatePoliciesTabPanel', () => {
             validationErrors: {
               lateSubmissionMinimumPercent: 'Lowest possible grade must be numeric',
             },
-          })
+          }),
         )
       })
 
@@ -765,13 +770,13 @@ describe('LatePoliciesTabPanel', () => {
           props.latePolicy.validationErrors = {
             lateSubmissionMinimumPercent: 'Lowest possible grade must be between 0 and 100',
           }
-          mock = props.changeLatePolicy = jest.fn()
+          mock = props.changeLatePolicy = vi.fn()
         })
         fireEvent.blur(getLowestPossibleGradePercentInput(screen))
         expect(mock).toHaveBeenCalledWith(
           expect.objectContaining({
             validationErrors: {},
-          })
+          }),
         )
       })
     })

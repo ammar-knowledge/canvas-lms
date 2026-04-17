@@ -22,7 +22,7 @@ import {render, fireEvent, act} from '@testing-library/react'
 import useContentShareUserSearchApi from '../../effects/useContentShareUserSearchApi'
 import ContentShareUserSearchSelector from '../ContentShareUserSearchSelector'
 
-jest.mock('../../effects/useContentShareUserSearchApi')
+vi.mock('../../effects/useContentShareUserSearchApi')
 
 describe('ContentShareUserSearchSelector', () => {
   beforeAll(() => {
@@ -38,7 +38,7 @@ describe('ContentShareUserSearchSelector', () => {
   })
 
   beforeEach(() => {
-    jest.useFakeTimers()
+    vi.useFakeTimers()
   })
 
   it('initially searches with an empty search term', () => {
@@ -47,14 +47,14 @@ describe('ContentShareUserSearchSelector', () => {
       expect.objectContaining({
         courseId: '42',
         params: {},
-      })
+      }),
     )
   })
 
   it('renders a loading spinner while searching', () => {
     useContentShareUserSearchApi.mockImplementationOnce(({loading}) => loading(true))
     const {getByText, getByLabelText} = render(
-      <ContentShareUserSearchSelector courseId="42" onUserSelected={() => {}} />
+      <ContentShareUserSearchSelector courseId="42" onUserSelected={() => {}} />,
     )
     fireEvent.click(getByLabelText(/send to/i))
     expect(getByText(/loading/i)).toBeInTheDocument()
@@ -62,35 +62,35 @@ describe('ContentShareUserSearchSelector', () => {
 
   it('renders a loading spinner and searches with a specific search term when typed', () => {
     const {getAllByText, getByLabelText} = render(
-      <ContentShareUserSearchSelector courseId="42" onUserSelected={() => {}} />
+      <ContentShareUserSearchSelector courseId="42" onUserSelected={() => {}} />,
     )
     const selectInput = getByLabelText(/send to/i)
     fireEvent.click(selectInput)
     fireEvent.change(selectInput, {target: {value: 'abc'}})
     useContentShareUserSearchApi.mockImplementationOnce(({loading}) => loading(true))
-    act(() => jest.runAllTimers()) // let the debounce happen
+    act(() => vi.advanceTimersByTime(1000)) // let the debounce happen
     const loadingTexts = getAllByText(/loading/i)
     const loadingTextForSpinner = loadingTexts.find(loading => loading.closest('svg'))
     expect(loadingTextForSpinner).toBeInTheDocument()
     expect(useContentShareUserSearchApi).toHaveBeenCalledWith(
       expect.objectContaining({
         params: {search_term: 'abc'},
-      })
+      }),
     )
   })
 
   it('invokes onUserSelected when a user is chosen', () => {
-    const handleUserSelected = jest.fn()
+    const handleUserSelected = vi.fn()
     const {getByText, getByLabelText} = render(
-      <ContentShareUserSearchSelector courseId="42" onUserSelected={handleUserSelected} />
+      <ContentShareUserSearchSelector courseId="42" onUserSelected={handleUserSelected} />,
     )
     const selectInput = getByLabelText(/send to/i)
     fireEvent.click(selectInput)
     useContentShareUserSearchApi.mockImplementationOnce(({success}) =>
-      success([{id: 'foo', name: 'shrek'}])
+      success([{id: 'foo', name: 'shrek'}]),
     )
     fireEvent.change(selectInput, {target: {value: 'shr'}})
-    act(() => jest.runAllTimers()) // let the debounce happen
+    act(() => vi.advanceTimersByTime(1000)) // let the debounce happen
     fireEvent.click(getByText('shrek'))
     expect(handleUserSelected).toHaveBeenCalledWith({id: 'foo', name: 'shrek'})
   })
@@ -102,7 +102,7 @@ describe('ContentShareUserSearchSelector', () => {
         courseId="42"
         onUserSelected={() => {}}
         selectedUsers={alreadySelectedUsers}
-      />
+      />,
     )
     const selectInput = getByLabelText(/send to/i)
     fireEvent.click(selectInput)
@@ -110,10 +110,10 @@ describe('ContentShareUserSearchSelector', () => {
       success([
         {id: 'foo', name: 'shrek'},
         {id: 'bar', name: 'extra shrek'},
-      ])
+      ]),
     )
     fireEvent.change(selectInput, {target: {value: 'shr'}})
-    act(() => jest.runAllTimers()) // let the debounce happen
+    act(() => vi.advanceTimersByTime(1000)) // let the debounce happen
     expect(getByText('shrek')).toBeInTheDocument()
     expect(queryByText('extra shrek')).not.toBeInTheDocument()
   })

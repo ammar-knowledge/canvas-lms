@@ -22,8 +22,8 @@ import userEvent, {PointerEventsCheckLevel} from '@testing-library/user-event'
 
 import {UnpublishedChangesTrayContents} from '../unpublished_changes_tray_contents'
 
-const onTrayDismiss = jest.fn()
-const onResetPace = jest.fn()
+const onTrayDismiss = vi.fn()
+const onResetPace = vi.fn()
 
 const CHANGES = [
   {id: 'theme', summary: 'You changed the theme from Light Mode to Dark Mode.'},
@@ -41,11 +41,10 @@ const defaultProps = {
 
 beforeAll(() => {
   window.ENV.FEATURES ||= {}
-  window.ENV.FEATURES.course_paces_redesign = true
 })
 
 afterEach(() => {
-  jest.clearAllMocks()
+  vi.clearAllMocks()
 })
 
 describe('UnpublishedChangesTrayContents', () => {
@@ -59,9 +58,9 @@ describe('UnpublishedChangesTrayContents', () => {
 
   it('renders successfully with no changes', () => {
     const {getByText} = render(
-      <UnpublishedChangesTrayContents {...defaultProps} unpublishedChanges={[]} />
+      <UnpublishedChangesTrayContents {...defaultProps} unpublishedChanges={[]} />,
     )
-    expect(getByText('Unpublished Changes')).toBeInTheDocument()
+    expect(getByText('Unsaved Changes')).toBeInTheDocument()
   })
 
   it('calls the handleTrayDismiss when the close button is clicked', async () => {
@@ -74,7 +73,7 @@ describe('UnpublishedChangesTrayContents', () => {
 
   it('disables the reset button if loading', () => {
     const {getByRole} = render(
-      <UnpublishedChangesTrayContents {...defaultProps} isSyncing={true} />
+      <UnpublishedChangesTrayContents {...defaultProps} isSyncing={true} />,
     )
     const resetButton = getByRole('button', {name: 'Reset all'})
     expect(resetButton).toBeInTheDocument()
@@ -83,7 +82,7 @@ describe('UnpublishedChangesTrayContents', () => {
 
   it('disables the reset button if there are no changes', () => {
     const {getByRole} = render(
-      <UnpublishedChangesTrayContents {...defaultProps} unpublishedChanges={[]} />
+      <UnpublishedChangesTrayContents {...defaultProps} unpublishedChanges={[]} />,
     )
     const resetButton = getByRole('button', {name: 'Reset all'})
     expect(resetButton).toBeInTheDocument()
@@ -96,7 +95,7 @@ describe('UnpublishedChangesTrayContents', () => {
     act(() => resetButton.click())
     expect(getByText('Reset all unpublished changes?')).toBeInTheDocument()
     expect(
-      getByText('Your unpublished changes will be reverted to their previously saved state.')
+      getByText('Your unpublished changes will be reverted to their previously saved state.'),
     ).toBeInTheDocument()
     const cancelButton = getByRole('button', {name: 'Cancel'})
     act(() => cancelButton.click())
@@ -112,12 +111,5 @@ describe('UnpublishedChangesTrayContents', () => {
     act(() => cancelButton.click())
     expect(onResetPace).toHaveBeenCalledTimes(1)
     expect(onTrayDismiss).toHaveBeenCalledWith(true)
-  })
-
-  it('does not render the reset all button if the course_paces_redesign flag is disabled', () => {
-    window.ENV.FEATURES.course_paces_redesign = false
-    const {getByText, queryByText} = render(<UnpublishedChangesTrayContents {...defaultProps} />)
-    expect(getByText('Unpublished Changes')).toBeInTheDocument()
-    expect(queryByText('Reset all')).not.toBeInTheDocument()
   })
 })

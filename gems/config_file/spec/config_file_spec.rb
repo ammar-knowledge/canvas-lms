@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
-
 describe ConfigFile do
   describe ".cache_object" do
     before do
@@ -33,7 +31,7 @@ describe ConfigFile do
     end
 
     it "caches objects" do
-      file = instance_double("Pathname")
+      file = instance_double(Pathname)
       expect(Rails.root).to receive(:join).with("config/my_config.yml").and_return(file)
       expect(file).to receive(:file?).and_return(true)
       expect(file).to receive(:read).and_return("test: {}")
@@ -54,7 +52,7 @@ describe ConfigFile do
     end
 
     it "caches YAML even if it has to load multiple objects" do
-      file = instance_double("Pathname")
+      file = instance_double(Pathname)
       expect(Rails.root).to receive(:join).with("config/my_config.yml").and_return(file)
       expect(file).to receive(:file?).and_return(true)
       expect(file).to receive(:read).once.and_return("test: a\nenv2: b")

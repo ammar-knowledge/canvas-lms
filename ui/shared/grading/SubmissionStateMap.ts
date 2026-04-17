@@ -63,7 +63,9 @@ class SubmissionStateMap {
       this.submissionCellMap[student.id] = {}
       this.studentSubmissionMap[student.id] = {}
       Object.values(assignments).forEach(assignment => {
-        const submission = student[`assignment_${assignment.id}`] as Submission
+        const submission = (student as unknown as Record<string, Submission>)[
+          `assignment_${assignment.id}`
+        ]
         this.setSubmissionCellState(student, assignment, submission)
       })
     }
@@ -83,7 +85,7 @@ class SubmissionStateMap {
       student,
       this.hasGradingPeriods,
       this.selectedGradingPeriodID,
-      this.isAdmin
+      this.isAdmin,
     )
   }
 

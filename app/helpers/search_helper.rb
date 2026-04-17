@@ -33,8 +33,8 @@ module SearchHelper
     include_all_permissions = (permissions == :all)
     permissions = permissions.presence && Array(permissions).map(&:to_sym)
 
-    @contexts = Rails.cache.fetch(["all_conversation_contexts", @current_user, context, permissions].cache_key, expires_in: 10.minutes) do
-      contexts = { courses: {}, groups: {}, sections: {} }
+    @contexts = Rails.cache.fetch(["all_conversation_contexts_v2", @current_user, context, permissions].cache_key, expires_in: 10.minutes) do
+      contexts = { courses: {}, groups: {}, sections: {}, differentiation_tags: {} }
 
       term_for_course = lambda do |course|
         course.enrollment_term.default_term? ? nil : course.enrollment_term.name
@@ -57,7 +57,8 @@ module SearchHelper
                      :inactive
                    end,
             available: type == :current && course.available?,
-            default_section_id: course.default_section(no_create: true).try(:id)
+            default_section_id: course.default_section(no_create: true).try(:id),
+            allow_differentiation_tags: course.account.allow_assign_to_differentiation_tags?
           }.tap do |hash|
             hash[:permissions] =
               if include_all_permissions
@@ -113,6 +114,32 @@ module SearchHelper
         end
       end
 
+      add_differentiation_tags = lambda do |tags, group_context = nil|
+        ActiveRecord::Associations.preload(tags, [:group_category, :context])
+        ActiveRecord::Associations.preload(tags, :group_memberships, GroupMembership.where(user_id: @current_user))
+        tags.each do |tag|
+          tag.can_participate = true
+          contexts[:differentiation_tags][tag.id] = {
+            id: tag.id,
+            name: tag.name,
+            type: :differentiation_tag,
+            state: tag.active? ? :active : :inactive,
+            parent: (tag.context_type == "Course") ? { course: tag.context_id } : nil,
+            context_name: (group_context || tag.context).name,
+            category: tag.group_category&.name
+          }.tap do |hash|
+            hash[:permissions] =
+              if include_all_permissions
+                tag.rights_status(@current_user).select { |_key, value| value }
+              elsif permissions
+                tag.rights_status(@current_user, *permissions).select { |_key, value| value }
+              else
+                {}
+              end
+          end
+        end
+      end
+
       case context
       when Course
         add_courses.call [context], :current
@@ -127,6 +154,11 @@ module SearchHelper
                    end
         add_sections.call sections
         add_groups.call context.groups.active, context
+        if context.account.allow_assign_to_differentiation_tags? &&
+           context.grants_any_right?(@current_user, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS)
+          add_differentiation_tags.call context.differentiation_tags.active, context
+        end
+
       when Group
         if context.grants_right?(@current_user, session, :read)
           add_groups.call [context]
@@ -171,7 +203,9 @@ module SearchHelper
                         exclude_ids: exclude_contexts,
                         search_all_contexts: options[:search_all_contexts],
                         types: types[:context],
-                        base_url: options[:base_url]
+                        base_url: options[:base_url],
+                        include_concluded: options[:include_concluded],
+                        restrict_to_teacher_recipients: options[:restrict_to_teacher_recipients]
                       )]
     end
 
@@ -181,7 +215,9 @@ module SearchHelper
                         search: options[:search],
                         exclude_ids: exclude_users,
                         context: options[:context],
-                        weak_checks: options[:skip_visibility_checks]
+                        weak_checks: options[:skip_visibility_checks],
+                        include_concluded: options[:include_concluded],
+                        restrict_to_teacher_recipients: options[:restrict_to_teacher_recipients]
                       )]
     end
 
@@ -209,18 +245,21 @@ module SearchHelper
                  @contexts.values_at(*options[:types].map { |t| t.to_s.pluralize.to_sym }).compact.map(&:values).flatten
                end
     elsif options[:synthetic_contexts]
-      if context_name =~ /\Acourse_(\d+)(_(groups|sections))?\z/ && (course = @contexts[:courses][Regexp.last_match(1).to_i]) && messageable_context_states[course[:state]]
+      if context_name =~ /\Acourse_(\d+)(_(groups|sections|differentiation_tags))?\z/ && (course = @contexts[:courses][Regexp.last_match(1).to_i]) && messageable_context_states[course[:state]]
         sections = @contexts[:sections].values.select { |section| section[:parent] == { course: course[:id] } }
         groups = @contexts[:groups].values.select { |group| group[:parent] == { course: course[:id] } }
+        differentiation_tags = @contexts[:differentiation_tags].values.select { |tag| tag[:parent] == { course: course[:id] } }
+
         case context_name
         when /\Acourse_\d+\z/
-          if terms.present? || options[:search_all_contexts] # search all groups and sections (and users)
-            result = sections + groups
+          if terms.present? || options[:search_all_contexts] # search all groups, sections (and users)
+            result = sections + groups + differentiation_tags
           else # otherwise we show synthetic contexts
-            result = synthetic_contexts_for(course, context_name, options[:base_url])
+            result = synthetic_contexts_for(course, context_name, options)
             found_custom_sections = sections.any? { |s| s[:id] != course[:default_section_id] }
             result << { id: "#{context_name}_sections", name: I18n.t(:course_sections, "Course Sections"), item_count: sections.size, type: :context } if found_custom_sections
             result << { id: "#{context_name}_groups", name: I18n.t(:student_groups, "Student Groups"), item_count: groups.size, type: :context } unless groups.empty?
+            result << { id: "#{context_name}_differentiation_tags", name: I18n.t(:differentiation_tags, "Differentiation Tags"), item_count: differentiation_tags.size, type: :context } if course[:allow_differentiation_tags] && !differentiation_tags.empty?
             return result
           end
         when /\Acourse_\d+_groups\z/
@@ -229,12 +268,15 @@ module SearchHelper
         when /\Acourse_\d+_sections\z/
           @skip_users = true # ditto
           result = sections
+        when /\Acourse_\d+_differentiation_tags\z/
+          @skip_users = true
+          result = differentiation_tags
         end
       elsif context_name =~ /\Asection_(\d+)\z/ && (section = @contexts[:sections][Regexp.last_match(1).to_i]) && messageable_context_states[section[:state]]
         if terms.present? # we'll just search the users
           result = []
         else
-          return synthetic_contexts_for(course_for_section(section), context_name, options[:base_url])
+          return synthetic_contexts_for(course_for_section(section), context_name, options)
         end
       end
     end
@@ -341,12 +383,13 @@ def course_for_group(group)
   course_for_section(group)
 end
 
-def synthetic_contexts_for(course, context, base_url)
+def synthetic_contexts_for(course, context, options)
   # context is a string identifying a subset of the course
   @skip_users = true
   # TODO: move the aggregation entirely into the DB. we only select a little
   # bit of data per user, but this still isn't ideal
-  users = @current_user.address_book.known_in_context(context)
+  base_url = options[:base_url]
+  users = @current_user.address_book.known_in_context(context, options)
   enrollment_counts = { all: users.size }
   users.each do |user|
     common_courses = @current_user.address_book.common_courses(user)
@@ -363,7 +406,13 @@ def synthetic_contexts_for(course, context, base_url)
   synthetic_context = { avatar_url:, type: :context, permissions: course[:permissions] }
   result << synthetic_context.merge({ id: "#{context}_teachers", name: I18n.t(:enrollments_teachers, "Teachers"), user_count: enrollment_counts["TeacherEnrollment"] }) if enrollment_counts["TeacherEnrollment"].to_i > 0
   result << synthetic_context.merge({ id: "#{context}_tas", name: I18n.t(:enrollments_tas, "Teaching Assistants"), user_count: enrollment_counts["TaEnrollment"] }) if enrollment_counts["TaEnrollment"].to_i > 0
-  result << synthetic_context.merge({ id: "#{context}_students", name: I18n.t(:enrollments_students, "Students"), user_count: enrollment_counts["StudentEnrollment"] }) if enrollment_counts["StudentEnrollment"].to_i > 0
+  if !options[:restrict_to_teacher_recipients] && enrollment_counts["StudentEnrollment"].to_i > 0
+    result << synthetic_context.merge(
+      id: "#{context}_students",
+      name: I18n.t(:enrollments_students, "Students"),
+      user_count: enrollment_counts["StudentEnrollment"]
+    )
+  end
   result << synthetic_context.merge({ id: "#{context}_observers", name: I18n.t(:enrollments_observers, "Observers"), user_count: enrollment_counts["ObserverEnrollment"] }) if enrollment_counts["ObserverEnrollment"].to_i > 0
   result
 end
@@ -373,7 +422,7 @@ def context_state_ranks
 end
 
 def context_type_ranks
-  { course: 0, section: 1, group: 2 }
+  { course: 0, section: 1, group: 2, differentiation_tag: 3 }
 end
 
 def messageable_context_states

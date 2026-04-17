@@ -31,6 +31,21 @@ describe SubmissionsController do
       assert_unauthorized
     end
 
+    it "does not allow a student to submit an assignment that is assigned to a section they are concluded in" do
+      course_with_student_logged_in(active_all: true)
+      sec1 = @course.course_sections.create!(name: "section 1")
+      sec2 = @course.course_sections.create!(name: "section 2")
+      @course.enroll_student(@student, enrollment_state: "active", section: sec1, allow_multiple_enrollments: true)
+      concluded_enrollment = @course.enroll_student(@student, enrollment_state: "active", section: sec2, allow_multiple_enrollments: true)
+      concluded_enrollment.conclude
+      @course.account.enable_service(:avatars)
+      @assignment = @course.assignments.create!(title: "some assignment", submission_types: "online_url,online_upload")
+      create_section_override_for_assignment(@assignment, course_section: sec2)
+      @assignment.update!(only_visible_to_overrides: true)
+      post "create", params: { course_id: @course.id, assignment_id: @assignment.id, submission: { submission_type: "online_url", url: "url" } }
+      assert_unauthorized
+    end
+
     it "allows submitting homework" do
       course_with_student_logged_in(active_all: true)
       @course.account.enable_service(:avatars)
@@ -232,6 +247,22 @@ describe SubmissionsController do
       expect(att_copy).to be_associated_with_submission
     end
 
+    it "copies a new attachment to the submissions folder if it is used in a submission" do
+      course_with_student_logged_in(active_all: true)
+      @course.account.enable_service(:avatars)
+      @assignment = @course.assignments.create!(title: "some assignment", submission_types: "online_upload")
+      @assignment2 = @course.assignments.create!(title: "some assignment 2", submission_types: "online_upload")
+      att1 = attachment_model(context: @user, uploaded_data: stub_file_data("pikachu.txt", "asdf", "text/plain"))
+      att2 = attachment_model(context: @user, uploaded_data: stub_file_data("piplup.txt", "asdf", "text/plain"))
+      [att1, att2].each do |att|
+        post "create", params: { course_id: @course.id, assignment_id: @assignment.id, submission: { submission_type: "online_upload", attachment_ids: att.id }, attachments: { "0" => { uploaded_data: "" }, "-1" => { uploaded_data: "" } } }
+      end
+      post "create", params: { course_id: @course.id, assignment_id: @assignment2.id, submission: { submission_type: "online_upload", attachment_ids: att1.id }, attachments: { "0" => { uploaded_data: "" }, "-1" => { uploaded_data: "" } } }
+      submission1 = @assignment.submissions.find_by(user: @user).submission_history.first
+      submission2 = @assignment2.submissions.find_by(user: @user)
+      expect(submission1.attachment_ids).not_to eq(submission2.attachment_ids)
+    end
+
     it "rejects illegal file extensions from submission" do
       course_with_student_logged_in(active_all: true)
       @course.account.enable_service(:avatars)
@@ -275,8 +306,8 @@ describe SubmissionsController do
       course_with_student_logged_in(active_all: true)
       @course.account.enable_service(:avatars)
       @assignment = @course.assignments.create!(title: "some assignment", submission_types: "online_url,online_upload")
-      att1 = attachment_model(context: @user, uploaded_data: fixture_file_upload("docs/doc.doc", "application/msword", true))
-      att2 = attachment_model(context: @user, uploaded_data: fixture_file_upload("docs/txt.txt", "application/vnd.ms-excel", true))
+      att1 = attachment_model(context: @user, uploaded_data: fixture_file_upload("docs/doc.doc", "application/msword", binary: true))
+      att2 = attachment_model(context: @user, uploaded_data: fixture_file_upload("docs/txt.txt", "application/vnd.ms-excel", binary: true))
       post "create", params: { course_id: @course.id,
                                assignment_id: @assignment.id,
                                submission: { submission_type: "online_upload", attachment_ids: [att1.id, att2.id].join(",") },
@@ -331,7 +362,7 @@ describe SubmissionsController do
       request.path = "/api/v1/courses/#{@course.id}/assignments/#{@assignment.id}/submissions"
       post "create", params: { course_id: @course.id, assignment_id: @assignment.id, submission: { submission_type: "basic_lti_launch", url: "http://www.google.com" } }
       expect(response).to be_redirect
-      expect(assigns[:submission]).to_not be_nil
+      expect(assigns[:submission]).not_to be_nil
       expect(assigns[:submission].submission_type).to eq "basic_lti_launch"
       expect(assigns[:submission].url).to eq "http://www.google.com"
     end
@@ -655,7 +686,7 @@ describe SubmissionsController do
               submission: { submission_type: "online_url", url: "url" }
             }
             expect(response).to be_redirect
-            expect(response).to_not redirect_to(/[?&]confetti=true/)
+            expect(response).not_to redirect_to(/[?&]confetti=true/)
           end
         end
       end
@@ -669,7 +700,7 @@ describe SubmissionsController do
         it "redirects without confetti" do
           post "create", params: { course_id: @course.id, assignment_id: @assignment.id, submission: { submission_type: "online_url", url: "url" } }
           expect(response).to be_redirect
-          expect(response).to_not redirect_to(/[?&]confetti=true/)
+          expect(response).not_to redirect_to(/[?&]confetti=true/)
         end
       end
 
@@ -697,7 +728,7 @@ describe SubmissionsController do
               submission: { submission_type: "online_url", url: "url" }
             }
             expect(response).to be_redirect
-            expect(response).to_not redirect_to(/[?&]confetti=true/)
+            expect(response).not_to redirect_to(/[?&]confetti=true/)
           end
         end
       end
@@ -756,6 +787,27 @@ describe SubmissionsController do
         expect(response).to redirect_to(/[?&]submitted=2/)
       end
     end
+
+    it "returns redirect_url if should_redirect_to_assignment is true" do
+      course_with_student_logged_in(active_all: true)
+
+      assignment = @course.assignments.create!(
+        title: "some assignment",
+        submission_types: "online_url"
+      )
+
+      post "create",
+           params: {
+             course_id: @course.id,
+             assignment_id: assignment.id,
+             submission: { submission_type: "online_url", url: "url" },
+             should_redirect_to_assignment: true
+           },
+           format: "json"
+
+      json = response.parsed_body
+      expect(json["redirect_url"]).to include("/courses/#{@course.id}/assignments/#{assignment.id}?submitted=")
+    end
   end
 
   describe "GET zip" do
@@ -767,17 +819,48 @@ describe SubmissionsController do
       get "index", params: { course_id: @course.id, assignment_id: @assignment.id, zip: "1" }, format: "json"
       expect(response).to be_successful
 
-      a = Attachment.last
-      expect(a.user).to eq @teacher
-      expect(a.workflow_state).to eq "to_be_zipped"
-      a.update_attribute("workflow_state", "zipped")
-      allow_any_instantiation_of(a).to receive("full_filename").and_return(File.expand_path(__FILE__)) # just need a valid file
-      allow_any_instantiation_of(a).to receive("content_type").and_return("test/file")
+      attachment = Attachment.last
+      expect(attachment.user).to eq @teacher
+      expect(attachment.workflow_state).to eq "to_be_zipped"
+      attachment.update_attribute("workflow_state", "zipped")
 
+      test_filename = Rails.root.join(Attachment.file_store_config["path_prefix"], "test_file.txt").to_s
+      invalid_filename = "#{File.dirname(test_filename)}_extended/something.txt"
+
+      FileUtils.mkdir_p(File.dirname(test_filename))
+      FileUtils.mkdir_p(File.dirname(invalid_filename))
+      FileUtils.touch test_filename
+      FileUtils.touch invalid_filename
+
+      allow_any_instantiation_of(attachment).to receive("content_type").and_return("test/file")
+
+      # Should allow files in a safe directory
+      allow_any_instantiation_of(attachment).to receive("full_filename").and_return(test_filename)
       request.headers["HTTP_ACCEPT"] = "*/*"
       get "index", params: { course_id: @course.id, assignment_id: @assignment.id, zip: "1" }
       expect(response).to be_successful
       expect(response.media_type).to eq "test/file"
+
+      # Don't accept path that might be a directory or a file too, starting with the same path
+      allow_any_instantiation_of(attachment).to receive("full_filename").and_return(invalid_filename)
+      request.headers["HTTP_ACCEPT"] = "*/*"
+      get "index", params: { course_id: @course.id, assignment_id: @assignment.id, zip: "1" }
+      expect(response).to be_bad_request
+
+      # Should not allow files elsewhere
+      allow_any_instantiation_of(attachment).to receive("full_filename").and_return(File.expand_path(__FILE__))
+      request.headers["HTTP_ACCEPT"] = "*/*"
+      get "index", params: { course_id: @course.id, assignment_id: @assignment.id, zip: "1" }
+      expect(response).to be_bad_request
+
+      allow_any_instantiation_of(attachment).to receive("full_filename").and_return("../../../etc/hosts") # Path Traversal
+      request.headers["HTTP_ACCEPT"] = "*/*"
+      get "index", params: { course_id: @course.id, assignment_id: @assignment.id, zip: "1" }
+      expect(response).to be_bad_request
+
+      FileUtils.rm test_filename
+      FileUtils.rm invalid_filename
+      FileUtils.rmdir File.dirname invalid_filename
     end
   end
 
@@ -846,6 +929,87 @@ describe SubmissionsController do
       submission = Submission.find(@submission.id)
       expect(submission.read?(@student)).to be_falsey
       expect(submission.read?(@teacher)).to be_falsey
+    end
+
+    it "mark sub assignment submissions as read if reading parent assignment one's own submission" do
+      @course.account.enable_feature!(:discussion_checkpoints)
+      user_session(@student)
+      request.accept = Mime[:json].to_s
+
+      discussion_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "late discussion")
+      due_at = 1.week.from_now
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic:,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: }],
+        points_possible: 20
+      )
+
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic:,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "everyone", due_at: }],
+        points_possible: 10,
+        replies_required: 1
+      )
+
+      entry = discussion_topic.discussion_entries.create!(user: @student)
+      sub_entry = discussion_topic.discussion_entries.build
+      sub_entry.parent_id = entry.id
+      sub_entry.user_id = @student.id
+      sub_entry.save!
+      @submission.mark_unread(@student)
+      @submission.save!
+      checkpointed_assignment = Assignment.last
+      reply_to_topic = checkpointed_assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+      reply_to_entry = checkpointed_assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY)
+      reply_to_topic.grade_student(@student, grade: 15, grader: @teacher)
+      reply_to_entry.grade_student(@student, grade: 10, grader: @teacher)
+
+      expect(checkpointed_assignment.submissions.find_by(user: @student).unread?(@student)).to be_truthy
+      expect(reply_to_topic.submissions.find_by(user: @student).unread?(@student)).to be_truthy
+      expect(reply_to_entry.submissions.find_by(user: @student).unread?(@student)).to be_truthy
+
+      get :show, params: { course_id: @course.id, assignment_id: checkpointed_assignment.id, id: @student.id }, format: :json
+      expect(response).to be_successful
+
+      expect(checkpointed_assignment.submissions.find_by(user: @student).read?(@student)).to be_truthy
+      expect(reply_to_topic.submissions.find_by(user: @student).read?(@student)).to be_truthy
+      expect(reply_to_entry.submissions.find_by(user: @student).read?(@student)).to be_truthy
+    end
+
+    it "contains assignment checkpoint sub-assignment information" do
+      @course.account.enable_feature!(:discussion_checkpoints)
+      user_session(@student)
+      request.accept = Mime[:json].to_s
+
+      discussion_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "discussion")
+      due_at = 1.week.from_now
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic:,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: }],
+        points_possible: 20
+      )
+
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic:,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "everyone", due_at: }],
+        points_possible: 10,
+        replies_required: 1
+      )
+
+      discussion_topic.discussion_entries.create!(user: @student)
+      checkpointed_assignment = Assignment.last
+      reply_to_topic = checkpointed_assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+      reply_to_entry = checkpointed_assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY)
+
+      get :show, params: { course_id: @course.id, assignment_id: checkpointed_assignment.id, id: @student.id }, format: :json
+      expect(response).to be_successful
+
+      expect(assigns["reply_to_topic_assignment"]).to eq reply_to_topic
+      expect(assigns["reply_to_entry_assignment"]).to eq reply_to_entry
     end
 
     it "renders json with scores for teachers for unposted submissions" do
@@ -1065,7 +1229,7 @@ describe SubmissionsController do
       OriginalityReport.create!(attachment:,
                                 submission:,
                                 originality_score: 0.5,
-                                originality_report_url: "http://www.instructure.com")
+                                originality_report_url: "http://www.external.com")
     end
 
     before do
@@ -1073,6 +1237,10 @@ describe SubmissionsController do
     end
 
     describe "GET originality_report" do
+      before do
+        allow(PandataEvents).to receive(:send_event)
+      end
+
       it "redirects to the originality report URL if it exists" do
         get "originality_report", params: { course_id: assignment.context_id, assignment_id: assignment.id, submission_id: test_student.id, asset_string: attachment.asset_string }
         expect(response).to redirect_to originality_report.originality_report_url
@@ -1138,6 +1306,50 @@ describe SubmissionsController do
           asset_string: attachment.asset_string
         }
         expect(flash[:error]).to be_present
+      end
+
+      it "creates an lti launch log for external report URLs" do
+        originality_report.update!(originality_report_url: "http://www.turnitin.com/report")
+
+        expect(PandataEvents).to receive(:send_event).with(
+          :lti_launch,
+          hash_including(
+            user_id: test_teacher.id.to_s,
+            context_id: test_course.id.to_s,
+            message_type: "basic-lti_launch-request",
+            launch_url: originality_report.originality_report_url,
+            launch_type: "direct_link"
+          ),
+          for_user_id: test_teacher.global_id
+        )
+
+        get "originality_report", params: {
+          course_id: assignment.context_id,
+          assignment_id: assignment.id,
+          submission_id: test_student.id,
+          asset_string: attachment.asset_string
+        }
+        expect(response).to be_redirect
+      end
+
+      it "does not create an lti launch log for internal URLs" do
+        mock_link = Lti::Link.new(
+          resource_url: "http://canvas.test/internal_url",
+          resource_type_code: "originality_report",
+          resource_link_id: "resource_link_id"
+        )
+        originality_report.update!(originality_report_url: nil)
+        allow_any_instance_of(OriginalityReport).to receive(:lti_link).and_return(mock_link)
+
+        expect(PandataEvents).not_to receive(:send_event)
+
+        get "originality_report", params: {
+          course_id: assignment.context_id,
+          assignment_id: assignment.id,
+          submission_id: test_student.id,
+          asset_string: attachment.asset_string
+        }
+        expect(response).to be_redirect
       end
     end
 
@@ -1264,10 +1476,10 @@ describe SubmissionsController do
       }
     end
 
-    it "renders unauthorized if user does not have view_audit_trail permission" do
+    it "renders forbidden if user does not have view_audit_trail permission" do
       @teacher.account.role_overrides.where(permission: :view_audit_trail).destroy_all
       get :audit_events, params:, format: :json
-      expect(response).to have_http_status(:unauthorized)
+      expect(response).to have_http_status(:forbidden)
     end
 
     it "renders ok if user does have view_audit_trail permission" do
@@ -1414,7 +1626,7 @@ describe SubmissionsController do
         qsub.workflow_state = "complete"
         qsub.submission = quiz.assignment.find_or_create_submission(first_student)
         qsub.submission.audit_grade_changes = true
-        qsub.with_versioning(true) { qsub.save! }
+        qsub.with_versioning { qsub.save! }
 
         quiz
       end
@@ -1446,6 +1658,187 @@ describe SubmissionsController do
       it "returns the role of grader for a quiz" do
         get :audit_events, params: quiz_audit_params, format: :json
         expect(returned_quizzes).to include(hash_including({ "id" => quiz.id, "role" => "grader" }))
+      end
+    end
+  end
+
+  describe "PUT update with student_entered_score" do
+    before(:once) do
+      @course = course_factory(active_all: true)
+      @teacher = teacher_in_course(course: @course, active_all: true).user
+      @student = student_in_course(course: @course, active_all: true).user
+    end
+
+    context "with regular assignment" do
+      before(:once) do
+        @assignment = @course.assignments.create!(title: "Regular Assignment", points_possible: 10)
+        @submission = @assignment.grade_student(@student, grade: "5", grader: @teacher).first
+      end
+
+      before { user_session(@student) }
+
+      it "updates student_entered_score for regular assignment" do
+        put :update,
+            params: {
+              course_id: @course.id,
+              assignment_id: @assignment.id,
+              id: @student.id,
+              submission: { student_entered_score: 8 }
+            },
+            format: :json
+        expect(response).to have_http_status(:ok)
+        expect(@submission.reload.student_entered_score).to eq(8.0)
+      end
+
+      it "clears student_entered_score when set to null" do
+        @submission.update!(student_entered_score: 7)
+        put :update,
+            params: {
+              course_id: @course.id,
+              assignment_id: @assignment.id,
+              id: @student.id,
+              submission: { student_entered_score: nil }
+            },
+            format: :json
+        expect(response).to have_http_status(:ok)
+        expect(@submission.reload.student_entered_score).to be_nil
+      end
+
+      it "does not allow updating deleted assignments" do
+        @assignment.destroy
+        put :update,
+            params: {
+              course_id: @course.id,
+              assignment_id: @assignment.id,
+              id: @student.id,
+              submission: { comment: "test comment" }
+            },
+            format: :json
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+
+    context "with peer review sub assignment" do
+      before(:once) do
+        @course.enable_feature!(:peer_review_allocation_and_grading)
+        @parent_assignment = @course.assignments.create!(
+          title: "Assignment with Peer Review",
+          points_possible: 10,
+          peer_reviews: true,
+          peer_reviews_due_at: 1.day.from_now
+        )
+        @peer_review = PeerReviewSubAssignment.create!(
+          parent_assignment: @parent_assignment,
+          points_possible: 5
+        )
+        @reviewer = student_in_course(course: @course, active_all: true).user
+        @assessment_request = AssessmentRequest.create!(
+          user: @student,
+          asset: @parent_assignment.find_or_create_submission(@student),
+          assessor: @reviewer,
+          assessor_asset: @peer_review.find_or_create_submission(@reviewer),
+          peer_review_sub_assignment: @peer_review
+        )
+        @peer_review_submission = @peer_review.grade_student(@reviewer, grade: "3", grader: @teacher).first
+      end
+
+      before { user_session(@reviewer) }
+
+      it "allows finding peer review assignment in update action" do
+        put :update,
+            params: {
+              course_id: @course.id,
+              assignment_id: @peer_review.id,
+              id: @reviewer.id,
+              submission: { comment: "peer review comment" }
+            },
+            format: :json
+        expect(response).to have_http_status(:created)
+        expect(@peer_review_submission.reload.submission_comments.length).to be 1
+        expect(@peer_review_submission.submission_comments.first.comment).to eq("peer review comment")
+      end
+
+      it "does not allow updating deleted peer review assignments" do
+        @peer_review.destroy
+        put :update,
+            params: {
+              course_id: @course.id,
+              assignment_id: @peer_review.id,
+              id: @reviewer.id,
+              submission: { comment: "peer review comment" }
+            },
+            format: :json
+        expect(response).to have_http_status(:not_found)
+      end
+
+      it "updates student_entered_score for peer review sub assignment" do
+        put :update,
+            params: {
+              course_id: @course.id,
+              assignment_id: @peer_review.id,
+              id: @reviewer.id,
+              submission: { student_entered_score: 4 }
+            },
+            format: :json
+        expect(response).to have_http_status(:ok)
+        expect(@peer_review_submission.reload.student_entered_score).to eq(4.0)
+      end
+
+      it "clears student_entered_score for peer review when set to null" do
+        @peer_review_submission.update!(student_entered_score: 2)
+        put :update,
+            params: {
+              course_id: @course.id,
+              assignment_id: @peer_review.id,
+              id: @reviewer.id,
+              submission: { student_entered_score: nil }
+            },
+            format: :json
+        expect(response).to have_http_status(:ok)
+        expect(@peer_review_submission.reload.student_entered_score).to be_nil
+      end
+
+      it "persists student_entered_score to database" do
+        put :update,
+            params: {
+              course_id: @course.id,
+              assignment_id: @peer_review.id,
+              id: @reviewer.id,
+              submission: { student_entered_score: 5 }
+            },
+            format: :json
+        expect(response).to have_http_status(:ok)
+        expect(@peer_review_submission.reload.student_entered_score).to eq(5.0)
+      end
+    end
+
+    context "with checkpoint sub assignment" do
+      before(:once) do
+        @course.account.enable_feature!(:discussion_checkpoints)
+        @discussion_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "Checkpoint Discussion")
+        @due_at = 1.week.from_now
+        Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: @discussion_topic,
+          checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+          dates: [{ type: "everyone", due_at: @due_at }],
+          points_possible: 10
+        )
+        @parent_assignment = @discussion_topic.assignment
+        @checkpoint_sub_assignment = @parent_assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+      end
+
+      before { user_session(@student) }
+
+      it "does not allow updating checkpoint sub assignments directly" do
+        put :update,
+            params: {
+              course_id: @course.id,
+              assignment_id: @checkpoint_sub_assignment.id,
+              id: @student.id,
+              submission: { comment: "checkpoint comment" }
+            },
+            format: :json
+        expect(response).to have_http_status(:not_found)
       end
     end
   end

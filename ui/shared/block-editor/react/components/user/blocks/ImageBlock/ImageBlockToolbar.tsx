@@ -17,43 +17,79 @@
  */
 
 import React, {useCallback, useState} from 'react'
-import {useNode} from '@craftjs/core'
+import {useNode, type Node} from '@craftjs/core'
 
 import {Button, IconButton} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
+import {View, type ViewOwnProps} from '@instructure/ui-view'
 import {Menu, type MenuItemProps, type MenuItem} from '@instructure/ui-menu'
 import {Text} from '@instructure/ui-text'
-import {IconArrowOpenDownLine, IconUploadLine} from '@instructure/ui-icons'
-import {type ViewOwnProps} from '@instructure/ui-view'
+import {IconArrowOpenDownLine, IconTextareaLine, IconUploadLine} from '@instructure/ui-icons'
+import {IconResize} from '../../../../assets/internal-icons'
 
-import {UploadFileModal} from '../../../../FileUpload/UploadFileModal'
-import {IconSizePopup} from './ImageSizePopup'
 import {type ImageBlockProps, type ImageConstraint} from './types'
+import {type SizeVariant} from '../../../editor/types'
+import {AddImageModal} from '../../../editor/AddImageModal'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {Popover} from '@instructure/ui-popover'
+import {TextArea} from '@instructure/ui-text-area'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {changeSizeVariant} from '../../../../utils/resizeHelpers'
 
-const I18n = useI18nScope('block-editor/image-block')
+const I18n = createI18nScope('block-editor')
 
 const ImageBlockToolbar = () => {
   const {
     actions: {setProp},
+    node,
     props,
-  } = useNode(node => ({
-    props: node.data.props,
+  } = useNode((n: Node) => ({
+    node: n,
+    props: n.data.props,
   }))
   const [showUploadModal, setShowUploadModal] = useState(false)
 
   const handleConstraintChange = useCallback(
     (
-      e: React.MouseEvent<ViewOwnProps, MouseEvent>,
+      _e: any,
       value: MenuItemProps['value'] | MenuItemProps['value'][],
       _selected: MenuItemProps['selected'],
-      _args: MenuItem
+      _args: MenuItem,
     ) => {
-      const constraint = value as ImageConstraint
-      setProp((prps: ImageBlockProps) => (prps.constraint = constraint))
+      const constraint = value as ImageConstraint | 'aspect-ratio'
+      if (constraint === 'aspect-ratio') {
+        setProp((prps: ImageBlockProps) => {
+          prps.constraint = 'cover'
+          prps.maintainAspectRatio = true
+        })
+      } else {
+        setProp((prps: ImageBlockProps) => {
+          prps.constraint = constraint
+          prps.maintainAspectRatio = false
+        })
+      }
     },
-    [setProp]
+    [setProp],
+  )
+
+  const handleChangeSzVariant = useCallback(
+    (
+      _e: any,
+      value: MenuItemProps['value'] | MenuItemProps['value'][],
+      _selected: MenuItemProps['selected'],
+      _args: MenuItem,
+    ) => {
+      setProp((prps: ImageBlockProps) => {
+        prps.sizeVariant = value as SizeVariant
+
+        if (node.dom) {
+          const {width, height} = changeSizeVariant(node.dom, value as SizeVariant)
+          prps.width = width
+          prps.height = height
+        }
+      })
+    },
+    [node.dom, setProp],
   )
 
   const handleShowUploadModal = useCallback(() => {
@@ -65,22 +101,38 @@ const ImageBlockToolbar = () => {
   }, [])
 
   const handleSave = useCallback(
-    (imageURL: string | null) => {
-      setProp((prps: ImageBlockProps) => (prps.src = imageURL || undefined))
+    (imageURL: string | null, alt: string) => {
+      setProp((prps: ImageBlockProps) => {
+        prps.src = imageURL || undefined
+        prps.alt = alt
+      })
       setShowUploadModal(false)
     },
-    [setProp]
+    [setProp],
   )
+
+  const handleAltChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setProp((prps: ImageBlockProps) => {
+        prps.alt = e.target.value
+      })
+    },
+    [setProp],
+  )
+
+  const [showingAltTextMenu, setShowingAltTextMenu] = useState(false)
 
   return (
     <Flex gap="small">
       <IconButton
         screenReaderLabel={I18n.t('Upload Image')}
+        title={I18n.t('Upload Image')}
         withBackground={false}
         withBorder={false}
         onClick={handleShowUploadModal}
+        data-testid="upload-image-button"
       >
-        <IconUploadLine size="x-small" />
+        <IconUploadLine />
       </IconButton>
       <Menu
         label={I18n.t('Constraint')}
@@ -97,7 +149,7 @@ const ImageBlockToolbar = () => {
           type="checkbox"
           value="cover"
           onSelect={handleConstraintChange}
-          selected={props.constraint === 'cover'}
+          selected={!props.maintainAspectRatio && props.constraint === 'cover'}
         >
           <Text size="small">{I18n.t('Cover')}</Text>
         </Menu.Item>
@@ -105,21 +157,93 @@ const ImageBlockToolbar = () => {
           type="checkbox"
           value="contain"
           onSelect={handleConstraintChange}
-          selected={props.constraint === 'contain'}
+          selected={!props.maintainAspectRatio && props.constraint === 'contain'}
         >
           <Text size="small">{I18n.t('Contain')}</Text>
         </Menu.Item>
+        <Menu.Item
+          type="checkbox"
+          value="aspect-ratio"
+          onSelect={handleConstraintChange}
+          selected={props.maintainAspectRatio}
+        >
+          <Text size="small">{I18n.t('Match Aspect Ratio')}</Text>
+        </Menu.Item>
       </Menu>
 
-      <IconSizePopup width={props.width} height={props.height} />
+      <Menu
+        label={I18n.t('Sizing')}
+        trigger={
+          <IconButton
+            size="small"
+            withBackground={false}
+            withBorder={false}
+            screenReaderLabel={I18n.t('Image Size')}
+            title={I18n.t('Image Size')}
+          >
+            <IconResize size="x-small" />
+          </IconButton>
+        }
+      >
+        <Menu.Item
+          type="checkbox"
+          value="auto"
+          selected={props.sizeVariant === 'auto' || props.sizeVariant === undefined}
+          onSelect={handleChangeSzVariant}
+        >
+          <Text size="small">{I18n.t('Auto')}</Text>
+        </Menu.Item>
+        <Menu.Item
+          type="checkbox"
+          value="pixel"
+          selected={props.sizeVariant === 'pixel'}
+          onSelect={handleChangeSzVariant}
+        >
+          <Text size="small">{I18n.t('Fixed size')}</Text>
+        </Menu.Item>
+        <Menu.Item
+          type="checkbox"
+          value="percent"
+          selected={props.sizeVariant === 'percent'}
+          onSelect={handleChangeSzVariant}
+        >
+          <Text size="small">{I18n.t('Percent size')}</Text>
+        </Menu.Item>
+      </Menu>
 
-      <UploadFileModal
-        imageUrl={null}
-        open={showUploadModal}
-        variant={props.variant}
-        onDismiss={handleDismissModal}
-        onSave={handleSave}
-      />
+      <Popover
+        isShowingContent={showingAltTextMenu}
+        onShowContent={_e => {
+          setShowingAltTextMenu(true)
+        }}
+        onHideContent={_e => {
+          setShowingAltTextMenu(false)
+        }}
+        on="click"
+        renderTrigger={
+          <IconButton
+            data-testid="alt-text-button"
+            size="small"
+            withBackground={false}
+            withBorder={false}
+            screenReaderLabel={I18n.t('Image Description')}
+            title={I18n.t('Image Description')}
+          >
+            <IconTextareaLine size="x-small" />
+          </IconButton>
+        }
+      >
+        <View padding="small" as="div">
+          <TextArea
+            label={I18n.t('Alt Text')}
+            placeholder={I18n.t('Image Description')}
+            value={props.alt}
+            onChange={handleAltChange}
+          />
+        </View>
+      </Popover>
+
+      <AddImageModal open={showUploadModal} onSubmit={handleSave} onDismiss={handleDismissModal} />
     </Flex>
   )
 }

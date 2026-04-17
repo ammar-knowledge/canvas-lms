@@ -28,9 +28,9 @@ describe "enrollment_notification" do
   let(:notification_name) { :enrollment_notification }
   let(:asset) { @enrollment }
 
-  include_examples "a message"
+  it_behaves_like "a message"
 
-  context ".email" do
+  describe ".email" do
     let(:path_type) { :email }
 
     context "creation_pending student" do

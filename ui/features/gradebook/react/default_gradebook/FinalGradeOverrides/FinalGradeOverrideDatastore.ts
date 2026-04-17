@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2018 - present Instructure, Inc.
  *
@@ -18,23 +17,27 @@
  */
 
 import useStore from '../stores'
+import type GradeOverrideInfo from '@canvas/grading/GradeEntry/GradeOverrideInfo'
+import type {FinalGradeOverride, FinalGradeOverrideMap} from '@canvas/grading/grading.d'
 
 export default class FinalGradeOverrideDatastore {
-  _gradesByUserId: {
-    [userId: string]: {
-      courseGrade?: string
-      gradingPeriodGrades?: {[gradingPeriodId: string]: string}
-    }
-  }
+  _gradesByUserId: FinalGradeOverrideMap
 
-  _pendingGrades: Array<{userId: string; gradingPeriodId: string | null; gradeInfo: any}>
+  _pendingGrades: Array<{
+    userId: string
+    gradingPeriodId: string | null
+    gradeInfo: GradeOverrideInfo
+  }>
 
   constructor() {
     this._gradesByUserId = {}
     this._pendingGrades = []
   }
 
-  getGrade(userId: string, gradingPeriodId: string | null) {
+  getGrade(
+    userId: string,
+    gradingPeriodId: string | null,
+  ): FinalGradeOverride['courseGrade'] | null {
     const gradeOverrides = this._gradesByUserId[userId]
     if (!gradeOverrides) {
       return null
@@ -47,15 +50,23 @@ export default class FinalGradeOverrideDatastore {
     return gradeOverrides.courseGrade || null
   }
 
-  updateGrade(userId: string, gradingPeriodId: string | null, grade) {
+  updateGrade(
+    userId: string,
+    gradingPeriodId: string | null,
+    grade: FinalGradeOverride['courseGrade'] | null,
+  ) {
     this._gradesByUserId[userId] = this._gradesByUserId[userId] || {}
     const gradeOverrides = this._gradesByUserId[userId]
 
     if (gradingPeriodId) {
       gradeOverrides.gradingPeriodGrades = gradeOverrides.gradingPeriodGrades || {}
-      gradeOverrides.gradingPeriodGrades[gradingPeriodId] = grade
+      if (grade != null) {
+        gradeOverrides.gradingPeriodGrades[gradingPeriodId] = grade
+      } else {
+        delete gradeOverrides.gradingPeriodGrades[gradingPeriodId]
+      }
     } else {
-      gradeOverrides.courseGrade = grade
+      gradeOverrides.courseGrade = grade ?? undefined
     }
 
     const {finalGradeOverrides: existingFinalGradeOverrides} = useStore.getState()
@@ -67,26 +78,25 @@ export default class FinalGradeOverrideDatastore {
     })
   }
 
-  setGrades(gradeOverrides) {
+  setGrades(gradeOverrides: FinalGradeOverrideMap) {
     this._gradesByUserId = gradeOverrides
   }
 
-  addPendingGradeInfo(userId: string, gradingPeriodId: string | null, gradeInfo) {
+  addPendingGradeInfo(userId: string, gradingPeriodId: string | null, gradeInfo: GradeOverrideInfo) {
     const pendingGradeInfo = {gradeInfo, userId, gradingPeriodId}
     this.removePendingGradeInfo(userId, gradingPeriodId)
     this._pendingGrades.push(pendingGradeInfo)
   }
 
   removePendingGradeInfo(userId: string, gradingPeriodId: string | null) {
-    this._pendingGrades =
-      this._pendingGrades.filter(
-        gradeInfo => gradeInfo.userId !== userId || gradeInfo.gradingPeriodId !== gradingPeriodId
-      ) || null
+    this._pendingGrades = this._pendingGrades.filter(
+      gradeInfo => gradeInfo.userId !== userId || gradeInfo.gradingPeriodId !== gradingPeriodId,
+    )
   }
 
-  getPendingGradeInfo(userId: string, gradingPeriodId: string | null) {
+  getPendingGradeInfo(userId: string, gradingPeriodId: string | null): GradeOverrideInfo | null {
     const datum = this._pendingGrades.find(
-      gradeInfo => gradeInfo.userId === userId && gradeInfo.gradingPeriodId === gradingPeriodId
+      gradeInfo => gradeInfo.userId === userId && gradeInfo.gradingPeriodId === gradingPeriodId,
     )
     return datum ? datum.gradeInfo : null
   }

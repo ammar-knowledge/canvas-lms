@@ -17,8 +17,6 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require_relative "../spec_helper"
-
 describe JwtsController do
   include_context "JWT setup"
   let(:token_user) { user_with_pseudonym }
@@ -60,12 +58,22 @@ describe JwtsController do
         decrypted_token_body = translate_token.call(response)
         expect(decrypted_token_body[:domain]).to eq("test.host")
       end
+
+      it "generates a token that includes the root account uuid" do
+        root_account_uuid = LoadAccount.default_domain_root_account.uuid
+        pseudonym(admin_user)
+        access_token = admin_user.access_tokens.create!(purpose: "test").full_token
+        request.headers["Authorization"] = "Bearer #{access_token}"
+        post "create", format: "json"
+        jwt = translate_token.call(response)
+        expect(jwt[:root_account_uuid]).to eq(root_account_uuid)
+      end
     end
 
     context "asymmetric tokens" do
       before { user_session(token_user) }
 
-      it "gererates an unencrypt token for non-canvas audiences" do
+      it "generates an unencrypted token for non-canvas audiences" do
         post "create", params: { canvas_audience: false }, format: "json"
 
         jwt = translate_unencrypted_token.call(response)
@@ -85,6 +93,51 @@ describe JwtsController do
         jwt = translate_token.call(response)
         expect(jwt[:sub]).to eq(token_user.global_id)
       end
+
+      describe "with custom audiences requested" do
+        let(:allowed_audience) { "custom_audience" }
+
+        before do
+          pseudonym(admin_user)
+          access_token = admin_user.access_tokens.create!(purpose: "test").full_token
+          admin_user.access_tokens.first.developer_key.update!(allowed_audiences: [allowed_audience])
+          request.headers["Authorization"] = "Bearer #{access_token}"
+        end
+
+        context "when audience is allowed through the developer key" do
+          it "returns unencrypted token" do
+            post "create", params: { audience: allowed_audience }, format: "json"
+
+            jwt = translate_unencrypted_token.call(response)
+            expect(jwt[:sub]).to eq(admin_user.global_id)
+          end
+
+          it "generates a token that includes the requested audience" do
+            post "create", params: { audience: allowed_audience }, format: "json"
+
+            jwt = translate_unencrypted_token.call(response)
+            expect(jwt[:aud]).to eq(["custom_audience"])
+          end
+        end
+
+        context "when at least one audience is not allowed through the developer key" do
+          it "throws an error with status code bad request" do
+            post "create", params: { audience: "#{allowed_audience} not_allowed_audience" }, format: "json"
+
+            expect(response).to have_http_status(:bad_request)
+            expect(response.body).to include(/invalid_target/)
+          end
+        end
+
+        context "when no audience is allowed through the developer key" do
+          it "returns an error with bad request status code" do
+            post "create", params: { audience: "not_allowed_audience" }, format: "json"
+
+            expect(response).to have_http_status(:bad_request)
+            expect(response.body).to include(/invalid_target/)
+          end
+        end
+      end
     end
 
     context "with workflows that doesn't require context" do
@@ -93,13 +146,13 @@ describe JwtsController do
       it "generates a token that doesn't have context_id" do
         post "create", params: { workflows: ["ui"] }, format: "json"
         decrypted_token_body = translate_token.call(response)
-        expect(decrypted_token_body).to_not have_key(:context_id)
+        expect(decrypted_token_body).not_to have_key(:context_id)
       end
 
       it "generates a token that doesn't have context_type" do
         post "create", params: { workflows: ["ui"] }, format: "json"
         decrypted_token_body = translate_token.call(response)
-        expect(decrypted_token_body).to_not have_key(:context_type)
+        expect(decrypted_token_body).not_to have_key(:context_type)
       end
     end
 
@@ -163,51 +216,45 @@ describe JwtsController do
         it "context_type param is missing" do
           post "create", params: params.except(:context_type), format: "json"
           expect(response).to have_http_status(:bad_request)
-          expect(response.body).to match(/Missing context_type parameter./)
         end
 
         it "context_id or context_uuid param is missing" do
           post "create", params: params.except(:context_id), format: "json"
           expect(response).to have_http_status(:bad_request)
-          expect(response.body).to match(/Missing context_id or context_uuid parameter./)
         end
 
         it "context_type and context_uuid are passed" do
           post "create", params: params.merge({ context_uuid: @context_uuid }), format: "json"
           expect(response).to have_http_status(:bad_request)
-          expect(response.body).to match(/Should provide context_id or context_uuid parameters, but not both./)
         end
 
         it "context_type is invalid" do
           post "create", params: params.merge({ context_type: "unknown" }), format: "json"
           expect(response).to have_http_status(:bad_request)
-          expect(response.body).to match(/Invalid context_type parameter./)
         end
 
         it "context not found with id" do
           post "create", params: params.merge({ context_id: "unknown" }), format: "json"
           expect(response).to have_http_status(:not_found)
-          expect(response.body).to match(/Context not found./)
         end
 
         it "context not found with uuid" do
           post "create", params: params.except(:context_id).merge({ context_uuid: "unknown" }), format: "json"
           expect(response).to have_http_status(:not_found)
-          expect(response.body).to match(/Context not found./)
         end
 
         it "context is unauthorized" do
           generic_user = user_factory
           user_session(generic_user)
           post "create", params:, format: "json"
-          assert_unauthorized
+          assert_forbidden
         end
 
         it "generic user is unauthorized for Account context type" do
           generic_user = user_factory
           user_session(generic_user)
           post "create", params: params.merge(context_type: "Account", context_id: Account.last.id), format: "json"
-          assert_unauthorized
+          assert_forbidden
         end
       end
     end
@@ -244,7 +291,7 @@ describe JwtsController do
 
       it "requires a jwt param" do
         post "refresh"
-        expect(response).to_not have_http_status(:ok)
+        expect(response).not_to have_http_status(:ok)
       end
 
       it "returns a refreshed token for user" do
@@ -269,7 +316,7 @@ describe JwtsController do
         )
         post "refresh", params: { jwt: original_jwt }
         refreshed_jwt = response.parsed_body["token"]
-        expect(refreshed_jwt).to_not eq(original_jwt)
+        expect(refreshed_jwt).not_to eq(original_jwt)
       end
 
       it "returns an error if jwt is invalid for refresh" do
@@ -292,7 +339,7 @@ describe JwtsController do
 
       context "calling user cannot refresh for another user" do
         before do
-          access_token = other_user.access_tokens.create!.full_token
+          access_token = other_user.access_tokens.create!(purpose: "test").full_token
           request.headers["Authorization"] = "Bearer #{access_token}"
           post "refresh", params: { jwt: "testjwt" }, format: "json"
         end
@@ -306,7 +353,7 @@ describe JwtsController do
       context "calling user is able to refresh for another user" do
         before do
           pseudonym(admin_user)
-          access_token = admin_user.access_tokens.create!.full_token
+          access_token = admin_user.access_tokens.create!(purpose: "test").full_token
           admin_user.access_tokens.first.developer_key.update!(internal_service: true)
           request.headers["Authorization"] = "Bearer #{access_token}"
           expect(CanvasSecurity::ServicesJwt).to receive(:refresh_for_user)
@@ -330,7 +377,7 @@ describe JwtsController do
       context "the developer key of the calling user is not an internal service key" do
         before do
           pseudonym(admin_user)
-          access_token = admin_user.access_tokens.create!.full_token
+          access_token = admin_user.access_tokens.create!(purpose: "test").full_token
           admin_user.access_tokens.first.developer_key.update!(internal_service: false)
           request.headers["Authorization"] = "Bearer #{access_token}"
 
@@ -347,7 +394,7 @@ describe JwtsController do
         before do
           allow(CanvasSecurity::ServicesJwt).to receive(:decrypt).and_raise(JSON::JWE::DecryptionFailed)
           pseudonym(admin_user)
-          access_token = admin_user.access_tokens.create!.full_token
+          access_token = admin_user.access_tokens.create!(purpose: "test").full_token
           admin_user.access_tokens.first.developer_key.update!(internal_service: true)
           request.headers["Authorization"] = "Bearer #{access_token}"
 

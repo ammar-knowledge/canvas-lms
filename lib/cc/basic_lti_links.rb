@@ -20,9 +20,9 @@
 module CC
   module BasicLTILinks
     def create_basic_lti_links
-      return nil unless @course.context_external_tools.active.count > 0
+      return nil unless Lti::ContextToolFinder.only_for(@course).active.count > 0
 
-      @course.context_external_tools.active.each do |tool|
+      Lti::ContextToolFinder.only_for(@course).active.each do |tool|
         next unless export_object?(tool)
 
         add_exported_asset(tool)
@@ -64,6 +64,13 @@ module CC
           blti_node.blti :launch_url, tool.url
         elsif tool.url&.include?("https://")
           blti_node.blti :secure_launch_url, tool.url
+        elsif tool.url.present?
+          begin
+            URI.parse(tool.url)
+            blti_node.blti :launch_url, tool.url
+          rescue URI::InvalidURIError
+            # Skip invalid URLs
+          end
         end
         blti_node.blti(:icon, tool.icon_url) if tool.icon_url
 

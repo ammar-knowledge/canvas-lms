@@ -21,7 +21,7 @@
 require_relative "answer_parser_spec_helper"
 
 describe Quizzes::QuizQuestion::AnswerParsers::Calculated do
-  context "#parse" do
+  describe "#parse" do
     let(:raw_answers) do
       [
         {
@@ -54,9 +54,7 @@ describe Quizzes::QuizQuestion::AnswerParsers::Calculated do
     end
 
     it "formats formulas for the question" do
-      @question[:formulas].each do |formula|
-        expect(formula).to be_a(Hash)
-      end
+      expect(@question[:formulas]).to all(be_a(Hash))
     end
 
     it "formats variables for the question" do

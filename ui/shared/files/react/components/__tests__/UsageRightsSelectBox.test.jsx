@@ -18,74 +18,83 @@
 
 import $ from 'jquery'
 import React from 'react'
-import {render} from '@testing-library/react'
-import {shallow} from 'enzyme'
+import {render, act} from '@testing-library/react'
 import UsageRightsSelectBox from '../UsageRightsSelectBox'
-import sinon from 'sinon'
 
 const ok = x => expect(x).toBeTruthy()
 const equal = (x, y) => expect(x).toEqual(y)
 
 describe('UsageRightsSelectBox', () => {
+  const licenseData = [
+    {
+      id: 'cc_some_option',
+      name: 'CreativeCommonsOption',
+    },
+  ]
+
+  beforeEach(() => {
+    vi.spyOn($, 'get').mockImplementation((url, callback) => {
+      if (callback) {
+        callback(licenseData)
+      }
+      return Promise.resolve(licenseData)
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   test('shows alert message if nothing is chosen and component is setup for a message', () => {
-    const wrapper = shallow(<UsageRightsSelectBox showMessage />)
+    const {container} = render(<UsageRightsSelectBox showMessage={true} />)
+    const alertElement = container.querySelector('.alert')
     ok(
-      wrapper
-        .find('.alert')
-        .text()
-        .includes(
-          "If you do not select usage rights now, this file will be unpublished after it's uploaded."
+      alertElement &&
+        alertElement.textContent.includes(
+          "If you do not select usage rights now, this file will be unpublished after it's uploaded.",
         ),
-      'message is being shown'
+      'message is being shown',
     )
   })
 
-  test('fetches license options when component mounts', () => {
-    const server = sinon.fakeServer.create()
+  test('fetches license options when component mounts', async () => {
     const ref = React.createRef()
-    render(<UsageRightsSelectBox showMessage={false} ref={ref} />)
-    server.respond('GET', '', [
-      200,
-      {'Content-Type': 'application/json'},
-      JSON.stringify([
-        {
-          id: 'cc_some_option',
-          name: 'CreativeCommonsOption',
-        },
-      ]),
-    ])
+    await act(async () => {
+      render(<UsageRightsSelectBox showMessage={false} ref={ref} />)
+    })
+
+    // Wait for next tick to allow state updates
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+
     equal(ref.current.state.licenseOptions[0].id, 'cc_some_option', 'sets data just fine')
-    server.restore()
   })
 
   test('inserts copyright into textbox when passed in', () => {
     const copyright = 'all dogs go to taco bell'
-    const wrapper = shallow(<UsageRightsSelectBox copyright={copyright} />)
-    equal(wrapper.find('#copyrightHolder').find('input').prop('defaultValue'), copyright)
+    const {container} = render(<UsageRightsSelectBox copyright={copyright} />)
+    const copyrightInput = container.querySelector('#copyrightHolder')
+    equal(copyrightInput.defaultValue, copyright)
   })
 
-  test('shows creative commons options when set up', () => {
-    const server = sinon.fakeServer.create()
+  test('shows creative commons options when set up', async () => {
     const props = {
       copyright: 'loony',
       use_justification: 'creative_commons',
-      cc_value: 'helloooo_nurse',
+      cc_value: 'cc_some_option',
     }
     const ref = React.createRef()
-    render(<UsageRightsSelectBox {...props} ref={ref} />)
-    server.respond('GET', '', [
-      200,
-      {'Content-Type': 'application/json'},
-      JSON.stringify([
-        {
-          id: 'cc_some_option',
-          name: 'CreativeCommonsOption',
-        },
-      ]),
-    ])
+    await act(async () => {
+      render(<UsageRightsSelectBox {...props} ref={ref} />)
+    })
+
+    // Wait for next tick to allow state updates
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
 
     equal(ref.current.creativeCommons.value, 'cc_some_option', 'shows creative commons option')
-    server.restore()
   })
 
   $('div.error_box').remove()

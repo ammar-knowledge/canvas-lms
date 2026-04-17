@@ -18,7 +18,12 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-describe Lti::RegistrationsController do
+require_relative "../../lti_1_3_tool_configuration_spec_helper"
+
+RSpec.describe Lti::RegistrationsController do
+  # Introduces internal_lti_configuration and canvas_lti_configuration
+  include_context "lti_1_3_tool_configuration_spec_helper"
+
   let(:response_json) do
     body = response.parsed_body
     body.is_a?(Array) ? body.map(&:with_indifferent_access) : body.with_indifferent_access
@@ -32,7 +37,6 @@ describe Lti::RegistrationsController do
 
   before do
     user_session(admin)
-    account.enable_feature!(:lti_registrations_page)
   end
 
   describe "GET index" do
@@ -58,14 +62,42 @@ describe Lti::RegistrationsController do
       end
     end
 
-    context "with flag disabled" do
-      before do
-        account.disable_feature!(:lti_registrations_page)
+    context "with a sub-account admin" do
+      let(:sub_account_user) do
+        account_admin_user(account: account_model(parent_account: account))
       end
 
-      it "returns 404" do
+      before do
+        user_session(sub_account_user)
+      end
+
+      it "redirects to the homepage" do
         get :index, params: { account_id: account.id }
-        expect(response).to be_not_found
+        expect(response).to be_redirect
+      end
+    end
+
+    context "from a sub-account context" do
+      let(:subaccount) { account_model(parent_account: account) }
+
+      context "without feature flag" do
+        before do
+          account.disable_feature!(:canvas_apps_sub_account_access)
+        end
+
+        it "isn't found" do
+          get :index, params: { account_id: subaccount.id }
+          expect(response).to be_not_found
+        end
+      end
+
+      context "with feature flag enabled" do
+        it "is found when user has manage_account_settings permission" do
+          admin_user = account_admin_user(account: subaccount)
+          user_session(admin_user)
+          get :index, params: { account_id: subaccount.id }
+          expect(response).to be_successful
+        end
       end
     end
 
@@ -75,19 +107,34 @@ describe Lti::RegistrationsController do
       expect(response).to be_successful
     end
 
-    it "sets Apps crumb" do
-      get :index, params: { account_id: account.id }
-      expect(assigns[:_crumbs].last).to include("Apps")
-    end
-
     it "sets active tab" do
       get :index, params: { account_id: account.id }
       expect(assigns[:active_tab]).to eq("apps")
     end
 
+    it "sets ACCOUNT_IS_SITE_ADMIN to false for non-site-admin accounts" do
+      get :index, params: { account_id: account.id }
+      expect(assigns.dig(:js_env, :ACCOUNT_IS_SITE_ADMIN)).to be false
+    end
+
+    context "when account is site admin" do
+      before { user_session(site_admin_user) }
+
+      it "sets ACCOUNT_IS_SITE_ADMIN to true" do
+        get :index, params: { account_id: Account.site_admin.id }
+        expect(assigns.dig(:js_env, :ACCOUNT_IS_SITE_ADMIN)).to be true
+      end
+    end
+
     it "does not set temp_dr_url in ENV" do
       get :index, params: { account_id: account.id }
       expect(assigns.dig(:js_env, :dynamicRegistrationUrl)).to be_nil
+    end
+
+    it "sets ltiUsage remote url value to null if it's not present in DynamicSettings" do
+      DynamicSettings.fallback_data = { config: { canvas: { lti: {} } } }.deep_stringify_keys
+      get :index, params: { account_id: account.id }
+      expect(assigns.dig(:remote_env, :ltiUsage)).to be_nil
     end
 
     context "with temp_dr_url" do
@@ -103,6 +150,55 @@ describe Lti::RegistrationsController do
         expect(assigns.dig(:js_env, :dynamicRegistrationUrl)).to eq(temp_dr_url)
       end
     end
+
+    context "with inject_lti_usage_env" do
+      let(:canvas_apps_lti_usage_url) { "http://example.com" }
+
+      before do
+        DynamicSettings.fallback_data = { config: { canvas: { lti: { canvas_apps_lti_usage_url: } } } }.deep_stringify_keys
+      end
+
+      it "sets ltiUsage remote url via canvas_apps_lti_usage_url in env" do
+        get :index, params: { account_id: account.id }
+        expect(assigns.dig(:remote_env, :ltiUsage)).to eq(canvas_apps_lti_usage_url)
+      end
+
+      it "sets ltiUsage configuration in env" do
+        get :index, params: { account_id: account.id }
+        values = assigns.dig(:js_env, :LTI_USAGE)
+        expect(values).to include(
+          :env, :region, :canvasBaseUrl, :firstName, :locale, :rootAccountId, :rootAccountUuid, :isPremiumAccount
+        )
+        expect(values[:rootAccountId]).to eq(account.root_account.id)
+        expect(values[:rootAccountUuid]).to eq(account.root_account.uuid)
+      end
+
+      context "with lti_usage_premium enabled" do
+        before do
+          account.enable_feature!(:lti_usage_premium)
+        end
+
+        it "says the account is a premium one" do
+          get :index, params: { account_id: account.id }
+          expect(assigns.dig(:js_env, :LTI_USAGE, :isPremiumAccount)).to be true
+        end
+      end
+    end
+
+    context "with lti_asset_processor_tii_migration enabled" do
+      let(:turnitin_client_id) { "12345" }
+
+      before do
+        account.root_account.enable_feature!(:lti_asset_processor_tii_migration)
+        account.root_account.settings[:turnitin_asset_processor_client_id] = turnitin_client_id
+        account.root_account.save!
+      end
+
+      it "sets turnitinAPClientId in js_env" do
+        get :index, params: { account_id: account.id }
+        expect(assigns.dig(:js_env, :turnitinAPClientId)).to eq(turnitin_client_id)
+      end
+    end
   end
 
   describe "GET list", type: :request do
@@ -112,6 +208,9 @@ describe Lti::RegistrationsController do
 
     context "correctness verifications" do
       before do
+        # Disable templates flag for tests expecting site admin registrations with bindings
+        account.disable_feature!(:lti_registrations_templates)
+
         3.times do |number|
           registration = lti_registration_model(account:, name: "Registration no. #{number}")
           lti_registration_account_binding_model(registration:, account:, workflow_state: "on", created_by: admin)
@@ -146,178 +245,416 @@ describe Lti::RegistrationsController do
         lti_registration_model(account: Account.site_admin, name: "Site admin registration with no binding")
       end
 
-      context "with a user session" do
-        it "is successful" do
-          subject
-          expect(response).to be_successful
-        end
+      context "when using 'self' for the account_id parameter" do
+        let(:url) { "/api/v1/accounts/self/lti_registrations" }
 
-        it "returns the total count of registrations" do
+        it "is successful" do
+          expect_any_instance_of(Lti::RegistrationsController)
+            .to receive(:api_find)
+            .with(Account.active, "self")
+            .once
+            .and_return(account)
+          subject
+          expect(response_json[:total]).to eq(5)
+        end
+      end
+
+      it "is successful" do
+        subject
+        expect(response).to be_successful
+      end
+
+      it "returns the total count of registrations" do
+        subject
+        expect(response_json[:total]).to eq(5)
+      end
+
+      it "returns a list of registrations" do
+        subject
+        expect(response_data.length).to eq(5)
+      end
+
+      context "when lti_deactivate_registrations is disabled" do
+        before { account.disable_feature!(:lti_deactivate_registrations) }
+
+        it "excludes inherited registrations with off bindings" do
           subject
           expect(response_json[:total]).to eq(4)
         end
+      end
 
-        it "returns a list of registrations" do
+      it "has the expected fields in the results" do
+        subject
+
+        expect(response_data.first)
+          .to include({ account_id: an_instance_of(Integer), name: an_instance_of(String) })
+
+        expect(response_data.first[:account_binding])
+          .to include({ workflow_state: an_instance_of(String) })
+
+        expect(response_data.first[:account_binding][:created_by])
+          .to include({ id: an_instance_of(Integer) })
+      end
+
+      it "sorts the results by newest first by default" do
+        lti_registration_model(account:, name: "created just now")
+        lti_registration_model(account:, name: "created an hour ago", created_at: 1.hour.ago)
+
+        subject
+        expect(response_data.first["name"]).to eq("created just now")
+        expect(response_data.last["name"]).to eq("created an hour ago")
+      end
+
+      it "only queries for account bindings once" do
+        # With LRABs being preloaded, it should not call either of these "find" methods
+        expect(Lti::RegistrationAccountBinding).not_to receive(:find_in_site_admin)
+        expect(Lti::RegistrationAccountBinding).not_to receive(:find_by)
+        subject
+      end
+
+      context "with a Lti::IMS::Registration in the list" do
+        let(:registration) { lti_registration_model(account:) }
+        let(:ims_registration) { lti_ims_registration_model(lti_registration: registration) }
+
+        it "includes the ims_registration_id" do
+          ims_registration
           subject
-          expect(response_data.length).to eq(4)
+          expect(response_data.find { |r| r["id"] == ims_registration.lti_registration_id }["ims_registration_id"]).to eq(ims_registration.id)
+        end
+      end
+
+      context "when developer key is deleted" do
+        let(:developer_key) { lti_developer_key_model(account:) }
+        let(:registration) { developer_key.lti_registration }
+
+        before do
+          # enable key
+          developer_key.developer_key_account_bindings.first.update! workflow_state: :on
+          developer_key.destroy
         end
 
-        it "has the expected fields in the results" do
+        it "should not include registration" do
+          expect(registration.reload).to be_deleted
           subject
+          expect(response_data.pluck(:id)).not_to include(registration.id)
+        end
+      end
 
-          expect(response_data.first)
-            .to include({ account_id: an_instance_of(Integer), name: an_instance_of(String) })
-
-          expect(response_data.first[:account_binding])
-            .to include({ workflow_state: an_instance_of(String) })
-
-          expect(response_data.first[:account_binding][:created_by])
-            .to include({ id: an_instance_of(Integer) })
+      context "when registration is inactive" do
+        let(:inactive_registration) do
+          reg = lti_registration_model(account:, name: "Inactive registration")
+          lti_registration_account_binding_model(registration: reg, account:, workflow_state: "on", created_by: admin)
+          reg.deactivate!
+          reg
         end
 
-        it "sorts the results by newest first by default" do
-          lti_registration_model(account:, name: "created just now")
-          lti_registration_model(account:, name: "created an hour ago", created_at: 1.hour.ago)
-
+        it "includes the inactive registration with workflow_state 'inactive'" do
+          inactive_registration
           subject
-          expect(response_data.first["name"]).to eq("created just now")
-          expect(response_data.last["name"]).to eq("created an hour ago")
+          reg_json = response_data.find { |r| r["id"] == inactive_registration.id }
+          expect(reg_json).to be_present
+          expect(reg_json["workflow_state"]).to eq("inactive")
+        end
+      end
+
+      context "when sorting by installed_by" do
+        subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=installed_by" }
+
+        before do
+          # Other admin is "A User" -- registrations with an LRAB by B User should be last
+          admin2 = account_admin_user(name: "B User", account:)
+          lti_registration_model(name: "Created by B User", created_by: admin2, account:)
         end
 
-        it "only queries for account bindings once" do
-          # With LRABs being preloaded, it should not call either of these "find" methods
-          expect(Lti::RegistrationAccountBinding).not_to receive(:find_in_site_admin)
-          expect(Lti::RegistrationAccountBinding).not_to receive(:find_by)
+        it "sorts by the lti_registration_account_binding.created_by" do
           subject
+          expect(response_data.last["name"]).to eq("Created by B User")
         end
 
-        context "when sorting by installed_by" do
-          subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=installed_by" }
+        context "with the dir=asc parameter" do
+          subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=installed_by&dir=asc" }
 
+          it "puts the results in ascending order" do
+            subject
+            expect(response_data.first["name"]).to eq("Created by B User")
+          end
+        end
+      end
+
+      context "when sorting by name" do
+        subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=name" }
+
+        before do
+          lti_registration_model(account:, name: "AAA registration")
+          lti_registration_model(account:, name: "ZZZ registration")
+        end
+
+        it "sorts by name" do
+          subject
+          expect(response_data.first["name"]).to eq("ZZZ registration")
+          expect(response_data.last["name"]).to eq("AAA registration")
+        end
+
+        context "with the dir=asc parameter" do
+          subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=name&dir=asc" }
+
+          it "puts the results in ascending order" do
+            subject
+            expect(response_data.first["name"]).to eq("AAA registration")
+            expect(response_data.last["name"]).to eq("ZZZ registration")
+          end
+        end
+      end
+
+      context "when sorting by installed" do
+        subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=installed" }
+
+        let(:first_registration) { lti_registration_model(account:, name: "AAA registration", created_at: 1.day.ago, updated_at: 1.day.ago) }
+        let(:second_registration) { lti_registration_model(account:, name: "ZZZ registration", created_at: 2.days.ago, updated_at: 2.days.ago) }
+
+        before do
+          first_registration
+          second_registration
+        end
+
+        it "sorts by created_at" do
+          subject
+          expect(response).to be_successful
+          first_index = response_data.find_index { |r| r["id"] == first_registration.id }
+          second_index = response_data.find_index { |r| r["id"] == second_registration.id }
+          expect(first_index).to be < second_index
+        end
+
+        context "with the dir=asc parameter" do
+          subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=installed&dir=asc" }
+
+          it "puts the results in ascending order" do
+            subject
+            expect(response).to be_successful
+            first_index = response_data.find_index { |r| r["id"] == first_registration.id }
+            second_index = response_data.find_index { |r| r["id"] == second_registration.id }
+            expect(second_index).to be < first_index
+          end
+        end
+      end
+
+      context "when sorting by updated" do
+        subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=updated" }
+
+        let(:first_registration) { lti_registration_model(account:, name: "AAA registration", created_at: 1.day.ago, updated_at: 1.day.ago) }
+        let(:second_registration) { lti_registration_model(account:, name: "ZZZ registration", created_at: 2.days.ago, updated_at: 2.days.ago) }
+
+        before do
+          first_registration
+          second_registration
+        end
+
+        it "sorts by updated_at" do
+          subject
+          expect(response).to be_successful
+          first_index = response_data.find_index { |r| r["id"] == first_registration.id }
+          second_index = response_data.find_index { |r| r["id"] == second_registration.id }
+          expect(first_index).to be < second_index
+        end
+
+        context "with the dir=asc parameter" do
+          subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=updated&dir=asc" }
+
+          it "puts the results in ascending order" do
+            subject
+            expect(response).to be_successful
+            first_index = response_data.find_index { |r| r["id"] == first_registration.id }
+            second_index = response_data.find_index { |r| r["id"] == second_registration.id }
+            expect(second_index).to be < first_index
+          end
+        end
+      end
+
+      context "when sorting by a nil attribute" do
+        subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=nickname" }
+
+        it "treats nil like an empty value" do
+          lti_registration_model(admin_nickname: "a nickname", account:)
+          lti_registration_model(admin_nickname: nil, account:)
+          subject
+          expect(response_data.first["admin_nickname"]).to eq("a nickname")
+        end
+      end
+
+      context "when sorting by workflow_state" do
+        subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=on&dir=asc" }
+
+        context "with lti_deactivate_registrations disabled" do
           before do
-            # Other admin is "A User" -- registrations with an LRAB by B User should be last
-            admin2 = account_admin_user(name: "B User", account:)
-            lti_registration_model(name: "Created by B User", created_by: admin2, account:)
+            account.disable_feature!(:lti_deactivate_registrations)
           end
-
-          it "sorts by the lti_registration_account_binding.created_by" do
-            subject
-            expect(response_data.last["name"]).to eq("Created by B User")
-          end
-
-          context "with the dir=asc parameter" do
-            subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=installed_by&dir=asc" }
-
-            it "puts the results in ascending order" do
-              subject
-              expect(response_data.first["name"]).to eq("Created by B User")
-            end
-          end
-        end
-
-        context "when sorting by name" do
-          subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=name" }
-
-          before do
-            lti_registration_model(account:, name: "AAA registration")
-            lti_registration_model(account:, name: "ZZZ registration")
-          end
-
-          it "sorts by name" do
-            subject
-            expect(response_data.first["name"]).to eq("ZZZ registration")
-            expect(response_data.last["name"]).to eq("AAA registration")
-          end
-
-          context "with the dir=asc parameter" do
-            subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=name&dir=asc" }
-
-            it "puts the results in ascending order" do
-              subject
-              expect(response_data.first["name"]).to eq("AAA registration")
-              expect(response_data.last["name"]).to eq("ZZZ registration")
-            end
-          end
-        end
-
-        context "when sorting by a nil attribute" do
-          subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=nickname" }
-
-          it "treats nil like an empty value" do
-            lti_registration_model(admin_nickname: "a nickname", account:)
-            lti_registration_model(admin_nickname: nil, account:)
-            subject
-            expect(response_data.first["admin_nickname"]).to eq("a nickname")
-          end
-        end
-
-        context "when sorting by a workflow_state" do
-          subject { get "/api/v1/accounts/#{account.id}/lti_registrations?sort=on" }
 
           it "does not error if the account binding is nil" do
             reg = lti_registration_model(account:, name: "no account bindings")
-            # expect it to have no account bindings, just in case we start automatically
-            # creating a default one in the future.
             expect(reg.lti_registration_account_bindings).to eq([])
             subject
-            expect(response_data.last["name"]).to eq("no account bindings")
+            expect(response_data.first["name"]).to eq("no account bindings")
           end
         end
 
-        context "with a search query param matching no results" do
-          let(:url) { "/api/v1/accounts/#{account.id}/lti_registrations?query=searchterm" }
+        it "sorts by registration workflow_state" do
+          inactive_reg = lti_registration_model(account:, name: "Inactive reg")
+          inactive_reg.deactivate!
 
-          it "finds no registrations" do
-            subject
-            expect(response_data.length).to eq(0)
-          end
+          subject
+          workflow_states = response_data.pluck("workflow_state")
+          expect(workflow_states).to eq(workflow_states.sort)
+        end
+      end
+
+      context "with a search query param matching no results" do
+        let(:url) { "/api/v1/accounts/#{account.id}/lti_registrations?query=searchterm" }
+
+        it "finds no registrations" do
+          subject
+          expect(response_data.length).to eq(0)
+        end
+      end
+
+      context "with a search query param matching some results" do
+        # search for "registration no" which should find "Registration no. 1" etc.
+        let(:url) { "/api/v1/accounts/#{account.id}/lti_registrations?query=registration%20no" }
+
+        it "finds matching registrations" do
+          subject
+          # searching "registration no" should find the three registrations titled
+          # "Registration no. N"
+          expect(response_data.length).to eq(3)
         end
 
-        context "with a search query param matching some results" do
-          # search for "registration no" which should find "Registration no. 1" etc.
-          let(:url) { "/api/v1/accounts/#{account.id}/lti_registrations?query=registration%20no" }
+        it "rejects registrations that do not match all terms" do
+          # The name "registration" alone is not enough to match search terms "registration no"
+          incomplete_match = lti_registration_model(account:, name: "registration")
+          subject
+          expect(response_data.pluck(:id)).not_to include(incomplete_match.id)
+        end
 
-          it "finds matching registrations" do
-            subject
-            # searching "registration no" should find the three registrations titled
-            # "Registration no. N"
-            expect(response_data.length).to eq(3)
+        it "finds registrations with matching terms across different model attributes" do
+          multi_attribute_match = lti_registration_model(account:, name: "registration", vendor: "no")
+          subject
+          expect(response_data.pluck(:id)).to include(multi_attribute_match.id)
+        end
+
+        it "includes the current search parameters in the Link header" do
+          subject
+          expect(response.headers["Link"]).to include("?query=registration+no")
+        end
+
+        context "query param validations" do
+          it "returns a 422 if the page param isn't an integer" do
+            get "/api/v1/accounts/#{account.id}/lti_registrations?page=bad"
+            expect(response_json["errors"].first["message"]).to eq("page param should be an integer")
           end
 
-          it "rejects registrations that do not match all terms" do
-            # The name "registration" alone is not enough to match search terms "registration no"
-            incomplete_match = lti_registration_model(account:, name: "registration")
-            subject
-            expect(response_data.pluck(:id)).not_to include(incomplete_match.id)
+          it "returns a 422 if the dir param isn't valid" do
+            get "/api/v1/accounts/#{account.id}/lti_registrations?dir=bad"
+            expect(response_json["errors"].first["message"]).to eq("dir param should be asc, desc, or empty")
           end
 
-          it "finds registrations with matching terms across different model attributes" do
-            multi_attribute_match = lti_registration_model(account:, name: "registration", vendor: "no")
-            subject
-            expect(response_data.pluck(:id)).to include(multi_attribute_match.id)
+          it "returns a 422 if the sort param isn't valid" do
+            get "/api/v1/accounts/#{account.id}/lti_registrations?sort=bad"
+            expect(response_json["errors"].first["message"]).to eq("bad is not a valid field for sorting")
           end
+        end
+      end
 
-          it "includes the current search parameters in the Link header" do
-            subject
-            expect(response.headers["Link"]).to include("?query=registration+no")
-          end
+      context "with 'overlay' in include[] parameter" do
+        let(:url) { "/api/v1/accounts/#{account.id}/lti_registrations?include[]=overlay" }
+        let(:overlay) { lti_overlay_model(account:, registration:) }
+        let(:registration) { lti_registration_model(account:) }
 
-          context "query param validations" do
-            it "returns a 422 if the page param isn't an integer" do
-              get "/api/v1/accounts/#{account.id}/lti_registrations?page=bad"
-              expect(response_json["errors"].first["message"]).to eq("page param should be an integer")
-            end
+        before do
+          overlay
+        end
 
-            it "returns a 422 if the dir param isn't valid" do
-              get "/api/v1/accounts/#{account.id}/lti_registrations?dir=bad"
-              expect(response_json["errors"].first["message"]).to eq("dir param should be asc, desc, or empty")
-            end
+        it "includes the overlay" do
+          subject
+          expect(response_data.first).to have_key("overlay")
+        end
 
-            it "returns a 422 if the sort param isn't valid" do
-              get "/api/v1/accounts/#{account.id}/lti_registrations?sort=bad"
-              expect(response_json["errors"].first["message"]).to eq("bad is not a valid field for sorting")
-            end
-          end
+        it "only queries for overlays once" do
+          expect(Lti::Overlay).not_to receive(:find_in_site_admin)
+          expect(Lti::Overlay).not_to receive(:find_by)
+          subject
+        end
+      end
+
+      context "with 'overlay_versions' in include[] parameter" do
+        let(:url) { "/api/v1/accounts/#{account.id}/lti_registrations?include[]=overlay&include[]=overlay_versions" }
+        let(:overlay) { lti_overlay_model(account:, registration:) }
+        let(:registration) { lti_registration_model(account:) }
+        let(:overlay_versions) do
+          lti_overlay_versions_model(
+            {
+              lti_overlay: overlay,
+              diff: [["+", "disabled_scopes[0]", "https://canvas.instructure.com/lti-ags/progress/scope/show"]],
+            },
+            6
+          )
+        end
+
+        before do
+          overlay_versions
+        end
+
+        it "does not include overlay_versions" do
+          subject
+          expect(response_data.first["overlay"]).not_to have_key("versions")
+        end
+      end
+
+      context "with cross-shard SiteAdmin on registration" do
+        specs_require_sharding
+
+        subject { @shard2.activate { get url } }
+
+        let(:site_admin_registration) { lti_registration_model(account: Account.site_admin, name: "Site admin registration", bound: true) }
+
+        before do
+          site_admin_registration
+        end
+
+        it "includes the site admin registration" do
+          subject
+          expect(response_data.pluck(:id)).to include(site_admin_registration.global_id)
+        end
+
+        it "says that it was created by Instructure" do
+          subject
+          site_admin_json = response_data.find { |r| r[:id] == site_admin_registration.global_id }
+          expect(site_admin_json[:created_by]).to eq("Instructure")
+        end
+
+        it "says that it was updated by Instructure" do
+          subject
+          site_admin_json = response_data.find { |r| r[:id] == site_admin_registration.global_id }
+          expect(site_admin_json[:updated_by]).to eq("Instructure")
+        end
+      end
+
+      context "with cross-shard inherited on registration" do
+        specs_require_sharding
+
+        subject { @shard2.activate { get url } }
+
+        let(:site_admin_registration) { Shard.default.activate { lti_registration_model(account: Account.site_admin, name: "Site admin registration") } }
+        let(:inherited_binding) { @shard2.activate { lti_registration_account_binding_model(registration: site_admin_registration, account:, workflow_state: "on") } }
+        let(:account) { @shard2.activate { account_model } }
+        let(:admin) { @shard2.activate { account_admin_user(name: "A User", account:) } }
+
+        before do
+          user_session(admin)
+          inherited_binding
+        end
+
+        it "includes the inherited registration" do
+          subject
+          expect(response_data.pluck(:id)).to include(site_admin_registration.global_id)
         end
       end
 
@@ -333,18 +670,9 @@ describe Lti::RegistrationsController do
       context "with non-admin user" do
         before { user_session(student_in_course(account:).user) }
 
-        it "returns 401" do
+        it "returns 403" do
           subject
-          expect(response).to be_unauthorized
-        end
-      end
-
-      context "with flag disabled" do
-        before { account.disable_feature!(:lti_registrations_page) }
-
-        it "returns 404" do
-          subject
-          expect(response).to be_not_found
+          expect(response).to be_forbidden
         end
       end
     end
@@ -357,6 +685,9 @@ describe Lti::RegistrationsController do
 
       context "with exactly 15 registrations present" do
         before do
+          # Disable templates flag for tests expecting site admin registrations with bindings
+          account.disable_feature!(:lti_registrations_templates)
+
           10.times do |number|
             registration = lti_registration_model(account:, name: "Registration no. #{number}")
             lti_registration_account_binding_model(registration:, account:, workflow_state: "on", created_by: admin)
@@ -446,7 +777,10 @@ describe Lti::RegistrationsController do
     let_once(:registration) { lti_registration_model(account:) }
     let_once(:account_binding) { lti_registration_account_binding_model(registration:, account:) }
 
-    before { account_binding }
+    before do
+      account_binding
+      registration.manual_configuration = lti_tool_configuration_model
+    end
 
     context "without user session" do
       before { remove_user_session }
@@ -462,24 +796,15 @@ describe Lti::RegistrationsController do
 
       before { user_session(student) }
 
-      it "returns 401" do
+      it "returns 403" do
         subject
-        expect(response).to be_unauthorized
-      end
-    end
-
-    context "with flag disabled" do
-      before { account.disable_feature!(:lti_registrations_page) }
-
-      it "returns 404" do
-        subject
-        expect(response).to be_not_found
+        expect(response).to be_forbidden
       end
     end
 
     context "for nonexistent registration" do
       it "returns 404" do
-        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id + 1}"
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id + 1_000}"
         expect(response).to be_not_found
       end
     end
@@ -505,31 +830,1021 @@ describe Lti::RegistrationsController do
       subject
       expect(response_json).to have_key(:configuration)
     end
+
+    context "with 'overlaid_configuration' in include[] parameter" do
+      subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}?include[]=overlaid_configuration" }
+
+      it "includes the overlaid configuration" do
+        subject
+        expect(response_json).to have_key(:overlaid_configuration)
+      end
+    end
+
+    context "with 'overlaid_legacy_configuration' in include[] parameter" do
+      subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}?include[]=overlaid_legacy_configuration" }
+
+      it "includes the overlaid legacy configuration" do
+        subject
+        expect(response_json).to have_key(:overlaid_legacy_configuration)
+      end
+    end
+
+    context "with 'overlay' in include[] parameter" do
+      subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}?include[]=overlay" }
+
+      let(:overlay) { lti_overlay_model(account:, registration:) }
+
+      before do
+        overlay
+      end
+
+      it "includes the overlay" do
+        subject
+        expect(response_json).to have_key(:overlay)
+      end
+    end
+
+    context "with 'overlay_versions' in include[] parameter" do
+      subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}?include[]=overlay&include[]=overlay_versions" }
+
+      let(:overlay) { lti_overlay_model(account:, registration:) }
+      let(:overlay_versions) do
+        lti_overlay_versions_model(
+          {
+            lti_overlay: overlay,
+            diff: [["+", "disabled_scopes[0]", "https://canvas.instructure.com/lti-ags/progress/scope/show"]],
+          },
+          6
+        )
+      end
+
+      before do
+        overlay_versions
+      end
+
+      it "includes the overlay versions" do
+        subject
+        expect(response_json[:overlay]).to have_key(:versions)
+        expect(response_json[:overlay][:versions].length).to eq(5)
+      end
+
+      context "and one of the user's that modified the overlay is a site admin" do
+        specs_require_cache(:redis_cache_store)
+
+        let(:site_admin) { site_admin_user(name: "Don't Show Me!") }
+        let(:site_admin_overlay_version) do
+          lti_overlay_version_model(created_by: site_admin,
+                                    lti_overlay: overlay,
+                                    diff: [["+", "disabled_scopes[0]", "https://canvas.instructure.com/lti-ags/progress/scope/show"]])
+        end
+
+        before do
+          site_admin_overlay_version
+        end
+
+        it "omits the site admin user's name" do
+          subject
+          expect(response_json[:overlay]).to have_key(:versions)
+          expect(response_json[:overlay][:versions].length).to eq(5)
+          expect(response_json[:overlay][:versions].first[:created_by]).to eq("Instructure")
+        end
+      end
+    end
+
+    context "with a site admin registration" do
+      let(:registration) { lti_registration_model(account: Account.site_admin) }
+
+      it "says that it was created by Instructure" do
+        subject
+        expect(response_json[:created_by]).to eq("Instructure")
+      end
+
+      it "says that it was updated by Instructure" do
+        subject
+        expect(response_json[:updated_by]).to eq("Instructure")
+      end
+    end
+
+    context "when registration does not belong to account" do
+      let_once(:other_account) { account_model }
+      let_once(:registration) { lti_registration_model(account: other_account) }
+
+      it "returns 400" do
+        subject
+        expect(response).to have_http_status(:bad_request)
+        expect(response_json["errors"]).to eq("registration does not belong to account")
+      end
+    end
+
+    context "when registration belongs to site admin" do
+      let_once(:registration) { lti_registration_model(account: Account.site_admin) }
+
+      it "is successful" do
+        subject
+        expect(response).to be_successful
+      end
+
+      it "returns the registration" do
+        subject
+        expect(response_json).to include(
+          {
+            id: registration.id,
+          }
+        )
+      end
+    end
+  end
+
+  describe "GET show (lock_deploying field)", type: :request do
+    subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}" }
+
+    let_once(:registration) { lti_registration_model(account:) }
+    let_once(:account_binding) { lti_registration_account_binding_model(registration:, account:) }
+
+    before do
+      account_binding
+      registration.manual_configuration = lti_tool_configuration_model
+    end
+
+    it "includes lock_deploying in the response" do
+      subject
+      expect(response_json).to have_key(:lock_deploying)
+    end
+
+    it "returns lock_deploying: false by default" do
+      subject
+      expect(response_json[:lock_deploying]).to be(false)
+    end
+  end
+
+  describe "GET show_by_client_id", type: :request do
+    subject { get "/api/v1/accounts/#{account.id}/lti_registration_by_client_id/#{developer_key.id}" }
+
+    let(:developer_key) { lti_developer_key_model(account:) }
+    let(:registration) { developer_key.lti_registration }
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    context "for nonexistent developer key" do
+      it "returns 404" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{developer_key.id + 1}"
+        expect(response).to be_not_found
+      end
+    end
+
+    it "is successful" do
+      subject
+      expect(response).to be_successful
+    end
+
+    it "returns the registration" do
+      subject
+      expect(response_json).to include({
+                                         id: registration.id,
+                                       })
+    end
+
+    it "includes the configuration" do
+      subject
+      expect(response_json).to have_key(:configuration)
+    end
+
+    context "when registration does not have account binding for the current account" do
+      let_once(:other_account) { account_model }
+      let_once(:other_developer_key) { lti_developer_key_model(account: other_account) }
+      let_once(:other_registration) { other_developer_key.lti_registration }
+
+      subject { get "/api/v1/accounts/#{account.id}/lti_registration_by_client_id/#{other_developer_key.id}" }
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+        expect(response_json["errors"]).to eq("LTI registration not found")
+      end
+    end
+
+    context "when registration belongs to a different root account" do
+      let_once(:different_root_account) { account_model }
+      let_once(:different_developer_key) { lti_developer_key_model(account: different_root_account) }
+      let_once(:different_registration) { different_developer_key.lti_registration }
+
+      subject { get "/api/v1/accounts/#{account.id}/lti_registration_by_client_id/#{different_developer_key.id}" }
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+        expect(response_json["errors"]).to eq("LTI registration not found")
+      end
+    end
+  end
+
+  describe "GET install_status", type: :request do
+    subject { get "/api/v1/accounts/#{account.id}/lti_registrations/install_status/#{developer_key.id}" }
+
+    let(:developer_key) { lti_developer_key_model(account:) }
+    let(:registration) { developer_key.lti_registration }
+
+    before do
+      account.root_account.enable_feature!(:lti_registrations_templates)
+    end
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    context "for nonexistent developer key" do
+      it "returns 404" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/install_status/#{developer_key.id + 1}"
+        expect(response).to be_not_found
+      end
+    end
+
+    context "when lti_registrations_templates feature flag is disabled" do
+      before do
+        account.root_account.disable_feature!(:lti_registrations_templates)
+      end
+
+      it "returns 404" do
+        subject
+        expect(response).to be_not_found
+      end
+    end
+
+    context "when registration is in the current account" do
+      it "is successful" do
+        subject
+        expect(response).to be_successful
+      end
+
+      it "returns the registration" do
+        subject
+        expect(response_json).to include({
+                                           id: registration.id,
+                                         })
+      end
+    end
+
+    context "when registration is in Site Admin and has a local copy" do
+      let_once(:site_admin_developer_key) { lti_developer_key_model(account: Account.site_admin) }
+      let_once(:site_admin_registration) { site_admin_developer_key.lti_registration }
+      let_once(:local_copy) do
+        Lti::Registration.create!(
+          account:,
+          name: "Local Copy",
+          admin_nickname: "local",
+          vendor: "test",
+          template_registration: site_admin_registration
+        )
+      end
+
+      subject { get "/api/v1/accounts/#{account.id}/lti_registrations/install_status/#{site_admin_developer_key.id}" }
+
+      before do
+        # Ensure local copy exists
+        local_copy
+      end
+
+      it "is successful" do
+        subject
+        expect(response).to be_successful
+      end
+
+      it "returns the local copy, not the Site Admin registration" do
+        subject
+        expect(response_json).to include(
+          {
+            id: local_copy.id,
+            name: "Local Copy",
+          }
+        )
+        expect(response_json[:id]).not_to eq(site_admin_registration.id)
+      end
+
+      it "includes inherited flag as true (local copy is inherited from template)" do
+        subject
+        expect(response_json[:inherited]).to be(true)
+      end
+    end
+
+    context "when registration is in Site Admin and has NO local copy" do
+      let_once(:site_admin_developer_key) { lti_developer_key_model(account: Account.site_admin) }
+      let_once(:site_admin_registration) { site_admin_developer_key.lti_registration }
+
+      subject { get "/api/v1/accounts/#{account.id}/lti_registrations/install_status/#{site_admin_developer_key.id}" }
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+        expect(response_json["errors"]).to eq("LTI registration not found")
+      end
+    end
+
+    context "when registration belongs to a different root account" do
+      let_once(:different_root_account) { account_model }
+      let_once(:different_developer_key) { lti_developer_key_model(account: different_root_account) }
+      let_once(:different_registration) { different_developer_key.lti_registration }
+
+      subject { get "/api/v1/accounts/#{account.id}/lti_registrations/install_status/#{different_developer_key.id}" }
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+        expect(response_json["errors"]).to eq("LTI registration not found")
+      end
+    end
+
+    context "when local copy is deleted" do
+      let_once(:site_admin_developer_key) { lti_developer_key_model(account: Account.site_admin) }
+      let_once(:site_admin_registration) { site_admin_developer_key.lti_registration }
+      let_once(:local_copy) do
+        Lti::Registration.create!(
+          account:,
+          name: "Local Copy",
+          admin_nickname: "local",
+          vendor: "test",
+          template_registration: site_admin_registration,
+          workflow_state: "deleted"
+        )
+      end
+
+      subject { get "/api/v1/accounts/#{account.id}/lti_registrations/install_status/#{site_admin_developer_key.id}" }
+
+      before do
+        local_copy
+      end
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+  end
+
+  describe "GET show_by_utid", type: :request do
+    subject { get "/api/v1/accounts/#{account.id}/lti_registrations/by_utid/#{utid}" }
+
+    let(:utid) { "test-utid-123" }
+    let(:registration) { lti_registration_with_tool(account:) }
+    let(:manual_config) { registration.manual_configuration }
+
+    before do
+      manual_config.update!(unified_tool_id: utid)
+    end
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    context "when UTID exists in manual configuration" do
+      it "is successful" do
+        subject
+        expect(response).to be_successful
+      end
+
+      it "returns the registration" do
+        subject
+        expect(response_json).to include({
+                                           id: registration.id,
+                                         })
+      end
+
+      it "includes inherited flag" do
+        subject
+        expect(response_json).to have_key(:inherited)
+      end
+    end
+
+    context "when UTID exists in IMS registration" do
+      let(:ims_registration) { lti_ims_registration_model(account:) }
+      let(:lti_registration) { ims_registration.lti_registration }
+
+      before do
+        manual_config.update!(unified_tool_id: "different-utid")
+        ims_registration.update!(unified_tool_id: utid)
+      end
+
+      it "is successful" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/by_utid/#{utid}"
+        expect(response).to be_successful
+      end
+
+      it "returns the registration" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/by_utid/#{utid}"
+        expect(response_json).to include({
+                                           id: lti_registration.id,
+                                         })
+      end
+    end
+
+    context "when UTID does not exist" do
+      it "returns 404" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/by_utid/nonexistent-utid"
+        expect(response).to have_http_status(:not_found)
+        expect(response_json["errors"]).to eq("LTI registration not found")
+      end
+    end
+
+    context "when registration is deleted" do
+      before do
+        # Ensure manual_config exists and has the utid set before deleting
+        manual_config # Force lazy evaluation
+        registration.update!(workflow_state: "deleted")
+      end
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+        expect(response_json["errors"]).to eq("LTI registration not found")
+      end
+    end
+
+    context "when registration belongs to a different root account" do
+      let_once(:different_root_account) { account_model }
+      let_once(:different_registration) { lti_registration_with_tool(account: different_root_account) }
+      let_once(:different_config) { different_registration.manual_configuration }
+
+      before do
+        different_config.update!(unified_tool_id: "other-utid")
+      end
+
+      it "returns 404" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/by_utid/other-utid"
+        expect(response).to have_http_status(:not_found)
+        expect(response_json["errors"]).to eq("LTI registration not found")
+      end
+    end
   end
 
   describe "PUT update", type: :request do
-    subject { put "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}", params: { admin_nickname: } }
+    subject do
+      put "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}",
+          params:,
+          as: :json
+      response
+    end
 
-    let_once(:other_admin) { account_admin_user(account:) }
-    let_once(:registration) { lti_registration_model(account:, created_by: other_admin, updated_by: other_admin) }
-    let_once(:ims_registration) { lti_ims_registration_model(lti_registration: registration) }
-    let_once(:admin_nickname) { "New Name" }
+    let(:params) do
+      {
+        admin_nickname:,
+        vendor:,
+        configuration: internal_lti_configuration,
+        name:,
+        description: "neat little description",
+        workflow_state: "on"
+      }
+    end
 
-    before { ims_registration }
+    let(:other_admin) { account_admin_user(account:) }
+    let(:registration) { lti_registration_with_tool(account:, created_by: admin) }
+    let(:developer_key) do
+      registration.developer_key
+    end
+    let(:tool_configuration) { developer_key.tool_configuration }
+    let(:admin_nickname) { "New Name" }
+    let(:name) { "foo" }
+    let(:vendor) { "vendor" }
 
-    it "is successful" do
-      subject
-      expect(response).to be_successful
-      expect(registration.reload.admin_nickname).to eq(admin_nickname)
+    it "updates the registration's attributes" do
+      expect(subject).to be_successful
+
+      registration.reload
+
+      expect(registration.description).to eq(params[:description])
       expect(registration.updated_by).to eq(admin)
+      expect(registration.admin_nickname).to eq(admin_nickname)
+      expect(registration.vendor).to eq(vendor)
+      expect(registration.name).to eq(name)
+    end
+
+    it "updates the associated developer key" do
+      expect(subject).to be_successful
+
+      attributes = registration.developer_key.reload
+                               .attributes
+                               .with_indifferent_access
+                               .slice(:name,
+                                      :public_jwk,
+                                      :public_jwk_url,
+                                      :scopes,
+                                      :redirect_uris,
+                                      :icon_url)
+                               .compact
+
+      expect(attributes).to eq(
+        {
+          name:,
+          icon_url: internal_lti_configuration[:launch_settings][:icon_url],
+          **internal_lti_configuration.slice(:public_jwk, :public_jwk_url, :scopes, :redirect_uris)
+        }.with_indifferent_access
+      )
+    end
+
+    it "updates the associated tool configuration" do
+      expect(subject).to be_successful
+
+      expect(tool_configuration.reload.internal_lti_configuration.with_indifferent_access)
+        .to eq(internal_lti_configuration.with_indifferent_access)
+    end
+
+    it "updates the associated registration account binding" do
+      expect(subject).to be_successful
+
+      expect(registration.account_binding_for(account).workflow_state).to eq("on")
+    end
+
+    it "returns the appropriate info" do
+      expect(subject).to be_successful
+
+      expect(response_json[:configuration].with_indifferent_access)
+        .to eq(internal_lti_configuration.with_indifferent_access)
+      expect(response_json[:account_binding]).to include({ workflow_state: "on" })
+    end
+
+    it "doesn't create an unnecessary overlay" do
+      expect { subject }.not_to change { Lti::Overlay.count }
+      expect(subject).to be_successful
+    end
+
+    context "with a site admin registration" do
+      context "as a root account admin" do
+        let_once(:site_admin) { site_admin_user }
+        let_once(:registration) { lti_registration_with_tool(account: Account.site_admin, created_by: site_admin) }
+        let_once(:account_admin) { account_admin_user(account:, name: "Account Admin") }
+
+        before do
+          user_session(account_admin)
+        end
+
+        it "doesn't let them update the registration" do
+          expect { subject }.not_to change { registration.reload.internal_lti_configuration }
+          expect(response).to have_http_status(:bad_request)
+          expect(response.parsed_body["errors"]).to eq("registration does not belong to account")
+        end
+      end
+    end
+
+    context "with a root account registration from site admin" do
+      let_once(:root_account) { account_model }
+      let_once(:root_admin) { account_admin_user(account: root_account) }
+      let_once(:sa_admin) { site_admin_user }
+      let_once(:registration) { lti_registration_with_tool(account: root_account, created_by: root_admin) }
+      let(:account) { Account.site_admin }
+
+      before do
+        user_session(sa_admin)
+      end
+
+      it "doesn't let them update the registration" do
+        expect { subject }.not_to change { registration.reload.internal_lti_configuration }
+        expect(response).to have_http_status(:bad_request)
+        expect(response.parsed_body["errors"]).to eq("registration does not belong to account")
+      end
+    end
+
+    context "on a separate shard" do
+      context "as a root account admin on another shard" do
+        specs_require_sharding
+
+        let_once(:first_admin) { @shard1.activate { account_admin_user(account:) } }
+        # Think of this as the first account
+        let_once(:account) { @shard1.activate { account_model } }
+        let_once(:registration) { @shard1.activate { lti_registration_with_tool(account:) } }
+
+        let_once(:second_admin) { @shard2.activate { account_admin_user(account: second_account) } }
+        let_once(:second_account) { @shard2.activate { account_model } }
+
+        before do
+          user_session(second_admin)
+        end
+
+        it "doesn't let them update the registration" do
+          expect { subject }.not_to change { registration.reload.internal_lti_configuration }
+          expect(response).to be_forbidden
+        end
+      end
+    end
+
+    context "change-log tracking" do
+      # The update request above changes a TON of stuff and makes the diff
+      # rather large. We'll make targeted changes here instead.
+      let(:new_placement_config) do
+        {
+          placement: "file_index_menu",
+          message_type: "LtiResourceLinkRequest",
+          target_link_uri: "http://lti13testtool.docker/blti_launch",
+          title: "Test Placement",
+          icon_url: "http://lti13testtool.docker/blti_launch",
+          selection_height: 500,
+          selection_width: 500,
+        }
+      end
+      let(:new_internal_configuration) do
+        registration.internal_lti_configuration.dup.tap do |config|
+          config[:oidc_initiation_url] = "http://lti13testtool.docker/blti_launch"
+          config[:placements] << new_placement_config
+        end
+      end
+      let(:params) do
+        {
+          id: registration.id,
+          configuration: new_internal_configuration,
+          admin_nickname: "a neat nickname",
+          vendor: "totally different vendor"
+        }
+      end
+
+      it "tracks the changes" do
+        old_nickname = registration.admin_nickname
+        old_oidc_initiation_url = registration.internal_lti_configuration[:oidc_initiation_url]
+        old_placements = registration.internal_lti_configuration[:placements]
+        expect { subject }.to change { Lti::RegistrationHistoryEntry.count }.by(1)
+        expect(subject).to be_successful
+
+        entry = Lti::RegistrationHistoryEntry.last
+        expect(entry.created_by).to eq(admin)
+        expect(entry.lti_registration).to eq(registration)
+        expect(entry.diff["registration"])
+          .to match_array([
+                            [
+                              "~", ["admin_nickname"], old_nickname, "a neat nickname"
+                            ],
+                            [
+                              "~", ["vendor"], registration.vendor, "totally different vendor"
+                            ]
+                          ])
+        expect(entry.diff["internal_lti_configuration"])
+          .to match_array([
+                            [
+                              "~", ["oidc_initiation_url"], old_oidc_initiation_url, "http://lti13testtool.docker/blti_launch"
+                            ],
+                            [
+                              "+", ["placements", old_placements.length], new_placement_config.with_indifferent_access
+                            ]
+                          ])
+        expect(entry.diff["developer_key"])
+          .to match_array([
+                            ["~", ["oidc_initiation_url"], old_oidc_initiation_url, "http://lti13testtool.docker/blti_launch"]
+                          ])
+      end
+    end
+
+    context "attempting to update disallowed fields" do
+      let(:params) do
+        super().tap do |p|
+          p[:configuration][:developer_key_id] = -1234
+        end
+      end
+
+      it "ignores the disallowed fields" do
+        expect(subject).to be_successful
+
+        expect(tool_configuration.reload.developer_key_id).not_to eq(-1234)
+      end
+    end
+
+    context "updating a Dynamic Registration" do
+      let(:ims_registration) { lti_ims_registration_model(account:) }
+      let(:registration) { ims_registration.lti_registration }
+      let(:params) do
+        {
+          admin_nickname: "New Name",
+          vendor: "vendor",
+          overlay: { "name" => "overlay name" },
+        }
+      end
+
+      before { tool_configuration.destroy }
+
+      it { is_expected.to be_successful }
+
+      context "disabling scopes" do
+        let(:params) do
+          super().tap do |p|
+            p[:overlay][:disabled_scopes] = [ims_registration.internal_lti_configuration[:scopes][0]]
+          end
+        end
+
+        it "is successful" do
+          ims_registration
+          expect(subject).to be_successful
+          expect(registration.reload.developer_key.scopes).not_to include(ims_registration.internal_lti_configuration[:scopes][0])
+        end
+      end
+
+      context "trying to update it's base configuration" do
+        let(:params) do
+          {
+            configuration: internal_lti_configuration,
+          }
+        end
+
+        it { is_expected.to have_http_status(:unprocessable_content) }
+      end
+    end
+
+    # TEMPORARY: Manual registrations now merge overlays into configuration
+    context "sending an overlay" do
+      let(:params) do
+        super().tap do |p|
+          p[:overlay] = { "title" => "overlay title" }
+        end
+      end
+
+      it "merges overlay into configuration (no overlay created)" do
+        expect { subject }.not_to change { Lti::Overlay.count }
+        expect(subject).to be_successful
+
+        expect(tool_configuration.reload.title).to eq("overlay title")
+      end
+
+      context "but an overlay already exists" do
+        before do
+          Lti::Overlay.create!(registration:, account:, data: { "title" => "old title" }, updated_by: admin)
+        end
+
+        it "merges new overlay into configuration (clears existing overlay)" do
+          expect { subject }.not_to change { Lti::Overlay.count }
+
+          expect(subject).to be_successful
+          expect(tool_configuration.reload.title).to eq("overlay title")
+          # The overlay data should be cleared after merging
+          expect(registration.overlay_for(account)&.data || {}).to be_empty
+        end
+      end
+
+      context "an overlay exists in Site Admin but not for the current account" do
+        let(:site_admin_user) { account_admin_user(account: Account.site_admin) }
+        let(:site_admin_overlay) do
+          Lti::Overlay.create!(registration:, account: Account.site_admin, data: { "title" => "site admin overlay" }, updated_by: site_admin_user)
+        end
+
+        before do
+          site_admin_overlay
+        end
+
+        it { is_expected.to be_successful }
+
+        it "doesn't change the site admin overlay" do
+          expect { subject }.not_to change { site_admin_overlay.reload }
+        end
+
+        it "merges overlay into configuration (no new overlay created)" do
+          expect { subject }.not_to change { Lti::Overlay.count }
+
+          expect(tool_configuration.reload.title).to eq("overlay title")
+        end
+      end
+    end
+
+    context "with a legacy configuration" do
+      let(:params) do
+        super().tap do |p|
+          p[:configuration] = registration.canvas_configuration.except(:public_jwk_url)
+        end
+      end
+
+      it { is_expected.to be_successful }
+
+      it "doesn't change the configuration" do
+        expect { subject }.not_to change { tool_configuration.reload.internal_lti_configuration }
+        expect(subject).to be_successful
+      end
+    end
+
+    context "when updating only the nickname" do
+      let(:params) { { admin_nickname: "A Great Partial Update" } }
+
+      it "is successful" do
+        expect { subject }.not_to change { tool_configuration.reload.internal_lti_configuration }
+        expect(subject).to be_successful
+        expect(registration.reload.admin_nickname).to eq(params[:admin_nickname])
+      end
+    end
+
+    # TEMPORARY: Manual registrations now merge overlays into configuration
+    context "when updating only the overlay" do
+      let(:params) do
+        {
+          overlay: {
+            disabled_placements: ["course_navigation"],
+          }
+        }
+      end
+
+      it "is successful and merges overlay into configuration" do
+        expect(subject).to be_successful
+
+        # The configuration SHOULD change (disabled placement applied)
+        reloaded_config = tool_configuration.reload.internal_lti_configuration.with_indifferent_access
+        course_nav = reloaded_config[:placements].find { |p| p[:placement] == "course_navigation" }
+        expect(course_nav).not_to be_nil
+        expect(course_nav[:enabled]).to be(false)
+      end
+
+      it "still tries to update all installed external tools" do
+        expect_any_instance_of(DeveloperKey).to receive(:update_external_tools!).once
+
+        subject
+      end
+    end
+
+    context "when updating only the configuration" do
+      let(:params) do
+        {
+          configuration: {
+            **internal_lti_configuration,
+            title: "A Great Partial Update",
+          }
+        }
+      end
+
+      it "is successful" do
+        expect(subject).to be_successful
+
+        expect(tool_configuration.reload.internal_lti_configuration.with_indifferent_access)
+          .to eq(params[:configuration].with_indifferent_access)
+      end
+    end
+
+    context "when updating only the workflow state" do
+      let(:params) { { workflow_state: "off" } }
+
+      it "is successful" do
+        expect { subject }.not_to change { tool_configuration.reload.internal_lti_configuration }
+
+        expect(subject).to be_successful
+        expect(registration.account_binding_for(account).workflow_state).to eq(params[:workflow_state])
+      end
+    end
+
+    context "with binding-vocabulary workflow states" do
+      %w[on off].each do |state|
+        context "workflow_state: #{state}" do
+          let(:params) { { workflow_state: state } }
+          let(:expected_reg_state) { (state == "on") ? "active" : "inactive" }
+
+          it "sets the binding and registration to the equivalent states" do
+            expect(subject).to be_successful
+            expect(registration.account_binding_for(account).workflow_state).to eq(state)
+            expect(registration.reload.workflow_state).to eq(expected_reg_state)
+          end
+        end
+      end
+    end
+
+    context "with registration-vocabulary workflow states" do
+      context "workflow_state: inactive" do
+        let(:params) { { workflow_state: "inactive" } }
+
+        it "sets registration to inactive and binding to off" do
+          expect(subject).to be_successful
+          expect(registration.reload.workflow_state).to eq("inactive")
+          expect(registration.account_binding_for(account).workflow_state).to eq("off")
+        end
+      end
+
+      context "workflow_state: active" do
+        let(:params) { { workflow_state: "active" } }
+
+        before { registration.update!(workflow_state: "inactive") }
+
+        it "sets registration to active and binding to on" do
+          expect(subject).to be_successful
+          expect(registration.reload.workflow_state).to eq("active")
+          expect(registration.account_binding_for(account).workflow_state).to eq("on")
+        end
+
+        context "with site admin registration" do
+          let(:site_admin) { site_admin_user }
+          let(:registration) { lti_registration_with_tool(account:, created_by: site_admin) }
+          let(:account) { Account.site_admin }
+
+          before { user_session(site_admin) }
+
+          it "sets binding state to Allow, not On" do
+            expect(subject).to be_successful
+            expect(registration.account_binding_for(account).workflow_state).to eq("allow")
+          end
+        end
+      end
+    end
+
+    context "when updating only the name" do
+      let(:params) { { name: "A Great Partial Update" } }
+
+      it "is successful" do
+        expect { subject }.not_to change { tool_configuration.reload.internal_lti_configuration }
+
+        expect(subject).to be_successful
+        expect(registration.reload.name).to eq(params[:name])
+      end
+    end
+
+    context "with an invalid configuration" do
+      let(:params) do
+        super().tap do |p|
+          p[:configuration] = { "invalid" => "config" }
+        end
+      end
+
+      it { is_expected.to have_http_status(:unprocessable_content) }
+    end
+
+    context "with an invalid overlay" do
+      let(:params) do
+        super().tap do |p|
+          p[:overlay] = { "disabled_scopes" => ["invalid"] }
+        end
+      end
+
+      it { is_expected.to have_http_status(:unprocessable_content) }
+    end
+
+    # TEMPORARY: Manual registrations now merge overlays into configuration
+    # Note: nil values in overlays are compacted out, so they don't actually set fields to nil
+    context "with overlay containing nil attribute" do
+      let(:params) do
+        super().tap do |p|
+          p[:overlay] = { "domain" => nil }
+        end
+      end
+
+      it "is successful (nil values are compacted out, domain remains unchanged)" do
+        original_domain = tool_configuration.domain
+        expect(subject).to be_successful
+        # The domain should remain unchanged because nil values are compacted
+        expect(tool_configuration.reload.domain).to eq(original_domain)
+      end
+    end
+
+    context "with configuration containing nil attribute" do
+      let(:params) do
+        super().tap do |p|
+          p[:configuration] = { **internal_lti_configuration, "domain" => nil }
+        end
+      end
+
+      it "is successful" do
+        expect(subject).to be_successful
+        expect(tool_configuration.reload.domain).to be_nil
+      end
     end
 
     context "without user session" do
       before { remove_user_session }
 
       it "returns 401" do
-        subject
-        expect(response).to be_unauthorized
+        expect(subject).to be_unauthorized
       end
     end
 
@@ -538,50 +1853,60 @@ describe Lti::RegistrationsController do
 
       before { user_session(student) }
 
-      it "returns 401" do
-        subject
-        expect(response).to be_unauthorized
+      it "returns 403" do
+        expect(subject).to be_forbidden
       end
     end
 
-    context "with flag disabled" do
-      before { account.disable_feature!(:lti_registrations_page) }
-
-      it "returns 404" do
-        subject
-        expect(response).to be_not_found
-      end
-    end
-
-    context "with non-dynamic registration" do
-      before { ims_registration.update!(lti_registration: nil) }
-
-      it "returns 422" do
-        subject
-        expect(response).to have_http_status(:unprocessable_entity)
+    context "locking a registration" do
+      it "updates lock_deploying to true" do
+        put "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}",
+            params: { lock_deploying: true },
+            as: :json
+        expect(response).to be_successful
+        expect(registration.reload.lock_deploying).to be(true)
       end
 
-      it "does not modify the registration" do
-        expect { subject }.not_to change { registration.reload.admin_nickname }
+      it "updates lock_deploying to false" do
+        registration.update!(lock_deploying: true)
+        put "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}",
+            params: { lock_deploying: false },
+            as: :json
+        expect(response).to be_successful
+        expect(registration.reload.lock_deploying).to be(false)
       end
-    end
 
-    context "with additional params" do
-      let(:registration_params) { { admin_nickname:, created_by: admin } }
+      context "with flag disabled" do
+        before do
+          account.disable_feature!(:lock_lti_registrations)
+        end
 
-      it "only updates the nickname" do
-        expect { subject }.not_to change { registration.reload.created_by }
+        it "ignores the lock_deploying param" do
+          expect do
+            put "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}",
+                params: { lock_deploying: true },
+                as: :json
+          end.not_to change { registration.reload.lock_deploying }
+          expect(response).to be_successful
+        end
       end
     end
   end
 
-  describe "DELETE destroy", type: :request do
-    subject { delete "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}" }
+  describe "PUT reset", type: :request do
+    subject { put "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/reset" }
 
-    let_once(:registration) { lti_registration_model(account:) }
-    let_once(:ims_registration) { lti_ims_registration_model(lti_registration: registration) }
+    let_once(:developer_key) { tool_config.developer_key }
+    let_once(:registration) { developer_key.lti_registration }
+    let_once(:tool_config) { lti_tool_configuration_model(account:) }
+    let_once(:account_binding) { lti_registration_account_binding_model(registration:, account:) }
+    let_once(:overlay) { lti_overlay_model(account:, registration:, data:) }
+    let_once(:data) { { "title" => "Test Title" } }
 
-    before { ims_registration }
+    before do
+      tool_config
+      account.enable_feature!(:lti_registrations_next)
+    end
 
     context "without user session" do
       before { remove_user_session }
@@ -597,14 +1922,14 @@ describe Lti::RegistrationsController do
 
       before { user_session(student) }
 
-      it "returns 401" do
+      it "returns 403" do
         subject
-        expect(response).to be_unauthorized
+        expect(response).to be_forbidden
       end
     end
 
-    context "with flag disabled" do
-      before { account.disable_feature!(:lti_registrations_page) }
+    context "with lti_registrations_next flag disabled" do
+      before { account.disable_feature!(:lti_registrations_next) }
 
       it "returns 404" do
         subject
@@ -612,17 +1937,40 @@ describe Lti::RegistrationsController do
       end
     end
 
-    context "with non-dynamic registration" do
-      before { ims_registration.update!(lti_registration: nil) }
+    context "with registration for different account" do
+      subject { delete "/api/v1/accounts/#{account.id}/lti_registrations/#{other_reg.id}", params: { accept: "application/json" } }
 
-      it "returns 422" do
+      let_once(:other_reg) { lti_registration_model(account: Account.site_admin) }
+      let_once(:other_ims_registration) { lti_ims_registration_model(lti_registration: other_reg) }
+
+      it "returns 400" do
         subject
-        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response).to be_bad_request
+      end
+    end
+
+    context "with a cross-shard admin" do
+      specs_require_sharding
+
+      let_once(:cross_shard_user) { @shard2.activate { user_model } }
+      let_once(:cross_shard_admin) { account_admin_user(account:, user: cross_shard_user) }
+
+      before { user_session(cross_shard_admin) }
+
+      it "is successful" do
+        subject
+        expect(response).to be_successful
       end
 
-      it "does not delete the registration" do
-        subject
-        expect(registration.reload).not_to be_deleted
+      it "creates a new overlay & version associated with the cross-shard user" do
+        expect { subject }.to change { overlay.reload.lti_overlay_versions.count }.by(1)
+        overlay.reload
+
+        expect(overlay.updated_by).to eql(cross_shard_admin)
+
+        expect(overlay.lti_overlay_versions.last.caused_by_reset).to be_truthy
+        expect(overlay.lti_overlay_versions.last.diff).to eql(Hashdiff.diff(data, {}))
+        expect(overlay.lti_overlay_versions.last.created_by).to eql(cross_shard_admin)
       end
     end
 
@@ -631,17 +1979,42 @@ describe Lti::RegistrationsController do
       expect(response).to be_successful
     end
 
-    it "deletes the registration" do
+    it "resets the overlay" do
+      expect { subject }.to change { overlay.reload.data }.from(data).to({})
+      expect(response).to be_successful
+    end
+
+    it "updates the overlay and creates a new version with caused_by_reset as true" do
+      expect { subject }.to change { overlay.reload.lti_overlay_versions.count }.by(1)
+      overlay.reload
+
+      expect(overlay.updated_by).to eql(admin)
+
+      expect(overlay.lti_overlay_versions.last.caused_by_reset).to be_truthy
+      expect(overlay.lti_overlay_versions.last.diff).to eql(Hashdiff.diff(data, {}))
+      expect(overlay.lti_overlay_versions.last.created_by).to eql(admin)
+    end
+
+    it "returns the overlay versions, overlay, and overlaid configuration" do
       subject
-      expect(registration.reload).to be_deleted
+      expect(response).to be_successful
+      expect(response_json.keys.map(&:to_sym)).to include(:overlay, :overlaid_configuration)
+      expect(response_json.dig(:overlay, :versions)).to be_present
+      expect(response_json.dig(:overlay, :data)).to eql({})
+      expect(response_json[:overlaid_configuration]).to eql(registration.internal_lti_configuration(context: account))
+      expect(response_json.dig(:overlay, :versions)&.length).to be(1)
+
+      overlay_version = response_json.dig(:overlay, :versions).last
+      expect(overlay_version.dig(:created_by, :id)).to eql(admin.id)
+      expect(overlay_version[:caused_by_reset]).to be(true)
     end
   end
 
   describe "POST bind", type: :request do
     subject { post "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/bind", params: { workflow_state: } }
 
-    let(:registration) { lti_registration_model(account:) }
-    let(:workflow_state) { "off" }
+    let_once(:registration) { lti_registration_with_tool(account: Account.site_admin) }
+    let_once(:workflow_state) { "off" }
 
     context "without user session" do
       before { remove_user_session }
@@ -657,31 +2030,22 @@ describe Lti::RegistrationsController do
 
       before { user_session(student) }
 
-      it "returns 401" do
+      it "returns 403" do
         subject
-        expect(response).to be_unauthorized
-      end
-    end
-
-    context "with flag disabled" do
-      before { account.disable_feature!(:lti_registrations_page) }
-
-      it "returns 404" do
-        subject
-        expect(response).to be_not_found
+        expect(response).to be_forbidden
       end
     end
 
     context "when model-level validations fail" do
-      # for example, when the account is not a root account
-      subject { post "/api/v1/accounts/#{child_account.id}/lti_registrations/#{registration.id}/bind", params: { workflow_state: } }
+      # for example, when the registration isn't in the account chain.
+      subject { post "/api/v1/accounts/#{account.id}/lti_registrations/#{other_registration.id}/bind", params: { workflow_state: } }
 
-      let(:child_account) { account_model(parent_account: account) }
-      let(:registration) { lti_registration_model(account: child_account) }
+      let(:other_account) { account_model }
+      let(:other_registration) { lti_registration_with_tool(account: other_account) }
 
-      it "returns 422" do
+      it "returns 400" do
         subject
-        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response).to have_http_status(:bad_request)
       end
     end
 
@@ -690,7 +2054,17 @@ describe Lti::RegistrationsController do
 
       it "returns 422" do
         subject
-        expect(response).to have_http_status(:unprocessable_entity)
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+    end
+
+    context "when the registration is not active" do
+      before { registration.update!(workflow_state: "inactive") }
+
+      it "returns 422 with an error message" do
+        subject
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.body).to include("template registration is off")
       end
     end
 
@@ -707,12 +2081,19 @@ describe Lti::RegistrationsController do
       it "constructs the binding properly" do
         subject
         account_binding = Lti::RegistrationAccountBinding.last
-        expect(account_binding.registration).to eq(registration)
         expect(account_binding.account).to eq(account)
         expect(account_binding.workflow_state).to eq(workflow_state)
         expect(account_binding.created_by).to eq(admin)
         expect(account_binding.updated_by).to eq(admin)
         expect(account_binding.root_account_id).to eq(account.id)
+      end
+
+      it "creates a local copy of the registration" do
+        subject
+        local_registration = Lti::Registration.last
+        account_binding = Lti::RegistrationAccountBinding.last
+        expect(account_binding.registration).to eq(registration)
+        expect(local_registration.template_registration).to eq(registration)
       end
     end
 
@@ -731,6 +2112,2399 @@ describe Lti::RegistrationsController do
 
       it "updates the existing binding" do
         expect { subject }.to change { account_binding.reload.workflow_state }.from(initial_workflow_state).to(workflow_state).and change { account_binding.updated_by }.from(initial_updated_by).to(admin)
+      end
+
+      context "with workflow_state set to off" do
+        let(:workflow_state) { "off" }
+
+        it "updates the existing binding to off" do
+          expect { subject }.to change { account_binding.reload.workflow_state }.from(initial_workflow_state).to(workflow_state)
+        end
+
+        it "deactivates the local copy" do
+          expect { subject }.to change { Lti::Registration.last.reload.workflow_state }.from("active").to("inactive")
+        end
+      end
+    end
+
+    context "with a non-site-admin registration" do
+      let_once(:registration) { lti_registration_with_tool(account:) }
+
+      it "returns 422" do
+        subject
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.body).to include("must be inherited from Site Admin")
+      end
+    end
+  end
+
+  describe "POST install_from_template", type: :request do
+    subject { post "/api/v1/accounts/#{account.id}/lti_registrations/#{template.id}/install_from_template", as: :json }
+
+    let_once(:template) { lti_registration_with_tool(account: Account.site_admin) }
+
+    it "creates a local copy of the template" do
+      expect { subject }.to change { Lti::Registration.count }.by(1)
+      local_registration = Lti::Registration.last
+      expect(local_registration.template_registration).to eq(template)
+    end
+
+    it "creates an account binding for backwards compatibility" do
+      expect { subject }.to change { Lti::RegistrationAccountBinding.count }.by(1)
+      account_binding = Lti::RegistrationAccountBinding.last
+      expect(account_binding.registration).to eq(template)
+      expect(account_binding.account).to eq(account)
+    end
+
+    it "is successful" do
+      subject
+      expect(response).to be_successful
+    end
+
+    it "returns registration and deployment id" do
+      subject
+      expect(response_json["id"]).to eq(Lti::Registration.last.id)
+    end
+
+    context "when the template is not active" do
+      before { template.update!(workflow_state: "inactive") }
+
+      it "returns 422 with an error message" do
+        subject
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.body).to include("template registration is off")
+      end
+    end
+
+    context "with a non-site-admin template" do
+      let_once(:template) { lti_registration_with_tool(account:) }
+
+      it "returns 422" do
+        subject
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response.body).to include("must be inherited from Site Admin")
+      end
+    end
+
+    context "with existing local copy" do
+      before do
+        post "/api/v1/accounts/#{account.id}/lti_registrations/#{template.id}/install_from_template", as: :json
+      end
+
+      it "does not create a new local copy" do
+        expect { subject }.not_to change { Lti::Registration.count }
+      end
+
+      it "returns the existing local copy" do
+        local_registration = Lti::Registration.last
+        subject
+        expect(response_json["id"]).to eq(local_registration.id)
+      end
+
+      it "does not create a new account binding" do
+        expect { subject }.not_to change { Lti::RegistrationAccountBinding.count }
+      end
+    end
+  end
+
+  describe "POST validate", type: :request do
+    # introduces `canvas_lti_configuration` (hard-coded JSON LtiConfiguration)
+    subject { post "/api/v1/accounts/#{account.id}/lti_registrations/configuration/validate", params: { url:, lti_configuration: }.compact, as: :json }
+
+    include_context "lti_1_3_tool_configuration_spec_helper"
+
+    let(:url) { nil }
+    let(:lti_configuration) { nil }
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    context "without any params" do
+      it "returns 422" do
+        subject
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response_json.dig("errors", 0)).to include("lti_configuration or url is required")
+      end
+    end
+
+    context "with both params" do
+      let(:url) { "http://example.com" }
+      let(:lti_configuration) { { title: "Title" } }
+
+      it "returns 422" do
+        subject
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response_json.dig("errors", 0)).to include("only one of lti_configuration or url")
+      end
+    end
+
+    context "with invalid lti_configuration" do
+      let(:lti_configuration) { { title: "Title" } }
+
+      it "returns 422" do
+        subject
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response_json.dig("errors", 0)).to include("required")
+      end
+    end
+
+    context "with valid lti_configuration" do
+      let(:lti_configuration) { canvas_lti_configuration }
+
+      it "is successful" do
+        subject
+        expect(response).to be_successful
+      end
+
+      it "transforms the configuration" do
+        subject
+        expect(response_json["configuration"]).to eq internal_lti_configuration.with_indifferent_access
+      end
+
+      it "adds a default redirect_uris to ensure the configuration is valid" do
+        subject
+        expect(response_json["configuration"]["redirect_uris"]).to eq internal_lti_configuration[:redirect_uris]
+      end
+
+      context "with redirect_uris" do
+        let(:lti_configuration) { canvas_lti_configuration.merge(redirect_uris:) }
+        let(:redirect_uris) { ["http://example.com"] }
+
+        it "is successful" do
+          subject
+          expect(response).to be_successful
+        end
+
+        it "includes redirect_uris" do
+          subject
+          expect(response_json["configuration"]["redirect_uris"]).to eq redirect_uris
+        end
+
+        context "with string redirect_uris" do
+          let(:redirect_uris) { "http://example.com" }
+
+          it "is successful" do
+            subject
+            expect(response).to be_successful
+          end
+
+          it "coerces redirect_uris to an array" do
+            subject
+            expect(response_json["configuration"]["redirect_uris"]).to eq [redirect_uris]
+          end
+        end
+      end
+
+      context "with null config values" do
+        before do
+          lti_configuration["extensions"][0]["tool_id"] = nil
+        end
+
+        it "is successful" do
+          subject
+          expect(response).to be_successful
+        end
+      end
+
+      context "with null required values" do
+        before do
+          lti_configuration["title"] = nil
+        end
+
+        it "returns 422" do
+          subject
+          expect(response).to have_http_status(:unprocessable_content)
+        end
+      end
+    end
+
+    context "with url" do
+      let(:url) { "http://example.com" }
+      let(:result) { nil }
+
+      before do
+        allow(CanvasHttp).to receive(:get).with(url).and_return(result)
+      end
+
+      context "when url errors" do
+        before do
+          allow(CanvasHttp).to receive(:get).with(url).and_raise(CanvasHttp::Error)
+        end
+
+        it "returns 422" do
+          subject
+          expect(response).to have_http_status(:unprocessable_content)
+        end
+      end
+
+      context "when url can't connect" do
+        before do
+          allow(CanvasHttp).to receive(:get).with(url).and_raise(SocketError)
+        end
+
+        it "returns 422" do
+          subject
+          expect(response).to have_http_status(:unprocessable_content)
+        end
+      end
+
+      context "when url responds with non-200" do
+        let(:result) { instance_double(Net::HTTPBadRequest, class: Net::HTTPBadRequest, code: 400) }
+
+        it "returns 422" do
+          subject
+          expect(response).to have_http_status(:unprocessable_content)
+        end
+      end
+
+      context "when url responds with non-JSON" do
+        let(:result) { instance_double(Net::HTTPSuccess, class: Net::HTTPSuccess, is_a?: true, body: "invalid json") }
+
+        it "returns 422" do
+          subject
+          expect(response).to have_http_status(:unprocessable_content)
+        end
+      end
+
+      context "when url responds with JSON" do
+        let(:result) { instance_double(Net::HTTPSuccess, class: Net::HTTPSuccess, is_a?: true, body: config.to_json) }
+
+        context "when configuration is invalid" do
+          let(:config) { { title: "Title" } }
+
+          it "returns 422" do
+            subject
+            expect(response).to have_http_status(:unprocessable_content)
+            expect(response_json.dig("errors", 0)).to include("required")
+          end
+        end
+
+        context "when configuration is valid" do
+          let(:config) { canvas_lti_configuration }
+
+          it "is successful" do
+            subject
+            expect(response).to be_successful
+          end
+
+          it "transforms the configuration" do
+            subject
+            expect(response_json["configuration"]).to eq internal_lti_configuration.with_indifferent_access
+          end
+        end
+      end
+    end
+  end
+
+  describe "GET check_domain_duplicates", type: :request do
+    subject { get "/api/v1/accounts/#{account.id}/lti_registrations/check_domain_duplicates", params: { domain: } }
+
+    let_once(:account) { account_model }
+    let_once(:admin) { account_admin_user(account:) }
+    let(:domain) { "example.com" }
+    let(:duplicates) { response_json[:duplicates] }
+
+    before { user_session(admin) }
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    shared_examples "returns no duplicates" do
+      it "returns empty array" do
+        subject
+        expect(response).to be_successful
+        expect(duplicates).to eq([])
+      end
+    end
+
+    context "domain input edge cases" do
+      context "with blank domain" do
+        let(:domain) { "" }
+
+        it_behaves_like "returns no duplicates"
+      end
+
+      context "with whitespace-only domain" do
+        let(:domain) { "    " }
+
+        it_behaves_like "returns no duplicates"
+      end
+    end
+
+    context "with no matching registrations" do
+      let_once(:registration) { lti_registration_with_tool(account:, configuration_params: { domain: "different.com" }) }
+
+      it_behaves_like "returns no duplicates"
+    end
+
+    context "with matching account-owned registration" do
+      let_once(:registration) { lti_registration_with_tool(account:, configuration_params: { domain: "example.com" }) }
+
+      it "returns the matching registration" do
+        subject
+        expect(duplicates.length).to eq(1)
+        expect(duplicates.first.with_indifferent_access).to include(
+          id: registration.id,
+          name: registration.name,
+          admin_nickname: registration.admin_nickname
+        )
+      end
+
+      it "ignores casing in the domain" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/check_domain_duplicates", params: { domain: domain.upcase }
+        expect(duplicates).to contain_exactly(hash_including("id" => registration.id))
+      end
+
+      it "strips whitespace" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/check_domain_duplicates", params: { domain: "  #{domain}   " }
+        expect(duplicates).to contain_exactly(hash_including("id" => registration.id))
+      end
+    end
+
+    context "with matching IMS registration domain" do
+      let_once(:ims_registration) do
+        lti_ims_registration_model(account:, lti_tool_configuration: { "domain" => "example.com" })
+      end
+
+      it "finds the IMS registration" do
+        subject
+        expect(duplicates).to contain_exactly(hash_including(id: ims_registration.lti_registration.id))
+      end
+    end
+
+    context "with forced-on site admin registration" do
+      let_once(:site_admin_registration) do
+        registration = lti_registration_with_tool(account: Account.site_admin, configuration_params: { domain: "example.com" })
+        Lti::AccountBindingService.call(account: Account.site_admin, user: site_admin_user, registration:, workflow_state: :on)
+        registration
+      end
+
+      before do
+        account.disable_feature!(:lti_registrations_templates)
+      end
+
+      it "includes the forced-on site admin registration" do
+        subject
+        expect(duplicates).to contain_exactly(hash_including(id: site_admin_registration.id))
+      end
+
+      context "with site admin registration set to off" do
+        before do
+          Lti::AccountBindingService.call(account: Account.site_admin, user: site_admin_user, registration: site_admin_registration, workflow_state: :off)
+        end
+
+        it_behaves_like "returns no duplicates"
+      end
+
+      context "with site admin registration set to allow" do
+        before do
+          Lti::AccountBindingService.call(account: Account.site_admin, user: site_admin_user, registration: site_admin_registration, workflow_state: :allow)
+        end
+
+        it_behaves_like "returns no duplicates"
+      end
+    end
+
+    context "with inherited-on registration" do
+      let_once(:parent_registration) do
+        registration = lti_registration_with_tool(account: Account.site_admin, registration_params: { name: "Inherited Tool" }, configuration_params: { domain: })
+        Lti::AccountBindingService.call(account: Account.site_admin, user: site_admin_user, registration:, workflow_state: :allow)
+        registration
+      end
+
+      before do
+        account.disable_feature!(:lti_registrations_templates)
+        Lti::AccountBindingService.call(account:, user: admin, registration: parent_registration, workflow_state: :on)
+      end
+
+      it "includes the inherited registration" do
+        subject
+        expect(duplicates).to contain_exactly(hash_including(id: parent_registration.id))
+      end
+
+      context "and the registration is cross-shard" do
+        specs_require_sharding
+
+        let_once(:site_admin_registration) do
+          Shard.default.activate do
+            reg = lti_registration_with_tool(account: Account.site_admin, configuration_params: { domain: "example.com" })
+            Lti::AccountBindingService.call(account: Account.site_admin, registration: reg, user: nil, workflow_state: "allow")
+            reg
+          end
+        end
+        let_once(:account) { @shard2.activate { account_model } }
+        let_once(:admin) { @shard2.activate { account_admin_user(account:) } }
+
+        before do
+          @shard2.activate { account.disable_feature!(:lti_registrations_templates) }
+          user_session(admin)
+          @shard2.activate { Lti::AccountBindingService.call(account:, registration: site_admin_registration, user: admin, workflow_state: "on") }
+        end
+
+        it "finds the inherited on registration and returns its global id" do
+          @shard2.activate { subject }
+          expect(response).to be_successful
+          expect(duplicates).to contain_exactly(hash_including(id: site_admin_registration.global_id))
+        end
+
+        # We've been burned by this in the past in the ListRegistrationService, make sure
+        # it doesn't happen here.
+        it "doesn't double count forced-on registration's" do
+          other_reg = Shard.default.activate do
+            r = lti_registration_with_tool(account: Account.site_admin, configuration_params: { domain: "example.com" })
+            Lti::AccountBindingService.call(account: Account.site_admin, registration: r, user: nil, workflow_state: "on")
+            r
+          end
+
+          @shard2.activate { subject }
+          expect(response).to be_successful
+          expect(duplicates).to contain_exactly(hash_including(id: site_admin_registration.global_id), hash_including(id: other_reg.global_id))
+        end
+      end
+    end
+
+    context "with multiple matching registrations" do
+      before(:once) do
+        3.times do
+          lti_registration_with_tool(account:, configuration_params: { domain: "example.com" })
+        end
+      end
+
+      it "returns all matching registrations" do
+        subject
+        expect(duplicates.length).to eq(3)
+      end
+
+      it "does not return duplicates" do
+        subject
+        returned_ids = duplicates.pluck(:id)
+        expect(returned_ids).to eq(returned_ids.uniq)
+      end
+    end
+
+    context "with cross-shard forced-on site admin registration" do
+      specs_require_sharding
+
+      let_once(:site_admin_registration) do
+        Shard.default.activate do
+          registration = lti_registration_with_tool(account: Account.site_admin, configuration_params: { domain: "example.com" })
+          Lti::AccountBindingService.call(account: Account.site_admin, user: site_admin_user, registration:, workflow_state: :on)
+          registration
+        end
+      end
+      let_once(:account) { @shard2.activate { account_model } }
+      let_once(:admin) { @shard2.activate { account_admin_user(account:) } }
+
+      before do
+        user_session(admin)
+        # Disable templates flag to test cross-shard site admin registrations
+        @shard2.activate { account.disable_feature!(:lti_registrations_templates) }
+      end
+
+      it "returns the global ID for cross-shard registration" do
+        @shard2.activate { subject }
+        expect(response).to be_successful
+        expect(duplicates).to contain_exactly(hash_including(id: site_admin_registration.global_id))
+      end
+    end
+
+    context "with inactive registration" do
+      let_once(:inactive_registration) do
+        registration = lti_registration_with_tool(account:, registration_params: { name: "Inactive Tool" })
+        Lti::AccountBindingService.call(account:, registration:, user: admin, workflow_state: :off)
+        registration
+      end
+
+      it_behaves_like "returns no duplicates"
+    end
+
+    context "with deleted registration" do
+      let_once(:deleted_registration) do
+        reg = lti_registration_model(account:, name: "Deleted Tool")
+        reg.destroy
+        reg
+      end
+
+      it_behaves_like "returns no duplicates"
+    end
+  end
+
+  describe "POST create", type: :request do
+    subject do
+      post "/api/v1/accounts/#{account.id}/lti_registrations",
+           params:,
+           as: :json
+      response
+    end
+
+    let(:params) do
+      {
+        name: "Test Tool",
+        vendor: "Test Vendor",
+        configuration: internal_lti_configuration,
+        admin_nickname: "Test Nickname",
+        description: "A great little description for this tool"
+      }
+    end
+    let(:account) { account_model }
+    let(:admin) { account_admin_user(account:) }
+
+    before do
+      user_session(admin)
+    end
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    it { is_expected.to be_successful }
+
+    it "creates a new LTI registration" do
+      expect { subject }.to change { Lti::Registration.count }.by(1)
+      values = %w[name vendor admin_nickname description]
+      expect(Lti::Registration.last.attributes.values_at(*values)).to eql(
+        params.with_indifferent_access.values_at(*values)
+      )
+    end
+
+    it "creates a new Developer Key" do
+      expect { subject }.to change { DeveloperKey.count }.by(1)
+    end
+
+    it "creates a new Tool Configuration" do
+      expect { subject }.to change { Lti::ToolConfiguration.count }.by(1)
+
+      expect(Lti::ToolConfiguration.last.internal_lti_configuration.with_indifferent_access)
+        .to eq(internal_lti_configuration.with_indifferent_access)
+    end
+
+    it "defaults to a nil unified_tool_id" do
+      expect(subject).to be_successful
+
+      expect(Lti::ToolConfiguration.last.unified_tool_id).to be_nil
+    end
+
+    it "returns the created registration" do
+      subject
+      expect(response).to be_successful
+      expect(response_json[:name]).to eq("Test Tool")
+      expect(response_json[:admin_nickname]).to eq("Test Nickname")
+      expect(response_json[:configuration].with_indifferent_access)
+        .to eq(internal_lti_configuration.with_indifferent_access)
+      expect(response_json[:account_binding]).to be_present
+    end
+
+    it 'creates an account binding with a default state of "on"' do
+      expect { subject }.to change { Lti::RegistrationAccountBinding.count }.by(1)
+
+      expect(Lti::RegistrationAccountBinding.last.registration).to eq(Lti::Registration.last)
+      expect(Lti::RegistrationAccountBinding.last.account).to eq(account)
+      expect(Lti::RegistrationAccountBinding.last.workflow_state).to eq("on")
+    end
+
+    context "without nickname" do
+      before do
+        params.delete(:admin_nickname)
+      end
+
+      it "leaves nickname empty" do
+        subject
+        expect(response).to be_successful
+        expect(response_json[:admin_nickname]).to be_nil
+      end
+    end
+
+    context "without a name" do
+      before do
+        params.delete(:name)
+      end
+
+      it "infers the name from the configuration" do
+        expect(subject).to be_successful
+        expect(response_json[:name]).to eql(internal_lti_configuration[:title])
+      end
+    end
+
+    context "setting the unified_tool_id" do
+      let(:params) do
+        super().tap do |p|
+          p[:unified_tool_id] = "test_unified_tool_id"
+        end
+      end
+
+      it "creates a new LTI registration with the unified_tool_id" do
+        expect(subject).to be_successful
+
+        expect(Lti::ToolConfiguration.last.unified_tool_id).to eq(params[:unified_tool_id])
+      end
+    end
+
+    context "attempting to update disallowed fields" do
+      let(:params) do
+        super().tap do |p|
+          p[:configuration][:developer_key_id] = -1234
+        end
+      end
+
+      it "ignores the disallowed fields" do
+        expect(subject).to be_successful
+
+        expect(Lti::ToolConfiguration.last.developer_key_id).not_to eq(-1234)
+      end
+    end
+
+    context "creating a registration in Site Admin" do
+      let(:account) { Account.site_admin }
+
+      it "defaults the key to being invisible" do
+        expect { subject }.to change { DeveloperKey.count }.by(1)
+        expect(subject).to be_successful
+
+        expect(DeveloperKey.last.visible).to be(false)
+      end
+
+      it "doesn't associate the developer key with any account" do
+        expect { subject }.to change { DeveloperKey.count }.by(1)
+        expect(subject).to be_successful
+
+        expect(DeveloperKey.last.account).to be_nil
+      end
+
+      context "with workflow_state: on" do
+        before { params[:workflow_state] = "on" }
+
+        it "sets binding state to Allow, not On" do
+          expect(subject).to be_successful
+          expect(Lti::RegistrationAccountBinding.last.workflow_state).to eq("allow")
+        end
+      end
+    end
+
+    context "specifying a workflow state" do
+      it "creates an account binding with the specified state" do
+        params[:workflow_state] = "on"
+        expect { subject }.to change { Lti::RegistrationAccountBinding.count }.by(1)
+
+        expect(Lti::RegistrationAccountBinding.last.workflow_state).to eq("on")
+      end
+
+      it "returns 422 if the state is invalid" do
+        params[:workflow_state] = "asdfasdfasdfasdf"
+        subject
+        expect(response).to have_http_status(:unprocessable_content)
+      end
+    end
+
+    context "with lock_deploying set to false" do
+      before { params[:lock_deploying] = false }
+
+      it "creates a registration with lock_deploying false" do
+        expect(subject).to be_successful
+        expect(Lti::Registration.last.lock_deploying).to be(false)
+      end
+
+      context "with flag disabled" do
+        before do
+          account.disable_feature!(:lock_lti_registrations)
+        end
+
+        it "ignores the lock_deploying param and defaults to true" do
+          expect(subject).to be_successful
+          expect(Lti::Registration.last.lock_deploying).to be(true)
+        end
+      end
+    end
+
+    context "with invalid configuration" do
+      let(:internal_lti_configuration) { { title: "Invalid Tool" } }
+
+      it "returns 422" do
+        subject
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(response_json[:errors].first).to include("required")
+      end
+    end
+
+    context "without required parameters" do
+      let(:params) { {} }
+
+      it "returns 400" do
+        subject
+        expect(response).to have_http_status(:bad_request)
+        expect(response_json[:errors].first["message"]).to include("configuration is missing")
+      end
+    end
+
+    context "multiple redirect_uris listed" do
+      let(:internal_lti_configuration) do
+        super().tap do |ic|
+          ic[:redirect_uris] << "anotherredirecturi.com"
+        end
+      end
+
+      it "is saved properly to the tool configuration" do
+        expect { subject }.to change { Lti::ToolConfiguration.count }.by(1)
+
+        expect(Lti::ToolConfiguration.last.redirect_uris).to eq internal_lti_configuration[:redirect_uris]
+      end
+    end
+
+    # TEMPORARY: Manual registrations now merge overlays into configuration
+    context "with overlay" do
+      let(:params) do
+        super().tap do |p|
+          p[:overlay] = { title: "different title!" }
+        end
+      end
+
+      it "creates a new LTI registration with overlay merged into config" do
+        expect { subject }.not_to change { Lti::Overlay.count }
+        expect(response).to be_successful
+
+        expect(Lti::ToolConfiguration.last.title).to eq("different title!")
+      end
+
+      it "removes scopes from the dev key that are disabled in the overlay" do
+        internal_lti_configuration[:scopes] = TokenScopes::ALL_LTI_SCOPES.dup
+        params[:overlay][:disabled_scopes] = [TokenScopes::LTI_AGS_SCORE_SCOPE]
+        subject
+        expect(response).to be_successful
+        expect(DeveloperKey.last.scopes).to eq(TokenScopes::ALL_LTI_SCOPES - [TokenScopes::LTI_AGS_SCORE_SCOPE])
+      end
+    end
+
+    context "with invalid overlay" do
+      let(:params) do
+        super().tap do |p|
+          p[:overlay] = { "title" => 5 }
+        end
+      end
+
+      it { is_expected.to have_http_status(:unprocessable_content) }
+    end
+
+    context "using a legacy configuration" do
+      let(:params) do
+        super().tap do |p|
+          p[:configuration] = canvas_lti_configuration
+        end
+      end
+
+      it { is_expected.to be_successful }
+
+      it "creates a new LTI registration" do
+        expect { subject }.to change { Lti::Registration.count }.by(1)
+      end
+
+      it "creates a new Developer Key" do
+        expect { subject }.to change { DeveloperKey.count }.by(1)
+      end
+
+      it "creates a new Tool Configuration" do
+        expect { subject }.to change { Lti::ToolConfiguration.count }.by(1)
+
+        expect(Lti::ToolConfiguration.last.internal_lti_configuration.with_indifferent_access)
+          .to eq(internal_lti_configuration.with_indifferent_access)
+      end
+
+      it "returns the created registration" do
+        expect { subject }.to change { Lti::Registration.count }.by(1)
+
+        expect(subject).to be_successful
+        expect(response_json[:name]).to eq("Test Tool")
+        expect(response_json[:admin_nickname]).to eq("Test Nickname")
+      end
+    end
+  end
+
+  describe "GET context_search", type: :request do
+    subject do
+      get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/deployments/#{deployment.id}/context_search",
+          params: { search_term:, only_children_of: }.compact,
+          as: :json
+      response
+    end
+
+    let(:account) { account_model }
+    let(:admin) { account_admin_user(account:) }
+    let(:registration) { lti_registration_with_tool(account:) }
+    let(:deployment) { registration.deployments.first }
+    let(:search_term) { nil }
+    let(:only_children_of) { nil }
+
+    before do
+      user_session(admin)
+      account.enable_feature!(:lti_registrations_next)
+    end
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    context "with new flag disabled" do
+      before do
+        deployment # create before disabling flag that would otherwise prevent this
+        account.disable_feature!(:lti_registrations_next)
+      end
+
+      it "returns 404" do
+        subject
+        expect(response).to be_not_found
+      end
+    end
+
+    context "with invalid registration id" do
+      let(:other_root_account) { account_model }
+      let(:registration) { lti_registration_with_tool(account: other_root_account) }
+
+      before do
+        other_root_account.enable_feature!(:lti_registrations_next)
+      end
+
+      it "returns 404" do
+        subject
+        expect(response).to be_not_found
+      end
+    end
+
+    context "with invalid deployment id" do
+      let(:other_account) { account_model }
+      let(:other_registration) { lti_registration_with_tool(account: other_account) }
+      let(:deployment) { other_registration.deployments.first }
+
+      before do
+        other_account.enable_feature!(:lti_registrations_next)
+      end
+
+      it "returns 404" do
+        subject
+        expect(response).to be_not_found
+      end
+    end
+
+    context "with course-level deployment" do
+      let(:course) { course_model(account:) }
+      let(:deployment) { registration.new_external_tool(course) }
+
+      it "returns empty accounts and courses" do
+        subject
+        expect(response_json[:accounts].length).to eq(0)
+        expect(response_json[:courses].length).to eq(0)
+      end
+    end
+
+    it { is_expected.to be_successful }
+
+    context "with an account" do
+      let(:subaccount) { account_model(parent_account: account, root_account: account, name: "Sub Account", sis_source_id: "FOO") }
+
+      before { subaccount }
+
+      it "includes the account" do
+        subject
+        expect(response_json[:accounts].length).to eq(1)
+      end
+
+      it "includes all account data" do
+        subject
+        account_json = response_json[:accounts].find { |a| a[:id] == subaccount.id.to_s }.with_indifferent_access
+        expect(account_json).to include(
+          id: subaccount.id.to_s,
+          name: subaccount.name,
+          sis_id: subaccount.sis_source_id,
+          display_path: []
+        )
+      end
+
+      context "with nested subaccounts" do
+        let(:sub2) { account_model(parent_account: subaccount, root_account: account, name: "Sub Sub Account", sis_source_id: "BAR") }
+        let(:sub3) { account_model(parent_account: sub2, root_account: account, name: "Sub Sub Sub Account", sis_source_id: "BAZ") }
+
+        before { sub3 }
+
+        it "does not include self in the display path" do
+          subject
+          account_json = response_json[:accounts].find { |a| a[:id] == sub3.id.to_s }
+          expect(account_json[:display_path]).not_to include(sub3.name)
+        end
+
+        it "includes all parent accounts except root in the display path" do
+          subject
+          account_json = response_json[:accounts].find { |a| a[:id] == sub3.id.to_s }
+          expect(account_json[:display_path]).to eq([subaccount.name, sub2.name])
+        end
+      end
+    end
+
+    context "with a course" do
+      let(:course) { course_model(account:, sis_source_id: "COURSE_SIS_ID", course_code: "FOO101") }
+
+      before { course }
+
+      it "includes the course" do
+        subject
+        expect(response_json[:courses].length).to eq(1)
+      end
+
+      it "includes all course data" do
+        subject
+        expect(response_json[:courses].first.with_indifferent_access).to include(
+          id: course.id.to_s,
+          name: course.name,
+          sis_id: course.sis_source_id,
+          course_code: course.course_code,
+          display_path: []
+        )
+      end
+
+      context "with course nested in subaccounts" do
+        let(:subaccount) { account_model(parent_account: account, root_account: account, name: "Sub Account", sis_source_id: "FOO") }
+        let(:sub2) { account_model(parent_account: subaccount, root_account: account, name: "Sub Sub Account", sis_source_id: "BAR") }
+        let(:course) { course_model(account: sub2, sis_source_id: "COURSE_SIS_ID", course_code: "FOO101") }
+
+        before { course }
+
+        it "does not include self in the display path" do
+          subject
+          course_json = response_json[:courses].find { |c| c[:id] == course.id.to_s }
+          expect(course_json[:display_path]).not_to include(course.name)
+        end
+
+        it "includes all parent accounts except root in the display path" do
+          subject
+          course_json = response_json[:courses].find { |c| c[:id] == course.id.to_s }
+          expect(course_json[:display_path]).to eq([subaccount.name, sub2.name])
+        end
+      end
+    end
+
+    context "with cross-shard registration" do
+      specs_require_sharding
+
+      let(:registration) { @shard2.activate { lti_registration_with_tool(account: xshard_account) } }
+      let(:xshard_account) { @shard2.activate { account_model } }
+      let(:deployment) { registration.new_external_tool(account) }
+      let(:subaccount) { account_model(parent_account: account, root_account: account, name: "Sub Account", sis_source_id: "FOO") }
+
+      before { subaccount }
+
+      it { is_expected.to be_successful }
+
+      it "includes local contexts" do
+        subject
+        expect(response_json[:accounts].length).to eq(1)
+      end
+
+      context "with cross-shard deployment" do
+        let(:deployment) { @shard2.activate { registration.new_external_tool(xshard_account) } }
+
+        it "returns 404" do
+          subject
+          expect(response).to be_not_found
+        end
+      end
+    end
+
+    context "with normal data" do
+      let(:subaccount) { account_model(parent_account: account, root_account: account, name: "Sub Account", sis_source_id: "FOO") }
+      let(:course) { course_model(account:, sis_source_id: "COURSE_SIS_ID", course_code: "FOO101", name: "Foo") }
+      let(:other_course) { course_model(account: subaccount, sis_source_id: "OTHER_COURSE_SIS_ID", course_code: "BAR202", name: "Bar") }
+      let(:other_account) { account_model(parent_account: account, root_account: account, name: "Other Account", sis_source_id: "BAR") }
+
+      before do
+        subaccount
+        course
+        other_course
+        other_account
+      end
+
+      it "includes all accounts" do
+        subject
+        expect(response_json[:accounts].length).to eq(2)
+      end
+
+      it "includes all courses" do
+        subject
+        expect(response_json[:courses].length).to eq(2)
+      end
+
+      it "returns them in alphabetical order" do
+        subject
+        expect(response_json[:courses].first[:name]).to eq("Bar")
+        expect(response_json[:courses].second[:name]).to eq("Foo")
+        expect(response_json[:accounts].first[:name]).to eq("Other Account")
+        expect(response_json[:accounts].second[:name]).to eq("Sub Account")
+      end
+
+      context "with search term" do
+        context "that matches nothing" do
+          let(:search_term) { "nonexistent" }
+
+          it "returns empty accounts and courses" do
+            subject
+            expect(response_json[:accounts].length).to eq(0)
+            expect(response_json[:courses].length).to eq(0)
+          end
+        end
+
+        context "that matches name" do
+          let(:search_term) { "foo" }
+
+          it "returns accounts and courses matching the search term" do
+            subject
+            expect(response_json[:accounts].length).to eq(1)
+            expect(response_json[:courses].length).to eq(1)
+
+            account_json = response_json[:accounts].first
+            expect(account_json[:name]).to include("Sub Account")
+
+            course_json = response_json[:courses].first
+            expect(course_json[:course_code]).to include("FOO101")
+          end
+        end
+
+        context "that matches sis_source_id" do
+          let(:search_term) { "COURSE_SIS_ID" }
+
+          it "returns accounts and courses matching the search term" do
+            subject
+            expect(response_json[:accounts].length).to eq(0)
+            expect(response_json[:courses].length).to eq(2)
+
+            course_json = response_json[:courses].first
+            expect(course_json[:sis_id]).to include("COURSE_SIS_ID")
+          end
+        end
+
+        context "that matches course_code" do
+          let(:search_term) { "FOO101" }
+
+          it "returns accounts and courses matching the search term" do
+            subject
+            expect(response_json[:accounts].length).to eq(0)
+            expect(response_json[:courses].length).to eq(1)
+
+            course_json = response_json[:courses].first
+            expect(course_json[:course_code]).to include("FOO101")
+          end
+        end
+
+        context "that matches course ID" do
+          let(:search_term) { course.id.to_s }
+
+          it "returns accounts and courses matching the search term" do
+            subject
+            # The account could coincidentally have an ID matching
+            # the course, so it may or may not be included.
+            expect(response_json[:courses].length).to eq(1)
+
+            course_json = response_json[:courses].first
+            expect(course_json[:id]).to eq(search_term)
+          end
+        end
+
+        context "that matches account ID" do
+          let(:search_term) { account.id.to_s }
+
+          it "returns accounts and courses matching the search term" do
+            subject
+            # The course could coincidentally have an ID matching
+            # the account, so it may or may not be included.
+            expect(response_json[:accounts].length).to eq(1)
+
+            account_json = response_json[:accounts].first
+            expect(account_json[:id]).to eq(search_term)
+          end
+
+          it "does not return accounts of different IDs" do
+            other_account = account_model
+
+            subject
+            expect(response_json[:accounts].length).to eq(1)
+
+            account_ids = response_json[:accounts].pluck("id")
+            expect(account_ids).not_to include(other_account.id.to_s)
+          end
+        end
+      end
+
+      context "with only_children_of" do
+        let(:only_children_of) { subaccount.id }
+        let(:subsubaccount) { account_model(parent_account: subaccount, root_account: account, name: "Sub Sub Account", sis_source_id: "BAZ") }
+        let(:subsubcourse) { course_model(account: subsubaccount, sis_source_id: "SUBSUB_COURSE_SIS_ID", course_code: "BAZ303") }
+        let(:subsubsubaccount) { account_model(parent_account: subsubaccount, root_account: account, name: "Sub Sub Sub Account", sis_source_id: "QUX") }
+
+        before do
+          subsubaccount
+          subsubcourse
+          subsubsubaccount
+        end
+
+        it "returns only accounts and courses that are direct children of the account" do
+          subject
+          expect(response_json[:accounts].length).to eq(1)
+          expect(response_json[:courses].length).to eq(1)
+
+          account_json = response_json[:accounts].first
+          expect(account_json[:id]).to eq(subsubaccount.id.to_s)
+
+          course_json = response_json[:courses].first
+          expect(course_json[:id]).to eq(other_course.id.to_s)
+        end
+
+        it "does not include nested children" do
+          subject
+
+          nested_account = response_json[:accounts].find { |a| a[:id] == subsubsubaccount.id.to_s }
+          expect(nested_account).to be_nil
+
+          nested_course = response_json[:courses].find { |c| c[:id] == subsubcourse.id.to_s }
+          expect(nested_course).to be_nil
+        end
+
+        context "with search term" do
+          let(:root_course) { course_model(account:, sis_source_id: "ROOT_COURSE_SIS_ID", course_code: "FOO102") }
+
+          before { root_course }
+
+          it "will not return accounts or courses outside the specified account" do
+            subject
+
+            course_json = response_json[:courses].find { |c| c[:id] == root_course.id.to_s }
+            expect(course_json).to be_nil
+          end
+        end
+
+        context "that is for account outside deployment" do
+          let(:deployment) { registration.new_external_tool(subaccount) }
+          let(:other_account) { account_model(parent_account: account, root_account: account, name: "Other Account", sis_source_id: "BAR") }
+          let(:only_children_of) { other_account.id }
+
+          it "returns 422" do
+            subject
+            expect(response).to be_unprocessable
+          end
+        end
+      end
+    end
+  end
+
+  describe "GET overlay_history", type: :request do
+    subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/overlay_history", params: { limit: }.compact }
+
+    let_once(:developer_key) { tool_config.developer_key }
+    let_once(:registration) { developer_key.lti_registration }
+    let_once(:tool_config) { lti_tool_configuration_model(account:) }
+    let_once(:account_binding) { lti_registration_account_binding_model(registration:, account:) }
+    let_once(:overlay) { lti_overlay_model(account:, registration:, data: { "title" => "Test Title" }) }
+    let(:limit) { nil }
+
+    before do
+      tool_config
+      account.enable_feature!(:lti_registrations_next)
+      overlay
+    end
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    context "with lti_registrations_next flag disabled" do
+      before { account.disable_feature!(:lti_registrations_next) }
+
+      it "returns 404" do
+        subject
+        expect(response).to be_not_found
+      end
+    end
+
+    context "for nonexistent registration" do
+      it "returns 404" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id + 1000}/overlay_history"
+        expect(response).to be_not_found
+      end
+    end
+
+    context "with no overlay" do
+      before { overlay.destroy }
+
+      it "returns empty array" do
+        subject
+        expect(response).to be_successful
+        expect(response_json).to eq([])
+      end
+    end
+
+    context "with overlay history" do
+      before do
+        # Create some overlay versions
+        3.times do |i|
+          overlay.update!(data: { "title" => "Title #{i}" }, updated_by: admin)
+        end
+      end
+
+      it "is successful" do
+        subject
+        expect(response).to be_successful
+      end
+
+      it "returns the overlay history" do
+        subject
+        expect(response_json).to be_an(Array)
+        expect(response_json.length).to eq(3)
+      end
+
+      it "includes version details" do
+        subject
+        version = response_json.first
+        expect(version).to include(
+          "created_at" => an_instance_of(String),
+          "updated_at" => an_instance_of(String),
+          "caused_by_reset" => be_in([true, false]),
+          "diff" => an_instance_of(Array)
+        )
+      end
+
+      context "with limit parameter" do
+        let(:limit) { 2 }
+
+        it "respects the limit" do
+          subject
+          expect(response_json.length).to eq(2)
+        end
+      end
+
+      context "with limit of 0" do
+        let(:limit) { 0 }
+
+        it "returns 422" do
+          subject
+          expect(response).to have_http_status(:unprocessable_content)
+          expect(response_json["errors"].first["message"]).to include("limit must be a positive integer")
+        end
+      end
+
+      context "with limit exceeding maximum" do
+        let(:limit) { 101 }
+
+        it "returns 422" do
+          subject
+          expect(response).to have_http_status(:unprocessable_content)
+          expect(response_json["errors"].first["message"]).to include("limit cannot exceed 100")
+        end
+      end
+
+      context "with invalid limit" do
+        let(:limit) { "invalid" }
+
+        it "returns 422" do
+          subject
+          expect(response).to have_http_status(:unprocessable_content)
+          expect(response_json["errors"].first["message"]).to include("limit must be a positive integer")
+        end
+      end
+    end
+  end
+
+  describe "GET history", type: :request do
+    let_once(:account) { Account.default }
+    let_once(:user) { account_admin_user(account:) }
+    let_once(:registration) { lti_registration_with_tool(account:) }
+    let(:history_entry) do
+      Lti::RegistrationHistoryEntry.track_changes(lti_registration: registration, current_user: user, context: account, comment: "Test update") do
+        registration.update!(name: "New Name")
+      end
+      Lti::RegistrationHistoryEntry.last
+    end
+
+    before(:once) do
+      account.enable_feature!(:lti_registrations_history)
+    end
+
+    before do
+      user_session(user)
+    end
+
+    it "returns the registration history entries in the correct format" do
+      old_name = registration.name
+      history_entry
+
+      get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+      expect(response).to be_successful
+      json = response.parsed_body
+      # One to deploy the tool, another from our update
+      expect(json.length).to eq(2)
+
+      entry = json.find { |e| e["id"] == history_entry.id }
+
+      expect(entry["id"]).to eq(history_entry.id)
+      expect(entry["diff"]).to eq({ "registration" => [["~", ["name"], old_name, "New Name"]] })
+      expect(entry["update_type"]).to eq("manual_edit")
+      expect(entry["comment"]).to eq("Test update")
+    end
+
+    it "returns empty array when no history entries exist" do
+      Lti::RegistrationHistoryEntry.where(lti_registration: registration).destroy_all
+
+      get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+      expect(response).to be_successful
+      json = response.parsed_body
+      expect(json).to eq([])
+    end
+
+    it "supports pagination with per_page parameter" do
+      5.times do |i|
+        Lti::RegistrationHistoryEntry.track_changes(lti_registration: registration, current_user: user, context: account) do
+          registration.update!(name: "New Name #{i}")
+        end
+      end
+
+      get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history?per_page=3"
+
+      expect(response).to be_successful
+      json = response.parsed_body
+      expect(json.length).to eq(3)
+      expect(response.headers["Link"]).to be_present
+    end
+
+    it "requires the lti_registrations_history feature flag" do
+      account.disable_feature!(:lti_registrations_history)
+
+      get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+      expect(response).to be_not_found
+    end
+
+    it "requires manage_lti_registrations permission" do
+      account_admin_user_with_role_changes(account:, role_changes: { manage_lti_registrations: false })
+
+      get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+      expect(response).to be_forbidden
+    end
+
+    context "with a site admin registration and multiple accounts on the same shard" do
+      let(:registration) { lti_registration_with_tool(account: Account.site_admin) }
+      let(:other_account) { account_model }
+      let(:reg_history_entry) do
+        Lti::RegistrationHistoryEntry.track_changes(lti_registration: registration, current_user: user, context: account) do
+          registration.update!(name: "Account Name")
+        end
+        Lti::RegistrationHistoryEntry.where(root_account: account).last
+      end
+      let(:other_reg_history_entry) do
+        Lti::RegistrationHistoryEntry.track_changes(lti_registration: registration, current_user: user, context: other_account) do
+          registration.update!(name: "Other Account Name")
+        end
+        Lti::RegistrationHistoryEntry.where(root_account: other_account).last
+      end
+
+      it "only returns history entries for the specified root account" do
+        reg_history_entry
+        other_reg_history_entry
+        user_session(user)
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+        expect(response).to be_successful
+
+        ids = response.parsed_body.pluck("id")
+        expect(ids).to eql([reg_history_entry.id])
+      end
+    end
+
+    context "with context control changes" do
+      let_once(:deployment) { registration.deployments.first }
+      let_once(:sub_account) { account_model(root_account: account, name: "Sub Account") }
+      let_once(:course) { course_model(account: sub_account, name: "Test Course") }
+
+      it "includes serialized attributes in context controls" do
+        control = Lti::ContextControl.create!(
+          registration:,
+          deployment:,
+          context: sub_account,
+          available: true,
+          workflow_state: "active"
+        )
+
+        # Now track changes to the existing control
+        Lti::RegistrationHistoryEntry.track_control_changes(control:, current_user: user) do
+          control.update!(available: false)
+        end
+
+        entry_id = Lti::RegistrationHistoryEntry.last.id
+
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+        expect(response).to be_successful
+        json = response.parsed_body
+
+        entry = json.find { |e| e["id"] == entry_id }
+        expect(entry).to be_present
+
+        expected_keys = %w[display_path depth subaccount_count course_count child_control_count]
+
+        expect(entry["old_controls_by_deployment"].length).to be(1)
+        old_deployment = entry["old_controls_by_deployment"].first
+        expect(old_deployment["deployment_id"]).to eq(deployment.deployment_id)
+        expect(old_deployment["context_controls"].length).to be(1)
+        old_control = old_deployment["context_controls"].first
+        expect(old_control["context_name"]).to eq("Sub Account")
+        expect(old_control["available"]).to be true
+        expect(old_control.keys).to include(*expected_keys)
+
+        expect(entry["new_controls_by_deployment"].length).to be(1)
+        new_deployment = entry["new_controls_by_deployment"].first
+        expect(new_deployment["deployment_id"]).to eq(deployment.deployment_id)
+        expect(new_deployment["context_controls"].length).to be(1)
+        new_control = new_deployment["context_controls"].first
+        expect(new_control["context_name"]).to eq("Sub Account")
+        expect(new_control["available"]).to be false
+        expect(new_control.keys).to include(*expected_keys)
+      end
+
+      it "groups controls by multiple deployments" do
+        deployment = registration.new_external_tool(account)
+        control = deployment.primary_context_control
+        second_deployment = registration.new_external_tool(course)
+        second_control = second_deployment.primary_context_control
+
+        Lti::RegistrationHistoryEntry.track_bulk_control_changes(
+          control_params: [
+            { deployment_id: deployment.id, account_id: account.id },
+            { deployment_id: second_deployment.id, course_id: course.id }
+          ],
+          lti_registration: registration,
+          root_account: account,
+          current_user: user
+        ) do
+          control.update!(available: false)
+          second_control.update!(available: false)
+        end
+
+        entry_id = Lti::RegistrationHistoryEntry.last.id
+
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/history"
+
+        expect(response).to be_successful
+        json = response.parsed_body
+
+        entry = json.find { |e| e["id"] == entry_id }
+        expect(entry).to be_present
+
+        old_deployments = entry["old_controls_by_deployment"].index_by { |d| d["deployment_id"] }
+        expect(old_deployments.keys).to match_array([deployment.deployment_id, second_deployment.deployment_id])
+
+        old_deployment1 = old_deployments[deployment.deployment_id]
+        expect(old_deployment1["context_controls"].length).to be(1)
+        expect(old_deployment1["context_controls"].first["context_name"]).to eq(account.name)
+        expect(old_deployment1["context_controls"].first["available"]).to be(true)
+
+        old_deployment2 = old_deployments[second_deployment.deployment_id]
+        expect(old_deployment2["context_controls"].length).to be(1)
+        expect(old_deployment2["context_controls"].first).to include("context_name" => course.name, "available" => true)
+
+        new_deployments = entry["new_controls_by_deployment"].index_by { |d| d["deployment_id"] }
+        expect(new_deployments.keys).to match_array([deployment.deployment_id, second_deployment.deployment_id])
+
+        new_deployment1 = new_deployments[deployment.deployment_id]
+        expect(new_deployment1["context_controls"].length).to be(1)
+        expect(new_deployment1["context_controls"].first["context_name"]).to eq(account.name)
+        expect(new_deployment1["context_controls"].first["available"]).to be(false)
+
+        new_deployment2 = new_deployments[second_deployment.deployment_id]
+        expect(new_deployment2["context_controls"].length).to be(1)
+        expect(new_deployment2["context_controls"].first["context_name"]).to eq(course.name)
+        expect(new_deployment2["context_controls"].first["available"]).to be(false)
+      end
+    end
+  end
+
+  describe "GET show_registration_update_request", type: :request do
+    subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/update_requests/#{registration_update_request.id}", params:, as: :json }
+
+    let_once(:registration) do
+      ims_reg = lti_ims_registration_model(account:)
+      ims_reg.lti_registration
+    end
+    let_once(:registration_update_request) { lti_ims_registration_update_request_model(lti_registration: registration, root_account: account) }
+    let(:params) { {} }
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    context "when registration update request does not exist" do
+      it "returns 404" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/update_requests/#{Lti::RegistrationUpdateRequest.last.id + 1}", as: :json
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+
+    context "when registration does not belong to account" do
+      let_once(:other_account) { account_model }
+      let_once(:other_registration) { lti_registration_model(account: other_account) }
+      let_once(:other_registration_update_request) { lti_ims_registration_update_request_model(lti_registration: other_registration, root_account: other_account) }
+
+      it "returns 400" do
+        get "/api/v1/accounts/#{account.id}/lti_registrations/#{other_registration.id}/update_requests/#{other_registration_update_request.id}", as: :json
+        expect(response).to have_http_status(:bad_request)
+        expect(response_json["errors"]).to eq("registration does not belong to account")
+      end
+    end
+
+    context "when registration update request belongs to different registration" do
+      let_once(:other_registration) { lti_registration_model(account:) }
+      let_once(:registration_update_request) { lti_ims_registration_update_request_model(lti_registration: other_registration, root_account: account) }
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+
+    context "with valid request" do
+      it "returns the registration update request" do
+        subject
+        expect(response).to have_http_status(:ok)
+        expect(response_json).to include(
+          "id" => registration_update_request.id,
+          "lti_registration_id" => registration.id,
+          "root_account_id" => account.id,
+          "uuid" => registration_update_request.uuid,
+          "status" => "pending"
+        )
+      end
+
+      it "includes created_at and updated_at timestamps" do
+        subject
+        expect(response_json).to have_key("created_at")
+        expect(response_json).to have_key("updated_at")
+      end
+
+      it "includes created_by information when present" do
+        registration_update_request.update!(created_by: admin)
+        subject
+        expect(response_json).to have_key("created_by")
+        expect(response_json["created_by"]).to include("id" => admin.id)
+      end
+
+      context "with status variations" do
+        it "returns 'applied' status for accepted request" do
+          registration_update_request.update!(accepted_at: 1.hour.ago)
+          subject
+          expect(response_json["status"]).to eq("applied")
+        end
+
+        it "returns 'rejected' status for rejected request" do
+          registration_update_request.update!(rejected_at: 1.hour.ago)
+          subject
+          expect(response_json["status"]).to eq("rejected")
+        end
+      end
+    end
+  end
+
+  describe "GET latest_registration_update_request", type: :request do
+    subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/latest_update_request" }
+
+    let_once(:registration) do
+      ims_reg = lti_ims_registration_model(account:)
+      ims_reg.lti_registration
+    end
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    context "when registration does not belong to account" do
+      let_once(:other_account) { account_model }
+      let_once(:registration) { lti_registration_model(account: other_account) }
+
+      it "returns 400" do
+        subject
+        expect(response).to have_http_status(:bad_request)
+        expect(response_json["errors"]).to eq("registration does not belong to account")
+      end
+    end
+
+    context "when there are no update requests" do
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+
+    context "when the most recent update request is pending" do
+      let_once(:update_request) do
+        lti_ims_registration_update_request_model(
+          lti_registration: registration,
+          root_account: account
+        )
+      end
+
+      before { update_request }
+
+      it "returns the most recent pending update request" do
+        subject
+        expect(response).to be_successful
+        expect(response_json["id"]).to eq(update_request.id)
+        expect(response_json["status"]).to eq("pending")
+      end
+    end
+
+    context "when there are multiple pending update requests" do
+      let_once(:older_request) do
+        lti_ims_registration_update_request_model(
+          lti_registration: registration,
+          root_account: account,
+          created_at: 2.hours.ago
+        )
+      end
+      let_once(:newer_request) do
+        lti_ims_registration_update_request_model(
+          lti_registration: registration,
+          root_account: account,
+          created_at: 1.hour.ago
+        )
+      end
+
+      before do
+        older_request
+        newer_request
+      end
+
+      it "returns the most recent pending update request" do
+        subject
+        expect(response).to be_successful
+        expect(response_json["id"]).to eq(newer_request.id)
+        expect(response_json["status"]).to eq("pending")
+      end
+    end
+
+    context "when the most recent update request has been accepted" do
+      let_once(:update_request) do
+        lti_ims_registration_update_request_model(
+          lti_registration: registration,
+          root_account: account,
+          accepted_at: 1.hour.ago
+        )
+      end
+
+      before { update_request }
+
+      it "returns the accepted request" do
+        subject
+        expect(response).to be_successful
+        expect(response_json["id"]).to eq(update_request.id)
+        expect(response_json["status"]).to eq("applied")
+      end
+    end
+
+    context "when the most recent update request has been rejected" do
+      let_once(:update_request) do
+        lti_ims_registration_update_request_model(
+          lti_registration: registration,
+          root_account: account,
+          rejected_at: 1.hour.ago
+        )
+      end
+
+      before { update_request }
+
+      it "returns the rejected request" do
+        subject
+        expect(response).to be_successful
+        expect(response_json["id"]).to eq(update_request.id)
+        expect(response_json["status"]).to eq("rejected")
+      end
+    end
+
+    context "when there is an older pending request and a newer accepted request" do
+      let_once(:older_pending) do
+        lti_ims_registration_update_request_model(
+          lti_registration: registration,
+          root_account: account,
+          created_at: 2.hours.ago
+        )
+      end
+      let_once(:newer_accepted) do
+        lti_ims_registration_update_request_model(
+          lti_registration: registration,
+          root_account: account,
+          created_at: 1.hour.ago,
+          accepted_at: 1.hour.ago
+        )
+      end
+
+      before do
+        older_pending
+        newer_accepted
+      end
+
+      it "returns the most recent (accepted) request, not the older pending one" do
+        subject
+        expect(response).to be_successful
+        expect(response_json["id"]).to eq(newer_accepted.id)
+        expect(response_json["status"]).to eq("applied")
+      end
+    end
+  end
+
+  describe "PUT apply_registration_update_request", type: :request do
+    subject { put "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}/update_requests/#{registration_update_request.id}/apply", params:, as: :json }
+
+    let_once(:registration) do
+      ims_reg = lti_ims_registration_model(account:)
+      ims_reg.lti_registration
+    end
+    let_once(:registration_update_request) { lti_ims_registration_update_request_model(lti_registration: registration, root_account: account) }
+    let(:params) { { accepted: } }
+    let(:accepted) { true }
+
+    context "without user session" do
+      before { remove_user_session }
+
+      it "returns 401" do
+        subject
+        expect(response).to be_unauthorized
+      end
+    end
+
+    context "with non-admin user" do
+      let(:student) { student_in_course(account:).user }
+
+      before { user_session(student) }
+
+      it "returns 403" do
+        subject
+        expect(response).to be_forbidden
+      end
+    end
+
+    context "when registration does not belong to account" do
+      let_once(:other_account) { account_model }
+      let_once(:registration) { lti_registration_model(account: other_account) }
+
+      it "returns 400" do
+        subject
+        expect(response).to have_http_status(:bad_request)
+        expect(response_json["errors"]).to eq("registration does not belong to account")
+      end
+    end
+
+    context "when registration update request is already processed" do
+      before { registration_update_request.update!(accepted_at: 1.hour.ago) }
+
+      it "returns 404" do
+        subject
+        expect(response).to have_http_status(:not_found)
+      end
+    end
+
+    context "when accepted is true" do
+      let(:accepted) { true }
+
+      it "applies the registration update request" do
+        expect { subject }.to change { registration_update_request.reload.accepted_at }.from(nil).to(be_present)
+        expect(response).to have_http_status(:ok)
+        expect(response_json).to include("id" => registration.id)
+      end
+
+      context "when it is the most recent pending request" do
+        let_once(:older_request) do
+          lti_ims_registration_update_request_model(
+            lti_registration: registration,
+            root_account: account,
+            created_at: 2.hours.ago
+          )
+        end
+
+        before do
+          # Ensure the older request exists
+          older_request
+        end
+
+        it "successfully applies the update" do
+          expect(older_request.reload.pending?).to be true
+
+          subject
+
+          expect(registration_update_request.reload.accepted_at).to be_present
+          expect(older_request.reload.pending?).to be true # Still pending
+          expect(response).to have_http_status(:ok)
+        end
+      end
+
+      context "when a newer pending request exists" do
+        let_once(:older_request) do
+          lti_ims_registration_update_request_model(
+            lti_registration: registration,
+            root_account: account,
+            created_at: 2.hours.ago
+          )
+        end
+        let_once(:registration_update_request) { older_request }
+        let_once(:newer_request) do
+          lti_ims_registration_update_request_model(
+            lti_registration: registration,
+            root_account: account,
+            created_at: Time.zone.now
+          )
+        end
+
+        before do
+          # Ensure the newer request exists
+          newer_request
+        end
+
+        it "returns 400 bad request" do
+          subject
+
+          expect(response).to have_http_status(:bad_request)
+          expect(response_json["errors"]).to include("newer update request exists")
+          expect(registration_update_request.reload.pending?).to be true
+        end
+      end
+
+      context "when a newer request has already been applied" do
+        let_once(:older_request) do
+          lti_ims_registration_update_request_model(
+            lti_registration: registration,
+            root_account: account,
+            created_at: 2.hours.ago
+          )
+        end
+        let_once(:registration_update_request) { older_request }
+        let_once(:newer_request) do
+          lti_ims_registration_update_request_model(
+            lti_registration: registration,
+            root_account: account,
+            created_at: Time.zone.now
+          )
+        end
+
+        before do
+          # Mark the newer request as already applied
+          newer_request.update!(accepted_at: Time.current)
+        end
+
+        it "returns 400 bad request" do
+          subject
+
+          expect(response).to have_http_status(:bad_request)
+          expect(response_json["errors"]).to include("newer update request exists")
+          expect(registration_update_request.reload.pending?).to be true
+        end
+      end
+    end
+
+    context "when accepted is false" do
+      let(:accepted) { false }
+
+      it "rejects the registration update request" do
+        expect { subject }.to change { registration_update_request.reload.rejected_at }.from(nil).to(be_present)
+        expect(registration_update_request.accepted_at).to be_nil
+        expect(response).to have_http_status(:ok)
+        expect(response_json).to include("id" => registration.id)
+      end
+
+      it "does not modify the registration" do
+        original_name = registration.name
+        original_updated_at = registration.updated_at
+
+        subject
+
+        registration.reload
+        expect(registration.name).to eq(original_name)
+        expect(registration.updated_at).to eq(original_updated_at)
+      end
+
+      context "when it is the most recent pending request" do
+        let_once(:older_request) do
+          lti_ims_registration_update_request_model(
+            lti_registration: registration,
+            root_account: account,
+            created_at: 2.hours.ago
+          )
+        end
+
+        before do
+          # Ensure the older request exists
+          older_request
+        end
+
+        it "successfully rejects the update" do
+          expect(older_request.reload.pending?).to be true
+
+          subject
+
+          expect(registration_update_request.reload.rejected_at).to be_present
+          expect(older_request.reload.pending?).to be true # Still pending
+          expect(response).to have_http_status(:ok)
+        end
+      end
+
+      context "when a newer pending request exists" do
+        let_once(:older_request) do
+          lti_ims_registration_update_request_model(
+            lti_registration: registration,
+            root_account: account,
+            created_at: 2.hours.ago
+          )
+        end
+        let_once(:registration_update_request) { older_request }
+        let_once(:newer_request) do
+          lti_ims_registration_update_request_model(
+            lti_registration: registration,
+            root_account: account,
+            created_at: Time.zone.now
+          )
+        end
+
+        before do
+          # Ensure the newer request exists
+          newer_request
+        end
+
+        it "returns 400 bad request" do
+          subject
+
+          expect(response).to have_http_status(:bad_request)
+          expect(response_json["errors"]).to include("newer update request exists")
+          expect(registration_update_request.reload.pending?).to be true
+        end
+      end
+
+      context "when a newer request has already been applied" do
+        let_once(:older_request) do
+          lti_ims_registration_update_request_model(
+            lti_registration: registration,
+            root_account: account,
+            created_at: 2.hours.ago
+          )
+        end
+        let_once(:registration_update_request) { older_request }
+        let_once(:newer_request) do
+          lti_ims_registration_update_request_model(
+            lti_registration: registration,
+            root_account: account,
+            created_at: Time.zone.now
+          )
+        end
+
+        before do
+          # Mark the newer request as already applied
+          newer_request.update!(accepted_at: Time.current)
+        end
+
+        it "returns 400 bad request" do
+          subject
+
+          expect(response).to have_http_status(:bad_request)
+          expect(response_json["errors"]).to include("newer update request exists")
+          expect(registration_update_request.reload.pending?).to be true
+        end
+      end
+    end
+
+    context "when accepted parameter is omitted" do
+      let(:params) { {} }
+
+      it "returns 400 bad request" do
+        expect { subject }.not_to change { registration_update_request.reload.accepted_at }
+        expect(response).to have_http_status(:bad_request)
+        expect(response_json["errors"]).to eq("accepted parameter is required")
+      end
+    end
+  end
+
+  describe "pending_update field inclusion" do
+    let_once(:registration) { lti_registration_model(account:) }
+    let_once(:account_binding) { lti_registration_account_binding_model(registration:, account:) }
+
+    before do
+      account_binding
+      registration.manual_configuration = lti_tool_configuration_model
+    end
+
+    context "when lti_dr_registrations_update feature flag is disabled" do
+      before do
+        account.disable_feature!(:lti_dr_registrations_update)
+      end
+
+      describe "GET list", type: :request do
+        subject { get "/api/v1/accounts/#{account.id}/lti_registrations" }
+
+        it "includes pending_update as false" do
+          subject
+          expect(response).to be_successful
+          expect(response_data.first["pending_update"]).to be_nil
+        end
+      end
+
+      describe "GET show", type: :request do
+        subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}" }
+
+        it "includes pending_update as false" do
+          subject
+          expect(response).to be_successful
+          expect(response_json["pending_update"]).to be_nil
+        end
+      end
+    end
+
+    context "when lti_dr_registrations_update feature flag is enabled" do
+      before do
+        account.enable_feature!(:lti_dr_registrations_update)
+      end
+
+      describe "GET list", type: :request do
+        subject { get "/api/v1/accounts/#{account.id}/lti_registrations" }
+
+        context "without pending update requests" do
+          it "includes pending_update as false" do
+            subject
+            expect(response).to be_successful
+            expect(response_data.first["pending_update"]).to be_nil
+          end
+        end
+
+        context "with pending update request" do
+          before do
+            lti_ims_registration_update_request_model(
+              lti_registration: registration,
+              root_account: account,
+              uuid: SecureRandom.uuid,
+              created_by: admin
+            )
+          end
+
+          it "includes pending_update as true" do
+            subject
+            expect(response).to be_successful
+            registration_data = response_data.find { |r| r["id"] == registration.id }
+            expect(registration_data["pending_update"]).to be_present
+          end
+        end
+
+        context "with multiple pending update requests" do
+          before do
+            # Create multiple pending requests, should use the most recent one
+            3.times do |i|
+              lti_ims_registration_update_request_model(
+                lti_registration: registration,
+                root_account: account,
+                uuid: SecureRandom.uuid,
+                created_by: admin,
+                created_at: i.hours.ago
+              )
+            end
+          end
+
+          it "includes pending_update as true" do
+            subject
+            expect(response).to be_successful
+            registration_data = response_data.find { |r| r["id"] == registration.id }
+            expect(registration_data["pending_update"]).to be_present
+          end
+        end
+
+        context "with accepted update request" do
+          before do
+            lti_ims_registration_update_request_model(
+              lti_registration: registration,
+              root_account: account,
+              uuid: SecureRandom.uuid,
+              created_by: admin,
+              accepted_at: 1.hour.ago
+            )
+          end
+
+          it "includes pending_update as false" do
+            subject
+            expect(response).to be_successful
+            registration_data = response_data.find { |r| r["id"] == registration.id }
+            expect(registration_data["pending_update"]).to be_nil
+          end
+        end
+
+        context "with rejected update request" do
+          before do
+            lti_ims_registration_update_request_model(
+              lti_registration: registration,
+              root_account: account,
+              uuid: SecureRandom.uuid,
+              created_by: admin,
+              rejected_at: 1.hour.ago
+            )
+          end
+
+          it "includes pending_update as false" do
+            subject
+            expect(response).to be_successful
+            registration_data = response_data.find { |r| r["id"] == registration.id }
+            expect(registration_data["pending_update"]).to be_nil
+          end
+        end
+
+        context "with older pending request and newer accepted request" do
+          before do
+            # Create an older pending request
+            lti_ims_registration_update_request_model(
+              lti_registration: registration,
+              root_account: account,
+              uuid: SecureRandom.uuid,
+              created_by: admin,
+              created_at: 2.hours.ago
+            )
+            # Create a newer accepted request
+            lti_ims_registration_update_request_model(
+              lti_registration: registration,
+              root_account: account,
+              uuid: SecureRandom.uuid,
+              created_by: admin,
+              created_at: 1.hour.ago,
+              accepted_at: 1.hour.ago
+            )
+          end
+
+          it "includes pending_update as false since most recent is accepted" do
+            subject
+            expect(response).to be_successful
+            registration_data = response_data.find { |r| r["id"] == registration.id }
+            expect(registration_data["pending_update"]).to be_nil
+          end
+        end
+      end
+
+      describe "GET show", type: :request do
+        subject { get "/api/v1/accounts/#{account.id}/lti_registrations/#{registration.id}" }
+
+        context "without pending update requests" do
+          it "includes pending_update as false" do
+            subject
+            expect(response).to be_successful
+            expect(response_json["pending_update"]).to be_nil
+          end
+        end
+
+        context "with pending update request" do
+          before do
+            lti_ims_registration_update_request_model(
+              lti_registration: registration,
+              root_account: account,
+              uuid: SecureRandom.uuid,
+              created_by: admin
+            )
+          end
+
+          it "includes pending_update as true" do
+            subject
+            expect(response).to be_successful
+            expect(response_json["pending_update"]).to be_present
+          end
+        end
+
+        context "with multiple pending update requests" do
+          before do
+            # Create multiple pending requests, should use the most recent one
+            3.times do |i|
+              lti_ims_registration_update_request_model(
+                lti_registration: registration,
+                root_account: account,
+                uuid: SecureRandom.uuid,
+                created_by: admin,
+                created_at: i.hours.ago
+              )
+            end
+          end
+
+          it "includes pending_update as true" do
+            subject
+            expect(response).to be_successful
+            expect(response_json["pending_update"]).to be_present
+          end
+        end
+
+        context "with accepted update request" do
+          before do
+            lti_ims_registration_update_request_model(
+              lti_registration: registration,
+              root_account: account,
+              uuid: SecureRandom.uuid,
+              created_by: admin,
+              accepted_at: 1.hour.ago
+            )
+          end
+
+          it "includes pending_update as false" do
+            subject
+            expect(response).to be_successful
+            expect(response_json["pending_update"]).to be_nil
+          end
+        end
+
+        context "with rejected update request" do
+          before do
+            lti_ims_registration_update_request_model(
+              lti_registration: registration,
+              root_account: account,
+              uuid: SecureRandom.uuid,
+              created_by: admin,
+              rejected_at: 1.hour.ago
+            )
+          end
+
+          it "includes pending_update as false" do
+            subject
+            expect(response).to be_successful
+            expect(response_json["pending_update"]).to be_nil
+          end
+        end
+
+        context "with older pending request and newer accepted request" do
+          before do
+            # Create an older pending request
+            lti_ims_registration_update_request_model(
+              lti_registration: registration,
+              root_account: account,
+              uuid: SecureRandom.uuid,
+              created_by: admin,
+              created_at: 2.hours.ago
+            )
+            # Create a newer accepted request
+            lti_ims_registration_update_request_model(
+              lti_registration: registration,
+              root_account: account,
+              uuid: SecureRandom.uuid,
+              created_by: admin,
+              created_at: 1.hour.ago,
+              accepted_at: 1.hour.ago
+            )
+          end
+
+          it "includes pending_update as false since most recent is accepted" do
+            subject
+            expect(response).to be_successful
+            expect(response_json["pending_update"]).to be_nil
+          end
+        end
       end
     end
   end

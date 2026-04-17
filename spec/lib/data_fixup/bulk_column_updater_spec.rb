@@ -35,8 +35,8 @@ describe DataFixup::BulkColumnUpdater do
   end
 
   before do
-    # Reconnecting in Rails test env actually clears the table, so stop that
-    allow(ContextExternalTool.connection).to receive(:reconnect!)
+    # Disconnecting in Rails test env actually clears the table, so stop that
+    allow(ContextExternalTool.connection).to receive(:disconnect!)
   end
 
   describe "happy path" do
@@ -50,18 +50,22 @@ describe DataFixup::BulkColumnUpdater do
       expect_values %w[one two three]
     end
 
-    it "returns true on success" do
+    it "returns the number of returned rows on success" do
       with_temp_file do |log_file|
         log_filename = log_file.path
         bcu = described_class.new(ContextExternalTool, :unified_tool_id, log_filename:)
         result = bcu.update! do |add_rows_fn|
+          add_rows_fn.call [[tools[1].id, "two"]]
           add_rows_fn.call [[tools[2].id, "three"]]
         end
-        expect(result).to be true
+        expect(result).to eq 2
       end
     end
 
-    it "logs to a file if given one" do
+    it "chunks in insertions of INSERT_CHUNK_SIZE and transactions of TRANSACTION_CHUNK_SIZE" do
+      stub_const("DataFixup::BulkColumnUpdater::INSERT_CHUNK_SIZE", 1)
+      stub_const("DataFixup::BulkColumnUpdater::TRANSACTION_CHUNK_SIZE", 2)
+
       log_lines = with_temp_file do |log_file|
         log_filename = log_file.path
         bcu = described_class.new(ContextExternalTool, :unified_tool_id, log_filename:)
@@ -71,10 +75,15 @@ describe DataFixup::BulkColumnUpdater do
         end
       end
 
+      expect(log_lines).not_to include(a_string_matching(/ERROR/))
+
       expect(log_lines).to include(a_string_matching(/Created temp table.*context_external_tools_/))
-      expect(log_lines).to include(a_string_matching(/Flush .*context_external_tools_.* to .*context_external_tools.*complete: 3 rows updated/))
+
       expect(log_lines).to include(a_string_matching(/Wrote 1 rows to temp table/))
-      expect(log_lines).to include(a_string_matching(/Wrote 2 rows to temp table/))
+      expect(log_lines).not_to include(a_string_matching(/Wrote 2 rows to temp table/))
+
+      expect(log_lines).not_to include(a_string_matching(/Flush .*context_external_tools_.* to .*context_external_tools.*complete: 3 rows updated/))
+      expect(log_lines).to include(a_string_matching(/Flush .*context_external_tools_.* to .*context_external_tools.*complete: 2 rows updated/))
     end
 
     it "reads from a TSV file" do
@@ -99,8 +108,7 @@ describe DataFixup::BulkColumnUpdater do
       end
 
       expect_values %w[one two three]
-      expect(log_lines).to include(a_string_matching(/Wrote 1 rows to temp table/))
-      expect(log_lines).to_not include(a_string_matching(/Wrote 2 rows to temp table/))
+      expect(log_lines).to include(a_string_matching(/Wrote 3 rows to temp table/))
     end
   end
 
@@ -135,14 +143,14 @@ describe DataFixup::BulkColumnUpdater do
     end
   end
 
-  it "rescues exceptions and returns false when used with a log file" do
+  it "rescues exceptions and returns -1 when used with a log file" do
     log_lines = with_temp_file do |log_file|
       log_filename = log_file.path
       bcu = described_class.new(ContextExternalTool, :unified_tool_id, log_filename:)
       result = bcu.update! do |_add_rows_fn|
         raise "oh no"
       end
-      expect(result).to be false
+      expect(result).to be(-1)
     end
     expect(log_lines).to include(a_string_matching(/ERROR: #<RuntimeError: oh no>/))
   end
@@ -186,20 +194,14 @@ describe DataFixup::BulkColumnUpdater do
     end
   end
 
-  it "drops the temp table after the block is done" do
-    expect(ContextExternalTool.connection).to receive(:reconnect!).once.and_call_original
+  it "creates a temporary table to be dropped on transaction commit" do
+    allow(ContextExternalTool.connection).to receive(:create_table).and_call_original
 
     bcu = described_class.new(ContextExternalTool, :unified_tool_id)
-    temp_table_name = nil
-    bcu.update! do |_add_rows_fn|
-      temp_table_name = bcu.send(:quoted_temp_table_name)
-      expect do
-        ContextExternalTool.connection.execute("SELECT 1 FROM #{temp_table_name}")
-      end.not_to raise_error
+    bcu.update! do |add_rows|
+      add_rows.call [[tools[0].id, "one"]]
     end
 
-    expect do
-      ContextExternalTool.connection.execute("SELECT 1 FROM #{temp_table_name}")
-    end.to raise_error(ActiveRecord::StatementInvalid)
+    expect(ContextExternalTool.connection).to have_received(:create_table).with(/context_external_tools_/, temporary: true, id: an_instance_of(String), options: "ON COMMIT DROP")
   end
 end

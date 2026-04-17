@@ -16,71 +16,77 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
-import {ApolloProvider} from 'react-apollo'
+import {AlertManagerContext} from '@instructure/platform-alerts'
+import {ApolloProvider} from '@apollo/client'
 import {handlers} from '../../../graphql/mswHandlers'
 import MessageListActionContainer from '../MessageListActionContainer'
 import {mswClient} from '../../../../../shared/msw/mswClient'
-import {mswServer} from '../../../../../shared/msw/mswServer'
+import {setupServer} from 'msw/node'
 import React from 'react'
-import {render, fireEvent} from '@testing-library/react'
-import {responsiveQuerySizes} from '../../../util/utils'
+import {render, cleanup} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
-jest.mock('../../../util/utils', () => ({
-  ...jest.requireActual('../../../util/utils'),
-  responsiveQuerySizes: jest.fn(),
-}))
+vi.mock('../../../util/utils', async () => {
+  const actual = await vi.importActual('../../../util/utils')
+  return {
+    ...actual,
+    responsiveQuerySizes: vi.fn(() => ({
+      desktop: {minWidth: '768px'},
+    })),
+  }
+})
 
 describe('MessageListActionContainer', () => {
-  const server = mswServer(handlers)
+  const server = setupServer(...handlers)
 
   beforeAll(() => {
     server.listen()
 
-    window.matchMedia = jest.fn().mockImplementation(() => {
+    window.matchMedia = vi.fn().mockImplementation(() => {
       return {
         matches: true,
         media: '',
         onchange: null,
-        addListener: jest.fn(),
-        removeListener: jest.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
       }
     })
   })
 
-  responsiveQuerySizes.mockImplementation(() => ({
-    desktop: {minWidth: '768px'},
-  }))
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mswClient.cache.reset()
+    fakeENV.setup({current_user_id: '1'})
+  })
 
   afterEach(() => {
+    cleanup()
     server.resetHandlers()
+    fakeENV.teardown()
+    vi.clearAllMocks()
   })
 
   afterAll(() => {
     server.close()
   })
 
-  beforeEach(() => {
-    window.ENV = {
-      current_user_id: 1,
-    }
-  })
-
   const setup = overrideProps => {
     return render(
       <ApolloProvider client={mswClient}>
-        <AlertManagerContext.Provider value={{setOnFailure: jest.fn(), setOnSuccess: jest.fn()}}>
+        <AlertManagerContext.Provider value={{setOnFailure: vi.fn(), setOnSuccess: vi.fn()}}>
           <MessageListActionContainer
             activeMailbox="inbox"
-            onCompose={jest.fn()}
-            onReply={jest.fn()}
-            onReplyAll={jest.fn()}
-            onForward={jest.fn()}
-            onSelectMailbox={jest.fn()}
+            onCompose={vi.fn()}
+            onReply={vi.fn()}
+            onReplyAll={vi.fn()}
+            onForward={vi.fn()}
+            onSelectMailbox={vi.fn()}
+            setCourseNameFilter={vi.fn()}
             {...overrideProps}
           />
         </AlertManagerContext.Provider>
-      </ApolloProvider>
+      </ApolloProvider>,
     )
   }
 
@@ -96,81 +102,89 @@ describe('MessageListActionContainer', () => {
     })
 
     it('should render All Courses option', async () => {
-      const {findByTestId, queryByText} = setup()
+      const user = userEvent.setup()
+      const {findByTestId, findByText} = setup()
       const courseDropdown = await findByTestId('course-select')
-      fireEvent.click(courseDropdown)
-      expect(await queryByText('All Courses')).toBeInTheDocument()
+      await user.click(courseDropdown)
+      expect(await findByText('All Courses')).toBeInTheDocument()
     })
 
     it('should render concluded courses option', async () => {
-      const {findByTestId, queryByText} = setup()
+      const user = userEvent.setup()
+      const {findByTestId, findByText} = setup()
       const courseDropdown = await findByTestId('course-select')
-      fireEvent.click(courseDropdown)
-      expect(await queryByText('Concluded Courses')).toBeInTheDocument()
+      await user.click(courseDropdown)
+      expect(await findByText('Concluded Courses')).toBeInTheDocument()
     })
 
     it('should render concluded courses', async () => {
-      const {findByTestId, queryByText} = setup()
+      const user = userEvent.setup()
+      const {findByTestId, findAllByText} = setup()
       const courseDropdown = await findByTestId('course-select')
-      fireEvent.click(courseDropdown)
-      expect(await queryByText('Fighting Magneto 202')).toBeInTheDocument()
+      await user.click(courseDropdown)
+      expect(await findAllByText('Ipsum')).toHaveLength(4)
     })
 
     it('should render concluded groups in list action container', async () => {
-      const {findByTestId, queryByText} = setup()
+      const user = userEvent.setup()
+      const {findByTestId, findByText} = setup()
       const courseDropdown = await findByTestId('course-select')
-      fireEvent.click(courseDropdown)
-      expect(await queryByText('concluded_group')).toBeInTheDocument()
+      await user.click(courseDropdown)
+      expect(await findByText('concluded_group')).toBeInTheDocument()
     })
 
     it('should call onCourseFilterSelect when course selected', async () => {
-      const mock = jest.fn()
+      const user = userEvent.setup()
+      const mock = vi.fn()
 
       const component = setup({
         onCourseFilterSelect: mock,
       })
 
       const courseDropdown = await component.findByTestId('course-select')
-      fireEvent.click(courseDropdown)
+      await user.click(courseDropdown)
 
-      const option = await component.findByText('Fighting Magneto 101')
-      fireEvent.click(option)
+      const options = await component.findAllByText('Ipsum', {}, {timeout: 5000})
+      expect(options).toHaveLength(4)
+      await user.click(options[0])
 
-      expect(mock.mock.calls.length).toBe(1)
+      expect(mock.mock.calls).toHaveLength(1)
     })
 
     it('should callback to update mailbox when event fires', async () => {
-      const mock = jest.fn()
+      const user = userEvent.setup()
+      const mock = vi.fn()
 
       const component = setup({
         onSelectMailbox: mock,
       })
 
       const mailboxDropdown = await component.findByLabelText('Mailbox Selection')
-      fireEvent.click(mailboxDropdown)
+      await user.click(mailboxDropdown)
 
       const option = await component.findByText('Sent')
       expect(option).toBeTruthy()
-      fireEvent.click(option)
+      await user.click(option)
 
-      expect(mock.mock.calls.length).toBe(1)
+      expect(mock.mock.calls).toHaveLength(1)
     })
 
     it('should call onSelectMailbox when mailbox changed', async () => {
-      const mock = jest.fn()
+      const user = userEvent.setup()
+      const mock = vi.fn()
 
       const component = setup({
         onSelectMailbox: mock,
       })
 
       const mailboxDropdown = await component.findByLabelText('Mailbox Selection')
-      fireEvent.click(mailboxDropdown)
+      await user.click(mailboxDropdown)
 
       const option = await component.findByText('Sent')
       expect(option).toBeTruthy()
-      fireEvent.click(option)
+      await user.click(option)
 
-      expect(mock.mock.calls.length).toBe(1)
+      expect(mock.mock.calls).toHaveLength(1)
     })
 
     it('should load with selected mailbox set via props', async () => {
@@ -180,6 +194,14 @@ describe('MessageListActionContainer', () => {
 
       const mailboxDropdown = await component.findByDisplayValue('Sent')
       expect(mailboxDropdown).toBeTruthy()
+    })
+  })
+
+  describe('AddressBook', () => {
+    it('should render AddressBook', async () => {
+      const {findByTestId} = setup()
+      const addressBook = await findByTestId('message-list-actions-address-book-input')
+      expect(addressBook).toBeTruthy()
     })
   })
 
@@ -244,7 +266,7 @@ describe('MessageListActionContainer', () => {
   })
 
   it('should have archive disabled when activeMailbox is sent', async () => {
-    const archiveMock = jest.fn()
+    const archiveMock = vi.fn()
     const component = setup({
       archiveDisabled: false,
       activeMailbox: 'sent',
@@ -256,7 +278,7 @@ describe('MessageListActionContainer', () => {
   })
 
   it('should show unarchive button when displayUnarchiveButton is true', async () => {
-    const unArchiveMock = jest.fn()
+    const unArchiveMock = vi.fn()
     const component = setup({
       archiveDisabled: false,
       displayUnarchiveButton: true,
@@ -268,7 +290,8 @@ describe('MessageListActionContainer', () => {
   })
 
   it('should trigger archive function when archiving', async () => {
-    const archiveMock = jest.fn()
+    const user = userEvent.setup()
+    const archiveMock = vi.fn()
 
     const component = setup({
       archiveDisabled: false,
@@ -276,13 +299,14 @@ describe('MessageListActionContainer', () => {
       onArchive: archiveMock,
     })
     const archiveButton = await component.findByTestId('archive')
-    fireEvent.click(archiveButton)
+    await user.click(archiveButton)
 
     expect(archiveMock).toHaveBeenCalled()
   })
 
   it('should trigger archive function when unarchiving', async () => {
-    const unArchiveMock = jest.fn()
+    const user = userEvent.setup()
+    const unArchiveMock = vi.fn()
     const component = setup({
       archiveDisabled: false,
       displayUnarchiveButton: true,
@@ -291,12 +315,13 @@ describe('MessageListActionContainer', () => {
     })
 
     const unarchBtn = await component.findByTestId('unarchive')
-    fireEvent.click(unarchBtn)
+    await user.click(unarchBtn)
     expect(unArchiveMock).toHaveBeenCalled()
   })
 
   it('should trigger delete function', async () => {
-    const deleteMock = jest.fn()
+    const user = userEvent.setup()
+    const deleteMock = vi.fn()
     const component = setup({
       deleteDisabled: false,
       selectedConversations: [{test1: 'test1'}, {test2: 'test2'}],
@@ -304,7 +329,7 @@ describe('MessageListActionContainer', () => {
     })
 
     const deleteBtn = await component.findByTestId('delete')
-    fireEvent.click(deleteBtn)
+    await user.click(deleteBtn)
     expect(deleteMock).toHaveBeenCalled()
   })
 })

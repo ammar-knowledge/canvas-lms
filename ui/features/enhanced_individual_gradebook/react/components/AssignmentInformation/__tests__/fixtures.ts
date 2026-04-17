@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import type {AssignmentConnection} from 'features/enhanced_individual_gradebook/types'
+import type {AssignmentConnection} from '../../../../types'
 import type {AssignmentInformationComponentProps} from '..'
 import {defaultGradebookOptions} from '../../__tests__/fixtures'
 
@@ -37,6 +37,7 @@ export const defaultAssignment: AssignmentConnection = {
   name: 'Missing Assignment 1',
   omitFromFinalGrade: false,
   pointsPossible: 10,
+  position: 1,
   postManually: false,
   submissionTypes: ['online_text_entry', 'online_upload'],
   published: true,

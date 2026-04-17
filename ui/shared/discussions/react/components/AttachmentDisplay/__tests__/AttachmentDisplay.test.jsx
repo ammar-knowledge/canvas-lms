@@ -22,39 +22,56 @@ import * as uploadFileModule from '@canvas/upload-file'
 import {AttachmentDisplay} from '../AttachmentDisplay'
 import {responsiveQuerySizes} from '../../../utils'
 import userEvent from '@testing-library/user-event'
+import fakeENV from '@canvas/test-utils/fakeENV'
+import {AlertManagerContext} from '@instructure/platform-alerts'
 
-jest.mock('@canvas/upload-file')
+vi.mock('@canvas/upload-file')
 
 const setup = props => {
-  return render(
-    <AttachmentDisplay
-      setAttachment={() => {}}
-      setAttachmentToUpload={() => {}}
-      responsiveQuerySizes={responsiveQuerySizes}
-      {...props}
-    />
+  const mockAlertManager = {
+    setOnFailure: vi.fn(),
+    setOnSuccess: vi.fn(),
+  }
+
+  const renderResult = render(
+    <AlertManagerContext.Provider value={mockAlertManager}>
+      <AttachmentDisplay
+        setAttachment={vi.fn()}
+        setAttachmentToUpload={vi.fn()}
+        responsiveQuerySizes={responsiveQuerySizes}
+        {...props}
+      />
+    </AlertManagerContext.Provider>,
   )
+
+  return renderResult
 }
 
 describe('AttachmentDisplay', () => {
+  beforeEach(() => {
+    fakeENV.setup()
+    vi.clearAllMocks()
+  })
+
   afterEach(() => {
-    window.ENV = {}
+    fakeENV.teardown()
+    vi.restoreAllMocks()
   })
 
   it('displays AttachButton when there is no attachment', () => {
-    window.ENV.can_attach_entries = true
+    fakeENV.setup({can_attach_entries: true})
     const {queryByText} = setup({canAttach: window.ENV.can_attach_entries})
     expect(queryByText('Attach')).toBeTruthy()
   })
 
   it('does not display AttachButton when can_attach_entries is false', () => {
-    window.ENV.can_attach_entries = false
+    fakeENV.setup({can_attach_entries: false})
     const {queryByText} = setup({canAttach: window.ENV.can_attach_entries})
     expect(queryByText('Attach')).toBeFalsy()
   })
 
   it('only allows one attachment at a time', () => {
-    window.ENV.can_attach_entries = true
+    fakeENV.setup({can_attach_entries: true})
     const {queryByTestId} = setup({canAttach: window.ENV.can_attach_entries})
     expect(queryByTestId('attachment-input')).toHaveAttribute('type', 'file')
     expect(queryByTestId('attachment-input')).not.toHaveAttribute('multiple')
@@ -87,7 +104,11 @@ describe('AttachmentDisplay', () => {
   })
 
   it('uploads file with submit intent if we do not pass the checkContextQuota param', async () => {
-    uploadFileModule.uploadFile = jest.fn()
+    vi.spyOn(uploadFileModule, 'uploadFile').mockResolvedValue({
+      id: '1',
+      url: 'http://example.com/file.txt',
+      display_name: 'file.txt',
+    })
     const {findByTestId} = setup({canAttach: true})
     const input = await findByTestId('attachment-input')
     await userEvent.upload(input, new File(['file'], 'file.txt', {type: 'text/plain'}))
@@ -97,14 +118,18 @@ describe('AttachmentDisplay', () => {
     expect(attachmentProps['attachment[intent]']).toEqual('submit')
   })
 
-  it('uploads file with upload intent if we pass the checkContextQuota param', async () => {
-    uploadFileModule.uploadFile = jest.fn()
+  it('uploads file with attach_discussion_file intent if we pass the checkContextQuota param', async () => {
+    vi.spyOn(uploadFileModule, 'uploadFile').mockResolvedValue({
+      id: '1',
+      url: 'http://example.com/file.txt',
+      display_name: 'file.txt',
+    })
     const {findByTestId} = setup({canAttach: true, checkContextQuota: true})
     const input = await findByTestId('attachment-input')
     await userEvent.upload(input, new File(['file'], 'file.txt', {type: 'text/plain'}))
 
     expect(uploadFileModule.uploadFile).toHaveBeenCalledTimes(1)
     const attachmentProps = uploadFileModule.uploadFile.mock.calls[0][1]
-    expect(attachmentProps['attachment[intent]']).toEqual('upload')
+    expect(attachmentProps['attachment[intent]']).toEqual('attach_discussion_file')
   })
 })

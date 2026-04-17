@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -21,8 +20,11 @@
 // inspired by ruby's select method
 // example: select(assignment, ['name', 'points']) would return a new object like { name: 'foo', points: 20 }
 // esp useful for mapping state props in redux connected components
-export default function select(obj: Object, props: Array<string | [string, string]>): Object {
-  return props.reduce((propSet, prop) => {
+export default function select<T extends Record<string, unknown>>(
+  obj: T,
+  props: Array<string | [string, string]>,
+): Record<string, unknown> {
+  return props.reduce((propSet: Record<string, unknown>, prop) => {
     // allows aliasing selected props by passing an array like [old_prop, new_prop]
     // for examle select(assignment, ['points', ['assignment_name', 'name']]) will copy `assignment_name` into `name`
     const [src, dest] = Array.isArray(prop) ? prop : [prop, prop]

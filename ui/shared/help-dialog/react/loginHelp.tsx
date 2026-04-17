@@ -1,7 +1,7 @@
 /**
  * Canvas LMS - The open-source learning management system
  *
- * Copyright (C) 2024 Instructure, Inc.
+ * Copyright (C) 2013 - present Instructure, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -16,18 +16,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.Wh
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {useState} from 'react'
-import ReactDOM from 'react-dom'
-import {QueryProvider} from '@canvas/query'
+import {render} from '@canvas/react'
 import HelpDialog from '.'
 import {Modal} from '@instructure/ui-modal'
 import {Link} from '@instructure/ui-link'
 import {Heading} from '@instructure/ui-heading'
 import {CloseButton} from '@instructure/ui-buttons'
 import type {ViewOwnProps} from '@instructure/ui-view'
+import {QueryClientProvider} from '@tanstack/react-query'
+import {queryClient} from '@instructure/platform-query'
 
-const I18n = useI18nScope('HelpLinks')
+const I18n = createI18nScope('HelpLinks')
 
 interface LoginHelpProps {
   linkText: string
@@ -86,11 +87,12 @@ export function renderLoginHelp(loginLink: Element): void {
   const wrapper = document.createElement('span')
   anchorElement.replaceWith(wrapper)
   wrapper.appendChild(anchorElement)
-  ReactDOM.render(
-    <QueryProvider>
+
+  render(
+    <QueryClientProvider client={queryClient}>
       <LoginHelp linkText={anchorElement.innerText} />
-    </QueryProvider>,
-    wrapper
+    </QueryClientProvider>,
+    wrapper,
   )
 }
 

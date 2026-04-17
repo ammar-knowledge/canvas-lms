@@ -23,6 +23,12 @@ class CanvadocSessionsController < ApplicationController
   include CoursesHelper
   include HmacHelper
 
+  skip_before_action :require_user, only: :show
+
+  def token_auth_allowed?
+    params[:action] == "show"
+  end
+
   def create
     submission_attempt, submission_id = params.require([:submission_attempt, :submission_id])
 
@@ -63,8 +69,8 @@ class CanvadocSessionsController < ApplicationController
         @current_user,
         annotation_context,
         submission,
-        true,
-        enable_annotations
+        disable_annotation_notifications: true,
+        enable_annotations:
       )
     }
   end
@@ -73,6 +79,10 @@ class CanvadocSessionsController < ApplicationController
   # This API can only be accessed when another endpoint provides a signed URL.
   # It will simply redirect you to the 3rd party document preview.
   def show
+    unless params[:hmac] && params[:blob]
+      return render plain: "Missing HMAC and blob", status: :bad_request
+    end
+
     blob = extract_blob(params[:hmac],
                         params[:blob],
                         "user_id" => @current_user.try(:global_id),
@@ -81,7 +91,7 @@ class CanvadocSessionsController < ApplicationController
 
     if attachment.canvadocable?
       opts = {
-        preferred_plugins: [Canvadocs::RENDER_PDFJS, Canvadocs::RENDER_BOX, Canvadocs::RENDER_CROCODOC],
+        preferred_plugins: [Canvadocs::RENDER_PDFJS, Canvadocs::RENDER_BOX],
         enable_annotations: blob["enable_annotations"],
         use_cloudfront: true
       }
@@ -113,7 +123,7 @@ class CanvadocSessionsController < ApplicationController
         return render(plain: "unauthorized", status: :unauthorized) if opts[:enrollment_type].blank?
 
         # If we're doing annotations, DocViewer needs additional information to send notifications
-        opts[:canvas_base_url] = assignment.course.root_account.domain
+        opts[:canvas_base_url] = assignment.course.root_account.environment_specific_domain
         opts[:user_id] = @current_user.id
         opts[:submission_user_ids] = submission.group_id ? submission.group.users.pluck(:id) : [submission.user_id]
         opts[:course_id] = assignment.context_id
@@ -141,7 +151,7 @@ class CanvadocSessionsController < ApplicationController
       if blob["annotation_context"]
         annotation_context_id = if ApplicationController.test_cluster?
                                   # since Canvas test environments are often configured to point at production
-                                  # DocViewer environments, this prevents making an annotation on Canavs beta and
+                                  # DocViewer environments, this prevents making an annotation on Canvas beta and
                                   # having it show up on Canvas prod.  See CAS-1551
                                   # TODO: a proper Canvas/DocViewer environment pairing and beta refresh from prod on DocViewer
                                   blob["annotation_context"] + "-#{ApplicationController.test_cluster_name}"
@@ -151,6 +161,7 @@ class CanvadocSessionsController < ApplicationController
         opts[:annotation_context] = annotation_context_id
       end
       attachment.submit_to_canvadocs(1, **opts) unless attachment.canvadoc_available?
+      attachment.canvadoc.canvadocs_submissions.find_or_create_by(submission_id: submission) if submission
 
       url = attachment.canvadoc.session_url(opts.merge(user_session_params))
       # For the purposes of reporting student viewership, we only

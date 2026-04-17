@@ -16,19 +16,25 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
-import {arrayOf, func, object, shape, string} from 'prop-types'
+import React, {useState} from 'react'
+import {arrayOf, bool, func, object, shape, string} from 'prop-types'
 import {IconButton} from '@instructure/ui-buttons'
 import {Table} from '@instructure/ui-table'
 import {Tooltip} from '@instructure/ui-tooltip'
-import {IconEditLine, IconMasqueradeLine, IconMessageLine} from '@instructure/ui-icons'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {
+  IconEditLine,
+  IconMasqueradeLine,
+  IconMessageLine,
+  IconExportLine,
+} from '@instructure/ui-icons'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import FriendlyDatetime from '@canvas/datetime/react/components/FriendlyDatetime'
 import CreateOrUpdateUserModal from './CreateOrUpdateUserModal'
+import {CreateDSRModal} from '@canvas/dsr'
 import UserLink from './UserLink'
 import TempEnrollUsersListRow from '@canvas/temporary-enrollment/react/TempEnrollUsersListRow'
 
-const I18n = useI18nScope('account_course_user_search')
+const I18n = createI18nScope('account_course_user_search')
 
 export default function UsersListRow({
   accountId,
@@ -36,12 +42,19 @@ export default function UsersListRow({
   permissions,
   handleSubmitEditUserForm,
   roles,
+  includeDeletedUsers,
+  temporaryEnrollmentStatus,
 }) {
+  const [openModal, setOpenModal] = useState(false)
+
+  let userLink = `/accounts/${accountId}/users/${user.id}`
+  if (includeDeletedUsers && !user.login_id)
+    userLink += `?include_deleted_users=${includeDeletedUsers}`
   return (
     <Table.Row>
       <Table.RowHeader>
         <UserLink
-          href={`/accounts/${accountId}/users/${user.id}`}
+          href={userLink}
           avatarName={user.short_name}
           name={user.sortable_name}
           avatar_url={user.avatar_url}
@@ -49,16 +62,17 @@ export default function UsersListRow({
           size="x-small"
         />
       </Table.RowHeader>
-      <Table.Cell data-heap-redact-text="">{user.email}</Table.Cell>
-      <Table.Cell data-heap-redact-text="">{user.sis_user_id}</Table.Cell>
+      <Table.Cell>{user.email}</Table.Cell>
+      <Table.Cell>{user.sis_user_id}</Table.Cell>
       <Table.Cell>{user.last_login && <FriendlyDatetime dateTime={user.last_login} />}</Table.Cell>
-      <Table.Cell>
+      <Table.Cell textAlign="end">
         {permissions.can_view_temporary_enrollments &&
           TempEnrollUsersListRow({
             user,
             permissions,
             handleSubmitEditUserForm,
             roles,
+            temporaryEnrollmentStatus,
           })}
         {permissions.can_masquerade && (
           <Tooltip
@@ -82,7 +96,6 @@ export default function UsersListRow({
             renderTip={I18n.t('Send message to %{name}', {name: user.name})}
           >
             <IconButton
-              data-heap-redact-attributes="href"
               withBorder={false}
               withBackground={false}
               size="small"
@@ -94,18 +107,14 @@ export default function UsersListRow({
           </Tooltip>
         )}
         {permissions.can_edit_users && (
-          <CreateOrUpdateUserModal
-            createOrUpdate="update"
-            url={`/accounts/${accountId}/users/${user.id}`}
-            user={user}
-            afterSave={handleSubmitEditUserForm}
-          >
+          <>
             <span>
               <Tooltip
                 data-testid="user-list-row-tooltip"
                 renderTip={I18n.t('Edit %{name}', {name: user.name})}
               >
                 <IconButton
+                  onClick={() => setOpenModal(true)}
                   withBorder={false}
                   withBackground={false}
                   size="small"
@@ -115,7 +124,36 @@ export default function UsersListRow({
                 </IconButton>
               </Tooltip>
             </span>
-          </CreateOrUpdateUserModal>
+            <CreateOrUpdateUserModal
+              open={openModal}
+              onClose={() => setOpenModal(false)}
+              createOrUpdate="update"
+              url={`/accounts/${accountId}/users/${user.id}`}
+              user={user}
+              afterSave={handleSubmitEditUserForm}
+            />
+          </>
+        )}
+        {permissions.can_create_dsr && (
+          <CreateDSRModal accountId={accountId} user={user} afterSave={handleSubmitEditUserForm}>
+            <span>
+              <Tooltip
+                data-testid="user-list-row-tooltip"
+                renderTip={I18n.t('Create DSR Request for %{name}', {name: user.name})}
+              >
+                <IconButton
+                  withBorder={false}
+                  withBackground={false}
+                  size="small"
+                  screenReaderLabel={I18n.t('Create DSR Request for %{name}', {name: user.name})}
+                >
+                  <IconExportLine
+                    title={I18n.t('Create DSR Request for %{name}', {name: user.name})}
+                  />
+                </IconButton>
+              </Tooltip>
+            </span>
+          </CreateDSRModal>
         )}
       </Table.Cell>
     </Table.Row>
@@ -124,15 +162,27 @@ export default function UsersListRow({
 
 UsersListRow.propTypes = {
   accountId: string.isRequired,
-  user: CreateOrUpdateUserModal.propTypes.user.isRequired,
+  user: shape({
+    name: string.isRequired,
+    sortable_name: string,
+    short_name: string,
+    email: string,
+    time_zone: string,
+  }).isRequired,
   handleSubmitEditUserForm: func.isRequired,
   permissions: object.isRequired,
   roles: arrayOf(
     shape({
       id: string.isRequired,
       label: string.isRequired,
-    })
+    }),
   ).isRequired,
+  includeDeletedUsers: bool,
+  temporaryEnrollmentStatus: shape({
+    is_provider: bool,
+    is_recipient: bool,
+    can_provide: bool,
+  }),
 }
 
 UsersListRow.displayName = 'Row'

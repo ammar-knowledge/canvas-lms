@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import {Flex} from '@instructure/ui-flex'
 import {Img} from '@instructure/ui-img'
@@ -29,7 +29,7 @@ import PropTypes from 'prop-types'
 
 import emptyHomeUrl from '../images/empty-home.svg'
 
-const I18n = useI18nScope('empty_home')
+const I18n = createI18nScope('empty_home')
 
 const EmptyHome = ({pagesPath, hasWikiPages, courseName, canManage}) => (
   <Flex
@@ -43,7 +43,7 @@ const EmptyHome = ({pagesPath, hasWikiPages, courseName, canManage}) => (
   >
     <Img src={emptyHomeUrl} data-testid="empty-home-panda" />
     <View width="25rem" margin="x-large none small none">
-      <Text size="large">{I18n.t('This is where you’ll land when your home is complete.')}</Text>
+      <Text size="large">{I18n.t("This is where you'll land when your home is complete.")}</Text>
     </View>
     {canManage && (
       <Button

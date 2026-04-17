@@ -113,7 +113,7 @@ module SIS
             course.friendly_name = friendly_name
           end
 
-          course.integration_id = integration_id
+          course.integration_id = integration_id if integration_id.present?
           course.sis_source_id = course_id
           active_state = status.casecmp?("published") ? "available" : "claimed"
           unless course.stuck_sis_fields.include?(:workflow_state)
@@ -194,7 +194,7 @@ module SIS
           update_enrollments = !course.new_record? && !!course.changes.keys.intersect?(%w[workflow_state name course_code])
 
           # republish course paces if necessary
-          if !course.new_record? && course.account.feature_enabled?(:course_paces) && course.changes.keys.intersect?(%w[start_at conclude_at restrict_enrollments_to_course_dates])
+          unless course.new_record? || !course.changes.keys.intersect?(%w[start_at conclude_at restrict_enrollments_to_course_dates])
             course.course_paces.find_each(&:create_publish_progress)
           end
 
@@ -301,6 +301,8 @@ module SIS
           when :concluded
             if Account.site_admin.feature_enabled?(:default_account_grading_scheme) && course.grading_standard_id.nil? && course.root_account.grading_standard_id
               course.update!(grading_standard_id: course.root_account.grading_standard_id)
+            elsif course.grading_standard_id.nil? && course.root_account.grading_standard_id.nil?
+              course.set_concluded_assignments_grading_standard
             end
             Auditors::Course.record_concluded(course, @batch_user, options)
           when :unconcluded

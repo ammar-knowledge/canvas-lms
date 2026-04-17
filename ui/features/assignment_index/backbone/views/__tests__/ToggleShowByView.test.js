@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import _ from 'lodash'
+import {each} from 'es-toolkit/compat'
 import AssignmentGroup from '@canvas/assignments/backbone/models/AssignmentGroup'
 import Course from '@canvas/courses/backbone/models/Course'
 import AssignmentGroupCollection from '@canvas/assignments/backbone/collections/AssignmentGroupCollection'
@@ -23,8 +23,9 @@ import ToggleShowByView from '../ToggleShowByView'
 import $ from 'jquery'
 import 'jquery-migrate'
 import fakeENV from '@canvas/test-utils/fakeENV'
-import {isAccessible} from '@canvas/test-utils/jestAssertions'
-import sinon from 'sinon'
+import {isAccessible} from '@canvas/test-utils/assertions'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 
 const equal = (x, y) => expect(x).toEqual(y)
 
@@ -95,63 +96,62 @@ const createView = function () {
   return new ToggleShowByView({course, assignmentGroups: collection})
 }
 
-const getGrades = function (collection, server) {
-  const submissions = [
-    {id: 1, assignment_id: 1, grade: 305},
-    {id: 2, assignment_id: 4},
-    {id: 3, assignment_id: 5, submission_type: 'online'},
-  ]
-  let url = `${COURSE_SUBMISSIONS_URL}?`
-  if (ENV.observed_student_ids.length === 1) {
-    url = `${url}student_ids[]=${ENV.observed_student_ids[0]}&`
-  }
-  url = `${url}per_page=50`
-
-  server.respondWith('GET', url, [
-    200,
-    {'Content-Type': 'application/json'},
-    JSON.stringify(submissions),
-  ])
-
-  collection.getGrades()
-  return server.respond()
+const getGrades = async function (collection) {
+  await collection.getGrades()
 }
 
-let server
+const submissions = [
+  {id: 1, assignment_id: 1, grade: 305},
+  {id: 2, assignment_id: 4},
+  {id: 3, assignment_id: 5, submission_type: 'online'},
+]
+
+const server = setupServer(
+  http.get('/courses/1/submissions', () => {
+    return HttpResponse.json(submissions)
+  }),
+)
 
 describe('ToggleShowByView', function () {
+  beforeAll(() => server.listen())
+  afterEach(() => server.resetHandlers())
+  afterAll(() => server.close())
+
   beforeEach(() => {
-    server = sinon.fakeServer.create()
     fakeENV.setup()
     ENV.observed_student_ids = []
+    document.documentElement.setAttribute('lang', 'en')
+    if (!document.title) {
+      document.title = 'Test Page'
+    }
   })
 
   afterEach(() => {
     fakeENV.teardown()
-    server.restore()
     $('.ui-dialog').remove()
     $('ul[id^=ui-id-]').remove()
+    document.documentElement.removeAttribute('lang')
   })
 
-  test('should be accessible', done => {
+  test('should be accessible', async () => {
     const view = createView(true)
-    isAccessible(view, done, {a11yReport: true})
+    await isAccessible(view, {a11yReport: true})
   })
 
-  test('should sort assignments into groups correctly', function () {
+  test('should sort assignments into groups correctly', async function () {
     const view = createView()
-    getGrades(view.assignmentGroups, server)
+    await getGrades(view.assignmentGroups)
 
     equal(view.assignmentGroups.length, 4)
     view.assignmentGroups.each(group => {
       const assignments = group.get('assignments').models
-      _.each(assignments, as => equal(group.name(), as.name()))
+      each(assignments, as => equal(group.name(), as.name()))
     })
   })
 
-  test('should sort assignments by date correctly', function () {
+  test('should sort assignments by date correctly', async function () {
     const view = createView(true)
-    getGrades(view.assignmentGroups, server)
+    await getGrades(view.assignmentGroups)
 
     // check past assignment sorting (descending)
     const past = view.assignmentGroups.findWhere({id: 'past'})
@@ -173,11 +173,11 @@ describe('ToggleShowByView', function () {
     equal(assignments[1].get('due_at'), new Date(3013, 8, 21))
   })
 
-  test('observer view who are not observing a student', function () {
+  test('observer view who are not observing a student', async function () {
     // Regular observer view
     ENV.current_user_has_been_observer_in_this_course = true
     const view = createView()
-    getGrades(view.assignmentGroups, server)
+    await getGrades(view.assignmentGroups)
 
     const past = view.assignmentGroups.findWhere({id: 'past'})
     let assignments = past.get('assignments').models
@@ -191,11 +191,11 @@ describe('ToggleShowByView', function () {
     equal(assignments.length, 2)
   })
 
-  test('observer view who are observing a student', function () {
+  test('observer view who are observing a student', async function () {
     ENV.current_user_has_been_observer_in_this_course = true
     ENV.observed_student_ids = ['1']
     const view = createView()
-    getGrades(view.assignmentGroups, server)
+    await getGrades(view.assignmentGroups)
 
     const past = view.assignmentGroups.findWhere({id: 'past'})
     let assignments = past.get('assignments').models
@@ -212,11 +212,11 @@ describe('ToggleShowByView', function () {
 
   // This will change in the future from a basic observer with no observing students to
   // way of selecting which student to observer for now though it defaults to a standard observer
-  test('observer view who are observing multiple students', function () {
+  test('observer view who are observing multiple students', async function () {
     ENV.observed_student_ids = ['1', '2']
     ENV.current_user_has_been_observer_in_this_course = true
     const view = createView()
-    getGrades(view.assignmentGroups, server)
+    await getGrades(view.assignmentGroups)
     const past = view.assignmentGroups.findWhere({id: 'past'})
     let assignments = past.get('assignments').models
     equal(assignments.length, 5)
@@ -227,5 +227,62 @@ describe('ToggleShowByView', function () {
     const upcoming = view.assignmentGroups.findWhere({id: 'upcoming'})
     assignments = upcoming.get('assignments').models
     equal(assignments.length, 2)
+  })
+
+  test('should sort checkpointed discussions by reply to entry checkpoint due date', async function () {
+    ENV.PERMISSIONS = {manage: false, read_grades: true}
+    const course = new Course({id: 1})
+
+    const assignments = [
+      {
+        id: 1,
+        name: 'Regular Assignment',
+        due_at: new Date(2023, 5, 15),
+        position: 1,
+      },
+      {
+        id: 2,
+        name: 'Checkpointed Discussion',
+        due_at: new Date(2023, 5, 20),
+        has_sub_assignments: true,
+        checkpoints: [
+          {
+            tag: 'reply_to_topic',
+            due_at: new Date(2023, 5, 12).toISOString(),
+          },
+          {
+            tag: 'reply_to_entry',
+            due_at: new Date(2023, 5, 18).toISOString(),
+          },
+        ],
+        position: 2,
+      },
+      {
+        id: 3,
+        name: 'Another Assignment',
+        due_at: new Date(2023, 5, 14),
+        position: 3,
+      },
+    ]
+
+    const group = new AssignmentGroup({assignments})
+    const collection = new AssignmentGroupCollection([group], {
+      courseSubmissionsURL: COURSE_SUBMISSIONS_URL,
+      course,
+    })
+
+    const view = new ToggleShowByView({course, assignmentGroups: collection})
+    await getGrades(view.assignmentGroups)
+
+    const past = view.assignmentGroups.findWhere({id: 'past'})
+    const sortedAssignments = past.get('assignments').models
+    // Assignment 2 should be sorted by its reply_to_entry checkpoint date (June 18)
+    // not by reply_to_topic (June 12) or the main due_at (June 20)
+    // Verify that assignment 2 uses the checkpoint date
+    const assignment2 = sortedAssignments.find(a => a.get('id') === 2)
+    equal(assignment2.sortingDueAt(), new Date(2023, 5, 18).toISOString())
+    equal(sortedAssignments[0].get('id'), 1)
+    equal(sortedAssignments[1].get('id'), 3)
+    equal(sortedAssignments[2].get('id'), 2)
   })
 })

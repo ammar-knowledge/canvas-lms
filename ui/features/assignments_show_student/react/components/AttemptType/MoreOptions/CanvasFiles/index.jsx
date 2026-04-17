@@ -19,18 +19,19 @@
 import {arrayOf, func, shape, string} from 'prop-types'
 import axios from '@canvas/axios'
 import BreadcrumbLinkWithTip from './BreadcrumbLinkWithTip'
-import errorShipUrl from '@canvas/images/ErrorShip.svg'
+import errorShipUrl from '@instructure/platform-images/assets/ErrorShip.svg'
 import FileSelectTable from './FileSelectTable'
-import GenericErrorPage from '@canvas/generic-error-page'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import LoadingIndicator from '@canvas/loading-indicator'
+import {GenericErrorPage} from '@instructure/platform-generic-error-page'
+import {reportError, canvasErrorPageTranslations} from '@canvas/error-page-utils'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {LoadingIndicator} from '@instructure/platform-loading-indicator'
 import parseLinkHeader from 'link-header-parsing/parseLinkHeader'
 import React from 'react'
 
 import {Breadcrumb} from '@instructure/ui-breadcrumb'
 import {Flex} from '@instructure/ui-flex'
 
-const I18n = useI18nScope('assignments_2_MoreOptions_CanvasFiles')
+const I18n = createI18nScope('assignments_2_MoreOptions_CanvasFiles')
 
 class CanvasFiles extends React.Component {
   state = {
@@ -85,7 +86,7 @@ class CanvasFiles extends React.Component {
         const newFocus =
           document.getElementById('parent-folder') ||
           document.getElementById(
-            `folder-${this.state.loadedFolders[this.state.selectedFolderID].subFolderIDs[0]}`
+            `folder-${this.state.loadedFolders[this.state.selectedFolderID].subFolderIDs[0]}`,
           )
         newFocus.focus()
       })
@@ -100,7 +101,7 @@ class CanvasFiles extends React.Component {
         this.ROOT_FOLDER_ID,
         this.FOLDER_TYPE,
         '/api/v1/users/self/folders/root',
-        opts
+        opts,
       )
 
       // load group folders
@@ -109,7 +110,7 @@ class CanvasFiles extends React.Component {
           this.ROOT_FOLDER_ID,
           this.FOLDER_TYPE,
           `/api/v1/groups/${group._id}/folders/root`,
-          {...opts, group_name: group.name}
+          {...opts, group_name: group.name},
         )
       })
     }
@@ -252,6 +253,8 @@ class CanvasFiles extends React.Component {
       return (
         <GenericErrorPage
           imageUrl={errorShipUrl}
+          onReportError={reportError}
+          translations={canvasErrorPageTranslations}
           errorSubject={this.state.error.message}
           errorCategory={I18n.t('Assignments 2 Student Error Page')}
         />
@@ -289,7 +292,7 @@ CanvasFiles.propTypes = {
     shape({
       _id: string,
       name: string,
-    })
+    }),
   ),
 }
 

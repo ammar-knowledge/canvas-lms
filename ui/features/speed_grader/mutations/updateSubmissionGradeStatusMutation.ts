@@ -17,15 +17,15 @@
  */
 
 import {z} from 'zod'
-import {executeQuery} from '@canvas/query/graphql'
-import gql from 'graphql-tag'
-import {SUBMISSION_FRAGMENT} from '../queries/submissionQuery'
+import {executeQuery} from '@canvas/graphql'
+import {gql} from '@apollo/client'
 
 export const UPDATE_SUBMISSION_GRADE_STATUS = gql`
   mutation updateSubmissionGradeStatus(
     $submissionId: ID!
     $latePolicyStatus: String
     $customGradeStatusId: ID
+    $checkpointTag: String
   ) {
     __typename
     updateSubmissionGradeStatus(
@@ -33,34 +33,55 @@ export const UPDATE_SUBMISSION_GRADE_STATUS = gql`
         submissionId: $submissionId
         latePolicyStatus: $latePolicyStatus
         customGradeStatusId: $customGradeStatusId
+        checkpointTag: $checkpointTag
       }
     ) {
       submission {
-        ...SubmissionInterfaceFragment
+        gradingStatus
       }
     }
   }
-  ${SUBMISSION_FRAGMENT}
 `
 
 export const ZUpdateSubmissionGradeStatusParams = z.object({
   submissionId: z.string(),
   latePolicyStatus: z.string().nullable(),
   customGradeStatusId: z.string().nullable(),
+  courseId: z.string().nullable(),
+  checkpointTag: z.string().nullable(),
+})
+
+const ZSubmissionWithGradingStatus = z.object({
+  gradingStatus: z.string(),
+})
+
+const ZUpdateSubmissionGradeStatusResult = z.object({
+  updateSubmissionGradeStatus: z.object({
+    submission: ZSubmissionWithGradingStatus,
+  }),
 })
 
 type UpdateSubmissionGradeStatusParams = z.infer<typeof ZUpdateSubmissionGradeStatusParams>
+type UpdateSubmissionGradeStatusResult = z.infer<typeof ZUpdateSubmissionGradeStatusResult>
+type SubmissionWithGradingStatus = z.infer<typeof ZSubmissionWithGradingStatus>
 
 export async function updateSubmissionGradeStatus({
   submissionId,
   latePolicyStatus,
   customGradeStatusId,
-}: UpdateSubmissionGradeStatusParams): Promise<any> {
-  const result: any = await executeQuery(UPDATE_SUBMISSION_GRADE_STATUS, {
-    submissionId,
-    latePolicyStatus,
-    customGradeStatusId,
-  })
+  courseId,
+  checkpointTag,
+}: UpdateSubmissionGradeStatusParams): Promise<SubmissionWithGradingStatus> {
+  const result: UpdateSubmissionGradeStatusResult = await executeQuery(
+    UPDATE_SUBMISSION_GRADE_STATUS,
+    {
+      submissionId,
+      latePolicyStatus,
+      customGradeStatusId,
+      courseId,
+      checkpointTag,
+    },
+  )
 
-  return result.createSubmissionComment.submission
+  return result.updateSubmissionGradeStatus.submission
 }

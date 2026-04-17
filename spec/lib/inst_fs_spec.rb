@@ -181,23 +181,15 @@ describe InstFS do
           expect(Canvas::Security.decode_jwt(token, [secret])).to have_key(:jti)
         end
 
-        it "includes the original_url claim with the redirect and no_cache param" do
-          original_url = "https://example.test/preview"
-          url = InstFS.authenticated_url(@attachment, original_url:)
+        it "does not include a jti in the token if instructed to" do
+          url = InstFS.authenticated_url(@attachment, expires_in: 1.hour, no_jti: true)
           token = url.split("token=").last
-          expect(Canvas::Security.decode_jwt(token, [secret])[:original_url]).to eq(original_url + "?no_cache=true&redirect=true")
-        end
-
-        it "doesn't include the original_url claim if already redirected" do
-          original_url = "https://example.test/preview?redirect=true"
-          url = InstFS.authenticated_url(@attachment, original_url:)
-          token = url.split("token=").last
-          expect(Canvas::Security.decode_jwt(token, [secret])).not_to have_key(:original_url)
+          expect(Canvas::Security.decode_jwt(token, [secret])).not_to have_key(:jti)
         end
 
         describe "legacy api claims" do
           let(:root_account) { Account.default }
-          let(:access_token) { instance_double("AccessToken", global_developer_key_id: 106) }
+          let(:access_token) { instance_double(AccessToken, global_developer_key_id: 106) }
 
           it "are not added without an access token" do
             claims = claims_for(access_token: nil, root_account:)
@@ -275,11 +267,11 @@ describe InstFS do
     end
 
     context "upload_preflight_json" do
-      let(:context) { instance_double("Course", id: 1, global_id: 101) }
+      let(:context) { instance_double(Course, id: 1, global_id: 101) }
       let(:root_account) { Account.default }
-      let(:user) { instance_double("User", id: 2, global_id: 102) }
-      let(:acting_as) { instance_double("User", id: 4, global_id: 104) }
-      let(:folder) { instance_double("Folder", id: 3, global_id: 103) }
+      let(:user) { instance_double(User, id: 2, global_id: 102) }
+      let(:acting_as) { instance_double(User, id: 4, global_id: 104) }
+      let(:folder) { instance_double(Folder, id: 3, global_id: 103) }
       let(:filename) { "test.txt" }
       let(:content_type) { "text/plain" }
       let(:quota_exempt) { true }
@@ -405,10 +397,10 @@ describe InstFS do
       end
 
       describe "legacy api jwt claims" do
-        let(:access_token) { instance_double("AccessToken", global_developer_key_id: 106) }
+        let(:access_token) { instance_double(AccessToken, global_developer_key_id: 106) }
 
         def claims_for(options)
-          json = InstFS.upload_preflight_json(**default_args.merge(options))
+          json = InstFS.upload_preflight_json(**default_args, **options)
           token = json[:upload_url].split("token=").last
           Canvas::Security.decode_jwt(token, [secret])
         end
@@ -445,14 +437,14 @@ describe InstFS do
 
       context "upload via url" do
         it "throw ArgumentError when appropriate" do
-          expect { InstFS.upload_preflight_json(**default_args.merge({ target_url: "foo" })) }.to raise_error(ArgumentError)
-          expect { InstFS.upload_preflight_json(**default_args.merge({ progress_json: { foo: 1 } })) }.to raise_error(ArgumentError)
+          expect { InstFS.upload_preflight_json(**default_args,  target_url: "foo") }.to raise_error(ArgumentError)
+          expect { InstFS.upload_preflight_json(**default_args,  progress_json: { foo: 1 }) }.to raise_error(ArgumentError)
         end
 
         it "responds properly when passed target_url and progress_json" do
           progress_json = { id: 1 }
           target_url = "http://www.example.com/"
-          preflight_json = InstFS.upload_preflight_json(**default_args.merge({ target_url:, progress_json: }))
+          preflight_json = InstFS.upload_preflight_json(**default_args, target_url:, progress_json:)
 
           token = preflight_json[:upload_url].split("token=").last
           jwt = Canvas::Security.decode_jwt(token, [secret])
@@ -498,7 +490,7 @@ describe InstFS do
       it "makes a network request to the inst-fs endpoint" do
         instfs_uuid = "1234-abcd"
         allow(CanvasHttp).to receive(:post).and_return(
-          instance_double("Net::HTTPCreated",
+          instance_double(Net::HTTPCreated,
                           code: "201",
                           body: { instfs_uuid: }.to_json)
         )
@@ -513,7 +505,7 @@ describe InstFS do
       it "requests a streaming upload to allow large files" do
         instfs_uuid = "1234-abcd"
         expect(CanvasHttp).to receive(:post).with(anything, hash_including(streaming: true)).and_return(
-          instance_double("Net::HTTPCreated",
+          instance_double(Net::HTTPCreated,
                           code: "201",
                           body: { instfs_uuid: }.to_json)
         )
@@ -542,7 +534,7 @@ describe InstFS do
             raise Timeout::Error
           else
             uploaded_data = stream.read
-            instance_double("Net::HTTPCreated",
+            instance_double(Net::HTTPCreated,
                             code: "201",
                             body: { instfs_uuid: "new uuid" }.to_json)
           end
@@ -551,6 +543,111 @@ describe InstFS do
         expect(new_uuid).to eq "new uuid"
         expect(uploaded_data.size).to eq 1000
       end
+
+      it "retries 504 responses from Inst-FS" do
+        call_count = 0
+        allow(CanvasHttp).to receive(:post) do
+          call_count += 1
+          if call_count == 1
+            instance_double(Net::HTTPGatewayTimeout, code: "504", body: "")
+          else
+            instance_double(Net::HTTPCreated,
+                            code: "201",
+                            body: { instfs_uuid: "new uuid" }.to_json)
+          end
+        end
+        new_uuid = InstFS.direct_upload(file_name: "foo.txt", file_object: StringIO.new("a" * 1000))
+        expect(new_uuid).to eq "new uuid"
+        expect(call_count).to eq 2
+      end
+
+      it "doesn't retry 504s repeatedly" do
+        allow(CanvasHttp).to receive(:post) do
+          instance_double(Net::HTTPGatewayTimeout, code: "504", body: "gateway timeout")
+        end
+        expect do
+          InstFS.direct_upload(file_name: "foo.txt", file_object: StringIO.new("a" * 1000))
+        end.to raise_error(InstFS::ServiceError, "received code \"504\" from service, with message \"gateway timeout\"")
+      end
+
+      it "does a third try when running in a delayed job" do
+        allow(Delayed::Worker).to receive(:current_job).and_return(instance_double(Delayed::Job, id: 123))
+        call_count = 0
+        allow(CanvasHttp).to receive(:post) do
+          call_count += 1
+          if call_count <= 2
+            instance_double(Net::HTTPGatewayTimeout, code: "504", body: "")
+          else
+            instance_double(Net::HTTPCreated,
+                            code: "201",
+                            body: { instfs_uuid: "new uuid" }.to_json)
+          end
+        end
+        new_uuid = InstFS.direct_upload(file_name: "foo.txt", file_object: StringIO.new("a" * 1000))
+        expect(new_uuid).to eq "new uuid"
+        expect(call_count).to eq 3
+      end
+
+      it "doesn't retry 5xx when file object isn't rewindable" do
+        file_object = instance_double(IO, read: "some data")
+        call_count = 0
+        allow(CanvasHttp).to receive(:post) do
+          call_count += 1
+          instance_double(Net::HTTPGatewayTimeout, code: "504", body: "gateway timeout")
+        end
+        expect do
+          InstFS.direct_upload(file_name: "foo.txt", file_object:)
+        end.to raise_error(InstFS::ServiceError, "received code \"504\" from service, with message \"gateway timeout\"")
+        expect(call_count).to eq 1
+      end
+
+      context "filesize" do
+        context "when file_object responds to size" do
+          it "includes filesize in the JWT payload" do
+            expect(CanvasHttp)
+              .to receive(:post)
+              .with(
+                satisfy { |url|
+                  token = url.match(/token=(.*)$/)[1]
+                  payload = Canvas::Security.decode_jwt(token, [secret])
+                  payload[:filesize] == 264
+                },
+                anything
+              )
+              .and_return(
+                instance_double(Net::HTTPCreated, code: "201", body: { instfs_uuid: "dummy" }.to_json)
+              )
+
+            InstFS.direct_upload(
+              file_name: "a.png",
+              file_object: File.open("public/images/a.png")
+            )
+          end
+        end
+
+        context "when file_object does not respond to size" do
+          it "does not include filesize in the JWT payload" do
+            expect(CanvasHttp)
+              .to receive(:post)
+              .with(
+                satisfy { |url|
+                  token = url.match(/token=(.*)$/)[1]
+                  payload = Canvas::Security.decode_jwt(token, [secret])
+                  payload.keys.exclude?("filesize")
+                },
+                anything
+              )
+              .and_return(
+                instance_double(Net::HTTPCreated, code: "201", body: { instfs_uuid: "dummy" }.to_json)
+              )
+
+            InstFS.direct_upload(
+              file_name: "std.in",
+              file_object: $stdin
+            )
+          end
+        end
+      end
     end
 
     context "duplicate" do
@@ -558,7 +655,7 @@ describe InstFS do
         instfs_uuid = "1234-abcd"
         new_instfs_uuid = "5678-efgh"
         allow(CanvasHttp).to receive(:post).with(%r{/files/#{instfs_uuid}/duplicate}).and_return(
-          instance_double("Net::HTTPCreated",
+          instance_double(Net::HTTPCreated,
                           code: "201",
                           body: { id: new_instfs_uuid }.to_json)
         )
@@ -570,7 +667,7 @@ describe InstFS do
       it "makes a network request to the inst-fs endpoint" do
         instfs_uuid = "1234-abcd"
         allow(CanvasHttp).to receive(:delete).with(%r{/files/#{instfs_uuid}}).and_return(
-          instance_double("Net::HTTPOK", code: "200")
+          instance_double(Net::HTTPOK, code: "200")
         )
         expect(InstFS.delete_file(instfs_uuid)).to be true
       end

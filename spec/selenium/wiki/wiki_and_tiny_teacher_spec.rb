@@ -28,6 +28,12 @@ describe "Wiki pages and Tiny WYSIWYG editor" do
       course_with_teacher_logged_in
     end
 
+    it "shows the correct options in 'Users allowed to edit this page' dropdown" do
+      get "/courses/#{@course.id}/pages"
+      f(".new_page").click
+      expect(f("select[name=\"editing_roles\"]").find_elements(:css, "option").map(&:text)).to eq ["Only teachers", "Teachers and students", "Anyone"]
+    end
+
     ["Only teachers", "Teachers and students", "Anyone"].each_with_index do |permission, i|
       it "validates correct permissions for #{permission}" do
         title = "test_page"
@@ -42,7 +48,7 @@ describe "Wiki pages and Tiny WYSIWYG editor" do
 
         click_option("select[name=\"editing_roles\"]", permission)
         # form id is set like this because the id iterator is in the form but im not sure how to grab it directly before committed to the DB with the save
-        wait_for_new_page_load(f("form.edit-form button.submit").click)
+        wait_for_new_page_load { f("form.edit-form button.submit").click }
 
         p.reload
         expect(p.editing_roles).to eq validations[i]

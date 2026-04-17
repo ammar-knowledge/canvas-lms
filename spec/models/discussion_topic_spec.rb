@@ -17,10 +17,12 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
-require_relative "../helpers/selective_release_common"
+
+require_relative "../helpers/notifications/notification_spec_helpers"
 
 describe DiscussionTopic do
-  include SelectiveReleaseCommon
+  include NotificationSpecHelpers
+
   before :once do
     course_with_teacher(active_all: true)
     student_in_course(active_all: true)
@@ -54,6 +56,7 @@ describe DiscussionTopic do
       aggregate_failures do
         expect(topic).to be_a DiscussionTopic
         expect(topic.assignment.submission_types).to eq "discussion_topic"
+        expect(topic.graded?).to be true
       end
     end
 
@@ -243,11 +246,31 @@ describe DiscussionTopic do
         expect(discussion_topic.title).to eq(default_title)
       end
     end
+
+    it "set sort order default" do
+      d = DiscussionTopic.new
+      expect(d.sort_order).to eq DiscussionTopic::SortOrder::DEFAULT
+    end
   end
 
   it "santizes message" do
     @course.discussion_topics.create!(message: "<a href='#' onclick='alert(12);'>only this should stay</a>")
     expect(@course.discussion_topics.first.message).to eql("<a href=\"#\">only this should stay</a>")
+  end
+
+  it "side-comment discussion type is threaded when it has threaded replies" do
+    topic = @course.discussion_topics.create!(message: "test")
+    topic.discussion_type = "side_comment"
+    entry = topic.discussion_entries.create!(message: "test")
+    entry.reply_from(user: @student, html: "reply 1")
+    expect(topic.threaded?).to be true
+  end
+
+  it "side-comment discussion type is not threaded when it does not have threaded replies" do
+    topic = @course.discussion_topics.create!(message: "test")
+    topic.discussion_type = "side_comment"
+    topic.discussion_entries.create!(message: "test")
+    expect(topic.threaded?).to be false
   end
 
   it "defaults to not_threaded type" do
@@ -267,10 +290,21 @@ describe DiscussionTopic do
     expect(topic.discussion_type).to eq "threaded"
   end
 
+  it "parent topic is threaded when children has threaded replies" do
+    group_discussion_assignment
+    @topic.refresh_subtopics
+    subtopic = @topic.child_topics.first
+    entry = subtopic.discussion_entries.create!(message: "test")
+    @course.groups.first.add_user(@student)
+
+    entry.reply_from(user: @student, html: "reply 1")
+    expect(@topic.threaded?).to be true
+  end
+
   it "requires a valid discussion_type" do
     @topic = @course.discussion_topics.build(message: "test", discussion_type: "gesundheit")
     expect(@topic.save).to be false
-    expect(@topic.errors.detect { |e| e.first.to_s == "discussion_type" }).to be_present
+    expect(@topic.errors.attribute_names).to eq [:discussion_type]
   end
 
   it "updates the assignment it is associated with" do
@@ -303,6 +337,7 @@ describe DiscussionTopic do
     expect(t.assignment).to be_nil
     a.reload
     expect(a).to be_deleted
+    expect(t.graded?).to be false
   end
 
   context "permissions" do
@@ -320,6 +355,22 @@ describe DiscussionTopic do
       @entry.discussion_topic = @topic
 
       @relevant_permissions = %i[read reply update delete]
+    end
+
+    it "does grant create permission with create_forum but no moderate_forum" do
+      @course.account.role_overrides.create!(role: teacher_role, permission: "moderate_forum", enabled: false)
+      expect(@topic.reload.check_policy(@teacher2)).to eql %i[read read_replies reply create duplicate attach student_reporting view_group_pages create_assign_to]
+    end
+
+    it "does grant create permission with moderate_forum but no create_forum" do
+      @course.account.role_overrides.create!(role: teacher_role, permission: "create_forum", enabled: false)
+      expect(@topic.reload.check_policy(@teacher2)).to eql %i[read read_replies reply update delete create duplicate attach student_reporting read_as_admin view_group_pages moderate_forum manage_assign_to]
+    end
+
+    it "does not grant create permission without moderate_forum and create_forum" do
+      @course.account.role_overrides.create!(role: teacher_role, permission: "create_forum", enabled: false)
+      @course.account.role_overrides.create!(role: teacher_role, permission: "moderate_forum", enabled: false)
+      expect(@topic.reload.check_policy(@teacher2)).to eql %i[read read_replies reply attach student_reporting view_group_pages]
     end
 
     it "does not grant moderate permissions without read permissions" do
@@ -406,6 +457,23 @@ describe DiscussionTopic do
           account_admin = account_admin_user(account: @course.root_account)
           expect(@topic.grants_right?(account_admin, :manage_assign_to)).to be true
         end
+      end
+    end
+
+    describe "view_group_pages" do
+      it "does grant permission with read_forum and view_group_pages but no moderate_forum" do
+        @course.account.role_overrides.create!(role: teacher_role, permission: "moderate_forum", enabled: false)
+        expect(@topic.reload.check_policy(@teacher2)).to eql %i[read read_replies reply create duplicate attach student_reporting view_group_pages create_assign_to]
+      end
+
+      it "does not grant permission with moderate_forum but no view_group_pages" do
+        @course.account.role_overrides.create!(role: teacher_role, permission: "view_group_pages", enabled: false)
+        expect(@topic.reload.check_policy(@teacher2)).to eql %i[read read_replies reply update delete create duplicate attach student_reporting read_as_admin moderate_forum manage_assign_to create_assign_to]
+      end
+
+      it "is granted to account admins" do
+        account_admin = account_admin_user(account: @course.root_account)
+        expect(@topic.grants_right?(account_admin, :view_group_pages)).to be true
       end
     end
   end
@@ -497,7 +565,7 @@ describe DiscussionTopic do
     end
 
     it "is visible to teachers not locked to a section in the course" do
-      @topic.update_attribute(:delayed_post_at, Time.now + 1.day)
+      @topic.update_attribute(:delayed_post_at, 1.day.from_now)
       new_teacher = user_factory
       @course.enroll_teacher(new_teacher).accept!
       expect(@topic.visible_for?(new_teacher)).to be_truthy
@@ -584,11 +652,7 @@ describe DiscussionTopic do
         end
       end
 
-      context "differentiated modules" do
-        before do
-          Account.site_admin.enable_feature! :selective_release_backend
-        end
-
+      describe "differentiated modules" do
         context "ungraded discussions" do
           before do
             @topic = discussion_topic_model(user: @teacher, context: @course)
@@ -636,17 +700,25 @@ describe DiscussionTopic do
             expect(@topic.visible_for?(@teacher1)).to be_truthy
             expect(@topic.visible_for?(@teacher2_limited_to_section)).to be_truthy
           end
+
+          it "is visible to teachers with section limited access" do
+            account_admin = account_admin_user(account: @course.root_account)
+            @course.enroll_teacher(@teacher2_limited_to_section, section: @course_section, allow_multiple_enrollments: true).accept!
+            Enrollment.limit_privileges_to_course_section!(@course, @teacher2_limited_to_section, true)
+            @topic = discussion_topic_model(user: account_admin, context: @course)
+            @topic.update!(only_visible_to_overrides: true)
+            @topic.assignment_overrides.create!(set: @course_section)
+
+            expect(@topic.visible_for?(@teacher2_limited_to_section)).to be_truthy
+          end
         end
       end
     end
 
     context "differentiated assignements" do
       before do
-        @course = course_factory(active_course: true)
-        discussion_topic_model(user: @teacher, context: @course)
-        @course.enroll_teacher(@teacher).accept!
-        @course_section = @course.course_sections.create
         @student1, @student2, @student3 = create_users(3, return_type: :record)
+        @course.enroll_student(@student2, enrollment_state: "active")
 
         @assignment = @course.assignments.create!(title: "some discussion assignment", only_visible_to_overrides: true)
         @assignment.submission_types = "discussion_topic"
@@ -654,7 +726,6 @@ describe DiscussionTopic do
         @topic.assignment_id = @assignment.id
         @topic.save!
 
-        @course.enroll_student(@student2, enrollment_state: "active")
         @section = @course.course_sections.create!(name: "test section")
         student_in_section(@section, user: @student1)
         create_section_override_for_assignment(@assignment, { course_section: @section })
@@ -736,6 +807,25 @@ describe DiscussionTopic do
           expect(@topic.active_participants_with_visibility.include?(@teacher)).to be_truthy
         end
 
+        it "works for subtopics for graded assignments" do
+          group_discussion_assignment
+          ct = @topic.child_topics.first
+          ct.context.add_user(@student)
+
+          @section = @course.course_sections.create!(name: "test section")
+          student_in_section(@section, user: @student)
+          create_section_override_for_assignment(@assignment, { course_section: @section })
+
+          @topic = @topic.child_topics.first
+          @topic.subscribe(@student)
+          @topic.save!
+
+          expect(@topic.context.class).to eq(Group)
+          expect(@topic.active_participants_with_visibility.include?(@student)).to be_truthy
+        end
+      end
+
+      context "permissions" do
         it "does not grant reply permissions to group if course is concluded" do
           @relevant_permissions = %i[read reply update delete read_replies]
           group_category = @course.group_categories.create(name: "new cat")
@@ -806,24 +896,7 @@ describe DiscussionTopic do
 
           expect(@topic.context).to eq(@group)
           expect((@topic.check_policy(@teacher) & @relevant_permissions).sort).to eq @relevant_permissions.sort
-          expect((@topic.check_policy(@student1) & @relevant_permissions)).to be_empty
-        end
-
-        it "works for subtopics for graded assignments" do
-          group_discussion_assignment
-          ct = @topic.child_topics.first
-          ct.context.add_user(@student)
-
-          @section = @course.course_sections.create!(name: "test section")
-          student_in_section(@section, user: @student)
-          create_section_override_for_assignment(@assignment, { course_section: @section })
-
-          @topic = @topic.child_topics.first
-          @topic.subscribe(@student)
-          @topic.save!
-
-          expect(@topic.context.class).to eq(Group)
-          expect(@topic.active_participants_with_visibility.include?(@student)).to be_truthy
+          expect(@topic.check_policy(@student1) & @relevant_permissions).to be_empty
         end
       end
     end
@@ -945,11 +1018,27 @@ describe DiscussionTopic do
       expect(topic.stream_item).not_to be_nil
     end
 
+    describe "#effective_group_category_id" do
+      it "returns the group_category_id if it's set" do
+        group_category = @course.group_categories.create!(name: "category")
+        topic = @course.discussion_topics.build(title: "Group Topic Title")
+        topic.group_category = group_category
+        topic.save!
+
+        expect(topic.effective_group_category_id).to eq group_category.id
+      end
+
+      it "returns nil if the group_category_id is not set" do
+        topic = @course.discussion_topics.build(title: "Topic Title")
+        expect(topic.effective_group_category_id).to be_nil
+      end
+    end
+
     describe "#update_based_on_date" do
       it "is active when delayed_post_at is in the past" do
         topic = delayed_discussion_topic(title: "title",
                                          message: "content here",
-                                         delayed_post_at: Time.now - 1.day,
+                                         delayed_post_at: 1.day.ago,
                                          lock_at: nil)
         topic.update_based_on_date
         expect(topic.workflow_state).to eql "active"
@@ -959,7 +1048,7 @@ describe DiscussionTopic do
       it "is post_delayed and remains like than even after publishing when delayed_post_at is in the future" do
         topic = delayed_discussion_topic(title: "title",
                                          message: "content here",
-                                         delayed_post_at: Time.now + 1.day,
+                                         delayed_post_at: 1.day.from_now,
                                          lock_at: nil)
         topic.update_based_on_date
         expect(topic.workflow_state).to eql "post_delayed"
@@ -968,20 +1057,11 @@ describe DiscussionTopic do
         expect(topic.workflow_state).to eql "post_delayed"
       end
 
-      it "is locked when lock_at is in the past" do
-        topic = delayed_discussion_topic(title: "title",
-                                         message: "content here",
-                                         delayed_post_at: nil,
-                                         lock_at: Time.now - 1.day)
-        topic.update_based_on_date
-        expect(topic.locked?).to be_truthy
-      end
-
       it "is active when lock_at is in the future" do
         topic = delayed_discussion_topic(title: "title",
                                          message: "content here",
                                          delayed_post_at: nil,
-                                         lock_at: Time.now + 1.day)
+                                         lock_at: 1.day.from_now)
         topic.update_based_on_date
         expect(topic.workflow_state).to eql "active"
         expect(topic.locked?).to be_falsey
@@ -990,8 +1070,8 @@ describe DiscussionTopic do
       it "is active when now is between delayed_post_at and lock_at" do
         topic = delayed_discussion_topic(title: "title",
                                          message: "content here",
-                                         delayed_post_at: Time.now - 1.day,
-                                         lock_at: Time.now + 1.day)
+                                         delayed_post_at: 1.day.ago,
+                                         lock_at: 1.day.from_now)
         topic.update_based_on_date
         expect(topic.workflow_state).to eql "active"
         expect(topic.locked?).to be_falsey
@@ -1000,21 +1080,11 @@ describe DiscussionTopic do
       it "is post_delayed when delayed_post_at and lock_at are in the future" do
         topic = delayed_discussion_topic(title: "title",
                                          message: "content here",
-                                         delayed_post_at: Time.now + 1.day,
-                                         lock_at: Time.now + 3.days)
+                                         delayed_post_at: 1.day.from_now,
+                                         lock_at: 3.days.from_now)
         topic.update_based_on_date
         expect(topic.workflow_state).to eql "post_delayed"
         expect(topic.locked?).to be_falsey
-      end
-
-      it "is locked when delayed_post_at and lock_at are in the past" do
-        topic = delayed_discussion_topic(title: "title",
-                                         message: "content here",
-                                         delayed_post_at: Time.now - 3.days,
-                                         lock_at: Time.now - 1.day)
-        topic.update_based_on_date
-        expect(topic.workflow_state).to eql "active"
-        expect(topic.locked?).to be_truthy
       end
 
       it "does not unlock a topic even if the lock date is in the future" do
@@ -1023,7 +1093,7 @@ describe DiscussionTopic do
                                  workflow_state: "locked",
                                  locked: true,
                                  delayed_post_at: nil,
-                                 lock_at: Time.now + 1.day)
+                                 lock_at: 1.day.from_now)
         topic.update_based_on_date
         expect(topic.locked?).to be_truthy
       end
@@ -1032,7 +1102,7 @@ describe DiscussionTopic do
         topic = discussion_topic(title: "title",
                                  message: "content here",
                                  workflow_state: "active",
-                                 delayed_post_at: Time.now + 1.day,
+                                 delayed_post_at: 1.day.from_now,
                                  lock_at: nil)
         topic.update_based_on_date
         expect(topic.workflow_state).to eql "active"
@@ -1146,7 +1216,7 @@ describe DiscussionTopic do
         @topic.refresh_subtopics
         subtopics = @topic.reload.child_topics
         subtopics.each do |st|
-          expect(st.discussion_type).to eq "not_threaded"
+          expect(st.discussion_type).to eq "threaded"
           expect(st.attachment_id).to be_nil
         end
 
@@ -1165,6 +1235,87 @@ describe DiscussionTopic do
         original_name = @assignment.title
         @assignment.reload
         expect(@assignment.title).to eq original_name
+      end
+
+      context "with attachment associations" do
+        before do
+          @course.root_account.enable_feature!(:file_association_access)
+
+          @attachment1 = attachment_with_context(@course)
+          @attachment2 = attachment_with_context(@course)
+
+          html_with_attachments = <<~HTML
+            <p>Discussion content</p>
+            <p><a href="/courses/#{@course.id}/files/#{@attachment1.id}/download">file 1</a></p>
+            <img src="/courses/#{@course.id}/files/#{@attachment2.id}/preview">
+          HTML
+
+          @topic.message = html_with_attachments
+          @topic.updating_user = @teacher
+          @topic.save!
+        end
+
+        it "creates attachment associations for parent topic" do
+          expect(AttachmentAssociation.where(context: @topic).count).to eq 2
+        end
+
+        it "skips update_attachment_associations callback when creating child topics" do
+          # this should not raise "User is required to update attachment links" error that is coming from #LinkedAttachmentHandler.associate_attachments_to_rce_object
+          expect { @topic.refresh_subtopics }.not_to raise_error
+
+          subtopics = @topic.reload.child_topics
+          expect(subtopics.size).to eq 2
+        end
+
+        it "copies attachment associations from parent to child topics" do
+          @topic.refresh_subtopics
+
+          subtopics = @topic.reload.child_topics
+          expect(subtopics.size).to eq 2
+
+          child_association_attachment_ids = AttachmentAssociation.where(context_type: "DiscussionTopic", context_id: subtopics)
+                                                                  .group(:context_id)
+                                                                  .pluck("array_agg(attachment_id) as attachment_ids")
+
+          expect(child_association_attachment_ids).to all(match_array([@attachment1.id, @attachment2.id]))
+        end
+
+        it "preserves user_id from parent associations when copying to child topics" do
+          @topic.refresh_subtopics
+
+          subtopics = @topic.reload.child_topics
+          parent_associations = AttachmentAssociation.where(context: @topic)
+
+          expect(AttachmentAssociation.where(context: subtopics).pluck(:user_id).uniq).to match_array(parent_associations.pluck(:user_id).uniq)
+        end
+
+        it "updates child topic associations when parent attachments change" do
+          @topic.refresh_subtopics
+          subtopics = @topic.reload.child_topics
+
+          # initially each child has 2 associations after running line above
+          subtopics.each do |child|
+            expect(AttachmentAssociation.where(context: child).count).to eq 2
+          end
+
+          @attachment3 = attachment_with_context(@course)
+          new_html = <<~HTML
+            <p>Updated content</p>
+            <p><a href="/courses/#{@course.id}/files/#{@attachment3.id}/download">new file</a></p>
+          HTML
+
+          @topic.message = new_html
+          @topic.updating_user = @teacher
+          @topic.save!
+
+          @topic.refresh_subtopics
+
+          child_association_attachment_ids = AttachmentAssociation.where(context_type: "DiscussionTopic", context_id: subtopics)
+                                                                  .group(:context_id)
+                                                                  .pluck("array_agg(attachment_id) as attachment_ids")
+
+          expect(child_association_attachment_ids).to all(match_array([@attachment3.id]))
+        end
       end
     end
   end
@@ -1219,7 +1370,7 @@ describe DiscussionTopic do
     end
   end
 
-  context "#discussion_subentry_count" do
+  describe "#discussion_subentry_count" do
     it "returns the count of all active discussion_entries" do
       @topic = @course.discussion_topics.create(title: "topic")
       @topic.reply_from(user: @teacher, text: "entry 1").destroy  # no count
@@ -1303,7 +1454,7 @@ describe DiscussionTopic do
       )
 
       context_module = @course.context_modules.create!(name: "some module")
-      context_module.unlock_at = Time.now + 1.day
+      context_module.unlock_at = 1.day.from_now
       context_module.add_item(type: "discussion_topic", id: topic.id)
       context_module.save!
       topic.publish!
@@ -1348,6 +1499,23 @@ describe DiscussionTopic do
       }.from(1).to(0).and not_change(student1.stream_item_instances, :count)
     end
 
+    it "removes streams when a student is unassigned from the discussion" do
+      section1 = @course.course_sections.create!
+      @student1 = create_enrolled_user(@course, section1, name: "student 1", enrollment_type: "StudentEnrollment")
+      topic = @course.discussion_topics.create!(title: "Discussion", user: @teacher, only_visible_to_overrides: true)
+      topic.overrides_changed = true
+
+      override = topic.assignment_overrides.create!
+      override.assignment_override_students.create!(user: @student1)
+
+      expect(@student.stream_item_instances.count).to eq 1
+
+      topic.assignment_overrides.last.destroy
+      topic.save!
+
+      expect(@student.stream_item_instances.count).to eq 0
+    end
+
     it "removes stream items from users if updated to a delayed post in the future" do
       announcement = @course.announcements.create!(title: "Lemon Loves Panda", message: "Because panda is home")
 
@@ -1366,7 +1534,7 @@ describe DiscussionTopic do
       expect(@student.stream_item_instances.count).to eq 1
 
       context_module = @course.context_modules.create!(name: "some module")
-      context_module.unlock_at = Time.now + 1.day
+      context_module.unlock_at = 1.day.from_now
       context_module.add_item(type: "discussion_topic", id: topic.id)
       context_module.save!
       topic.save!
@@ -1508,19 +1676,19 @@ describe DiscussionTopic do
       end
 
       it "does not allow observers to see replies to a discussion linked students haven't posted in" do
-        expect(@topic.initial_post_required?(@observer)).to be
+        expect(@topic.initial_post_required?(@observer)).to be true
       end
 
       # previously this worked for exactly one observer enrollment, whichever became @context_enrollment
       # so test both ways
       it "allows observers to see replies in a discussion a linked student has posted in (1/2)" do
         @topic.reply_from(user: @student, text: "wat")
-        expect(@topic.initial_post_required?(@observer)).not_to be
+        expect(@topic.initial_post_required?(@observer)).to be false
       end
 
       it "allows observers to see replies in a discussion a linked student has posted in (2/2)" do
         @topic.reply_from(user: @other_student, text: "wat")
-        expect(@topic.initial_post_required?(@observer)).not_to be
+        expect(@topic.initial_post_required?(@observer)).to be false
       end
     end
   end
@@ -1664,11 +1832,7 @@ describe DiscussionTopic do
       expect(DiscussionTopic.visible_to_students_in_course_with_da([@student.id], [@course.id])).not_to include(@topic)
     end
 
-    context "differentiated modules" do
-      before do
-        Account.site_admin.enable_feature! :selective_release_backend
-      end
-
+    describe "differentiated modules" do
       context "ungraded discussions" do
         before do
           @topic = discussion_topic_model(user: @teacher, context: @course)
@@ -1687,12 +1851,16 @@ describe DiscussionTopic do
 
           expect(DiscussionTopic.visible_to_students_in_course_with_da([@student1.id], [@course.id])).to include(@topic)
           expect(DiscussionTopic.visible_to_students_in_course_with_da([@student2.id], [@course.id])).not_to include(@topic)
+          expect(@topic.active_participants_with_visibility).to include(@student1)
+          expect(@topic.active_participants_with_visibility).not_to include(@student2)
         end
 
         it "is visible only to users who can access the assigned section" do
           @topic.assignment_overrides.create!(set: @course_section)
           expect(DiscussionTopic.visible_to_students_in_course_with_da([@student1.id], [@course.id])).not_to include(@topic)
           expect(DiscussionTopic.visible_to_students_in_course_with_da([@student2.id], [@course.id])).to include(@topic)
+          expect(@topic.active_participants_with_visibility).not_to include(@student1)
+          expect(@topic.active_participants_with_visibility).to include(@student2)
         end
 
         it "is visible only to students in module override section" do
@@ -2125,6 +2293,29 @@ describe DiscussionTopic do
       check_read_state_scopes read: true, user: @student
     end
 
+    context "for announcements" do
+      before(:once) do
+        @announcement = @course.announcements.create!(title: "announcement", message: "msg", user: @teacher)
+        # Simulate a stale participant with unread_entry_count > 0 (legacy data)
+        @participant = @announcement.update_or_create_participant(current_user: @student, new_state: "unread", new_count: 1)
+      end
+
+      it "resets unread_entry_count to 0 when marking as read" do
+        @announcement.change_read_state("read", @student)
+        participant = @announcement.discussion_topic_participants.find_by(user: @student)
+        expect(participant.unread_entry_count).to eq(0)
+        expect(participant.workflow_state).to eq("read")
+      end
+
+      it "does not reset unread_entry_count for regular discussion topics" do
+        @topic.update_or_create_participant(current_user: @student, new_state: "unread", new_count: 2)
+        @topic.change_read_state("read", @student)
+        participant = @topic.discussion_topic_participants.find_by(user: @student)
+        # Regular topics keep their unread_entry_count (controlled by reply reads)
+        expect(participant.workflow_state).to eq("read")
+      end
+    end
+
     it "uses unique_constaint_retry when updating read state" do
       expect(DiscussionTopic).to receive(:unique_constraint_retry).once
       @topic.change_read_state("read", @student)
@@ -2490,13 +2681,13 @@ describe DiscussionTopic do
 
     it "does not allow replies from students to discussion topic before unlock date" do
       @topic = @course.discussion_topics.create!(user: @teacher)
-      @topic.update_attribute(:delayed_post_at, Time.now + 1.day)
+      @topic.update_attribute(:delayed_post_at, 1.day.from_now)
       expect { @topic.reply_from(user: @student, text: "reply") }.to raise_error(IncomingMail::Errors::ReplyToLockedTopic)
     end
 
     it "does not allow replies from students to discussion topic after lock date" do
       @topic = @course.discussion_topics.create!(user: @teacher)
-      @topic.update_attribute(:lock_at, Time.now - 1.day)
+      @topic.update_attribute(:lock_at, 1.day.ago)
       expect { @topic.reply_from(user: @student, text: "reply") }.to raise_error(IncomingMail::Errors::ReplyToLockedTopic)
     end
 
@@ -2621,8 +2812,6 @@ describe DiscussionTopic do
 
     context "differentiated modules address_book_context_for" do
       before do
-        Account.site_admin.enable_feature! :selective_release_backend
-
         @topic = discussion_topic_model(user: @teacher, context: @course)
         @topic.update!(only_visible_to_overrides: true)
         @course_section = @course.course_sections.create
@@ -2862,7 +3051,7 @@ describe DiscussionTopic do
     end
 
     it "returns active entries by default" do
-      expect(@topic.entries_for_feed(@student)).to_not be_empty
+      expect(@topic.entries_for_feed(@student)).not_to be_empty
     end
 
     it "returns empty if user cannot see posts" do
@@ -2876,12 +3065,12 @@ describe DiscussionTopic do
 
     it "returns student entries if specified" do
       @topic.update(podcast_has_student_posts: true)
-      expect(@topic.entries_for_feed(@student, true)).to match_array([@entry1, @entry2])
+      expect(@topic.entries_for_feed(@student, podcast_feed: true)).to match_array([@entry1, @entry2])
     end
 
     it "only returns admin entries if specified" do
       @topic.update(podcast_has_student_posts: false)
-      expect(@topic.entries_for_feed(@student, true)).to match_array([@entry1])
+      expect(@topic.entries_for_feed(@student, podcast_feed: true)).to match_array([@entry1])
     end
 
     it "returns student entries for group discussions even if not specified" do
@@ -2890,7 +3079,7 @@ describe DiscussionTopic do
       @topic = @group.discussion_topics.create(title: "group topic", user: @teacher)
       @topic.discussion_entries.create(message: "some message", user: @student)
       @topic.update(podcast_has_student_posts: false)
-      expect(@topic.entries_for_feed(@student, true)).to_not be_empty
+      expect(@topic.entries_for_feed(@student, podcast_feed: true)).not_to be_empty
     end
   end
 
@@ -2944,16 +3133,25 @@ describe DiscussionTopic do
       NotificationPolicy.create!(notification: n, communication_channel: @user.communication_channel, frequency: "immediately")
     end
 
+    before do
+      clear_all_notifications
+    end
+
     it "sends a message for a published course" do
       @course.offer!
-      topic = @course.discussion_topics.create!(title: "title")
-      expect(topic.messages_sent["New Discussion Topic"].map(&:user)).to include(@user)
-      expect(topic.messages_sent["New Discussion Topic"].first.from_name).to eq @course.name
+
+      expect_notification(:new_discussion_topic) do |n|
+        n.sent_to @user
+        n.from_name @course.name
+      end.when do
+        @course.discussion_topics.create!(title: "title")
+      end
     end
 
     it "does not send a message for an unpublished course" do
-      topic = @course.discussion_topics.create!(title: "title")
-      expect(topic.messages_sent["New Discussion Topic"]).to be_blank
+      expect_no_notifications.when do
+        @course.discussion_topics.create!(title: "title")
+      end
     end
 
     context "group discussions" do
@@ -2965,12 +3163,117 @@ describe DiscussionTopic do
       it "sends a message for a group discussion in a published course" do
         @course.offer!
         topic = @group.discussion_topics.create!(title: "title")
-        expect(topic.messages_sent["New Discussion Topic"].map(&:user)).to include(@user)
+        expect(topic).to have_sent_notification(:new_discussion_topic).to(@user)
       end
 
       it "does not send a message for a group discussion in an unpublished course" do
-        topic = @group.discussion_topics.create!(title: "title")
-        expect(topic.messages_sent["New Discussion Topic"]).to be_blank
+        expect_no_notifications.when do
+          @group.discussion_topics.create!(title: "title")
+        end
+      end
+    end
+
+    context "with multiple personas" do
+      before :once do
+        @course.offer!
+        @teacher = @user # Save the teacher from outer context
+
+        # Active student 1
+        @student1 = student_in_course(active_all: true, active_cc: true, course: @course).user
+
+        # Active student 2
+        @student2 = student_in_course(active_all: true, active_cc: true, course: @course).user
+
+        # Teaching assistant
+        @ta = ta_in_course(active_all: true, active_cc: true, course: @course).user
+
+        # Second teacher
+        @teacher2 = teacher_in_course(active_all: true, active_cc: true, course: @course).user
+
+        # Observer
+        @observer = observer_in_course(active_all: true, active_cc: true, course: @course).user
+
+        # Designer
+        @designer = designer_in_course(active_all: true, active_cc: true, course: @course).user
+
+        # Inactive student
+        @inactive_student = student_in_course(active_all: true, active_cc: true, course: @course).user
+        @course.enrollments.where(user: @inactive_student).first.deactivate
+
+        # Concluded student
+        @concluded_student = student_in_course(active_all: true, active_cc: true, course: @course).user
+        @course.enrollments.where(user: @concluded_student).first.conclude
+
+        # Student with notification preference set to never
+        @no_notification_student = student_in_course(active_all: true, active_cc: true, course: @course).user
+
+        @user = @teacher.reload # Restore and reload @user to be the teacher
+      end
+
+      before do
+        clear_all_notifications
+
+        n = Notification.where(name: "New Discussion Topic").first
+
+        np = NotificationPolicy.find_or_initialize_by(notification: n, communication_channel: @student1.communication_channel)
+        np.frequency = "immediately"
+        np.save!
+
+        np = NotificationPolicy.find_or_initialize_by(notification: n, communication_channel: @student2.communication_channel)
+        np.frequency = "immediately"
+        np.save!
+
+        np = NotificationPolicy.find_or_initialize_by(notification: n, communication_channel: @ta.communication_channel)
+        np.frequency = "immediately"
+        np.save!
+
+        np = NotificationPolicy.find_or_initialize_by(notification: n, communication_channel: @teacher2.communication_channel)
+        np.frequency = "immediately"
+        np.save!
+
+        np = NotificationPolicy.find_or_initialize_by(notification: n, communication_channel: @observer.communication_channel)
+        np.frequency = "immediately"
+        np.save!
+
+        np = NotificationPolicy.find_or_initialize_by(notification: n, communication_channel: @designer.communication_channel)
+        np.frequency = "immediately"
+        np.save!
+
+        np = NotificationPolicy.find_or_initialize_by(notification: n, communication_channel: @inactive_student.communication_channel)
+        np.frequency = "immediately"
+        np.save!
+
+        np = NotificationPolicy.find_or_initialize_by(notification: n, communication_channel: @concluded_student.communication_channel)
+        np.frequency = "immediately"
+        np.save!
+
+        np = NotificationPolicy.find_or_initialize_by(notification: n, communication_channel: @no_notification_student.communication_channel)
+        np.frequency = "never"
+        np.save!
+      end
+
+      it "sends notifications to active participants and not to inactive ones" do
+        users_to_send = [@user, @student1, @student2, @ta, @teacher2, @designer]
+        users_not_to_send = [@observer, @inactive_student, @concluded_student, @no_notification_student]
+
+        expect_notification(:new_discussion_topic) do |n|
+          n.sent_to(*users_to_send)
+          n.not_sent_to(*users_not_to_send)
+          n.from_name @course.name
+          n.allowing_other_recipients
+        end.when do
+          @course.discussion_topics.create!(title: "Discussion for all active users")
+        end
+      end
+
+      it "sends to admins only when course is unpublished" do
+        @course.claim!
+
+        expect_no_notifications.when do
+          @course.discussion_topics.create!(title: "Admin only discussion")
+        end
+
+        @course.offer!
       end
     end
   end
@@ -3151,7 +3454,6 @@ describe DiscussionTopic do
     context "with course paces" do
       before do
         discussion_topic_model(context: @course)
-        @course.root_account.enable_feature!(:course_paces)
         @course.enable_course_paces = true
         @course.save!
         @course_pace = course_pace_model(course: @course)
@@ -3186,7 +3488,7 @@ describe DiscussionTopic do
 
   describe "checkpoints" do
     before do
-      @course.root_account.enable_feature!(:discussion_checkpoints)
+      @course.account.enable_feature!(:discussion_checkpoints)
       @topic = DiscussionTopic.create_graded_topic!(course: @course, title: "Discussion Topic Title", user: @teacher)
     end
 
@@ -3212,7 +3514,7 @@ describe DiscussionTopic do
 
     describe "in place" do
       before do
-        @course.root_account.enable_feature!(:discussion_checkpoints)
+        @course.account.enable_feature!(:discussion_checkpoints)
         @topic.reload
         @topic.create_checkpoints(reply_to_topic_points: 10, reply_to_entry_points: 15, reply_to_entry_required_count: 5)
       end
@@ -3227,7 +3529,7 @@ describe DiscussionTopic do
       it "correctly marks the reply to topic checkpoint submission as submitted when the student replies to topic" do
         @topic.discussion_entries.create!(user: @student, message: "reply to topic")
 
-        expect(@topic.assignment.submissions.find_by(user: @student).workflow_state).to eq "unsubmitted"
+        expect(@topic.assignment.submissions.find_by(user: @student).workflow_state).to eq "pending_review"
         expect(@topic.reply_to_topic_checkpoint.submissions.find_by(user: @student).workflow_state).to eq "submitted"
         expect(@topic.reply_to_entry_checkpoint.submissions.find_by(user: @student).workflow_state).to eq "unsubmitted"
       end
@@ -3238,7 +3540,7 @@ describe DiscussionTopic do
           @topic.discussion_entries.create!(user: @student, message: "reply to entry", root_entry_id: entry.id, parent_id: entry.id)
         end
 
-        expect(@topic.assignment.submissions.find_by(user: @student).workflow_state).to eq "unsubmitted"
+        expect(@topic.assignment.submissions.find_by(user: @student).workflow_state).to eq "pending_review"
         expect(@topic.reply_to_topic_checkpoint.submissions.find_by(user: @student).workflow_state).to eq "unsubmitted"
         expect(@topic.reply_to_entry_checkpoint.submissions.find_by(user: @student).workflow_state).to eq "submitted"
       end
@@ -3248,7 +3550,7 @@ describe DiscussionTopic do
         @topic.discussion_entries.create!(user: @student, message: "reply to topic by student")
         @topic.discussion_entries.create!(user: @student, message: "reply to entry", root_entry_id: entry.id, parent_id: entry.id)
 
-        expect(@topic.assignment.submissions.find_by(user: @student).workflow_state).to eq "unsubmitted"
+        expect(@topic.assignment.submissions.find_by(user: @student).workflow_state).to eq "pending_review"
         expect(@topic.reply_to_topic_checkpoint.submissions.find_by(user: @student).workflow_state).to eq "submitted"
         expect(@topic.reply_to_entry_checkpoint.submissions.find_by(user: @student).workflow_state).to eq "unsubmitted"
       end
@@ -3260,7 +3562,7 @@ describe DiscussionTopic do
           @topic.discussion_entries.create!(user: @student, message: "reply to entry by student", root_entry_id: entry_by_teacher.id, parent_id: entry_by_teacher.id)
         end
 
-        expect(@topic.assignment.submissions.find_by(user: @student).workflow_state).to eq "submitted"
+        expect(@topic.assignment.submissions.find_by(user: @student).workflow_state).to eq "pending_review"
         expect(@topic.reply_to_topic_checkpoint.submissions.find_by(user: @student).workflow_state).to eq "submitted"
         expect(@topic.reply_to_entry_checkpoint.submissions.find_by(user: @student).workflow_state).to eq "submitted"
       end
@@ -3268,6 +3570,51 @@ describe DiscussionTopic do
       it "has the correct reply_to_entry_required_count and is valid" do
         expect(@topic.reply_to_entry_required_count).to eq 5
         expect(@topic).to be_valid
+      end
+
+      describe "can_lock?" do
+        it "returns false when reply_to_topic checkpoint has a future due date" do
+          @topic.reply_to_topic_checkpoint.update!(due_at: 2.days.from_now)
+          @topic.reply_to_entry_checkpoint.update!(due_at: 2.days.ago)
+
+          expect(@topic.can_lock?).to be false
+        end
+
+        it "returns false when reply_to_entry checkpoint has a future due date" do
+          @topic.reply_to_topic_checkpoint.update!(due_at: 2.days.ago)
+          @topic.reply_to_entry_checkpoint.update!(due_at: 2.days.from_now)
+
+          expect(@topic.can_lock?).to be false
+        end
+
+        it "returns false when both checkpoints have future due dates" do
+          @topic.reply_to_topic_checkpoint.update!(due_at: 2.days.from_now)
+          @topic.reply_to_entry_checkpoint.update!(due_at: 3.days.from_now)
+
+          expect(@topic.can_lock?).to be false
+        end
+
+        it "returns true when all checkpoint due dates have passed" do
+          @topic.reply_to_topic_checkpoint.update!(due_at: 2.days.ago)
+          @topic.reply_to_entry_checkpoint.update!(due_at: 1.day.ago)
+
+          expect(@topic.can_lock?).to be true
+        end
+
+        it "returns true when checkpoints have no due dates" do
+          @topic.reply_to_topic_checkpoint.update!(due_at: nil)
+          @topic.reply_to_entry_checkpoint.update!(due_at: nil)
+
+          expect(@topic.can_lock?).to be true
+        end
+
+        it "returns false when parent assignment has future due date even if checkpoint due dates have passed" do
+          @topic.assignment.update!(due_at: 2.days.from_now)
+          @topic.reply_to_topic_checkpoint.update!(due_at: 2.days.ago)
+          @topic.reply_to_entry_checkpoint.update!(due_at: 1.day.ago)
+
+          expect(@topic.can_lock?).to be false
+        end
       end
     end
   end
@@ -3278,14 +3625,14 @@ describe DiscussionTopic do
     end
 
     it "prefers unlock_at to delayed_post_at" do
-      @topic[:delayed_post_at] = Time.now + 5.days
-      @topic[:unlock_at] = Time.now
+      @topic[:delayed_post_at] = 5.days.from_now
+      @topic[:unlock_at] = Time.zone.now
       expect(@topic.delayed_post_at).to equal @topic[:unlock_at]
       expect(@topic.unlock_at).to equal @topic[:unlock_at]
     end
 
     it "defaults to delayed_post_at if unlock_at is nil" do
-      @topic[:delayed_post_at] = Time.now + 5.days
+      @topic[:delayed_post_at] = 5.days.from_now
       @topic[:unlock_at] = nil
       expect(@topic.delayed_post_at).to equal @topic[:delayed_post_at]
       expect(@topic.unlock_at).to equal @topic[:delayed_post_at]
@@ -3297,9 +3644,9 @@ describe DiscussionTopic do
       expect(@topic[:unlock_at]).to eq @topic.delayed_post_at
       expect(@topic.delayed_post_at).to eq @topic.unlock_at
 
-      @topic[:delayed_post_at] = Time.now + 5.days
+      @topic[:delayed_post_at] = 5.days.from_now
       @topic[:unlock_at] = nil
-      @topic.unlock_at = Time.now + 1.day
+      @topic.unlock_at = 1.day.from_now
       expect(@topic[:delayed_post_at]).to eq @topic[:unlock_at]
       expect(@topic[:unlock_at]).to eq @topic.delayed_post_at
       expect(@topic.delayed_post_at).to eq @topic.unlock_at
@@ -3341,10 +3688,9 @@ describe DiscussionTopic do
 
     describe "differentiated topics" do
       before :once do
-        Account.site_admin.enable_feature! :selective_release_backend
         @course = course_factory(active_course: true)
 
-        @item_without_assignment = discussion_topic_model(user: @teacher)
+        @item_without_assignment = discussion_topic_model(user: @teacher, context: @course)
         @item_with_assignment_and_only_vis, @assignment = discussion_and_assignment(only_visible_to_overrides: true)
         @item_with_assignment_and_visible_to_all, @assignment2 = discussion_and_assignment(only_visible_to_overrides: false)
         @item_with_override_for_section_with_no_students, @assignment3 = discussion_and_assignment(only_visible_to_overrides: true)
@@ -3376,6 +3722,17 @@ describe DiscussionTopic do
           @item_with_assignment_and_visible_to_all.id
         ].sort
       end
+
+      it "filters concluded students" do
+        # @student2 is in default section, @student1 is in @section
+        student_in_section(@course.default_section, user: @student1, allow_multiple_enrollments: true)
+        @student1.enrollments.where(course: @course, course_section: @section).first.conclude
+        @course.reload
+
+        topic = discussion_topic_model(user: @teacher, workflow_state: "active", only_visible_to_overrides: true)
+        topic.assignment_overrides.create!(set: @section)
+        expect(topic.active_participants_with_visibility.include?(@student1)).to be_falsey
+      end
     end
 
     describe "section specific topic" do
@@ -3393,29 +3750,6 @@ describe DiscussionTopic do
         vis_hash = DiscussionTopic.visible_ids_by_user(course_id: [course.id], user_id: [student.id], item_type: :discussion)
         expect(vis_hash[student.id].length).to eq(1)
         expect(vis_hash[student.id].first).to eq(section_specific_topic1.id)
-      end
-
-      it "filters section specific topics properly for multiple users" do
-        differentiated_modules_off
-        course = course_factory(active_all: true)
-        section1 = course.course_sections.create!(name: "section 1")
-        section2 = course.course_sections.create!(name: "section 2")
-        topic1 = course.discussion_topics.create!(title: "topic 1 (for section 1)")
-        topic2 = course.discussion_topics.create!(title: "topic 2 (for section 2)")
-        topic3 = course.discussion_topics.create!(title: "topic 3 (for all sections)")
-        topic4 = course.discussion_topics.create!(title: "topic 4 (for section 2)")
-        add_section_to_topic(topic1, section1)
-        add_section_to_topic(topic2, section2)
-        add_section_to_topic(topic4, section2)
-        student = user_factory(active_all: true)
-        teacher = user_factory(active_all: true)
-        course.enroll_student(student, section: section2)
-        course.enroll_teacher(teacher, section: section1)
-        course.reload
-
-        vis_hash = DiscussionTopic.visible_ids_by_user(course_id: [course.id], user_id: [student.id, teacher.id], item_type: :discussion)
-        expect(vis_hash[student.id]).to contain_exactly(topic2.id, topic3.id, topic4.id)
-        expect(vis_hash[teacher.id]).to contain_exactly(topic1.id, topic3.id)
       end
 
       it "properly filters section specific topics for deleted section visibilities" do
@@ -3459,10 +3793,6 @@ describe DiscussionTopic do
     end
 
     describe "differentiated modules" do
-      before do
-        Account.site_admin.enable_feature! :selective_release_backend
-      end
-
       it "filters based on adhoc overrides" do
         course = course_factory(active_course: true)
         student_specific_topic = course.discussion_topics.create!(title: "student specific topic 1")
@@ -3575,6 +3905,74 @@ describe DiscussionTopic do
       expect(@topic.user_can_summarize?(@observer)).to be false
       expect(@topic.user_can_summarize?(@student)).to be false
     end
+
+    it "does not crash if the topic is in the context of a group with account context" do
+      account = @course.root_account
+      account.enable_feature!(:discussion_summary)
+      group = account.groups.create!
+      topic = group.discussion_topics.create!(title: "topic")
+
+      expect(topic.user_can_summarize?(@teacher)).to be false
+      expect(topic.user_can_summarize?(@ta)).to be false
+      expect(topic.user_can_summarize?(@admin)).to be false
+      expect(topic.user_can_summarize?(@designer)).to be false
+      expect(topic.user_can_summarize?(@observer)).to be false
+      expect(topic.user_can_summarize?(@student)).to be false
+    end
+  end
+
+  describe "user_can_access_insights" do
+    before do
+      @course = course_factory(active_all: true)
+      @admin = account_admin_user(account: @course.root_account)
+      @teacher = user_model
+      @course.enroll_teacher(@teacher, enrollment_state: "active")
+      @student = user_model
+      @course.enroll_student(@student, enrollment_state: "active")
+      @observer = user_model
+      @course.enroll_user(@observer, "ObserverEnrollment").update_attribute(:associated_user_id, @student.id)
+      @ta = user_model
+      @course.enroll_ta(@ta, enrollment_state: "active")
+      @designer = user_model
+      @course.enroll_designer(@designer, enrollment_state: "active")
+
+      @topic = @course.discussion_topics.create!(title: "topic")
+    end
+
+    it "does not allow to access insights if the feature is disabled" do
+      expect(@topic.user_can_access_insights?(@teacher)).to be false
+      expect(@topic.user_can_access_insights?(@ta)).to be false
+      expect(@topic.user_can_access_insights?(@admin)).to be false
+      expect(@topic.user_can_access_insights?(@designer)).to be false
+      expect(@topic.user_can_access_insights?(@observer)).to be false
+      expect(@topic.user_can_access_insights?(@student)).to be false
+    end
+
+    it "allows instructors and read admins to access insights if the feature is enabled" do
+      @course.enable_feature!(:discussion_insights)
+
+      expect(@topic.user_can_access_insights?(@teacher)).to be true
+      expect(@topic.user_can_access_insights?(@ta)).to be true
+      expect(@topic.user_can_access_insights?(@admin)).to be true
+      expect(@topic.user_can_access_insights?(@designer)).to be true
+
+      expect(@topic.user_can_access_insights?(@observer)).to be false
+      expect(@topic.user_can_access_insights?(@student)).to be false
+    end
+
+    it "does not crash if the topic is in the context of a group with account context" do
+      account = @course.root_account
+      account.enable_feature!(:discussion_insights)
+      group = account.groups.create!
+      topic = group.discussion_topics.create!(title: "topic")
+
+      expect(topic.user_can_access_insights?(@teacher)).to be false
+      expect(topic.user_can_access_insights?(@ta)).to be false
+      expect(topic.user_can_access_insights?(@admin)).to be false
+      expect(topic.user_can_access_insights?(@designer)).to be false
+      expect(topic.user_can_access_insights?(@observer)).to be false
+      expect(topic.user_can_access_insights?(@student)).to be false
+    end
   end
 
   describe "low_level_locked_for?" do
@@ -3681,9 +4079,9 @@ describe DiscussionTopic do
         expect(@topic.locked_for?(@student)).to be_falsey
       end
 
-      it "still enforces the topic's dates" do
+      it "prefers the assignment's dates" do
         @topic.update(unlock_at: 1.week.from_now)
-        expect(@topic.locked_for?(@student)).to be_truthy
+        expect(@topic.locked_for?(@student)).to be_falsey
       end
 
       it "does not enforce the topic's overrides" do
@@ -3716,6 +4114,623 @@ describe DiscussionTopic do
         expect(lock_info).to be_truthy
         expect(lock_info[:unlock_at]).to eq timestamp
       end
+
+      it "respects assignment's overrides when discussion is locked for everyone else" do
+        timestamp = 1.week.from_now
+        @topic.update!(lock_at: 1.week.ago)
+        ao = @assignment.assignment_overrides.create!(lock_at: timestamp, lock_at_overridden: true)
+        ao.assignment_override_students.create!(user: @student)
+        lock_info = @topic.locked_for?(@student)
+        expect(lock_info).to be_falsey
+      end
+    end
+
+    context "with group context" do
+      before :once do
+        @group = group_model(context: @course)
+        @group_topic = @group.discussion_topics.create!(title: "group topic")
+      end
+
+      it "locks for future unlock_at date" do
+        timestamp = 1.week.from_now
+        @group_topic.update(unlock_at: timestamp)
+        lock_info = @group_topic.locked_for?(@student)
+        expect(lock_info).to be_truthy
+        expect(lock_info[:unlock_at]).to eq timestamp
+      end
+
+      it "locks for past lock_at date" do
+        timestamp = 1.week.ago
+        @group_topic.update(lock_at: timestamp)
+        lock_info = @group_topic.locked_for?(@student)
+        expect(lock_info).to be_truthy
+        expect(lock_info[:lock_at]).to eq timestamp
+      end
+    end
+  end
+
+  describe "edited_at" do
+    it "returns null if no change to the title or message occurred" do
+      topic = discussion_topic_model
+      expect(topic.edited_at).to be_nil
+      topic.context_code = "other context"
+      topic.save!
+      expect(topic.edited_at).to be_nil
+    end
+
+    it "returns not null if a change to the title occured" do
+      topic = discussion_topic_model
+      expect(topic.edited_at).to be_nil
+      topic.title = "Brand new shinny title"
+      topic.save!
+      expect(topic.edited_at).not_to be_nil
+    end
+
+    it "returns not null if a change to the message occured" do
+      topic = discussion_topic_model
+      expect(topic.edited_at).to be_nil
+      topic.message = "Brand new shinny message"
+      topic.save!
+      expect(topic.edited_at).not_to be_nil
+    end
+  end
+
+  describe "show_in_search_for_user?" do
+    shared_examples_for "expected_values_for_teacher_student" do |teacher_expected, student_expected|
+      it "is #{teacher_expected} for teacher" do
+        expect(topic.show_in_search_for_user?(@teacher)).to eq(teacher_expected)
+      end
+
+      it "is #{student_expected} for student" do
+        expect(topic.show_in_search_for_user?(@student)).to eq(student_expected)
+      end
+    end
+
+    let(:topic) { @course.discussion_topics.create!(title: "topic") }
+
+    before(:once) do
+      course_with_teacher(active_all: true)
+      student_in_course(active_all: true)
+    end
+
+    it_behaves_like "expected_values_for_teacher_student", true, true
+
+    context "topic is locked" do
+      let(:topic) { @course.discussion_topics.create!(title: "locked topic", unlock_at: 1.week.from_now) }
+
+      it_behaves_like "expected_values_for_teacher_student", true, false
+
+      context "and was previously unlocked" do
+        before { topic.update!(lock_at: 1.week.ago, unlock_at: 2.weeks.ago) }
+
+        it_behaves_like "expected_values_for_teacher_student", true, true
+      end
+    end
+
+    context "topic is delayed" do
+      let(:topic) { @course.discussion_topics.create!(title: "delayed topic", delayed_post_at: 1.week.from_now) }
+
+      it_behaves_like "expected_values_for_teacher_student", true, false
+    end
+
+    context "topic is unpublished" do
+      let(:topic) { @course.discussion_topics.create!(title: "unpublished topic", workflow_state: "unpublished") }
+
+      it_behaves_like "expected_values_for_teacher_student", true, false
+    end
+
+    context "topic is deleted" do
+      let(:topic) do
+        topic = @course.discussion_topics.create!(title: "deleted topic", workflow_state: "deleted")
+        topic.destroy!
+        topic
+      end
+
+      it_behaves_like "expected_values_for_teacher_student", false, false
+    end
+
+    context "topic is in a module" do
+      let(:topic) { @course.discussion_topics.create!(title: "module topic") }
+
+      before do
+        @context_module = @course.context_modules.create!(name: "module")
+        @context_module.add_item(type: "discussion_topic", id: topic.id)
+        @context_module.save!
+
+        second_module = @course.context_modules.create!(name: "module", workflow_state: "unpublished")
+        second_module.add_item(type: "discussion_topic", id: topic.id)
+        second_module.save!
+      end
+
+      after do
+        @course.context_modules.destroy_all
+      end
+
+      it_behaves_like "expected_values_for_teacher_student", true, true
+
+      context "and the module is unpublished" do
+        before do
+          @context_module.unpublish!
+        end
+
+        it_behaves_like "expected_values_for_teacher_student", true, false
+      end
+
+      context "and the module is locked" do
+        before do
+          @context_module.update!(unlock_at: 1.week.from_now)
+        end
+
+        it_behaves_like "expected_values_for_teacher_student", true, false
+      end
+    end
+  end
+
+  describe "#can_unpublish?" do
+    context "discussion topic with checkpoints" do
+      before do
+        @course.account.enable_feature!(:discussion_checkpoints)
+        @reply_to_topic, _, @topic = graded_discussion_topic_with_checkpoints(context: @course, reply_to_entry_required_count: 2)
+      end
+
+      it "returns true if there are no student submissions" do
+        expect(@topic.can_unpublish?).to be true
+      end
+
+      it "returns false if there are student sub_assignment submissions" do
+        @reply_to_topic.submit_homework @student, body: "reply to entry submission for #{@student.name}"
+        expect(@topic.can_unpublish?).to be false
+      end
+    end
+  end
+
+  describe "sort_order and expand" do
+    before(:once) do
+      @topic = @course.discussion_topics.create!(sort_order: "asc")
+    end
+
+    it "returns the sort order of the topic" do
+      @topic.update!(sort_order: "asc", sort_order_locked: true)
+      @topic.update_or_create_participant(current_user: @student, sort_order: "desc")
+      expect(@topic.sort_order_for_user).to eq "asc"
+    end
+
+    it "should uses the default value by default" do
+      topic = @course.discussion_topics.create!
+      topic.save!
+      expect(topic.sort_order).to eq DiscussionTopic::SortOrder::DEFAULT
+    end
+
+    context "when the sort order is not locked" do
+      before do
+        @topic.update!(sort_order_locked: false)
+      end
+
+      it "returns the participant's sort order if it exists" do
+        @topic.update_or_create_participant(current_user: @student, sort_order: "desc")
+        expect(@topic.sort_order_for_user(@student)).to eq "desc"
+      end
+
+      it "falls back to the topic's sort order if the participant's sort order is not set" do
+        @topic.update_or_create_participant(current_user: @student, sort_order: "inherit")
+        expect(@topic.sort_order_for_user(@student)).to eq DiscussionTopic::SortOrder::ASC
+        @topic.sort_order = DiscussionTopic::SortOrder::DESC
+        @topic.save!
+        expect(@topic.sort_order_for_user(@student)).to eq DiscussionTopic::SortOrder::DESC
+      end
+    end
+
+    context "topic participant when creating the topic" do
+      it "does create the participant with the proper expanded and sort order values" do
+        sort_order = "asc"
+        expanded = false
+        topic1 = @course.discussion_topics.create!(user: @teacher, sort_order:, expanded:)
+
+        expect(topic1.sort_order_for_user(@teacher)).to eq sort_order
+        expect(topic1.expanded_for_user(@teacher)).to eq expanded
+
+        sort_order = "desc"
+        expanded = true
+        topic2 = @course.discussion_topics.create!(user: @teacher, sort_order:, expanded:)
+
+        expect(topic2.sort_order_for_user(@teacher)).to eq sort_order
+        expect(topic2.expanded_for_user(@teacher)).to eq expanded
+      end
+    end
+
+    context "subtopic" do
+      it "create subtopic with same values" do
+        group_discussion_assignment
+        subtopic = @topic.child_topics.first
+        expect(subtopic.sort_order).to eq @topic.sort_order
+        expect(subtopic.expanded).to eq @topic.expanded
+        expect(subtopic.sort_order_locked).to eq @topic.sort_order_locked
+      end
+
+      it "update subtopic with same values" do
+        group_discussion_assignment
+        @topic.update!(sort_order: "desc", expanded: true, expanded_locked: true, sort_order_locked: false)
+        subtopic = @topic.child_topics.first
+        expect(subtopic.sort_order).to eq "desc"
+        expect(subtopic.expanded).to be true
+        expect(subtopic.sort_order_locked).to be false
+        expect(subtopic.expanded_locked).to be true
+      end
+    end
+  end
+
+  it_behaves_like "an accessibility scannable resource" do
+    before do
+      Account.site_admin.enable_feature!(:a11y_checker_additional_resources)
+      Account.site_admin.enable_feature!(:a11y_checker_ga2_features)
+    end
+
+    let(:course) { course_model }
+    let(:valid_attributes) { { title: "Test Page", course: } }
+    let(:relevant_attributes_for_scan) { { message: "<p>Lorem ipsum</p>" } }
+    let(:irrelevant_attributes_for_scan) { { lock_at: 1.week.ago } }
+  end
+
+  describe ".not_excluded_from_accessibility_scan" do
+    let(:course) { course_model }
+    let!(:regular_topic) { discussion_topic_model(context: course) }
+    let!(:unpublished_topic) { discussion_topic_model(context: course, workflow_state: "unpublished") }
+    let!(:deleted_topic) { discussion_topic_model(context: course).tap(&:destroy!) }
+    let!(:announcement) { course.announcements.create!(title: "Announcement", message: "Test") }
+    let!(:graded_discussion) do
+      assignment = course.assignments.create!(title: "Graded Discussion")
+      course.discussion_topics.create!(title: "Graded Discussion", assignment:)
+    end
+
+    it "includes regular discussion topics" do
+      expect(course.discussion_topics.scannable).to include(regular_topic)
+    end
+
+    it "includes unpublished discussion topics" do
+      expect(course.discussion_topics.scannable).to include(unpublished_topic)
+    end
+
+    it "excludes deleted discussion topics" do
+      expect(course.discussion_topics.scannable).not_to include(deleted_topic)
+    end
+
+    it "excludes announcements" do
+      expect(course.discussion_topics.scannable).not_to include(announcement)
+    end
+
+    it "excludes graded discussions" do
+      expect(course.discussion_topics.scannable).not_to include(graded_discussion)
+    end
+  end
+
+  describe "accessibility scanning with a11y_checker_additional_resources feature flag" do
+    let(:course) { course_model }
+
+    context "when a11y_checker_additional_resources is disabled" do
+      before do
+        Account.site_admin.disable_feature!(:a11y_checker_additional_resources)
+        course.root_account.enable_feature!(:a11y_checker)
+        course.enable_feature!(:a11y_checker_eap)
+        Progress.create!(tag: Accessibility::CourseScanService::SCAN_TAG, context: course, workflow_state: "completed")
+      end
+
+      it "does not trigger accessibility scan on create" do
+        expect(Accessibility::ResourceScannerService).not_to receive(:call)
+
+        DiscussionTopic.create!(title: "Test Topic", message: "Test message", course:)
+      end
+
+      it "does not trigger accessibility scan on update" do
+        topic = DiscussionTopic.create!(title: "Test Topic", course:)
+
+        expect(Accessibility::ResourceScannerService).not_to receive(:call)
+
+        topic.update!(message: "Updated message")
+      end
+
+      it "triggers destroy when deleting discussion topic" do
+        topic = DiscussionTopic.create!(title: "Test Topic", course:)
+        AccessibilityResourceScan.create!(context: topic, course:)
+
+        expect { topic.destroy! }.to change { AccessibilityResourceScan.where(discussion_topic_id: topic.id).count }.from(1).to(0)
+      end
+    end
+
+    context "when a11y_checker_additional_resources is enabled" do
+      before do
+        Account.site_admin.enable_feature!(:a11y_checker_additional_resources)
+        course.root_account.enable_feature!(:a11y_checker)
+        course.root_account.enable_feature!(:accessibility_automatic_scanning)
+        course.enable_feature!(:a11y_checker_eap)
+        Progress.create!(tag: Accessibility::CourseScanService::SCAN_TAG, context: course, workflow_state: "completed")
+      end
+
+      it "triggers accessibility scan on create" do
+        expect(Accessibility::ResourceScannerService).to receive(:call)
+
+        DiscussionTopic.create!(title: "Test Topic", message: "Test message", course:)
+      end
+
+      it "triggers accessibility scan on update" do
+        topic = DiscussionTopic.create!(title: "Test Topic", course:)
+
+        expect(Accessibility::ResourceScannerService).to receive(:call)
+
+        topic.update!(message: "Updated message")
+      end
+
+      it "triggers destroy when deleting discussion topic" do
+        topic = DiscussionTopic.create!(title: "Test Topic", course:)
+
+        expect { topic.destroy! }.to change { AccessibilityResourceScan.where(discussion_topic_id: topic.id).count }.from(1).to(0)
+      end
+
+      context "when topic is graded" do
+        it "does not trigger accessibility scan on create" do
+          expect(Accessibility::ResourceScannerService).not_to receive(:call).with(resource: an_instance_of(DiscussionTopic))
+
+          DiscussionTopic.create_graded_topic!(course: @course, title: "My Graded Topic")
+        end
+
+        it "does not trigger accessibility scan on update" do
+          graded_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "My Graded Topic")
+
+          expect(Accessibility::ResourceScannerService).not_to receive(:call).with(resource: an_instance_of(DiscussionTopic))
+
+          graded_topic.update!(message: "Updated message")
+        end
+
+        it "removes its own accessibility scan when the topic becomes graded but assignment scan is created" do
+          assignment = Assignment.create!(context: @course, title: "My Assignment")
+          topic = DiscussionTopic.create!(title: "Test Topic", message: "Test message", course:)
+
+          expect { topic.update!(assignment:) }.to change { AccessibilityResourceScan.where(context: topic).count }.from(1).to(0)
+        end
+
+        it "triggers scan for itself when discussion topic becomes ungraded" do
+          graded_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "My Graded Topic")
+
+          expect { graded_topic.update!(assignment: nil) }.to change { AccessibilityResourceScan.where(context: graded_topic).count }.from(0).to(1)
+        end
+
+        context "when a11y_checker_additional_resources is disabled" do
+          before do
+            Account.site_admin.disable_feature!(:a11y_checker_additional_resources)
+          end
+
+          it "does not normalize when topic becomes graded" do
+            assignment_obj = Assignment.create!(context: course, title: "My Assignment")
+            topic = DiscussionTopic.create!(title: "Test Topic", message: "Test message", course:)
+
+            # Manually create a scan for the topic
+            AccessibilityResourceScan.where(context: topic).delete_all
+            AccessibilityResourceScan.create!(context: topic, course:)
+
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(1)
+
+            # Make topic graded
+            topic.update!(assignment: assignment_obj)
+
+            # Topic scan should NOT be removed (normalization disabled)
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(1)
+          end
+
+          it "does not normalize when topic becomes ungraded" do
+            graded_topic = DiscussionTopic.create_graded_topic!(course:, title: "My Graded Topic")
+
+            expect(AccessibilityResourceScan.where(context: graded_topic).count).to eq(0)
+
+            # Make topic ungraded
+            graded_topic.update!(assignment: nil)
+
+            # Topic scan should NOT be created (normalization disabled)
+            expect(AccessibilityResourceScan.where(context: graded_topic).count).to eq(0)
+          end
+        end
+
+        context "when a11y_checker is disabled" do
+          before do
+            course.root_account.disable_feature!(:a11y_checker)
+          end
+
+          it "does not normalize when topic becomes graded" do
+            assignment_obj = Assignment.create!(context: course, title: "My Assignment")
+            topic = DiscussionTopic.create!(title: "Test Topic", message: "Test message", course:)
+
+            # Manually create a scan for the topic
+            AccessibilityResourceScan.where(context: topic).delete_all
+            AccessibilityResourceScan.create!(context: topic, course:)
+
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(1)
+
+            # Make topic graded
+            topic.update!(assignment: assignment_obj)
+
+            # Topic scan should NOT be removed (normalization disabled)
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(1)
+          end
+
+          it "does not normalize when topic becomes ungraded" do
+            graded_topic = DiscussionTopic.create_graded_topic!(course:, title: "My Graded Topic")
+
+            expect(AccessibilityResourceScan.where(context: graded_topic).count).to eq(0)
+
+            # Make topic ungraded
+            graded_topic.update!(assignment: nil)
+
+            # Topic scan should NOT be created (normalization disabled)
+            expect(AccessibilityResourceScan.where(context: graded_topic).count).to eq(0)
+          end
+        end
+
+        context "when a11y_checker_eap is disabled" do
+          before do
+            course.disable_feature!(:a11y_checker_eap)
+          end
+
+          it "does not normalize when topic becomes graded" do
+            assignment_obj = Assignment.create!(context: course, title: "My Assignment")
+            topic = DiscussionTopic.create!(title: "Test Topic", message: "Test message", course:)
+
+            # Manually create a scan for the topic
+            AccessibilityResourceScan.where(context: topic).delete_all
+            AccessibilityResourceScan.create!(context: topic, course:)
+
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(1)
+
+            # Make topic graded
+            topic.update!(assignment: assignment_obj)
+
+            # Topic scan should NOT be removed (normalization disabled)
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(1)
+          end
+
+          it "does not normalize when topic becomes ungraded" do
+            graded_topic = DiscussionTopic.create_graded_topic!(course:, title: "My Graded Topic")
+
+            expect(AccessibilityResourceScan.where(context: graded_topic).count).to eq(0)
+
+            # Make topic ungraded
+            graded_topic.update!(assignment: nil)
+
+            # Topic scan should NOT be created (normalization disabled)
+            expect(AccessibilityResourceScan.where(context: graded_topic).count).to eq(0)
+          end
+        end
+
+        context "when no completed course scan exists" do
+          before do
+            # Remove completed course scan
+            Progress.where(tag: Accessibility::CourseScanService::SCAN_TAG, context: course).destroy_all
+          end
+
+          it "does not normalize when topic becomes graded" do
+            assignment_obj = Assignment.create!(context: course, title: "My Assignment")
+            topic = DiscussionTopic.create!(title: "Test Topic", message: "Test message", course:)
+
+            # Manually create a scan for the topic
+            AccessibilityResourceScan.where(context: topic).delete_all
+            AccessibilityResourceScan.create!(context: topic, course:)
+
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(1)
+
+            # Make topic graded
+            topic.update!(assignment: assignment_obj)
+
+            # Topic scan should NOT be removed (normalization disabled)
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(1)
+          end
+
+          it "does not normalize when topic becomes ungraded" do
+            graded_topic = DiscussionTopic.create_graded_topic!(course:, title: "My Graded Topic")
+
+            expect(AccessibilityResourceScan.where(context: graded_topic).count).to eq(0)
+
+            # Make topic ungraded
+            graded_topic.update!(assignment: nil)
+
+            # Topic scan should NOT be created (normalization disabled)
+            expect(AccessibilityResourceScan.where(context: graded_topic).count).to eq(0)
+          end
+        end
+
+        context "when topic is deleted during transition" do
+          it "does not normalize when deleted topic's assignment_id changes" do
+            assignment_obj = Assignment.create!(context: course, title: "My Assignment")
+            topic = DiscussionTopic.create!(title: "Test Topic", message: "Test message", course:)
+
+            # Manually create a scan for the topic
+            AccessibilityResourceScan.where(context: topic).delete_all
+            AccessibilityResourceScan.create!(context: topic, course:)
+
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(1)
+
+            # Delete the topic first
+            topic.destroy
+            topic.reload
+            expect(topic.deleted?).to be true
+
+            # Scan should be removed by the deletion callback
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(0)
+
+            # Try to make it graded while deleted - should not raise error
+            expect { topic.update!(assignment: assignment_obj) }.not_to raise_error
+
+            # Scan should still be 0 (normalization was skipped for deleted topic)
+            expect(AccessibilityResourceScan.where(context: topic).count).to eq(0)
+          end
+        end
+      end
+    end
+
+    context "when automatic scanning feature flag is disabled" do
+      before do
+        Account.site_admin.enable_feature!(:a11y_checker_additional_resources)
+        course.root_account.enable_feature!(:a11y_checker)
+        course.root_account.disable_feature!(:accessibility_automatic_scanning)
+        course.enable_feature!(:a11y_checker_eap)
+        Progress.create!(tag: Accessibility::CourseScanService::SCAN_TAG, context: course, workflow_state: "completed")
+      end
+
+      it "does not trigger accessibility scan on create" do
+        expect(Accessibility::ResourceScannerService).not_to receive(:call)
+
+        DiscussionTopic.create!(title: "Test Topic", message: "Test message", course:)
+      end
+
+      it "does not trigger accessibility scan on update" do
+        topic = DiscussionTopic.create!(title: "Test Topic", course:)
+
+        expect(Accessibility::ResourceScannerService).not_to receive(:call)
+
+        topic.update!(message: "Updated message")
+      end
+
+      it "still triggers destroy when deleting discussion topic" do
+        topic = DiscussionTopic.create!(title: "Test Topic", course:)
+        AccessibilityResourceScan.create!(context: topic, course:)
+
+        expect { topic.destroy! }.to change { AccessibilityResourceScan.where(discussion_topic_id: topic.id).count }.from(1).to(0)
+      end
+    end
+  end
+
+  describe "#needs_normalizing?" do
+    let(:course) { course_model }
+    let(:topic) { discussion_topic_model(context: course) }
+
+    before do
+      Account.site_admin.enable_feature!(:a11y_checker_additional_resources)
+      course.root_account.enable_feature!(:a11y_checker)
+      course.enable_feature!(:a11y_checker_eap)
+      Progress.create!(
+        tag: Accessibility::CourseScanService::SCAN_TAG,
+        context: course,
+        workflow_state: "completed"
+      )
+    end
+
+    it "returns false when @capture_changed_a11y_attributes is nil (safe navigation guard)" do
+      # Instance variable is never set, so it remains nil.
+      # The safe navigation (&.) returns nil, which is falsy.
+      expect(topic.instance_variable_get(:@capture_changed_a11y_attributes)).to be_nil
+      expect(topic.send(:needs_normalizing?)).to be_falsey
+    end
+
+    it "returns false when @capture_changed_a11y_attributes is set but does not include :assignment_id" do
+      topic.instance_variable_set(:@capture_changed_a11y_attributes, Set[:message])
+      expect(topic.send(:needs_normalizing?)).to be false
+    end
+
+    it "returns true when all conditions are met and :assignment_id is included" do
+      topic.instance_variable_set(:@capture_changed_a11y_attributes, Set[:assignment_id])
+      expect(topic.send(:needs_normalizing?)).to be true
+    end
+
+    it "returns false when topic is an announcement even if other conditions pass" do
+      announcement = course.announcements.create!(title: "Test Announcement", message: "Hello")
+      announcement.instance_variable_set(:@capture_changed_a11y_attributes, Set[:assignment_id])
+      expect(announcement.send(:needs_normalizing?)).to be false
     end
   end
 end

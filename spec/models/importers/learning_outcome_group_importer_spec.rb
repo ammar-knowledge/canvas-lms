@@ -22,7 +22,8 @@ require_relative "../../import_helper"
 
 describe "Importing Learning Outcome Groups" do
   before :once do
-    @context = course_model
+    course_with_teacher
+    @context = @course
     @migration = ContentMigration.create!(context: @context)
     @migration.migration_ids_to_import = { copy: {} }
     @migration.outcome_to_id_map = {}
@@ -48,7 +49,7 @@ describe "Importing Learning Outcome Groups" do
   it "does not import an outcome group if skip import enabled" do
     log_data = group_data
     expect do
-      Importers::LearningOutcomeGroupImporter.import_from_migration(log_data, @migration, nil, true)
+      Importers::LearningOutcomeGroupImporter.import_from_migration(log_data, @migration, skip_import: true)
     end.not_to change { @context.learning_outcome_groups.count }
   end
 
@@ -61,7 +62,7 @@ describe "Importing Learning Outcome Groups" do
                               ]
                             )
                           ])
-    Importers::LearningOutcomeGroupImporter.import_from_migration(log_data, @migration, nil, true)
+    Importers::LearningOutcomeGroupImporter.import_from_migration(log_data, @migration, skip_import: true)
     expect(@context.learning_outcome_groups.count).to eq 2
     expect(@context.learning_outcomes.count).to eq 2
   end
@@ -71,7 +72,7 @@ describe "Importing Learning Outcome Groups" do
     Importers::LearningOutcomeGroupImporter.import_from_migration(log_data, @migration)
     expect(@context.learning_outcome_groups.count).to eq 2
     existing_group = LearningOutcomeGroup.where(migration_id: "3c811a5d-7a39-401b-8db5-9ce5fbd2d556").first
-    existing_group.write_attribute("migration_id", "779f2c13-ea41-4804-8d2c-64d46e429210")
+    existing_group.migration_id = "779f2c13-ea41-4804-8d2c-64d46e429210"
     existing_group.save!
     log_data[:migration_id] = "779f2c13-ea41-4804-8d2c-64d46e429210"
     Importers::LearningOutcomeGroupImporter.import_from_migration(log_data, @migration)

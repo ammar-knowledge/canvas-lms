@@ -20,15 +20,22 @@ import K from '../constants'
 import EventManager from '../event_manager'
 import EventTracker from '../event_tracker'
 import Backbone from 'node_modules-version-of-backbone'
-import sinon from 'sinon'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 describe('Quizzes::LogAuditing::EventManager', () => {
   let evtManager
+
+  beforeEach(() => {
+    fakeENV.setup()
+  })
 
   afterEach(() => {
     if (evtManager && evtManager.isRunning()) {
       evtManager.stop()
     }
+    fakeENV.teardown()
   })
 
   test('#start and #stop: should work', () => {
@@ -41,13 +48,30 @@ describe('Quizzes::LogAuditing::EventManager', () => {
 })
 
 describe('Quizzes::LogAuditing::EventManager - Event delivery', () => {
-  let server
   let evtManager
   let testEventFactory
   let TestEventTracker, TestPageFocusEventTracker, TestPageBlurredEventTracker
+  let capturedRequests
+  let server
 
   beforeEach(() => {
-    server = sinon.fakeServer.create()
+    fakeENV.setup()
+    vi.useRealTimers()
+    capturedRequests = []
+
+    const handlers = [
+      http.post('/events', async ({request}) => {
+        const body = await request.json()
+        capturedRequests.push({
+          url: request.url,
+          requestBody: body,
+        })
+        return HttpResponse.json({}, {status: 200})
+      }),
+    ]
+
+    server = setupServer(...handlers)
+    server.listen()
 
     class _TestEventTracker extends EventTracker {
       static initClass() {
@@ -89,14 +113,16 @@ describe('Quizzes::LogAuditing::EventManager - Event delivery', () => {
   })
 
   afterEach(() => {
-    server.restore()
     if (evtManager && evtManager.isRunning()) {
       evtManager.stop()
     }
+    server.resetHandlers()
+    server.close()
+    vi.useFakeTimers()
+    fakeENV.teardown()
   })
 
-  test('it should deliver events', () => {
-    const clock = sinon.useFakeTimers()
+  test('it should deliver events', async () => {
     evtManager = new EventManager({
       autoDeliver: false,
       deliveryUrl: '/events',
@@ -105,23 +131,23 @@ describe('Quizzes::LogAuditing::EventManager - Event delivery', () => {
     evtManager.start()
     testEventFactory.trigger('change')
     expect(evtManager.isDirty()).toBe(true)
-    evtManager.deliver()
-    expect(server.requests.length).toBe(1)
-    expect(server.requests[0].url).toBe('/events')
-    const payload = JSON.parse(server.requests[0].requestBody)
+
+    const deliveryPromise = evtManager.deliver()
+    await deliveryPromise
+
+    expect(capturedRequests).toHaveLength(1)
+    expect(capturedRequests[0].url).toContain('/events')
+    const payload = capturedRequests[0].requestBody
     expect(payload).toHaveProperty('quiz_submission_events')
     expect(payload.quiz_submission_events[0].event_type).toBe('test_event')
-    expect(evtManager.isDelivering()).toBe(true)
-    server.requests[0].respond(204)
-    clock.tick(1)
+
     expect(evtManager.isDelivering()).toBe(false)
     expect(evtManager.isDirty()).toBe(false)
-    clock.restore()
   })
 
-  test('should ignore EVT_PAGE_FOCUSED events that are not preceded by EVT_PAGE_BLURRED', () => {
-    const consoleWarn = jest.spyOn(global.console, 'warn')
-    consoleWarn.mockImplementation(() => {}) // keep it from actually logging
+  test('should ignore EVT_PAGE_FOCUSED events that are not preceded by EVT_PAGE_BLURRED', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn')
+    consoleWarn.mockImplementation(() => {})
 
     evtManager = new EventManager({
       autoDeliver: false,
@@ -133,29 +159,35 @@ describe('Quizzes::LogAuditing::EventManager - Event delivery', () => {
 
     evtManager.start()
 
+    // First event: change event
     testEventFactory.trigger('change')
-    evtManager.deliver()
-    expect(server.requests.length).toBe(1)
-    let payload1 = JSON.parse(server.requests[0].requestBody)
+    await evtManager.deliver()
+    expect(capturedRequests).toHaveLength(1)
+    const payload1 = capturedRequests[0].requestBody
     expect(payload1.quiz_submission_events[0].event_type).toBe('test_event')
 
+    // Second event: focus event (should be ignored as no blur preceded it)
     testEventFactory.trigger('focus')
-    evtManager.deliver()
-    expect(server.requests.length).toBe(1)
-    payload1 = JSON.parse(server.requests[0].requestBody)
-    expect(payload1.quiz_submission_events[0].event_type).toBe('test_event')
+    // Focus event without preceding blur should not create any event to deliver
+    await evtManager.deliver()
+    // Should still have only 1 request as focus event was ignored
+    expect(capturedRequests).toHaveLength(1)
 
+    // Third event: blur event
     testEventFactory.trigger('blur')
-    evtManager.deliver()
-    expect(server.requests.length).toBe(2)
-    const payload2 = JSON.parse(server.requests[1].requestBody)
+    await evtManager.deliver()
+    expect(capturedRequests).toHaveLength(2)
+    const payload2 = capturedRequests[1].requestBody
     expect(payload2.quiz_submission_events[0].event_type).toBe(K.EVT_PAGE_BLURRED)
 
+    // Fourth event: focus event (should be delivered as blur preceded it)
     testEventFactory.trigger('focus')
-    evtManager.deliver()
-    expect(server.requests.length).toBe(3)
-    const payload3 = JSON.parse(server.requests[2].requestBody)
+    await evtManager.deliver()
+    expect(capturedRequests).toHaveLength(3)
+    const payload3 = capturedRequests[2].requestBody
     expect(payload3.quiz_submission_events[0].event_type).toBe(K.EVT_PAGE_FOCUSED)
+
+    consoleWarn.mockRestore()
   })
 
   test('it should drop trackers', () => {

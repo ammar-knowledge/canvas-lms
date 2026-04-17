@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2019 - present Instructure, Inc.
  *
@@ -17,11 +16,11 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {createClient, gql} from '@canvas/apollo'
+import {createClient, gql} from '@canvas/apollo-v3'
 
 export const SET_ASSIGNMENT_POST_POLICY_MUTATION = gql`
-  mutation SetAssignmentPostPolicy($assignmentId: ID!, $postManually: Boolean!) {
-    setAssignmentPostPolicy(input: {assignmentId: $assignmentId, postManually: $postManually}) {
+  mutation SetAssignmentPostPolicy($assignmentId: ID!, $postManually: Boolean!, $postCommentsAt: String, $postGradesAt: String) {
+    setAssignmentPostPolicy(input: {assignmentId: $assignmentId, postManually: $postManually, postCommentsAt: $postCommentsAt, postGradesAt: $postGradesAt}) {
       postPolicy {
         postManually
       }
@@ -33,22 +32,37 @@ export const SET_ASSIGNMENT_POST_POLICY_MUTATION = gql`
   }
 `
 
-export function setAssignmentPostPolicy({assignmentId, postManually}) {
-  return createClient()
-    .mutate({
-      mutation: SET_ASSIGNMENT_POST_POLICY_MUTATION,
-      variables: {assignmentId, postManually},
-    })
-    .then(response => {
-      const queryResponse = response && response.data && response.data.setAssignmentPostPolicy
-      if (queryResponse) {
-        if (queryResponse.postPolicy) {
-          return {postManually: queryResponse.postPolicy.postManually}
-        } else if (queryResponse.errors && queryResponse.errors.length > 0) {
-          throw new Error(queryResponse.errors[0].message)
-        }
-      }
+type SetAssignmentPostPolicyInput = {
+  assignmentId: string
+  postManually?: boolean
+  postCommentsAt?: string | null
+  postGradesAt?: string | null
+}
 
-      throw new Error('no postPolicy or error provided in response')
-    })
+export function setAssignmentPostPolicy({
+  assignmentId,
+  postManually,
+  postCommentsAt,
+  postGradesAt,
+}: SetAssignmentPostPolicyInput) {
+  return (
+    createClient()
+      .mutate({
+        mutation: SET_ASSIGNMENT_POST_POLICY_MUTATION,
+        variables: {assignmentId, postManually, postCommentsAt, postGradesAt},
+      })
+      // @ts-expect-error
+      .then(response => {
+        const queryResponse = response && response.data && response.data.setAssignmentPostPolicy
+        if (queryResponse) {
+          if (queryResponse.postPolicy) {
+            return {postManually: queryResponse.postPolicy.postManually}
+          } else if (queryResponse.errors && queryResponse.errors.length > 0) {
+            throw new Error(queryResponse.errors[0].message)
+          }
+        }
+
+        throw new Error('no postPolicy or error provided in response')
+      })
+  )
 }

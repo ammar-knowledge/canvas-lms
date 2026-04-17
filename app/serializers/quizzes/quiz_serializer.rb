@@ -224,7 +224,7 @@ module Quizzes
     end
 
     def all_dates
-      quiz.formatted_dates_hash(quiz.all_due_dates)
+      quiz.dates_hash_visible_to(user, include_all_dates: true)
     end
 
     def section_count
@@ -270,6 +270,8 @@ module Quizzes
           accepts_jsonapi? && user_may_grade? && user_may_manage?
         when :locked_for_user, :lock_info, :lock_explanation
           !serializer_option(:skip_lock_tests)
+        when :description
+          !serializer_option(:skip_description)
         when :anonymous_submissions
           quiz.survey?
         when :permissions
@@ -452,7 +454,7 @@ module Quizzes
     end
 
     def in_paced_course
-      context.account.feature_enabled?(:course_paces) && context.try(:enable_course_paces)
+      context.try(:enable_course_paces)
     end
   end
 end

@@ -24,6 +24,9 @@ class AnonymousSubmissionsController < SubmissionsBaseController
   before_action :require_context
 
   def show
+    # Lookup submissions views as this controller does not have own views
+    lookup_context.prefixes.append "submissions"
+
     @submission_for_show = Submissions::AnonymousSubmissionForShow.new(
       assignment_id: params.fetch(:assignment_id),
       anonymous_id: params.fetch(:anonymous_id),
@@ -42,7 +45,7 @@ class AnonymousSubmissionsController < SubmissionsBaseController
   end
 
   def update
-    @assignment = @context.assignments.active.find(params.fetch(:assignment_id))
+    @assignment = AbstractAssignment.assignment_scope_for_context(@context).active.find(params.fetch(:assignment_id))
     @submission = @assignment.submissions.find_by!(anonymous_id: params.fetch(:anonymous_id))
     @user = @submission.user
 

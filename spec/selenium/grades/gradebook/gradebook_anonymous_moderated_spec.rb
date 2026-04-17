@@ -22,13 +22,31 @@ require_relative "../pages/gradebook_page"
 require_relative "../pages/gradebook_grade_detail_tray_page"
 require_relative "../pages/moderate_page"
 
-describe "New Gradebook" do
+# NOTE: We are aware that we're duplicating some unnecessary testcases, but this was the
+# easiest way to review, and will be the easiest to remove after the feature flag is
+# permanently removed. Testing both flag states is necessary during the transition phase.
+shared_examples "New Gradebook" do |ff_enabled|
   include_context "in-process server selenium tests"
+
+  before :once do
+    # Set feature flag state for the test run - this affects how the gradebook data is fetched, not the data setup
+    if ff_enabled
+      Account.site_admin.enable_feature!(:performance_improvements_for_gradebook)
+    else
+      Account.site_admin.disable_feature!(:performance_improvements_for_gradebook)
+    end
+  end
 
   before(:once) do
     # create a course with a teacher
     @teacher1 = course_with_teacher(course_name: "Course1", active_all: true).user
     @student1 = student_in_course(active_all: true).user
+  end
+
+  before do
+    if ff_enabled
+      allow(Services::PlatformServiceGradebook).to receive(:use_graphql?).and_return(true)
+    end
   end
 
   context "with an anonymous assignment" do
@@ -110,23 +128,6 @@ describe "New Gradebook" do
       expect(Gradebook.assignment_menu_selector("No grades to post")).to be_displayed
     end
 
-    it "allows posting grades after they are released", priority: "1" do
-      skip("FOO-2695, probably relates to having to implement browser confirms asynchronously")
-      user_session(@teacher1)
-      ModeratePage.visit(@course.id, @moderated_assignment.id)
-      ModeratePage.select_provisional_grade_for_student_by_position(@student1, 1)
-
-      ModeratePage.click_release_grades_button
-      accept_alert
-      wait_for_ajaximations
-
-      Gradebook.visit(@course)
-      Gradebook.click_assignment_header_menu(@moderated_assignment.id)
-      wait_for_ajaximations
-
-      expect(Gradebook.assignment_menu_selector("Post grades")).to be_displayed
-    end
-
     context "causes editing grades to be" do
       before do
         user_session(@teacher1)
@@ -148,4 +149,9 @@ describe "New Gradebook" do
       end
     end
   end
+end
+
+describe "New Gradebook" do
+  it_behaves_like "New Gradebook", true
+  it_behaves_like "New Gradebook", false
 end

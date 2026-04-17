@@ -27,8 +27,7 @@ RSpec.describe Mutations::CreateSubmission do
       @course.assignments.create!(title: "Example Assignment", submission_types: "online_upload")
     @attachment1 = attachment_with_context(@student)
     @attachment2 = attachment_with_context(@student)
-    @media_object =
-      factory_with_protected_attributes(MediaObject, media_id: "m-123456", title: "neato-vid")
+    @media_object = MediaObject.create!(media_id: "m-123456", title: "neato-vid")
     @teacher = @course.enroll_teacher(User.create!, enrollment_state: "active").user
   end
 
@@ -107,6 +106,18 @@ RSpec.describe Mutations::CreateSubmission do
   context "submit permissions check" do
     it "returns an error if the assignment is locked" do
       @assignment.update!(lock_at: 1.day.ago)
+      result = run_mutation
+      expect(result.dig(:errors, 0, :message)).to eq "not found"
+    end
+
+    it "does not allow a student to submit an assignment that is assigned to a section they are concluded in" do
+      sec1 = @course.course_sections.create!(name: "section 1")
+      sec2 = @course.course_sections.create!(name: "section 2")
+      @course.enroll_student(@student, enrollment_state: "active", section: sec1, allow_multiple_enrollments: true)
+      concluded_enrollment = @course.enroll_student(@student, enrollment_state: "active", section: sec2, allow_multiple_enrollments: true)
+      concluded_enrollment.conclude
+      create_section_override_for_assignment(@assignment, course_section: sec2)
+      @assignment.update!(only_visible_to_overrides: true)
       result = run_mutation
       expect(result.dig(:errors, 0, :message)).to eq "not found"
     end
@@ -212,6 +223,20 @@ RSpec.describe Mutations::CreateSubmission do
       expect(
         ids.include?(result.dig(:data, :createSubmission, :submission, :attachments, 1, :_id))
       ).to be true
+    end
+
+    it "sets the correct word count on the submission" do
+      @assignment.update!(submission_types: "online_upload")
+      submission = @assignment.submissions.find_by(user: @student)
+      attachment = create_attachment_for_file_upload_submission!(
+        submission,
+        context: @student,
+        uploaded_data: StringIO.new("@channel MY LEGSSSS!!!!! THEY'RE STUCK UNDER MY DESK!!!!!!!")
+      )
+      run_mutation(submission_type: "online_upload", file_ids: [attachment.id])
+      # Simulate DocViewer setting word counts
+      Attachment.last.update_column(:word_count, 8)
+      expect(submission.reload.word_count).to eq 8
     end
 
     it "allows cross-shard users to upload a group assignment" do

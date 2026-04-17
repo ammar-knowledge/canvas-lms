@@ -16,18 +16,18 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {shape, string} from 'prop-types'
 import {Group} from './Group'
 
 export const GroupSet = {
   fragment: gql`
-    fragment GroupSet on GroupSet {
+    fragment DiscussionPostGroupSet on GroupSet {
       id
       _id
       name
       currentGroup {
-        ...Group
+        ...DiscussionPostGroup
       }
     }
     ${Group.fragment}
@@ -45,16 +45,13 @@ export const GroupSet = {
     _id = '1',
     name = 'group set',
     currentGroup = null,
-    groupsConnection = {
-      nodes: [Group.mock()],
-      __typename: 'groupsConnection',
-    },
+    groups = [Group.mock()],
   } = {}) => ({
     id,
     _id,
     name,
     currentGroup,
-    groupsConnection,
+    groups,
     __typename: 'GroupSet',
   }),
 }

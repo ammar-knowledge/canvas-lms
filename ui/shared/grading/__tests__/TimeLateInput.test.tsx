@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
@@ -50,7 +51,7 @@ describe('TimeLateInput', () => {
       locale: 'en',
       renderLabelBefore: false,
       secondsLate: 0,
-      onSecondsLateUpdated: jest.fn(),
+      onSecondsLateUpdated: vi.fn(),
       width: '5rem',
     }
   })

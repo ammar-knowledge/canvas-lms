@@ -47,11 +47,13 @@ module DataFixup::SetSizingForMediaAttachmentIframes
   end
 
   def self.fix_html(html)
-    doc = Nokogiri::HTML5::DocumentFragment.parse(html, nil, { max_tree_depth: 10_000 })
+    doc = Nokogiri::HTML5::DocumentFragment.parse(html, nil, **CanvasSanitize::SANITIZE[:parser_options])
     doc.css("iframe").select do |e|
-      next unless e.get_attribute("style")&.match?("width: px; height: px;")
+      next unless e.get_attribute("style")&.match?("width: px; height: px;") || e.get_attribute("style")&.match?("width:px; height:px;")
 
-      rewritten_style = e["style"].gsub("width: px; height: px;", "width: 320px; height: 14.25rem;")
+      rewritten_style = e["style"]
+      rewritten_style = rewritten_style.gsub("width: px; height: px;", "width: 320px; height: 14.25rem;")
+      rewritten_style = rewritten_style.gsub("width:px; height:px;", "width: 320px; height: 14.25rem;")
       e.set_attribute("style", rewritten_style)
     end
 

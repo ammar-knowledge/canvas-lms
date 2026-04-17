@@ -26,9 +26,11 @@
 
 class CspSettingsController < ApplicationController
   before_action :require_context, :require_user
-  before_action :require_read_permissions, only: [:get_csp_settings, :csp_log]
-  before_action :require_permissions, except: [:get_csp_settings, :csp_log]
+  before_action :require_read_permissions, only: :get_csp_settings
+  before_action :require_permissions, except: :get_csp_settings
   before_action :get_domain, only: [:add_domain, :remove_domain]
+
+  after_action :set_sentry_context, only: [:set_csp_setting]
 
   # @API Get current settings for account or course
   #
@@ -44,7 +46,7 @@ class CspSettingsController < ApplicationController
   # @response_field current_account_whitelist (Account-only) Lists the current list of domains
   #   explicitly allowed by this account. (Note: this list will not take effect unless
   #   CSP is explicitly enabled on this account)
-  def get_csp_settings
+  def get_csp_settings # rubocop:disable Naming/AccessorMethodName
     render json: csp_settings_json
   end
 
@@ -134,7 +136,11 @@ class CspSettingsController < ApplicationController
   def add_multiple_domains
     domains = params.require(:domains)
 
-    invalid_domains = domains.reject { |domain| URI.parse(domain) rescue nil }
+    invalid_domains = domains.reject do |domain|
+      URI.parse(domain)
+    rescue URI::InvalidURIError
+      false
+    end
     unless invalid_domains.empty?
       render json: { message: "invalid domains: #{invalid_domains.join(", ")}" }, status: :bad_request
       return false
@@ -150,16 +156,6 @@ class CspSettingsController < ApplicationController
     else
       render json: { message: "failed adding some domains: #{unsuccessful_domains.join(", ")}" }, status: :bad_request
     end
-  end
-
-  # @API Retrieve reported CSP Violations for account
-  #
-  # Must be called on a root account.
-  def csp_log
-    return render status: :bad_request, json: { message: "must be called on a root account" } unless @context.root_account?
-    return render status: :service_unavailable, json: { message: "CSP logging is not configured on the server" } unless (ss = @context.csp_logging_config["shared_secret"])
-
-    render json: CanvasHttp.get("#{@context.csp_logging_config["host"]}report/#{@context.global_id}", { "Authorization" => "Bearer #{ss}" }).body
   end
 
   # @API Remove a domain from account
@@ -210,5 +206,26 @@ class CspSettingsController < ApplicationController
       json[:current_account_whitelist] = @context.csp_domains.active.pluck(:domain).sort
     end
     json
+  end
+
+  private
+
+  def set_sentry_context
+    if @context.is_a?(Account) && @context.root_account? && @context.feature_enabled?(:default_source_csp_logging)
+      Sentry.with_scope do |scope|
+        scope.set_context(
+          "CSP Setting Details",
+          {
+            user_id: logged_in_user.global_id,
+            status_set: params[:status],
+            csp_inherited_data_value: @context.settings[:csp_inherited_data],
+            enabled: @context.csp_enabled?,
+            locked: @context.csp_locked?,
+            account_host: @context.primary_domain.host
+          }
+        )
+        Sentry.capture_message("CSP settings updated", level: :warning)
+      end
+    end
   end
 end

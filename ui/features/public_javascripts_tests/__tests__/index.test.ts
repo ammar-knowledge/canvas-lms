@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
@@ -20,13 +21,24 @@
 import {handler, init} from '../../../../public/javascripts/lti_post_message_forwarding'
 
 describe('lti_post_message_forwarding', () => {
+  let source: MessageEventSource
+  beforeEach(() => {
+    source = {
+      postMessage: vi.fn(),
+    } as unknown as Window
+    // for indexInTopFrames
+    vi
+      .spyOn(window.top, 'frames', 'get')
+      .mockReturnValue({'0': {}, '1': source, '2': {}, length: 3})
+  })
+  afterEach(() => vi.restoreAllMocks())
+
   describe('handler', () => {
     let message: string | object
     let origin: string
     let parentDomain: string
     let windowReferences: Array<Window | undefined>
-    // eslint-disable-next-line no-undef
-    let source: MessageEventSource
+
     let parentWindow: Window
     let includeRCESignal: boolean
 
@@ -35,7 +47,7 @@ describe('lti_post_message_forwarding', () => {
         parentDomain,
         windowReferences,
         parentWindow,
-        includeRCESignal
+        includeRCESignal,
       )({data: message, origin, source} as MessageEvent)
 
     describe('when message is not JSON string or JS object', () => {
@@ -55,11 +67,8 @@ describe('lti_post_message_forwarding', () => {
         parentDomain = 'https://parent.domain.com'
         windowReferences = []
         includeRCESignal = false
-        source = {
-          postMessage: jest.fn(),
-        } as unknown as Window
         parentWindow = {
-          postMessage: jest.fn(),
+          postMessage: vi.fn(),
         } as unknown as Window
       })
 
@@ -68,33 +77,33 @@ describe('lti_post_message_forwarding', () => {
         expect(parentWindow.postMessage).toHaveBeenCalled()
       })
 
-      it('attaches origin and windowId to message', () => {
+      it('attaches origin, windowId, and indexInTopFrames to message', () => {
         subject()
         expect(parentWindow.postMessage).toHaveBeenCalledWith(
-          {...(message as object), sourceToolInfo: {origin, windowId: 0}},
-          expect.anything()
+          {...(message as object), sourceToolInfo: {origin, windowId: 0, indexInTopFrames: 1}},
+          expect.anything(),
         )
       })
 
       it('stores source window in an array', () => {
         subject()
-        expect(windowReferences.length).toBe(1)
+        expect(windowReferences).toHaveLength(1)
         expect(windowReferences[0]).toBe(source)
       })
 
       it('reuses existing windowId for previously-seen source windows', () => {
         subject()
-        const source2 = {postMessage: jest.fn()}
+        const source2 = {postMessage: vi.fn()}
         handler(
           parentDomain,
           windowReferences,
-          parentWindow
+          parentWindow,
         )({data: message, origin, source: source2} as MessageEvent)
         subject()
         expect(parentWindow.postMessage.mock.calls[0][0].sourceToolInfo.windowId).toBe(0)
         expect(parentWindow.postMessage.mock.calls[1][0].sourceToolInfo.windowId).toBe(1)
         expect(parentWindow.postMessage.mock.calls[2][0].sourceToolInfo.windowId).toBe(0)
-        expect(windowReferences.length).toBe(2)
+        expect(windowReferences).toHaveLength(2)
         expect(windowReferences[0]).toBe(source)
         expect(windowReferences[1]).toBe(source2)
       })
@@ -126,7 +135,7 @@ describe('lti_post_message_forwarding', () => {
         origin = 'https://parent.domain.com'
         parentDomain = 'https://parent.domain.com'
         source = {
-          postMessage: jest.fn(),
+          postMessage: vi.fn(),
         } as unknown as Window
         // source is index 1 (above we're using windowId=1):
         windowReferences = [undefined, source]
@@ -156,23 +165,21 @@ describe('lti_post_message_forwarding', () => {
         subject()
         expect(source.postMessage).toHaveBeenCalledWith(
           {subject: 'hello_world', key: 'value'},
-          expect.anything()
+          expect.anything(),
         )
       })
     })
   })
 
   describe('init', () => {
-    afterEach(() => jest.restoreAllMocks())
-
     it('sets up an event handler for postMessage when the DOM loads', () => {
-      jest.spyOn(document, 'readyState', 'get').mockReturnValue('loading')
-      jest.spyOn(document, 'addEventListener').mockImplementation(() => {})
+      vi.spyOn(document, 'readyState', 'get').mockReturnValue('loading')
+      vi.spyOn(document, 'addEventListener').mockImplementation(() => {})
       init()
       expect(document.addEventListener).toHaveBeenCalledWith('DOMContentLoaded', expect.anything())
       const cb = document.addEventListener.mock.calls[0][1]
 
-      jest.spyOn(window, 'addEventListener').mockImplementation(() => {})
+      vi.spyOn(window, 'addEventListener').mockImplementation(() => {})
       cb()
       expect(window.addEventListener).toHaveBeenCalledWith('message', expect.anything())
     })

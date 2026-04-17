@@ -17,16 +17,15 @@
  */
 
 import React from 'react'
-import _ from 'underscore'
-import {map} from 'lodash'
+import {compact, flatMap, groupBy, map} from 'es-toolkit/compat'
 import {getOverriddenAssignees} from '@canvas/context-modules/differentiated-modules/utils/assignToHelper'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert} from '@instructure/platform-alerts'
 import {View} from '@instructure/ui-view'
 import {Link} from '@instructure/ui-link'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {IconEditLine} from '@instructure/ui-icons'
 
-const I18n = useI18nScope('DueDateOverrideView')
+const I18n = createI18nScope('DueDateOverrideView')
 
 export const cloneObject = object => JSON.parse(JSON.stringify(object))
 
@@ -40,11 +39,10 @@ export const combinedDates = override => {
 }
 
 export const sortedRowKeys = rows => {
-  const {datedKeys, numberedKeys} = _.chain(rows)
-    .keys()
-    .groupBy(key => (key.length > 11 ? 'datedKeys' : 'numberedKeys'))
-    .value()
-  return _.chain([datedKeys, numberedKeys]).flatten().compact().value()
+  const {datedKeys, numberedKeys} = groupBy(Object.keys(rows), key =>
+    key.length > 11 ? 'datedKeys' : 'numberedKeys',
+  )
+  return compact([datedKeys, numberedKeys].flat())
 }
 
 export const datesFromOverride = override => ({
@@ -53,21 +51,22 @@ export const datesFromOverride = override => ({
   unlock_at: override ? override.unlock_at : null,
   reply_to_topic_due_at: override ? override.reply_to_topic_due_at : null,
   required_replies_due_at: override ? override.required_replies_due_at : null,
+  peer_review_available_from: override ? override.peer_review_available_from : null,
+  peer_review_due_at: override ? override.peer_review_due_at : null,
+  peer_review_available_to: override ? override.peer_review_available_to : null,
+  peer_review_override_id: override ? override.peer_review_override_id : null,
 })
 
 export const getAllOverridesFromCards = givenCards => {
   const cards = givenCards
-  return _.chain(cards)
-    .values()
-    .map(card =>
+  return compact(
+    flatMap(Object.values(cards), card =>
       map(card.overrides, override => {
         override.persisted = card.persisted
         return override
-      })
-    )
-    .flatten()
-    .compact()
-    .value()
+      }),
+    ),
+  )
 }
 
 export const areCardsEqual = (preSavedCard, currentCard) => {
@@ -97,7 +96,7 @@ export const areCardsEqual = (preSavedCard, currentCard) => {
         override?.student_ids ||
         override?.course_id ||
         override?.noop_id === '1' ||
-        override?.group_id
+        override?.group_id,
     )
     .map(override => {
       const {course_section_id, group_id, student_ids, due_at, lock_at, unlock_at, rowKey} =
@@ -122,7 +121,7 @@ export const areCardsEqual = (preSavedCard, currentCard) => {
 export const resetOverrides = (overrides, newState) => {
   newState.forEach(newOverride => {
     const override = overrides.find(
-      override => override.stagedOverrideId === newOverride.stagedOverrideId
+      override => override.stagedOverrideId === newOverride.stagedOverrideId,
     )
     if (override) {
       Object.entries(newOverride).forEach(([key, value]) => {
@@ -137,10 +136,10 @@ export const resetStagedCards = (cards, newCardsState, defaultState) => {
   const newState = cloneObject(newCardsState)
   Object.keys(newState).forEach(rowKey => {
     const card = cards[rowKey] ?? defaultState[rowKey]
-    if(!card) return undefined;
+    if (!card) return undefined
     const newCard = newState[rowKey]
     const validOverrides = card.overrides.filter(o =>
-      newCard?.overrides.find(override => o.stagedOverrideId === override.stagedOverrideId)
+      newCard?.overrides.find(override => o.stagedOverrideId === override.stagedOverrideId),
     )
 
     newCard.overrides = resetOverrides(validOverrides, newCard.overrides)
@@ -148,11 +147,9 @@ export const resetStagedCards = (cards, newCardsState, defaultState) => {
   return newState
 }
 
-export const getParsedOverrides = (stagedOverrides, cards, groupCategoryId) => {
+export const getParsedOverrides = (stagedOverrides, cards, groupCategoryId, defaultSectionId) => {
   let index = 0
-  const validOverrides = stagedOverrides.filter(override =>
-    [undefined, groupCategoryId].includes(override.group_category_id)
-  )
+  const validOverrides = getValidOverrides(stagedOverrides, groupCategoryId)
   const overridesByKey = validOverrides.reduce((acc, override) => {
     const rowKey = override?.rowKey ?? combinedDates(override)
     override.rowKey = rowKey
@@ -167,12 +164,25 @@ export const getParsedOverrides = (stagedOverrides, cards, groupCategoryId) => {
   const parsedOverrides = Object.entries(overridesByKey).reduce((acc, [key, overrides]) => {
     const datesForGroup = datesFromOverride(overrides[0])
     index++
-    index = cards?.[key]?.index ?? overrides[0].index ?? index
+    // ensure on initial load of the cards, the everyone option is first
+    const everyoneOption = overrides[0].course_section_id === defaultSectionId ? 0 : undefined
+    index = cards?.[key]?.index ?? overrides[0].index ?? everyoneOption ?? index
     acc[key] = {overrides, dates: datesForGroup, index}
     return acc
   }, {})
 
   return parsedOverrides
+}
+
+// This function filters out any Group overrides
+// Differentiation tag overrides are valid but they use 'group_category_id'
+// Differentiation tag overrides will pass the filter because of the non_collaborative check
+const getValidOverrides = (stagedOverrides, groupCategoryId) => {
+  return stagedOverrides.filter(
+    override =>
+      [undefined, groupCategoryId].includes(override.group_category_id) ||
+      override.non_collaborative === true,
+  )
 }
 
 export const removeOverriddenAssignees = (overrides, parsedOverrides) => {
@@ -184,12 +194,11 @@ export const removeOverriddenAssignees = (overrides, parsedOverrides) => {
       if (override.unassign_item) {
         delete parsedOverrides[key]
       }
-      const {context_module_id, student_ids, course_section_id} = override
-
+      const {context_module_id, student_ids, course_section_id, group_id} = override
       if (context_module_id && student_ids) {
         let filteredStudents = student_ids
         filteredStudents = filteredStudents?.filter(
-          id => !overriddenTargets?.students?.includes(id)
+          id => !overriddenTargets?.students?.includes(id),
         )
 
         if (student_ids?.length > 0 && filteredStudents?.length === 0) {
@@ -204,55 +213,24 @@ export const removeOverriddenAssignees = (overrides, parsedOverrides) => {
       ) {
         delete parsedOverrides[key]
       }
+
+      if (
+        context_module_id &&
+        group_id &&
+        overriddenTargets?.differentiationTags?.includes(group_id)
+      ) {
+        delete parsedOverrides[key]
+      }
     })
   }
 
   return parsedOverrides
 }
 
-export const processModuleOverrides = (overrides, lastCheckpoint) => {
-  const withoutModuleOverrides = overrides.map(o => {
-    if (o.context_module_id) {
-      const checkpointOverrides = lastCheckpoint[o.rowKey]?.overrides
-
-      const lastOverrideState = checkpointOverrides?.find(
-        override => override.stagedOverrideId === o.stagedOverrideId
-      )
-
-      const {persisted, id, context_module_id, context_module_name, ...previousAttributes} =
-        lastOverrideState || {}
-
-      const {
-        persisted: _p,
-        id: id_,
-        context_module_id: cId,
-        context_module_name: cName,
-        ...currentAttributes
-      } = o
-
-      const hasChanges = JSON.stringify(previousAttributes) !== JSON.stringify(currentAttributes)
-
-      //   If there are changes, remove the context_module override information
-      return hasChanges
-        ? {
-            ...o,
-            context_module_id: undefined,
-            context_module_name: undefined,
-            id: undefined,
-          }
-        : o // If there are no changes, use the current override as is
-    }
-
-    return o
-  })
-
-  return withoutModuleOverrides
-}
-
 // This is a slightly modified version of the processModuleOverrides function for AssignToContent
 // The original function can be removed once we remove DifferentiatedModulesSection
-export const processModuleOverridesV2 = (overrides, initialModuleOverrides) => {
-  const rowKeyModuleOverrides = initialModuleOverrides.map(obj => obj.rowKey);
+export const processModuleOverrides = (overrides, initialModuleOverrides) => {
+  const rowKeyModuleOverrides = initialModuleOverrides.map(obj => obj.rowKey)
   const withoutModuleOverrides = overrides.map(o => {
     if (rowKeyModuleOverrides.includes(o.rowKey)) {
       const initialModuleOverrideState = initialModuleOverrides.find(obj => obj.rowKey === o.rowKey)
@@ -268,8 +246,15 @@ export const processModuleOverridesV2 = (overrides, initialModuleOverrides) => {
         ...currentAttributes
       } = o
 
-      const hasDates = currentAttributes.due_at || currentAttributes.lock_at || currentAttributes.unlock_at
-      const hasChanges = hasDates || currentAttributes.stagedOverrideId != previousAttributes.stagedOverrideId || JSON.stringify(currentAttributes.student_ids)!=JSON.stringify(previousAttributes.student_ids)
+      const hasDates =
+        currentAttributes.due_at || currentAttributes.lock_at || currentAttributes.unlock_at
+      const hasChanges = !(
+        !hasDates &&
+        currentAttributes.course_section_id == previousAttributes.course_section_id &&
+        currentAttributes.group_id == previousAttributes.group_id &&
+        JSON.stringify(currentAttributes.student_ids) ==
+          JSON.stringify(previousAttributes.student_ids)
+      )
 
       //   If there are changes, remove the context_module override information
       return hasChanges
@@ -280,11 +265,11 @@ export const processModuleOverridesV2 = (overrides, initialModuleOverrides) => {
             id: undefined,
           }
         : {
-          ...o,
-          context_module_id: initialModuleOverrideState.context_module_id,
-          context_module_name: initialModuleOverrideState.context_module_name,
-          id: initialModuleOverrideState.id,
-        } // If there are no changes, use the current override as is
+            ...o,
+            context_module_id: initialModuleOverrideState.context_module_id,
+            context_module_name: initialModuleOverrideState.context_module_name,
+            id: initialModuleOverrideState.id,
+          } // If there are no changes, use the current override as is
     }
 
     return o
@@ -293,25 +278,31 @@ export const processModuleOverridesV2 = (overrides, initialModuleOverrides) => {
   return withoutModuleOverrides
 }
 
-export const showPostToSisFlashAlert = assignToButtonId => () =>
-  showFlashAlert({
-    message: (
-      <>
-        {I18n.t('Please set a due date or change your selection for the “Sync to SIS” option.')}
-        <br />
-        <View display="flex">
-          <View as="div" margin="xx-small none none none" width="25px">
-            <IconEditLine size="x-small" color="primary" />
-          </View>
-          <Link
-            margin="xx-small none none none"
-            isWithinText={false}
-            onClick={() => document.getElementById(assignToButtonId)?.click()}
-          >
-            {I18n.t('Manage Due Dates and Assign To')}
-          </Link>
-        </View>
-      </>
-    ),
-    type: 'error',
-  })
+export const showPostToSisFlashAlert =
+  (assignToButtonId, isTray = false) =>
+  () =>
+    showFlashAlert({
+      message: (
+        <>
+          {I18n.t('Please set a due date or change your selection for the “Sync to SIS” option.')}
+          {isTray && (
+            <>
+              <br />
+              <View display="flex">
+                <View as="div" margin="xx-small none none none" width="25px">
+                  <IconEditLine size="x-small" color="primary" />
+                </View>
+                <Link
+                  margin="xx-small none none none"
+                  isWithinText={false}
+                  onClick={() => document.getElementById(assignToButtonId)?.click()}
+                >
+                  {I18n.t('Manage Due Dates and Assign To')}
+                </Link>
+              </View>
+            </>
+          )}
+        </>
+      ),
+      type: 'error',
+    })

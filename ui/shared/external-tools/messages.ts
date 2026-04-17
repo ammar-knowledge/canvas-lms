@@ -19,7 +19,7 @@
 export const EXTERNAL_CONTENT_READY = 'externalContentReady'
 export const EXTERNAL_CONTENT_CANCEL = 'externalContentCancel'
 
-export type Service = 'equella' | 'external_tool_dialog' | 'external_tool_redirect'
+export type Service = 'external_tool_dialog' | 'external_tool_redirect'
 
 export type ExternalContentReadyInnerData = {
   contentItems: Lti1p1ContentItem[]
@@ -51,6 +51,7 @@ export type Lti1p1ContentItem = {
 export type HandleOptions = {
   ready?: (data: ExternalContentReady) => Promise<void> | void
   cancel?: () => Promise<void> | void
+  onDeepLinkingResponse?: (data: any) => Promise<void> | void
   env?: any
   service?: Service
 }
@@ -69,6 +70,7 @@ export type MessageHandlerCleanupFunction = () => void
 export const handleExternalContentMessages = ({
   ready = _data => {},
   cancel = () => {},
+  onDeepLinkingResponse = () => {},
   env = window.ENV,
   service,
 }: HandleOptions): MessageHandlerCleanupFunction => {
@@ -84,6 +86,10 @@ export const handleExternalContentMessages = ({
     } else if (event.data.subject === EXTERNAL_CONTENT_CANCEL) {
       await cancel()
     }
+
+    if (event.data.subject === 'LtiDeepLinkingResponse') {
+      await onDeepLinkingResponse(event.data)
+    }
   }
 
   window.addEventListener('message', handler)
@@ -92,11 +98,11 @@ export const handleExternalContentMessages = ({
 
 export function postMessageExternalContentReady(
   window: Window,
-  eventData: ExternalContentReadyInnerData
+  eventData: ExternalContentReadyInnerData,
 ) {
   window.postMessage(
     {subject: EXTERNAL_CONTENT_READY, ...eventData},
-    ENV.DEEP_LINKING_POST_MESSAGE_ORIGIN
+    ENV.DEEP_LINKING_POST_MESSAGE_ORIGIN,
   )
 }
 

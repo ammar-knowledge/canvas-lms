@@ -17,28 +17,43 @@
  */
 
 import * as tz from '@instructure/moment-utils'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Alert} from '@instructure/ui-alerts'
-import {IconButton} from '@instructure/ui-buttons'
+import {IconButton, Button} from '@instructure/ui-buttons'
 import {Flex} from '@instructure/ui-flex'
-import {IconMoreLine, IconSearchLine} from '@instructure/ui-icons'
-import {Link} from '@instructure/ui-link'
+import {IconMoreLine, IconSearchLine, IconRefreshLine} from '@instructure/ui-icons'
 import {Menu} from '@instructure/ui-menu'
 import {Responsive, type ResponsivePropsObject} from '@instructure/ui-responsive'
 import {Table} from '@instructure/ui-table'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
-import React from 'react'
+import {Link} from '@instructure/ui-link'
+import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {Link as RouterLink} from 'react-router-dom'
+import React from 'react'
 import type {PaginatedList} from '../../api/PaginatedList'
-import type {AppsSortDirection, AppsSortProperty} from '../../api/registrations'
-import type {LtiRegistration} from '../../model/LtiRegistration'
+import {
+  LIST_REGISTRATIONS_PAGE_LIMIT,
+  refreshRegistrations,
+  useDeleteRegistration,
+  type AppsSortDirection,
+  type AppsSortProperty,
+} from '../../api/registrations'
+import {isForcedOn, type LtiRegistration} from '../../model/LtiRegistration'
 import {useManageSearchParams, type ManageSearchParams} from './ManageSearchParams'
 import {colors} from '@instructure/canvas-theme'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert} from '@instructure/platform-alerts'
 import {Tooltip} from '@instructure/ui-tooltip'
 import {Pagination} from '@instructure/ui-pagination'
-import {MANAGE_APPS_PAGE_LIMIT} from './ManagePageLoadingState'
+import {
+  openEditDynamicRegistrationWizard,
+  openEditManualRegistrationWizard,
+} from '../../registration_wizard/RegistrationWizardModalState'
+import {alert} from '@canvas/instui-bindings/react/Alert'
+import {ToolIconOrDefault} from '@canvas/lti-apps/components/common/ToolIconOrDefault'
+import type {AccountId} from '../../model/AccountId'
+import {confirmDanger} from '@canvas/instui-bindings/react/Confirm'
+import {useRegistrationUpdateWizardModalState} from '../../registration_update_wizard/RegistrationUpdateWizardModalState'
 
 type CallbackWithRegistration = (registration: LtiRegistration) => void
 
@@ -47,12 +62,12 @@ export type AppsTableProps = {
   sort: AppsSortProperty
   dir: AppsSortDirection
   stale: boolean
+  accountId: AccountId
   updateSearchParams: ReturnType<typeof useManageSearchParams>[1]
-  deleteApp: CallbackWithRegistration
   page: number
 }
 
-const I18n = useI18nScope('lti_registrations')
+const I18n = createI18nScope('lti_registrations')
 
 type Column = {
   id: string
@@ -62,56 +77,92 @@ type Column = {
   sortable?: boolean
   render: (
     registration: LtiRegistration,
-    callbacks: {deleteApp: CallbackWithRegistration}
+    callbacks: {deleteApp: CallbackWithRegistration},
   ) => React.ReactNode
 }
 
-const ellispsisStyles = {overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}
+const ellipsisStyles = {overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}
+
+const renderEditButton = (r: LtiRegistration) => {
+  const imsRegistrationId = r.ims_registration_id
+  const manualConfigurationId = r.manual_configuration_id
+  if (r.inherited) {
+    return null
+  } else if (imsRegistrationId) {
+    return (
+      <Menu.Item
+        onClick={() => {
+          openEditDynamicRegistrationWizard(r.id, () => refreshRegistrations())
+        }}
+      >
+        {I18n.t('Edit App')}
+      </Menu.Item>
+    )
+  } else if (manualConfigurationId && !r.inherited) {
+    return (
+      <Menu.Item
+        onClick={() => {
+          openEditManualRegistrationWizard(r.id, () => refreshRegistrations())
+        }}
+      >
+        {I18n.t('Edit App')}
+      </Menu.Item>
+    )
+  } else {
+    return null
+  }
+}
+
+const DangerMenuItemThemeOverrides = {
+  labelColor: colors.contrasts.red4570,
+  activeBackground: colors.contrasts.red4570,
+}
 
 const Columns: ReadonlyArray<Column> = [
   {
     id: 'name',
     header: I18n.t('App Name'),
-    width: '182px',
+    width: '150px',
     sortable: true,
-    render: r => (
-      <Flex>
-        {r.icon_url ? (
-          <img
-            alt={r.name}
-            style={{
-              height: 27,
-              width: 27,
-              marginRight: 12,
-              borderRadius: '4.5px',
-              border: '0.75px solid #C7CDD1',
-            }}
-            src={r.icon_url}
+    render: r => {
+      const appName = (
+        <Flex>
+          <ToolIconOrDefault
+            iconUrl={r.icon_url}
+            toolId={r.id}
+            toolName={r.name}
+            size={27}
+            marginRight={12}
+            hideFromScreenReader={true}
           />
-        ) : (
-          <img
-            alt={r.name}
-            style={{height: 27, width: 27, marginRight: 12}}
-            src={`/lti/tool_default_icon?id=${r.id}&name=${r.name}`}
-          />
-        )}
-        <div style={ellispsisStyles} title={r.name}>
-          {/* TODO: comment these in when we have a manage app screen */}
-          {/* <Link to={`/manage/${r.id}`} as={RouterLink} isWithinText={false}> */}
-          {r.name}
-          {/* </Link> */}
-        </div>
-      </Flex>
-    ),
+          <div style={ellipsisStyles} title={r.name}>
+            {r.name}
+          </div>
+        </Flex>
+      )
+      return window.ENV.FEATURES.lti_registrations_next ? (
+        <Link
+          as={RouterLink}
+          to={`/manage/${r.id}`}
+          isWithinText={false}
+          data-testid={`reg-link-${r.id}`}
+          data-pendo="lti-registrations-app-link"
+        >
+          {appName}
+        </Link>
+      ) : (
+        appName
+      )
+    },
   },
   {
     id: 'nickname',
     header: I18n.t('Nickname'),
-    width: '220px',
+    width: '160px',
     sortable: true,
     render: r =>
       r.admin_nickname ? (
-        <div style={ellispsisStyles} title={r.admin_nickname}>
+        <div style={ellipsisStyles} title={r.admin_nickname}>
           {r.admin_nickname}
         </div>
       ) : null,
@@ -120,85 +171,122 @@ const Columns: ReadonlyArray<Column> = [
     id: 'lti_version',
     sortable: true,
     header: I18n.t('Version'),
-    width: '90px',
+    width: '80px',
     render: r => <div>{'legacy_configuration_id' in r ? '1.1' : '1.3'}</div>,
-  },
-  {
-    id: 'installed',
-    header: I18n.t('Installed On'),
-    width: '132px',
-    sortable: true,
-    render: r => <div>{tz.format(r.created_at, 'date.formats.medium')}</div>,
   },
   {
     id: 'installed_by',
     header: I18n.t('Installed By'),
     width: '132px',
     sortable: true,
-    render: r =>
-      r.created_by ? (
-        <div style={ellispsisStyles}>{r.created_by.short_name}</div>
-      ) : (
-        <div>
-          <Tooltip renderTip={I18n.t('Historical data lacks records for "installed by."')}>
-            <div style={{fontStyle: 'oblique'}}>{I18n.t('N/A')}</div>
-          </Tooltip>
-        </div>
-      ),
+    render: r => {
+      if (r.created_by === 'Instructure') {
+        return <div style={ellipsisStyles}>{I18n.t('Instructure')}</div>
+      } else if (r.created_by) {
+        return <div style={ellipsisStyles}>{r.created_by.short_name}</div>
+      } else {
+        return (
+          <div>
+            <Tooltip renderTip={I18n.t('Historical data lacks records for "installed by."')}>
+              <div style={{fontStyle: 'oblique', textAlign: 'center'}}>{I18n.t('N/A')}</div>
+            </Tooltip>
+          </div>
+        )
+      }
+    },
+  },
+  {
+    id: 'installed',
+    header: I18n.t('Installed On'),
+    width: '130px',
+    sortable: true,
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - tz.format's third argument (zone) is optional at runtime but required by tsgo
+    render: r => <div>{tz.format(r.created_at, 'date.formats.medium')}</div>,
   },
   {
     id: 'updated_by',
     header: I18n.t('Updated By'),
     width: '132px',
     sortable: true,
-    render: r =>
-      r.updated_by ? (
-        <div style={ellispsisStyles}>{r.updated_by.short_name}</div>
-      ) : (
-        <div>
-          <Tooltip renderTip={I18n.t('Historical data lacks records for "updated by."')}>
-            <div style={{fontStyle: 'oblique'}}>{I18n.t('N/A')}</div>
-          </Tooltip>
-        </div>
-      ),
+    render: r => {
+      if (r.updated_by === 'Instructure') {
+        return <div style={ellipsisStyles}>{I18n.t('Instructure')}</div>
+      } else if (r.updated_by) {
+        return <div style={ellipsisStyles}>{r.updated_by.short_name}</div>
+      } else {
+        return (
+          <div>
+            <Tooltip renderTip={I18n.t('Historical data lacks records for "updated by."')}>
+              <div style={{fontStyle: 'oblique', textAlign: 'center'}}>{I18n.t('N/A')}</div>
+            </Tooltip>
+          </div>
+        )
+      }
+    },
+  },
+  {
+    id: 'updated',
+    header: I18n.t('Updated On'),
+    width: '130px',
+    sortable: true,
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - tz.format's third argument (zone) is optional at runtime but required by tsgo
+    render: r => <div>{tz.format(r.updated_at, 'date.formats.medium')}</div>,
   },
   {
     id: 'on',
     header: I18n.t('On/Off'),
-    width: '96px',
+    width: '80px',
     sortable: true,
-    render: r => <div>{r.workflow_state === 'active' ? I18n.t('On') : I18n.t('Off')}</div>,
+    render: r => {
+      const checkWorkflowState = window.ENV.FEATURES.lti_deactivate_registrations
+      const isOn = checkWorkflowState
+        ? r.workflow_state === 'active'
+        : r.account_binding?.workflow_state === 'on'
+
+      return <div>{isOn ? I18n.t('On') : I18n.t('Off')}</div>
+    },
   },
   {
     id: 'actions',
-    width: '80px',
+    width: '60px',
     render: (r, {deleteApp}) => {
-      const developer_key_id = r.developer_key_id
+      const developerKeyId = r.developer_key_id
+
       return (
         <Menu
+          data-testid={`actions-menu-${r.id}`}
           trigger={
             <IconButton
+              data-testid={`actions-menu-${r.id}`}
               withBackground={false}
               withBorder={false}
-              screenReaderLabel={I18n.t('More Registration Options')}
+              screenReaderLabel={I18n.t('More Registration Options for %{name}', {name: r.name})}
             >
               <IconMoreLine />
             </IconButton>
           }
         >
-          {developer_key_id ? (
+          {developerKeyId ? (
             <Menu.Item
               onClick={async () => {
                 try {
-                  await navigator.clipboard.writeText(developer_key_id)
+                  await navigator.clipboard.writeText(developerKeyId)
                   showFlashAlert({
                     type: 'info',
-                    message: I18n.t('Client ID copied'),
+                    message: I18n.t('Client ID copied (%{id})', {id: developerKeyId}),
+                    dismissible: false,
+                    politeness: 'polite',
                   })
-                } catch (error) {
+                } catch {
                   showFlashAlert({
                     type: 'error',
-                    message: I18n.t('There was an issue copying the client ID'),
+                    message: I18n.t('There was an issue copying the client ID (%{id})', {
+                      id: developerKeyId,
+                    }),
+                    dismissible: false,
+                    politeness: 'polite',
                   })
                 }
               }}
@@ -206,30 +294,237 @@ const Columns: ReadonlyArray<Column> = [
               {I18n.t('Copy Client ID')}
             </Menu.Item>
           ) : null}
-          <Menu.Item
-            themeOverride={{
-              labelColor: colors.textDanger,
-              activeBackground: colors.backgroundDanger,
+          {!window.ENV.FEATURES.lti_registrations_next ? renderEditButton(r) : null}
+          {!window.ENV.FEATURES.lti_registrations_next ? (
+            isForcedOn(r) ? (
+              <Menu.Item
+                themeOverride={DangerMenuItemThemeOverrides}
+                onClick={() => {
+                  alert({
+                    message: I18n.t('This app is locked on by Instructure, and cannot be deleted.'),
+                    title: I18n.t('Delete App'),
+                    okButtonLabel: I18n.t('Close'),
+                  })
+                }}
+              >
+                {I18n.t('Delete App')}
+              </Menu.Item>
+            ) : (
+              <Menu.Item themeOverride={DangerMenuItemThemeOverrides} onClick={() => deleteApp(r)}>
+                {I18n.t('Delete App')}
+              </Menu.Item>
+            )
+          ) : null}
+
+          {/* <Menu.Item
+            onClick={() => {
+              confirm({
+                message: JSON.stringify(r, null, 2),
+                title: I18n.t('Registration Details'),
+              })
             }}
-            onClick={() => deleteApp(r)}
           >
-            {I18n.t('Delete App')}
-          </Menu.Item>
+            Details
+          </Menu.Item> */}
         </Menu>
       )
     },
   },
 ]
 
-const renderHeaderRow = (props: {
-  sort: AppsSortProperty
-  dir: AppsSortDirection
-  updateSearchParams: (
-    params: Partial<Record<keyof ManageSearchParams, string | undefined>>
-  ) => void
-}) => (
+const CondensedColumnsWithStatus: ReadonlyArray<Column> = [
+  {
+    id: 'name',
+    header: I18n.t('App Name'),
+    width: '27%',
+    sortable: true,
+    render: r => {
+      const appName = (
+        <Flex display="inline-flex">
+          <ToolIconOrDefault
+            iconUrl={r.icon_url}
+            toolId={r.id}
+            toolName={r.name}
+            size={27}
+            marginRight={12}
+            hideFromScreenReader={true}
+          />
+          {r.name}
+        </Flex>
+      )
+      return (
+        <Link
+          as={RouterLink}
+          to={`/manage/${r.id}`}
+          isWithinText={false}
+          data-testid={`reg-link-${r.id}`}
+        >
+          {appName}
+        </Link>
+      )
+    },
+  },
+  {
+    id: 'nickname',
+    header: I18n.t('Nickname'),
+    width: '20%',
+    sortable: true,
+    render: r => (r.admin_nickname ? <Text wrap="break-word">{r.admin_nickname}</Text> : null),
+  },
+  {
+    id: 'installed',
+    header: I18n.t('Installed On'),
+    width: '15%',
+    sortable: true,
+    textAlign: 'center',
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - tz.format's third argument (zone) is optional at runtime but required by tsgo
+    render: r => <div>{tz.format(r.created_at, 'date.formats.medium')}</div>,
+  },
+  {
+    id: 'lti_version',
+    sortable: true,
+    header: I18n.t('Version'),
+    width: '8%',
+    textAlign: 'center',
+
+    render: r => <div>{'legacy_configuration_id' in r ? '1.1' : '1.3'}</div>,
+  },
+  {
+    id: 'on',
+    textAlign: 'center',
+    header: I18n.t('On/Off'),
+    width: '10%',
+    sortable: true,
+    render: r => {
+      const checkWorkflowState = window.ENV.FEATURES.lti_deactivate_registrations
+      const isOn = checkWorkflowState
+        ? r.workflow_state === 'active'
+        : r.account_binding?.workflow_state === 'on'
+
+      return <div>{isOn ? I18n.t('On') : I18n.t('Off')}</div>
+    },
+  },
+  {
+    id: 'status',
+    header: I18n.t('Status'),
+    width: '20%',
+    sortable: true,
+    render: r => {
+      // Check if feature flag is enabled
+      if (!window.ENV.LTI_DR_REGISTRATIONS_UPDATE) {
+        return <div>{I18n.t('Up to date')}</div>
+      }
+
+      const pendingUpdate = r.pending_update
+      if (pendingUpdate) {
+        return (
+          <Button
+            color="secondary"
+            size="small"
+            renderIcon={() => <IconRefreshLine />}
+            data-pendo="lti-registrations-update-available-button"
+            onClick={() => {
+              useRegistrationUpdateWizardModalState.getState().open(r)
+            }}
+          >
+            {I18n.t('Update Available')}
+          </Button>
+        )
+      } else {
+        return <div>{I18n.t('Up to date')}</div>
+      }
+    },
+  },
+]
+
+const CondensedColumns: ReadonlyArray<Column> = [
+  {
+    id: 'name',
+    header: I18n.t('App Name'),
+    width: '37%',
+    sortable: true,
+    render: r => {
+      const appName = (
+        <Flex display="inline-flex">
+          <ToolIconOrDefault
+            iconUrl={r.icon_url}
+            toolId={r.id}
+            toolName={r.name}
+            size={27}
+            marginRight={12}
+            hideFromScreenReader={true}
+          />
+          {r.name}
+        </Flex>
+      )
+      return (
+        <Link
+          as={RouterLink}
+          to={`/manage/${r.id}`}
+          isWithinText={false}
+          data-testid={`reg-link-${r.id}`}
+        >
+          {appName}
+        </Link>
+      )
+    },
+  },
+  {
+    id: 'nickname',
+    header: I18n.t('Nickname'),
+    width: '30%',
+    sortable: true,
+    render: r => (r.admin_nickname ? <Text wrap="break-word">{r.admin_nickname}</Text> : null),
+  },
+  {
+    id: 'installed',
+    header: I18n.t('Installed On'),
+    width: '15%',
+    sortable: true,
+    textAlign: 'center',
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - tz.format's third argument (zone) is optional at runtime but required by tsgo
+    render: r => <div>{tz.format(r.created_at, 'date.formats.medium')}</div>,
+  },
+  {
+    id: 'lti_version',
+    sortable: true,
+    header: I18n.t('Version'),
+    width: '10%',
+    textAlign: 'center',
+
+    render: r => <div>{'legacy_configuration_id' in r ? '1.1' : '1.3'}</div>,
+  },
+  {
+    id: 'on',
+    textAlign: 'center',
+    header: I18n.t('On/Off'),
+    width: '10%',
+    sortable: true,
+    render: r => {
+      const checkWorkflowState = window.ENV.FEATURES.lti_deactivate_registrations
+      const isOn = checkWorkflowState
+        ? r.workflow_state === 'active'
+        : r.account_binding?.workflow_state === 'on'
+
+      return <div>{isOn ? I18n.t('On') : I18n.t('Off')}</div>
+    },
+  },
+]
+
+const renderHeaderRow = (
+  props: {
+    sort: AppsSortProperty
+    dir: AppsSortDirection
+    updateSearchParams: (
+      params: Partial<Record<keyof ManageSearchParams, string | undefined>>,
+    ) => void
+  },
+  columns: ReadonlyArray<Column>,
+) => (
   <Table.Row>
-    {Columns.map(({id, header, width, textAlign, sortable}) => (
+    {columns.map(({id, header, width, textAlign, sortable}) => (
       <Table.ColHeader
         key={id}
         id={id}
@@ -252,7 +547,10 @@ const renderHeaderRow = (props: {
             }
           : {})}
       >
-        {header}
+        <>
+          <span aria-hidden="true">{header}</span>
+          <ScreenReaderContent>{I18n.t('sort by %{header}', {header})}</ScreenReaderContent>
+        </>
       </Table.ColHeader>
     ))}
   </Table.Row>
@@ -260,6 +558,7 @@ const renderHeaderRow = (props: {
 
 export const AppsTable = (appsTableProps: AppsTableProps) => {
   const {apps, stale, ...restOfProps} = appsTableProps
+
   return (
     <div
       style={{
@@ -306,10 +605,20 @@ const AppsTableResponsiveWrapper = React.memo(
         )}
       </Responsive>
     )
-  }
+  },
 )
 
-type AppsTableInnerProps = {
+const confirmDeletion = (registration: LtiRegistration): Promise<boolean> =>
+  confirmDanger({
+    title: I18n.t('Delete App'),
+    confirmButtonLabel: I18n.t('Delete'),
+    heading: I18n.t('You are about to delete “%{appName}”.', {appName: registration.name}),
+    message: I18n.t(
+      'You are removing the app from the entire account. It will be removed from its placements and any resource links to it will stop working. To reestablish placements and links, you will need to reinstall the app.',
+    ),
+  })
+
+export type AppsTableInnerProps = {
   responsiveProps: ResponsivePropsObject | null | undefined
   tableProps: Omit<AppsTableProps, 'stale' | 'pageCount' | 'updatePage'>
 }
@@ -317,26 +626,78 @@ type AppsTableInnerProps = {
 export const AppsTableInner = React.memo((props: AppsTableInnerProps) => {
   const [, setManageSearchParams] = useManageSearchParams()
   const responsiveProps = props.responsiveProps
-  const {page, apps} = props.tableProps
+  const deleteMutation = useDeleteRegistration()
+  const {page, apps, accountId} = props.tableProps
+  const columns = window.ENV.FEATURES.lti_registrations_next
+    ? window.ENV.LTI_DR_REGISTRATIONS_UPDATE
+      ? CondensedColumnsWithStatus
+      : CondensedColumns
+    : Columns
+
+  const deleteApp = React.useCallback(
+    async (app: LtiRegistration) => {
+      if (await confirmDeletion(app)) {
+        try {
+          await deleteMutation.mutateAsync({
+            registrationId: app.id,
+            accountId,
+          })
+          showFlashAlert({
+            type: 'success',
+            message: I18n.t('App “%{appName}” successfully deleted', {appName: app.name}),
+          })
+        } catch {
+          showFlashAlert({
+            type: 'error',
+            message: I18n.t('There was an error deleting “%{appName}”', {appName: app.name}),
+          })
+        }
+      }
+    },
+    [deleteMutation, accountId],
+  )
   const rows = React.useMemo(() => {
     return props.tableProps.apps.data.map(row => (
       <Table.Row key={row.id}>
-        {Columns.map(({id, render, textAlign}) => (
+        {columns.map(({id, render, textAlign}) => (
           <Table.Cell key={id} textAlign={textAlign}>
-            {render(row, {deleteApp: props.tableProps.deleteApp})}
+            {render(row, {deleteApp})}
           </Table.Cell>
         ))}
       </Table.Row>
     ))
-  }, [props.tableProps.apps, props.tableProps.deleteApp])
+  }, [props.tableProps.apps.data, columns, deleteApp])
 
   const layout = responsiveProps && responsiveProps.layout === 'stacked' ? 'stacked' : 'fixed'
 
+  const totalScreenReaderText = I18n.t(
+    {one: 'Showing %{count} registration.', other: 'Showing %{count} registrations.'},
+    {count: props.tableProps.apps.total},
+  )
+
+  const col = columns.find(column => column.id === props.tableProps.sort)
+  // Default sortedScreenReaderText to an empty string for the initial load, when
+  // props.tableProps.sort isn't set yet
+  let sortedScreenReaderText = ''
+  if (col) {
+    sortedScreenReaderText =
+      props.tableProps.dir === 'asc'
+        ? I18n.t('Sorted by %{column} in ascending order', {column: col.header})
+        : I18n.t('Sorted by %{column} in descending order', {column: col.header})
+  }
+
   return (
     <>
+      <Alert
+        liveRegion={() => document.getElementById('flash_screenreader_holder')!}
+        liveRegionPoliteness="polite"
+        screenReaderOnly
+      >
+        {`${totalScreenReaderText} ${sortedScreenReaderText}`}
+      </Alert>
       <Table {...props.responsiveProps} caption={I18n.t('Installed Apps')} layout={layout}>
         <Table.Head renderSortLabel={I18n.t('Sort by')}>
-          {renderHeaderRow(props.tableProps)}
+          {renderHeaderRow(props.tableProps, columns)}
         </Table.Head>
         <Table.Body>{rows}</Table.Body>
       </Table>
@@ -352,8 +713,8 @@ export const AppsTableInner = React.memo((props: AppsTableInnerProps) => {
       >
         <div style={{flex: layout === 'stacked' ? undefined : 1}}>
           {I18n.t('%{first_item} - %{last_item} of %{total_items} displayed', {
-            first_item: (page - 1) * MANAGE_APPS_PAGE_LIMIT + 1,
-            last_item: Math.min(page * MANAGE_APPS_PAGE_LIMIT, apps.total),
+            first_item: (page - 1) * LIST_REGISTRATIONS_PAGE_LIMIT + 1,
+            last_item: Math.min(page * LIST_REGISTRATIONS_PAGE_LIMIT, apps.total),
             total_items: apps.total,
           })}
         </div>
@@ -365,18 +726,19 @@ export const AppsTableInner = React.memo((props: AppsTableInnerProps) => {
             labelNext="Next Page"
             labelPrev="Previous Page"
           >
-            {Array.from(Array(Math.ceil(apps.total / MANAGE_APPS_PAGE_LIMIT))).map((_, i) => (
-              <Pagination.Page
-                // eslint-disable-next-line react/no-array-index-key
-                key={i}
-                current={i === page - 1}
-                onClick={() => {
-                  setManageSearchParams({page: (i + 1).toString()})
-                }}
-              >
-                {i + 1}
-              </Pagination.Page>
-            ))}
+            {Array.from(Array(Math.ceil(apps.total / LIST_REGISTRATIONS_PAGE_LIMIT))).map(
+              (_, i) => (
+                <Pagination.Page
+                  key={i}
+                  current={i === page - 1}
+                  onClick={() => {
+                    setManageSearchParams({page: (i + 1).toString()})
+                  }}
+                >
+                  {i + 1}
+                </Pagination.Page>
+              ),
+            )}
           </Pagination>
         </div>
         {layout === 'stacked' ? null : <div style={{flex: 1}} />}

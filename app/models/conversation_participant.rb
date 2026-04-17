@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class ConversationParticipant < ActiveRecord::Base
+class ConversationParticipant < ApplicationRecord
   include Workflow
   include TextHelper
   include SimpleTags
@@ -37,7 +37,7 @@ class ConversationParticipant < ActiveRecord::Base
   scope :unread, -> { where(workflow_state: "unread") }
   scope :archived, -> { where(workflow_state: "archived") }
   scope :starred, -> { where(label: "starred") }
-  scope :sent, -> { where.not(visible_last_authored_at: nil).order("visible_last_authored_at DESC, conversation_id DESC") }
+  scope :sent, -> { where.not(visible_last_authored_at: nil).order(visible_last_authored_at: :desc, conversation_id: :desc) }
   scope :for_masquerading_user, lambda { |masquerading_user, user_being_viewed|
     # site admins can see everything
     next all if masquerading_user.account_users.active.map(&:account_id).include?(Account.site_admin.id)
@@ -69,7 +69,7 @@ class ConversationParticipant < ActiveRecord::Base
     own_root_account_ids.sort!.uniq!
     id_string = "[" + own_root_account_ids.join("][") + "]"
     root_account_id_matcher = "'%[' || REPLACE(conversation_participants.root_account_ids, ',', ']%[') || ']%'"
-    where("conversation_participants.root_account_ids <> '' AND " + like_condition("?", root_account_id_matcher, false), id_string)
+    where("conversation_participants.root_account_ids <> '' AND " + like_condition("?", root_account_id_matcher, downcase: false), id_string)
   }
 
   # Produces a subscope for conversations in which the given users are
@@ -227,7 +227,7 @@ class ConversationParticipant < ActiveRecord::Base
                          .select("conversation_messages.*, conversation_message_participants.tags")
                          .joins(:conversation_message_participants)
                          .where("conversation_id=? AND user_id=?", conversation_id, user_id)
-                         .order("created_at DESC, id DESC")
+                         .order(created_at: :desc, id: :desc)
     end
   end
 
@@ -352,13 +352,13 @@ class ConversationParticipant < ActiveRecord::Base
         if operation == :delete
           scope.delete_all
         else
-          scope.update_all(workflow_state: "deleted", deleted_at: Time.now)
+          scope.update_all(workflow_state: "deleted", deleted_at: Time.zone.now)
         end
       else
         if operation == :delete
           scope.where(conversation_message_id: to_delete).delete_all
         else
-          scope.where(conversation_message_id: to_delete).update_all(workflow_state: "deleted", deleted_at: Time.now)
+          scope.where(conversation_message_id: to_delete).update_all(workflow_state: "deleted", deleted_at: Time.zone.now)
         end
         # if the only messages left are generated ones, e.g. "added
         # bob to the conversation", delete those too
@@ -399,7 +399,7 @@ class ConversationParticipant < ActiveRecord::Base
   end
 
   def starred
-    read_attribute(:label) == "starred"
+    label == "starred"
   end
   alias_method :starred?, :starred
 
@@ -407,8 +407,7 @@ class ConversationParticipant < ActiveRecord::Base
     # if starred were an actual boolean column, this is the method that would
     # be used to convert strings to appropriate boolean values (e.g. 'true' =>
     # true and 'false' => false)
-    val = Canvas::Plugin.value_to_boolean(val)
-    write_attribute(:label, val ? "starred" : nil)
+    self.label = Canvas::Plugin.value_to_boolean(val) ? "starred" : nil
   end
 
   def one_on_one?
@@ -470,12 +469,12 @@ class ConversationParticipant < ActiveRecord::Base
     # (see above)
     if options[:recalculate_last_authored_at]
       my_latest = conversation.conversation_messages.human.by_user(user_id).first
-      self.last_authored_at = my_latest ? my_latest.created_at : nil
+      self.last_authored_at = my_latest&.created_at
     end
   end
 
-  def update_cached_data!(*args)
-    update_cached_data(*args)
+  def update_cached_data!(*)
+    update_cached_data(*)
     save!
   end
 
@@ -484,7 +483,7 @@ class ConversationParticipant < ActiveRecord::Base
   end
 
   def context_tags
-    read_attribute(:tags) ? tags.grep(/\A(course|group)_\d+\z/) : infer_tags
+    self["tags"] ? tags.grep(/\A(course|group)_\d+\z/) : infer_tags
   end
 
   def infer_tags
@@ -504,9 +503,21 @@ class ConversationParticipant < ActiveRecord::Base
           ConversationMessageParticipant.joins(:conversation_message)
                                         .where(conversation_messages: { conversation_id: }, user_id:)
                                         .update_all(user_id: new_user.id)
-          update_attribute :user, new_user
-          clear_participants_cache
-          existing = self
+          begin
+            update_attribute :user, new_user
+            clear_participants_cache
+            existing = self
+          rescue ActiveRecord::RecordNotUnique
+            # the target user already has a CP for this conversation on self's shard,
+            # but the check above queried the conversation's shard and didn't find it
+            existing = conversation.conversation_participants.where(user_id: new_user).first
+            existing ||= shard.activate { self.class.where(conversation_id: self[:conversation_id], user_id: new_user.id).first }
+            if existing && existing != self
+              existing.update_attribute(:workflow_state, workflow_state) if unread? || existing.archived?
+              existing.clear_participants_cache
+            end
+            destroy
+          end
         end
         # replicate ConversationParticipant record to the new user's shard
         if old_shard != new_user.shard && new_user.shard != conversation.shard && !new_user.all_conversations.where(conversation_id: conversation).exists?
@@ -595,7 +606,7 @@ class ConversationParticipant < ActiveRecord::Base
       participant = user.all_conversations.where(conversation_id:).first
       raise t("not_participating", "The user is not participating in this conversation") unless participant
 
-      InstStatsd::Statsd.increment("inbox.conversation.unarchived.legacy") if participant[:workflow_state] == "archived" && ["mark_as_read", "mark_as_unread"].include?(update_params[:event])
+      InstStatsd::Statsd.distributed_increment("inbox.conversation.unarchived.legacy") if participant[:workflow_state] == "archived" && ["mark_as_read", "mark_as_unread"].include?(update_params[:event])
       participant.update_one(update_params)
     end
   end

@@ -25,32 +25,26 @@ owned_globs:
 - app/messages/added_to_conversation.email.html.erb
 - app/messages/added_to_conversation.sms.erb
 - app/messages/added_to_conversation.summary.erb
-- app/messages/added_to_conversation.twitter.erb
 - app/messages/conversation_created.email.erb
 - app/messages/conversation_created.email.html.erb
 - app/messages/conversation_created.sms.erb
 - app/messages/conversation_created.summary.erb
-- app/messages/conversation_created.twitter.erb
 - app/messages/conversation_message.email.erb
 - app/messages/conversation_message.email.html.erb
 - app/messages/conversation_message.sms.erb
 - app/messages/conversation_message.summary.erb
-- app/messages/conversation_message.twitter.erb
 - app/messages/discussion_mention.email.erb
 - app/messages/discussion_mention.email.html.erb
 - app/messages/discussion_mention.sms.erb
 - app/messages/discussion_mention.summary.erb
-- app/messages/discussion_mention.twitter.erb
 - app/messages/new_discussion_entry.email.erb
 - app/messages/new_discussion_entry.email.html.erb
 - app/messages/new_discussion_entry.sms.erb
 - app/messages/new_discussion_entry.summary.erb
-- app/messages/new_discussion_entry.twitter.erb
 - app/messages/new_discussion_topic.email.erb
 - app/messages/new_discussion_topic.email.html.erb
 - app/messages/new_discussion_topic.sms.erb
 - app/messages/new_discussion_topic.summary.erb
-- app/messages/new_discussion_topic.twitter.erb
 - app/models/conversation*.rb
 - app/models/discussion_entry*.rb
 - app/models/discussion_topic*.rb
@@ -91,7 +85,6 @@ owned_globs:
 - lib/data_fixup/turn_off_anonymous_grading_for_discussion_topics_and_quizzes.rb
 - spec/apis/v1/conversations_api_spec.rb
 - spec/apis/v1/discussion*_spec.rb
-- spec/contracts/service_consumers/api/provider_states_for_consumer/discussions_provider_states.rb
 - spec/controllers/conversations_controller_spec.rb
 - spec/controllers/discussion_entries_controller_spec.rb
 - spec/controllers/discussion_topics_api_controller_spec.rb
@@ -157,3 +150,5 @@ owned_globs:
 - spec/views/discussion_topics/show.html.erb_spec.rb
 - spec/views/shared/_discussion_entry.html.erb_spec.rb
 - ui/features/conversations/**/*
+github:
+  team: ''

@@ -25,7 +25,6 @@ shared_examples_for "submittable" do
         @item_without_assignment = submittable_without_assignment
         @item_with_assignment, @assignment = submittable_and_assignment
 
-        @course.root_account.enable_feature!(:course_paces)
         @course.enable_course_paces = true
         @course.save!
         @course_pace = course_pace_model(course: @course)
@@ -60,7 +59,7 @@ end
 describe DiscussionTopic do
   let(:submittable_class) { DiscussionTopic }
 
-  include_examples "submittable" do
+  it_behaves_like "submittable" do
     def submittable_without_assignment
       discussion_topic_model(user: @teacher)
     end
@@ -78,7 +77,7 @@ end
 describe WikiPage do
   let(:submittable_class) { WikiPage }
 
-  include_examples "submittable" do
+  it_behaves_like "submittable" do
     def submittable_without_assignment
       wiki_page_model(course: @course)
     end

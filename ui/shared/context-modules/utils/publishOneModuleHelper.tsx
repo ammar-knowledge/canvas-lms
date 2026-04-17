@@ -18,25 +18,74 @@
 
 import $ from 'jquery'
 import React from 'react'
-import ReactDOM from 'react-dom'
-import doFetchApi from '@canvas/do-fetch-api-effect'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {View} from '@instructure/ui-view'
+import {Text} from '@instructure/ui-text'
+import {List} from '@instructure/ui-list'
+import type {Root} from 'react-dom/client'
+import {render} from '@canvas/react'
+import doFetchApi, {type DoFetchApiResults} from '@canvas/do-fetch-api-effect'
+import {showFlashAlert} from '@instructure/platform-alerts'
 import ContextModulesPublishIcon from '../react/ContextModulesPublishIcon'
 import {updateModuleItem, itemContentKey} from '../jquery/utils'
 import RelockModulesDialog from '@canvas/relock-modules-dialog'
 import type {
   CanvasId,
-  DoFetchModuleResponse,
-  DoFetchModuleItemsResponse,
   KeyedModuleItems,
   ModuleItem,
   ModuleItemStateData,
+  FetchedModuleItem,
+  FetchedModule,
+  PublishWarningItem,
 } from '../react/types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('context_modules_utils_publishmoduleitemhelper')
+const I18n = createI18nScope('context_modules_utils_publishmoduleitemhelper')
 
-export function publishModule(courseId: CanvasId, moduleId: CanvasId, skipItems: boolean) {
+interface PublishingModuleProps {
+  courseId: CanvasId
+  moduleId: CanvasId
+  onPublishComplete?: () => void
+  setIsPublishing?: (isPublishing: boolean) => void
+  moduleIsPublished?: boolean
+  skipItems: boolean
+}
+
+function reasonLabel(reason: PublishWarningItem['reason']): string {
+  switch (reason) {
+    case 'file_in_hidden_folder':
+      return I18n.t('file is in a hidden folder')
+    case 'usage_rights_required':
+      return I18n.t('usage rights are required')
+    case 'unpublishable':
+      return I18n.t('cannot be published')
+    default:
+      return I18n.t('could not be published')
+  }
+}
+
+function buildPublishWarningMessage(items: PublishWarningItem[]): React.ReactNode {
+  return (
+    <View>
+      <Text>{I18n.t('Some module items could not be published:')}</Text>
+      <List isUnstyled margin="x-small 0 0 small">
+        {items.map(item => (
+          <List.Item key={item.id}>
+            {item.title} — {reasonLabel(item.reason)}
+          </List.Item>
+        ))}
+      </List>
+    </View>
+  )
+}
+
+export function publishModule({
+  courseId,
+  moduleId,
+  onPublishComplete = () => {},
+  setIsPublishing,
+  moduleIsPublished,
+  skipItems,
+}: PublishingModuleProps) {
   const loadingMessage = skipItems
     ? I18n.t('Publishing module')
     : I18n.t('Publishing module and items')
@@ -50,11 +99,21 @@ export function publishModule(courseId: CanvasId, moduleId: CanvasId, skipItems:
     true,
     skipItems,
     loadingMessage,
-    successMessage
+    successMessage,
+    onPublishComplete,
+    setIsPublishing,
+    moduleIsPublished,
   )
 }
 
-export function unpublishModule(courseId: CanvasId, moduleId: CanvasId, skipItems: boolean) {
+export function unpublishModule({
+  courseId,
+  moduleId,
+  onPublishComplete = () => {},
+  setIsPublishing,
+  moduleIsPublished,
+  skipItems,
+}: PublishingModuleProps) {
   const loadingMessage = skipItems
     ? I18n.t('Unpublishing module')
     : I18n.t('Unpublishing module and items')
@@ -67,7 +126,10 @@ export function unpublishModule(courseId: CanvasId, moduleId: CanvasId, skipItem
     false,
     skipItems,
     loadingMessage,
-    successMessage
+    successMessage,
+    onPublishComplete,
+    setIsPublishing,
+    moduleIsPublished,
   )
 }
 
@@ -77,17 +139,21 @@ export function batchUpdateOneModuleApiCall(
   newPublishedState: boolean,
   skipContentTags: boolean,
   loadingMessage: string,
-  successMessage: string
+  successMessage: string,
+  onPublishComplete?: () => void,
+  setIsPublishing?: (isPublishing: boolean) => void,
+  moduleIsPublished?: boolean,
 ) {
   const path = `/api/v1/courses/${courseId}/modules/${moduleId}`
 
-  const published = getModulePublishState(moduleId)
+  const published = moduleIsPublished || getModulePublishState(moduleId)
+  setIsPublishing?.(true)
   exportFuncs.renderContextModulesPublishIcon(courseId, moduleId, published, true, loadingMessage)
   exportFuncs.updateModuleItemsPublishedStates(moduleId, undefined, true)
   exportFuncs.disableContextModulesPublishMenu(true)
   const relockModulesDialog = new RelockModulesDialog()
   let published_result: boolean
-  return doFetchApi({
+  return doFetchApi<FetchedModule>({
     path,
     method: 'PUT',
     body: {
@@ -97,10 +163,29 @@ export function batchUpdateOneModuleApiCall(
       },
     },
   })
-    .then((result: DoFetchModuleResponse) => {
-      if (result.json.publish_warning) {
+    .then(result => {
+      if (result.json!.publish_warning) {
+        const warningItems = result.json!.publish_warning_items
+        const message =
+          warningItems && warningItems.length > 0
+            ? buildPublishWarningMessage(warningItems)
+            : I18n.t('Some module items could not be published')
+        showFlashAlert({message, type: 'warning', err: null})
+      }
+      if (result.json!.unpublish_warning) {
         showFlashAlert({
-          message: I18n.t('Some module items could not be published'),
+          message: (
+            <>
+              <View as="span" display="block">
+                {I18n.t('Some module items could not be unpublished.')}
+              </View>
+              <View as="span" display="block">
+                {I18n.t(
+                  'Items with student submissions or other restrictions cannot be unpublished.',
+                )}
+              </View>
+            </>
+          ),
           type: 'warning',
           err: null,
         })
@@ -110,7 +195,7 @@ export function batchUpdateOneModuleApiCall(
       return exportFuncs
         .fetchModuleItemPublishedState(courseId, moduleId)
         .then(() => {
-          published_result = result.json.published
+          published_result = result.json!.published
 
           showFlashAlert({
             message: successMessage,
@@ -118,6 +203,7 @@ export function batchUpdateOneModuleApiCall(
             err: null,
             srOnly: true,
           })
+          onPublishComplete?.()
         })
         .finally(() => {
           exportFuncs.disableContextModulesPublishMenu(false)
@@ -126,8 +212,11 @@ export function batchUpdateOneModuleApiCall(
             moduleId,
             published_result,
             false,
-            loadingMessage
+            loadingMessage,
           )
+          if (published === newPublishedState) {
+            setIsPublishing?.(false)
+          }
         })
     })
     .catch((error: Error) => {
@@ -136,6 +225,7 @@ export function batchUpdateOneModuleApiCall(
         err: error,
         type: 'error',
       })
+      setIsPublishing?.(false)
       exportFuncs.updateModuleItemsPublishedStates(moduleId, undefined, false)
     })
 }
@@ -143,16 +233,16 @@ export function batchUpdateOneModuleApiCall(
 export const fetchModuleItemPublishedState = (
   courseId: CanvasId,
   moduleId: CanvasId,
-  nextLink?: string
-) => {
-  return doFetchApi({
+  nextLink?: string,
+): Promise<DoFetchApiResults<FetchedModuleItem[]> | void> => {
+  return doFetchApi<FetchedModuleItem[]>({
     path: nextLink || `/api/v1/courses/${courseId}/modules/${moduleId}/items`,
     method: 'GET',
   })
-    .then((response: DoFetchModuleItemsResponse) => {
+    .then(response => {
       const {json, link} = response
       const moduleItems = exportFuncs.getAllModuleItems()
-      json.forEach((item: any) => {
+      json?.forEach(item => {
         exportFuncs.updateModuleItemPublishedState(item.id, item.published, false, moduleItems)
       })
       if (link?.next) {
@@ -166,7 +256,7 @@ export const fetchModuleItemPublishedState = (
         message: I18n.t('There was an error while saving your changes'),
         type: 'error',
         err: error,
-      })
+      }),
     )
 }
 
@@ -195,7 +285,7 @@ export function getAllModuleItems(): KeyedModuleItems {
 export function updateModuleItemsPublishedStates(
   moduleId: CanvasId,
   published: boolean | undefined,
-  isPublishing: boolean
+  isPublishing: boolean,
 ) {
   const moduleItems = exportFuncs.getAllModuleItems()
 
@@ -208,7 +298,7 @@ export function updateModuleItemsPublishedStates(
         element as HTMLElement,
         published,
         isPublishing,
-        moduleItems
+        moduleItems,
       )
     })
 }
@@ -218,7 +308,7 @@ export function updateModuleItemPublishedState(
   itemIdOrElem: string | HTMLElement,
   isPublished: boolean | undefined,
   isPublishing?: boolean,
-  allModuleItems?: KeyedModuleItems | undefined
+  allModuleItems?: KeyedModuleItems | undefined,
 ) {
   const publishIcon =
     typeof itemIdOrElem === 'string'
@@ -260,29 +350,54 @@ export function renderContextModulesPublishIcon(
   moduleId: string | number,
   published: boolean | undefined,
   isPublishing: boolean,
-  loadingMessage?: string
+  loadingMessage?: string,
 ) {
   const publishIcon = findModulePublishIcon(moduleId)
   if (publishIcon) {
+    const moduleElement = $(publishIcon).parents('.context_module')[0]
+    if (moduleElement) {
+      moduleElement.setAttribute('data-workflow-state', published ? 'active' : 'unpublished')
+    }
     const moduleName =
       publishIcon?.closest('.context_module')?.querySelector('.ig-header-title')?.textContent ||
       `module${moduleId}`
-    ReactDOM.render(
-      <ContextModulesPublishIcon
-        courseId={courseId}
-        moduleId={moduleId}
-        moduleName={moduleName}
-        isPublishing={isPublishing}
-        published={published}
-        loadingMessage={loadingMessage}
-      />,
-      publishIcon
-    )
+    let root = publishIcon.reactRoot
+    if (root === undefined) {
+      root = render(
+        <ContextModulesPublishIcon
+          courseId={courseId}
+          moduleId={moduleId}
+          moduleName={moduleName}
+          isPublishing={isPublishing}
+          published={published}
+          loadingMessage={loadingMessage}
+        />,
+        publishIcon,
+      )
+      publishIcon.reactRoot = root
+    } else {
+      root.render(
+        <ContextModulesPublishIcon
+          courseId={courseId}
+          moduleId={moduleId}
+          moduleName={moduleName}
+          isPublishing={isPublishing}
+          published={published}
+          loadingMessage={loadingMessage}
+        />,
+      )
+    }
   }
 }
 
-function findModulePublishIcon(moduleId: CanvasId) {
-  return document.querySelector(`#context_module_${moduleId} .module-publish-icon`)
+type PublishIcon = {
+  reactRoot?: Root
+} & Element
+
+function findModulePublishIcon(moduleId: CanvasId): PublishIcon | null {
+  return document.querySelector(
+    `#context_module_${moduleId} .module-publish-icon`,
+  ) as PublishIcon | null
 }
 
 function getModulePublishState(moduleId: CanvasId) {
@@ -295,7 +410,7 @@ function getModulePublishState(moduleId: CanvasId) {
 export function disableContextModulesPublishMenu(disabled: boolean) {
   // I'm not crazy about leaning on a global, but it's actually
   // the cleanest way to go about disabling the Publish All button
-  window.modules?.updatePublishMenuDisabledState(disabled)
+  ;(window as any).modules?.updatePublishMenuDisabledState(disabled)
 }
 
 // this little trick is so that I can spy on funcions

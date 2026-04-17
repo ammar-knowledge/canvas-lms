@@ -67,15 +67,6 @@ describe "help dialog" do
       expect(f("#help_tray a[href='#teacher_feedback']")).to be_displayed
     end
 
-    it "shows the support url link in global nav correctly" do
-      # if @domain_root_account or Account.default have settings[:support_url] set there should be a link to that site
-      support_url = "http://example.com/support"
-      Account.default.update_attribute(:settings, { support_url: })
-      get "/dashboard"
-      link = f("a[href='#{support_url}']")
-      expect(link["id"]).to eq "global_nav_help_link"
-    end
-
     it "allows sending the teacher a message" do
       Setting.set("show_feedback_link", "true")
       course_with_ta(course: @course)
@@ -102,9 +93,6 @@ describe "help dialog" do
       expect(cm.recipients.count).to eq 2
       expect(cm.body).to match(/test message/)
     end
-
-    # TODO: reimplement per CNVS-29608, but make sure we're testing at the right level
-    it "should allow submitting a ticket"
   end
 
   context "help dialog as a teacher" do
@@ -135,7 +123,7 @@ describe "help dialog" do
       settings_menu = f("#speed_grader_settings_mount_point")
       settings_menu.click
 
-      trigger = f("ul[role=menu] span[name=help][role=menuitem]")
+      trigger = f("div[role=menu] span[name=help][role=menuitem]")
 
       trigger.location_once_scrolled_into_view
       expect(trigger).to be_displayed
@@ -163,30 +151,25 @@ describe "help dialog" do
       wait_for_ajaximations
       f("#global_nav_help_link").click
       wait_for_ajaximations
-      expect(f("#help_tray")).to_not include_text("Customize this menu")
+      expect(f("#help_tray")).not_to include_text("Customize this menu")
     end
   end
 
   context "featured and new links" do
     before do
       user_logged_in(active_all: true)
-      Account.site_admin.enable_feature! :featured_help_links
       Account.default.account_users.create!(user: @user)
     end
 
     it "has the default link at the top of the tray" do
       get "/accounts/#{Account.default.id}/settings"
-      button = f(".HelpMenuOptions__Container button")
-      scroll_into_view(button)
-      button.click
+      scroll_to_click_element(f(".HelpMenuOptions__Container button"))
       fj('[role="menuitemradio"] span:contains("Add Custom Link")').click
       replace_content fj('#custom_help_link_settings input[name$="[text]"]:visible'), "FEATURED LINK"
       replace_content fj('#custom_help_link_settings textarea[name$="[subtext]"]:visible'), "FEATURED subtext"
       replace_content fj('#custom_help_link_settings input[name$="[url]"]:visible'), "https://featuredurl.example.com"
-      fj('#custom_help_link_settings fieldset .ic-Label:contains("Featured"):visible').click
-      button = f('#custom_help_link_settings button[type="submit"]')
-      scroll_into_view(button)
-      button.click
+      scroll_to_click_element(fj('#custom_help_link_settings fieldset .ic-Label:contains("Featured"):visible'))
+      scroll_to_click_element(f('#custom_help_link_settings button[type="submit"]'))
       form = f("#account_settings")
       expect_new_page_load { form.submit }
       f("#global_nav_help_link").click
@@ -196,17 +179,13 @@ describe "help dialog" do
 
     it "has a New Link in the tray" do
       get "/accounts/#{Account.default.id}/settings"
-      button = f(".HelpMenuOptions__Container button")
-      scroll_into_view(button)
-      button.click
-      fj('[role="menuitemradio"] span:contains("Add Custom Link")').click
+      scroll_to_click_element(f(".HelpMenuOptions__Container button"))
+      scroll_to_click_element(fj('[role="menuitemradio"] span:contains("Add Custom Link")'))
       replace_content fj('#custom_help_link_settings input[name$="[text]"]:visible'), "NEW LINK"
       replace_content fj('#custom_help_link_settings textarea[name$="[subtext]"]:visible'), "NEW subtext"
       replace_content fj('#custom_help_link_settings input[name$="[url]"]:visible'), "https://newurl.example.com"
-      fj('#custom_help_link_settings fieldset .ic-Label:contains("New"):visible').click
-      button = f('#custom_help_link_settings button[type="submit"]')
-      scroll_into_view(button)
-      button.click
+      scroll_to_click_element(fj('#custom_help_link_settings fieldset .ic-Label:contains("New"):visible'))
+      scroll_to_click_element(f('#custom_help_link_settings button[type="submit"]'))
       form = f("#account_settings")
       expect_new_page_load { form.submit }
       f("#global_nav_help_link").click
@@ -224,7 +203,7 @@ describe "help dialog" do
     it "opens up the welcome tour on page load and shows the welcome tour link and opens the tour when clicked" do
       course_with_ta(course: @course)
       get "/"
-      driver.local_storage.clear
+      clear_local_storage
       wait_for_ajaximations
 
       get "/courses/#{@course.id}"
@@ -250,7 +229,7 @@ describe "help dialog" do
     it "shows the welcome tour for Account Admins" do
       Account.default.account_users.create!(user: @user)
       get "/"
-      driver.local_storage.clear
+      clear_local_storage
       wait_for_ajaximations
 
       # Reload so the local storage clearing take effect

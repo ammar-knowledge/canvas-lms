@@ -138,8 +138,8 @@ describe('SubmissionTray', () => {
   }
 
   function carouselButton(label: string) {
-    const $buttons = [...content.querySelectorAll('button')]
-    return $buttons.find($button => $button.textContent.trim() === label)
+    const $buttons = Array.from(content.querySelectorAll('button')) as HTMLButtonElement[]
+    return $buttons.find($button => $button.textContent?.trim() === label)
   }
 
   function submitForStudentButton() {
@@ -159,8 +159,8 @@ describe('SubmissionTray', () => {
   }
 
   function studentGroupRequiredAlert() {
-    return [...document.querySelectorAll('div')].find($el =>
-      $el.textContent?.includes('you must select a student group')
+    return [...Array.from(document.querySelectorAll('div'))].find($el =>
+      $el.textContent?.includes('you must select a student group'),
     )
   }
 
@@ -286,10 +286,16 @@ describe('SubmissionTray', () => {
 
   test('shows SpeedGrader link if enabled', () => {
     const speedGraderUrl = encodeURI(
-      '/courses/1/gradebook/speed_grader?assignment_id=30&student_id=27'
+      '/courses/1/gradebook/speed_grader?assignment_id=30&student_id=27',
     )
     mountComponent()
     expect(speedGraderLink()?.getAttribute('href')).toEqual(speedGraderUrl)
+  })
+
+  test('SpeedGrader link opens in new tab', () => {
+    mountComponent()
+    expect(speedGraderLink()?.getAttribute('target')).toEqual('_blank')
+    expect(speedGraderLink()?.getAttribute('rel')).toEqual('noopener')
   })
 
   test('invokes "onAnonymousSpeedGraderClick" when the SpeedGrader link is clicked if the assignment is anonymous', () => {
@@ -298,7 +304,7 @@ describe('SubmissionTray', () => {
     props.assignment.gradingType = 'points'
     props.assignment.htmlUrl = 'http://htmlUrl/'
     props.assignment.published = true
-    props.onAnonymousSpeedGraderClick = jest.fn()
+    props.onAnonymousSpeedGraderClick = vi.fn()
 
     mountComponent()
     fireEvent.click(speedGraderLink()!)
@@ -311,7 +317,7 @@ describe('SubmissionTray', () => {
     expect(
       speedGraderLink()
         ?.getAttribute('href')
-        ?.match(/student_id/)
+        ?.match(/student_id/),
     ).toBe(null)
   })
 
@@ -473,8 +479,8 @@ describe('SubmissionTray', () => {
     props.isLastAssignment = true
     mountComponent()
     expect(
-      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button').length
-    ).toBe(0)
+      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button'),
+    ).toHaveLength(0)
   })
 
   test('shows assignment carousel with no right arrow when isFirstAssignment and isLastAssignment are true', () => {
@@ -482,8 +488,8 @@ describe('SubmissionTray', () => {
     props.isLastAssignment = true
     mountComponent()
     expect(
-      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button').length
-    ).toBe(0)
+      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button'),
+    ).toHaveLength(0)
   })
 
   test('shows assignment carousel with left arrow when isFirstAssignment and isLastAssignment are false', () => {
@@ -491,8 +497,8 @@ describe('SubmissionTray', () => {
     props.isLastAssignment = false
     mountComponent()
     expect(
-      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button').length
-    ).toBe(1)
+      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button'),
+    ).toHaveLength(1)
   })
 
   test('shows assignment carousel with right arrow when isFirstAssignment and isLastAssignment are false', () => {
@@ -500,8 +506,8 @@ describe('SubmissionTray', () => {
     props.isLastAssignment = false
     mountComponent()
     expect(
-      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button').length
-    ).toBe(1)
+      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button'),
+    ).toHaveLength(1)
   })
 
   test('shows assignment carousel with left arrow when isFirstAssignment is false', () => {
@@ -509,8 +515,8 @@ describe('SubmissionTray', () => {
     props.isLastAssignment = true
     mountComponent()
     expect(
-      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button').length
-    ).toBe(1)
+      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button'),
+    ).toHaveLength(1)
   })
 
   test('shows assignment carousel with no right arrow when isFirstAssignment is false', () => {
@@ -518,8 +524,8 @@ describe('SubmissionTray', () => {
     props.isLastAssignment = true
     mountComponent()
     expect(
-      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button').length
-    ).toBe(0)
+      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button'),
+    ).toHaveLength(0)
   })
 
   test('shows assignment carousel with right arrow when isLastAssignment is false', () => {
@@ -527,8 +533,8 @@ describe('SubmissionTray', () => {
     props.isLastAssignment = false
     mountComponent()
     expect(
-      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button').length
-    ).toBe(1)
+      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button'),
+    ).toHaveLength(1)
   })
 
   test('shows assignment carousel with no left arrow when isLastAssignment is false', () => {
@@ -536,8 +542,8 @@ describe('SubmissionTray', () => {
     props.isLastAssignment = false
     mountComponent()
     expect(
-      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button').length
-    ).toBe(0)
+      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button'),
+    ).toHaveLength(0)
   })
 
   test('shows student carousel', () => {
@@ -557,8 +563,8 @@ describe('SubmissionTray', () => {
       isLastStudent: true,
     })
     expect(
-      content.querySelectorAll('#student-carousel .left-arrow-button-container button').length
-    ).toBe(0)
+      content.querySelectorAll('#student-carousel .left-arrow-button-container button'),
+    ).toHaveLength(0)
   })
 
   test('shows student carousel with no right arrow when isFirstStudent and isLastStudent are true', function () {
@@ -567,8 +573,8 @@ describe('SubmissionTray', () => {
       isLastStudent: true,
     })
     expect(
-      content.querySelectorAll('#student-carousel .left-arrow-button-container button').length
-    ).toBe(0)
+      content.querySelectorAll('#student-carousel .left-arrow-button-container button'),
+    ).toHaveLength(0)
   })
 
   test('shows student carousel with left arrow when isFirstStudent and isLastStudent are false', function () {
@@ -577,8 +583,8 @@ describe('SubmissionTray', () => {
       isLastStudent: false,
     })
     expect(
-      content.querySelectorAll('#student-carousel .left-arrow-button-container button').length
-    ).toBe(1)
+      content.querySelectorAll('#student-carousel .left-arrow-button-container button'),
+    ).toHaveLength(1)
   })
 
   test('shows student carousel with right arrow when isFirstStudent and isLastStudent are false', function () {
@@ -587,8 +593,8 @@ describe('SubmissionTray', () => {
       isLastStudent: false,
     })
     expect(
-      content.querySelectorAll('#student-carousel .right-arrow-button-container button').length
-    ).toBe(1)
+      content.querySelectorAll('#student-carousel .right-arrow-button-container button'),
+    ).toHaveLength(1)
   })
 
   test('shows student carousel with left arrow when isFirstStudent is false', function () {
@@ -597,8 +603,8 @@ describe('SubmissionTray', () => {
       isLastStudent: true,
     })
     expect(
-      content.querySelectorAll('#student-carousel .left-arrow-button-container button').length
-    ).toBe(1)
+      content.querySelectorAll('#student-carousel .left-arrow-button-container button'),
+    ).toHaveLength(1)
   })
 
   test('shows student carousel with no right arrow when isFirstStudent is false', function () {
@@ -607,8 +613,8 @@ describe('SubmissionTray', () => {
       isLastStudent: true,
     })
     expect(
-      content.querySelectorAll('#student-carousel .right-arrow-button-container button').length
-    ).toBe(0)
+      content.querySelectorAll('#student-carousel .right-arrow-button-container button'),
+    ).toHaveLength(0)
   })
 
   test('shows student carousel with right arrow when isLastStudent is false', function () {
@@ -617,8 +623,8 @@ describe('SubmissionTray', () => {
       isLastStudent: false,
     })
     expect(
-      content.querySelectorAll('#student-carousel .right-arrow-button-container button').length
-    ).toBe(1)
+      content.querySelectorAll('#student-carousel .right-arrow-button-container button'),
+    ).toHaveLength(1)
   })
 
   test('shows student carousel with no left arrow when isLastStudent is false', function () {
@@ -627,8 +633,8 @@ describe('SubmissionTray', () => {
       isLastStudent: false,
     })
     expect(
-      content.querySelectorAll('#student-carousel .left-arrow-button-container button').length
-    ).toBe(0)
+      content.querySelectorAll('#student-carousel .left-arrow-button-container button'),
+    ).toHaveLength(0)
   })
 
   describe('Grade Input', function () {
@@ -653,7 +659,7 @@ describe('SubmissionTray', () => {
     })
 
     test('receives the "onGradeSubmission" callback given to the Tray', async () => {
-      const onGradeSubmission = jest.fn()
+      const onGradeSubmission = vi.fn()
       mountComponent({onGradeSubmission})
       const gradeInput = findGradeInput()
       await gradeInput?.inputValueAndBlur('EX')
@@ -729,7 +735,7 @@ describe('SubmissionTray', () => {
       test('includes a link to the originality report for the submission', function () {
         mountComponent()
         expect(
-          content.querySelector('a[href$="/submissions/27/turnitin/submission_2501"]')
+          content.querySelector('a[href$="/submissions/27/turnitin/submission_2501"]'),
         ).toBeInTheDocument()
       })
 
@@ -742,14 +748,14 @@ describe('SubmissionTray', () => {
         }
         mountComponent()
         expect(content.textContent).toContain(
-          'This submission has plagiarism data for multiple attachments.'
+          'This submission has plagiarism data for multiple attachments.',
         )
       })
 
       test('does not include a "multiple reports" when the submission only has one report', function () {
         mountComponent()
         expect(content.textContent).not.toContain(
-          'This submission has plagiarism data for multiple attachments.'
+          'This submission has plagiarism data for multiple attachments.',
         )
       })
     })
@@ -793,16 +799,68 @@ describe('SubmissionTray', () => {
   })
 
   test('cancelCommenting calls editSubmissionComment', () => {
-    const editSubmissionComment = jest.fn()
+    const editSubmissionComment = vi.fn()
     mountComponent({editedCommentId: '5', editSubmissionComment})
     reactRef.current.cancelCommenting()
     expect(editSubmissionComment).toHaveBeenCalledTimes(1)
   })
 
   test('cancelCommenting sets the edited submission comment id to null', () => {
-    const editSubmissionComment = jest.fn()
+    const editSubmissionComment = vi.fn()
     mountComponent({editedCommentId: '5', editSubmissionComment})
     reactRef.current.cancelCommenting()
     expect(editSubmissionComment).toHaveBeenCalledWith(null)
+  })
+
+  describe('Peer Review Sub Assignments', () => {
+    let peerReviewAssignment: typeof props.assignment
+    let peerReviewSubmission: typeof props.submission
+
+    beforeEach(() => {
+      peerReviewAssignment = {
+        ...props.assignment,
+        parentAssignmentId: '29',
+      }
+      peerReviewSubmission = {
+        ...props.submission,
+        assignmentId: '168',
+      }
+    })
+
+    test('SpeedGrader link does not include peer_review parameter for peer review sub assignments', () => {
+      const {getByText} = render(
+        <SubmissionTray
+          {...props}
+          assignment={peerReviewAssignment}
+          submission={peerReviewSubmission}
+        />,
+      )
+      const speedGraderLink = getByText('SpeedGrader').closest('a')
+      expect(speedGraderLink?.href).not.toMatch(/peer_review=true/)
+    })
+
+    test('SpeedGrader link uses sub-assignment ID for peer review sub assignments', () => {
+      const {getByText} = render(
+        <SubmissionTray
+          {...props}
+          assignment={peerReviewAssignment}
+          submission={peerReviewSubmission}
+        />,
+      )
+      const speedGraderLink = getByText('SpeedGrader').closest('a')
+      expect(speedGraderLink?.href).toMatch(/assignment_id=168/)
+    })
+
+    test('assignment link uses htmlUrl for peer review sub assignments', () => {
+      const assignment = {
+        ...props.assignment,
+        id: '168',
+        parentAssignmentId: '29',
+        htmlUrl: 'http://localhost/courses/1/assignments/29',
+      }
+      const {getByText} = render(<SubmissionTray {...props} assignment={assignment} />)
+      const assignmentLink = getByText('Book Report').closest('a')
+      expect(assignmentLink?.href).toBe('http://localhost/courses/1/assignments/29')
+    })
   })
 })

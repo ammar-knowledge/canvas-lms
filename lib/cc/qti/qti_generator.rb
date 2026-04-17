@@ -22,6 +22,7 @@ module CC
     class QtiGenerator
       include CC::CCHelper
       include QtiItems
+
       delegate :add_error, :export_object?, :add_exported_asset, :create_key, to: :@manifest
 
       def initialize(manifest, resources_node, html_exporter)
@@ -33,8 +34,8 @@ module CC
         @html_exporter = html_exporter
       end
 
-      def self.generate_qti(*args)
-        qti = Qti::QtiGenerator.new(*args)
+      def self.generate_qti(*)
+        qti = Qti::QtiGenerator.new(*)
         qti.generate
       end
 
@@ -78,7 +79,7 @@ module CC
         generate_new_quizzes if include_new_quizzes_in_export?
       end
 
-      def generate_quiz(quiz, for_cc = true)
+      def generate_quiz(quiz, for_cc: true)
         add_exported_asset(quiz)
 
         cc_qti_migration_id = create_key(quiz)
@@ -92,7 +93,7 @@ module CC
 
         File.open(cc_qti_path, "w") do |file|
           doc = Builder::XmlMarkup.new(target: file, indent: 2)
-          generate_assessment(doc, quiz, cc_qti_migration_id, for_cc)
+          generate_assessment(doc, quiz, cc_qti_migration_id, for_cc:)
         end
 
         if for_cc
@@ -101,7 +102,7 @@ module CC
           canvas_qti_path = File.join(@export_dir, canvas_qti_rel_path)
           File.open(canvas_qti_path, "w") do |file|
             doc = Builder::XmlMarkup.new(target: file, indent: 2)
-            generate_assessment(doc, quiz, cc_qti_migration_id, false)
+            generate_assessment(doc, quiz, cc_qti_migration_id, for_cc: false)
           end
         end
 
@@ -145,10 +146,9 @@ module CC
 
           assessment_question_bank_ids.push(*quiz.assessment_question_bank_ids) if new_quizzes_bank_migration_enabled?
           begin
-            generate_quiz(quiz, false)
+            generate_quiz(quiz, for_cc: false)
           rescue
-            title = quiz.title rescue I18n.t("unknown_quiz", "Unknown quiz")
-            add_error(I18n.t("course_exports.errors.quiz", "The quiz \"%{title}\" failed to export", title:), $!)
+            add_error(I18n.t("course_exports.errors.quiz", "The quiz \"%{title}\" failed to export", title: quiz.title), $!)
           end
         end
 
@@ -162,7 +162,7 @@ module CC
         banks = AssessmentQuestionBank.where(id: bank_ids)
 
         banks.each do |bank|
-          next unless export_object?(bank)
+          next unless export_object?(bank) && (@user.nil? || bank.grants_right?(@user, :read))
 
           begin
             generate_question_bank(bank)
@@ -269,7 +269,7 @@ module CC
         end
       end
 
-      def generate_assessment(doc, quiz, migration_id, for_cc = true)
+      def generate_assessment(doc, quiz, migration_id, for_cc: true)
         doc.instruct!
 
         xsd_uri = for_cc ? "http://www.imsglobal.org/profile/cc/ccv1p1/ccv1p1_qtiasiv1p2p1_v1p0.xsd" : "http://www.imsglobal.org/xsd/ims_qtiasiv1p2p1.xsd"
@@ -328,6 +328,7 @@ module CC
               meta_field(meta_node, "bank_title", bank.title)
               meta_field(meta_node, "bank_type", bank.context_type) if new_quizzes_bank_migration_enabled?
               meta_field(meta_node, "bank_context_uuid", bank.context&.uuid)
+              meta_field(meta_node, "bank_state", bank.deleted_at ? "deleted" : "active")
             end # meta_node
 
             bank.assessment_questions.active.each do |aq|

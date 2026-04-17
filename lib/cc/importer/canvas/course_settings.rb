@@ -26,7 +26,7 @@ module CC::Importer::Canvas
     include CoursePacesConverter
     include BlueprintSettingsConverter
 
-    def settings_doc(file, html = false)
+    def settings_doc(file, html: false)
       path = @package_root.item_path(COURSE_SETTINGS_DIR, file)
       return nil unless File.exist? path
       return nil if File.size(path) > 25.decimal_megabytes.to_i # totally arbitrary hack to keep some broken exports from killing things
@@ -40,13 +40,14 @@ module CC::Importer::Canvas
 
     def convert_all_course_settings
       @course[:course] = convert_course_settings(settings_doc(COURSE_SETTINGS))
-      if (doc = settings_doc(SYLLABUS, true))
+      if (doc = settings_doc(SYLLABUS, html: true))
         @course[:course][:syllabus_body] = convert_syllabus(doc)
       end
       @course[:assignment_groups] = convert_assignment_groups(settings_doc(ASSIGNMENT_GROUPS))
       @course[:external_tools] = convert_external_tools(settings_doc(EXTERNAL_TOOLS))
       @course[:external_feeds] = convert_external_feeds(settings_doc(EXTERNAL_FEEDS))
       @course[:grading_standards] = convert_grading_standards(settings_doc(GRADING_STANDARDS))
+      @course[:nav_menu_links] = convert_nav_menu_links(settings_doc(NAV_MENU_LINKS))
       @course[:learning_outcomes] = convert_learning_outcomes(settings_doc(LEARNING_OUTCOMES))
       @course[:modules] = convert_modules(settings_doc(MODULE_META))
       @course[:course_paces] = convert_course_paces(settings_doc(COURSE_PACES))
@@ -81,7 +82,8 @@ module CC::Importer::Canvas
          banner_image_identifier_ref
          course_color
          alt_name
-         time_zone].each do |string_type|
+         time_zone
+         default_due_time].each do |string_type|
         val = get_node_val(doc, string_type)
         course[string_type] = val unless val.nil?
       end
@@ -119,7 +121,9 @@ module CC::Importer::Canvas
          restrict_enrollments_to_course_dates
          homeroom_course
          allow_final_grade_override
-         enable_course_paces].each do |bool_val|
+         enable_course_paces
+         conditional_release
+         hide_sections_on_course_users_page].each do |bool_val|
         val = get_bool_val(doc, bool_val)
         course[bool_val] = val unless val.nil?
       end
@@ -236,6 +240,18 @@ module CC::Importer::Canvas
       standards
     end
 
+    def convert_nav_menu_links(doc)
+      return [] unless doc
+
+      doc.css("navMenuLink").map do |node|
+        {
+          "migration_id" => node["identifier"],
+          "label" => get_node_val(node, "label"),
+          "url" => get_node_val(node, "url"),
+        }
+      end
+    end
+
     def convert_events(doc)
       events = []
       return events unless doc
@@ -252,6 +268,7 @@ module CC::Importer::Canvas
         event["rrule"] = get_node_val(node, "rrule")
         event["series_uuid"] = get_node_val(node, "series_uuid")
         event["series_head"] = get_node_val(node, "series_head", nil)
+        event["blackout_date"] = get_bool_val(node, "blackout_date", false)
         events << event
       end
 

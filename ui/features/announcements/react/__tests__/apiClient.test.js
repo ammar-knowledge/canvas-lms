@@ -22,7 +22,7 @@ import axios from '@canvas/axios'
 describe('apiClient', () => {
   describe('addExternalFeed', () => {
     it('provides arguments to the post request correctly', () => {
-      axios.post = jest.fn()
+      axios.post = vi.fn()
       apiClient.addExternalFeed(
         {
           contextType: 'course',
@@ -32,7 +32,7 @@ describe('apiClient', () => {
           url: 'reddit.com',
           verbosity: 'full',
           header_match: 'this # should work',
-        }
+        },
       )
       expect(axios.post).toHaveBeenCalledWith('/api/v1/courses/1/external_feeds', {
         url: 'reddit.com',

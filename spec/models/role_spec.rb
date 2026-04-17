@@ -238,7 +238,7 @@ describe Role do
         expect(get_base_type(all, bt)[:custom_roles][0][:name]).to eq "custom #{bt}"
       end
 
-      expect { Role.all_enrollment_roles_for_account(@sub_account) }.to_not raise_error
+      expect { Role.all_enrollment_roles_for_account(@sub_account) }.not_to raise_error
     end
 
     it "gets counts for all roles" do
@@ -274,66 +274,38 @@ describe Role do
 
     it "includes inactive roles" do
       @account.roles.each(&:deactivate!)
-      all = Role.all_enrollment_roles_for_account(@sub_account, true)
+      all = Role.all_enrollment_roles_for_account(@sub_account, include_inactive: true)
       @base_types.each do |bt|
         expect(get_base_type(all, bt)[:custom_roles][0][:name]).to eq "custom #{bt}"
       end
     end
 
-    context "with granular_permissions_manage_users FF disabled" do
-      before do
-        course_with_ta
-        @course.root_account.disable_feature!(:granular_permissions_manage_users)
-      end
-
-      it "sets manageable_by_user correctly with manage_admin_users permission restricted" do
-        @course.account.role_overrides.create!(role: ta_role, enabled: false, permission: :manage_admin_users)
-
-        roles = Role.role_data(@course, @ta)
-        [ta_role, teacher_role, designer_role].each do |role|
-          expect(roles.detect { |r| r[:id] == role.id }[:manageable_by_user]).to be_falsey
-        end
-        [student_role, observer_role].each do |role|
-          expect(roles.find { |r| r[:id] == role.id }[:manageable_by_user]).to be_truthy
-        end
-      end
-
-      it "sets manageable_by_user correctly with manage_students permission restricted" do
-        @course.account.role_overrides.create!(role: ta_role, enabled: true, permission: :manage_admin_users)
-        @course.account.role_overrides.create!(role: ta_role, enabled: false, permission: :manage_students)
-
-        roles = Role.role_data(@course, @ta)
-        expect(roles.find { |r| r[:id] == student_role.id }[:manageable_by_user]).to be_falsey
-        [observer_role, ta_role, teacher_role, designer_role].each do |role|
-          expect(roles.find { |r| r[:id] == role.id }[:manageable_by_user]).to be_truthy
-        end
-      end
-    end
-
-    context "with granular_permissions_manage_users FF enabled" do
+    context "with granular permissions" do
       before do
         course_with_teacher
         @role = custom_account_role("EnrollmentManager", account: @course.account)
         @admin = account_admin_user(account: @course.account, role: @role)
-        @course.root_account.enable_feature!(:granular_permissions_manage_users)
       end
 
       describe "does all the addable/deleteable by user stuff right" do
-        roles_to_test = %w[designer observer ta teacher student]
-        role_names = {
-          "designer" => "DesignerEnrollment",
-          "observer" => "ObserverEnrollment",
-          "ta" => "TaEnrollment",
-          "teacher" => "TeacherEnrollment",
-          "student" => "StudentEnrollment"
-        }
+        roles_to_test = %w[designer observer ta teacher student].freeze # rubocop:disable RSpec/LeakyLocalVariable
+        let(:role_names) do
+          {
+            "designer" => "DesignerEnrollment",
+            "observer" => "ObserverEnrollment",
+            "ta" => "TaEnrollment",
+            "teacher" => "TeacherEnrollment",
+            "student" => "StudentEnrollment"
+          }.freeze
+        end
+
         ["adding", "deleting"].each do |mode|
           roles_to_test.each do |perm_role|
-            role_key_to_test = (mode == "adding") ? :addable_by_user : :deleteable_by_user
-            opposite_role_key_to_test = (mode == "adding") ? :deleteable_by_user : :addable_by_user
-            permission_key = (mode == "adding") ? :"add_#{perm_role}_to_course" : "remove_#{perm_role}_from_course"
-
             it "when #{mode} a(n) #{perm_role}" do
+              role_key_to_test = (mode == "adding") ? :addable_by_user : :deleteable_by_user
+              opposite_role_key_to_test = (mode == "adding") ? :deleteable_by_user : :addable_by_user
+              permission_key = (mode == "adding") ? :"add_#{perm_role}_to_course" : "remove_#{perm_role}_from_course"
+
               @course.account.role_overrides.create!(role: @role, enabled: true, permission: permission_key)
 
               roles = Role.role_data(@course, @admin)
@@ -368,9 +340,28 @@ describe Role do
       @shard1.activate do
         account = Account.create
         # should not get foreign key error
-        ro = account.role_overrides.create!(role: built_in_role, enabled: false, permission: :manage_admin_users)
+        ro = account.role_overrides.create!(role: built_in_role, enabled: false, permission: :allow_course_admin_actions)
         expect(ro.role).to eq Role.get_built_in_role("AccountAdmin", root_account_id: account.id)
       end
+    end
+  end
+
+  describe "enrollment_type_labels context passing" do
+    before :once do
+      account_model
+    end
+
+    it "passes the account as context to RoleOverride.enrollment_type_labels in .all_enrollment_roles_for_account" do
+      allow(RoleOverride).to receive(:enrollment_type_labels).and_call_original
+      Role.all_enrollment_roles_for_account(@account)
+      expect(RoleOverride).to have_received(:enrollment_type_labels).with(@account)
+    end
+
+    it "passes the account as context to RoleOverride.enrollment_type_labels in #label for course roles" do
+      allow(RoleOverride).to receive(:enrollment_type_labels).and_call_original
+      role = @account.roles.create!(name: "StudentEnrollment", base_role_type: "StudentEnrollment", workflow_state: "built_in", root_account_id: @account.resolved_root_account_id)
+      role.label
+      expect(RoleOverride).to have_received(:enrollment_type_labels).with(@account)
     end
   end
 end

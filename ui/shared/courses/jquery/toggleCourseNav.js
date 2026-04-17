@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {debounce} from 'lodash'
+import {debounce} from 'es-toolkit/compat'
 import $ from 'jquery'
 import updateSubnavMenuToggle from './updateSubnavMenuToggle'
 
@@ -73,7 +73,7 @@ const initialize = () => {
       : () => {
           toggleCourseNav()
           saveCourseNavCollapseState()
-        }
+        },
   )
 }
 
@@ -92,4 +92,16 @@ const toggleCourseNav = () => {
   resetMenuItemTabIndexes()
 }
 
-export {initialize, toggleCourseNav}
+const showCourseNav = () => {
+  if (!$('body').hasClass('course-menu-expanded')) {
+    toggleCourseNav()
+  }
+}
+
+const hideCourseNav = () => {
+  if ($('body').hasClass('course-menu-expanded')) {
+    toggleCourseNav()
+  }
+}
+
+export {initialize, toggleCourseNav, showCourseNav, hideCourseNav}

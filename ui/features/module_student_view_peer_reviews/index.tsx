@@ -22,25 +22,29 @@ import {
 } from '@canvas/student_view_peer_reviews/react/StudentViewPeerReviews'
 import ready from '@instructure/ready'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render} from '@canvas/react'
 import {getAssignments, formatGraphqlModuleNodes} from './utils/helper'
 
 ready(async () => {
-  if (!ENV.course_id || JSON.stringify(ENV.current_user) === '{}') return
+  const {course_id, current_user, current_user_is_student} = ENV
+  if (!course_id || JSON.stringify(current_user) === '{}' || !current_user_is_student) {
+    return
+  }
 
-  const graphqlModuleItemsNodes = await getAssignments(ENV.course_id.toString())
+  const graphqlModuleItemsNodes = await getAssignments(course_id.toString())
 
   if (!graphqlModuleItemsNodes || graphqlModuleItemsNodes.length === 0) return
 
-  const formattedAssginments = formatGraphqlModuleNodes(graphqlModuleItemsNodes)
+  const formattedAssignments = formatGraphqlModuleNodes(graphqlModuleItemsNodes)
 
-  formattedAssginments.forEach(([_key, data]) => {
+  formattedAssignments.forEach(([_key, data]) => {
     Object.entries(data).forEach(([_, value]) => {
-      ReactDOM.render(
-        // @ts-expect-error
-        <StudentViewPeerReviews assignment={value.assignment as AssignmentPeerReview} />,
-        value.container
-      )
+      if (value.container) {
+        render(
+          <StudentViewPeerReviews assignment={value.assignment as AssignmentPeerReview} />,
+          value.container,
+        )
+      }
     })
   })
 })

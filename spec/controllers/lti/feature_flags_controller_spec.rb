@@ -18,7 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../spec_helper"
 require_relative "../../feature_flag_helper"
 require_relative "ims/concerns/advantage_services_shared_context"
 require_relative "ims/concerns/lti_services_shared_examples"
@@ -34,12 +33,10 @@ describe Lti::FeatureFlagsController do
 
   before do
     silence_undefined_feature_flag_errors
-    allow_any_instance_of(User).to receive(:set_default_feature_flags)
     allow(Feature).to receive(:definitions).and_return({
                                                          "account_feature" => Feature.new(feature: "account_feature", applies_to: "Account", state: "on", display_name: -> { "Account Feature FRD" }, description: -> { "FRD!!" }, beta: true, autoexpand: true),
                                                          "javascript_csp" => Feature.new(feature: "javascript_csp", applies_to: "Account", state: "on", display_name: -> { "Account Feature FRD" }, description: -> { "FRD!!" }, beta: true, autoexpand: true),
                                                          "course_feature" => Feature.new(feature: "course_feature", applies_to: "Course", state: "allowed", development: true, release_notes_url: "http://example.com", display_name: "not localized", description: "srsly"),
-                                                         "compact_live_event_payloads" => Feature.new(feature: "compact_live_event_payloads", applies_to: "RootAccount", state: "allowed"),
                                                          "site_admin_feature" => Feature.new(feature: "site_admin_feature", applies_to: "SiteAdmin", state: "on", display_name: -> { "SiteAdmin Feature FRD" }, description: -> { "FRD!!" }, beta: true, autoexpand: true)
                                                        })
   end
@@ -60,7 +57,7 @@ describe Lti::FeatureFlagsController do
       it_behaves_like "course or account lti service" do
         let(:params) do
           {
-            account_id: Lti::Asset.opaque_identifier_for(account),
+            account_id: Lti::V1p1::Asset.opaque_identifier_for(account),
             feature: "account_feature"
           }
         end
@@ -82,7 +79,7 @@ describe Lti::FeatureFlagsController do
       it_behaves_like "course or account lti service" do
         let(:params) do
           {
-            course_id: Lti::Asset.opaque_identifier_for(course),
+            course_id: Lti::V1p1::Asset.opaque_identifier_for(course),
             feature: "course_feature"
           }
         end

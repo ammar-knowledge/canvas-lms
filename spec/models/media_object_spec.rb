@@ -25,14 +25,14 @@ describe MediaObject do
 
   context "loading with legacy support" do
     it "loads by either media_id or old_media_id" do
-      mo = factory_with_protected_attributes(MediaObject, media_id: "0_abcdefgh", old_media_id: "1_01234567", context: @course)
+      mo = MediaObject.create!(media_id: "0_abcdefgh", old_media_id: "1_01234567", context: @course)
 
       expect(MediaObject.by_media_id("0_abcdefgh").first).to eq mo
       expect(MediaObject.by_media_id("1_01234567").first).to eq mo
     end
 
     it "does not find an arbitrary MediaObject when given a nil id" do
-      factory_with_protected_attributes(MediaObject, media_id: "0_abcdefgh", context: @course)
+      MediaObject.create!(media_id: "0_abcdefgh", context: @course)
       expect(MediaObject.by_media_id(nil).first).to be_nil
     end
 
@@ -91,9 +91,9 @@ describe MediaObject do
 
   describe ".ensure_attachment_media_info" do
     it "fixes associated attachments in a weird state" do
-      file_data = fixture_file_upload("292.mp3", "audio/mpeg", true)
+      file_data = fixture_file_upload("292.mp3", "audio/mpeg", binary: true)
       a1 = attachment_model(context: @course, uploaded_data: file_data, media_entry_id: "m-unicorns")
-      client = double("kaltura_client")
+      client = instance_double(CanvasKaltura::ClientV3)
       expect(CanvasKaltura::ClientV3).to receive_messages(new: client)
       url = "http://example.com/video1.mp3"
       media_sources = [{
@@ -119,7 +119,7 @@ describe MediaObject do
 
   describe "#transcoded_details" do
     before do
-      @mock_kaltura = double("CanvasKaltura::ClientV3")
+      @mock_kaltura = instance_double(CanvasKaltura::ClientV3)
       allow(CanvasKaltura::ClientV3).to receive(:new).and_return(@mock_kaltura)
       allow(@mock_kaltura).to receive(:media_sources).and_return(
         [{ height: "240",
@@ -184,7 +184,7 @@ describe MediaObject do
 
   describe "#retrieve_details_ensure_codecs" do
     before do
-      @mock_kaltura = double("CanvasKaltura::ClientV3")
+      @mock_kaltura = instance_double(CanvasKaltura::ClientV3)
       allow(CanvasKaltura::ClientV3).to receive(:new).and_return(@mock_kaltura)
       allow(@mock_kaltura).to receive(:media_sources).and_return(
         [{ height: "240",
@@ -230,81 +230,140 @@ describe MediaObject do
 
   context "permissions" do
     context "captions" do
-      context "with granular_permissions_manage_course_content feature flag enabled" do
+      it "allows course admin users to add_captions to objects" do
+        course_with_teacher
+        mo = media_object
+
+        mo.user = nil
+        mo.save!
+
+        expect(mo.grants_right?(@teacher, :add_captions)).to be true
+        expect(mo.grants_right?(@teacher, :delete_captions)).to be true
+      end
+
+      it "does not allow course non-admin users to add_captions to objects" do
+        course_with_student
+        mo = media_object
+
+        expect(mo.grants_right?(@student, :add_captions)).to be false
+        expect(mo.grants_right?(@student, :delete_captions)).to be false
+      end
+
+      it "does not allow course non-admin users to add_captions to objects even if they own it" do
+        course_with_student
+        mo = media_object
+        user_factory
+
+        mo.user = @user
+        mo.save!
+
+        expect(mo.grants_right?(@user, :add_captions)).to be false
+        expect(mo.grants_right?(@user, :delete_captions)).to be false
+      end
+
+      it "does not allow course non-admin users to add_captions to objects even if they own the attachment" do
+        course_with_student
+        mo = media_object
+
+        attachment = mo.attachment
+        attachment.user = @student
+        attachment.save!
+
+        expect(mo.grants_right?(@student, :add_captions)).to be false
+        expect(mo.grants_right?(@student, :delete_captions)).to be false
+      end
+
+      context "with specific permissions" do
+        let(:ta_role) { Role.get_built_in_role("TaEnrollment", root_account_id: @course.root_account.id) }
+
         before do
-          @course.root_account.enable_feature!(:granular_permissions_manage_course_content)
+          course_with_ta
+          @mo = media_object
         end
 
-        it "allows course admin users to add_captions to objects" do
-          course_with_teacher
-          mo = media_object
+        it "allows course non-admin users to add_captions to attachments they can manage_files_add on the course" do
+          # disable manage_course_content_add for TAs to test that manage_files_edit is used instead
+          RoleOverride.create!(
+            permission: "manage_course_content_add",
+            enabled: false,
+            role: ta_role,
+            account: @course.root_account
+          )
 
-          mo.user = nil
-          mo.save!
-
-          expect(mo.grants_right?(@teacher, :add_captions)).to be true
-          expect(mo.grants_right?(@teacher, :delete_captions)).to be true
+          expect(@mo.grants_right?(@ta, :add_captions)).to be true
         end
 
-        it "does not allow course non-admin users to add_captions to objects" do
-          course_with_student
-          mo = media_object
+        it "does not allow course non-admin users to add_captions to attachments if they don't have permissions" do
+          RoleOverride.create!(
+            permission: "manage_files_edit",
+            enabled: false,
+            role: ta_role,
+            account: @course.root_account
+          )
+          RoleOverride.create!(
+            permission: "manage_course_content_add",
+            enabled: false,
+            role: ta_role,
+            account: @course.root_account
+          )
 
-          expect(mo.grants_right?(@student, :add_captions)).to be false
-          expect(mo.grants_right?(@student, :delete_captions)).to be false
+          expect(@mo.grants_right?(@ta, :add_captions)).to be false
         end
 
-        it "does not allow course non-admin users to add_captions to objects even if they own it" do
-          course_with_student
-          mo = media_object
-          user_factory
+        it "allows course non-admin users to delete_captions to attachments they can manage_files_delete on the course" do
+          # disable manage_course_content_delete for TAs to test that manage_files_edit is used instead
+          RoleOverride.create!(
+            permission: "manage_course_content_delete",
+            enabled: false,
+            role: ta_role,
+            account: @course.root_account
+          )
 
-          mo.user = @user
-          mo.save!
-
-          expect(mo.grants_right?(@user, :add_captions)).to be false
-          expect(mo.grants_right?(@user, :delete_captions)).to be false
+          expect(@mo.grants_right?(@ta, :delete_captions)).to be true
         end
 
-        it "does not allow course non-admin users to add_captions to objects even if they own the attachment" do
-          course_with_student
-          mo = media_object
+        it "does not allow course non-admin users to delete_captions to attachments if they don't have permissions" do
+          RoleOverride.create!(
+            permission: "manage_files_edit",
+            enabled: false,
+            role: ta_role,
+            account: @course.root_account
+          )
+          RoleOverride.create!(
+            permission: "manage_course_content_delete",
+            enabled: false,
+            role: ta_role,
+            account: @course.root_account
+          )
 
-          attachment = mo.attachment
-          attachment.user = @student
-          attachment.save!
-
-          expect(mo.grants_right?(@student, :add_captions)).to be false
-          expect(mo.grants_right?(@student, :delete_captions)).to be false
+          expect(@mo.grants_right?(@ta, :delete_captions)).to be false
         end
 
-        context "with specific permissions" do
-          let(:ta_role) { Role.get_built_in_role("TaEnrollment", root_account_id: @course.root_account.id) }
-
+        context "without an attachment" do
           before do
-            course_with_ta
-            @mo = media_object
-          end
-
-          it "allows course non-admin users to add_captions to attachments they can manage_files_add on the course" do
-            # disable manage_course_content_add for TAs to test that manage_files_edit is used instead
+            @mo.update_column(:attachment_id, nil)
+            # disable attachment permissions just in case
             RoleOverride.create!(
-              permission: "manage_course_content_add",
+              permission: "manage_files_edit",
               enabled: false,
               role: ta_role,
               account: @course.root_account
             )
+          end
 
+          it "allows course non-admin users to add_captions to attachments they can manage_course_content_add" do
+            RoleOverride.create!(
+              permission: "manage_course_content_add",
+              enabled: true,
+              role: ta_role,
+              account: @course.root_account
+            )
+
+            expect(@mo.attachment).to be_nil
             expect(@mo.grants_right?(@ta, :add_captions)).to be true
           end
 
-          it "does not allow course non-admin users to add_captions to attachments if they don't have permissions" do
-            RoleOverride.create!(
-              permission: "manage_files_edit",
-              enabled: false,
-              role: ta_role,
-              account: @course.root_account
-            )
+          it "does allow course non-admin users to add_captions to attachments if they don't have manage_course_content_add but own media object" do
             RoleOverride.create!(
               permission: "manage_course_content_add",
               enabled: false,
@@ -312,191 +371,57 @@ describe MediaObject do
               account: @course.root_account
             )
 
+            expect(@mo.attachment).to be_nil
+            expect(@mo.grants_right?(@ta, :add_captions)).to be true
+          end
+
+          it "does not allow course non-admin users to add_captions to attachments if they don't have manage_course_content_add" do
+            @mo.user = user_factory
+            RoleOverride.create!(
+              permission: "manage_course_content_add",
+              enabled: false,
+              role: ta_role,
+              account: @course.root_account
+            )
+
+            expect(@mo.attachment).to be_nil
             expect(@mo.grants_right?(@ta, :add_captions)).to be false
           end
 
-          it "allows course non-admin users to delete_captions to attachments they can manage_files_delete on the course" do
-            # disable manage_course_content_delete for TAs to test that manage_files_edit is used instead
+          it "allows course non-admin users to delete_captions to attachments they can manage_course_content_delete" do
             RoleOverride.create!(
               permission: "manage_course_content_delete",
-              enabled: false,
+              enabled: true,
               role: ta_role,
               account: @course.root_account
             )
 
+            expect(@mo.attachment).to be_nil
             expect(@mo.grants_right?(@ta, :delete_captions)).to be true
           end
 
-          it "does not allow course non-admin users to delete_captions to attachments if they don't have permissions" do
-            RoleOverride.create!(
-              permission: "manage_files_edit",
-              enabled: false,
-              role: ta_role,
-              account: @course.root_account
-            )
+          it "does allow course non-admin users to delete_captions to attachments if they don't have manage_course_content_delete but own media object" do
             RoleOverride.create!(
               permission: "manage_course_content_delete",
               enabled: false,
               role: ta_role,
               account: @course.root_account
             )
+            expect(@mo.attachment).to be_nil
+            expect(@mo.grants_right?(@ta, :delete_captions)).to be true
+          end
 
+          it "does not allow course non-admin users to delete_captions to attachments if they don't have manage_course_content_delete" do
+            @mo.user = user_factory
+            RoleOverride.create!(
+              permission: "manage_course_content_delete",
+              enabled: false,
+              role: ta_role,
+              account: @course.root_account
+            )
+            expect(@mo.attachment).to be_nil
             expect(@mo.grants_right?(@ta, :delete_captions)).to be false
           end
-
-          context "without an attachment" do
-            before do
-              @mo.update_column(:attachment_id, nil)
-              # disable attachment permissions just in case
-              RoleOverride.create!(
-                permission: "manage_files_edit",
-                enabled: false,
-                role: ta_role,
-                account: @course.root_account
-              )
-            end
-
-            it "allows course non-admin users to add_captions to attachments they can manage_course_content_add" do
-              RoleOverride.create!(
-                permission: "manage_course_content_add",
-                enabled: true,
-                role: ta_role,
-                account: @course.root_account
-              )
-
-              expect(@mo.attachment).to be_nil
-              expect(@mo.grants_right?(@ta, :add_captions)).to be true
-            end
-
-            it "does allow course non-admin users to add_captions to attachments if they don't have manage_course_content_add but own media object" do
-              RoleOverride.create!(
-                permission: "manage_course_content_add",
-                enabled: false,
-                role: ta_role,
-                account: @course.root_account
-              )
-
-              expect(@mo.attachment).to be_nil
-              expect(@mo.grants_right?(@ta, :add_captions)).to be true
-            end
-
-            it "does not allow course non-admin users to add_captions to attachments if they don't have manage_course_content_add" do
-              @mo.user = user_factory
-              RoleOverride.create!(
-                permission: "manage_course_content_add",
-                enabled: false,
-                role: ta_role,
-                account: @course.root_account
-              )
-
-              expect(@mo.attachment).to be_nil
-              expect(@mo.grants_right?(@ta, :add_captions)).to be false
-            end
-
-            it "allows course non-admin users to delete_captions to attachments they can manage_course_content_delete" do
-              RoleOverride.create!(
-                permission: "manage_course_content_delete",
-                enabled: true,
-                role: ta_role,
-                account: @course.root_account
-              )
-
-              expect(@mo.attachment).to be_nil
-              expect(@mo.grants_right?(@ta, :delete_captions)).to be true
-            end
-
-            it "does allow course non-admin users to delete_captions to attachments if they don't have manage_course_content_delete but own media object" do
-              RoleOverride.create!(
-                permission: "manage_course_content_delete",
-                enabled: false,
-                role: ta_role,
-                account: @course.root_account
-              )
-              expect(@mo.attachment).to be_nil
-              expect(@mo.grants_right?(@ta, :delete_captions)).to be true
-            end
-
-            it "does not allow course non-admin users to delete_captions to attachments if they don't have manage_course_content_delete" do
-              @mo.user = user_factory
-              RoleOverride.create!(
-                permission: "manage_course_content_delete",
-                enabled: false,
-                role: ta_role,
-                account: @course.root_account
-              )
-              expect(@mo.attachment).to be_nil
-              expect(@mo.grants_right?(@ta, :delete_captions)).to be false
-            end
-          end
-        end
-      end
-
-      context "with granular_permissions_manage_course_content feature flag disabled" do
-        before do
-          @course.root_account.disable_feature!(:granular_permissions_manage_course_content)
-        end
-
-        context "with media_links_use_attachment_id feature flag enabled" do
-          before do
-            Account.site_admin.enable_feature!(:media_links_use_attachment_id)
-          end
-
-          it "allows teachers to add captions if they have permission to update attachment" do
-            course_with_teacher
-            second_course = Course.create!(name: "second course")
-
-            mo = media_object(context: second_course)
-            mo.user = nil
-            mo.attachment = attachment_model
-
-            expect(mo.grants_right?(@teacher, :add_captions)).to be true
-            expect(mo.grants_right?(@teacher, :delete_captions)).to be true
-          end
-        end
-
-        it "allows course admin users to add_captions to userless objects" do
-          course_with_teacher
-          mo = media_object
-
-          mo.user = nil
-          mo.save!
-
-          expect(mo.grants_right?(@teacher, :add_captions)).to be true
-          expect(mo.grants_right?(@teacher, :delete_captions)).to be true
-        end
-
-        it "does not allow course non-admin users to add_captions to userless objects" do
-          course_with_student
-          mo = media_object
-
-          mo.user = nil
-          mo.save!
-
-          expect(mo.grants_right?(@student, :add_captions)).to be false
-          expect(mo.grants_right?(@student, :delete_captions)).to be false
-        end
-
-        it "allows course non-admin users to add_captions to objects belonging to them" do
-          course_with_student
-          mo = media_object
-
-          mo.user = @student
-          mo.save!
-
-          expect(mo.grants_right?(@student, :add_captions)).to be true
-          expect(mo.grants_right?(@student, :delete_captions)).to be true
-        end
-
-        it "does not allow course non-admin users to add_captions to objects not belonging to them" do
-          course_with_student
-          mo = media_object
-          user_factory
-
-          mo.user = @user
-          mo.save!
-
-          expect(mo.grants_right?(@student, :add_captions)).to be false
-          expect(mo.grants_right?(@student, :delete_captions)).to be false
         end
       end
     end
@@ -511,30 +436,11 @@ describe MediaObject do
         @not_logged_in_user = nil
       end
 
-      context "with granular_permissions_manage_course_content feature flag enabled" do
-        before do
-          @course.root_account.enable_feature!(:granular_permissions_manage_course_content)
-        end
-
-        it "does not error when context_root_account is nil" do
-          expect { @mo.grants_right?(@not_logged_in_user, :add_captions) }.not_to raise_error
-          expect { @mo.grants_right?(@not_logged_in_user, :delete_captions) }.not_to raise_error
-          expect(@mo.grants_right?(@not_logged_in_user, :add_captions)).to be false
-          expect(@mo.grants_right?(@not_logged_in_user, :delete_captions)).to be false
-        end
-      end
-
-      context "with granular_permissions_manage_course_content feature flag disabled" do
-        before do
-          @course.root_account.disable_feature!(:granular_permissions_manage_course_content)
-        end
-
-        it "does not error when context_root_account is nil" do
-          expect { @mo.grants_right?(@not_logged_in_user, :add_captions) }.not_to raise_error
-          expect { @mo.grants_right?(@not_logged_in_user, :delete_captions) }.not_to raise_error
-          expect(@mo.grants_right?(@not_logged_in_user, :add_captions)).to be false
-          expect(@mo.grants_right?(@not_logged_in_user, :delete_captions)).to be false
-        end
+      it "does not error when context_root_account is nil" do
+        expect { @mo.grants_right?(@not_logged_in_user, :add_captions) }.not_to raise_error
+        expect { @mo.grants_right?(@not_logged_in_user, :delete_captions) }.not_to raise_error
+        expect(@mo.grants_right?(@not_logged_in_user, :add_captions)).to be false
+        expect(@mo.grants_right?(@not_logged_in_user, :delete_captions)).to be false
       end
     end
   end
@@ -542,7 +448,7 @@ describe MediaObject do
   describe ".add_media_files" do
     before do
       @attachment = Attachment.new
-      @kaltura_media_file_handler = double("KalturaMediaFileHandler")
+      @kaltura_media_file_handler = instance_double(KalturaMediaFileHandler)
       allow(KalturaMediaFileHandler).to receive(:new).and_return(@kaltura_media_file_handler)
     end
 
@@ -576,6 +482,19 @@ describe MediaObject do
       expect(att.folder.name).to eq "Uploaded Media"
       expect(att[:media_entry_id]).to eql @media_object[:media_id]
     end
+
+    it "defaults the usage rights if the root account requires it" do
+      @course.update(usage_rights_required: true)
+      @media_object = MediaObject.create!(
+        context: @course,
+        title: "usage_video.mp4",
+        media_id: "m-usage",
+        media_type: "video"
+      )
+      att = @media_object.attachment
+      expect(att.usage_rights).to be_present
+      expect(att.usage_rights.use_justification).to eq "own_copyright"
+    end
   end
 
   describe ".process_retrieved_details" do
@@ -598,7 +517,7 @@ describe MediaObject do
     end
 
     before do
-      @mock_kaltura = double("CanvasKaltura::ClientV3")
+      @mock_kaltura = instance_double(CanvasKaltura::ClientV3)
       allow(CanvasKaltura::ClientV3).to receive(:new).and_return(@mock_kaltura)
       allow(@mock_kaltura).to receive_messages(startSession: nil,
                                                media_sources: [{ height: "240",
@@ -722,6 +641,60 @@ describe MediaObject do
       other_attachment = attachment_model(media_entry_id: media_object.media_id)
       attachment_model(media_entry_id: "something else")
       expect(media_object.attachments_by_media_id).to match_array([attachment, other_attachment])
+    end
+  end
+
+  context "validations" do
+    it "validates auto_caption_status" do
+      expect do
+        MediaObject.create!(
+          context: @course,
+          title: "uploaded_video.mp4",
+          media_id: "m-somejunkhere",
+          media_type: "video",
+          auto_caption_status: "non_existent_status"
+        )
+      end.to raise_error(ActiveRecord::RecordInvalid)
+
+      expect do
+        MediaObject.create!(
+          context: @course,
+          title: "uploaded_video.mp4",
+          media_id: "m-somejunkhere",
+          media_type: "video",
+          auto_caption_status: "failed_captions"
+        )
+      end.not_to raise_error
+    end
+  end
+
+  describe "viewer_restrictions validation" do
+    it "is valid with an empty hash" do
+      mo = MediaObject.new(media_id: "x", workflow_state: "active", viewer_restrictions: {})
+      expect(mo).to be_valid
+    end
+
+    it "is valid with only known keys" do
+      mo = MediaObject.new(media_id: "x",
+                           workflow_state: "active",
+                           viewer_restrictions: { "show_rolling_transcript" => true })
+      expect(mo).to be_valid
+    end
+
+    it "is invalid with unknown keys" do
+      mo = MediaObject.new(media_id: "x",
+                           workflow_state: "active",
+                           viewer_restrictions: { "unknown_key" => true })
+      expect(mo).not_to be_valid
+      expect(mo.errors[:viewer_restrictions]).to be_present
+    end
+
+    it "is invalid with non-boolean values" do
+      mo = MediaObject.new(media_id: "x",
+                           workflow_state: "active",
+                           viewer_restrictions: { "show_rolling_transcript" => "yoho" })
+      expect(mo).not_to be_valid
+      expect(mo.errors[:viewer_restrictions]).to be_present
     end
   end
 end

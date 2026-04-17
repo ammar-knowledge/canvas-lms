@@ -153,7 +153,7 @@ describe WebConference do
       conference.add_attendee(@user)
       allow(conference).to receive(:conference_status).and_return(:closed)
       expect(conference.ended_at).to be_nil
-      expect(conference.active?(true)).to be(false)
+      expect(conference.active?(force_check: true)).to be(false)
       expect(conference.ended_at).to be_nil
     end
 
@@ -164,7 +164,7 @@ describe WebConference do
       conference.end_at = 20.minutes.ago
       conference.save!
       expect(conference.ended_at).to be_nil
-      expect(conference.active?(true)).to be(false)
+      expect(conference.active?(force_check: true)).to be(false)
       expect(conference.ended_at).not_to be_nil
       expect(conference.ended_at).to be < Time.zone.now
     end
@@ -176,7 +176,7 @@ describe WebConference do
       conference.start_at = 30.minutes.ago
       conference.end_at = 20.minutes.ago
       conference.save!
-      expect(conference.active?(true)).to be(false)
+      expect(conference.active?(force_check: true)).to be(false)
       expect(conference.conference_status).to be(:active)
       expect(conference.ended_at).not_to be_nil
       expect(conference.ended_at).to be < Time.zone.now
@@ -326,17 +326,17 @@ describe WebConference do
     end
 
     it "has a start date" do
-      @conference.start_at = Time.now
+      @conference.start_at = Time.zone.now
       expect(@conference.scheduled?).to be_falsey
     end
 
     it "has a schduled date in the past" do
-      allow(@conference).to receive(:scheduled_date).and_return(Time.now - 10.days)
+      allow(@conference).to receive(:scheduled_date).and_return(10.days.ago)
       expect(@conference.scheduled?).to be_falsey
     end
 
     it "has a schduled date in the future" do
-      allow(@conference).to receive(:scheduled_date).and_return(Time.now + 10.days)
+      allow(@conference).to receive(:scheduled_date).and_return(10.days.from_now)
       expect(@conference.scheduled?).to be_truthy
     end
   end
@@ -449,7 +449,7 @@ describe WebConference do
         end
       end
 
-      context ".active scope" do
+      describe ".active scope" do
         it "does not include LTI conferences" do
           conference = course.web_conferences.create! do |c|
             c.user = user
@@ -523,6 +523,44 @@ describe WebConference do
       conference.save!
 
       expect(conference.root_account_id).to eq @course.root_account_id
+    end
+  end
+
+  describe "invite_all settings" do
+    let(:course) { course_model }
+    let(:conference) { course.web_conferences.create!(title: "Test", conference_type: "BigBlueButton", user: @teacher) }
+
+    describe "#invite_all_enabled?" do
+      it "returns false by default" do
+        expect(conference.invite_all_enabled?).to be false
+      end
+
+      it "returns true when set" do
+        conference.invite_all_enabled = true
+        expect(conference.invite_all_enabled?).to be true
+      end
+    end
+
+    describe "#add_new_enrollment_user" do
+      let(:student) { user_model }
+
+      it "adds user when invite_all is enabled" do
+        conference.invite_all_enabled = true
+        conference.save!
+        course.enroll_student(student, enrollment_state: "active")
+
+        conference.add_new_enrollment_user(student.id)
+
+        expect(conference.reload.invitees.include?(student)).to be true
+      end
+
+      it "does not add when invite_all is disabled" do
+        course.enroll_student(student, enrollment_state: "active")
+
+        expect do
+          conference.add_new_enrollment_user(student.id)
+        end.not_to change { conference.invitees.count }
+      end
     end
   end
 end

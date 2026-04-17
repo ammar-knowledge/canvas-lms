@@ -25,7 +25,7 @@ function defaultProps(overrides) {
     contextType: 'course',
     contextName: 'Course01',
     enabled: false,
-    updatePreference: jest.fn(),
+    updatePreference: vi.fn(),
     userId: '1',
     notificationPreferences: {channels: []},
     ...overrides,
@@ -60,8 +60,8 @@ describe('Notification Preferences', () => {
 
     const notification_times = getByTestId('notification_times')
     expect(notification_times).not.toBeNull()
-    expect(notification_times.textContent).toEqual(
-      'Daily notifications will be delivered around 6pm. Weekly notifications will be delivered Saturday between 7pm and 9pm.Close'
+    expect(notification_times.textContent).toContain(
+      'Daily notifications will be delivered around 6pm. Weekly notifications will be delivered Saturday between 7pm and 9pm.Dismiss notification schedule information',
     )
   })
 
@@ -107,8 +107,8 @@ describe('Notification Preferences', () => {
 
     expect(
       getByText(
-        'Course-level notifications are inherited from your account-level notification settings. Adjusting notifications for this course will override notifications at the account level.'
-      )
+        'Course-level notifications are inherited from your account-level notification settings. Adjusting notifications for this course will override notifications at the account level.',
+      ),
     ).toBeInTheDocument()
   })
 
@@ -121,8 +121,8 @@ describe('Notification Preferences', () => {
 
     expect(
       getByText(
-        'Account-level notifications apply to all courses. Notifications for individual courses can be changed within each course and will override these notifications.'
-      )
+        'Account-level notifications apply to all courses. Notifications for individual courses can be changed within each course and will override these notifications.',
+      ),
     ).toBeInTheDocument()
   })
 

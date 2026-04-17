@@ -537,7 +537,7 @@ describe AppointmentGroup do
     before :once do
       course_with_teacher(active_all: true)
       @teacher = @user
-      @ag = AppointmentGroup.create(title: "test", contexts: [@course], participants_per_appointment: 2, new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"], ["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]])
+      @ag = AppointmentGroup.create(title: "test", contexts: [@course], participants_per_appointment: 2, new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"], ["#{Time.zone.now.year + 1}-01-01 13:00:00", "#{Time.zone.now.year + 1}-01-01 14:00:00"]])
       @appointment = @ag.appointments.first
     end
 
@@ -560,7 +560,7 @@ describe AppointmentGroup do
     end
 
     it "increases as appointments are added" do
-      @ag.update(new_appointments: [["#{Time.now.year + 1}-01-01 14:00:00", "#{Time.now.year + 1}-01-01 15:00:00"]])
+      @ag.update(new_appointments: [["#{Time.zone.now.year + 1}-01-01 14:00:00", "#{Time.zone.now.year + 1}-01-01 15:00:00"]])
       expect(@ag.available_slots).to be 6
     end
 
@@ -610,10 +610,13 @@ describe AppointmentGroup do
 
   context "possible_participants" do
     before :once do
-      course_with_teacher(active_all: true)
+      enrollment = course_with_test_student(active_all: true)
+      @test_student = @user
+      course_with_teacher(course: enrollment.course, active_all: true)
       @teacher = @user
 
       @users, @sections = [], []
+      @users << @test_student
       2.times do
         @sections << section = @course.course_sections.create!
         student_in_course(active_all: true)
@@ -628,7 +631,7 @@ describe AppointmentGroup do
       @gc = @group1.group_category
       @group2 = @gc.groups.create!(name: "group2", context: @course)
 
-      @ag = AppointmentGroup.create!(title: "test", contexts: [@course], participants_per_appointment: 2, new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"], ["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]])
+      @ag = AppointmentGroup.create!(title: "test", contexts: [@course], participants_per_appointment: 2, new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"], ["#{Time.zone.now.year + 1}-01-01 13:00:00", "#{Time.zone.now.year + 1}-01-01 14:00:00"]])
     end
 
     it "returns possible participants" do
@@ -637,20 +640,20 @@ describe AppointmentGroup do
 
     it "respects course_section sub_contexts" do
       @ag.appointment_group_sub_contexts.create! sub_context: @sections.first
-      expect(@ag.possible_participants).to eql [@users.first]
+      expect(@ag.possible_participants).to eql [@users[1]]
     end
 
     it "respects group sub_contexts" do
       @ag.appointment_group_sub_contexts.create! sub_context: @gc
       expect(@ag.possible_participants.sort_by(&:id)).to eql [@group1, @group2].sort_by(&:id)
-      expect(@ag.possible_users).to eql [@users.last]
+      expect(@ag.possible_users).to eql [@users[2]]
     end
 
     it "allows filtering on registration status" do
-      @ag.appointments.first.reserve_for(@users.first, @users.first)
+      @ag.appointments.first.reserve_for(@users[1], @users[1])
       expect(@ag.possible_participants).to eql @users
-      expect(@ag.possible_participants(registration_status: "registered")).to eql [@users.first]
-      expect(@ag.possible_participants(registration_status: "unregistered")).to eql [@users.last]
+      expect(@ag.possible_participants(registration_status: "registered")).to eql [@users[1]]
+      expect(@ag.possible_participants(registration_status: "unregistered")).to eql [@users[0], @users[2]]
     end
 
     it "allows filtering on registration status (for groups)" do
@@ -659,6 +662,108 @@ describe AppointmentGroup do
       expect(@ag.possible_participants.sort_by(&:id)).to eql [@group1, @group2].sort_by(&:id)
       expect(@ag.possible_participants(registration_status: "registered")).to eql [@group1]
       expect(@ag.possible_participants(registration_status: "unregistered")).to eql [@group2]
+    end
+
+    it "normalizes participant list" do
+      expect(@ag.possible_participants(current_user: @teacher, context_code: "course_#{@ag.context.id}")).to eql [@users[1], @users[2]]
+    end
+
+    it "normalizes participant list with multiple context codes" do
+      course_with_student(active_all: true)
+      course1 = @course
+      student1 = @user
+      course_with_student(active_all: true)
+      course2 = @course
+      student2 = @user
+      course_with_teacher(course: course1, active_all: true)
+      teacher = @user
+      course2.enroll_teacher(teacher, enrollment_state: "active")
+
+      ag = AppointmentGroup.create!(
+        title: "multi-course test",
+        contexts: [course1, course2],
+        participants_per_appointment: 2,
+        new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]]
+      )
+
+      # Without context_code, should return all students
+      expect(ag.possible_participants.sort_by(&:id)).to eq [student1, student2].sort_by(&:id)
+
+      context_codes = ["course_#{course1.id}", "course_#{course2.id}"]
+      expect(ag.possible_participants(current_user: teacher, context_code: context_codes).sort_by(&:id)).to eq [student1, student2].sort_by(&:id)
+    end
+
+    it "does not return duplicate users when a student is enrolled in multiple courses" do
+      course_with_student(active_all: true)
+      course1 = @course
+      student = @user
+      course_with_teacher(course: course1, active_all: true)
+      teacher = @user
+
+      # Create second course and enroll the same student
+      course2 = Course.create!(name: "Course 2")
+      course2.enroll_student(student, enrollment_state: "active")
+      course2.enroll_teacher(teacher, enrollment_state: "active")
+
+      ag = AppointmentGroup.create!(
+        title: "multi-course test with duplicate enrollments",
+        contexts: [course1, course2],
+        participants_per_appointment: 2,
+        new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]]
+      )
+
+      # Should return the student only once, not twice
+      participants = ag.possible_participants
+      expect(participants).to eq [student]
+      expect(participants.size).to eq 1
+
+      # Same with context_codes provided
+      context_codes = ["course_#{course1.id}", "course_#{course2.id}"]
+      participants_with_context = ag.possible_participants(current_user: teacher, context_code: context_codes)
+      expect(participants_with_context).to eq [student]
+      expect(participants_with_context.size).to eq 1
+    end
+
+    it "returns groups correctly with context_code array" do
+      course_with_student(active_all: true)
+      course1 = @course
+
+      gc = GroupCategory.create!(name: "Project Groups", context: course1)
+      group1 = gc.groups.create!(name: "Group 1", context: course1)
+      group2 = gc.groups.create!(name: "Group 2", context: course1)
+
+      course_with_teacher(course: course1, active_all: true)
+      teacher = @user
+
+      ag = AppointmentGroup.create!(
+        title: "group appointment test",
+        contexts: [course1],
+        participants_per_appointment: 1,
+        new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]]
+      )
+      ag.appointment_group_sub_contexts.create!(sub_context: gc)
+
+      # Should return groups even when context_code is passed as an array
+      context_codes = ["course_#{course1.id}"]
+      groups = ag.possible_participants(current_user: teacher, context_code: context_codes)
+      expect(groups.sort_by(&:id)).to eq [group1, group2].sort_by(&:id)
+      expect(groups.size).to eq 2
+    end
+
+    it "returns only the active courses users" do
+      course_with_student(active_all: true)
+      course1 = @course
+      course_with_student(active_all: true)
+      course2 = @course
+
+      ag = AppointmentGroup.create!(title: "test", contexts: [course1, course2], participants_per_appointment: 2, new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"], ["#{Time.zone.now.year + 1}-01-01 13:00:00", "#{Time.zone.now.year + 1}-01-01 14:00:00"]])
+
+      expect(ag.possible_participants.size).to be 2
+
+      course2.workflow_state = "unpublished"
+      course2.save!
+
+      expect(ag.possible_participants.size).to be 1
     end
   end
 
@@ -677,7 +782,7 @@ describe AppointmentGroup do
     expect(@ag.instructors).to match_array([unrestricted_teacher, limited_teacher2])
   end
 
-  context "#requiring_action?" do
+  describe "#requiring_action?" do
     before :once do
       course_with_teacher(active_all: true)
       @teacher = @user
@@ -689,7 +794,7 @@ describe AppointmentGroup do
                                    contexts: [@course],
                                    participants_per_appointment: 1,
                                    min_appointments_per_participant: 1,
-                                   new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]])
+                                   new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]])
       student = student_in_course(course: @course, active_all: true).user
       expect(ag.requiring_action?(student)).to be_truthy
       # when
@@ -703,8 +808,8 @@ describe AppointmentGroup do
                                    contexts: [@course],
                                    participants_per_appointment: 1,
                                    min_appointments_per_participant: 1,
-                                   new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"],
-                                                      ["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]])
+                                   new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"],
+                                                      ["#{Time.zone.now.year + 1}-01-01 13:00:00", "#{Time.zone.now.year + 1}-01-01 14:00:00"]])
       ag.appointments.first.reserve_for(student_in_course(course: @course, active_all: true).user, @teacher)
       ag.appointments.last.reserve_for(student_in_course(course: @course, active_all: true).user, @teacher)
       expect(ag).to be_all_appointments_filled
@@ -737,7 +842,7 @@ describe AppointmentGroup do
       @ag = AppointmentGroup.create!(title: "test",
                                      contexts: [@course],
                                      participants_per_appointment: 2,
-                                     new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"], ["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]])
+                                     new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"], ["#{Time.zone.now.year + 1}-01-01 13:00:00", "#{Time.zone.now.year + 1}-01-01 14:00:00"]])
     end
 
     it "returns the ids of any users who are in groups that have made appointments" do

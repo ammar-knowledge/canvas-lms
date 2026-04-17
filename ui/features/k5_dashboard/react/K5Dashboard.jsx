@@ -15,60 +15,56 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import React, {useCallback, useEffect, useState, useLayoutEffect} from 'react'
-import {connect, Provider} from 'react-redux'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import PropTypes from 'prop-types'
 
+import {showFlashError} from '@instructure/platform-alerts'
+import {CardDashboardLoader} from '@canvas/dashboard-card'
+import {useFetchDashboardCards} from '@canvas/dashboard-card/dashboardCardQueries'
+import {handleDashboardCardError} from '@canvas/dashboard-card/util/dashboardUtils'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import K5DashboardContext from '@canvas/k5/react/K5DashboardContext'
+import K5Tabs, {scrollElementIntoViewIfCoveredByHeader} from '@canvas/k5/react/K5Tabs'
+import ResourcesPage from '@canvas/k5/react/ResourcesPage'
+import SchedulePage from '@canvas/k5/react/SchedulePage'
+import usePlanner from '@canvas/k5/react/hooks/usePlanner'
+import useTabState from '@canvas/k5/react/hooks/useTabState'
+import {
+  MOBILE_NAV_BREAKPOINT_PX,
+  TAB_IDS,
+  groupAnnouncementsByHomeroom,
+  saveElementaryDashboardPreference,
+} from '@canvas/k5/react/utils'
+import {mapStateToProps} from '@canvas/k5/redux/redux-helpers'
+import ObserverOptions, {ObservedUsersListShape} from '@canvas/observer-picker'
+import {fetchShowK5Dashboard} from '@canvas/observer-picker/react/utils'
 import {responsiviser, store} from '@canvas/planner'
+import useFetchApi from '@canvas/use-fetch-api-hook'
+import {reloadWindow} from '@canvas/util/globalUtils'
+import {ScreenReaderContent} from '@instructure/ui-a11y-content'
+import {IconButton} from '@instructure/ui-buttons'
+import {Flex} from '@instructure/ui-flex'
+import {Heading} from '@instructure/ui-heading'
 import {
   IconBankLine,
   IconCalendarMonthLine,
+  IconCalendarReservedLine,
   IconCheckDarkSolid,
   IconHomeLine,
   IconMoreLine,
   IconStarLightLine,
-  IconCalendarReservedLine,
 } from '@instructure/ui-icons'
-import {InstUISettingsProvider} from '@instructure/emotion'
-import {IconButton} from '@instructure/ui-buttons'
-import {Flex} from '@instructure/ui-flex'
-import {Heading} from '@instructure/ui-heading'
 import {Menu} from '@instructure/ui-menu'
-import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {Tray} from '@instructure/ui-tray'
 import {View} from '@instructure/ui-view'
-
-import K5Tabs, {scrollElementIntoViewIfCoveredByHeader} from '@canvas/k5/react/K5Tabs'
+import PropTypes from 'prop-types'
+import React, {useCallback, useEffect, useState, useLayoutEffect} from 'react'
+import {Provider, connect} from 'react-redux'
 import {GradesPage} from './GradesPage'
 import HomeroomPage from './HomeroomPage'
-import {TodosPage} from './TodosPage'
-import K5DashboardContext from '@canvas/k5/react/K5DashboardContext'
-import {CardDashboardLoader} from '@canvas/dashboard-card'
-import {mapStateToProps} from '@canvas/k5/redux/redux-helpers'
-import SchedulePage from '@canvas/k5/react/SchedulePage'
-import ResourcesPage from '@canvas/k5/react/ResourcesPage'
-import {
-  groupAnnouncementsByHomeroom,
-  saveElementaryDashboardPreference,
-  TAB_IDS,
-  MOBILE_NAV_BREAKPOINT_PX,
-} from '@canvas/k5/react/utils'
-import {getK5ThemeOverrides} from '@canvas/k5/react/k5-theme'
-import useFetchApi from '@canvas/use-fetch-api-hook'
-import usePlanner from '@canvas/k5/react/hooks/usePlanner'
-import useTabState from '@canvas/k5/react/hooks/useTabState'
-import {showFlashError} from '@canvas/alerts/react/FlashAlert'
 import ImportantDates from './ImportantDates'
-import ObserverOptions, {ObservedUsersListShape} from '@canvas/observer-picker'
-import {savedObservedId} from '@canvas/observer-picker/ObserverGetObservee'
-import {fetchShowK5Dashboard} from '@canvas/observer-picker/react/utils'
-import {useFetchDashboardCards} from '@canvas/dashboard-card/dashboardCardQueries'
-import {handleDashboardCardError} from '@canvas/dashboard-card/util/dashboardUtils'
+import {TodosPage} from './TodosPage'
+import {isUserObservingStudent, getObservedUserId} from './utils'
 
-const componentOverrides = getK5ThemeOverrides()
-
-const I18n = useI18nScope('k5_dashboard')
+const I18n = createI18nScope('k5_dashboard')
 
 const DASHBOARD_TABS = [
   {
@@ -123,22 +119,32 @@ const K5DashboardOptionsMenu = ({onDisableK5Dashboard}) => {
   )
 }
 
-const toRenderTabs = (currentUserRoles, hideGradesTabForStudents, selectedSelfUser) =>
-  DASHBOARD_TABS.filter(({id}) => {
+const toRenderTabs = (currentUserRoles, hideGradesTabForStudents, userIsObservingStudent) => {
+  const roles = new Set(currentUserRoles)
+
+  const isTeacher = roles.has('teacher')
+  const isAdmin = roles.has('admin')
+  const isStudent = roles.has('student')
+  const isObserver = roles.has('observer')
+
+  const canSeeTodo = isTeacher
+  const canSeeGrades =
+    isTeacher ||
+    isAdmin ||
+    (isStudent && !hideGradesTabForStudents) ||
+    (isObserver && userIsObservingStudent)
+
+  return DASHBOARD_TABS.filter(({id}) => {
     switch (id) {
       case TAB_IDS.TODO:
-        return currentUserRoles.includes('teacher')
+        return canSeeTodo
       case TAB_IDS.GRADES:
-        return (
-          currentUserRoles.includes('teacher') ||
-          currentUserRoles.includes('admin') ||
-          (currentUserRoles.includes('student') && !hideGradesTabForStudents) ||
-          (currentUserRoles.includes('observer') && !selectedSelfUser)
-        )
+        return canSeeGrades
       default:
         return true
     }
   })
+}
 
 const getWindowSize = () => ({
   width: window.innerWidth,
@@ -166,14 +172,12 @@ const K5Dashboard = ({
   loadingOpportunities,
   accountCalendarContexts,
 }) => {
-  const initialObservedId = observedUsersList.find(o => o.id === savedObservedId(currentUser.id))
-    ? savedObservedId(currentUser.id)
-    : undefined
+  const initialObservedId = getObservedUserId(observedUsersList)
   const [observedUserId, setObservedUserId] = useState(initialObservedId)
   const observerMode = currentUserRoles.includes('observer')
-  const selectedSelfUser = observerMode && currentUser.id === observedUserId
+  const isObservingStudent = isUserObservingStudent(observedUserId, currentUserRoles)
 
-  const availableTabs = toRenderTabs(currentUserRoles, hideGradesTabForStudents, selectedSelfUser)
+  const availableTabs = toRenderTabs(currentUserRoles, hideGradesTabForStudents, isObservingStudent)
   const {activeTab, currentTab, handleTabChange} = useTabState(defaultTab, availableTabs)
   const [cards, setCards] = useState(null)
   const [cardsSettled, setCardsSettled] = useState(false)
@@ -234,7 +238,7 @@ const K5Dashboard = ({
           if (response.show_k5_dashboard && response.use_classic_font === ENV.USE_CLASSIC_FONT) {
             updateDashboardForObserverCallback(id)
           } else {
-            window.location.reload()
+            reloadWindow()
           }
         })
         .catch(err => showFlashError(I18n.t('Unable to switch students'))(err))
@@ -260,7 +264,7 @@ const K5Dashboard = ({
   } = useFetchDashboardCards(
     currentUser.id,
     observedUserId,
-    !observerMode || (observerMode && observedUserId != null)
+    !observerMode || (observerMode && observedUserId != null),
   )
 
   useEffect(() => {
@@ -286,7 +290,7 @@ const K5Dashboard = ({
           setSubjectAnnouncements(groupedAnnouncements.false)
         }
       },
-      [cards]
+      [cards],
     ),
     error: useCallback(err => {
       // Don't show an error if user doesn't have permission to read announcements - this is a
@@ -312,7 +316,7 @@ const K5Dashboard = ({
   const handleDisableK5Dashboard = (e, [newView]) => {
     if (newView === 'classic') {
       saveElementaryDashboardPreference(true)
-        .then(() => window.location.reload())
+        .then(() => reloadWindow())
         .catch(showFlashError(I18n.t('Failed to opt-out of the Canvas for Elementary dashboard')))
     }
   }
@@ -393,8 +397,9 @@ const K5Dashboard = ({
     .concat(
       accountCalendarContexts.map(c => ({
         assetString: c.asset_string,
+        color: c.color,
         name: c.name,
-      }))
+      })),
     )
 
   const importantDates = (
@@ -531,16 +536,14 @@ K5Dashboard.propTypes = {
     PropTypes.shape({
       asset_string: PropTypes.string.isRequired,
       name: PropTypes.string.isRequired,
-    })
+    }),
   ),
 }
 
 const WrappedK5Dashboard = connect(mapStateToProps)(responsiviser()(K5Dashboard))
 
 export default props => (
-  <InstUISettingsProvider theme={{componentOverrides}}>
-    <Provider store={store}>
-      <WrappedK5Dashboard {...props} />
-    </Provider>
-  </InstUISettingsProvider>
+  <Provider store={store}>
+    <WrappedK5Dashboard {...props} />
+  </Provider>
 )

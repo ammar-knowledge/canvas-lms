@@ -26,8 +26,7 @@ module Importers
     self.item_class = LearningOutcome
 
     def self.process_migration(data, migration)
-      selectable_outcomes = migration.context.respond_to?(:root_account) &&
-                            migration.context.root_account.feature_enabled?(:selectable_outcomes_in_course_copy)
+      selectable_outcomes = migration.context.respond_to?(:root_account)
       outcomes = data["learning_outcomes"] || []
       migration.outcome_to_id_map = {}
       migration.copied_external_outcome_map = {}
@@ -43,7 +42,7 @@ module Importers
 
         begin
           if outcome[:type] == "learning_outcome_group"
-            Importers::LearningOutcomeGroupImporter.import_from_migration(outcome, migration, nil, selectable_outcomes && !import_item)
+            Importers::LearningOutcomeGroupImporter.import_from_migration(outcome, migration, skip_import: selectable_outcomes && !import_item)
           elsif !selectable_outcomes || import_item
             Importers::LearningOutcomeImporter.import_from_migration(outcome, migration)
           end
@@ -142,6 +141,7 @@ module Importers
           item.data[:rubric_criterion][:description] = item.short_description || item.description
         end
 
+        item.importing = true
         item.save!
 
         migration.add_imported_item(item)

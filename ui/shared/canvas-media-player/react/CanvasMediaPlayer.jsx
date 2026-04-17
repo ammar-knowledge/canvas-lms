@@ -16,8 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import React, {useCallback, useEffect, useRef, useState} from 'react'
-import {bool, number, oneOf, string} from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {arrayOf, bool, number, oneOf, shape, string} from 'prop-types'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {LoadingIndicator, isAudio, sizeMediaPlayer} from '@instructure/canvas-media'
 import {MediaPlayer} from '@instructure/ui-media-player'
 import {Alert} from '@instructure/ui-alerts'
@@ -25,7 +25,7 @@ import {Flex} from '@instructure/ui-flex'
 import {Spinner} from '@instructure/ui-spinner'
 import {asJson, defaultFetchOptions} from '@canvas/util/xhr'
 
-const I18n = useI18nScope('CanvasMediaPlayer')
+const I18n = createI18nScope('CanvasMediaPlayer')
 
 const byBitrate = (a, b) => parseInt(a.bitrate, 10) - parseInt(b.bitrate, 10)
 
@@ -65,16 +65,17 @@ export default function CanvasMediaPlayer(props) {
   const [media_tracks] = useState(tracks)
   const [retryAttempt, setRetryAttempt] = useState(0)
   const [mediaObjNetworkErr, setMediaObjNetworkErr] = useState(null)
+  const [mediaObjFailed, setMediaObjFailed] = useState(false)
   // the ability to set these makes testing easier
   // hint: set these values in a conditional breakpoint in
   // media_player_iframe_content.js where the CanvasMediaPlayer is rendered
   // for example:
   // ENV.SHOW_MEDIA_SOURCE_BE_PATIENT_MSG_AFTER_ATTEMPTS=2, ENV.MAX_MEDIA_SOURCE_RETRY_ATTEMPTS=4, 0
   const [MAX_RETRY_ATTEMPTS] = useState(
-    ENV.MAX_MEDIA_SOURCE_RETRY_ATTEMPTS || props.MAX_RETRY_ATTEMPTS
+    ENV.MAX_MEDIA_SOURCE_RETRY_ATTEMPTS || props.MAX_RETRY_ATTEMPTS,
   )
   const [SHOW_BE_PATIENT_MSG_AFTER_ATTEMPTS] = useState(
-    ENV.SHOW_MEDIA_SOURCE_BE_PATIENT_MSG_AFTER_ATTEMPTS || props.SHOW_BE_PATIENT_MSG_AFTER_ATTEMPTS
+    ENV.SHOW_MEDIA_SOURCE_BE_PATIENT_MSG_AFTER_ATTEMPTS || props.SHOW_BE_PATIENT_MSG_AFTER_ATTEMPTS,
   )
   const [auto_cc_track] = useState(getAutoTrack(tracks))
 
@@ -112,10 +113,10 @@ export default function CanvasMediaPlayer(props) {
         props.type,
         boundingBox(),
         window.frameElement || playerParent,
-        props.resizeContainer
+        props.resizeContainer,
       )
     },
-    [boundingBox, props.resizeContainer, props.type]
+    [boundingBox, props.resizeContainer, props.type],
   )
 
   const handlePlayerSize = useCallback(
@@ -127,10 +128,10 @@ export default function CanvasMediaPlayer(props) {
         props.type,
         boundingBox(),
         window.frameElement || playerParent,
-        props.resizeContainer
+        props.resizeContainer,
       )
     },
-    [props.type, props.resizeContainer, boundingBox]
+    [props.type, props.resizeContainer, boundingBox],
   )
 
   const fetchSources = useCallback(
@@ -141,11 +142,15 @@ export default function CanvasMediaPlayer(props) {
       let resp
       try {
         setMediaObjNetworkErr(null)
+        setMediaObjFailed(false)
         resp = await asJson(fetch(url, defaultFetchOptions()))
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.warn(`Error getting ${url}`, e.message)
         setMediaObjNetworkErr(e)
+        return
+      }
+      if (resp?.status === 'ERROR_IMPORTING' || resp?.status === 'ERROR_CONVERTING') {
+        setMediaObjFailed(true)
         return
       }
       if (resp?.media_sources?.length) {
@@ -154,7 +159,7 @@ export default function CanvasMediaPlayer(props) {
         setRetryAttempt(retryAttempt + 1)
       }
     },
-    [props.attachment_id, props.media_id, retryAttempt]
+    [props.attachment_id, props.media_id, retryAttempt],
   )
 
   useEffect(() => {
@@ -162,9 +167,12 @@ export default function CanvasMediaPlayer(props) {
     // and we don't have its media_sources yet
     let retryTimerId = 0
     if (!media_sources.length && retryAttempt <= MAX_RETRY_ATTEMPTS) {
-      retryTimerId = setTimeout(() => {
-        fetchSources()
-      }, 2 ** retryAttempt * 1000)
+      retryTimerId = setTimeout(
+        () => {
+          fetchSources()
+        },
+        2 ** retryAttempt * 1000,
+      )
     }
 
     return () => {
@@ -186,6 +194,15 @@ export default function CanvasMediaPlayer(props) {
     (document.fullscreenEnabled || document.webkitFullscreenEnabled) && props.type === 'video'
 
   function renderNoPlayer() {
+    if (mediaObjFailed) {
+      return (
+        <Alert key="failedalert" variant="error" margin="small" liveRegion={liveRegion}>
+          {I18n.t(
+            "This file couldn't be processed. It may be corrupted or in an unsupported format. Please upload a different file.",
+          )}
+        </Alert>
+      )
+    }
     if (mediaObjNetworkErr) {
       if (props.is_attachment) {
         return (
@@ -206,7 +223,7 @@ export default function CanvasMediaPlayer(props) {
       return (
         <Alert key="giveupalert" variant="info" margin="x-small" liveRegion={liveRegion}>
           {I18n.t(
-            'Giving up on retrieving media sources. This issue will probably resolve itself eventually.'
+            'Giving up on retrieving media sources. This issue will probably resolve itself eventually.',
           )}
         </Alert>
       )
@@ -329,8 +346,8 @@ export function formatTracksForMediaPlayer(tracks) {
 CanvasMediaPlayer.propTypes = {
   fluidHeight: bool,
   media_id: string.isRequired,
-  media_sources: MediaPlayer.propTypes.sources,
-  media_tracks: MediaPlayer.propTypes.tracks,
+  media_sources: arrayOf(shape({label: string, src: string, type: string})),
+  media_tracks: arrayOf(shape({label: string, src: string, language: string, type: string})),
   resizeContainer: bool,
   type: oneOf(['audio', 'video']),
   MAX_RETRY_ATTEMPTS: number,

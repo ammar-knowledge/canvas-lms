@@ -104,8 +104,6 @@
 class AccountCalendarsApiController < ApplicationController
   include Api::V1::AccountCalendar
 
-  before_action :require_user
-
   # @API List available account calendars
   #
   # Returns a paginated list of account calendars available to the current user.
@@ -123,7 +121,7 @@ class AccountCalendarsApiController < ApplicationController
   def index
     GuardRail.activate(:secondary) do
       search_term = params[:search_term]
-      InstStatsd::Statsd.increment("account_calendars.available_calendars_requested") if search_term.blank? && params[:page].nil?
+      InstStatsd::Statsd.distributed_increment("account_calendars.available_calendars_requested") if search_term.blank? && params[:page].nil?
       accounts = @current_user.all_account_calendars
       accounts = Account.search_by_attribute(accounts, :name, search_term) if search_term.present?
       paginated_accounts = Api.paginate(accounts.sort_by { |a| Canvas::ICU.collation_key(a.name.to_s) }, self, api_v1_account_calendars_url, total_entries: accounts.count)

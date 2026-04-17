@@ -20,7 +20,7 @@ import React from 'react'
 import {EditableCodeValue} from '../../table/EditableCodeValue'
 import {render} from '@testing-library/react'
 
-const callback = jest.fn()
+const callback = vi.fn()
 
 describe('EditableCodeValue', () => {
   it('has a button with an appropriate screen reader label', () => {
@@ -36,14 +36,14 @@ describe('EditableCodeValue', () => {
         onValueChange={callback}
         value=""
         screenReaderLabel="Custom screen reader label"
-      />
+      />,
     )
     expect(getByRole('button')).toHaveTextContent('Custom screen reader label')
   })
 
   it('obscures secret values', () => {
     const {getByText} = render(
-      <EditableCodeValue onValueChange={callback} value="value" secret={true} />
+      <EditableCodeValue onValueChange={callback} value="value" secret={true} />,
     )
 
     expect(getByText('*'.repeat(24))).toBeInTheDocument()
@@ -51,7 +51,7 @@ describe('EditableCodeValue', () => {
 
   it('displays a placeholder if one is provided', () => {
     const {getByText} = render(
-      <EditableCodeValue onValueChange={callback} value="value" placeholder={<p>New setting</p>} />
+      <EditableCodeValue onValueChange={callback} value="value" placeholder={<p>New setting</p>} />,
     )
 
     expect(getByText('New setting')).toBeInTheDocument()

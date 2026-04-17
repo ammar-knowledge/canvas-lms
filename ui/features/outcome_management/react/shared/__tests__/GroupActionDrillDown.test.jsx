@@ -19,15 +19,19 @@
 import React from 'react'
 import {render as rtlRender, fireEvent} from '@testing-library/react'
 import GroupActionDrillDown from '../GroupActionDrillDown'
-import {showFlashAlert} from '@canvas/alerts/react/FlashAlert'
+import {showFlashAlert} from '@instructure/platform-alerts'
 import OutcomesContext, {
   ACCOUNT_GROUP_ID,
   ROOT_GROUP_ID,
 } from '@canvas/outcomes/react/contexts/OutcomesContext'
 
-jest.mock('@canvas/alerts/react/FlashAlert', () => ({
-  showFlashAlert: jest.fn(() => jest.fn(() => {})),
-}))
+vi.mock('@instructure/platform-alerts', async () => {
+  const actual = await vi.importActual('@instructure/platform-alerts')
+  return {
+    ...actual,
+    showFlashAlert: vi.fn(() => vi.fn(() => {})),
+  }
+})
 
 describe('GroupActionDrillDown', () => {
   let onCollectionClick, setShowOutcomesView
@@ -78,12 +82,12 @@ describe('GroupActionDrillDown', () => {
   })
 
   beforeEach(() => {
-    onCollectionClick = jest.fn()
-    setShowOutcomesView = jest.fn()
+    onCollectionClick = vi.fn()
+    setShowOutcomesView = vi.fn()
   })
 
   afterEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   const render = (
@@ -92,10 +96,10 @@ describe('GroupActionDrillDown', () => {
       renderer = rtlRender,
       globalRootId = '',
       rootIds = [ACCOUNT_GROUP_ID, ROOT_GROUP_ID, globalRootId],
-    } = {}
+    } = {},
   ) => {
     return renderer(
-      <OutcomesContext.Provider value={{env: {rootIds}}}>{children}</OutcomesContext.Provider>
+      <OutcomesContext.Provider value={{env: {rootIds}}}>{children}</OutcomesContext.Provider>,
     )
   }
 
@@ -183,7 +187,7 @@ describe('GroupActionDrillDown', () => {
     describe('showActionLinkForRoot', () => {
       it('renders an action link for the root if true', () => {
         const {getByText} = render(
-          <GroupActionDrillDown {...defaultProps({showActionLinkForRoot: true, rootId: '2'})} />
+          <GroupActionDrillDown {...defaultProps({showActionLinkForRoot: true, rootId: '2'})} />,
         )
         fireEvent.click(getByText('Groups'))
         expect(getByText('View 2 Outcomes')).toBeInTheDocument()
@@ -191,7 +195,7 @@ describe('GroupActionDrillDown', () => {
 
       it('does not render an action link for the root if false', () => {
         const {getByText, queryByText} = render(
-          <GroupActionDrillDown {...defaultProps({rootId: '2'})} />
+          <GroupActionDrillDown {...defaultProps({rootId: '2'})} />,
         )
         fireEvent.click(getByText('Groups'))
         expect(queryByText('View 2 Outcomes')).not.toBeInTheDocument()
@@ -215,7 +219,7 @@ describe('GroupActionDrillDown', () => {
 
     it('hides the options and sets the display value to the group that was clicked', () => {
       const {queryByText, getByText, getByDisplayValue} = render(
-        <GroupActionDrillDown {...defaultProps()} />
+        <GroupActionDrillDown {...defaultProps()} />,
       )
       fireEvent.click(getByText('Groups'))
       fireEvent.click(getByText('Account folder'))
@@ -227,7 +231,7 @@ describe('GroupActionDrillDown', () => {
 
     it('clears the display value when the dropdown is clicked', () => {
       const {getByPlaceholderText, getByText, getByDisplayValue} = render(
-        <GroupActionDrillDown {...defaultProps()} />
+        <GroupActionDrillDown {...defaultProps()} />,
       )
       fireEvent.click(getByText('Groups'))
       fireEvent.click(getByText('State folder'))
@@ -239,7 +243,7 @@ describe('GroupActionDrillDown', () => {
 
     it('does not render an action link if isLoadingGroupDetail is true', () => {
       const {getByText, rerender, queryByText} = render(
-        <GroupActionDrillDown {...defaultProps()} />
+        <GroupActionDrillDown {...defaultProps()} />,
       )
       fireEvent.click(getByText('Groups'))
       fireEvent.click(getByText('State folder'))

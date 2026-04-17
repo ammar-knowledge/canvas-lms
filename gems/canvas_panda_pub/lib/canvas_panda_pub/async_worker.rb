@@ -18,15 +18,13 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "set"
-
 module CanvasPandaPub
   # Internal: Helper for performing PandaPub HTTP requests in a separate
   # thread. The only type of pushes we currently support are ones where later
   # pushes take precedence over earlier pushes.
 
   class AsyncWorker
-    def initialize(start_thread = true)
+    def initialize(start_thread: true)
       @queue = Queue.new
       @logger = CanvasPandaPub.logger
       @interval = CanvasPandaPub.process_interval

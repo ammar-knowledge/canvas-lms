@@ -32,14 +32,14 @@ describe AssetUserAccessLog do
       @course = Account.default.courses.create!(name: "My Course")
       @assignment = @course.assignments.create!(title: "My Assignment")
       @user = User.create!
-      @asset = factory_with_protected_attributes(AssetUserAccess, user: @user, context: @course, asset_code: @assignment.asset_string)
+      @asset = AssetUserAccess.create!(user: @user, context: @course, asset_code: @assignment.asset_string)
       @asset.display_name = @assignment.asset_string
       @asset.save!
     end
 
     describe "via postgres" do
       it "inserts to correct tables" do
-        dt = DateTime.civil(2020, 9, 4, 12, 0, 0) # a friday, index 5
+        dt = Time.iso8601("2020-09-04T12:00:00Z") # a friday, index 5
         AssetUserAccessLog::AuaLog5.delete_all
         AssetUserAccessLog.put_view(@asset, timestamp: dt)
         expect(AssetUserAccessLog::AuaLog5.count).to eq(1)
@@ -62,11 +62,26 @@ describe AssetUserAccessLog do
       @user_3 = User.create!
       @user_4 = User.create!
       @user_5 = User.create!
-      @asset_1 = factory_with_protected_attributes(AssetUserAccess, user: @user_1, context: @course, asset_code: @assignment.asset_string, root_account_id: @account.id)
-      @asset_2 = factory_with_protected_attributes(AssetUserAccess, user: @user_2, context: @course, asset_code: @assignment.asset_string, root_account_id: @account.id)
-      @asset_3 = factory_with_protected_attributes(AssetUserAccess, user: @user_3, context: @course, asset_code: @assignment.asset_string, root_account_id: @account.id)
-      @asset_4 = factory_with_protected_attributes(AssetUserAccess, user: @user_4, context: @course, asset_code: @assignment.asset_string, root_account_id: @account.id)
-      @asset_5 = factory_with_protected_attributes(AssetUserAccess, user: @user_5, context: @course, asset_code: @assignment.asset_string, root_account_id: @account.id)
+      @asset_1 = AssetUserAccess.create!(user: @user_1,
+                                         context: @course,
+                                         asset_code: @assignment.asset_string,
+                                         root_account_id: @account.id)
+      @asset_2 = AssetUserAccess.create!(user: @user_2,
+                                         context: @course,
+                                         asset_code: @assignment.asset_string,
+                                         root_account_id: @account.id)
+      @asset_3 = AssetUserAccess.create!(user: @user_3,
+                                         context: @course,
+                                         asset_code: @assignment.asset_string,
+                                         root_account_id: @account.id)
+      @asset_4 = AssetUserAccess.create!(user: @user_4,
+                                         context: @course,
+                                         asset_code: @assignment.asset_string,
+                                         root_account_id: @account.id)
+      @asset_5 = AssetUserAccess.create!(user: @user_5,
+                                         context: @course,
+                                         asset_code: @assignment.asset_string,
+                                         root_account_id: @account.id)
     end
 
     def generate_log(assets, count)
@@ -84,7 +99,7 @@ describe AssetUserAccessLog do
 
     it "aborts job immediately if plugin setting is nil" do
       PluginSetting.where(name: "asset_user_access_logs").delete_all
-      expect(AssetUserAccess).to_not receive(:compact_partition)
+      expect(AssetUserAccess).not_to receive(:compact_partition)
       AssetUserAccessLog.compact
       expect(@asset_1.reload.view_score).to be_nil
     end
@@ -93,13 +108,13 @@ describe AssetUserAccessLog do
       ps = PluginSetting.where(name: "asset_user_access_logs").first
       ps.settings[:write_path] = "update"
       ps.save!
-      expect(AssetUserAccess).to_not receive(:compact_partition)
+      expect(AssetUserAccess).not_to receive(:compact_partition)
       AssetUserAccessLog.compact
       expect(@asset_1.reload.view_score).to be_nil
     end
 
     it "doesn't fail when there is no data" do
-      expect { AssetUserAccessLog.compact }.to_not raise_error
+      expect { AssetUserAccessLog.compact }.not_to raise_error
     end
 
     describe "with data via postgres" do

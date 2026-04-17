@@ -23,7 +23,7 @@ let editor
 beforeEach(() => {
   editor = new FakeEditor()
 
-  editor.execCommand = jest.fn()
+  editor.execCommand = vi.fn()
   editor.execCommand.mockImplementation(function (command, _ui, value) {
     const newElement = document.createElement('span')
     newElement.innerHTML = value
@@ -33,7 +33,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  jest.resetAllMocks()
+  vi.resetAllMocks()
 })
 
 const returnValueExamples = subject => {
@@ -110,13 +110,13 @@ describe('insertMentionFor()', () => {
   it('inserts the content into the editor with correct mentions user id', () => {
     subject()
     expect(editor.getContainer().querySelector('.mention').getAttribute('data-mention')).toEqual(
-      '123'
+      '123',
     )
   })
 
   it('removes the trigger char from the editor body', () => {
     subject()
     expect(editor.getContent()).not.toContain('@<')
-    expect(editor.getContent().match(/@/g).length).toEqual(1)
+    expect(editor.getContent().match(/@/g)).toHaveLength(1)
   })
 })

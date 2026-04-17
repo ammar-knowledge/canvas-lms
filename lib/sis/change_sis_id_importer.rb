@@ -20,8 +20,10 @@
 
 module SIS
   class ChangeSisIdImporter < BaseImporter
+    attr_accessor :importer
+
     def process
-      importer = Work.new(@batch, @root_account, @logger)
+      self.importer = Work.new(@batch, @root_account, @logger)
 
       yield importer
 
@@ -50,7 +52,8 @@ module SIS
 
     class Work
       attr_accessor :success_count,
-                    :things_to_update_batch_ids
+                    :things_to_update_batch_ids,
+                    :users_to_sync
 
       def initialize(batch, root_account, logger)
         @batch = batch
@@ -58,6 +61,7 @@ module SIS
         @logger = logger
         @success_count = 0
         @things_to_update_batch_ids = {}
+        @users_to_sync = Set.new
       end
 
       def process_change_sis_id(data_change)
@@ -85,14 +89,20 @@ module SIS
         check_for_conflicting_ids(column, details, type, data_change)
         old_item = find_item_to_update(column, details, type, data_change)
         update_record(column, data_change, details, old_item)
-        @things_to_update_batch_ids[type] << old_item.id
-        @success_count += 1
+        things_to_update_batch_ids[type] << old_item.id
+        users_to_sync << old_item.user_id if type == "user"
+        self.success_count += 1
       end
 
       def update_record(column, data_change, details, old_item)
         updates = ids_to_change(column, data_change)
         details[:scope].where(id: old_item.id).update_all(updates)
         old_item.invalidate_association_cache if old_item.is_a?(Account)
+        # update_all bypasses AR callbacks; re-index GlobalLookups
+        # so cross-shard searches can find the new IDs.
+        if old_item.is_a?(Pseudonym) && GlobalLookups.enabled?
+          old_item.delay_if_production.ensure_global_lookup_record(force: true)
+        end
       end
 
       def ids_to_change(column, data_change)

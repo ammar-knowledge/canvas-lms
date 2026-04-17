@@ -16,21 +16,20 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* eslint-disable no-restricted-globals */
-
-import 'formdata-polyfill' // Need to support FormData.has for IE
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender} from '@canvas/react'
 import ThemeEditor from './react/ThemeEditor'
 import ready from '@instructure/ready'
+import {checkShouldFramebust} from './framebust'
 
 // framebust out so we don't ever get theme editor inside theme editor
-if (window.top.location !== self.location) {
+// but allow intentional iframe embedding (e.g., from horizon)
+if (checkShouldFramebust()) {
   window.top.location = self.location.href
 }
 
 ready(() => {
-  ReactDOM.render(
+  legacyRender(
     <ThemeEditor
       {...{
         brandConfig: window.ENV.brandConfig,
@@ -43,6 +42,6 @@ ready(() => {
         useHighContrast: window.ENV.use_high_contrast,
       }}
     />,
-    document.body
+    document.body,
   )
 })

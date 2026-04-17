@@ -17,15 +17,13 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require_relative "../../../spec_helper"
-
 # See module_visibility_service_spec for more (integration) tests that exercise this repository
 describe ModuleVisibility::Repositories::ModuleVisibleToStudentRepository do
   describe "testing things" do
     it "raises error if called with no filter parameters" do
       expect do
         ModuleVisibility::Repositories::ModuleVisibleToStudentRepository
-          .find_modules_visible_to_everyone(course_id_params: nil, user_id_params: nil, context_module_id_params: nil)
+          .find_modules_visible_to_everyone(course_ids: nil, user_ids: nil, context_module_ids: nil)
       end.to raise_error(ArgumentError, "ModulesVisibleToStudents must have a limiting where clause of at least one course_id, user_id, or context_module_id (for performance reasons)")
     end
   end

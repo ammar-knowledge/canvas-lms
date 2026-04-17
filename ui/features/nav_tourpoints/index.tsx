@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render} from '@canvas/react'
 import ready from '@instructure/ready'
 import type {Role} from './react/tour'
 
@@ -44,11 +44,11 @@ ready(() => {
   // don't even mount it. This saves us from having
   // to download the code-split bundle.
   if (globalNavTourContainer && roles.length > 0) {
-    ReactDOM.render(
+    render(
       <React.Suspense fallback={null}>
         <Tour roles={roles} />
       </React.Suspense>,
-      globalNavTourContainer
+      globalNavTourContainer,
     )
   }
 })

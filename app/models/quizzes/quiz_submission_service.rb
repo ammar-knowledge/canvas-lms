@@ -82,7 +82,7 @@ class Quizzes::QuizSubmissionService
       reject! "you are not allowed to preview this quiz", 403
     end
 
-    quiz.generate_submission(participant.user_code, true)
+    quiz.generate_submission(participant.user_code, preview: true)
   end
 
   # Complete the quiz submission by marking it as complete and grading it. When
@@ -235,7 +235,7 @@ class Quizzes::QuizSubmissionService
   #   - #ensure_latest_attempt!
   #
   # @return [Hash] the recently-adjusted submission_data set
-  def update_question(question_record, quiz_submission, attempt, snapshot = true)
+  def update_question(question_record, quiz_submission, attempt, snapshot: true)
     unless quiz_submission.grants_right?(participant.user, :update)
       reject! "you are not allowed to update questions for this quiz submission", 403
     end
@@ -347,12 +347,12 @@ class Quizzes::QuizSubmissionService
   # @throw RequestError(400) if attempt isn't a valid integer
   # @throw RequestError(400) if attempt is invalid (ie, isn't the latest one)
   def ensure_latest_attempt!(quiz_submission, attempt)
-    attempt = Integer(attempt) rescue nil
+    attempt = Integer(attempt)
 
-    if !attempt
-      reject! "invalid attempt", 400
-    elsif !quiz_submission.preview? && quiz_submission.attempt != attempt
+    if !quiz_submission.preview? && quiz_submission.attempt != attempt
       reject! "attempt #{attempt} can not be modified", 400
     end
+  rescue ArgumentError, TypeError
+    reject! "invalid attempt", 400
   end
 end

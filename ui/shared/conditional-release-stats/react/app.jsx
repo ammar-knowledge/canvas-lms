@@ -17,7 +17,7 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render, rerender} from '@canvas/react'
 import {connect, Provider} from 'react-redux'
 import BreakdownGraphs from './components/breakdown-graphs'
 import BreakdownDetails from './components/breakdown-details'
@@ -42,34 +42,52 @@ export default class CRSApp {
   constructor(store, actions) {
     this.store = store
     this.actions = actions
+    this.graphsRoot = null
+    this.detailsRoot = null
   }
 
   renderGraphs(root) {
+    if (!root) {
+      throw new Error('Failed to find the graphs root element')
+    }
     const actions = {
       openSidebar: this.actions.openSidebar,
       selectRange: this.actions.selectRange,
     }
 
-    ReactDOM.render(
+    const component = (
       <Provider store={this.store}>
         <Graphs {...actions} />
-      </Provider>,
-      root
+      </Provider>
     )
+
+    if (!this.graphsRoot) {
+      this.graphsRoot = render(component, root)
+    } else {
+      rerender(this.graphsRoot, component)
+    }
   }
 
   renderDetails(root) {
+    if (!root) {
+      throw new Error('Failed to find the details root element')
+    }
     const detailActions = {
       selectRange: this.actions.selectRange,
       selectStudent: this.actions.selectStudent,
       closeSidebar: this.actions.closeSidebar,
     }
 
-    ReactDOM.render(
+    const component = (
       <Provider store={this.store}>
         <Details {...detailActions} />
-      </Provider>,
-      root
+      </Provider>
     )
+
+    if (!this.detailsRoot) {
+      this.detailsRoot = render(component, root)
+    } else {
+      rerender(this.detailsRoot, component)
+    }
   }
 }

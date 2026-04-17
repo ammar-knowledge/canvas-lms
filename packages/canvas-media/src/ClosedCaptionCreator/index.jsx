@@ -15,18 +15,17 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import React, {Component, useEffect, useState} from 'react'
-import {arrayOf, bool, func, objectOf, shape, string, element, oneOfType} from 'prop-types'
-import formatMessage from 'format-message'
 
 import {Alert} from '@instructure/ui-alerts'
 import {IconButton} from '@instructure/ui-buttons'
 import {IconAddLine} from '@instructure/ui-icons'
 import {View} from '@instructure/ui-view'
-
+import formatMessage from 'format-message'
+import {arrayOf, bool, element, func, objectOf, oneOfType, shape, string} from 'prop-types'
+import React, {Component, useEffect, useState} from 'react'
+import {sortedClosedCaptionLanguageList} from '../closedCaptionLanguages'
 import getTranslations from '../getTranslations'
 import ClosedCaptionCreatorRow from './ClosedCaptionCreatorRow'
-import {sortedClosedCaptionLanguageList} from '../closedCaptionLanguages'
 
 // TODO:
 //   - Limit file creation
@@ -62,7 +61,7 @@ export class ClosedCaptionPanel extends Component {
         locale: string.isRequired,
         inherited: bool,
         file: shape({name: string.isRequired}).isRequired,
-      })
+      }),
     ),
     updateSubtitles: func.isRequired,
     uploadMediaTranslations: shape({
@@ -143,7 +142,7 @@ export class ClosedCaptionPanel extends Component {
           newSelectedLanguage: null,
           announcement: formatMessage(
             this.props.uploadMediaTranslations.UploadMediaStrings.ADDED_CAPTION,
-            {lang: prevState.newSelectedLanguage.label}
+            {lang: prevState.newSelectedLanguage.label},
           ),
         }
       })
@@ -166,7 +165,7 @@ export class ClosedCaptionPanel extends Component {
           newSelectedLanguage: null,
           announcement: formatMessage(
             this.props.uploadMediaTranslations.UploadMediaStrings.ADDED_CAPTION,
-            {lang: lang.label}
+            {lang: lang.label},
           ),
         }
       })
@@ -186,7 +185,7 @@ export class ClosedCaptionPanel extends Component {
         addingNewClosedCaption: subtitles.length > 0 ? prevState.addingNewClosedCaption : true,
         announcement: formatMessage(
           this.props.uploadMediaTranslations.UploadMediaStrings.DELETED_CAPTION,
-          {lang: deletedLang?.label}
+          {lang: deletedLang?.label},
         ),
         lastDeletedCCIndex: deletedCCIndex,
       }
@@ -237,7 +236,7 @@ export class ClosedCaptionPanel extends Component {
               languages={this.closedCaptionLanguages.filter(candidate_lang => {
                 // remove already selected languages form the list
                 return !this.state.subtitles.find(
-                  st => !st.inherited && st.locale === candidate_lang.id
+                  st => !st.inherited && st.locale === candidate_lang.id,
                 )
               })}
               selectedLanguage={this.state.newSelectedLanguage}

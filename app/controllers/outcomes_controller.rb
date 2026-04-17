@@ -22,7 +22,12 @@ class OutcomesController < ApplicationController
   include Api::V1::Outcome
   include Api::V1::Role
 
-  before_action :require_context, except: [:build_outcomes]
+  before_action :require_context
+
+  include HorizonMode
+
+  before_action :load_canvas_career, only: [:index, :show]
+
   add_crumb(proc { t "#crumbs.outcomes", "Outcomes" }, except: [:destroy, :build_outcomes]) { |c| c.send :named_context_url, c.instance_variable_get(:@context), :context_outcomes_path }
   before_action { |c| c.active_tab = "outcomes" }
   before_action :rce_js_env, only: [:show, :index]
@@ -37,31 +42,32 @@ class OutcomesController < ApplicationController
 
     @root_outcome_group = @context.root_outcome_group
 
-    js_env(
-      ROOT_OUTCOME_GROUP: outcome_group_json(@root_outcome_group, @current_user, session),
-      CONTEXT_URL_ROOT: polymorphic_path([@context]),
-      ACCOUNT_CHAIN_URL: polymorphic_path([:api_v1, @context, :account_chain]),
-      # Don't display state standards, global outcomes if in the context of a Course. Only at Account level.
-      STATE_STANDARDS_URL: @context.is_a?(Course) ? nil : api_v1_global_redirect_path,
-      GLOBAL_ROOT_OUTCOME_GROUP_ID:
+    js_env({
+             ROOT_OUTCOME_GROUP: outcome_group_json(@root_outcome_group, @current_user, session),
+             CONTEXT_URL_ROOT: polymorphic_path([@context]),
+             ACCOUNT_CHAIN_URL: polymorphic_path([:api_v1, @context, :account_chain]),
+             # Don't display state standards, global outcomes if in the context of a Course. Only at Account level.
+             STATE_STANDARDS_URL: @context.is_a?(Course) ? nil : api_v1_global_redirect_path,
+             GLOBAL_ROOT_OUTCOME_GROUP_ID:
         @context.is_a?(Course) ? nil : LearningOutcomeGroup.global_root_outcome_group.id,
-      PERMISSIONS: {
-        manage_outcomes: @context.grants_right?(@current_user, session, :manage_outcomes),
-        manage_rubrics: @context.grants_right?(@current_user, session, :manage_rubrics),
-        can_manage_courses: @context.grants_any_right?(@current_user, session, :manage_courses, :manage_courses_admin),
-        import_outcomes: @context.grants_right?(@current_user, session, :import_outcomes),
-        manage_proficiency_scales:
+             PERMISSIONS: {
+               manage_outcomes: @context.grants_right?(@current_user, session, :manage_outcomes),
+               manage_rubrics: @context.grants_right?(@current_user, session, :manage_rubrics),
+               can_manage_courses: @context.grants_right?(@current_user, session, :manage_courses_admin),
+               import_outcomes: @context.grants_right?(@current_user, session, :import_outcomes),
+               manage_proficiency_scales:
           @context.grants_right?(@current_user, session, :manage_proficiency_scales),
-        manage_proficiency_calculations:
+               manage_proficiency_calculations:
           @context.grants_right?(@current_user, session, :manage_proficiency_calculations)
-      },
-      OUTCOMES_FRIENDLY_DESCRIPTION: Account.site_admin.feature_enabled?(:outcomes_friendly_description),
-      OUTCOME_AVERAGE_CALCULATION: @context.root_account.feature_enabled?(:outcome_average_calculation),
-      MENU_OPTION_FOR_OUTCOME_DETAILS_PAGE: Account.site_admin.feature_enabled?(:menu_option_for_outcome_details_page),
-      OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION: @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation),
-      ARCHIVE_OUTCOMES: Account.site_admin.feature_enabled?(:archive_outcomes),
-      PREVENT_DELETION_OUTCOMES_WITH_OS_ALIGNMENTS: Account.site_admin.feature_enabled?(:prevent_deletion_outcomes_with_os_alignments)
-    )
+             },
+             OUTCOMES_FRIENDLY_DESCRIPTION: Account.site_admin.feature_enabled?(:outcomes_friendly_description),
+             OUTCOME_AVERAGE_CALCULATION: @context.root_account.feature_enabled?(:outcome_average_calculation),
+             MENU_OPTION_FOR_OUTCOME_DETAILS_PAGE: Account.site_admin.feature_enabled?(:menu_option_for_outcome_details_page),
+             OUTCOMES_NEW_DECAYING_AVERAGE_CALCULATION: @context.root_account.feature_enabled?(:outcomes_new_decaying_average_calculation),
+             ARCHIVE_OUTCOMES: Account.site_admin.feature_enabled?(:archive_outcomes),
+             PREVENT_DELETION_OUTCOMES_WITH_OS_ALIGNMENTS: Account.site_admin.feature_enabled?(:prevent_deletion_outcomes_with_os_alignments),
+             LMGB_STUDENT_REPORTING: @context.feature_enabled?(:lmgb_student_reporting)
+           })
 
     set_tutorial_js_env
     mastery_scales_js_env
@@ -143,7 +149,7 @@ class OutcomesController < ApplicationController
     @outcomes = if @user == @context
                   LearningOutcome.has_result_for(@user).active
                 else
-                  @context.available_outcomes
+                  @context.is_a?(Course) ? @context.associated_outcomes : @context.available_outcomes
                 end
     @results = LearningOutcomeResult.active.for_user(@user).for_outcome_ids(@outcomes.map(&:id)).order(assessed_at: :asc) # .for_context_codes(@codes)
 
@@ -160,9 +166,9 @@ class OutcomesController < ApplicationController
   def list
     return unless authorized_action(@context, @current_user, :manage_outcomes)
 
-    @account_contexts = @context.associated_accounts rescue []
+    @account_contexts = @context.associated_accounts
     @current_outcomes = @context.linked_learning_outcomes
-    @outcomes = Canvas::ICU.collate_by(@context.available_outcomes, &:title)
+    @outcomes = Canvas::ICU.collate_by(@context.is_a?(Course) ? @context.associated_outcomes : @context.available_outcomes, &:title)
     if params[:unused]
       @outcomes -= @current_outcomes
     end
@@ -173,7 +179,7 @@ class OutcomesController < ApplicationController
   def add_outcome
     return unless authorized_action(@context, @current_user, :manage_outcomes)
 
-    @account_contexts = @context.associated_accounts.uniq rescue []
+    @account_contexts = @context.associated_accounts.uniq
     codes = @account_contexts.map(&:asset_string)
     @outcome = LearningOutcome.for_context_codes(codes).find(params[:learning_outcome_id])
     @group = @context.learning_outcome_groups.find(params[:learning_outcome_group_id])
@@ -226,7 +232,7 @@ class OutcomesController < ApplicationController
     if @result.artifact.is_a?(Submission)
       @submission = @result.artifact
       redirect_to named_context_url(@result.context, :context_assignment_submission_url, @submission.assignment_id, @submission.user_id)
-    elsif @result.artifact.is_a?(RubricAssessment) && @result.artifact.artifact && @result.artifact.artifact.is_a?(Submission)
+    elsif @result.artifact.is_a?(RubricAssessment) && @result.artifact.artifact.is_a?(Submission)
       @submission = @result.artifact.artifact
       redirect_to named_context_url(@result.context, :context_assignment_submission_url, @submission.assignment_id, @submission.user_id)
     elsif @result.artifact.is_a?(Quizzes::QuizSubmission) && @result.associated_asset
@@ -272,6 +278,7 @@ class OutcomesController < ApplicationController
     end
     @outcome_group ||= @context.root_outcome_group
     @outcome = @context.created_learning_outcomes.build(learning_outcome_params)
+    @outcome.saving_user = @current_user
 
     respond_to do |format|
       if @outcome.save
@@ -291,6 +298,7 @@ class OutcomesController < ApplicationController
     return unless authorized_action(@context, @current_user, :manage_outcomes)
 
     @outcome = @context.created_learning_outcomes.find(params[:id])
+    @outcome.saving_user = @current_user
 
     respond_to do |format|
       if @outcome.update(learning_outcome_params)
@@ -300,7 +308,7 @@ class OutcomesController < ApplicationController
       else
         flash[:error] = t :failed_outcome_update, "Outcome update failed"
         format.html { redirect_to named_context_url(@context, :context_outcomes_url) }
-        format.json { render json: @outcome.errors, statue: :bad_request }
+        format.json { render json: @outcome.errors, status: :bad_request }
       end
     end
   end
@@ -332,7 +340,9 @@ class OutcomesController < ApplicationController
   protected
 
   def learning_outcome_params
-    params.require(:learning_outcome).permit(:description, :short_description, :title, :display_name, :vendor_guid)
+    oparams = params.require(:learning_outcome).permit(:description, :short_description, :title, :display_name, :vendor_guid)
+    oparams[:description] = process_incoming_html_content(oparams[:description]) if oparams[:description]
+    oparams
   end
 
   private
@@ -351,10 +361,10 @@ class OutcomesController < ApplicationController
           proficiency_scales_roles << role_json(@context, role, @current_user, session, skip_permissions: true)
         end
       end
-      js_env(
-        PROFICIENCY_CALCULATION_METHOD_ENABLED_ROLES: proficiency_calculation_roles,
-        PROFICIENCY_SCALES_ENABLED_ROLES: proficiency_scales_roles
-      )
+      js_env({
+               PROFICIENCY_CALCULATION_METHOD_ENABLED_ROLES: proficiency_calculation_roles,
+               PROFICIENCY_SCALES_ENABLED_ROLES: proficiency_scales_roles
+             })
     end
   end
 end

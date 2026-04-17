@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-class ObserverAlertThreshold < ActiveRecord::Base
+class ObserverAlertThreshold < ApplicationRecord
   belongs_to :student, class_name: "User", inverse_of: :as_student_observer_alert_thresholds, foreign_key: :user_id
   belongs_to :observer, class_name: "User", inverse_of: :as_observer_observer_alert_thresholds
   has_many :observer_alerts, inverse_of: :observer_alert_threshold
@@ -106,9 +106,9 @@ class ObserverAlertThreshold < ActiveRecord::Base
   def did_pass_threshold(previous_value, new_value)
     t = threshold.to_i
     if alert_type.include? "high"
-      (previous_value.nil? || previous_value < t) && (!new_value.nil? && new_value > t)
+      (previous_value.nil? || previous_value < t) && !new_value.nil? && new_value > t
     elsif alert_type.include? "low"
-      (previous_value.nil? || previous_value > t) && (!new_value.nil? && new_value < t)
+      (previous_value.nil? || previous_value > t) && !new_value.nil? && new_value < t
     end
   end
 end

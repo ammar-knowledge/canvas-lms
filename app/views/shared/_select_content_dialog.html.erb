@@ -26,10 +26,10 @@
   new_quizzes_by_default = new_quizzes_enabled && @context.feature_enabled?(:new_quizzes_by_default)
   newquizzes_engine_selected = @context.settings.dig(:engine_selected, :user_id, :newquizzes_engine_selected)
   newquizzes_engine_selected = ['true', 'false'].include?(newquizzes_engine_selected) ? newquizzes_engine_selected : nil
-  add_assignment_permission = @context.root_account.feature_enabled?(:granular_permissions_manage_assignments) ? :manage_assignments_add : :manage_assignments
+  newquizzes_engine_selected = @context.horizon_course? ? 'true' : newquizzes_engine_selected
   module_links_default_new_tab = @current_user&.get_preference(:module_links_default_new_tab)
 %>
-<% js_env :NEW_QUIZZES_BY_DEFAULT => new_quizzes_by_default %>
+<% js_env({ NEW_QUIZZES_BY_DEFAULT: new_quizzes_by_default }) %>
 <% cache([@context, 'select_context_content_dialog_1', only].cache_key) do %>
   <div id="select_context_content_dialog" style="display: none;">
     <div style="margin-bottom: 5px; <%= hidden if only && only.size == 1 %>">
@@ -48,7 +48,7 @@
         <% if !only || only.include?(:wiki_pages) %>
         <option value="wiki_page"><%= t :content_page_item, "Page" %></option>
         <% end %>
-        <% if !only || only.include?(:discussion_topics) %>
+        <% if (!only || only.include?(:discussion_topics)) && !@context.horizon_course? %>
         <option value="discussion_topic"><%= t :discussion_item, "Discussion" %></option>
         <% end %>
         <% if !only || only.include?(:sub_headers) %>
@@ -96,18 +96,20 @@
             <td><label for="content_tag_create_title"><%= before_label :page_name, "Page Name" %></label></td>
             <td><input type="text" name="title" id="content_tag_create_title" style="width: 120px;"/></td>
           </tr>
+          <% unless @context.horizon_course? %>
           <tr>
             <td colspan="2">
               <input type="checkbox" name="new_tab" id="external_url_create_new_tab" <%= "checked" if module_links_default_new_tab %> />
               <label for="external_url_create_new_tab"><%= t :new_tab, "Load in a new tab" %></label>
             </td>
           </tr>
+          <% end %>
         </table>
       </div>
       <% end %>
       <% if !only || only.include?(:external_tools) %>
       <div id="context_external_tools_select" class="module_item_option">
-        <div style="font-size: 0.8em;" tabindex="0" role="alert">
+        <div style="font-size: 0.8em;" role="alert">
           <i class="icon-link"></i>
           <%= t :external_tool_notice, "Select a tool from the list below, or enter a URL for an external tool you already know is configured with Basic LTI to add a link to it to this *module*.", :wrapper => '<span class="holder_type">\1</span>' %>
         </div>
@@ -146,12 +148,14 @@
             <td><label for="external_tool_create_title"><%= before_label :page_name, "Page Name" %></label></td>
             <td><input type="text" name="title" id="external_tool_create_title" style="width: 120px;"/></td>
           </tr>
+          <% unless @context.horizon_course? %>
           <tr>
               <td colspan="2">
               <input type="checkbox" name="new_tab" id="external_tool_create_new_tab" <%= "checked" if module_links_default_new_tab %> />
               <label for="external_tool_create_new_tab"><%= t :new_tab, "Load in a new tab" %></label>
             </td>
           </tr>
+          <% end %>
         </table>
       </div>
       <% end %>
@@ -200,11 +204,14 @@
                 <div id="module_attachment_upload_form"></div>
                 <div id="module_attachment_upload_progress" style="display: none"></div>
               </td>
-            </tr><tr>
+            </tr>
+            <% unless @context.horizon_course? %>
+            <tr>
               <td>
                 <a href="<%= context_url(@context, :context_files_url, :format => :text) %>" style="display: none;" class="add_item_url">&nbsp;</a>
                 <%= before_label :folder, "Folder" %>
-              </td><td>
+              </td>
+              <td>
                 <% Folder.root_folders(@context) %>
                 <% folders = @context.active_folders.select([:id, :name, :parent_folder_id]).to_a %>
                 <% root_folders = folders.select{|f| f.parent_folder_id == nil} %>
@@ -213,6 +220,7 @@
                 </select>
               </td>
             </tr>
+            <% end %>
           </table>
         </div>
       </div>
@@ -226,11 +234,11 @@
         </div>
         <div style="margin-top: 5px;">
         <select class="module_item_select mathjax_ignore" aria-label="<%= quiz_label %>" multiple>
-          <% if @context.grants_right?(@current_user, session, add_assignment_permission) %>
+          <% if @context.grants_right?(@current_user, session, :manage_assignments_add) %>
             <option value="new"><%= t :create_quiz_option, "[ Create Quiz ]" %></option>
           <% end %>
           <% @combined_active_quizzes.each do |id, title, type| %>
-            <% option_text = "#{title} #{t :classic_quiz_identifier, '(classic)' if @combined_active_quizzes_includes_both_types && type == 'quiz'}" %>
+            <% option_text = @combined_active_quizzes_includes_both_types && type == 'quiz' ? "#{title} #{t :classic_quiz_identifier, '(classic)'}" : title %>
             <option value="<%= type + '_' + id.to_s %>"><%= option_text %></option>
           <% end %>
         </select>
@@ -262,7 +270,18 @@
             <tr>
               <td><%= before_label :quiz_name, "Quiz Name" %></td>
               <td><input type="text" name="quiz[title]" class="item_title" aria-label="<%= before_label :quiz_name, "Quiz Name" %>"/></td>
-            </tr><tr>
+            </tr>
+            <% if new_quizzes_enabled %>
+              <tr id="quiz_type_selector_row" style="display: none;">
+                <td style="vertical-align: top; text-align: left;"><%= before_label :quiz_type, "Quiz Type" %></td>
+                <td><div id="quiz_type_selector_mount_point"></div></td>
+              </tr>
+              <tr id="anonymous_submission_selector_row" style="display: none;">
+                <td style="vertical-align: top; text-align: left; width: 80px;"><%= before_label :anonymous_submission, "Anonymous Submission" %></td>
+                <td><div id="anonymous_submission_selector_mount_point"></div></td>
+              </tr>
+            <% end %>
+            <tr>
               <td><%= before_label :quiz_group, "Group" %></td>
               <td>
                 <select name="quiz[assignment_group_id]" aria-label="<%= before_label :quiz_group, "Group" %>">
@@ -292,7 +311,7 @@
         </div>
         <div style="margin-top: 5px;">
         <select class="module_item_select mathjax_ignore" aria-label="<%= assignment_label %>" multiple>
-          <% if @context.grants_right?(@current_user, session, add_assignment_permission) %>
+          <% if @context.grants_right?(@current_user, session, :manage_assignments_add) %>
             <option value="new"><%= t :create_assignment_option, "[ Create Assignment ]" %></option>
           <% end %>
           <% @context.assignment_groups.active.include_active_assignments.reorder(AssignmentGroup.best_unicode_collation_key('name')).each do |group| %>
@@ -335,7 +354,7 @@
         </div>
       </div>
       <% end %>
-      <% if !only || only.include?(:indentation) %>
+      <% if (!only || only.include?(:indentation)) && !@context.horizon_course? %>
       <div class="context_module_content">
         <%= before_label :indentation, "Indentation" %>
         <select name="content_tag[indent]" id="content_tag_indent" aria-label="<%= before_label :indentation, "Indentation" %>">

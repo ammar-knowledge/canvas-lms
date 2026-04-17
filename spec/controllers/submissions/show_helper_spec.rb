@@ -23,9 +23,11 @@ describe "Submissions::ShowHelper" do
     controller do
       include Submissions::ShowHelper
 
+      skip_before_action :require_user
+
       def show
         @context = Course.find(params[:context_id])
-        @assignment = Assignment.where(id: params[:assignment_id]).first
+        @assignment = Assignment.where(id: params[:assignment_id]).where.not(workflow_state: "deleted").first
         render_user_not_found
       end
     end
@@ -73,6 +75,15 @@ describe "Submissions::ShowHelper" do
           get :show, params: { context_id: @course.id, assignment_id: -9000 }, format: :json
           json = response.parsed_body
           expect(json["errors"]).to eq "The specified assignment (-9000) could not be found"
+        end
+      end
+
+      context "with a deleted discussion" do
+        it "shows This Discussion has been deleted alert" do
+          graded_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "graded topic")
+          graded_topic.destroy
+          get :show, params: { context_id: @course.id, assignment_id: graded_topic.assignment.id }
+          expect(flash[:notice]).to eq "This Discussion has been deleted"
         end
       end
     end

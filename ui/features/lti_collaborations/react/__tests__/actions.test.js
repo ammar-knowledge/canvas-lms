@@ -37,7 +37,7 @@ describe('actions', () => {
   describe('externalContentReady', () => {
     describe('when service_id (collaboration id) is given', () => {
       it('constructs the update URL with the context and service_id and includes contentItems and tool_id', () => {
-        jest.spyOn(axios, 'put').mockImplementation(() => Promise.resolve())
+        vi.spyOn(axios, 'put').mockImplementation(() => Promise.resolve())
         actions.externalContentReady({
           service_id: 123,
           tool_id: 1234,
@@ -49,7 +49,7 @@ describe('actions', () => {
             contentItems: JSON.stringify([{item: 'foo'}]),
             tool_id: 1234,
           },
-          expect.anything()
+          expect.anything(),
         )
       })
     })
@@ -57,7 +57,7 @@ describe('actions', () => {
 
   describe('when service_id (collaboration id) is not given', () => {
     it('constructs the create URL with the context and includes contentItems and tool_id', () => {
-      jest.spyOn(axios, 'post').mockImplementation(() => Promise.resolve())
+      vi.spyOn(axios, 'post').mockImplementation(() => Promise.resolve())
       actions.externalContentReady({
         tool_id: 1234,
         contentItems: [{item: 'foo'}],
@@ -68,7 +68,7 @@ describe('actions', () => {
           contentItems: JSON.stringify([{item: 'foo'}]),
           tool_id: 1234,
         },
-        expect.anything()
+        expect.anything(),
       )
     })
   })

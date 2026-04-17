@@ -18,12 +18,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../spec_helper"
 require "rotp"
 
 describe Login::CasController do
-  def stubby(stub_response, use_mock = true)
-    cas_client = use_mock ? double(:cas_client).as_null_object : controller.client
+  def stubby(stub_response)
+    cas_client = instance_double(CASClient::Client).as_null_object
     cas_client.instance_variable_set(:@stub_response, stub_response)
     def cas_client.validate_service_ticket(st)
       response = CASClient::ValidationResponse.new(@stub_response)
@@ -31,7 +30,7 @@ describe Login::CasController do
       st.success = response.is_success?
       st
     end
-    allow_any_instance_of(AuthenticationProvider::CAS).to receive(:client).and_return(cas_client) if use_mock
+    allow_any_instance_of(AuthenticationProvider::CAS).to receive(:client).and_return(cas_client)
   end
 
   it "logouts with specific cas ticket" do
@@ -43,9 +42,9 @@ describe Login::CasController do
       <samlp:LogoutRequest
         xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
         xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
-        ID="42"
+        ID="_42"
         Version="2.0"
-        IssueInstant="#{Time.zone.now.in_time_zone}">
+        IssueInstant="#{Time.zone.now.iso8601}">
         <saml:NameID>@NOT_USED@</saml:NameID>
         <samlp:SessionIndex>#{cas_ticket}</samlp:SessionIndex>
       </samlp:LogoutRequest>
@@ -209,7 +208,7 @@ describe Login::CasController do
       account.unknown_user_url = unknown_user_url
       account.save!
       get "new", params: { ticket: "ST-abcd" }
-      expect(response).to redirect_to(unknown_user_url)
+      expect(response).to redirect_to(/^#{unknown_user_url}\?message=Canvas/)
       expect(session[:cas_session]).to be_nil
     end
 
@@ -218,7 +217,7 @@ describe Login::CasController do
       ap.update_attribute(:jit_provisioning, true)
       unique_id = "foo@example.com"
 
-      expect(account.pseudonyms.active.by_unique_id(unique_id)).to_not be_exists
+      expect(account.pseudonyms.active.by_unique_id(unique_id)).not_to be_exists
       get "new", params: { ticket: "ST-abcd" }
       expect(response).to redirect_to(dashboard_url(login_success: 1))
       expect(session[:cas_session]).to eq "ST-abcd"
@@ -231,20 +230,20 @@ describe Login::CasController do
     account_with_cas(account: Account.default)
     ap = Account.default.authentication_providers.detect { |a| a.auth_type == "cas" }
     Setting.set("service_cas:#{ap.global_id}_timeout", "0.01")
-    cas_client = double
+    cas_client = instance_double(CASClient::Client)
     allow(controller).to receive(:client).and_return(cas_client)
     start = Time.now.utc
     allow(Canvas::Errors).to receive(:capture_exception).and_return(true)
-    allow(InstStatsd::Statsd).to receive(:increment)
+    allow(InstStatsd::Statsd).to receive(:distributed_increment)
     expect(cas_client).to receive(:validate_service_ticket) { sleep 5 }
     session[:sentinel] = true
     get "new", params: { ticket: "ST-abcd" }
     expect(response).to redirect_to(login_url)
-    expect(flash[:delegated_message]).to_not be_blank
+    expect(flash[:delegated_message]).not_to be_blank
     expect(Time.now.utc - start).to be < 1
     expect(session[:sentinel]).to be true
-    expect(InstStatsd::Statsd).to have_received(:increment).with(
-      "auth.timeout_error", tags: { auth_type: ap.auth_type.to_s, auth_provider_id: ap.global_id }
+    expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
+      "auth.create.failure.v2", tags: { auth_type: ap.auth_type.to_s, auth_provider_id: ap.global_id, target_auth_type: "cas", domain: request.host, reason: :timeout }
     )
   end
 
@@ -265,7 +264,7 @@ describe Login::CasController do
     stubby("yes\n#{@pseudonym.unique_id}\n")
     account_with_cas(account: Account.site_admin)
     controller.instance_variable_set(:@domain_root_account, Account.site_admin)
-    expect(controller.client).to receive(:add_service_to_login_url).and_return("someurl")
+    expect(controller.client).to receive(:login_url).and_return("someurl")
 
     cookies["canvas_sa_delegated"] = "1"
     # *don't* double domain_root_account

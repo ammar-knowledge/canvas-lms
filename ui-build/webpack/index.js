@@ -18,7 +18,6 @@
 
 const {resolve, join} = require('path')
 const ReactRefreshRspackPlugin = require('@rspack/plugin-react-refresh')
-const {rspack} = require('@rspack/core')
 
 // determines which folder public assets are compiled to
 const webpackPublicPath = require('./webpackPublicPath')
@@ -30,17 +29,7 @@ const {canvasDir} = require('../params')
 const isProduction = process.env.NODE_ENV === 'production'
 const isDev = process.env.NODE_ENV === 'development'
 
-const {
-  swc,
-  css,
-  emberHandlebars,
-  fonts,
-  handlebars,
-  images,
-  istanbul,
-  instUIWorkaround,
-  webpack5Workaround,
-} = require('./webpack.rules')
+const {swc, css, fonts, handlebars, images, istanbul, graphql} = require('./webpack.rules')
 
 const {
   buildCacheOptions,
@@ -77,6 +66,16 @@ const shouldWriteCache =
 module.exports = {
   mode: isProduction ? 'production' : 'development',
 
+  // enable native CSS support for Rspack using experimental feature
+  // https://rspack.dev/guide/tech/css
+  experiments: {
+    css: true,
+    nativeWatcher: true,
+    parallelLoader: true,
+    cache: isDev ? {type: 'memory'} : undefined,
+  },
+  cache: isDev,
+
   // infer platform and ES-features from @instructure/browserslist-config-canvas-lms
   target: ['browserslist'],
 
@@ -103,7 +102,7 @@ module.exports = {
       chunks: 'all',
       cacheGroups: {
         react: {
-          test: /[\\/]node_modules[\\/](react|react-dom)[\\/]/,
+          test: /^(?:(?!node_modules).)*[\\/]node_modules[\\/](react|react-dom)[\\/]/,
           name: 'react',
           chunks: 'all',
         },
@@ -120,10 +119,10 @@ module.exports = {
   devtool: skipSourcemaps
     ? false
     : isProduction || process.env.COVERAGE === '1'
-    ? // "Recommended choice for production builds"
-      'source-map'
-    : // "Recommended choice for development builds"
-      'eval-source-map',
+      ? // "Recommended choice for production builds"
+        'source-map'
+      : // "Recommended choice for development builds"
+        'eval-source-map',
 
   entry: {main: resolve(canvasDir, 'ui/index.ts')},
 
@@ -136,6 +135,17 @@ module.exports = {
       `.${process.env.INST_DOMAIN}`,
       ...(process.env.RSPACK_DEV_SERVER_ADDITIONAL_ALLOWED_HOSTS?.trim().split(',') ?? []),
     ],
+    headers:
+      process.env.RSPACK_ENABLE_CORS_HEADERS === 'true'
+        ? {
+            // Because this server is only ever used locally, these incredibly lax headers are okay.
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, PATCH',
+            'Access-Control-Allow-Headers': '*',
+            'Access-Control-Expose-Headers': '*',
+            'Access-Control-Max-Age': '86400',
+          }
+        : {},
     client: {
       webSocketURL:
         process.env.RSPACK_WEBSOCKET_URL ??
@@ -143,9 +153,10 @@ module.exports = {
     },
     host: '0.0.0.0',
     port: process.env.RSPACK_DEV_SERVER_PORT || 80,
-    // Static assets must be ignored, otherwise any changes to the manifest will force a full
-    // page reload, which is definitely not what we want.
-    static: false,
+    // Don't watch static assets. Otherwise, when the manifest changes on disk, the page will completely reload,
+    // which defeats the purpose of hot reloading. Note that if you do actually change static assets and want to
+    // see the changes, you'll have to reload the page yourself.
+    static: {watch: false},
   },
 
   externalsType: 'global',
@@ -156,6 +167,7 @@ module.exports = {
     hashFunction: 'xxhash64',
     filename: '[name]-entry-[contenthash].js',
     chunkFilename: '[name]-chunk-[contenthash].js',
+    pathinfo: isProduction ? false : 'verbose',
   },
 
   resolve: {
@@ -169,7 +181,8 @@ module.exports = {
 
     modules: [resolve(canvasDir, 'public/javascripts'), 'node_modules'],
 
-    extensions: ['.js', '.jsx', '.ts', '.tsx'],
+    extensions: ['.js', '.jsx', '.ts', '.tsx', '.graphql'],
+
   },
   module: {
     parser: {
@@ -183,14 +196,12 @@ module.exports = {
 
     rules: [
       process.env.CRYSTALBALL_MAP === '1' && istanbul, // adds ~20 seconds to build time
-      instUIWorkaround,
-      webpack5Workaround,
       css,
       images,
       fonts,
       ...swc,
       handlebars,
-      emberHandlebars,
+      graphql,
     ].filter(Boolean),
   },
 

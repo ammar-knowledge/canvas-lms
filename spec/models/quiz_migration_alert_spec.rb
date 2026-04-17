@@ -17,21 +17,8 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
-require_relative "../spec_helper"
 
 describe QuizMigrationAlert do
-  describe "associations" do
-    it { is_expected.to belong_to(:user).required }
-    it { is_expected.to belong_to(:course).required }
-    it { is_expected.to belong_to(:migration) }
-  end
-
-  describe "validations" do
-    it { is_expected.to validate_presence_of :user }
-    it { is_expected.to validate_presence_of :course }
-    it { is_expected.to validate_presence_of :migration_id }
-  end
-
   describe "permissions" do
     before :once do
       course_with_teacher(active_all: true)

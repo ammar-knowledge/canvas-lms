@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {Text} from '@instructure/ui-text'
 
@@ -27,12 +27,14 @@ import {showNoFavoritesAlert} from './ConfirmUnfavoriteCourseModal'
 import type {Card} from '../types'
 import {clearDashboardCache} from '../dashboardCardQueries'
 
-const I18n = useI18nScope('dashcards')
+const I18n = createI18nScope('dashcards')
+
+type HeadingLevel = 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'
 
 type Props = {
   cardComponent: any
   courseCards: any[]
-  headingLevel: string // 'h2' | 'h3'
+  headingLevel: HeadingLevel
   hideColorOverlays: boolean
   connectDropTarget: any
   showSplitDashboardView: boolean
@@ -45,7 +47,7 @@ type State = {
 }
 
 export default class DashboardCardBox extends React.Component<Props, State> {
-  static defaultProps = {
+  static defaultProps: Partial<Props> = {
     courseCards: [],
     headingLevel: 'h2',
     hideColorOverlays: false,
@@ -130,7 +132,7 @@ export default class DashboardCardBox extends React.Component<Props, State> {
         if (typeof cb === 'function') {
           cb()
         }
-      }
+      },
     )
   }
 
@@ -149,7 +151,7 @@ export default class DashboardCardBox extends React.Component<Props, State> {
         if (newCards.length === 0) {
           showNoFavoritesAlert()
         }
-      }
+      },
     )
   }
 
@@ -171,8 +173,7 @@ export default class DashboardCardBox extends React.Component<Props, State> {
     const position =
       card.position !== null ? card.position : () => this.getOriginalIndex(card.assetString)
     const cardHeadingLevel = this.props.showSplitDashboardView
-      ? // @ts-expect-error
-        this.props.headingLevel.replace(/\d/, n => ++n)
+      ? this.props.headingLevel.replace(/\d/, n => String(Number(n) + 1))
       : this.props.headingLevel
     return (
       <DraggableDashboardCard
@@ -225,7 +226,6 @@ export default class DashboardCardBox extends React.Component<Props, State> {
     return (
       <div key={this.state.observedUserId} className="unpublished_courses_redesign">
         <div className="ic-DashboardCard__box">
-          {/* @ts-expect-error */}
           <HeadingElement className="ic-DashboardCard__box__header">
             {I18n.t(`Published Courses (%{count})`, {
               count: I18n.n(publishedCourses.length),
@@ -238,7 +238,6 @@ export default class DashboardCardBox extends React.Component<Props, State> {
           )}
         </div>
         <div className="ic-DashboardCard__box">
-          {/* @ts-expect-error */}
           <HeadingElement className="ic-DashboardCard__box__header">
             {I18n.t(`Unpublished Courses (%{count})`, {
               count: I18n.n(unpublishedCourses.length),

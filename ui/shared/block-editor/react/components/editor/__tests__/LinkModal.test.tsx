@@ -26,7 +26,7 @@ const user = userEvent.setup()
 describe('LinkModal', () => {
   it('renders', () => {
     const {getByText, getByLabelText} = render(
-      <LinkModal open={true} onClose={() => {}} onSubmit={() => {}} />
+      <LinkModal open={true} onClose={() => {}} onSubmit={() => {}} />,
     )
 
     expect(getByText('Select an Icon')).toBeInTheDocument()
@@ -38,7 +38,7 @@ describe('LinkModal', () => {
 
   it('initializes text and url with props', () => {
     const {getByLabelText} = render(
-      <LinkModal open={true} text="text" url="url" onClose={() => {}} onSubmit={() => {}} />
+      <LinkModal open={true} text="text" url="url" onClose={() => {}} onSubmit={() => {}} />,
     )
 
     expect(getByLabelText('Text')).toHaveValue('text')
@@ -46,9 +46,9 @@ describe('LinkModal', () => {
   })
 
   it('calls onSubmit with text and url', async () => {
-    const onSubmit = jest.fn()
+    const onSubmit = vi.fn()
     const {getByLabelText, getByText} = render(
-      <LinkModal open={true} onClose={() => {}} onSubmit={onSubmit} />
+      <LinkModal open={true} onClose={() => {}} onSubmit={onSubmit} />,
     )
 
     const textInput = getByLabelText('Text')

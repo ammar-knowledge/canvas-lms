@@ -16,10 +16,16 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import round from '@canvas/round'
-import {reduce, filter, values, map, groupBy, keyBy} from 'lodash'
+import {groupBy, keyBy, reduce, filter, values, map} from 'es-toolkit/compat'
 import AssignmentGroupGradeCalculator from './AssignmentGroupGradeCalculator'
-import {bigSum, sum, sumBy, toNumber, weightedPercent} from './GradeCalculationHelper'
+import {
+  bigSum,
+  sum,
+  sumBy,
+  toNumber,
+  weightedPercent,
+  totalGradeRound,
+} from './GradeCalculationHelper'
 import type {Assignment, AssignmentGroup, UserDueDateMap} from '../../api.d'
 import type {
   AssignmentGroupCriteriaMap,
@@ -31,21 +37,25 @@ import type {
   // GradingPeriodGradeMap,
   SubmissionGradeCriteria,
 } from './grading.d'
+import Big from 'big.js'
 
 function combineAssignmentGroupGrades(
   assignmentGroupGrades: AssignmentGroupGrade[],
   includeUngraded: boolean,
   options: {
     weightAssignmentGroups: boolean
-  }
-) {
+  },
+): {
+  score: number | null
+  possible: number
+} {
   const scopedAssignmentGroupGrades = assignmentGroupGrades.map(
     (assignmentGroupGrade: AssignmentGroupGrade) => {
       const gradeVersion = includeUngraded
         ? assignmentGroupGrade.final
         : assignmentGroupGrade.current
       return {...gradeVersion, weight: assignmentGroupGrade.assignmentGroupWeight}
-    }
+    },
   )
 
   if (options.weightAssignmentGroups) {
@@ -54,14 +64,22 @@ function combineAssignmentGroupGrades(
 
     let finalGrade = bigSum(relevantGroupGrades.map(weightedPercent))
     if (fullWeight === 0) {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - intentionally setting Big.js value to null
       finalGrade = null
     } else if (fullWeight < 100) {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - Big.js to number conversion type mismatch
       finalGrade = toNumber(weightedPercent({score: finalGrade, possible: fullWeight, weight: 100}))
     }
 
     const submissionCount = sumBy(relevantGroupGrades, 'submission_count')
     const possible = submissionCount > 0 || includeUngraded ? 100 : 0
-    let score = finalGrade && round(finalGrade, 2)
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - Big.js to number conversion type mismatch
+    let score = finalGrade && totalGradeRound(finalGrade, 2)
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - score can be null when finalGrade is null
     score = Number.isNaN(Number(score)) ? null : score
 
     return {score, possible}
@@ -77,14 +95,14 @@ function combineGradingPeriodGrades(
   gradingPeriodGradesByPeriodId: {
     [periodId: string]: GradingPeriodGrade
   },
-  includeUngraded: boolean
+  includeUngraded: boolean,
 ) {
   let scopedGradingPeriodGrades = map(
     gradingPeriodGradesByPeriodId,
     (gradingPeriodGrade: GradingPeriodGrade) => {
       const gradeVersion = includeUngraded ? gradingPeriodGrade.final : gradingPeriodGrade.current
       return {...gradeVersion, weight: gradingPeriodGrade.gradingPeriodWeight}
-    }
+    },
   )
 
   if (!includeUngraded) {
@@ -97,14 +115,14 @@ function combineGradingPeriodGrades(
     totalWeight === 0 ? 0 : toNumber(scoreSum.times(100).div(Math.min(totalWeight, 100)))
 
   return {
-    score: round(totalScore, 2),
+    score: totalGradeRound(totalScore, 2),
     possible: 100,
   }
 }
 
 function divideGroupByGradingPeriods(
   assignmentGroup: AssignmentGroup,
-  effectiveDueDates: UserDueDateMap
+  effectiveDueDates: UserDueDateMap,
 ): AssignmentGroup[] {
   // When using weighted grading periods, assignment groups must not contain assignments due in different grading
   // periods. This allows for calculated assignment group grades in closed grading periods to be accidentally
@@ -116,7 +134,7 @@ function divideGroupByGradingPeriods(
     [periodId: string]: Assignment[]
   } = groupBy(
     assignmentGroup.assignments,
-    (assignment: Assignment) => effectiveDueDates[assignment.id].grading_period_id
+    (assignment: Assignment) => effectiveDueDates[assignment.id].grading_period_id,
   )
   return map(assignmentsByGradingPeriodId, (assignments: Assignment[]) => ({
     ...assignmentGroup,
@@ -126,27 +144,31 @@ function divideGroupByGradingPeriods(
 
 function extractPeriodBasedAssignmentGroups(
   assignmentGroups: AssignmentGroupCriteriaMap,
-  effectiveDueDates: UserDueDateMap
+  effectiveDueDates: UserDueDateMap,
 ): AssignmentGroup[] {
-  // @ts-expect-error
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore - reduce type inference issue with es-toolkit
   return reduce(
     assignmentGroups,
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - reduce callback type inference issue with es-toolkit
     (periodBasedGroups: AssignmentGroup[], assignmentGroup: AssignmentGroup) => {
       const assignedAssignments = filter(
         assignmentGroup.assignments,
-        (assignment: Assignment) => effectiveDueDates[assignment.id]
+        (assignment: Assignment) => effectiveDueDates[assignment.id],
       )
       if (assignedAssignments.length > 0) {
         const groupWithAssignedAssignments = {...assignmentGroup, assignments: assignedAssignments}
         return [
           ...periodBasedGroups,
-          // @ts-expect-error
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore - spread of AssignmentGroup[] type inference
           ...divideGroupByGradingPeriods(groupWithAssignedAssignments, effectiveDueDates),
         ]
       }
       return periodBasedGroups
     },
-    []
+    [],
   )
 }
 
@@ -190,18 +212,18 @@ function calculateWithGradingPeriods(
     weightGradingPeriods: boolean | null | undefined
     weightAssignmentGroups: boolean
     ignoreUnpostedAnonymous: boolean
-  }
+  },
 ): {
   assignmentGroups: AssignmentGroupGradeMap
   gradingPeriods: {
     [periodId: string]: GradingPeriodGrade
   }
   current: {
-    score: number
+    score: number | null
     possible: number
   }
   final: {
-    score: number
+    score: number | null
     possible: number
   }
   scoreUnit: 'points' | 'percentage'
@@ -232,7 +254,7 @@ function calculateWithGradingPeriods(
       groupGrades[assignmentGroup.id] = AssignmentGroupGradeCalculator.calculate(
         submissions,
         assignmentGroup,
-        options.ignoreUnpostedAnonymous
+        options.ignoreUnpostedAnonymous,
       )
       periodBasedAssignmentGroupGrades.push(groupGrades[assignmentGroup.id])
     }
@@ -259,21 +281,22 @@ function calculateWithGradingPeriods(
     }
   }
 
-  // @ts-expect-error
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore - map type inference issue with es-toolkit
   const allAssignmentGroupGrades: AssignmentGroupGrade[] = map(
     assignmentGroups,
     (assignmentGroup: AssignmentGroup) =>
       AssignmentGroupGradeCalculator.calculate(
         submissions,
         assignmentGroup,
-        options.ignoreUnpostedAnonymous
-      )
+        options.ignoreUnpostedAnonymous,
+      ),
   )
 
   return {
     assignmentGroups: keyBy(
       allAssignmentGroupGrades,
-      (grade: AssignmentGroupGrade) => grade.assignmentGroupId
+      (grade: AssignmentGroupGrade) => grade.assignmentGroupId,
     ),
     gradingPeriods: gradingPeriodGradesByPeriodId,
     current: combineAssignmentGroupGrades(allAssignmentGroupGrades, false, options),
@@ -288,34 +311,35 @@ function calculateWithoutGradingPeriods(
   options: {
     weightAssignmentGroups: boolean
     ignoreUnpostedAnonymous: boolean
-  }
+  },
 ): {
   assignmentGroups: AssignmentGroupGradeMap
   current: {
-    score: number
+    score: number | null
     possible: number
   }
   final: {
-    score: number
+    score: number | null
     possible: number
   }
   scoreUnit: 'points' | 'percentage'
 } {
-  // @ts-expect-error
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore - map type inference issue with es-toolkit
   const assignmentGroupGrades: AssignmentGroupGrade[] = map(
     assignmentGroups,
     (assignmentGroup: AssignmentGroup) =>
       AssignmentGroupGradeCalculator.calculate(
         submissions,
         assignmentGroup,
-        options.ignoreUnpostedAnonymous
-      )
+        options.ignoreUnpostedAnonymous,
+      ),
   )
 
   return {
     assignmentGroups: keyBy(
       assignmentGroupGrades,
-      (grade: AssignmentGroupGrade) => grade.assignmentGroupId
+      (grade: AssignmentGroupGrade) => grade.assignmentGroupId,
     ),
     current: combineAssignmentGroupGrades(assignmentGroupGrades, false, options),
     final: combineAssignmentGroupGrades(assignmentGroupGrades, true, options),
@@ -428,18 +452,18 @@ function calculate(
   weightingScheme: string | null,
   ignoreUnpostedAnonymous: boolean,
   gradingPeriodSet?: CamelizedGradingPeriodSet | null,
-  effectiveDueDates?: UserDueDateMap
+  effectiveDueDates?: UserDueDateMap,
 ): {
   assignmentGroups: AssignmentGroupGradeMap
   gradingPeriods?: {
     [periodId: string]: GradingPeriodGrade
   }
   current: {
-    score: number
+    score: number | null
     possible: number
   }
   final: {
-    score: number
+    score: number | null
     possible: number
   }
   scoreUnit: 'points' | 'percentage'
@@ -456,7 +480,7 @@ function calculate(
       assignmentGroups,
       gradingPeriodSet.gradingPeriods,
       effectiveDueDates,
-      options
+      options,
     )
   }
 

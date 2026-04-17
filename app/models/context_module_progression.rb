@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 #
-class ContextModuleProgression < ActiveRecord::Base
+class ContextModuleProgression < ApplicationRecord
   include Workflow
 
   belongs_to :context_module
@@ -42,7 +42,7 @@ class ContextModuleProgression < ActiveRecord::Base
 
   def set_completed_at
     if completed?
-      self.completed_at ||= Time.now
+      self.completed_at ||= Time.zone.now
     else
       self.completed_at = nil
     end
@@ -110,7 +110,7 @@ class ContextModuleProgression < ActiveRecord::Base
       @orig_keys = sorted_action_keys
 
       self.view_requirements = []
-      self.actions_done.reject! { |r| r[:type] == "min_score" }
+      self.actions_done.reject! { |r| r[:type] == "min_score" || r[:type] == "min_percentage" }
     end
 
     def sorted_action_keys
@@ -121,7 +121,7 @@ class ContextModuleProgression < ActiveRecord::Base
       self.met_requirement_count += 1
     end
 
-    def requirement_met?(req, include_type = true)
+    def requirement_met?(req, include_type: true)
       actions_done.any? { |r| r[:id] == req[:id] && (include_type ? r[:type] == req[:type] : true) }
     end
 
@@ -144,8 +144,8 @@ class ContextModuleProgression < ActiveRecord::Base
 
     def check_view_requirements
       view_requirements.each do |req|
-        # should mark a must_view as true if a completed must_submit/min_score action already exists
-        check_action!(req, requirement_met?(req, false))
+        # should mark a must_view as true if a completed must_submit/min_score/min_percentage action already exists
+        check_action!(req, requirement_met?(req, include_type: false))
       end
     end
   end
@@ -178,7 +178,7 @@ class ContextModuleProgression < ActiveRecord::Base
       # instead return vis for student enrollment only -> hence ignore_observer_logic below
 
       # create the hash inside the loop in case the completion_requirements is empty (performance)
-      tags_hash ||= context_module.content_tags_visible_to(user, is_teacher: false, ignore_observer_logic: true).index_by(&:id)
+      tags_hash ||= context_module.content_tags_for(user, is_teacher: false, ignore_observer_logic: true).index_by(&:id)
 
       tag = tags_hash[req[:id]]
       next unless tag
@@ -201,8 +201,11 @@ class ContextModuleProgression < ActiveRecord::Base
         calc.check_action!(req, false)
       elsif req[:type] == "must_submit"
         req_met = !!(subs && subs.any? do |sub|
-          if sub.workflow_state == "graded" && sub.attempt.nil?
-            # is a manual grade - doesn't count for submission
+          if sub.workflow_state == "graded" && sub.attempt.nil? && !(
+            tag.content_type_discussion? &&
+            tag.content&.assignment&.checkpoints_parent?
+          )
+            # is a manual grade - doesn't count for submission. Excluding discussion checkpoints
             false
           elsif %w[submitted graded complete pending_review].include?(sub.workflow_state)
             true
@@ -210,8 +213,8 @@ class ContextModuleProgression < ActiveRecord::Base
         end)
 
         calc.check_action!(req, req_met)
-      elsif req[:type] == "min_score"
-        calc.check_action!(req, evaluate_score_requirement_met(req, subs))
+      elsif %w[min_score min_percentage].include?(req[:type])
+        calc.check_action!(req, evaluate_numeric_requirement_met(req, subs))
       end
     end
     calc.check_view_requirements
@@ -250,7 +253,7 @@ class ContextModuleProgression < ActiveRecord::Base
 
   # hold onto the status of the incomplete min_score requirement
   def update_incomplete_requirement!(requirement, score)
-    return unless requirement[:type] == "min_score"
+    return unless requirement[:type] == "min_score" || requirement[:type] == "min_percentage"
 
     incomplete_req = incomplete_requirements.detect { |r| r[:id] == requirement[:id] }
     unless incomplete_req
@@ -264,8 +267,8 @@ class ContextModuleProgression < ActiveRecord::Base
     end
   end
 
-  def evaluate_score_requirement_met(requirement, subs)
-    return unless requirement[:type] == "min_score"
+  def evaluate_numeric_requirement_met(requirement, subs)
+    return unless %w[min_score min_percentage].include?(requirement[:type])
 
     remove_incomplete_requirement(requirement[:id]) # start from a fresh slate so we don't hold onto a max score that doesn't exist anymore
     return if subs.blank?
@@ -278,9 +281,7 @@ class ContextModuleProgression < ActiveRecord::Base
 
     subs.any? do |sub|
       score = get_submission_score(sub)
-
-      new_score = near_enough?(score, score.round) ? score.round : score if score.present?
-      requirement_met = score.present? && new_score.to_f >= requirement[:min_score].to_f
+      requirement_met = validate_requirement_met(score, requirement, sub)
       if requirement_met
         remove_incomplete_requirement(requirement[:id])
       else
@@ -291,7 +292,34 @@ class ContextModuleProgression < ActiveRecord::Base
       requirement_met
     end
   end
-  private :evaluate_score_requirement_met
+
+  def validate_requirement_met(score, requirement, sub)
+    return unless score.present?
+
+    case requirement[:type]
+    when "min_score"
+      validate_min_score_requirement(score, requirement)
+    when "min_percentage"
+      validate_min_percentage_requirement(score, sub, requirement)
+    else
+      false
+    end
+  end
+
+  def validate_min_score_requirement(score, requirement)
+    new_score = near_enough?(score, score.round) ? score.round : score
+    new_score.to_f >= requirement[:min_score].to_f
+  end
+
+  def validate_min_percentage_requirement(score, sub, requirement)
+    points_possible = sub.assignment.points_possible
+    return unless points_possible && points_possible.to_f > 0
+
+    (score.to_f / points_possible.to_f) * 100 >= requirement[:min_percentage].to_f
+  end
+
+  private :validate_min_score_requirement, :validate_min_percentage_requirement
+  private :evaluate_numeric_requirement_met, :validate_requirement_met
 
   def update_requirement_met(action, tag, points = nil)
     requirement = context_module.completion_requirement_for(action, tag)
@@ -299,6 +327,9 @@ class ContextModuleProgression < ActiveRecord::Base
 
     requirement_met = true
     requirement_met = points && points >= requirement[:min_score].to_f && !(tag.assignment && tag.assignment.muted?) if requirement[:type] == "min_score"
+    if requirement[:type] == "min_percentage" && tag.assignment.points_possible && tag.assignment.points_possible.to_f > 0
+      requirement_met = points && (points.to_f / tag.assignment.points_possible.to_f) * 100 >= requirement[:min_percentage].to_f && !(tag.assignment && tag.assignment.muted?)
+    end
     requirement_met = false if requirement[:type] == "must_submit" # calculate later; requires the submission
 
     if !requirement_met
@@ -314,10 +345,10 @@ class ContextModuleProgression < ActiveRecord::Base
     end
   end
 
-  def update_requirement_met!(*args)
+  def update_requirement_met!(*)
     retry_count = 0
     begin
-      if update_requirement_met(*args)
+      if update_requirement_met(*)
         save!
         delay_if_production.evaluate!
       end
@@ -404,7 +435,7 @@ class ContextModuleProgression < ActiveRecord::Base
 
     # for an observer/student combo user we don't want to filter based on the
     # normal observer logic, instead return vis for student enrollment only
-    context_module.content_tags_visible_to(user, is_teacher: false, ignore_observer_logic: true).each do |tag|
+    context_module.content_tags_for(user, is_teacher: false, ignore_observer_logic: true).each do |tag|
       self.current_position = tag.position if tag.position
       all_met = completion_requirements.select { |r| r[:id] == tag.id }.all? do |req|
         requirements_met.any? { |r| r[:id] == req[:id] && r[:type] == req[:type] }
@@ -504,6 +535,7 @@ class ContextModuleProgression < ActiveRecord::Base
       .readonly(false)
       .where(context_modules: { context_type: "Course", context_id: course_id })
   }
+  scope :compleleted, -> { where(workflow_state: "completed") }
 
   workflow do
     state :locked

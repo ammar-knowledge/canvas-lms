@@ -93,6 +93,20 @@ module CustomValidators
     expect(f("body")).not_to contain_css("#flashalert_message_holder")
   end
 
+  def expect_element_in_viewport(selector)
+    in_viewport = driver.execute_script <<~JS, selector
+      var $box = $(arguments[0])[0].getBoundingClientRect()
+      return (
+        $box.bottom >= 0 &&
+        $box.right >= 0 &&
+        $box.top <= (window.innerHeight || document.documentElement.clientHeight) &&
+        $box.left <= (window.innerWidth || document.documentElement.clientWidth)
+      )
+    JS
+
+    expect(in_viewport).to be true
+  end
+
   def assert_flash_notice_message(okay_message)
     expect_flash_message :success, okay_message
   end
@@ -114,13 +128,17 @@ module CustomValidators
     expect(box[0]).to be_displayed
   end
 
-  def wait_for_new_page_load(accept_alert = false)
+  def wait_for_new_page_load(accept_alert: false)
     driver.execute_script("window.INST = window.INST || {}; INST.still_on_old_page = true;")
     yield if block_given?
     wait_for(method: :wait_for_new_page_load) do
       raise if !accept_alert && alert_present?
 
-      driver.switch_to.alert.accept rescue Selenium::WebDriver::Error::NoSuchAlertError
+      begin
+        driver.switch_to.alert.accept
+      rescue Selenium::WebDriver::Error::NoSuchAlertError
+        # ignore
+      end
       driver.execute_script("return window.INST && INST.still_on_old_page !== true;")
     end or return false
     wait_for_initializers
@@ -129,8 +147,8 @@ module CustomValidators
     true
   end
 
-  def expect_new_page_load(accept_alert = false, &)
-    success = wait_for_new_page_load(accept_alert, &)
+  def expect_new_page_load(accept_alert: false, &)
+    success = wait_for_new_page_load(accept_alert:, &)
     expect(success).to be, "expected new page load, none happened"
   end
 end

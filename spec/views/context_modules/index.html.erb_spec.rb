@@ -23,7 +23,7 @@ require_relative "../views_helper"
 describe "context_modules/index" do
   before do
     assign(:body_classes, [])
-    assign(:menu_tools, Hash.new([]))
+    assign(:menu_tools, Hash.new([].freeze))
     assign(:collapsed_modules, [])
   end
 
@@ -122,6 +122,19 @@ describe "context_modules/index" do
     expect(page.css(".offline_web_export").length).to eq 1
   end
 
+  it "shows H3 for text header" do
+    course_factory
+    context_module = @course.context_modules.create!
+    module_item = context_module.add_item type: "context_module_sub_header"
+    module_item.publish! if module_item.unpublished?
+    view_context(@course, @user)
+    assign(:modules, @course.context_modules.active)
+    render "context_modules/index"
+    expect(response).not_to be_nil
+    page = Nokogiri("<document>" + response.body + "</document>")
+    expect(page.css("h3").length).to eq 1
+  end
+
   context "direct_share" do
     before :once do
       course_with_teacher
@@ -172,8 +185,8 @@ describe "context_modules/index" do
       @module_item_two.publish! if @module_item_two.unpublished?
     end
 
-    it "shows the list of assessment requests when peer_reviews_for_a2 FF is ON" do
-      @course.enable_feature! :peer_reviews_for_a2
+    it "shows the list of assessment requests when assignments_2_student FF is ON" do
+      @course.enable_feature! :assignments_2_student
 
       view_context(@course, @reviewer)
       assign(:modules, @course.context_modules.active)
@@ -185,7 +198,7 @@ describe "context_modules/index" do
     end
 
     it "shows the same assignment in two differenct context_modules" do
-      @course.enable_feature! :peer_reviews_for_a2
+      @course.enable_feature! :assignments_2_student
 
       view_context(@course, @reviewer)
       assign(:modules, @course.context_modules.active)
@@ -199,8 +212,8 @@ describe "context_modules/index" do
       expect(page.include?("module_student_view_peer_reviews_#{@module_item_two.content_id}_#{@module_item_two.context_module_id}")).to be true
     end
 
-    it "does not show the list of assessment requests when peer_reviews_for_a2 FF is OFF" do
-      @course.disable_feature! :peer_reviews_for_a2
+    it "does not show the list of assessment requests when assignments_2_student FF is OFF" do
+      @course.disable_feature! :assignments_2_student
 
       view_context(@course, @reviewer)
       assign(:modules, @course.context_modules.active)
@@ -209,6 +222,129 @@ describe "context_modules/index" do
       expect(response).not_to be_nil
       page = Nokogiri("<document>" + response.body + "</document>")
       expect(page.css("#module_student_view_peer_reviews_#{@module_item.content_id}_#{@module_item.context_module_id}").length).to eq 0
+    end
+
+    describe "turning off the module item rendering" do
+      subject do
+        render "context_modules/index"
+        Nokogiri("<document>" + response.body + "</document>")
+      end
+
+      before do
+        course_factory
+        @course.context_modules.create!
+        view_context(@course, @user)
+        assign(:modules, @course.context_modules.active)
+      end
+
+      context "when modules_perf FF is on" do
+        before do
+          allow_any_instance_of(ContextModulesHelper)
+            .to receive(:module_performance_improvement_is_enabled?)
+            .and_return(true)
+        end
+
+        it "should NOT render the module items" do
+          expect(subject.css(".context_module_items").length).to eq 0
+        end
+      end
+
+      context "when modules_perf FF is off" do
+        before do
+          allow_any_instance_of(ContextModulesHelper)
+            .to receive(:module_performance_improvement_is_enabled?)
+            .and_return(false)
+        end
+
+        it "should render the module items" do
+          expect(subject.css(".context_module_items").length).to eq 1
+        end
+      end
+    end
+  end
+
+  context "discussion checkpoints" do
+    before :once do
+      course_with_student(active_all: true)
+      @course.account.enable_feature!(:discussion_checkpoints)
+      @topic = @course.discussion_topics.create!(
+        title: "Checkpointed Discussion",
+        message: "Test discussion"
+      )
+      @assignment = @course.assignments.create!(
+        title: "Checkpointed Discussion",
+        submission_types: "discussion_topic",
+        points_possible: 25
+      )
+      @topic.assignment = @assignment
+      @topic.save!
+      @topic.create_checkpoints(
+        reply_to_topic_points: 10,
+        reply_to_entry_points: 15,
+        reply_to_entry_required_count: 2
+      )
+      @module = @course.context_modules.create!(name: "Test Module")
+      @tag = @module.add_item(type: "discussion_topic", id: @topic.id)
+      @tag.publish! if @tag.unpublished?
+    end
+
+    it "renders successfully when checkpoints are present" do
+      view_context(@course, @student)
+      assign(:modules, @course.context_modules.active)
+      assign(:is_student, true)
+      render "context_modules/index"
+
+      expect(response).not_to be_nil
+      page = Nokogiri("<document>" + response.body + "</document>")
+      expect(page.css("[data-testid='checkpoint']").length).to eq 2
+    end
+
+    it "renders successfully when checkpoints are missing (soft-deleted)" do
+      # Corrupt the data: soft-delete checkpoints without updating parent flag
+      @assignment.sub_assignments.unscoped.update_all(workflow_state: "deleted")
+
+      view_context(@course, @student)
+      assign(:modules, @course.context_modules.active)
+      assign(:is_student, true)
+
+      # Should not raise an error
+      expect { render "context_modules/index" }.not_to raise_error
+
+      expect(response).not_to be_nil
+      page = Nokogiri("<document>" + response.body + "</document>")
+      # Checkpoints should not be rendered since they're deleted
+      expect(page.css("[data-testid='checkpoint']").length).to eq 0
+    end
+
+    it "renders successfully when one checkpoint is missing" do
+      # Delete only the reply_to_topic checkpoint
+      reply_to_topic = @topic.reply_to_topic_checkpoint
+      reply_to_topic.update_column(:workflow_state, "deleted")
+
+      view_context(@course, @student)
+      assign(:modules, @course.context_modules.active)
+      assign(:is_student, true)
+
+      expect { render "context_modules/index" }.not_to raise_error
+
+      expect(response).not_to be_nil
+      page = Nokogiri("<document>" + response.body + "</document>")
+      # Only one checkpoint should be rendered
+      expect(page.css("[data-testid='checkpoint']").length).to eq 1
+    end
+
+    it "renders successfully when parent assignment is deleted" do
+      # Soft-delete the parent assignment (simulates cascade deletion bug)
+      @assignment.destroy
+
+      view_context(@course, @student)
+      assign(:modules, @course.context_modules.active)
+      assign(:is_student, true)
+
+      # Should not raise an error even though parent is deleted
+      expect { render "context_modules/index" }.not_to raise_error
+
+      expect(response).not_to be_nil
     end
   end
 end

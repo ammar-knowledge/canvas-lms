@@ -32,8 +32,7 @@ describe FeatureFlags do
 
   before do
     silence_undefined_feature_flag_errors
-    allow_any_instance_of(User).to receive(:set_default_feature_flags)
-    allow(InstStatsd::Statsd).to receive(:increment)
+    allow(InstStatsd::Statsd).to receive(:distributed_increment)
     allow(Feature).to receive(:definitions).and_return({
                                                          "site_admin_feature" => Feature.new(feature: "site_admin_feature", applies_to: "SiteAdmin", state: "allowed"),
                                                          "root_account_feature" => Feature.new(feature: "root_account_feature", applies_to: "RootAccount", state: "off"),
@@ -66,16 +65,16 @@ describe FeatureFlags do
 
     it "logs feature enablement" do
       t_sub_account.feature_enabled?(:course_feature)
-      expect(InstStatsd::Statsd).to have_received(:increment).with("feature_flag_check", tags: {
-                                                                     feature: :course_feature,
-                                                                     enabled: "false"
-                                                                   }).exactly(:once)
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("feature_flag_check", tags: {
+                                                                                 feature: :course_feature,
+                                                                                 enabled: "false"
+                                                                               }).exactly(:once)
 
       t_sub_account.feature_enabled?(:account_feature)
-      expect(InstStatsd::Statsd).to have_received(:increment).with("feature_flag_check", tags: {
-                                                                     feature: :account_feature,
-                                                                     enabled: "true"
-                                                                   }).exactly(:once)
+      expect(InstStatsd::Statsd).to have_received(:distributed_increment).with("feature_flag_check", tags: {
+                                                                                 feature: :account_feature,
+                                                                                 enabled: "true"
+                                                                               }).exactly(:once)
     end
   end
 
@@ -99,8 +98,8 @@ describe FeatureFlags do
     end
 
     it "returns nil if the visible_on returns false" do
-      feature = double(
-        "Feature double",
+      feature = instance_double(
+        Feature,
         feature: "some_feature",
         visible_on: ->(_) { false },
         state: "allowed",
@@ -338,7 +337,7 @@ describe FeatureFlags do
 
         @shard1.activate do
           flag = @other_course.lookup_feature_flag("course_feature")
-          expect(flag).to_not be_default
+          expect(flag).not_to be_default
           expect(@other_course.feature_enabled?("course_feature")).to be_truthy
         end
       end
@@ -350,7 +349,7 @@ describe FeatureFlags do
           account = Account.create!
           @other_course = account.courses.create!
           flag = @other_course.lookup_feature_flag("course_feature")
-          expect(flag).to_not be_default
+          expect(flag).not_to be_default
           expect(@other_course.feature_enabled?("course_feature")).to be_truthy
         end
       end

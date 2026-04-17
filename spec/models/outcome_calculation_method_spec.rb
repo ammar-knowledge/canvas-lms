@@ -27,104 +27,53 @@ describe OutcomeCalculationMethod do
   let(:creation_params) { { context: account, calculation_method:, calculation_int: } }
 
   describe "validations" do
-    it { is_expected.to validate_presence_of :context }
-    it { is_expected.to validate_uniqueness_of(:context_id).scoped_to(:context_type) }
-    it { is_expected.to validate_inclusion_of(:calculation_method).in_array(OutcomeCalculationMethod::CALCULATION_METHODS) }
+    it "restricts the range for calculation_int when the decaying_average method is used" do
+      common_params = { **creation_params, calculation_method: "decaying_average" }
 
-    context "calculation_int" do
-      context "decaying_average" do
-        let(:calculation_method) { "decaying_average" }
-        let(:calculation_int) { 3 }
-
-        it do
-          expect(subject).to allow_values(
-            1,
-            20,
-            99
-          ).for(:calculation_int)
-        end
-
-        it do
-          expect(subject).not_to allow_values(
-            -1,
-            0,
-            100,
-            1000,
-            nil
-          ).for(:calculation_int)
-        end
+      [1, 20, 99].each do |calculation_int|
+        expect(OutcomeCalculationMethod.new(**common_params, calculation_int:)).to be_valid
       end
 
-      context "standard_decaying_average" do
-        before do
-          account.enable_feature!(:outcomes_new_decaying_average_calculation)
-        end
+      [-1, 0, 100, 1000, nil].each do |calculation_int|
+        expect(OutcomeCalculationMethod.new(**common_params, calculation_int:)).not_to be_valid
+      end
+    end
 
-        let(:calculation_method) { "standard_decaying_average" }
-        let(:calculation_int) { 65 }
+    it "restricts the range for calculation_int when the standard_decaying_average method is used" do
+      common_params = { **creation_params, calculation_method: "standard_decaying_average" }
 
-        it do
-          expect(subject).to allow_values(
-            50,
-            72,
-            99
-          ).for(:calculation_int)
-        end
+      account.enable_feature!(:outcomes_new_decaying_average_calculation)
 
-        it do
-          expect(subject).not_to allow_values(
-            -1,
-            0,
-            49,
-            100,
-            1000,
-            nil
-          ).for(:calculation_int)
-        end
+      [50, 72, 99].each do |calculation_int|
+        expect(OutcomeCalculationMethod.new(**common_params, calculation_int:)).to be_valid
       end
 
-      context "n_mastery" do
-        let(:calculation_method) { "n_mastery" }
-        let(:calculation_int) { 3 }
+      [-1, 0, 49, 100, 1000, nil].each do |calculation_int|
+        expect(OutcomeCalculationMethod.new(**common_params, calculation_int:)).not_to be_valid
+      end
+    end
 
-        it do
-          expect(subject).to allow_values(
-            1,
-            4,
-            5,
-            7,
-            10
-          ).for(:calculation_int)
+    it "restricts the range for calculation_int when the n_mastery method is used" do
+      common_params = { **creation_params, calculation_method: "n_mastery" }
+
+      [1, 4, 5, 7, 10].each do |calculation_int|
+        expect(OutcomeCalculationMethod.new(**common_params, calculation_int:)).to be_valid
+      end
+
+      [-1, 0, 11, 28, nil].each do |calculation_int|
+        expect(OutcomeCalculationMethod.new(**common_params, calculation_int:)).not_to be_valid
+      end
+    end
+
+    it "restricts the range for calculation_int when the highest / latest / average method is used" do
+      %w[highest latest average].each do |calculation_method|
+        common_params = { **creation_params, calculation_method: }
+
+        expect(OutcomeCalculationMethod.new(**common_params, calculation_int: nil)).to be_valid
+
+        [1, 10, 100].each do |calculation_int|
+          expect(OutcomeCalculationMethod.new(**common_params, calculation_int:)).not_to be_valid
         end
-
-        it do
-          expect(subject).not_to allow_values(
-            -1,
-            0,
-            11,
-            28,
-            nil
-          ).for(:calculation_int)
-        end
-      end
-
-      context "highest" do
-        let(:calculation_method) { "highest" }
-
-        it { is_expected.to allow_value(nil).for(:calculation_int) }
-        it { is_expected.not_to allow_values(1, 10, 100).for(:calculation_int) }
-      end
-
-      context "latest" do
-        it { is_expected.to allow_value(nil).for(:calculation_int) }
-        it { is_expected.not_to allow_values(1, 10, 100).for(:calculation_int) }
-      end
-
-      context "average" do
-        let(:calculation_method) { "average" }
-
-        it { is_expected.to allow_value(nil).for(:calculation_int) }
-        it { is_expected.not_to allow_values(1, 10, 100).for(:calculation_int) }
       end
     end
   end
@@ -186,6 +135,63 @@ describe OutcomeCalculationMethod do
     it "clears the account cache on save" do
       expect(account).to receive(:clear_downstream_caches).with(:resolved_outcome_proficiency)
       OutcomeProficiency.find_or_create_default!(account)
+    end
+  end
+
+  describe "rollup calculation integration" do
+    let_once(:course) { course_model(account:) }
+
+    describe "#rollup_relevant_changes?" do
+      it "returns true when calculation_method changes" do
+        method = OutcomeCalculationMethod.create!(context: course, calculation_method: "highest")
+        method.update!(calculation_method: "latest")
+        expect(method.rollup_relevant_changes?).to be true
+      end
+
+      it "returns true when calculation_int changes" do
+        method = OutcomeCalculationMethod.create!(context: course, calculation_method: "decaying_average", calculation_int: 65)
+        method.update!(calculation_int: 75)
+        expect(method.rollup_relevant_changes?).to be true
+      end
+
+      it "returns false when other fields change" do
+        method = OutcomeCalculationMethod.create!(context: course, calculation_method: "highest")
+        method.update!(workflow_state: "deleted")
+        expect(method.rollup_relevant_changes?).to be false
+      end
+    end
+
+    describe "#rollup_calculation" do
+      context "with course context" do
+        before do
+          Account.site_admin.enable_feature!(:outcomes_rollup_propagation)
+        end
+
+        it "enqueues rollup calculation for the course" do
+          method = OutcomeCalculationMethod.create!(context: course, calculation_method: "highest")
+          expect(Outcomes::StudentOutcomeRollupCalculationService).to receive(:calculate_for_course)
+            .with(course_id: course.id)
+
+          method.update!(calculation_method: "latest")
+        end
+
+        it "does not enqueue rollup when non-relevant fields change" do
+          method = OutcomeCalculationMethod.create!(context: course, calculation_method: "highest")
+          expect(Outcomes::StudentOutcomeRollupCalculationService).not_to receive(:calculate_for_course)
+
+          method.update!(workflow_state: "deleted")
+        end
+      end
+
+      context "with account context" do
+        it "does not enqueue rollup calculation for account-level changes" do
+          method = OutcomeCalculationMethod.create!(context: account, calculation_method: "highest")
+
+          expect(Outcomes::StudentOutcomeRollupCalculationService).not_to receive(:calculate_for_course)
+
+          method.update!(calculation_method: "latest")
+        end
+      end
     end
   end
 end

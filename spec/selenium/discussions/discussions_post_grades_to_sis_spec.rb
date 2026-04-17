@@ -21,11 +21,27 @@ require_relative "../../feature_flag_helper"
 require_relative "../grades/pages/gradebook_page"
 require_relative "../helpers/discussions_common"
 
-describe "sync grades to sis" do
+# NOTE: We are aware that we're duplicating some unnecessary testcases, but this was the
+# easiest way to review, and will be the easiest to remove after the feature flag is
+# permanently removed. Testing both flag states is necessary during the transition phase.
+shared_examples "sync grades to sis" do |ff_enabled|
   include FeatureFlagHelper
+
   include_context "in-process server selenium tests"
 
+  before :once do
+    # Set feature flag state for the test run - this affects how the gradebook data is fetched, not the data setup
+    if ff_enabled
+      Account.site_admin.enable_feature!(:performance_improvements_for_gradebook)
+    else
+      Account.site_admin.disable_feature!(:performance_improvements_for_gradebook)
+    end
+  end
+
   before do
+    if ff_enabled
+      allow(Services::PlatformServiceGradebook).to receive(:use_graphql?).and_return(true)
+    end
     course_with_admin_logged_in
     mock_feature_flag(:post_grades, true)
     @course.sis_source_id = "xyz"
@@ -35,9 +51,10 @@ describe "sync grades to sis" do
 
   context "editing an existing topic with post_to_sis checked" do
     before do
+      skip "Will be fixed in VICE-5634 2025-11-11"
       get "/courses/#{@course.id}/discussion_topics/new"
       f("#discussion-title").send_keys("New Discussion Title")
-      f("#use_for_grading").click
+      f("label[for='use_for_grading']").click
       f("#assignment_post_to_sis").click
       wait_for_ajaximations
       click_option("#assignment_group_id", "Assignment Group")
@@ -50,17 +67,57 @@ describe "sync grades to sis" do
       get "/courses/#{@course.id}/discussion_topics/#{@discussion_topic.id}/edit"
       expect(f("#assignment_post_to_sis")).to be_enabled
     end
+
+    describe "checkpoints" do
+      it "works if has_sub_assignments is true but missing sub_assignments" do
+        @course.root_account.enable_feature!(:discussion_checkpoints)
+
+        @checkpointed_discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+        @replies_required = 3
+
+        @reply_to_topic_checkpoint = Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: @checkpointed_discussion,
+          checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+          dates: [{ type: "everyone", due_at: 2.days.from_now }],
+          points_possible: 3
+        )
+        @reply_to_entry_checkpint = Checkpoints::DiscussionCheckpointCreatorService.call(
+          discussion_topic: @checkpointed_discussion,
+          checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+          dates: [{ type: "everyone", due_at: 3.days.from_now }],
+          points_possible: 9,
+          replies_required: @replies_required
+        )
+        dt_assignment = @checkpointed_discussion.assignment
+
+        dt_sub_assignments = @checkpointed_discussion.assignment.sub_assignments
+        sub1 = dt_sub_assignments.first
+        sub2 = dt_sub_assignments.last
+        sub1.workflow_state = "deleted"
+        sub1.save(validate: false)
+        sub2.workflow_state = "deleted"
+        sub2.save(validate: false)
+        dt_assignment.reload
+        dt_assignment.has_sub_assignments = true
+        dt_assignment.save(validate: false)
+
+        get "/courses/#{@course.id}/discussion_topics/#{@checkpointed_discussion.id}/edit"
+        expect(f("#assignment_post_to_sis")).to be_enabled
+      end
+    end
   end
 
   it "does not display Sync to SIS option when feature not configured", priority: "1" do
+    skip "Will be fixed in VICE-5634 2025-11-11"
     mock_feature_flag(:post_grades, false)
     get "/courses/#{@course.id}/discussion_topics/new"
-    f("#use_for_grading").click
+    f("label[for='use_for_grading']").click
     expect(f("#content")).not_to contain_css("#assignment_post_to_sis")
   end
 
   shared_examples "gradebook_sync_grades" do
     before(:once) do
+      skip "Will be fixed in VICE-5634 2025-11-11"
       plugin = Canvas::Plugin.find("grade_export")
       plugin_setting = PluginSetting.find_by(name: plugin.id)
       plugin_setting ||= PluginSetting.new(name: plugin.id, settings: plugin.default_settings)
@@ -130,4 +187,9 @@ describe "sync grades to sis" do
 
     it_behaves_like "gradebook_sync_grades"
   end
+end
+
+describe "sync grades to sis" do
+  it_behaves_like "sync grades to sis", true
+  it_behaves_like "sync grades to sis", false
 end

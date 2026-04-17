@@ -62,13 +62,13 @@ export default function factory(spec) {
       /**
        * Load the first page of data for the given params
        */
-      load(params, successHandler = () => {}) {
+      load(params, successHandler = () => {}, errorHandler = () => {}) {
         const key = this.getKey(params)
         this.lastParams = params
         const normalizedParams = this.normalizeParams(params)
         const url = this.getUrl()
 
-        return this._load(key, url, normalizedParams, {successHandler})
+        return this._load(key, url, normalizedParams, {successHandler, errorHandler})
       },
 
       /**
@@ -84,7 +84,7 @@ export default function factory(spec) {
           data => {
             successHandler(data)
           },
-          errorHandler
+          errorHandler,
         ).then(() => {
           this.clearState()
           if (this.lastParams) this.load(this.lastParams)
@@ -122,13 +122,16 @@ export default function factory(spec) {
       },
 
       _loadAll(key, url, params, append) {
-        const promise = this._load(key, url, params, {append})
+        const promise = this._load(key, url, params, {append, loadingAll: true})
         if (!promise) return
 
-        // eslint-disable-next-line promise/catch-or-return
         promise.then(() => {
           const nextUrl = getNextUrl(this.getStateFor(key))
-          if (nextUrl) this._loadAll(key, nextUrl, {}, true)
+          if (nextUrl) {
+            this._loadAll(key, nextUrl, {}, true)
+          } else {
+            this.mergeState(key, {loading: false})
+          }
         })
       },
 
@@ -147,15 +150,16 @@ export default function factory(spec) {
             if (options.successHandler) options.successHandler(data, xhr)
 
             const links = parseLinkHeader(xhr.getResponseHeader('Link'))
-            this.mergeState(key, {data, links, loading: false})
+            this.mergeState(key, {data, links, loading: options.loadingAll})
           },
           (_data, textStatus) => {
             if (textStatus === 'abort') {
               this.mergeState(key, {loading: false})
             } else {
               this.mergeState(key, {error: true, loading: false})
+              if (options.errorHandler) options.errorHandler()
             }
-          }
+          },
         )
       },
 
@@ -196,6 +200,6 @@ export default function factory(spec) {
         return this.getStateFor(key)
       },
     },
-    spec
+    spec,
   )
 }

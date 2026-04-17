@@ -17,54 +17,88 @@
  */
 
 import React from 'react'
-import {render, act, waitFor, fireEvent} from '@testing-library/react'
-import fetchMock from 'fetch-mock'
+import {cleanup, render, act, waitFor, fireEvent} from '@testing-library/react'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 
-import {destroyContainer} from '@canvas/alerts/react/FlashAlert'
+import {destroyContainer} from '@instructure/platform-alerts'
 
 import {AccountCalendarSettings} from '../AccountCalendarSettings'
 import {RESPONSE_ACCOUNT_1, RESPONSE_ACCOUNT_5, RESPONSE_ACCOUNT_6} from './fixtures'
 
-jest.mock('@canvas/calendar/AccountCalendarsUtils', () => {
+vi.mock('@canvas/calendar/AccountCalendarsUtils', () => {
   return {
-    alertForMatchingAccounts: jest.fn(),
+    alertForMatchingAccounts: vi.fn(),
   }
 })
+
+const server = setupServer()
+
+// To capture PUT request bodies
+let lastPutRequestBody: unknown = null
 
 const defaultProps = {
   accountId: 1,
 }
 
+beforeAll(() => server.listen())
+afterAll(() => server.close())
+
 beforeEach(() => {
-  fetchMock.get(/\/api\/v1\/accounts\/1\/account_calendars.*/, RESPONSE_ACCOUNT_1)
-  fetchMock.get(/\/api\/v1\/accounts\/1\/visible_calendars_count.*/, RESPONSE_ACCOUNT_1.length)
-  jest.useFakeTimers()
-  jest.clearAllMocks()
+  lastPutRequestBody = null
+  server.use(
+    http.get('/api/v1/accounts/1/account_calendars', ({request}) => {
+      const url = new URL(request.url)
+      const searchTerm = url.searchParams.get('search_term') || ''
+      if (searchTerm === 'elemen') {
+        return HttpResponse.json([
+          {
+            id: '134',
+            name: 'West Elementary School',
+            parent_account_id: '1',
+            root_account_id: '0',
+            visible: true,
+            sub_account_count: 0,
+          },
+        ])
+      }
+      return HttpResponse.json(RESPONSE_ACCOUNT_1)
+    }),
+    http.get('/api/v1/accounts/1/visible_calendars_count', () => {
+      return HttpResponse.json(RESPONSE_ACCOUNT_1.length)
+    }),
+    http.put('/api/v1/accounts/1/account_calendars', async ({request}) => {
+      lastPutRequestBody = await request.json()
+      return HttpResponse.json({message: 'Updated 1 account'})
+    }),
+  )
+  vi.clearAllMocks()
 })
 
 afterEach(() => {
-  fetchMock.restore()
+  cleanup()
+  server.resetHandlers()
   destroyContainer()
+  vi.useRealTimers()
 })
 
 describe('AccountCalendarSettings', () => {
   it('renders header and subtext', () => {
     const {getByRole, getByText} = render(<AccountCalendarSettings {...defaultProps} />)
     expect(
-      getByRole('heading', {name: 'Account Calendar Visibility', level: 1})
+      getByRole('heading', {name: 'Account Calendar Visibility', level: 1}),
     ).toBeInTheDocument()
     expect(
       getByText(
-        'Choose which calendars your users can add in the "Other Calendars" section of their Canvas calendar. Users will only be able to add enabled calendars for the accounts they are associated with. By default, all calendars are disabled.'
-      )
+        'Choose which calendars your users can add in the "Other Calendars" section of their Canvas calendar. Users will only be able to add enabled calendars for the accounts they are associated with. By default, all calendars are disabled.',
+      ),
     ).toBeInTheDocument()
   })
 
-  // FOO-3934 skipped because of a timeout (> 5 seconds causing build to fail)
-  it.skip('saves changes when clicking apply', async () => {
-    fetchMock.put(/\/api\/v1\/accounts\/1\/account_calendars/, {message: 'Updated 1 account'})
+  it('saves changes when clicking apply', async () => {
+    // PUT handler already set up in beforeEach
     const {findByText, getByText, findAllByText, getByTestId, findAllByTestId} = render(
-      <AccountCalendarSettings {...defaultProps} />
+      <AccountCalendarSettings {...defaultProps} />,
     )
     expect(await findByText('University (5)')).toBeInTheDocument()
     const universityCheckbox = (await findAllByTestId('account-calendar-checkbox-University'))[0]
@@ -85,20 +119,10 @@ describe('AccountCalendarSettings', () => {
 
   it('renders account list when filters are applied', async () => {
     const {findByText, queryByTestId, getByPlaceholderText} = render(
-      <AccountCalendarSettings {...defaultProps} />
+      <AccountCalendarSettings {...defaultProps} />,
     )
     await findByText('University (5)')
-    fetchMock.restore()
-    fetchMock.get('/api/v1/accounts/1/account_calendars?search_term=elemen&filter=&per_page=20', [
-      {
-        id: '134',
-        name: 'West Elementary School',
-        parent_account_id: '1',
-        root_account_id: '0',
-        visible: true,
-        sub_account_count: 0,
-      },
-    ])
+    // Search handler already set up in beforeEach to return West Elementary School for 'elemen'
     const search = getByPlaceholderText('Search Calendars')
     fireEvent.change(search, {target: {value: 'elemen'}})
     expect(await findByText('West Elementary School')).toBeInTheDocument()
@@ -107,17 +131,25 @@ describe('AccountCalendarSettings', () => {
 
   describe('auto subscription settings', () => {
     beforeEach(() => {
-      fetchMock.restore()
-      fetchMock.get(/\/api\/v1\/accounts\/1\/visible_calendars_count.*/, RESPONSE_ACCOUNT_5.length)
-      fetchMock.get(/\/api\/v1\/accounts\/1\/account_calendars.*/, RESPONSE_ACCOUNT_5)
-      fetchMock.put(/\/api\/v1\/accounts\/1\/account_calendars/, {message: 'Updated 1 account'})
-      jest.useFakeTimers()
-      jest.clearAllMocks()
+      // Reset and set up fresh handlers for this describe block
+      server.resetHandlers(
+        http.get('/api/v1/accounts/1/visible_calendars_count', () => {
+          return HttpResponse.json(RESPONSE_ACCOUNT_5.length)
+        }),
+        http.get('/api/v1/accounts/1/account_calendars', () => {
+          return HttpResponse.json(RESPONSE_ACCOUNT_5)
+        }),
+        http.put('/api/v1/accounts/1/account_calendars', async ({request}) => {
+          lastPutRequestBody = await request.json()
+          return HttpResponse.json({message: 'Updated 1 account'})
+        }),
+      )
+      vi.clearAllMocks()
     })
 
     it('saves subscription type changes', async () => {
       const {findByText, getByText, getByTestId, getAllByTestId} = render(
-        <AccountCalendarSettings {...defaultProps} />
+        <AccountCalendarSettings {...defaultProps} />,
       )
       expect(await findByText('Manually-Created Courses (2)')).toBeInTheDocument()
 
@@ -125,14 +157,14 @@ describe('AccountCalendarSettings', () => {
       act(() => getByText('Auto subscribe').click())
       act(() => getByTestId('save-button').click())
       act(() => getByTestId('confirm-button').click())
-      const request = fetchMock.lastOptions(/\/api\/v1\/accounts\/1\/account_calendars.*/)
-      const requestBody = JSON.parse(request?.body?.toString() || '{}')
-      expect(requestBody).toEqual([{id: RESPONSE_ACCOUNT_5[0].id, auto_subscribe: true}])
+      await waitFor(() => {
+        expect(lastPutRequestBody).toEqual([{id: RESPONSE_ACCOUNT_5[0].id, auto_subscribe: true}])
+      })
     })
 
     it('shows the confirmation modal if switching from manual to auto subscription', async () => {
       const {getByRole, getByText, findByText, getByTestId, getAllByTestId} = render(
-        <AccountCalendarSettings {...defaultProps} />
+        <AccountCalendarSettings {...defaultProps} />,
       )
       expect(await findByText('Manually-Created Courses (2)')).toBeInTheDocument()
 
@@ -144,13 +176,21 @@ describe('AccountCalendarSettings', () => {
     })
 
     it('does not show the confirmation modal if switching from auto to manual subscription', async () => {
-      fetchMock.restore()
-      fetchMock.get(/\/api\/v1\/accounts\/1\/account_calendars.*/, RESPONSE_ACCOUNT_6)
-      fetchMock.get(/\/api\/v1\/accounts\/1\/visible_calendars_count.*/, RESPONSE_ACCOUNT_6.length)
-      fetchMock.put(/\/api\/v1\/accounts\/1\/account_calendars/, {message: 'Updated 1 account'})
+      server.use(
+        http.get('/api/v1/accounts/1/account_calendars', () => {
+          return HttpResponse.json(RESPONSE_ACCOUNT_6)
+        }),
+        http.get('/api/v1/accounts/1/visible_calendars_count', () => {
+          return HttpResponse.json(RESPONSE_ACCOUNT_6.length)
+        }),
+        http.put('/api/v1/accounts/1/account_calendars', async ({request}) => {
+          lastPutRequestBody = await request.json()
+          return HttpResponse.json({message: 'Updated 1 account'})
+        }),
+      )
 
       const {queryByRole, getByText, findByText, getByTestId} = render(
-        <AccountCalendarSettings {...defaultProps} />
+        <AccountCalendarSettings {...defaultProps} />,
       )
       expect(await findByText('Manually-Created Courses')).toBeInTheDocument()
       const applyButton = getByTestId('save-button')
@@ -164,10 +204,9 @@ describe('AccountCalendarSettings', () => {
       expect(modalTitle).not.toBeInTheDocument()
     })
 
-    // LF-1202
-    it.skip('does not show the confirmation modal if changing only the account visibility', async () => {
+    it('does not show the confirmation modal if changing only the account visibility', async () => {
       const {queryByRole, getByRole, getByTestId, findByText} = render(
-        <AccountCalendarSettings {...defaultProps} />
+        <AccountCalendarSettings {...defaultProps} />,
       )
       expect(await findByText('Manually-Created Courses (2)')).toBeInTheDocument()
 
@@ -185,15 +224,36 @@ describe('AccountCalendarSettings', () => {
 
     describe('fires confirmation dialog when', () => {
       beforeEach(() => {
-        fetchMock.restore()
-        fetchMock.get(/\/api\/v1\/accounts\/1\/account_calendars.*/, RESPONSE_ACCOUNT_1)
-        fetchMock.get(
-          /\/api\/v1\/accounts\/1\/visible_calendars_count.*/,
-          RESPONSE_ACCOUNT_1.length
+        // Reset and set up ACCOUNT_1 handlers for these tests
+        server.resetHandlers(
+          http.get('/api/v1/accounts/1/account_calendars', ({request}) => {
+            const url = new URL(request.url)
+            const searchTerm = url.searchParams.get('search_term') || ''
+            if (searchTerm === 'elemen') {
+              return HttpResponse.json([
+                {
+                  id: '134',
+                  name: 'West Elementary School',
+                  parent_account_id: '1',
+                  root_account_id: '0',
+                  visible: true,
+                  sub_account_count: 0,
+                },
+              ])
+            }
+            return HttpResponse.json(RESPONSE_ACCOUNT_1)
+          }),
+          http.get('/api/v1/accounts/1/visible_calendars_count', () => {
+            return HttpResponse.json(RESPONSE_ACCOUNT_1.length)
+          }),
+          http.put('/api/v1/accounts/1/account_calendars', async ({request}) => {
+            lastPutRequestBody = await request.json()
+            return HttpResponse.json({message: 'Updated 1 account'})
+          }),
         )
       })
 
-      it.skip('calendar visibility changes (flaky)', async () => {
+      it('calendar visibility changes', async () => {
         const getUniversityCheckbox = () =>
           getByRole('checkbox', {
             name: 'Show account calendar for University',
@@ -205,20 +265,20 @@ describe('AccountCalendarSettings', () => {
         act(() => getUniversityCheckbox().click())
 
         const event = new Event('beforeunload')
-        event.preventDefault = jest.fn()
+        event.preventDefault = vi.fn()
         window.dispatchEvent(event)
         expect(event.preventDefault).toHaveBeenCalled()
 
         act(() => getUniversityCheckbox().click())
 
-        event.preventDefault = jest.fn()
+        event.preventDefault = vi.fn()
         window.dispatchEvent(event)
         expect(event.preventDefault).not.toHaveBeenCalled()
       })
 
       it('calendar subscription type changes', async () => {
         const {findByText, getByText, getAllByTestId} = render(
-          <AccountCalendarSettings {...defaultProps} />
+          <AccountCalendarSettings {...defaultProps} />,
         )
         expect(await findByText('University (5)')).toBeInTheDocument()
 
@@ -226,14 +286,14 @@ describe('AccountCalendarSettings', () => {
         act(() => getByText('Auto subscribe').click())
 
         const event = new Event('beforeunload')
-        event.preventDefault = jest.fn()
+        event.preventDefault = vi.fn()
         window.dispatchEvent(event)
         expect(event.preventDefault).toHaveBeenCalled()
 
         act(() => getAllByTestId('subscription-dropdown')[0].click())
         act(() => getByText('Manual subscribe').click())
 
-        event.preventDefault = jest.fn()
+        event.preventDefault = vi.fn()
         window.dispatchEvent(event)
         expect(event.preventDefault).not.toHaveBeenCalled()
       })

@@ -23,6 +23,7 @@ require_relative "../api_spec_helper"
 describe UsersController, type: :request do
   include Api
   include Api::V1::Assignment
+
   def update_assignment_json
     @a1_json["assignment"] = controller.assignment_json(@a1, @user, session, include_all_dates: true).as_json
     @a2_json["assignment"] = controller.assignment_json(@a2, @user, session, include_all_dates: true).as_json
@@ -92,14 +93,49 @@ describe UsersController, type: :request do
     get("/api/v1/users/self/todo")
     assert_status(401)
 
-    @course = factory_with_protected_attributes(Course, course_valid_attributes)
+    @course = Course.create!(course_valid_attributes)
     raw_api_call(:get,
                  "/api/v1/courses/#{@course.id}/todo",
                  controller: "courses",
                  action: "todo_items",
                  format: "json",
                  course_id: @course.to_param)
-    assert_status(401)
+    assert_forbidden
+  end
+
+  context "with suppress_assignments setting on" do
+    before(:once) do
+      root_account = @course.root_account
+      root_account.settings[:suppress_assignment] = true
+      root_account.save
+    end
+
+    it "does not return todo items for suppressed assignments" do
+      @course.assignments.create(title: "suppressed", due_at: "2012-01-08", suppress_assignment: true)
+      json = api_call(:get, "/api/v1/planner/items?start_date=2012-01-07&end_date=2012-01-16&context_codes[]=course_#{@course.id}&context_codes[]=user_#{@student_course.id}", {
+                        controller: "planner",
+                        action: "index",
+                        format: "json",
+                        context_codes: ["course_#{@course.id}", "user_#{@student_course.id}"],
+                        start_date: "2012-01-07",
+                        end_date: "2012-01-16"
+                      })
+      expect(json.count).to eq(0)
+    end
+
+    it "returns todo items for unsuppressed assignments" do
+      new_assignment = @course.assignments.create(title: "unsuppressed", due_at: "2012-01-08", suppress_assignment: false)
+      json = api_call(:get, "/api/v1/planner/items?start_date=2012-01-07&end_date=2012-01-16&context_codes[]=course_#{@course.id}&context_codes[]=user_#{@student_course.id}", {
+                        controller: "planner",
+                        action: "index",
+                        format: "json",
+                        context_codes: ["course_#{@course.id}", "user_#{@student_course.id}"],
+                        start_date: "2012-01-07",
+                        end_date: "2012-01-16"
+                      })
+      expect(json.count).to eq(1)
+      expect(json.first["plannable_id"]).to eq(new_assignment.id)
+    end
   end
 
   it "returns a global user todo list" do
@@ -241,6 +277,55 @@ describe UsersController, type: :request do
     expect(strip_secure_params(json.first)).to eq strip_secure_params(@a2_json)
   end
 
+  it "supports ignore for sub assignments" do
+    @teacher_course.account.enable_feature!(:discussion_checkpoints)
+    rtt, _ = graded_discussion_topic_with_checkpoints(context: @teacher_course)
+    student = @teacher_course.students.first
+    rtt.submit_homework(student, body: "checkpoint submission for #{student.name}")
+    api_call(:delete,
+             "/api/v1/users/self/todo/sub_assignment_#{rtt.id}/grading",
+             controller: "users",
+             action: "ignore_item",
+             format: "json",
+             purpose: "grading",
+             asset_string: "sub_assignment_#{rtt.id}",
+             permanent: "0")
+
+    expect(response).to be_successful
+    ignored_asset = Ignore.last.asset
+    expect(ignored_asset).to eq rtt
+  end
+
+  it "supports ignore for peer review sub assignments" do
+    @teacher_course.account.enable_feature!(:peer_review_allocation_and_grading)
+    peer_assignment = @teacher_course.assignments.create!(
+      title: "Peer Review Assignment",
+      submission_types: "online_text_entry",
+      points_possible: 10,
+      peer_reviews: true
+    )
+    peer_review_sub_assignment = peer_assignment.create_peer_review_sub_assignment!(
+      title: "Peer Review Assignment Peer Review (2)",
+      points_possible: 5,
+      due_at: 1.day.from_now
+    )
+    student = @teacher_course.students.first
+    peer_assignment.submit_homework(student, submission_type: "online_text_entry", body: "student work")
+
+    api_call(:delete,
+             "/api/v1/users/self/todo/peer_review_sub_assignment_#{peer_review_sub_assignment.id}/grading",
+             controller: "users",
+             action: "ignore_item",
+             format: "json",
+             purpose: "grading",
+             asset_string: "peer_review_sub_assignment_#{peer_review_sub_assignment.id}",
+             permanent: "0")
+
+    expect(response).to be_successful
+    ignored_asset = Ignore.last.asset
+    expect(ignored_asset).to eq peer_review_sub_assignment
+  end
+
   it "ignores excused assignments for students" do
     @student_course.enroll_teacher(@teacher)
     @a1.grade_student(@me, excuse: true, grader: @teacher)
@@ -293,6 +378,38 @@ describe UsersController, type: :request do
 
     json = api_call :get, "/api/v1/users/self/todo", controller: "users", action: "todo_items", format: "json"
     expect(json.length).to eq 0
+  end
+
+  it "does not include items assigned to a concluded section enrollment while also having an active enrollment in the course" do
+    mixed_course = course_factory(active_course: true, course_name: "Mixed Course")
+    active_section = mixed_course.course_sections.create!(name: "active section")
+    concluded_section = mixed_course.course_sections.create!(name: "concluded section")
+    concluded_assignment = Assignment.create!(context: mixed_course, title: "concluded assignment", submission_types: "online_text_entry", points_possible: 15, workflow_state: "published")
+    concluded_assignment.submissions.create!(user: @user)
+
+    StudentEnrollment.create!(user: @user, course: mixed_course, course_section: active_section, workflow_state: "active")
+    concluded_enrollment = StudentEnrollment.create!(user: @user, course: mixed_course, course_section: concluded_section, workflow_state: "active")
+    ao = AssignmentOverride.new(
+      assignment: concluded_assignment,
+      title: "Lorem",
+      workflow_state: "active",
+      set: concluded_section,
+      due_at: 1.day.from_now,
+      unassign_item: false,
+      unlock_at_overridden: true,
+      lock_at_overridden: true
+    )
+    ao.save!
+    concluded_assignment.update(only_visible_to_overrides: true)
+    concluded_assignment.submissions.update(cached_due_date: 1.day.from_now)
+    expect(concluded_assignment.submissions.last.cached_due_date).not_to be_nil
+    json = api_call :get, "/api/v1/users/self/todo", controller: "users", action: "todo_items", format: "json"
+    expect(json.map { |e| e["assignment"]["id"] }).to include concluded_assignment.id
+
+    concluded_enrollment.conclude
+
+    json = api_call :get, "/api/v1/users/self/todo", controller: "users", action: "todo_items", format: "json"
+    expect(json.map { |e| e["assignment"]["id"] }).not_to include concluded_assignment.id
   end
 
   it "does not include items from courses concluded by terms dates if the user is also an admin" do
@@ -445,7 +562,7 @@ describe UsersController, type: :request do
       @teacher = course_with_teacher(active_all: true).user
       @teacher_course = @course
       @student_course = course_factory(active_course: true)
-      @student_course.enroll_student(@teacher).accept(true)
+      @student_course.enroll_student(@teacher).accept(force: true)
       # an assignment i need to submit (needs_submitting)
       batch = [120, 13, 147, 79, 161, 119, 81, 57, 134, 21].map do |i|
         {
@@ -581,7 +698,7 @@ describe UsersController, type: :request do
       assignment.submit_homework(@user, submission_type: "online_text_entry", body: "done")
       # one assignment ignored
       assignment = @student_course.assignments[1]
-      @user.ignore_item!(assignment, "submitting", true)
+      @user.ignore_item!(assignment, "submitting", permanent: true)
 
       # an assignment i created, and a student who submits the assignment (needs_grading)
       @me = @user
@@ -606,7 +723,7 @@ describe UsersController, type: :request do
       submission.save!
       # one assignment ignored
       assignment = @teacher_course.assignments[1]
-      @user.ignore_item!(assignment, "grading", true)
+      @user.ignore_item!(assignment, "grading", permanent: true)
     end
 
     it "checks for auth" do
@@ -648,6 +765,90 @@ describe UsersController, type: :request do
                       action: "todo_item_count",
                       format: "json")
       expect(json["needs_grading_count"]).to eq 0
+    end
+  end
+
+  context "with discussion checkpoints" do
+    before :once do
+      @teacher_course.account.enable_feature!(:discussion_checkpoints)
+    end
+
+    it "includes discussion checkpoint assignments in todo list for grading" do
+      # Create checkpointed discussion topic
+      reply_to_topic_checkpoint, reply_to_entry_checkpoint = graded_discussion_topic_with_checkpoints(context: @teacher_course)
+      student = @teacher_course.students.first
+
+      # Submit to both checkpoints
+      reply_to_topic_checkpoint.submit_homework(student, body: "checkpoint submission for topic")
+      reply_to_entry_checkpoint.submit_homework(student, body: "checkpoint submission for entry")
+
+      json = api_call(:get,
+                      "/api/v1/users/self/todo",
+                      controller: "users",
+                      action: "todo_items",
+                      format: "json")
+
+      checkpoint_todos = json.select { |item| item["checkpoint_label"].present? }
+      expect(checkpoint_todos.length).to eq 2
+
+      # Verify checkpoint-specific data is included
+      reply_to_topic_todo = checkpoint_todos.find { |item| item["checkpoint_label"] == CheckpointLabels::REPLY_TO_TOPIC }
+      reply_to_entry_todo = checkpoint_todos.find { |item| item["checkpoint_label"] == CheckpointLabels::REPLY_TO_ENTRY }
+
+      expect(reply_to_topic_todo).to be_present
+      expect(reply_to_topic_todo["parent_assignment_id"]).to eq reply_to_topic_checkpoint.parent_assignment_id
+      expect(reply_to_topic_todo["type"]).to eq "grading"
+      expect(reply_to_topic_todo["needs_grading_count"]).to eq 1
+
+      expect(reply_to_entry_todo).to be_present
+      expect(reply_to_entry_todo["parent_assignment_id"]).to eq reply_to_entry_checkpoint.parent_assignment_id
+      expect(reply_to_entry_todo["type"]).to eq "grading"
+      expect(reply_to_entry_todo["needs_grading_count"]).to eq 1
+    end
+
+    it "includes discussion checkpoint assignments in todo list for submitting" do
+      @teacher_course.enroll_student(@user).accept!
+
+      # Create checkpointed discussion topic
+      reply_to_topic_checkpoint, reply_to_entry_checkpoint = graded_discussion_topic_with_checkpoints(context: @teacher_course)
+
+      json = api_call(:get,
+                      "/api/v1/users/self/todo",
+                      controller: "users",
+                      action: "todo_items",
+                      format: "json")
+
+      checkpoint_todos = json.select { |item| item["checkpoint_label"].present? && item["type"] == "submitting" }
+      expect(checkpoint_todos.length).to eq 2
+
+      # Verify checkpoint-specific data is included
+      reply_to_topic_todo = checkpoint_todos.find { |item| item["checkpoint_label"] == CheckpointLabels::REPLY_TO_TOPIC }
+      reply_to_entry_todo = checkpoint_todos.find { |item| item["checkpoint_label"] == CheckpointLabels::REPLY_TO_ENTRY }
+
+      expect(reply_to_topic_todo).to be_present
+      expect(reply_to_topic_todo["parent_assignment_id"]).to eq reply_to_topic_checkpoint.parent_assignment_id
+      expect(reply_to_topic_todo["type"]).to eq "submitting"
+
+      expect(reply_to_entry_todo).to be_present
+      expect(reply_to_entry_todo["parent_assignment_id"]).to eq reply_to_entry_checkpoint.parent_assignment_id
+      expect(reply_to_entry_todo["type"]).to eq "submitting"
+    end
+
+    it "only includes checkpoint assignments for courses with checkpoints enabled" do
+      # Create a course without checkpoints enabled
+      course_without_checkpoints = course_factory(active_course: true)
+      course_without_checkpoints.enroll_teacher(@user).accept!
+      graded_discussion_topic_with_checkpoints(context: course_without_checkpoints)
+
+      json = api_call(:get,
+                      "/api/v1/users/self/todo",
+                      controller: "users",
+                      action: "todo_items",
+                      format: "json")
+
+      # Should not include any checkpoint todos from the course without feature enabled
+      checkpoint_todos = json.select { |item| item["checkpoint_label"].present? }
+      expect(checkpoint_todos).to be_empty
     end
   end
 end

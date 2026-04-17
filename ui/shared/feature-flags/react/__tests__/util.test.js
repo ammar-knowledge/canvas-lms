@@ -44,7 +44,7 @@ describe('feature_flags:util', () => {
           enabled: 'allowed_on',
           disabled: 'allowed',
           lock: 'off',
-        })
+        }),
       )
     })
 
@@ -54,7 +54,7 @@ describe('feature_flags:util', () => {
           enabled: 'allowed_on',
           disabled: 'allowed',
           lock: 'on',
-        })
+        }),
       )
     })
 
@@ -63,7 +63,7 @@ describe('feature_flags:util', () => {
         expect.objectContaining({
           enabled: 'on',
           disabled: 'off',
-        })
+        }),
       )
     })
   })
@@ -71,61 +71,61 @@ describe('feature_flags:util', () => {
   describe('buildDescription', () => {
     it('generates the right things with allowsDefaults for context type account', () => {
       expect(util.buildDescription(sampleData.offFeature.feature_flag, true, 'Account')).toEqual(
-        'Disabled for all subaccounts'
+        'Disabled for all subaccounts',
       )
       expect(
-        util.buildDescription(sampleData.allowedFeature.feature_flag, true, 'Account')
+        util.buildDescription(sampleData.allowedFeature.feature_flag, true, 'Account'),
       ).toEqual('Allowed for subaccounts, default off')
       expect(
-        util.buildDescription(sampleData.allowedOnFeature.feature_flag, true, 'Account')
+        util.buildDescription(sampleData.allowedOnFeature.feature_flag, true, 'Account'),
       ).toEqual('Allowed for subaccounts, default on')
       expect(util.buildDescription(sampleData.onFeature.feature_flag, true, 'Account')).toEqual(
-        'Enabled for all subaccounts'
+        'Enabled for all subaccounts',
       )
     })
 
     it('generates the right things with allowsDefaults for context type course', () => {
       expect(util.buildDescription(sampleData.offFeature.feature_flag, true, 'Course')).toEqual(
-        'Disabled for all courses'
+        'Disabled for all courses',
       )
       expect(util.buildDescription(sampleData.allowedFeature.feature_flag, true, 'Course')).toEqual(
-        'Allowed for courses, default off'
+        'Allowed for courses, default off',
       )
       expect(
-        util.buildDescription(sampleData.allowedOnFeature.feature_flag, true, 'Course')
+        util.buildDescription(sampleData.allowedOnFeature.feature_flag, true, 'Course'),
       ).toEqual('Allowed for courses, default on')
       expect(util.buildDescription(sampleData.onFeature.feature_flag, true, 'Course')).toEqual(
-        'Enabled for all courses'
+        'Enabled for all courses',
       )
     })
 
     it('generates the right things with no allowsDefaults for context type account', () => {
       expect(util.buildDescription(sampleData.offFeature.feature_flag, false, 'Account')).toEqual(
-        'Disabled'
+        'Disabled',
       )
       expect(
-        util.buildDescription(sampleData.allowedFeature.feature_flag, false, 'Account')
+        util.buildDescription(sampleData.allowedFeature.feature_flag, false, 'Account'),
       ).toEqual('Disabled')
       expect(
-        util.buildDescription(sampleData.allowedOnFeature.feature_flag, false, 'Account')
+        util.buildDescription(sampleData.allowedOnFeature.feature_flag, false, 'Account'),
       ).toEqual('Enabled')
       expect(util.buildDescription(sampleData.onFeature.feature_flag, false, 'Account')).toEqual(
-        'Enabled'
+        'Enabled',
       )
     })
 
     it('generates the right things with no allowsDefaults for context type course', () => {
       expect(util.buildDescription(sampleData.offFeature.feature_flag, false, 'Course')).toEqual(
-        'Disabled'
+        'Disabled',
       )
       expect(
-        util.buildDescription(sampleData.allowedFeature.feature_flag, false, 'Course')
+        util.buildDescription(sampleData.allowedFeature.feature_flag, false, 'Course'),
       ).toEqual('Optional in course, default off')
       expect(
-        util.buildDescription(sampleData.allowedOnFeature.feature_flag, false, 'Course')
+        util.buildDescription(sampleData.allowedOnFeature.feature_flag, false, 'Course'),
       ).toEqual('Optional in course, default on')
       expect(util.buildDescription(sampleData.onFeature.feature_flag, false, 'Course')).toEqual(
-        'Enabled'
+        'Enabled',
       )
     })
   })
@@ -137,59 +137,89 @@ describe('feature_flags:util', () => {
       expect(util.doesAllowDefaults(sampleData.allowedFeature.feature_flag)).toBe(true)
       expect(util.doesAllowDefaults(sampleData.allowedOnFeature.feature_flag)).toBe(true)
       expect(util.doesAllowDefaults(sampleData.allowedOnRootAccountFeature.feature_flag)).toBe(
-        false
+        false,
       )
       expect(util.doesAllowDefaults(sampleData.allowedOnCourseFeature.feature_flag)).toBe(false)
     })
   })
 
-  describe('transitionMessage', () => {
-    it('generates message with warning if flipping a siteadmin flag in anything except development', () => {
-      global.ENV.RAILS_ENVIRONMENT = 'test-env'
-      global.ENV.ACCOUNT.site_admin = true
-      const message = util.transitionMessage(sampleData.offFeature.feature_flag, 'on')
-      const {getByText} = render(message)
-      expect(
-        getByText(
-          'You are currently in the test-env environment. This will affect every customer. Are you sure?'
-        )
-      ).toBeInTheDocument()
+  describe('shouldDelete', () => {
+    it('returns true when new state matches parent state', () => {
+      const flag = {parent_state: 'allowed_on', state: 'on'}
+      expect(util.shouldDelete({flag, allowsDefaults: false, state: 'allowed_on'})).toBe(true)
     })
 
-    it('does not return a message for siteadmin accounts in development', () => {
-      global.ENV.RAILS_ENVIRONMENT = 'development'
-      global.ENV.ACCOUNT.site_admin = true
-      const message = util.transitionMessage(sampleData.offFeature.feature_flag, 'on')
-      const {queryByText} = render(message)
-      expect(
-        queryByText(
-          'You are currently in the development environment. This will affect every customer. Are you sure?'
-        )
-      ).not.toBeInTheDocument()
+    it('returns true for hidden parent when setting to off', () => {
+      const flag = {parent_state: 'hidden', state: 'on'}
+      expect(util.shouldDelete({flag, allowsDefaults: false, state: 'off'})).toBe(true)
     })
 
-    it('does not return a message for non-siteadmin accounts in anything except development', () => {
-      global.ENV.RAILS_ENVIRONMENT = 'test-env'
-      global.ENV.ACCOUNT.site_admin = false
-      const message = util.transitionMessage(sampleData.offFeature.feature_flag, 'on')
-      const {queryByText} = render(message)
-      expect(
-        queryByText(
-          'You are currently in the test-env environment. This will affect every customer. Are you sure?'
-        )
-      ).not.toBeInTheDocument()
+    it('returns true when reverting allowed_on to on for contexts that allow defaults', () => {
+      const flag = {parent_state: 'allowed_on', state: 'off', feature: 'some_feature'}
+      expect(util.shouldDelete({flag, allowsDefaults: false, state: 'on'})).toBe(true)
     })
 
-    it('does not return a message for non-siteadmin accounts in development', () => {
-      global.ENV.RAILS_ENVIRONMENT = 'development'
-      global.ENV.ACCOUNT.site_admin = false
-      const message = util.transitionMessage(sampleData.offFeature.feature_flag, 'on')
-      const {queryByText} = render(message)
+    it('returns false for new_user_tutorial_on_off when setting to on with allowed_on parent', () => {
+      // This exception allows legacy users to create explicit 'on' flags
+      const flag = {parent_state: 'allowed_on', state: 'off', feature: 'new_user_tutorial_on_off'}
+      expect(util.shouldDelete({flag, allowsDefaults: false, state: 'on'})).toBe(false)
+    })
+
+    it('returns true for other flags when setting to on with allowed_on parent', () => {
+      const flag = {parent_state: 'allowed_on', state: 'off', feature: 'some_other_feature'}
+      expect(util.shouldDelete({flag, allowsDefaults: false, state: 'on'})).toBe(true)
+    })
+
+    it('returns false for root_opt_in features on root account even when state matches parent_state', () => {
+      const flag = {parent_state: 'off', state: 'allowed', feature: 'root_opt_in_feature'}
       expect(
-        queryByText(
-          'You are currently in the development environment. This will affect every customer. Are you sure?'
-        )
-      ).not.toBeInTheDocument()
+        util.shouldDelete({
+          flag,
+          allowsDefaults: true,
+          state: 'off',
+          rootOptIn: true,
+          isRootAccount: true,
+        }),
+      ).toBe(false)
+    })
+
+    it('returns false for root_opt_in features on root account regardless of target state', () => {
+      const flag = {parent_state: 'allowed_on', state: 'on', feature: 'root_opt_in_feature'}
+      expect(
+        util.shouldDelete({
+          flag,
+          allowsDefaults: false,
+          state: 'allowed',
+          rootOptIn: true,
+          isRootAccount: true,
+        }),
+      ).toBe(false)
+    })
+
+    it('allows deletion for root_opt_in features on sub-accounts when state matches parent', () => {
+      const flag = {parent_state: 'off', state: 'allowed', feature: 'root_opt_in_feature'}
+      expect(
+        util.shouldDelete({
+          flag,
+          allowsDefaults: true,
+          state: 'off',
+          rootOptIn: true,
+          isRootAccount: false,
+        }),
+      ).toBe(true)
+    })
+
+    it('allows deletion for non-root_opt_in features on root account when state matches parent', () => {
+      const flag = {parent_state: 'allowed_on', state: 'on'}
+      expect(
+        util.shouldDelete({
+          flag,
+          allowsDefaults: false,
+          state: 'allowed_on',
+          rootOptIn: false,
+          isRootAccount: true,
+        }),
+      ).toBe(true)
     })
   })
 })

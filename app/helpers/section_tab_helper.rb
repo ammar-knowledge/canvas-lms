@@ -19,27 +19,32 @@
 
 module SectionTabHelper
   # This should contain all the permissions that are checked in Course#uncached_tabs_available
-  PERMISSIONS_TO_PRECALCULATE = %i[
-    create_conferences
-    create_forum
-    manage_admin_users
-    manage_assignments
-    manage_assignments_add
-    manage_assignments_edit
-    manage_assignments_delete
-    manage_content
-    manage_files_add
-    manage_files_edit
-    manage_files_delete
-    manage_grades
-    manage_students
-    moderate_forum
-    post_to_forum
-    read_announcements
-    read_course_content
-    read_forum
-    read_roster
-    view_all_grades
+  PERMISSIONS_TO_PRECALCULATE = [
+    :create_conferences,
+    :create_forum,
+    :manage_assignments_add,
+    :manage_assignments_edit,
+    :manage_assignments_delete,
+    :manage_files_add,
+    :manage_files_edit,
+    :manage_files_delete,
+    :manage_grades,
+    :manage_students,
+    :moderate_forum,
+    :post_to_forum,
+    :read_announcements,
+    :read_course_content,
+    :read_forum,
+    :read_roster,
+    :view_all_grades,
+    *RoleOverride::GRANULAR_MANAGE_USER_PERMISSIONS
+  ].freeze
+
+  # if a tab depends on a Course FF, it should be included here so that the cache is busted
+  FLAGS_FOR_CACHE_KEY = %i[
+    new_quizzes_native_experience
+    smart_search
+    youtube_migration
   ].freeze
 
   def available_section_tabs
@@ -72,8 +77,9 @@ module SectionTabHelper
           )
         end
       end
+    @section_tabs ||= ""
 
-    raw(@section_tabs)
+    @section_tabs
   end
 
   def section_tab_tag(tab, context, active_tab)
@@ -139,8 +145,18 @@ module SectionTabHelper
         "section_tabs_hash",
         I18n.locale
       ]
-      if context.is_a?(Course) && context.elementary_homeroom_course?
-        k << "homeroom_course"
+      # need to include FF for courses and accounts in order to bust the cache
+      if context.is_a?(Course) || context.is_a?(Account)
+        flag_states = FLAGS_FOR_CACHE_KEY.map { |flag| context.feature_enabled?(flag) }
+        k.concat(flag_states)
+      end
+      if context.is_a?(Course)
+        if context.elementary_homeroom_course?
+          k << "homeroom_course"
+        end
+        if context.a11y_checker_enabled?
+          k << "a11y_checker"
+        end
       end
 
       k.cache_key
@@ -193,16 +209,38 @@ module SectionTabHelper
       "page" if @tab.active?(@active_tab)
     end
 
+    def a_id
+      if @tab.external?
+        "#{@tab.tab.id}-link"
+      else
+        "#{@tab.label.downcase.tr(" ", "-")}-link"
+      end
+    end
+
+    def a_rel
+      if @tab.nav_menu_link?
+        "noopener noreferrer"
+      elsif @tab.target == "_blank" && @tab.path.include?("external_tools")
+        # For security reasons only add the rel attribute if the link is for an
+        # external tool and target is "_blank"
+        "opener"
+      end
+    end
+
     def a_attributes
       {
+        id: a_id,
         href: @tab.path,
-        title: a_title,
         "aria-label": a_aria_label,
         "aria-current": a_aria_current_page,
-        class: a_classes
+        class: a_classes,
+        rel: a_rel,
       }.tap do |h|
         h[:target] = @tab.target if @tab.target?
-        h["data-tooltip"] = "" if @tab.hide? || @tab.unused?
+        if @tab.hide? || @tab.unused?
+          h["data-tooltip"] = ""
+          h["data-html-tooltip-title"] = a_title
+        end
       end
     end
 
@@ -210,6 +248,7 @@ module SectionTabHelper
       content_tag(:a, a_attributes) do
         concat(indicate_new)
         concat(@tab.label)
+        concat(indicate_external_link)
         concat(indicate_hidden)
       end
     end
@@ -218,20 +257,26 @@ module SectionTabHelper
       %w[section].tap { |a| a << "section-hidden" if @tab.hide? || @tab.unused? }
     end
 
+    def indicate_external_link
+      if @tab.nav_menu_link?
+        tag.i class: %w[icon-external-link], aria: { hidden: true }, role: "presentation", style: "padding-left: .3em"
+      end
+    end
+
     def indicate_hidden
       return unless @tab.hide? || @tab.unused?
 
-      "<i class='nav-icon icon-off' aria-hidden='true' role='presentation'></i>".html_safe
+      tag.i class: %w[nav-icon icon-off], aria: { hidden: true }, role: "presentation"
     end
 
     # include the css_class of tabs here to show a "new" pill in the nav
     # hide the "new" pill by adding the css_class to the :visited_tabs user preference
-    NEW_TABS = %w[account_calendars].freeze
+    NEW_TABS = %w[account_calendars account_reports].freeze
 
     def indicate_new
       return unless NEW_TABS.include? @tab.css_class
 
-      "<span class='new-tab-indicator nav-icon' data-tabname='#{@tab.css_class}'></span>".html_safe
+      tag.span class: "new-tab-indicator nav-icon", data: { tabname: @tab.css_class }
     end
 
     def to_html

@@ -17,7 +17,7 @@
  */
 
 import React, {useState, useCallback, useEffect} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import PropTypes from 'prop-types'
 
 import {Heading} from '@instructure/ui-heading'
@@ -35,12 +35,12 @@ import {
   getAssignmentGroupTotals,
   getTotalGradeStringFromEnrollments,
 } from '@canvas/k5/react/utils'
-import {showFlashError} from '@canvas/alerts/react/FlashAlert'
+import {showFlashError} from '@instructure/platform-alerts'
 import useDateTimeFormat from '@canvas/use-date-time-format-hook'
 import {GradeRow} from './GradeRow'
 import GradesEmptyPage from './GradesEmptyPage'
 
-const I18n = useI18nScope('grade_details')
+const I18n = createI18nScope('grade_details')
 
 const NUM_GRADE_SKELETONS = 10
 
@@ -78,7 +78,7 @@ const GradeDetails = ({
     restrictQuantitativeData,
     gradingScheme,
     pointsBasedGradingScheme,
-    scalingFactor
+    scalingFactor,
   )
   const grades = getAssignmentGrades(assignmentGroups, observedUserId)
   const totalGrade = getTotalGradeStringFromEnrollments(
@@ -88,7 +88,7 @@ const GradeDetails = ({
     restrictQuantitativeData,
     gradingScheme,
     pointsBasedGradingScheme,
-    scalingFactor
+    scalingFactor,
   )
   const include = ['assignments', 'submission', 'read_state', 'submission_comments']
   if (selectedGradingPeriodId) {
@@ -142,17 +142,20 @@ const GradeDetails = ({
     }
   }, [error, courseName])
 
-  const gradeRowSkeleton = props => (
-    <Table.Row {...props}>
-      <Table.Cell colSpan={4}>
-        <LoadingSkeleton
-          height="2.5em"
-          width="100%"
-          screenReaderLabel={I18n.t('Loading grades for %{courseName}', {courseName})}
-        />
-      </Table.Cell>
-    </Table.Row>
-  )
+  const gradeRowSkeleton = props => {
+    const {key, ...otherProps} = props
+    return (
+      <Table.Row key={key} {...otherProps}>
+        <Table.Cell colSpan={4}>
+          <LoadingSkeleton
+            height="2.5em"
+            width="100%"
+            screenReaderLabel={I18n.t('Loading grades for %{courseName}', {courseName})}
+          />
+        </Table.Cell>
+      </Table.Row>
+    )
+  }
 
   const gradesDetailsTable = content => (
     <div className={isStacked ? 'grade-details narrow' : 'grade-details'}>
@@ -256,7 +259,7 @@ const GradeDetails = ({
             isStacked,
             currentUserId: observedUserId || currentUser.id,
             ...assignment,
-          })
+          }),
         )}
       </LoadingWrapper>
     </>

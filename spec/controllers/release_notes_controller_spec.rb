@@ -72,6 +72,12 @@ describe ReleaseNotesController do
       expect(res.first["id"]).to eq(the_note.id)
       expect(res.first.dig("langs", "en")&.with_indifferent_access).to eq(note["en"].with_indifferent_access)
     end
+
+    it "does not allow non-site-admins" do
+      user_session(account_admin_user(account: Account.default))
+      get :index, as: :json
+      expect(response).to be_forbidden
+    end
   end
 
   describe "create" do
@@ -99,12 +105,18 @@ describe ReleaseNotesController do
       expect(the_note["en"][:description]).to eq("A great description")
       expect(the_note["en"][:url]).to eq("https://example.com/note1")
     end
+
+    it "does not allow non-site-admins" do
+      user_session(account_admin_user(account: Account.default))
+      post :create, params: { target_roles: ["user"] }, as: :json
+      expect(response).to be_forbidden
+    end
   end
 
   describe "update" do
     it "updates an existing note in the expected way" do
       the_note = ReleaseNote.find(note.id)
-      expect(the_note.target_roles).to_not be_nil
+      expect(the_note.target_roles).not_to be_nil
       put "update",
           params: {
             id: the_note.id,
@@ -131,7 +143,7 @@ describe ReleaseNotesController do
 
     it "works when not updating anything" do
       the_note = ReleaseNote.find(note.id)
-      expect(the_note.target_roles).to_not be_nil
+      expect(the_note.target_roles).not_to be_nil
       put "update", params: { id: the_note.id }
       expect(response).to have_http_status(:ok)
       res = response.parsed_body
@@ -142,12 +154,18 @@ describe ReleaseNotesController do
       put "update", params: { id: SecureRandom.uuid, target_roles: ["user"] }
       expect(response).to have_http_status(:not_found)
     end
+
+    it "does not allow non-site-admins" do
+      user_session(account_admin_user(account: Account.default))
+      put :update, params: { id: note.id, target_roles: ["user"] }, as: :json
+      expect(response).to be_forbidden
+    end
   end
 
   describe "destroy" do
     it "removes an existing note" do
       the_note = ReleaseNote.find(note.id)
-      expect(the_note).to_not be_nil
+      expect(the_note).not_to be_nil
       delete "destroy", params: { id: the_note.id }
       expect { ReleaseNote.find(note.id) }.to raise_error(ActiveRecord::RecordNotFound)
     end
@@ -155,6 +173,12 @@ describe ReleaseNotesController do
     it "returns 404 for non-existant notes" do
       delete "destroy", params: { id: SecureRandom.uuid }
       expect(response).to have_http_status(:not_found)
+    end
+
+    it "does not allow non-site-admins" do
+      user_session(account_admin_user(account: Account.default))
+      delete :destroy, params: { id: note.id }, as: :json
+      expect(response).to be_forbidden
     end
   end
 
@@ -165,6 +189,12 @@ describe ReleaseNotesController do
       put "publish", params: { id: the_note.id }
       the_note = ReleaseNote.find(note.id)
       expect(the_note.published).to be(true)
+    end
+
+    it "does not allow non-site-admins" do
+      user_session(account_admin_user(account: Account.default))
+      put :publish, params: { id: note.id }
+      expect(response).to be_redirect
     end
   end
 
@@ -178,6 +208,12 @@ describe ReleaseNotesController do
       delete "unpublish", params: { id: the_note.id }
       the_note = ReleaseNote.find(note.id)
       expect(the_note.published).to be(false)
+    end
+
+    it "does not allow non-site-admins" do
+      user_session(account_admin_user(account: Account.default))
+      delete :unpublish, params: { id: note.id }
+      expect(response).to be_redirect
     end
   end
 

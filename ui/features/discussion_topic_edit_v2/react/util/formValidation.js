@@ -16,9 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('discussion_create')
+const I18n = createI18nScope('discussion_create')
 
 export const validateTitle = (newTitle, setTitleValidationMessages) => {
   if (newTitle.length > 255) {
@@ -39,7 +39,7 @@ export const validateAvailability = (
   newAvailableFrom,
   newAvailableUntil,
   isGraded,
-  setAvailabilityValidationMessages
+  setAvailabilityValidationMessages,
 ) => {
   if (isGraded) {
     return true
@@ -72,14 +72,10 @@ const validateUsageRights = (
   attachment,
   usageRightsData,
   setUsageRightsErrorState,
-  setOnFailure
+  setOnFailure,
 ) => {
   // if usage rights is not enabled or there are no attachments, there is no need to validate
-  if (
-    !ENV?.FEATURES?.usage_rights_discussion_topics ||
-    !ENV?.USAGE_RIGHTS_REQUIRED ||
-    !attachment
-  ) {
+  if (!ENV?.USAGE_RIGHTS_REQUIRED || !attachment) {
     return true
   }
 
@@ -108,20 +104,23 @@ const validateGradedDiscussionFields = (
   isGraded,
   assignedInfoList,
   postToSis,
-  showPostToSisError
+  showPostToSisError,
+  isCheckpoints,
 ) => {
   if (!isGraded) {
     return true
   }
 
-  if (
-    ENV.DUE_DATE_REQUIRED_FOR_ACCOUNT &&
-    ENV.FEATURES?.selective_release_ui_api &&
-    assignedInfoList &&
-    postToSis
-  ) {
+  if (ENV.DUE_DATE_REQUIRED_FOR_ACCOUNT && assignedInfoList && postToSis) {
+    const CheckpointDueDateMissing = assignedInfoList.some(
+      assignee => !assignee.replyToTopicDueDate || !assignee.requiredRepliesDueDate,
+    )
     const aDueDateMissing = assignedInfoList.some(assignee => !assignee.dueDate)
-    if (aDueDateMissing) {
+    if (aDueDateMissing && !isCheckpoints) {
+      showPostToSisError()
+      return false
+    }
+    if (CheckpointDueDateMissing && isCheckpoints) {
       showPostToSisError()
       return false
     }
@@ -163,7 +162,8 @@ export const validateFormFields = (
   sectionIdsToPostTo,
   assignedInfoList,
   postToSis,
-  showPostToSisError
+  showPostToSisError,
+  isCheckpoints,
 ) => {
   let isValid = true
 
@@ -180,7 +180,7 @@ export const validateFormFields = (
       validationFunction: validateSelectGroup(
         isGroupDiscussion,
         groupCategoryId,
-        setGroupCategorySelectError
+        setGroupCategorySelectError,
       ),
       ref: groupOptionsRef.current,
     },
@@ -189,7 +189,7 @@ export const validateFormFields = (
         availableFrom,
         availableUntil,
         isGraded,
-        setAvailabilityValidationMessages
+        setAvailabilityValidationMessages,
       ),
       ref: dateInputRef.current,
     },
@@ -200,7 +200,8 @@ export const validateFormFields = (
         isGraded,
         assignedInfoList,
         postToSis,
-        showPostToSisError
+        showPostToSisError,
+        isCheckpoints,
       ),
       ref: gradedDiscussionRef.current,
     },
@@ -209,7 +210,7 @@ export const validateFormFields = (
         attachment,
         usageRightsData,
         setUsageRightsErrorState,
-        setOnFailure
+        setOnFailure,
       ),
       ref: null,
     },

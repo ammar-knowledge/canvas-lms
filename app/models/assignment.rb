@@ -19,12 +19,31 @@
 #
 
 class Assignment < AbstractAssignment
+  include Accessibility::Scannable
+
+  # Later versions of Rails try to read the attribute when setting an error for that attribute. In order to maintain
+  # backwards compatibility with error consumers, create a fake attribute :custom_params so it doesn't error out.
+  attr_reader :custom_params
+  attr_accessor :question_count, :skip_peer_review_sub_assignment_sync
+
+  has_one :peer_review_sub_assignment, -> { active }, foreign_key: :parent_assignment_id, inverse_of: :parent_assignment, dependent: :destroy
+  has_many :allocation_rules,
+           dependent: :destroy,
+           inverse_of: :assignment
+
   validates :parent_assignment_id, :sub_assignment_tag, absence: true
+  validate :unpublish_ok?, if: -> { will_save_change_to_workflow_state?(to: "unpublished") }
+  validate :peer_review_count_changes_ok?, if: :peer_review_count_changed?
+  validate :peer_reviews_changes_ok?, if: :will_save_change_to_peer_reviews?
 
   before_save :before_soft_delete, if: -> { will_save_change_to_workflow_state?(to: "deleted") }
 
-  SUB_ASSIGNMENT_SYNC_ATTRIBUTES = %w[workflow_state].freeze
-  after_commit :update_sub_assignments, if: :sync_attributes_changed?
+  SUB_ASSIGNMENT_SYNC_ATTRIBUTES = %w[workflow_state grading_type].freeze
+  after_update :delete_allocation_rules, if: :peer_reviews_changed?
+  after_save :sync_sub_assignments, if: :sync_attributes_changed?
+  after_save :sync_peer_review_sub_assignment, if: :should_sync_peer_review_sub_assignment?
+  after_save :sync_stream_items_hidden, if: :saved_change_to_suppress_assignment?
+  after_commit :sync_sub_assignments_after_commit, if: :sync_attributes_changed_after_commit?
 
   set_broadcast_policy do |p|
     p.dispatch :assignment_due_date_changed
@@ -65,7 +84,7 @@ class Assignment < AbstractAssignment
 
     p.dispatch :submissions_posted
     p.to do |assignment|
-      assignment.course.participating_instructors
+      assignment.course.participating_instructors_by_date
     end
     p.whenever do |assignment|
       BroadcastPolicies::AssignmentPolicy.new(assignment)
@@ -89,37 +108,214 @@ class Assignment < AbstractAssignment
   end
 
   include SmartSearchable
+
   use_smart_search title_column: :title,
                    body_column: :description,
                    index_scope: ->(course) { course.assignments.active },
                    search_scope: ->(course, user) { Assignments::ScopedToUser.new(course, user, course.assignments.active).scope }
 
+  def show_in_search_for_user?(user)
+    include_description?(user)
+  end
+
   def checkpoints_parent?
-    has_sub_assignments? && root_account&.feature_enabled?(:discussion_checkpoints)
+    has_sub_assignments? && context.discussion_checkpoints_enabled?
+  end
+
+  def update_from_sub_assignment(changed_attributes)
+    return unless changed_attributes.keys.intersect?(SubAssignment::SUB_ASSIGNMENT_SYNC_ATTRIBUTES)
+
+    self.saved_by = :sub_assignment
+    updates = changed_attributes.slice(*SubAssignment::SUB_ASSIGNMENT_SYNC_ATTRIBUTES)
+
+    updates.each do |attr, (_old_value, new_value)|
+      send(:"#{attr}=", new_value)
+    end
+
+    save!
+  end
+
+  def has_student_submissions_for_sub_assignments?
+    return false unless has_sub_assignments?
+
+    sub_assignments.active.any?(&:has_student_submissions?)
+  end
+
+  def self.assignment_ids_with_sub_assignment_submissions(assignment_ids)
+    Submission
+      .active
+      .having_submission
+      .joins(:assignment)
+      .where(assignment_id: SubAssignment.where(parent_assignment_id: assignment_ids))
+      .distinct
+      .pluck(:parent_assignment_id)
+  end
+
+  # AbstractAssignment method with added support for sub_assignment submisssions
+  def can_unpublish?
+    return true if new_record?
+    return @can_unpublish unless @can_unpublish.nil?
+
+    @can_unpublish = !has_student_submissions? && !has_student_submissions_for_sub_assignments?
+  end
+  attr_writer :can_unpublish
+
+  # AbstractAssignment method with added support for sub_assignment submisssions
+  def self.preload_can_unpublish(assignments, assmnt_ids_with_subs = nil)
+    return unless assignments.any?
+
+    assignment_ids = assignments.map(&:id)
+    assmnt_ids_with_subs ||= (assignment_ids_with_submissions(assignment_ids) + assignment_ids_with_sub_assignment_submissions(assignment_ids)).uniq
+    assignments.each { |a| a.can_unpublish = !assmnt_ids_with_subs.include?(a.id) }
+  end
+
+  # Preloads the peer_review_submissions flag for a collection of assignments.
+  # This is more efficient than calling peer_review_submissions? on each assignment individually.
+  def self.preload_peer_review_submissions(assignments)
+    return unless assignments.any?
+
+    peer_review_submission_assignment_ids = assignment_ids_with_peer_review_submissions(assignments.map(&:id))
+    assignments.each { |a| a.peer_review_submissions = peer_review_submission_assignment_ids.include?(a.id) }
+  end
+
+  # Returns the IDs of assignments that have completed peer review submissions.
+  def self.assignment_ids_with_peer_review_submissions(assignment_ids)
+    AssessmentRequest
+      .from(sanitize_sql(["unnest('{?}'::int8[]) as peer_review_assignments (assignment_id)", assignment_ids]))
+      .where(
+        AssessmentRequest
+          .where(workflow_state: "completed")
+          .joins(:submission)
+          .where("submissions.assignment_id = peer_review_assignments.assignment_id")
+          .arel.exists
+      )
+      .distinct.pluck("peer_review_assignments.assignment_id")
+  end
+
+  def peer_review_overrides_for_dates
+    return nil unless context.feature_enabled?(:peer_review_allocation_and_grading)
+    return nil unless peer_reviews?
+
+    peer_review_sub = peer_review_sub_assignment
+    return nil unless peer_review_sub
+
+    {
+      overrides: peer_review_sub.assignment_overrides.active.index_by(&:parent_override_id),
+      peer_review_sub:
+    }
+  end
+
+  # Duplicates the course module content tags for the assignment to the new assignment.
+  # @param new_assignment [Assignment] the assignment to duplicate the content tags for
+  #
+  # @return [void]
+  def restore_module_content_tags_to(new_assignment:)
+    return if new_assignment.nil? || new_assignment.duplicate_of_id != duplicate_of_id || context_type != "Course"
+
+    # The original assignment is the one that the current assignment was copied from.
+    original_assignment = Assignment.unscoped.find_by(id: duplicate_of_id)
+    return if original_assignment.nil?
+
+    # The current assignment is the one that was copied, but got into a "failed" state.
+    # It has the context module tags that we want to restore
+    current_context_module_tags = ContentTag.where(
+      content_id: id,
+      content_type: "Assignment",
+      context_id:,
+      context_type:,
+      tag_type: "context_module"
+    )
+
+    # We need to duplicate the tags
+    # from the current assignment for the new assignment.
+    current_context_module_tags.each do |current_context_module_tag|
+      current_context_module_tag.content_id = new_assignment.id
+      current_context_module_tag.workflow_state = original_assignment.published? ? "active" : "unpublished"
+      current_context_module_tag.save!
+    end
+  end
+
+  # Returns true if there are completed peer review submissions for this assignment.
+  # Overrides the AbstractAssignment stub implementation.
+  def peer_review_submissions?
+    return @peer_review_submissions unless @peer_review_submissions.nil?
+
+    AssessmentRequest.completed_for_assignment(id).exists?
+  end
+
+  def ensure_post_policy(post_manually:)
+    super
+    return unless has_sub_assignments?
+
+    sub_assignments.each { |sa| sa.ensure_post_policy(post_manually:) }
   end
 
   private
 
   def before_soft_delete
     sub_assignments.destroy_all
+    peer_review_sub_assignment&.destroy
   end
+
+  # These methods follow the Rails validation helper convention: they add errors
+  # and use early returns as guards, not to return a boolean predicate value.
+  # rubocop:disable Style/ReturnNilInPredicateMethodDefinition
+  def peer_review_count_changes_ok?
+    return unless peer_reviews?
+    return unless peer_review_sub_assignment.present?
+
+    if peer_review_submissions?
+      errors.add :peer_review_count,
+                 I18n.t("Students have already submitted peer reviews, so reviews required and points cannot be changed.")
+    end
+  end
+
+  def peer_reviews_changes_ok?
+    return unless peer_reviews_change_to_be_saved == [true, false]
+    return unless peer_review_sub_assignment.present?
+
+    if context.feature_enabled?(:peer_review_allocation_and_grading)
+      return unless peer_review_submissions?
+
+      errors.add :peer_reviews,
+                 I18n.t("cannot be disabled for assignments with graded peer reviews when students have already submitted reviews")
+    else
+      # For backward compatibility, prevent disabling peer reviews for assignments with graded peer reviews in legacy mode
+      errors.add :peer_reviews,
+                 I18n.t("cannot be disabled for assignments with graded peer reviews in legacy mode")
+    end
+  end
+  # rubocop:enable Style/ReturnNilInPredicateMethodDefinition
 
   def governs_submittable?
     true
   end
 
-  def update_sub_assignments
+  def sync_sub_assignments
     return unless has_sub_assignments?
 
-    changed_attributes = sync_attributes_changes
-    sub_assignments.each do |checkpoint|
+    update_sub_assignments(previous_changes.slice(*SUB_ASSIGNMENT_SYNC_ATTRIBUTES))
+  end
+
+  def sync_sub_assignments_after_commit
+    return unless has_sub_assignments?
+
+    update_sub_assignments(previous_changes.slice(*SubAssignment::SUB_ASSIGNMENT_SYNC_ATTRIBUTES))
+  end
+
+  def update_sub_assignments(changed_attributes)
+    return unless has_sub_assignments?
+
+    sub_assignments.active.each do |checkpoint|
       updates = {}
-      changed_attributes.each do |attr, (*, new_value)|
+      changed_attributes.each do |attr, (_, new_value)|
         updates[attr] = new_value if checkpoint.respond_to?(:"#{attr}=")
       end
-      if updates.any?
-        checkpoint.update!(updates)
-      end
+      next unless updates.any?
+
+      checkpoint.saved_by = :parent_assignment
+      checkpoint.update!(updates)
+      checkpoint.saved_by = nil
     end
   end
 
@@ -127,7 +323,59 @@ class Assignment < AbstractAssignment
     previous_changes.keys.intersect?(SUB_ASSIGNMENT_SYNC_ATTRIBUTES)
   end
 
-  def sync_attributes_changes
-    previous_changes.slice(*SUB_ASSIGNMENT_SYNC_ATTRIBUTES)
+  def sync_attributes_changed_after_commit?
+    previous_changes.keys.intersect?(SubAssignment::SUB_ASSIGNMENT_SYNC_ATTRIBUTES)
+  end
+
+  def should_sync_peer_review_sub_assignment?
+    return false if skip_peer_review_sub_assignment_sync
+    return false unless context.feature_enabled?(:peer_review_allocation_and_grading)
+    return false unless peer_review_sub_assignment.present?
+
+    previous_changes.keys.intersect?(PeerReviewSubAssignment::SYNCABLE_ATTRIBUTES)
+  end
+
+  def sync_peer_review_sub_assignment
+    PeerReview::PeerReviewUpdaterService.call(parent_assignment: self)
+  end
+
+  def sync_stream_items_hidden
+    submission_ids = submissions.active.pluck(:id)
+    stream_items = StreamItem.select(%i[id context_type context_id])
+                             .where(asset_type: "Submission", asset_id: submission_ids)
+                             .preload(:context).to_a
+    stream_item_contexts = stream_items.map { |si| [si.context_type, si.context_id] }
+    user_ids = submissions.map(&:user_id).uniq
+
+    Shard.partition_by_shard(user_ids) do |user_ids_subset|
+      StreamItemInstance.where(stream_item_id: stream_items, user_id: user_ids_subset)
+                        .update_all_with_invalidation(stream_item_contexts, hidden: suppress_assignment?)
+    end
+  end
+
+  def unpublish_ok?
+    if has_student_submissions? || has_student_submissions_for_sub_assignments?
+      errors.add :workflow_state, I18n.t("Can't unpublish if there are student submissions for the assignment or its sub_assignments")
+    end
+  end
+
+  def peer_reviews_changed?
+    saved_change_to_peer_reviews?(from: true, to: false)
+  end
+
+  def delete_allocation_rules
+    allocation_rules.update_all(workflow_state: "deleted")
+  end
+
+  def a11y_scannable_attributes
+    # We need to run the scan on title and workflow_state change as well otherwise AccessibilityResourceScan will be out of date
+    # TODO: RCX-4463 remove title and workflow_state
+    %i[title description workflow_state]
+  end
+
+  def excluded_from_accessibility_scan?
+    # Check submission_types directly for online_quiz to catch assignments
+    # created by quizzes before the quiz association is set
+    submission_types == "online_quiz" || external_tool?
   end
 end

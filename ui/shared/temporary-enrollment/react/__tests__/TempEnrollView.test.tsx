@@ -22,14 +22,33 @@ import {
   TempEnrollView,
 } from '../TempEnrollView'
 import React from 'react'
-import {fireEvent, render, screen, waitFor} from '@testing-library/react'
+import {fireEvent, render, screen, waitFor, act} from '@testing-library/react'
 import {type Enrollment, ITEMS_PER_PAGE, PROVIDER, RECIPIENT, type User} from '../types'
-import fetchMock from 'fetch-mock'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
+import {queryClient} from '@instructure/platform-query'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
+
+const server = setupServer()
+
+const renderView = async (props: any) => {
+  let result!: ReturnType<typeof render>
+  await act(async () => {
+    result = render(
+      <MockedQueryProvider>
+        <TempEnrollView {...props} />
+      </MockedQueryProvider>,
+    )
+  })
+  return result
+}
 
 describe('TempEnrollView component', () => {
-  window.confirm = jest.fn(() => true)
+  window.confirm = vi.fn(() => true)
 
-  jest.mock('@canvas/do-fetch-api-effect')
+  beforeAll(() => {
+    server.listen({onUnhandledRequest: 'bypass'})
+  })
 
   const defaultProvider = {
     name: 'Provider User',
@@ -54,10 +73,10 @@ describe('TempEnrollView component', () => {
 
   const props = {
     user: defaultProvider,
-    onEdit: jest.fn(),
-    onDelete: jest.fn(),
-    onAddNew: jest.fn(),
-    disableModal: jest.fn(),
+    onEdit: vi.fn(),
+    onDelete: vi.fn(),
+    onAddNew: vi.fn(),
+    disableModal: vi.fn(),
     enrollmentType: PROVIDER,
     modifyPermissions: {
       canAdd: true,
@@ -66,24 +85,28 @@ describe('TempEnrollView component', () => {
     },
   }
 
-  const FETCH_PROVIDER_ENROLLMENTS = `/api/v1/users/${defaultProvider.id}/enrollments?state%5B%5D=current_future_and_restricted&per_page=${ITEMS_PER_PAGE}&page=first&include%5B%5D=avatar_url&temporary_enrollment_recipients_for_provider=true`
-  const FETCH_RECIPIENT_ENROLLMENTS = `/api/v1/users/${defaultProvider.id}/enrollments?state%5B%5D=current_future_and_restricted&per_page=${ITEMS_PER_PAGE}&page=first&include%5B%5D=avatar_url&include%5B%5D=temporary_enrollment_providers&temporary_enrollments_for_recipient=true`
+  const ENROLLMENTS_URL = `/api/v1/users/${defaultProvider.id}/enrollments`
 
   afterEach(() => {
-    jest.restoreAllMocks()
-    fetchMock.restore()
+    vi.restoreAllMocks()
+    server.resetHandlers()
+    // reset cache between tests
+    queryClient.removeQueries()
   })
 
-  it('renders component', async () => {
-    fetchMock.getOnce(FETCH_PROVIDER_ENROLLMENTS, {
-      body: [defaultEnrollment],
-      headers: {
-        link: '<current_url>; rel="current"',
-      },
-    })
-    const {container} = render(<TempEnrollView {...props} />)
+  afterAll(() => server.close())
 
-    expect(await waitFor(() => screen.getByText(props.user.name))).toBeInTheDocument()
+  it('renders component', async () => {
+    server.use(
+      http.get(ENROLLMENTS_URL, () =>
+        HttpResponse.json([defaultEnrollment], {
+          headers: {link: '<current_url>; rel="current"'},
+        }),
+      ),
+    )
+    const container = (await renderView(props)).container
+
+    expect(await screen.findByText(props.user.name)).toBeInTheDocument()
 
     const avatar = container.querySelector('span > img')
     expect(avatar).toBeInTheDocument()
@@ -94,32 +117,34 @@ describe('TempEnrollView component', () => {
   })
 
   describe('table headers', () => {
-    it('displays the provider’s table headers', async () => {
-      fetchMock.getOnce(FETCH_PROVIDER_ENROLLMENTS, {
-        body: [defaultEnrollment],
-        headers: {
-          link: '<current_url>; rel="current"',
-        },
-      })
-      render(<TempEnrollView {...props} />)
+    it("displays the provider's table headers", async () => {
+      server.use(
+        http.get(ENROLLMENTS_URL, () =>
+          HttpResponse.json([defaultEnrollment], {
+            headers: {link: '<current_url>; rel="current"'},
+          }),
+        ),
+      )
+      await renderView(props)
 
-      expect(await waitFor(() => screen.getByText('Recipient Name'))).toBeInTheDocument()
+      expect(await screen.findByText('Recipient Name')).toBeInTheDocument()
       expect(screen.getByText('Recipient Enrollment Period')).toBeInTheDocument()
       expect(screen.getByText('Recipient Enrollment Type')).toBeInTheDocument()
       expect(screen.getByText('Status')).toBeInTheDocument()
       expect(screen.getByText('Temporary enrollment option links')).toBeInTheDocument()
     })
 
-    it('displays the recipient’s table headers', async () => {
-      fetchMock.getOnce(FETCH_RECIPIENT_ENROLLMENTS, {
-        body: [defaultEnrollment],
-        headers: {
-          link: '<current_url>; rel="current"',
-        },
-      })
-      render(<TempEnrollView {...props} enrollmentType={RECIPIENT} />)
+    it("displays the recipient's table headers", async () => {
+      server.use(
+        http.get(ENROLLMENTS_URL, () =>
+          HttpResponse.json([defaultEnrollment], {
+            headers: {link: '<current_url>; rel="current"'},
+          }),
+        ),
+      )
+      await renderView({...props, enrollmentType: RECIPIENT})
 
-      expect(await waitFor(() => screen.getByText('Provider Name'))).toBeInTheDocument()
+      expect(await screen.findByText('Provider Name')).toBeInTheDocument()
       expect(screen.getByText('Recipient Enrollment Period')).toBeInTheDocument()
       expect(screen.getByText('Recipient Enrollment Type')).toBeInTheDocument()
       expect(screen.getByText('Status')).toBeInTheDocument()
@@ -127,25 +152,25 @@ describe('TempEnrollView component', () => {
     })
 
     it('does not display options links if permissions are not set', async () => {
-      fetchMock.getOnce(FETCH_PROVIDER_ENROLLMENTS, {
-        body: [defaultEnrollment],
-        headers: {
-          link: '<current_url>; rel="current"',
-        },
-      })
+      server.use(
+        http.get(ENROLLMENTS_URL, () =>
+          HttpResponse.json([defaultEnrollment], {
+            headers: {link: '<current_url>; rel="current"'},
+          }),
+        ),
+      )
       const newProps = {
         ...props,
-        tempEnrollPermissions: {
-          ...props.modifyPermissions,
-          canEdit: false,
+        modifyPermissions: {
+          canAdd: false,
           canDelete: false,
+          canEdit: false,
         },
       }
-
-      render(<TempEnrollView {...newProps} />)
+      await renderView(newProps)
 
       expect(
-        await waitFor(() => screen.queryByText('Temporary enrollment option links'))
+        await waitFor(() => screen.queryByText('Temporary enrollment option links')),
       ).not.toBeInTheDocument()
     })
   })
@@ -158,15 +183,16 @@ describe('TempEnrollView component', () => {
         ...defaultEnrollment,
         start_at: futureDate.toISOString(),
       }
-      fetchMock.getOnce(FETCH_PROVIDER_ENROLLMENTS, {
-        body: [futureEnrollment],
-        headers: {
-          link: '<current_url>; rel="current"',
-        },
-      })
+      server.use(
+        http.get(ENROLLMENTS_URL, () =>
+          HttpResponse.json([futureEnrollment], {
+            headers: {link: '<current_url>; rel="current"'},
+          }),
+        ),
+      )
 
-      const {getByText} = render(<TempEnrollView {...props} />)
-      expect(await waitFor(() => getByText('Future'))).toBeInTheDocument()
+      const {findByText} = await renderView(props)
+      expect(await findByText('Future')).toBeInTheDocument()
     })
 
     it('returns a Pill with "Active" status for past enrollments', async () => {
@@ -176,15 +202,16 @@ describe('TempEnrollView component', () => {
         ...defaultEnrollment,
         start_at: pastDate.toISOString(),
       }
-      fetchMock.getOnce(FETCH_PROVIDER_ENROLLMENTS, {
-        body: [activeEnrollment],
-        headers: {
-          link: '<current_url>; rel="current"',
-        },
-      })
+      server.use(
+        http.get(ENROLLMENTS_URL, () =>
+          HttpResponse.json([activeEnrollment], {
+            headers: {link: '<current_url>; rel="current"'},
+          }),
+        ),
+      )
 
-      const {getByText} = render(<TempEnrollView {...props} />)
-      expect(await waitFor(() => getByText('Active'))).toBeInTheDocument()
+      const {findByText} = await renderView(props)
+      expect(await findByText('Active')).toBeInTheDocument()
     })
 
     it('returns a Pill with "Active" status when start_at is not present', async () => {
@@ -192,33 +219,35 @@ describe('TempEnrollView component', () => {
         ...defaultEnrollment,
         start_at: null,
       }
-      fetchMock.getOnce(FETCH_PROVIDER_ENROLLMENTS, {
-        body: [nullEnrollment],
-        headers: {
-          link: '<current_url>; rel="current"',
-        },
-      })
+      server.use(
+        http.get(ENROLLMENTS_URL, () =>
+          HttpResponse.json([nullEnrollment], {
+            headers: {link: '<current_url>; rel="current"'},
+          }),
+        ),
+      )
 
-      const {getByText} = render(<TempEnrollView {...props} />)
-      expect(await waitFor(() => getByText('Active'))).toBeInTheDocument()
+      const {findByText} = await renderView(props)
+      expect(await findByText('Active')).toBeInTheDocument()
     })
   })
 
   describe('action button visibility based on permissions', () => {
     beforeEach(() => {
-      fetchMock.getOnce(FETCH_PROVIDER_ENROLLMENTS, {
-        body: [defaultEnrollment],
-        headers: {
-          link: '<current_url>; rel="current"',
-        },
-      })
+      server.use(
+        http.get(ENROLLMENTS_URL, () =>
+          HttpResponse.json([defaultEnrollment], {
+            headers: {link: '<current_url>; rel="current"'},
+          }),
+        ),
+      )
     })
 
     it('shows Edit and Delete buttons based on canEdit and canDelete', async () => {
-      render(<TempEnrollView {...props} />)
+      await renderView(props)
 
-      expect(await waitFor(() => screen.getByTestId('edit-button'))).toBeInTheDocument()
-      expect(screen.getByTestId('delete-button')).toBeInTheDocument()
+      expect(await screen.findByTestId('edit-button')).toBeInTheDocument()
+      expect(await screen.findByTestId('delete-button')).toBeInTheDocument()
     })
 
     it('does not show Edit button based on canEdit being false', async () => {
@@ -230,10 +259,10 @@ describe('TempEnrollView component', () => {
         },
       }
 
-      render(<TempEnrollView {...newProps} />)
+      await renderView(newProps)
 
-      expect(await waitFor(() => screen.queryByTestId('edit-button'))).not.toBeInTheDocument()
-      expect(screen.getByTestId('delete-button')).toBeInTheDocument()
+      expect(await screen.findByTestId('delete-button')).toBeInTheDocument()
+      expect(screen.queryByTestId('edit-button')).not.toBeInTheDocument()
     })
 
     it('does not show Delete button based on canDelete being false', async () => {
@@ -245,16 +274,16 @@ describe('TempEnrollView component', () => {
         },
       }
 
-      render(<TempEnrollView {...newProps} />)
+      await renderView(newProps)
 
-      expect(await waitFor(() => screen.getByTestId('edit-button'))).toBeInTheDocument()
+      expect(await screen.findByTestId('edit-button')).toBeInTheDocument()
       expect(screen.queryByTestId('delete-button')).not.toBeInTheDocument()
     })
 
     it('shows "Add New" button based on canAdd and enrollmentType', async () => {
-      render(<TempEnrollView {...props} />)
+      await renderView(props)
 
-      expect(await waitFor(() => screen.getByTestId('add-button'))).toBeInTheDocument()
+      expect(await screen.findByTestId('add-button')).toBeInTheDocument()
     })
 
     it('does not show "Add New" button based on recipient enrollmentType', async () => {
@@ -262,16 +291,17 @@ describe('TempEnrollView component', () => {
         ...props,
         enrollmentType: RECIPIENT,
       }
-      fetchMock.getOnce(FETCH_RECIPIENT_ENROLLMENTS, {
-        body: [defaultEnrollment],
-        headers: {
-          link: '<current_url>; rel="current"',
-        },
-      })
+      server.use(
+        http.get(ENROLLMENTS_URL, () =>
+          HttpResponse.json([defaultEnrollment], {
+            headers: {link: '<current_url>; rel="current"'},
+          }),
+        ),
+      )
 
-      render(<TempEnrollView {...newProps} />)
+      await renderView(newProps)
 
-      expect(await waitFor(() => screen.queryByTestId('add-button'))).not.toBeInTheDocument()
+      await waitFor(() => expect(screen.queryByTestId('add-button')).not.toBeInTheDocument())
     })
 
     it('does not show "Add New" button based on addNew being false', async () => {
@@ -283,24 +313,26 @@ describe('TempEnrollView component', () => {
         },
       }
 
-      render(<TempEnrollView {...newProps} />)
+      await renderView(newProps)
 
-      expect(await waitFor(() => screen.queryByTestId('add-button'))).not.toBeInTheDocument()
+      await waitFor(() => expect(screen.queryByTestId('add-button')).not.toBeInTheDocument())
     })
   })
 
   describe('buttons', () => {
     beforeEach(() => {
-      fetchMock.getOnce(FETCH_PROVIDER_ENROLLMENTS, {
-        body: [defaultEnrollment],
-        headers: {
-          link: '<current_url>; rel="current"',
-        },
-      })
+      server.use(
+        http.get(ENROLLMENTS_URL, () =>
+          HttpResponse.json([defaultEnrollment], {
+            headers: {link: '<current_url>; rel="current"'},
+          }),
+        ),
+      )
     })
+
     describe('edit', () => {
       it('calls onEdit with correct enrollment data when clicked', async () => {
-        render(<TempEnrollView {...props} />)
+        await renderView(props)
         await waitFor(() => fireEvent.click(screen.getByTestId('edit-button')))
         expect(props.onEdit).toHaveBeenCalledWith(defaultEnrollment.user, [defaultEnrollment])
       })
@@ -308,36 +340,42 @@ describe('TempEnrollView component', () => {
 
     describe('delete', () => {
       beforeEach(() => {
-        fetchMock.deleteOnce(
-          `/api/v1/courses/${defaultEnrollment.course_id}/enrollments/${defaultEnrollment.id}?task=delete`,
-          {}
+        server.use(
+          http.delete(
+            `/api/v1/courses/${defaultEnrollment.course_id}/enrollments/${defaultEnrollment.id}`,
+            () => HttpResponse.json({}),
+          ),
         )
-        window.confirm = jest.fn(() => true)
+        window.confirm = vi.fn(() => true)
       })
 
       it('opens a confirmation dialog when delete button is clicked', async () => {
-        render(<TempEnrollView {...props} />)
+        await renderView(props)
         await waitFor(() => fireEvent.click(screen.getByTestId('delete-button')))
         expect(window.confirm).toHaveBeenCalled()
       })
 
       it('does not perform deletion if user cancels confirmation', async () => {
-        window.confirm = jest.fn(() => false)
-        render(<TempEnrollView {...props} />)
+        window.confirm = vi.fn(() => false)
+        await renderView(props)
         await waitFor(() => fireEvent.click(screen.getByTestId('delete-button')))
-        expect(await waitFor(() => screen.getByText('Recipient User'))).toBeInTheDocument()
+        expect(await screen.findByText('Recipient User')).toBeInTheDocument()
       })
 
-      it('calls onDelete with correct enrollment IDs on confirm', async () => {
-        render(<TempEnrollView {...props} />)
+      it('alerts when deletion is successful after confirming', async () => {
+        await renderView(props)
         await waitFor(() => fireEvent.click(screen.getByTestId('delete-button')))
-        expect(await waitFor(() => screen.queryByText('Recipient User'))).not.toBeInTheDocument()
+        await waitFor(() =>
+          expect(
+            screen.queryAllByText('1 enrollments deleted successfully.')[0],
+          ).toBeInTheDocument(),
+        )
       })
     })
 
     describe('add new', () => {
       it('calls onAddNew when clicked', async () => {
-        render(<TempEnrollView {...props} />)
+        await renderView(props)
         await waitFor(() => fireEvent.click(screen.getByTestId('add-button')))
 
         expect(props.onAddNew).toHaveBeenCalled()

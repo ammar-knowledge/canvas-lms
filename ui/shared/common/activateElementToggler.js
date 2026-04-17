@@ -44,7 +44,6 @@
 // </form>
 
 import $ from 'jquery'
-import '@canvas/util/jquery/fixDialogButtons'
 
 function updateTextToState(newStateOfRegion) {
   return function () {
@@ -100,7 +99,7 @@ function toggleRegion($region, showRegion, $trigger) {
           modal: true,
           zIndex: 1000,
         },
-        dialogOpts
+        dialogOpts,
       )
       $region.dialog(dialogOpts).fixDialogButtons()
     }

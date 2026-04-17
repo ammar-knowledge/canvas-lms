@@ -18,11 +18,10 @@
 
 import React from 'react'
 import {render, screen, waitFor} from '@testing-library/react'
-import doFetchApi from '@canvas/do-fetch-api-effect'
 import userEvent, {PointerEventsCheckLevel} from '@testing-library/user-event'
 import {ContentSelectionModal} from '../content_selection_modal'
-
-jest.mock('@canvas/do-fetch-api-effect')
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 
 const selectiveData: any[] = [
   {
@@ -31,6 +30,15 @@ const selectiveData: any[] = [
     type: 'course_settings',
   },
 ]
+
+const server = setupServer(
+  http.get('/api/v1/courses/:courseId/content_migrations/:migrationId/selective_data', () => {
+    return HttpResponse.json(selectiveData)
+  }),
+  http.put('/api/v1/courses/:courseId/content_migrations/:migrationId', () => {
+    return HttpResponse.json({})
+  }),
+)
 
 const migration = {
   id: '2',
@@ -52,7 +60,18 @@ const renderComponent = (overrideProps?: any) =>
   render(<ContentSelectionModal courseId="1" migration={migration} {...overrideProps} />)
 
 describe('ContentSelectionModal', () => {
-  afterEach(() => jest.clearAllMocks())
+  beforeAll(() => {
+    server.listen()
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    server.resetHandlers()
+  })
+
+  afterAll(() => {
+    server.close()
+  })
 
   it('renders button', () => {
     renderComponent()
@@ -60,8 +79,6 @@ describe('ContentSelectionModal', () => {
   })
 
   describe('modal', () => {
-    beforeEach(() => doFetchApi.mockImplementation(() => Promise.resolve({json: selectiveData})))
-
     it('opens on click', async () => {
       renderComponent()
       const button = screen.getByRole('button', {name: 'Select content'})
@@ -73,9 +90,58 @@ describe('ContentSelectionModal', () => {
       renderComponent()
       const button = screen.getByRole('button', {name: 'Select content'})
       await userEvent.click(button)
-      expect(doFetchApi).toHaveBeenCalledWith({
-        path: '/api/v1/courses/1/content_migrations/2/selective_data',
-        method: 'GET',
+      await waitFor(() => {
+        expect(screen.getAllByText('Course Settings')[0]).toBeInTheDocument()
+      })
+    })
+
+    describe('when selectiveData contains nested sub_items_url', () => {
+      const subItemUrl1 = '/api/v1/sub_items_1'
+      const selectiveDataWithSubItems1 = [
+        {
+          property: 'copy[sub_item1]',
+          title: 'sub_item1',
+          type: 'course_settings',
+          sub_items_url: subItemUrl1,
+          count: 1,
+        },
+      ]
+      const subItemUrl2 = '/api/v1/sub_items_2'
+      const selectiveDataWithSubItems2 = [
+        {
+          property: 'copy[sub_item2]',
+          title: 'sub_item2',
+          type: 'course_settings',
+          sub_items_url: subItemUrl2,
+          count: 1,
+        },
+      ]
+
+      beforeEach(() => {
+        server.use(
+          http.get(
+            '/api/v1/courses/:courseId/content_migrations/:migrationId/selective_data',
+            () => {
+              return HttpResponse.json(selectiveDataWithSubItems1)
+            },
+          ),
+          http.get(subItemUrl1, () => {
+            return HttpResponse.json(selectiveDataWithSubItems2)
+          }),
+          http.get(subItemUrl2, () => {
+            return HttpResponse.json(selectiveData)
+          }),
+        )
+      })
+
+      it('fetches nested sub items', async () => {
+        renderComponent()
+        const button = screen.getByRole('button', {name: 'Select content'})
+        await userEvent.click(button)
+
+        await waitFor(() => {
+          expect(screen.getAllByText(/sub_item1/)[0]).toBeInTheDocument()
+        })
       })
     })
 
@@ -97,23 +163,17 @@ describe('ContentSelectionModal', () => {
       const submitButton = screen.getByRole('button', {name: 'Select Content'})
       await userEvent.click(submitButton)
 
-      expect(doFetchApi).toHaveBeenCalledWith({
-        path: '/api/v1/courses/1/content_migrations/2',
-        method: 'PUT',
-        body: {
-          id: '2',
-          user_id: '3',
-          workflow_state: 'waiting_for_select',
-          copy: {
-            all_course_settings: '1',
-          },
-        },
+      // MSW will handle the PUT request
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('heading', {name: 'Select Content for Import'}),
+        ).not.toBeInTheDocument()
       })
     })
 
     it('calls updateMigrationItem', async () => {
       window.ENV.current_user_id = '3'
-      const updateMigrationItem = jest.fn()
+      const updateMigrationItem = vi.fn()
       renderComponent({updateMigrationItem})
       expect(updateMigrationItem).not.toHaveBeenCalled()
 
@@ -130,22 +190,54 @@ describe('ContentSelectionModal', () => {
       })
     })
 
-    it('shows alert if fetch fails', async () => {
-      doFetchApi.mockImplementation(() => Promise.reject())
-      renderComponent()
-      const button = screen.getByRole('button', {name: 'Select content'})
-      await userEvent.click(button)
-      await waitFor(() => {
-        expect(screen.getByText('Failed to fetch content for import.')).toBeInTheDocument()
+    describe('fetch fails', () => {
+      beforeEach(async () => {
+        server.use(
+          http.get(
+            '/api/v1/courses/:courseId/content_migrations/:migrationId/selective_data',
+            () => {
+              return new HttpResponse(null, {status: 500})
+            },
+          ),
+        )
+        renderComponent()
+        const button = screen.getByRole('button', {name: 'Select content'})
+        await userEvent.click(button)
+      })
+
+      it('shows alert', async () => {
+        await waitFor(() => {
+          expect(screen.getByText('Failed to fetch content for import.')).toBeInTheDocument()
+        })
+      })
+
+      it('submit button is disabled', async () => {
+        expect(screen.getByRole('button', {name: 'Select Content'})).toBeDisabled()
       })
     })
 
-    it('shows spinner when loading', async () => {
-      doFetchApi.mockImplementation(() => new Promise(resolve => setTimeout(resolve, 5000)))
-      renderComponent()
-      const button = screen.getByRole('button', {name: 'Select content'})
-      await userEvent.click(button)
-      expect(screen.getByText('Loading content for import.')).toBeInTheDocument()
+    describe('is loading', () => {
+      beforeEach(async () => {
+        server.use(
+          http.get(
+            '/api/v1/courses/:courseId/content_migrations/:migrationId/selective_data',
+            () => {
+              return new Promise(resolve => setTimeout(resolve, 5000))
+            },
+          ),
+        )
+        renderComponent()
+        const button = screen.getByRole('button', {name: 'Select content'})
+        await userEvent.click(button)
+      })
+
+      it('shows spinner', async () => {
+        expect(screen.getByText('Loading content for import.')).toBeInTheDocument()
+      })
+
+      it('submit button is disabled', async () => {
+        expect(screen.getByRole('button', {name: 'Select Content'})).toBeDisabled()
+      })
     })
 
     it('closes with x button', async () => {
@@ -156,9 +248,11 @@ describe('ContentSelectionModal', () => {
       const xButton = screen.getByText('Close')
       await user.click(xButton)
 
-      expect(
-        screen.queryByRole('heading', {name: 'Select Content for Import'})
-      ).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('heading', {name: 'Select Content for Import'}),
+        ).not.toBeInTheDocument()
+      })
     })
 
     it('closes with cancel button', async () => {
@@ -169,9 +263,54 @@ describe('ContentSelectionModal', () => {
       const cancelButton = screen.getByText('Cancel')
       await user.click(cancelButton)
 
-      expect(
-        screen.queryByRole('heading', {name: 'Select Content for Import'})
-      ).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('heading', {name: 'Select Content for Import'}),
+        ).not.toBeInTheDocument()
+      })
+    })
+
+    describe('response is empty', () => {
+      beforeEach(async () => {
+        server.use(
+          http.get(
+            '/api/v1/courses/:courseId/content_migrations/:migrationId/selective_data',
+            () => {
+              return HttpResponse.json([])
+            },
+          ),
+        )
+        renderComponent()
+        const button = screen.getByRole('button', {name: 'Select content'})
+        await userEvent.click(button)
+      })
+
+      it('show empty message', async () => {
+        await waitFor(() => {
+          expect(
+            screen.getByText(
+              'This file appears to be empty. Do you still want to proceed with content selection?',
+            ),
+          ).toBeInTheDocument()
+        })
+      })
+
+      it('submit button is enabled', async () => {
+        expect(screen.getByRole('button', {name: 'Select Content'})).not.toBeDisabled()
+      })
+
+      it('sends empty data', async () => {
+        window.ENV.current_user_id = '3'
+        const submitButton = screen.getByRole('button', {name: 'Select Content'})
+        await userEvent.click(submitButton)
+
+        // MSW will handle the PUT request with empty data
+        await waitFor(() => {
+          expect(
+            screen.queryByRole('heading', {name: 'Select Content for Import'}),
+          ).not.toBeInTheDocument()
+        })
+      })
     })
   })
 })

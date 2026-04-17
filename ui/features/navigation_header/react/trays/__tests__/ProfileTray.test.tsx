@@ -17,15 +17,21 @@
  */
 
 import React from 'react'
-import {render as testingLibraryRender} from '@testing-library/react'
+import {cleanup, render as testingLibraryRender} from '@testing-library/react'
 import {getByText as domGetByText} from '@testing-library/dom'
 import ProfileTray from '../ProfileTray'
-import {QueryProvider, queryClient} from '@canvas/query'
+import {queryClient} from '@instructure/platform-query'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 const render = (children: unknown) =>
-  testingLibraryRender(<QueryProvider>{children}</QueryProvider>)
+  testingLibraryRender(<MockedQueryProvider>{children}</MockedQueryProvider>)
 
 const imageUrl = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
+
+afterEach(() => {
+  cleanup()
+})
 
 const profileTabs = [
   {
@@ -43,27 +49,77 @@ const profileTabs = [
     label: 'Shared Content',
     html_url: '/shared',
   },
+  {
+    id: 'external_tool',
+    label: 'External Tool',
+    html_url: '/accounts/1/external_tools/1?display=borderless',
+    type: 'external',
+  },
+  {
+    id: 'nav_menu_link_42',
+    label: 'Custom Link',
+    html_url: 'https://example.com',
+    type: 'external',
+  },
 ]
 
 describe('ProfileTray', () => {
   beforeEach(() => {
-    window.ENV = {
-      // @ts-expect-error
+    fakeENV.setup({
       current_user: {
+        id: '1',
+        anonymous_id: 'anon1',
         display_name: 'Sample Student',
+        avatar_image_url: '',
+        html_url: '/users/1',
+        pronouns: null,
+        fake_student: false,
         avatar_is_fallback: true,
       },
       current_user_roles: [],
-    }
+    })
   })
 
   afterEach(() => {
     queryClient.removeQueries()
+    fakeENV.teardown()
   })
 
   it('renders the component', () => {
     const {getByText} = render(<ProfileTray />)
     getByText('Sample Student')
+  })
+
+  it('renders external tool tabs with correct target attributes', () => {
+    queryClient.setQueryData(['profile'], profileTabs)
+    const {getByText} = render(<ProfileTray />)
+    const toolLink = getByText('External Tool').closest('a')
+    expect(toolLink).toHaveAttribute('target', '_blank')
+  })
+
+  describe('nav_menu_link tabs', () => {
+    it('opens in new tab', () => {
+      queryClient.setQueryData(['profile'], profileTabs)
+      const {getByText} = render(<ProfileTray />)
+      const link = getByText('Custom Link').closest('a')
+      expect(link).toHaveAttribute('target', '_blank')
+    })
+
+    it('shows external link icon', () => {
+      queryClient.setQueryData(['profile'], profileTabs)
+      const {getByText} = render(<ProfileTray />)
+      const link = getByText('Custom Link').closest('a')
+      const icon = link?.querySelector("svg[name='IconExternalLink']")
+      expect(icon).toBeInTheDocument()
+    })
+
+    it('does not show external link icon for LTI external tools', () => {
+      queryClient.setQueryData(['profile'], profileTabs)
+      const {getByText} = render(<ProfileTray />)
+      const link = getByText('External Tool').closest('a')
+      const icon = link?.querySelector("svg[name='IconExternalLink']")
+      expect(icon).not.toBeInTheDocument()
+    })
   })
 
   it('renders the avatar', () => {
@@ -84,9 +140,82 @@ describe('ProfileTray', () => {
   it('renders the unread count badge on Shared Content', () => {
     queryClient.setQueryData(['profile'], profileTabs)
     queryClient.setQueryData(['unread_count', 'content_shares'], 12)
-    const {container} = render(<ProfileTray />)
-    // @ts-expect-error
-    const elt = container.firstChild.querySelector('a[href="/shared"]')
-    domGetByText(elt, '12 unread.')
+    const {getByRole} = render(<ProfileTray />)
+    const link = getByRole('link', {name: /Shared Content/})
+    expect(link).toBeInTheDocument()
+    domGetByText(link, '12 unread.')
+  })
+
+  it('renders the Accessibility Settings section', () => {
+    const {getByText} = render(<ProfileTray />)
+    expect(getByText('Accessibility Settings')).toBeInTheDocument()
+  })
+
+  it('renders the high contrast toggle', () => {
+    const {getByTestId} = render(<ProfileTray />)
+    const toggle = getByTestId('high-contrast-toggle')
+    expect(toggle).toBeInTheDocument()
+  })
+
+  describe('use dyslexic friendly font toggle', () => {
+    describe('when the use_dyslexic_font feature is shadowed', () => {
+      beforeEach(() => {
+        delete window.ENV.use_dyslexic_font
+      })
+
+      it('does not render the dyslexic font toggle', () => {
+        const {queryByTestId} = render(<ProfileTray />)
+        const toggle = queryByTestId('dyslexic-font-toggle')
+        expect(toggle).not.toBeInTheDocument()
+      })
+    })
+
+    describe('when the use_dyslexic_font feature is not shadowed', () => {
+      beforeEach(() => {
+        window.ENV.use_dyslexic_font = false
+      })
+
+      it('renders the dyslexic font toggle', () => {
+        const {getByTestId} = render(<ProfileTray />)
+        const toggle = getByTestId('dyslexic-font-toggle')
+        expect(toggle).toBeInTheDocument()
+      })
+    })
+  })
+
+  describe('widget dashboard toggle', () => {
+    describe('when the widget_dashboard feature is not available', () => {
+      beforeEach(() => {
+        delete window.ENV.widget_dashboard_overridable
+      })
+
+      it('does not render the Early Adopter Program Settings section', () => {
+        const {queryByText} = render(<ProfileTray />)
+        expect(queryByText('Early Adopter Program Settings')).not.toBeInTheDocument()
+      })
+
+      it('does not render the widget dashboard toggle', () => {
+        const {queryByTestId} = render(<ProfileTray />)
+        const toggle = queryByTestId('widget-dashboard-toggle')
+        expect(toggle).not.toBeInTheDocument()
+      })
+    })
+
+    describe('when the widget_dashboard feature is available', () => {
+      beforeEach(() => {
+        window.ENV.widget_dashboard_overridable = false
+      })
+
+      it('renders the Early Adopter Program Settings section', () => {
+        const {getByText} = render(<ProfileTray />)
+        expect(getByText('Early Adopter Program Settings')).toBeInTheDocument()
+      })
+
+      it('renders the widget dashboard toggle', () => {
+        const {getByTestId} = render(<ProfileTray />)
+        const toggle = getByTestId('widget-dashboard-toggle')
+        expect(toggle).toBeInTheDocument()
+      })
+    })
   })
 })

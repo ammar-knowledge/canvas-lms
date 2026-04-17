@@ -20,7 +20,7 @@
 module ConditionalRelease
   module Stats
     class << self
-      def students_per_range(rule, include_trend_data = false)
+      def students_per_range(rule, include_trend_data: false)
         assignment_ids = [rule.trigger_assignment_id]
         assignment_ids += rule.assignment_set_associations.pluck(:assignment_id) if include_trend_data
 
@@ -39,7 +39,7 @@ module ConditionalRelease
           student_ids = trigger_submissions.pluck(:user_id)
           all_previous_assignment_ids = AssignmentSetAction.current_assignments(student_ids, rule.assignment_sets)
                                                            .preload(assignment_set: :assignment_set_associations)
-                                                           .each_with_object({}) { |action, acc| acc[action.student_id] = action.assignment_set.assignment_set_associations.map(&:assignment_id) }
+                                                           .to_h { |action| [action.student_id, action.assignment_set.assignment_set_associations.map(&:assignment_id)] }
           student_ids.each do |student_id|
             previous_assignment_ids = all_previous_assignment_ids[student_id]
             follow_on_submissions_hash[student_id] = if previous_assignment_ids

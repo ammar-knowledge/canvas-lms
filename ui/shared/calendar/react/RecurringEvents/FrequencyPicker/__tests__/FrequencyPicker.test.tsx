@@ -36,22 +36,14 @@ const defaultProps = (overrides: UnknownSubset<FrequencyPickerProps> = {}) => {
     initialFrequency: 'weekly-day' as FrequencyOptionValue,
     locale: 'en',
     timezone: tz,
-    onChange: jest.fn(),
+    onChange: vi.fn(),
     ...overrides,
   }
 }
 
-const selectOption = async (buttonName: RegExp, optionName: RegExp) => {
-  await userEvent.click(
-    screen.getByRole('combobox', {
-      name: buttonName,
-    })
-  )
-  await userEvent.click(
-    screen.getByRole('option', {
-      name: optionName,
-    })
-  )
+const selectOption = async (_buttonName: RegExp, optionName: RegExp) => {
+  await userEvent.click(screen.getByTestId('frequency-picker'))
+  await userEvent.click(screen.getByText(optionName))
 }
 
 describe('FrequencyPicker', () => {
@@ -60,17 +52,16 @@ describe('FrequencyPicker', () => {
   })
 
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
   describe('renders', () => {
     for (const TZ of ['Asia/Tokyo', 'Europe/Budapest', 'America/New_York']) {
-      // eslint-disable-next-line jest/valid-describe
       describe(`in timezone ${TZ}`, () => {
         it('with the given initial frequency', () => {
           const props = defaultProps({timezone: TZ})
           const {getByDisplayValue, rerender} = render(
-            <FrequencyPicker {...props} initialFrequency="daily" />
+            <FrequencyPicker {...props} initialFrequency="daily" />,
           )
           expect(getByDisplayValue('Daily')).toBeInTheDocument()
 
@@ -107,7 +98,7 @@ describe('FrequencyPicker', () => {
               {...props}
               initialFrequency="saved-custom"
               rrule="FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,WE;COUNT=5"
-            />
+            />,
           )
           expect(getByDisplayValue('Weekly on Mon, Wed, 5 times')).toBeInTheDocument()
 
@@ -139,12 +130,12 @@ describe('FrequencyPicker', () => {
     it('returns focus to the frequency picker button when the modal is closed', async () => {
       const user = userEvent.setup({delay: null})
       const props = defaultProps()
-      const {getByText, getByRole, getByLabelText} = render(<FrequencyPicker {...props} />)
+      const {getByText, getByTestId} = render(<FrequencyPicker {...props} />)
       await selectOption(/frequency/i, /custom/i)
       const modal = getByText('Custom Repeating Event')
       expect(modal).toBeInTheDocument()
-      await user.click(getByRole('button', {name: /cancel/i}))
-      await waitFor(() => expect(getByLabelText('Frequency')).toHaveFocus())
+      await user.click(getByTestId('custom-recurrence-modal-cancel'))
+      await waitFor(() => expect(getByTestId('frequency-picker')).toHaveFocus())
     })
 
     it('sets width to auto', () => {
@@ -161,31 +152,41 @@ describe('FrequencyPicker', () => {
 
     it('retains auto width after selecting a custom frequency', async () => {
       const props = defaultProps({width: 'auto'})
-      const {container, getByText, getByRole} = render(<FrequencyPicker {...props} />)
+      const {container, getByText, getByTestId} = render(<FrequencyPicker {...props} />)
       await selectOption(/frequency/i, /custom/i)
       const modal = getByText('Custom Repeating Event')
       expect(modal).toBeInTheDocument()
-      await userEvent.click(getByRole('button', {name: /done/i}))
+      await userEvent.click(getByTestId('custom-recurrence-modal-done'))
       expect(container.querySelector('label')).toHaveStyle({width: 'auto'})
     })
 
-    // it's really annoying that I can't supress the exception being logged to the console
-    // even though it's being caught by the error boundary
+    // Test error boundary cases by mocking console.error to prevent test output pollution
     describe('with errors', () => {
       it('the error boundary fallback when enabled with no date', () => {
+        // Suppress JSDOM VirtualConsole errors for this specific test
+        const originalConsoleError = global.console.error
+        global.console.error = vi.fn()
+
         const props = defaultProps({date: undefined})
         const {getByText} = render(
           <FrequencyPickerErrorBoundary>
             <FrequencyPicker {...props} />
-          </FrequencyPickerErrorBoundary>
+          </FrequencyPickerErrorBoundary>,
         )
+
+        global.console.error = originalConsoleError
+
         expect(getByText('There was an error rendering.')).toBeInTheDocument()
         expect(
-          getByText('FrequencyPicker: date is required when interaction is enabled')
+          getByText('FrequencyPicker: date is required when interaction is enabled'),
         ).toBeInTheDocument()
       })
 
       it('the error boundary fallback with no date and a recurring frequency', () => {
+        // Suppress JSDOM VirtualConsole errors for this specific test
+        const originalConsoleError = global.console.error
+        global.console.error = vi.fn()
+
         const props = defaultProps({
           date: undefined,
           interaction: 'disabled',
@@ -194,11 +195,14 @@ describe('FrequencyPicker', () => {
         const {getByText} = render(
           <FrequencyPickerErrorBoundary>
             <FrequencyPicker {...props} />
-          </FrequencyPickerErrorBoundary>
+          </FrequencyPickerErrorBoundary>,
         )
+
+        global.console.error = originalConsoleError
+
         expect(getByText('There was an error rendering.')).toBeInTheDocument()
         expect(
-          getByText('FrequencyPicker: date is required when initialFrequency is not not-repeat')
+          getByText('FrequencyPicker: date is required when initialFrequency is not not-repeat'),
         ).toBeInTheDocument()
       })
     })
@@ -210,7 +214,7 @@ describe('FrequencyPicker', () => {
       render(<FrequencyPicker {...props} />)
       expect(props.onChange).toHaveBeenCalledWith(
         'weekly-day',
-        'FREQ=WEEKLY;BYDAY=TH;INTERVAL=1;COUNT=52'
+        'FREQ=WEEKLY;BYDAY=TH;INTERVAL=1;COUNT=52',
       )
     })
 
@@ -219,7 +223,7 @@ describe('FrequencyPicker', () => {
       render(<FrequencyPicker {...props} />)
       expect(props.onChange).toHaveBeenCalledWith(
         'annually',
-        'FREQ=YEARLY;BYMONTH=04;BYMONTHDAY=12;INTERVAL=1;COUNT=5'
+        'FREQ=YEARLY;BYMONTH=04;BYMONTHDAY=12;INTERVAL=1;COUNT=5',
       )
     })
 
@@ -227,11 +231,11 @@ describe('FrequencyPicker', () => {
       const props = defaultProps()
       const {rerender} = render(<FrequencyPicker {...props} />)
       rerender(
-        <FrequencyPicker {...props} {...{date: moment.tz('1997-04-15', defaultTZ).toDate()}} />
+        <FrequencyPicker {...props} {...{date: moment.tz('1997-04-15', defaultTZ).toDate()}} />,
       )
       expect(props.onChange).toHaveBeenCalledWith(
         'weekly-day',
-        'FREQ=WEEKLY;BYDAY=TU;INTERVAL=1;COUNT=52'
+        'FREQ=WEEKLY;BYDAY=TU;INTERVAL=1;COUNT=52',
       )
     })
 
@@ -241,7 +245,7 @@ describe('FrequencyPicker', () => {
       await selectOption(/frequency/i, /annually on april 12/i)
       expect(props.onChange).toHaveBeenCalledWith(
         'annually',
-        'FREQ=YEARLY;BYMONTH=04;BYMONTHDAY=12;INTERVAL=1;COUNT=5'
+        'FREQ=YEARLY;BYMONTH=04;BYMONTHDAY=12;INTERVAL=1;COUNT=5',
       )
     })
   })

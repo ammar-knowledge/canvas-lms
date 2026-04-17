@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {useState, useEffect, useCallback} from 'react'
 import moment from 'moment'
 import {Responsive} from '@instructure/ui-responsive'
@@ -32,16 +32,16 @@ import {TextInput} from '@instructure/ui-text-input'
 import {Heading} from '@instructure/ui-heading'
 import Modal from '@canvas/instui-bindings/react/InstuiModal'
 import ModalSpinner from '../ComposeModalContainer/ModalSpinner'
-import CanvasDateInput from '@canvas/datetime/react/components/DateInput'
+import CanvasDateInput2 from '@canvas/datetime/react/components/DateInput2'
 import {INBOX_SETTINGS_QUERY} from '../../../graphql/Queries'
 import {UPDATE_INBOX_SETTINGS} from '../../../graphql/Mutations'
-import {useQuery, useMutation} from 'react-apollo'
+import {useQuery, useMutation} from '@apollo/client'
 import useDateTimeFormat from '@canvas/use-date-time-format-hook'
 import useInboxSettingsValidate from '../../hooks/useInboxSettingsValidate'
 import type {InboxSettings, InboxSettingsData} from '../../../inboxModel'
 import type {FormMessage} from '@instructure/ui-form-field'
 
-const I18n = useI18nScope('conversations_2')
+const I18n = createI18nScope('conversations_2')
 
 export interface Props {
   inboxSignatureBlock: boolean
@@ -88,7 +88,7 @@ const InboxSettingsModalContainer = ({
         setAlert(SAVE_SETTINGS_FAIL)
         closeModal()
       },
-    }
+    },
   )
   const timezone = ENV?.TIMEZONE || Intl.DateTimeFormat().resolvedOptions().timeZone
   const today = moment.tz(timezone).startOf('day')
@@ -172,7 +172,7 @@ const InboxSettingsModalContainer = ({
     }
   }
 
-  const filterState = (state: Object = defaultInboxSettings): InboxSettings => {
+  const filterState = (state: object = defaultInboxSettings): InboxSettings => {
     const allowedKeys = new Set([
       'useSignature',
       'signature',
@@ -345,11 +345,11 @@ const InboxSettingsModalContainer = ({
   }
 
   const firstDateInput = () => (
-    <CanvasDateInput
+    <CanvasDateInput2
       renderLabel={I18n.t('Start Date')}
       formatDate={dateFormatter}
       width="100%"
-      display="block"
+      isInline={false}
       timezone={timezone}
       messages={firstDateError}
       onSelectedDateChange={date => date && onFirstDayChange(date)}
@@ -360,11 +360,11 @@ const InboxSettingsModalContainer = ({
   )
 
   const lastDateInput = () => (
-    <CanvasDateInput
+    <CanvasDateInput2
       renderLabel={I18n.t('End Date')}
       formatDate={dateFormatter}
       width="100%"
-      display="block"
+      isInline={false}
       timezone={timezone}
       messages={lastDateError}
       onSelectedDateChange={date => date && onLastDayChange(date)}
@@ -504,7 +504,7 @@ const InboxSettingsModalContainer = ({
                       )}
                       <View as="div" padding="small 0 x-small 0">
                         <TextInput
-                          renderLabel={I18n.t('Subject*')}
+                          renderLabel={I18n.t('Subject')}
                           placeholder={I18n.t('Enter Subject')}
                           interaction={formState.useOutOfOffice ? 'enabled' : 'disabled'}
                           value={formState.outOfOfficeSubject || ''}
@@ -560,7 +560,7 @@ const InboxSettingsModalContainer = ({
                     </View>
                     <View as="div" padding="small 0 x-small 0">
                       <TextArea
-                        label={I18n.t('Signature*')}
+                        label={I18n.t('Signature')}
                         height="8rem"
                         maxHeight="10rem"
                         placeholder={I18n.t('Add Signature')}

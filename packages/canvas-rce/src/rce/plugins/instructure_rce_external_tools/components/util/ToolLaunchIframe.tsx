@@ -23,11 +23,15 @@ import formatMessage from '../../../../../format-message'
  * Provide an iframe for launching an LTI tool directly from the frontend.
  * Works just like all existing usages of the LTI <iframe> element, including
  * extracting a ref of the <iframe> directly and setting things on it later.
+ *
+ * TODO: consider moving allow stuff here instead of having it be the
+ * responsibility of the caller, need to check if RCE uses same
+ * iframeAllowances() as elsewhere
  */
 const ToolLaunchIframe = React.forwardRef(
   (
     props: PropsWithChildren<React.IframeHTMLAttributes<HTMLIFrameElement>>,
-    ref: ForwardedRef<HTMLIFrameElement>
+    ref: ForwardedRef<HTMLIFrameElement>,
   ) => {
     return (
       <iframe
@@ -38,7 +42,7 @@ const ToolLaunchIframe = React.forwardRef(
         data-lti-launch="true"
       />
     )
-  }
+  },
 )
 
 export default ToolLaunchIframe

@@ -88,7 +88,8 @@ describe "Outcome Reports" do
     @rubric.save!
     @a = @rubric.associate_with(@assignment, @course1, purpose: "grading")
     @assignment.reload
-    @submission = @assignment.grade_student(@user1, grade: "10", grader: @teacher).first
+    @assignment.sub_assignments.create!(title: "sub assignment", context: @assignment.context, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+    @submission = @assignment.grade_student(@user1, grade: "10", grader: @teacher, sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC).first
     @submission.submission_type = "online_url"
     @submission.submitted_at = 1.week.ago
     @submission.save!
@@ -300,11 +301,17 @@ describe "Outcome Reports" do
 
       it "includes deleted enrollments when include_deleted is set" do
         report_record = run_report(report_type, account: @root_account, params: { "include_deleted" => true })
-        expect(report_record.parameters["extra_text"]).to eq "Term: All Terms; Include Deleted Objects;"
+        expect(report_record.parameters["extra_text"]).to eq "Term: All Terms; Include Deleted/Concluded Objects;"
 
         report = parse_report(report_record, order:, parse_header: true)
         verify_all(report, all_values)
       end
+    end
+
+    it "does not include deleted assignment" do
+      @assignment.destroy!
+      expect(report.length).to eq 1
+      expect(report[0][0]).to eq "No outcomes found"
     end
 
     it "does not include scores when hidden on learning outcome results" do
@@ -427,7 +434,11 @@ describe "Outcome Reports" do
     let(:all_values) { [user2_values, user1_values] }
     let(:order) { [0, 2, 3, 15] }
 
-    include_examples "common outcomes report behavior"
+    before do
+      Account.site_admin.disable_feature!(:improved_outcome_report_generation)
+    end
+
+    it_behaves_like "common outcomes report behavior"
   end
 
   describe "outcome results report" do
@@ -436,7 +447,7 @@ describe "Outcome Reports" do
     let(:all_values) { [user1_values] }
     let(:order) { [0, 2, 3, 13, 18] }
 
-    include_examples "common outcomes report behavior"
+    it_behaves_like "common outcomes report behavior"
 
     context "with quiz question results" do
       before(:once) do
@@ -575,7 +586,7 @@ describe "Outcome Reports" do
           report_record = run_report(report_type, account: @root_account, params: { "include_deleted" => true })
           expect(report_record.workflow_state).to eq "error"
           expect(report_record.message).to start_with "Generating the report, Outcome Results CSV, failed."
-          expect(report_record.parameters["extra_text"]).to eq "Failed, the report failed to generate a file. Please try again."
+          expect(report_record.parameters["extra_text"]).to include "Failed, please report the following error code"
         end
       end
 
@@ -618,8 +629,8 @@ describe "Outcome Reports" do
 
           report_record = run_report(report_type, account: @root_account, params: { "include_deleted" => true })
           expect(report_record.workflow_state).to eq "complete"
-          expect(report_record.message).to eq "Outcome Results report successfully generated with the following settings. Account: New Account; Term: All Terms; Include Deleted Objects;"
-          expect(report_record.parameters["extra_text"]).to eq "Term: All Terms; Include Deleted Objects;"
+          expect(report_record.message).to eq "Outcome Results report successfully generated with the following settings. Account: New Account; Term: All Terms; Include Deleted/Concluded Objects;"
+          expect(report_record.parameters["extra_text"]).to eq "Term: All Terms; Include Deleted/Concluded Objects;"
         end
 
         it "errors if not valid json" do
@@ -632,27 +643,33 @@ describe "Outcome Reports" do
           report_record = run_report(report_type, account: @root_account, params: { "include_deleted" => true })
           expect(report_record.workflow_state).to eq "error"
           expect(report_record.message).to start_with "Generating the report, Outcome Results CSV, failed."
-          expect(report_record.parameters["extra_text"]).to eq "Failed, the report failed to generate a file. Please try again."
+          expect(report_record.parameters["extra_text"]).to include "Failed, please report the following error code"
         end
       end
 
       context ":outcome_service_results_to_canvas" do
         # Column indexes
-        student_name = 0
-        assessment_title = 3
-        assessment_type = 5
-        outcome = 8
-        question = 12
-        question_id = 13
-        course = 14
+        let(:student_name) { 0 }
+        let(:assessment_title) { 3 }
+        let(:assessment_type) { 5 }
+        let(:outcome) { 8 }
+        let(:question) { 12 }
+        let(:question_id) { 13 }
+        let(:course) { 14 }
 
         # These columns are added/modified to the report when writing the csv file
-        outcome_score = 11
-        learning_outcome_points_possible = 22
-        learning_outcome_mastery_score = 23
-        learning_outcome_mastered = 24
-        learning_outcome_rating = 25
-        learning_outcome_rating_points = 26
+        let(:outcome_score) { 11 }
+        let(:learning_outcome_points_possible) { 22 }
+        let(:learning_outcome_mastery_score) { 23 }
+        let(:learning_outcome_mastered) { 24 }
+        let(:learning_outcome_rating) { 25 }
+        let(:learning_outcome_rating_points) { 26 }
+
+        let(:account_report) { AccountReport.new(report_type: "outcome_export_csv", account: @root_account, user: @user1) }
+        let(:outcome_reports) { AccountReports::OutcomeReports.new(account_report) }
+        let(:assignment_ids) { @new_quiz.id.to_s }
+        let(:outcome_ids) { @outcome.id.to_s }
+        let(:uuids) { "#{@user1.uuid},#{@user2.uuid}" }
 
         def mock_os_result(user, outcome, quiz, submission_date, attempts = nil)
           if attempts.nil?
@@ -681,35 +698,6 @@ describe "Outcome Reports" do
              points_possible: 5.0,
              submitted_at: submission_date,
              mastery: nil },]
-        end
-
-        let(:account_report) { AccountReport.new(report_type: "outcome_export_csv", account: @root_account, user: @user1) }
-        let(:outcome_reports) { AccountReports::OutcomeReports.new(account_report) }
-        let(:assignment_ids) { @new_quiz.id.to_s }
-        let(:outcome_ids) { @outcome.id.to_s }
-        let(:uuids) { "#{@user1.uuid},#{@user2.uuid}" }
-
-        it "does not call OS when FF is off for the account" do
-          @root_account.set_feature_flag!(:outcome_service_results_to_canvas, "off")
-
-          expect(outcome_reports).not_to receive(:get_lmgb_results)
-            .with(@course1, assignment_ids, "canvas.assignment.quizzes", outcome_ids)
-
-          results = outcome_reports.send(:outcomes_new_quiz_scope)
-          expect(results).to be_empty
-        end
-
-        it "does not call OS when FF is off for course" do
-          @root_account.set_feature_flag!(:outcome_service_results_to_canvas, "on")
-          @course1.set_feature_flag!(:outcome_service_results_to_canvas, "off")
-
-          # get_lmgb_results is still called, but the first line checks is the FF is enabled and returns nil if OFF
-          # In that case, get_lmgb_results returns nil
-          expect(outcome_reports).to receive(:get_lmgb_results)
-            .with(@course1, assignment_ids, "canvas.assignment.quizzes", outcome_ids)
-
-          results = outcome_reports.send(:outcomes_new_quiz_scope)
-          expect(results).to be_empty
         end
 
         it "filters out users that do not have results" do
@@ -1433,6 +1421,125 @@ describe "Outcome Reports" do
       outcome_reports.send(:write_outcomes_report,
                            AccountReports::OutcomeReports.student_assignment_outcome_headers,
                            scope)
+    end
+  end
+
+  describe "#canvas_next?" do
+    let(:account_report) { AccountReport.new(report_type: "outcome_export_csv", account: @root_account, user: @user1) }
+    let(:outcome_reports) { AccountReports::OutcomeReports.new(account_report) }
+    let(:canvas) { { "student id" => 1, "course id" => 2, "learning outcome id" => 1 } }
+    let(:os_scope) { [{ "student id" => 1, "course id" => 2, "learning outcome id" => 1 }, { "student id" => 2, "course id" => 3, "learning outcome id" => 1 }] }
+    let(:os_index) { 0 }
+
+    it "returns true if os_index is out of bounds" do
+      expect(outcome_reports.send(:canvas_next?, canvas, os_scope, os_scope.length)).to be true
+    end
+
+    it "returns true if canvas[column] < os[column]" do
+      canvas["student id"] = 0
+      expect(outcome_reports.send(:canvas_next?, canvas, os_scope, os_index)).to be true
+    end
+
+    it "returns false if canvas[column] > os[column]" do
+      canvas["student id"] = 3
+      expect(outcome_reports.send(:canvas_next?, canvas, os_scope, os_index)).to be false
+    end
+
+    it "returns true if all columns are equal" do
+      expect(outcome_reports.send(:canvas_next?, canvas, os_scope, os_index)).to be true
+    end
+
+    it "returns true if all columns are equal and os_index is within bounds" do
+      os_index = 1
+      expect(outcome_reports.send(:canvas_next?, canvas, os_scope, os_index)).to be true
+    end
+  end
+
+  describe "write_outcomes_report" do
+    let(:account_report) { AccountReport.new(report_type: "outcome_results_csv", account: @root_account, user: @user1) }
+    let(:outcome_reports) { AccountReports::OutcomeReports.new(account_report) }
+    let(:headers) { ["student name", "student id", "course id", "learning outcome id", "submission date"] }
+    let(:config_options) { {} }
+    let(:csv) { [] }
+    let(:canvas_scope) do
+      instance_double(ActiveRecord::Relation).tap do |scope|
+        allow(scope).to receive(:find_each) do |&block|
+          (1..3).each do |i|
+            record = instance_double(ActiveRecord::Base, attributes: {
+                                       "student id" => i,
+                                       "course id" => i,
+                                       "learning outcome id" => i,
+                                       "submission date" => Time.now.utc + i.days
+                                     })
+            allow(record).to receive(:[]).with("student id").and_return(i)
+            allow(record).to receive(:[]).with("course id").and_return(i)
+            allow(record).to receive(:[]).with("learning outcome id").and_return(i)
+            allow(record).to receive(:[]).with("submission date").and_return(Time.now.utc + i.days)
+            block.call(record)
+          end
+        end
+        except_scope = instance_double(ActiveRecord::Relation)
+        allow(scope).to receive(:except).with(:select).and_return(except_scope)
+        allow(except_scope).to receive(:count).and_return(1)
+      end
+    end
+
+    def write_report(headers, enable_i18n_features: false, replica: :report)
+      csv_mock = []
+      csv_mock << headers unless headers.nil?
+      yield csv_mock if block_given?
+      csv_mock
+    end
+
+    before do
+      allow(outcome_reports).to receive(:write_report) do |headers, enable_i18n_features: false, replica: :report, &block|
+        csv_mock = write_report(headers, enable_i18n_features:, replica:, &block)
+        csv.concat(csv_mock)
+      end
+      allow(GuardRail).to receive(:activate).with(:primary).and_yield
+      allow(account_report).to receive(:update_attribute).with(:current_line, csv.length)
+    end
+
+    it "writes the report with the correct headers" do
+      outcome_reports.send(:write_outcomes_report, headers, canvas_scope, config_options)
+      expect(csv.first).to eq(headers)
+    end
+
+    it "Does not skip any record" do
+      outcome_reports.send(:write_outcomes_report, headers, canvas_scope, config_options)
+      expect(csv.length).to eq(4)
+    end
+
+    it "writes records from canvas_scope before os_scope by default" do
+      # Assigning OS scope
+      config_options[:new_quizzes_scope] = [{
+        "student name" => "OS John Doe",
+        "student id" => 1,
+        "course id" => 1,
+        "learning outcome id" => 1,
+        "submission date" => Time.now.utc
+      }]
+
+      # Execute the method
+      outcome_reports.send(:write_outcomes_report, headers, canvas_scope, config_options)
+
+      # All records should be present, record order should be Header, Canvas, OS, Canvas, ...
+      expect(csv.length).to eq(5)
+      # Canvas record #1
+      expect(csv[1][0]).to be_nil
+      expect(csv[1][1]).to eq(1)
+      # OS record
+      expect(csv[2]).to include("OS John Doe")
+      # Canvas record #2
+      expect(csv[3][0]).to be_nil
+      expect(csv[3][1]).to eq(2)
+    end
+
+    it "writes a message if no records are found" do
+      allow(canvas_scope).to receive(:find_each)
+      allow(canvas_scope.except(:select)).to receive(:count).and_return(0)
+      outcome_reports.send(:write_outcomes_report, headers, canvas_scope, config_options)
+      expect(csv.last).to eq(["No outcomes found"])
     end
   end
 end

@@ -18,17 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-# == Schema Information
-#
-# Table name: plugin_settings
-#
-#  id         :integer(4)      not null, primary key
-#  name       :string(255)     default(""), not null
-#  settings   :text
-#  created_at :datetime
-#  updated_at :datetime
-#
-class PluginSetting < ActiveRecord::Base
+class PluginSetting < ApplicationRecord
   validates :name, uniqueness: { if: :validate_uniqueness_of_name? }
   before_save :validate_posted_settings
   serialize :settings, yaml: { permitted_classes: [Symbol, Class] }
@@ -87,7 +77,7 @@ class PluginSetting < ActiveRecord::Base
   end
 
   def encrypt_settings
-    if settings && plugin && plugin.encrypted_settings
+    if settings && plugin&.encrypted_settings
       plugin.encrypted_settings.each do |key|
         next if settings[key].blank?
 
@@ -106,7 +96,7 @@ class PluginSetting < ActiveRecord::Base
   end
 
   def enabled?
-    read_attribute(:disabled) != true
+    !disabled
   end
 
   def self.cached_plugin_setting(name)

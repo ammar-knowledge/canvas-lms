@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {connect} from 'react-redux'
 import {arrayOf, bool, func, string} from 'prop-types'
 import React, {useEffect, useRef, useState} from 'react'
-import {flatten} from 'lodash'
+import {flatten} from 'es-toolkit/compat'
+import doFetchApi from '@canvas/do-fetch-api-effect'
 
 import {IconButton} from '@instructure/ui-buttons'
 import {View} from '@instructure/ui-view'
@@ -35,9 +36,13 @@ import RoleTrayTableRow from './RoleTrayTableRow'
 import permissionPropTypes, {COURSE} from '@canvas/permissions/react/propTypes'
 
 import DetailsToggle from './DetailsToggle'
-import {PERMISSION_DETAIL_SECTIONS} from '../generateActionTemplates'
 
-const I18n = useI18nScope('permissions_role_tray')
+const I18n = createI18nScope('permissions_role_tray')
+
+const PERMISSION_DETAIL_SECTIONS = [
+  {title: () => I18n.t('What it does'), key: 'details'},
+  {title: () => I18n.t('Additional considerations'), key: 'considerations'},
+]
 
 function PermissionDetailToggles({tab, permissionName}) {
   const [permData, setPermData] = useState(null)
@@ -47,9 +52,9 @@ function PermissionDetailToggles({tab, permissionName}) {
   async function loadTemplate(name) {
     if (!name || canceling.current === name) return
     try {
-      const {template} = await import(`../templates/${name}`)
+      const {json} = await doFetchApi({path: `/api/v1/permissions/${tab}/${name}/help`})
       if (canceling.current !== name) {
-        setPermData(template)
+        setPermData(json)
         setError(null)
       }
     } catch (e) {
@@ -63,11 +68,11 @@ function PermissionDetailToggles({tab, permissionName}) {
   }
 
   useEffect(() => {
-    loadTemplate(permissionName)
+    loadTemplate(permissionName, tab)
     return () => {
       canceling.current = permissionName
     }
-  }, [permissionName])
+  }, [permissionName, tab])
 
   if (error) {
     return (
@@ -82,7 +87,7 @@ function PermissionDetailToggles({tab, permissionName}) {
       <DetailsToggle
         key={section.key}
         title={section.title()}
-        detailItems={permData[tab][section.key]}
+        detailItems={permData[section.key]}
       />
     ))
   }
@@ -176,7 +181,7 @@ function mapStateToProps(state, ownProps) {
   function findPermission(name) {
     // First try the primary permissions (might be a group)
     const perm = state.permissions.find(
-      p => p.permission_name === name && p.contextType === ownProps.tab
+      p => p.permission_name === name && p.contextType === ownProps.tab,
     )
     if (perm) return perm
 
@@ -185,7 +190,7 @@ function mapStateToProps(state, ownProps) {
       state.permissions
         .filter(p => p.contextType === ownProps.tab)
         .map(p => p.granular_permissions)
-        .filter(p => typeof p !== 'undefined')
+        .filter(p => typeof p !== 'undefined'),
     )
     return groupPerms.find(p => p.permission_name === name)
   }

@@ -25,7 +25,7 @@ describe AssetUserAccess do
       @assignment = @course.assignments.create!(title: "My Assignment")
       @user = User.create!
 
-      @asset = factory_with_protected_attributes(AssetUserAccess, user: @user, context: @course, asset_code: @assignment.asset_string)
+      @asset = AssetUserAccess.create!(user: @user, context: @course, asset_code: @assignment.asset_string)
       @asset.display_name = @assignment.asset_string
       @asset.save!
     end
@@ -59,7 +59,7 @@ describe AssetUserAccess do
         # so this one should write to the table
         cur_view_count = @asset.view_score
         AssetUserAccess.log @user, @course, { level: "view", code: @assignment.asset_string }
-        expect(@asset.reload.view_score).to_not eq(cur_view_count)
+        expect(@asset.reload.view_score).not_to eq(cur_view_count)
         expect(AssetUserAccessLog.for_today(@asset).count).to eq(0)
         # this time it's just a bump of the views, should get
         # sent to the log
@@ -113,7 +113,7 @@ describe AssetUserAccess do
       it "works for quizzes" do
         quiz = @course.quizzes.create!(title: "My Quiz")
 
-        asset = factory_with_protected_attributes(AssetUserAccess, user: @user, context: @course, asset_code: quiz.asset_string)
+        asset = AssetUserAccess.create!(user: @user, context: @course, asset_code: quiz.asset_string)
         asset.log(@course, { category: "quizzes" })
         asset.save!
 
@@ -134,7 +134,7 @@ describe AssetUserAccess do
       @assignment = @course.assignments.create!(title: "My Assignment")
       @user = User.create!
 
-      @asset = factory_with_protected_attributes(AssetUserAccess, user: @user, context: @user, asset_code: @assignment.asset_string)
+      @asset = AssetUserAccess.create!(user: @user, context: @user, asset_code: @assignment.asset_string)
       @asset.display_name = @assignment.asset_string
       @asset.save!
     end

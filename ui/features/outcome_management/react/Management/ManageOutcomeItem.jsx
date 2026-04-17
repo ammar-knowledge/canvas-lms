@@ -26,7 +26,7 @@ import {IconButton} from '@instructure/ui-buttons'
 import {Spinner} from '@instructure/ui-spinner'
 import {IconArrowOpenEndLine, IconArrowOpenDownLine} from '@instructure/ui-icons'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import OutcomeKebabMenu from './OutcomeKebabMenu'
 import OutcomeDescription from './OutcomeDescription'
 import {addZeroWidthSpace} from '@canvas/outcomes/addZeroWidthSpace'
@@ -34,8 +34,9 @@ import useCanvasContext from '@canvas/outcomes/react/hooks/useCanvasContext'
 import {ratingsShape} from './shapes'
 import {REMOVE_PENDING} from '@canvas/outcomes/react/hooks/useOutcomesRemove'
 import descriptionType from '../shared/descriptionType'
+import OutcomeContextTag from '@canvas/outcome-context-tag'
 
-const I18n = useI18nScope('OutcomeManagement')
+const I18n = createI18nScope('OutcomeManagement')
 
 const ManageOutcomeItem = ({
   linkId,
@@ -120,7 +121,7 @@ const ManageOutcomeItem = ({
                 <IconButton
                   elementRef={b => (iconButtonRef.current = b)}
                   size="small"
-                  screenReaderLabel=""
+                  screenReaderLabel={title}
                   withBackground={false}
                   withBorder={false}
                   interaction={
@@ -187,6 +188,12 @@ const ManageOutcomeItem = ({
               />
             </View>
           )}
+          <View as="div" padding="0 0 x-small">
+            <OutcomeContextTag
+              outcomeContextType={outcomeContextType}
+              outcomeContextId={outcomeContextId}
+            />
+          </View>
         </Flex.Item>
       </Flex>
     </View>

@@ -37,7 +37,7 @@ module Canvas::Migration
       # timestamp can be either a time string in the format "2011-04-30T00:00:00-06:00",
       # or an integer epoch * 1000
       if timestamp.to_s.match?(/^-?[0-9.]+$/)
-        timestamp = timestamp.to_i / 1000 rescue 0
+        timestamp = timestamp.to_i / 1000
         t = nil
         if timestamp > 0
           t = Time.at(timestamp).utc
@@ -95,9 +95,7 @@ module Canvas::Migration
       end
     end
 
-    def logger
-      Rails.logger
-    end
+    delegate :logger, to: :Rails
 
     def find_export_dir
       slug = if @settings[:content_migration_id] && @settings[:user_id]
@@ -245,7 +243,7 @@ module Canvas::Migration
       end
     end
 
-    def add_learning_outcome_to_overview(overview, outcome, parent_children = nil, parent_migration_id = nil, selectable_outcomes = false)
+    def add_learning_outcome_to_overview(overview, outcome, parent_children = nil, parent_migration_id = nil, selectable_outcomes: false)
       child_groups = []
       if outcome[:type] == "learning_outcome_group"
         if selectable_outcomes
@@ -258,7 +256,7 @@ module Canvas::Migration
         overview[:learning_outcomes] << lo
       end
       outcome[:outcomes]&.each do |sub_outcome|
-        overview = add_learning_outcome_to_overview(overview, sub_outcome, child_groups, outcome[:migration_id], selectable_outcomes)
+        overview = add_learning_outcome_to_overview(overview, sub_outcome, child_groups, outcome[:migration_id], selectable_outcomes:)
       end
       overview
     end
@@ -458,8 +456,7 @@ module Canvas::Migration
         end
       end
 
-      selectable_outcomes = content_migration.respond_to?(:root_account) &&
-                            content_migration.root_account.feature_enabled?(:selectable_outcomes_in_course_copy)
+      selectable_outcomes = content_migration.respond_to?(:root_account)
 
       if @course[:learning_outcomes]
         @overview[:learning_outcomes] = []
@@ -467,7 +464,7 @@ module Canvas::Migration
         @course[:learning_outcomes].each do |outcome|
           next unless outcome
 
-          add_learning_outcome_to_overview(@overview, outcome, nil, nil, selectable_outcomes)
+          add_learning_outcome_to_overview(@overview, outcome, nil, nil, selectable_outcomes:)
         end
       end
 

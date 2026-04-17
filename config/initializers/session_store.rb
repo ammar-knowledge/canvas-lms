@@ -19,18 +19,29 @@
 
 # Be sure to restart your server when you modify this file.
 
-require_dependency "setting"
+require_relative "../../app/models/setting"
 
 # Your secret key for verifying cookie session data integrity.
 # If you change this key, all old sessions will become invalid!
 # Make sure the secret is at least 30 characters and all random,
 # no regular words or you'll be exposed to dictionary attacks.
-config = {
+begin
+  secret = Setting.get("session_secret_key", SecureRandom.hex(64), set_if_nx: true)
+rescue
+  # The database may not exist yet
+  secret = SecureRandom.hex(64)
+end
+
+base_config = {
   key: "_normandy_session",
-  secret: (Setting.get("session_secret_key", SecureRandom.hex(64), set_if_nx: true) rescue SecureRandom.hex(64)),
-  legacy_key: "_legacy_normandy_session",
-  same_site: :none
-}.merge((ConfigFile.load("session_store").dup || {}).symbolize_keys)
+  secret:
+}
+# Only use same_site :none in environments where we can use secure cookies, as browsers otherwise don't accept it
+if Rails.application.config.force_ssl
+  base_config[:same_site] = :none
+  base_config[:secure] = true
+end
+config = base_config.merge((Canvas.load_config_from_consul("session_store", failsafe_cache: true) || {}).symbolize_keys)
 
 # :expire_after is the "true" option, and :expires is a legacy option, but is applied
 # to the cookie after :expire_after is, so by setting it to nil, we force the lesser
@@ -41,6 +52,5 @@ config[:logger] = Rails.logger
 
 Autoextend.hook(:EncryptedCookieStore, :SessionsTimeout)
 
-# after iOS12 is dead, change this back to :encrypted_cookie_store and remove lib/samesite_transition_cookie_store.rb
-CanvasRails::Application.config.session_store(:samesite_transition_cookie_store, **config)
+CanvasRails::Application.config.session_store(:enhanced_cookie_store, **config)
 CanvasRails::Application.config.secret_token = config[:secret]

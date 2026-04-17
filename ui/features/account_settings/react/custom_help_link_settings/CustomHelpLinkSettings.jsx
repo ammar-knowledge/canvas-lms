@@ -19,7 +19,7 @@
 import '@canvas/rails-flash-notifications'
 import React from 'react'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import CustomHelpLinkIcons from './CustomHelpLinkIcons'
 import CustomHelpLink from './CustomHelpLink'
@@ -27,10 +27,12 @@ import CustomHelpLinkForm from './CustomHelpLinkForm'
 import CustomHelpLinkMenu from './CustomHelpLinkMenu'
 import CustomHelpLinkPropTypes from './CustomHelpLinkPropTypes'
 
-const I18n = useI18nScope('custom_help_link')
+const I18n = createI18nScope('custom_help_link')
+const allowedCareerDefaultLinkIds = ['report_a_problem', 'training_services_portal']
 
 export default class CustomHelpLinkSettings extends React.Component {
   static propTypes = {
+    isCareerAccount: PropTypes.bool,
     name: PropTypes.string,
     links: PropTypes.arrayOf(CustomHelpLinkPropTypes.link),
     defaultLinks: PropTypes.arrayOf(CustomHelpLinkPropTypes.link),
@@ -38,6 +40,7 @@ export default class CustomHelpLinkSettings extends React.Component {
   }
 
   static defaultProps = {
+    isCareerAccount: false,
     name: I18n.t('Help'),
     icon: 'questionMark',
     defaultLinks: [],
@@ -47,14 +50,21 @@ export default class CustomHelpLinkSettings extends React.Component {
   constructor(props) {
     super(props)
     let nextIndex = this.nextLinkIndex(props.links)
-    const links = props.links.map(link => {
-      return {
-        ...link,
-        id: link.id || `link${nextIndex++}`,
-        available_to: link.available_to || [],
-        state: link.state || 'active',
-      }
-    })
+    const links = props.links
+      .filter(
+        link =>
+          !this.props.isCareerAccount ||
+          link.type === 'custom' ||
+          allowedCareerDefaultLinkIds.includes(link.id),
+      )
+      .map(link => {
+        return {
+          ...link,
+          id: link.id || `link${nextIndex++}`,
+          available_to: link.available_to || [],
+          state: link.state || 'active',
+        }
+      })
 
     this.state = {
       links,
@@ -66,10 +76,12 @@ export default class CustomHelpLinkSettings extends React.Component {
   getDefaultLinks = () => {
     const linkTexts = this.state.links.map(link => link.text)
 
-    return this.props.defaultLinks.map(link => ({
-      ...link,
-      is_disabled: linkTexts.indexOf(link.text) > -1,
-    }))
+    return this.props.defaultLinks
+      .filter(link => !this.props.isCareerAccount || allowedCareerDefaultLinkIds.includes(link.id))
+      .map(link => ({
+        ...link,
+        is_disabled: linkTexts.indexOf(link.text) > -1,
+      }))
   }
 
   nextLinkIndex = links => {
@@ -91,7 +103,7 @@ export default class CustomHelpLinkSettings extends React.Component {
     this.move(
       link,
       -1,
-      link.index === 1 ? this.focusPreviousComponent : this.focus.bind(this, link.id, 'moveUp')
+      link.index === 1 ? this.focusPreviousComponent : this.focus.bind(this, link.id, 'moveUp'),
     )
   }
 
@@ -158,9 +170,13 @@ export default class CustomHelpLinkSettings extends React.Component {
   }
 
   focusPreviousComponent = () => {
-    $(
-      '#custom_help_link_settings input[name="account[settings][help_link_icon]"]:checked'
-    )[0].focus()
+    const element = $(
+      '#custom_help_link_settings input[name="account[settings][help_link_icon]"]:checked',
+    )[0]
+
+    if (element) {
+      element.focus()
+    }
   }
 
   cancelEdit = link => {
@@ -168,7 +184,7 @@ export default class CustomHelpLinkSettings extends React.Component {
       {
         editing: null,
       },
-      this.focus.bind(this, link.id, 'edit')
+      this.focus.bind(this, link.id, 'edit'),
     )
   }
 
@@ -177,88 +193,97 @@ export default class CustomHelpLinkSettings extends React.Component {
       {
         editing: link.id,
       },
-      this.focus.bind(this, link.id)
+      this.focus.bind(this, link.id),
     )
   }
 
   add = link => {
     const id = link.id || `link${this.nextLinkIndex(this.state.links)}`
-    this.setState(state => {
-      const links = [...state.links]
-      const hasFeatured = links[0]?.is_featured
-      let insertIndex = 0
-      if (hasFeatured) {
-        if (link.is_featured) {
-          links[0].is_featured = false
-        } else {
-          insertIndex = 1
+    this.setState(
+      state => {
+        const links = [...state.links]
+        const hasFeatured = links[0]?.is_featured
+        let insertIndex = 0
+        if (hasFeatured) {
+          if (link.is_featured) {
+            links[0].is_featured = false
+          } else {
+            insertIndex = 1
+          }
         }
-      }
-      links.splice(insertIndex, 0, {
-        ...link,
-        state: link.type === 'default' ? link.state : 'new',
-        id,
-        type: link.type || 'custom',
-      })
+        links.splice(insertIndex, 0, {
+          ...link,
+          state: link.type === 'default' ? link.state : 'new',
+          id,
+          type: link.type || 'custom',
+        })
 
-      return {
-        links,
-        editing: link.type === 'default' ? state.editing : id,
-      }
-    }, this.focus.bind(this, id))
+        return {
+          links,
+          editing: link.type === 'default' ? state.editing : id,
+        }
+      },
+      this.focus.bind(this, id),
+    )
   }
 
   update = savedLink => {
-    this.setState(state => {
-      const links = state.links.map(link => ({...link}))
+    this.setState(
+      state => {
+        const links = state.links.map(link => ({...link}))
 
-      if (savedLink.is_featured) {
-        links.forEach((link, ix) => {
-          if (ix !== savedLink.index) {
-            link.is_featured = false
-            link.feature_headline = null
-          }
-        })
-      }
+        if (savedLink.is_featured) {
+          links.forEach((link, ix) => {
+            if (ix !== savedLink.index) {
+              link.is_featured = false
+              link.feature_headline = null
+            }
+          })
+        }
 
-      if (savedLink.is_new) {
-        links.forEach((link, ix) => {
-          if (ix !== savedLink.index) {
-            link.is_new = false
-          }
-        })
-      }
+        if (savedLink.is_new) {
+          links.forEach((link, ix) => {
+            if (ix !== savedLink.index) {
+              link.is_new = false
+            }
+          })
+        }
 
-      links[savedLink.index] = {
-        ...savedLink,
-        state: savedLink.text ? 'active' : savedLink.state,
-      }
+        links[savedLink.index] = {
+          ...savedLink,
+          state: savedLink.text ? 'active' : savedLink.state,
+        }
 
-      if (savedLink.is_featured && savedLink.index !== 0) {
-        const removed = links.splice(savedLink.index, 1)
-        links.unshift(...removed)
-        $.screenReaderFlashMessage(I18n.t('The featured link was moved to the top of list.'))
-      }
+        if (savedLink.is_featured && savedLink.index !== 0) {
+          const removed = links.splice(savedLink.index, 1)
+          links.unshift(...removed)
+          $.screenReaderFlashMessage(I18n.t('The featured link was moved to the top of list.'))
+        }
 
-      return {
-        links,
-        editing: null,
-      }
-    }, this.focus.bind(this, savedLink.id, 'edit'))
+        return {
+          links,
+          editing: null,
+        }
+      },
+      this.focus.bind(this, savedLink.id, 'edit'),
+    )
   }
 
   remove = link => {
-    this.setState(state => {
-      const links = [...state.links]
-      const editing = state.editing
+    this.setState(
+      state => {
+        const links = [...state.links]
+        const editing = state.editing
 
-      links.splice(link.index, 1)
+        links.splice(link.index, 1)
 
-      return {
-        links,
-        editing: editing === link.id ? null : editing,
-      }
-    }, this.focus.bind(this, this.nextFocusable(link.index), 'remove'))
+        return {
+          links,
+          editing: editing === link.id ? null : editing,
+        }
+      },
+      this.focus.bind(this, this.nextFocusable(link.index), 'remove'),
+    )
   }
 
   move = (link, change, callback) => {
@@ -281,8 +306,8 @@ export default class CustomHelpLinkSettings extends React.Component {
     ) {
       $.flashError(
         I18n.t(
-          'Please enter a valid URL. Protocol is required (e.g. http://, https://, ftp://, tel:, mailto:).'
-        )
+          'Please enter a valid URL. Protocol is required (e.g. http://, https://, ftp://, tel:, mailto:).',
+        ),
       )
       return false
     } else if (!link.available_to || link.available_to.length < 1) {
@@ -311,6 +336,7 @@ export default class CustomHelpLinkSettings extends React.Component {
       link={link}
       onSave={this.handleFormSave}
       onCancel={this.handleFormCancel}
+      isCareerAccount={this.props.isCareerAccount}
     />
   )
 
@@ -328,6 +354,7 @@ export default class CustomHelpLinkSettings extends React.Component {
         }}
         key={id}
         link={link}
+        isCareerAccount={this.props.isCareerAccount}
         onMoveUp={canMoveUp ? this.handleMoveUp : null}
         onMoveDown={canMoveDown ? this.handleMoveDown : null}
         onRemove={this.handleRemove}
@@ -337,7 +364,7 @@ export default class CustomHelpLinkSettings extends React.Component {
   }
 
   render() {
-    const {name, icon} = this.props
+    const {name, icon, isCareerAccount} = this.props
 
     this.links = {}
 
@@ -346,7 +373,11 @@ export default class CustomHelpLinkSettings extends React.Component {
         <h2 className="screenreader-only">{I18n.t('Help menu options')}</h2>
         <legend>{I18n.t('Help menu options')}</legend>
         <div className="ic-Form-group ic-Form-group--horizontal">
-          <label className="ic-Form-control" htmlFor="account_settings_custom_help_link_name">
+          <label
+            className="ic-Form-control"
+            htmlFor="account_settings_custom_help_link_name"
+            {...(isCareerAccount ? {style: {display: 'none'}} : {})}
+          >
             <span className="ic-Label">{I18n.t('Name')}</span>
             <input
               id="account_settings_custom_help_link_name"
@@ -361,7 +392,7 @@ export default class CustomHelpLinkSettings extends React.Component {
               onInput={this.validateName}
             />
           </label>
-          <CustomHelpLinkIcons defaultValue={icon} />
+          <CustomHelpLinkIcons defaultValue={icon} isCareerAccount={isCareerAccount} />
           <div className="ic-Form-control ic-Form-control--top-align-label">
             <span className="ic-Label">{I18n.t('Help menu links')}</span>
             <div className="ic-Forms-component">

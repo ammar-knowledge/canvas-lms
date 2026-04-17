@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -18,23 +16,25 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {forwardRef, useState} from 'react'
+import React, {forwardRef, useEffect, useState} from 'react'
 import formatMessage from '../format-message'
 import RCEWrapper from './RCEWrapper'
-import {EditorOptionsPropType, type ExternalToolsConfig, LtiToolsPropType} from './RCEWrapperProps'
+import type {ExternalToolsConfig, LtiToolsPropType} from './RCEWrapperProps'
 import {RCEVariant} from './RCEVariants'
-import editorLanguage from './editorLanguage'
+import {editorLanguage} from './editorLanguage'
 import normalizeLocale from './normalizeLocale'
 import wrapInitCb from './wrapInitCb'
 import tinyRCE from './tinyRCE'
 import getTranslations from '../getTranslations'
 import '@instructure/canvas-theme'
-import {Editor} from 'tinymce'
+import type {Editor} from 'tinymce'
+import generateId from 'format-message-generate-id/underscored_crc32'
+import type {EditorOptions, RCETrayProps} from './types'
 
 if (!process || !process.env || !process.env.BUILD_LOCALE) {
   formatMessage.setup({
     locale: 'en',
-    generateId: require('format-message-generate-id/underscored_crc32'),
+    generateId,
     missingTranslation: 'ignore',
   })
 }
@@ -50,6 +50,8 @@ const RCE = forwardRef<RCEWrapper, RCEPropTypes>(function RCE(props, rceRef) {
     editorOptions, // tinymce config
     height,
     highContrastCSS,
+    useHighContrast,
+    fontFamily,
     instRecordDisabled,
     language,
     liveRegion,
@@ -71,18 +73,14 @@ const RCE = forwardRef<RCEWrapper, RCEPropTypes>(function RCE(props, rceRef) {
   useState(() => {
     formatMessage.setup({locale: normalizeLocale(props.language)})
   })
-  const [translations, setTranslations] = useState<Promise<void> | boolean>(() => {
+
+  const [isTranslationLoading, setIsTranslationLoading] = useState(true)
+
+  useEffect(() => {
     const locale = normalizeLocale(props.language)
-    const p = getTranslations(locale)
-      .then(() => {
-        setTranslations(true)
-      })
-      .catch(err => {
-        // eslint-disable-next-line no-console
-        console.error('Failed loading the language file for', locale, '\n Cause:', err)
-        setTranslations(false)
-      })
-    return p
+    getTranslations(locale)
+      .catch(err => console.error('Failed loading the language file for', locale, '\n Cause:', err))
+      .finally(() => setIsTranslationLoading(false))
   })
 
   // some properties are only used on initialization
@@ -97,6 +95,8 @@ const RCE = forwardRef<RCEWrapper, RCEPropTypes>(function RCE(props, rceRef) {
       canvasOrigin,
       defaultContent,
       highContrastCSS,
+      useHighContrast,
+      fontFamily,
       instRecordDisabled,
       language: normalizeLocale(language),
       liveRegion,
@@ -113,16 +113,17 @@ const RCE = forwardRef<RCEWrapper, RCEPropTypes>(function RCE(props, rceRef) {
       },
       variant,
     }
-    wrapInitCb(mirroredAttrs, iProps.editorOptions)
+    wrapInitCb(mirroredAttrs || {}, iProps.editorOptions)
 
     return iProps
   })
 
-  if (typeof translations !== 'boolean') {
+  if (isTranslationLoading) {
     return <>{formatMessage('Loading...')}</>
   } else {
     return (
       <RCEWrapper
+        name="content"
         ref={rceRef}
         tinymce={tinyRCE}
         readOnly={readOnly}
@@ -147,7 +148,6 @@ export interface RCEPropTypes {
   autosave?: {
     enabled?: boolean
     maxAge?: number
-    interval?: number
   }
 
   /**
@@ -162,9 +162,9 @@ export interface RCEPropTypes {
 
   /**
    * tinymce configuration. See defaultTinymceConfig for all the defaults
-   * and RCEWrapper.editorOptionsPropType for stuff you may want to include
+   * and RCEWrapper.EditorOptions for stuff you may want to include
    */
-  editorOptions?: EditorOptionsPropType
+  editorOptions?: EditorOptions
 
   /**
    * there's an open bug when RCE is rendered in a Modal form
@@ -184,6 +184,17 @@ export interface RCEPropTypes {
    * array of URLs to high-contrast css
    */
   highContrastCSS?: string[]
+
+  /**
+   * whether high contrast mode is enabled
+   */
+  useHighContrast?: boolean
+
+  /**
+   * CSS font-family string for the RCE chrome (toolbar, menus).
+   * Built by the host to include Lato Extended, dyslexic font, K5 font, etc.
+   */
+  fontFamily?: string
 
   /**
    * if true, do not load the plugin that provides the media toolbar and menu items
@@ -239,24 +250,7 @@ export interface RCEPropTypes {
    * properties necessary for the RCE to us the RCS
    * if missing, RCE features that require the RCS are omitted
    */
-  rcsProps?: {
-    canUploadFiles: boolean
-    contextId: string
-    contextType: string
-    containingContext?: {
-      contextType: string
-      contextId: string
-      userId: string
-    }
-    filesTabDisabled?: boolean
-    host?: (props: any, propName: any, componentName: any) => void
-    jwt?: (props: any, propName: any, componentName: any) => void
-    refreshToken?: () => void
-    source?: {
-      fetchImages: () => void
-    }
-    themeUrl?: string
-  }
+  rcsProps?: RCETrayProps
 
   /**
    * enable the custom icon maker feature (temporary until the feature is forced on)
@@ -289,14 +283,14 @@ export interface RCEPropTypes {
   userCacheKey?: string
 
   onFocus?: (rce: RCEWrapper) => void
-  onBlur?: (event: Event) => void
+  onBlur?: (event: React.FocusEvent<HTMLElement>) => void
   onInit?: (editor: Editor) => void
   onContentChange?: (content: string) => void
 
   externalToolsConfig?: ExternalToolsConfig
 }
 
-const defaultProps = {
+RCE.defaultProps = {
   autosave: {enabled: false, maxAge: 3600000},
   defaultContent: '',
   editorOptions: {},
@@ -314,7 +308,5 @@ const defaultProps = {
   onContentChange: () => undefined,
   onInit: () => undefined,
 }
-
-RCE.defaultProps = defaultProps
 
 export default RCE

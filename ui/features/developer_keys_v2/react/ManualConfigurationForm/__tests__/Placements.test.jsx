@@ -18,12 +18,12 @@
 
 import React from 'react'
 import {render, screen} from '@testing-library/react'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 import Placements from '../Placements'
 
 const props = (overrides = {}, placementOverrides = {}) => {
   return {
-    validPlacements: ['account_navigation', 'course_navigation'],
     placements: [
       {
         placement: 'account_navigation',
@@ -40,9 +40,23 @@ const props = (overrides = {}, placementOverrides = {}) => {
   }
 }
 
+beforeEach(() => {
+  fakeENV.setup({
+    FEATURES: {
+      top_navigation_placement: true,
+      lti_asset_processor: true,
+      lti_asset_processor_discussions: true,
+    },
+  })
+})
+
+afterEach(() => {
+  fakeENV.teardown()
+})
+
 it('allows empty placements', () => {
-  const propsNoPlacements = {...props(), placements: []}
   const ref = React.createRef()
+  const propsNoPlacements = {...props(), placements: []}
   render(<Placements {...props({placements: [], ref})} />)
   expect(ref.current.valid()).toEqual(true)
 })
@@ -51,7 +65,7 @@ it('generates the toolConfiguration', () => {
   const ref = React.createRef()
   render(<Placements {...props({ref})} />)
   const toolConfig = ref.current.generateToolConfigurationPart()
-  expect(toolConfig.length).toEqual(1)
+  expect(toolConfig).toHaveLength(1)
   expect(toolConfig[0].icon_url).toEqual('http://example.com/icon')
 })
 
@@ -59,6 +73,35 @@ it('generates the displayNames correctly', () => {
   render(<Placements {...props()} />)
   expect(screen.getByRole('combobox', {name: /Account Navigation/i})).toBeInTheDocument()
   expect(screen.queryByRole('combobox', {name: /Course Navigation/i})).not.toBeInTheDocument()
+})
+
+it('displays "Assignment Document Processor" for ActivityAssetProcessor placement', () => {
+  const propsWithActivityAssetProcessor = props({
+    placements: [
+      {
+        placement: 'ActivityAssetProcessor',
+        target_link_uri: 'http://example.com',
+        message_type: 'LtiResourceLinkRequest',
+      },
+    ],
+  })
+  render(<Placements {...propsWithActivityAssetProcessor} />)
+  expect(screen.getAllByText('Assignment Document Processor')).toHaveLength(2)
+})
+
+it('placementDisplayName returns correct names', () => {
+  const ref = React.createRef()
+  render(<Placements {...props({ref})} />)
+  const component = ref.current
+
+  // Test the special case
+  expect(component.placementDisplayName('ActivityAssetProcessor')).toBe(
+    'Assignment Document Processor',
+  )
+
+  // Test regular cases
+  expect(component.placementDisplayName('account_navigation')).toBe('Account Navigation')
+  expect(component.placementDisplayName('course_navigation')).toBe('Course Navigation')
 })
 
 it('adds placements', async () => {
@@ -74,6 +117,41 @@ it('adds new placements to output', () => {
   render(<Placements {...props({ref})} />)
   ref.current.handlePlacementSelect(['account_navigation', 'course_navigation'])
   const toolConfig = ref.current.generateToolConfigurationPart()
-  expect(toolConfig.length).toEqual(2)
+  expect(toolConfig).toHaveLength(2)
   expect(toolConfig[1].placement).toEqual('course_navigation')
+})
+
+it('filters out placements that are feature-flagged off when initializing', () => {
+  fakeENV.setup({
+    FEATURES: {
+      top_navigation_placement: false,
+      lti_asset_processor: true,
+      lti_asset_processor_discussions: true,
+    },
+  })
+
+  const ref = React.createRef()
+  const propsWithDisabledPlacement = props({
+    ref,
+    placements: [
+      {
+        placement: 'account_navigation',
+        target_link_uri: 'http://example.com',
+        message_type: 'LtiResourceLinkRequest',
+      },
+      {
+        placement: 'top_navigation',
+        target_link_uri: 'http://example.com',
+        message_type: 'LtiResourceLinkRequest',
+      },
+    ],
+  })
+  render(<Placements {...propsWithDisabledPlacement} />)
+  // Only account_navigation should be rendered
+  expect(screen.getByRole('combobox', {name: /Account Navigation/i})).toBeInTheDocument()
+  expect(screen.queryByRole('combobox', {name: /Top Navigation/i})).not.toBeInTheDocument()
+  // Tool config should only have 1 placement
+  const toolConfig = ref.current.generateToolConfigurationPart()
+  expect(toolConfig).toHaveLength(1)
+  expect(toolConfig[0].placement).toEqual('account_navigation')
 })

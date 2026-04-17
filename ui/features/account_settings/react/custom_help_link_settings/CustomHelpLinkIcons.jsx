@@ -18,7 +18,7 @@
 
 import React from 'react'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {
   IconSettingsLine,
   IconFolderLine,
@@ -28,10 +28,15 @@ import {
 } from '@instructure/ui-icons'
 import CustomHelpLinkIconInput from './CustomHelpLinkIconInput'
 
-const I18n = useI18nScope('custom_help_link')
+const I18n = createI18nScope('custom_help_link')
 
 export default function CustomHelpLinkIcons(props) {
-  const {defaultValue} = props
+  const {defaultValue, isCareerAccount} = props
+
+  if (isCareerAccount) {
+    return null
+  }
+
   return (
     <fieldset className="ic-Fieldset ic-Fieldset--radio-checkbox">
       <legend className="ic-Legend">{I18n.t('Icon')}</legend>
@@ -82,8 +87,10 @@ export default function CustomHelpLinkIcons(props) {
 
 CustomHelpLinkIcons.propTypes = {
   defaultValue: PropTypes.string,
+  isCareerAccount: PropTypes.bool,
 }
 
 CustomHelpLinkIcons.defaultProps = {
   defaultValue: '',
+  isCareerAccount: false,
 }

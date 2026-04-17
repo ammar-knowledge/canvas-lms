@@ -60,9 +60,9 @@ describe ContentMigrationsController, type: :request do
       expect(json.first["id"]).to eq @migration.id
     end
 
-    it "401s" do
+    it "403s" do
       course_with_student_logged_in(course: @course, active_all: true)
-      api_call(:get, @migration_url, @params, {}, {}, expected_status: 401)
+      api_call(:get, @migration_url, @params, {}, {}, expected_status: 403)
     end
 
     it "creates the course root folder" do
@@ -181,9 +181,9 @@ describe ContentMigrationsController, type: :request do
       api_call(:get, @migration_url + "000", @params.merge({ id: @migration.id.to_param + "000" }), {}, {}, expected_status: 404)
     end
 
-    it "401s" do
+    it "403s" do
       course_with_student_logged_in(course: @course, active_all: true)
-      api_call(:get, @migration_url, @params, {}, {}, expected_status: 401)
+      api_call(:get, @migration_url, @params, {}, {}, expected_status: 403)
     end
 
     it "does not return attachment for course copies" do
@@ -388,7 +388,7 @@ describe ContentMigrationsController, type: :request do
       cm.attachment = file
       cm.save!
       cm.queue_migration
-      allow(Delayed::Worker).to receive(:current_job).and_return(double("Delayed::Job", id: 123))
+      allow(Delayed::Worker).to receive(:current_job).and_return(instance_double(Delayed::Job, id: 123))
       run_jobs
       expect(cm.reload.workflow_state).to eq "exported"
       expect(cm.migration_settings["job_ids"]).to eq([123])
@@ -399,7 +399,7 @@ describe ContentMigrationsController, type: :request do
                       @params.merge(action: "update", id: cm.to_param),
                       { copy: { "everything" => "1" } })
       expect(json["workflow_state"]).to eq "running"
-      allow(Delayed::Worker).to receive(:current_job).and_return(double("Delayed::Job", id: 456))
+      allow(Delayed::Worker).to receive(:current_job).and_return(instance_double(Delayed::Job, id: 456))
       run_jobs
       expect(cm.reload.workflow_state).to eq "imported"
       expect(cm.migration_settings["job_ids"]).to match_array([123, 456])
@@ -427,6 +427,43 @@ describe ContentMigrationsController, type: :request do
                       @params.merge(migration_type: "course_copy_importer", settings: { "source_course_id" => "sis_course_id:booga" }))
       migration = ContentMigration.find json["id"]
       expect(migration.migration_settings[:source_course_id]).to eql @course.id
+    end
+
+    context "in a horizon course" do
+      before do
+        @course.account.enable_feature!(:horizon_course_setting)
+        @course.update!(horizon_course: true)
+      end
+
+      it "queues immediately with copy and import_immediately params" do
+        p = Canvas::Plugin.new("hi")
+        allow(p).to receive(:default_settings).and_return({ "worker" => "CCWorker", "valid_contexts" => ["Course"] }.with_indifferent_access)
+        allow(Canvas::Plugin).to receive(:find).and_return(p)
+        @post_params.delete :pre_attachment
+        @post_params[:import_immediately] = true
+        @post_params[:copy] = { all_module_items: true }
+        json = api_call(:post, @migration_url, @params, @post_params)
+        migration = ContentMigration.find json["id"]
+        expect(migration.import_immediately?).to be true
+      end
+    end
+
+    context "not in a horizon course" do
+      before do
+        @course.update!(horizon_course: false)
+      end
+
+      it "ignores import_immediately param" do
+        p = Canvas::Plugin.new("hi")
+        allow(p).to receive(:default_settings).and_return({ "worker" => "CCWorker", "valid_contexts" => ["Course"] }.with_indifferent_access)
+        allow(Canvas::Plugin).to receive(:find).and_return(p)
+        @post_params.delete :pre_attachment
+        @post_params[:import_immediately] = true
+        @post_params[:copy] = { all_module_items: true }
+        json = api_call(:post, @migration_url, @params, @post_params)
+        migration = ContentMigration.find json["id"]
+        expect(migration.import_immediately?).to be false
+      end
     end
 
     context "sharding" do
@@ -823,6 +860,74 @@ describe ContentMigrationsController, type: :request do
         "required_settings" => ["source_folder_id"]
       }]
     end
+
+    context "InstUI feature flag" do
+      let(:external_tool) do
+        @course.account.context_external_tools.create!(
+          name: "Quizzes.Next",
+          consumer_key: "test_key",
+          shared_secret: "test_secret",
+          config_url: "http://example.com/config.xml",
+          tool_id: "quizzes_next",
+          domain: "example.com"
+        )
+      end
+
+      before do
+        # Mock the Lti::ContextToolFinder to return the created external tool
+        allow(Lti::ContextToolFinder).to receive(:all_tools_for).and_return([external_tool])
+        p = Canvas::Plugin.find("common_cartridge_importer")
+        allow(Canvas::Plugin).to receive(:all_for_tag).and_return([p])
+      end
+
+      context "is disabled" do
+        before do
+          Account.site_admin.disable_feature!(:instui_for_import_page)
+        end
+
+        it "returns the migrators without external tools" do
+          json = api_call(:get,
+                          "/api/v1/courses/#{@course.id}/content_migrations/migrators",
+                          { controller: "content_migrations", action: "available_migrators", format: "json", course_id: @course.id.to_param })
+
+          expect(json).to eq [
+            {
+              "type" => "common_cartridge_importer",
+              "requires_file_upload" => true,
+              "name" => "Common Cartridge 1.x Package",
+              "required_settings" => []
+            }
+          ]
+        end
+      end
+
+      context "is enabled" do
+        before do
+          Account.site_admin.enable_feature!(:instui_for_import_page)
+        end
+
+        it "returns the migrators with external tools" do
+          json = api_call(:get,
+                          "/api/v1/courses/#{@course.id}/content_migrations/migrators",
+                          { controller: "content_migrations", action: "available_migrators", format: "json", course_id: @course.id.to_param })
+
+          expect(json).to eq [
+            {
+              "type" => "common_cartridge_importer",
+              "requires_file_upload" => true,
+              "name" => "Common Cartridge 1.x Package",
+              "required_settings" => []
+            },
+            {
+              "name" => external_tool.name,
+              "required_settings" => [],
+              "requires_file_upload" => false,
+              "type" => "context_external_tool_" + external_tool.id.to_s
+            }
+          ]
+        end
+      end
+    end
   end
 
   describe "content selection" do
@@ -923,7 +1028,7 @@ describe ContentMigrationsController, type: :request do
       @user = @dst.teachers.first
     end
 
-    def test_asset_id_mapping(json, verifiers: true)
+    def test_asset_id_mapping(json, verifiers: false)
       expect(@dst.announcements.find(json["announcements"][@ann.id.to_s]).title).to eq "ann"
       expect(@dst.assignments.find(json["assignments"][@assign.id.to_s]).name).to eq "assign"
       expect(@dst.assignments.find(json["assignments"][@shell_assign.id.to_s]).description).to eq "assigned"
@@ -943,7 +1048,7 @@ describe ContentMigrationsController, type: :request do
     end
 
     # accepts block which should return the migration id
-    def test_asset_migration_id_mapping(json, verifiers: true)
+    def test_asset_migration_id_mapping(json, verifiers: false)
       expect(@dst.announcements.find(json["announcements"][yield(@ann)]["destination"]["id"]).title).to eq "ann"
       expect(@dst.assignments.find(json["assignments"][yield(@assign)]["destination"]["id"]).name).to eq "assign"
       expect(@dst.assignments.find(json["assignments"][yield(@shell_assign)]["destination"]["id"]).description).to eq "assigned"
@@ -1013,7 +1118,7 @@ describe ContentMigrationsController, type: :request do
                    id: @migration.to_param },
                  {},
                  {},
-                 { expected_status: 401 })
+                 { expected_status: 403 })
       end
 
       it "maps ids" do
@@ -1040,53 +1145,32 @@ describe ContentMigrationsController, type: :request do
         @dst.root_account.enable_feature!(:file_verifiers_for_quiz_links)
       end
 
-      context "with the :content_migration_asset_map_v2 flag on" do
-        it "maps migration_ids to a hash containing the destination id" do
-          Account.site_admin.enable_feature!(:content_migration_asset_map_v2)
-          json = api_call(:get,
-                          "/api/v1/courses/#{@dst.to_param}/content_migrations/#{@migration.to_param}/asset_id_mapping",
-                          { controller: "content_migrations",
-                            action: "asset_id_mapping",
-                            format: "json",
-                            course_id: @dst.to_param,
-                            id: @migration.to_param })
-          test_asset_migration_id_mapping(json) do |asset|
-            migration_id(asset)
-          end
-          Account.site_admin.disable_feature!(:content_migration_asset_map_v2)
-        end
-
-        it "doesn't add verifiers to migration_ids hash if the file_verifiers_for_quiz_links flag is off" do
-          @dst.root_account.disable_feature!(:file_verifiers_for_quiz_links)
-          Account.site_admin.enable_feature!(:content_migration_asset_map_v2)
-          json = api_call(:get,
-                          "/api/v1/courses/#{@dst.to_param}/content_migrations/#{@migration.to_param}/asset_id_mapping",
-                          { controller: "content_migrations",
-                            action: "asset_id_mapping",
-                            format: "json",
-                            course_id: @dst.to_param,
-                            id: @migration.to_param })
-          test_asset_migration_id_mapping(json, verifiers: false) do |asset|
-            migration_id(asset)
-          end
-          Account.site_admin.disable_feature!(:content_migration_asset_map_v2)
-          @dst.root_account.enable_feature!(:file_verifiers_for_quiz_links)
+      it "maps migration_ids to a hash containing the destination id" do
+        json = api_call(:get,
+                        "/api/v1/courses/#{@dst.to_param}/content_migrations/#{@migration.to_param}/asset_id_mapping",
+                        { controller: "content_migrations",
+                          action: "asset_id_mapping",
+                          format: "json",
+                          course_id: @dst.to_param,
+                          id: @migration.to_param })
+        test_asset_migration_id_mapping(json) do |asset|
+          migration_id(asset)
         end
       end
 
-      context "with the :content_migration_asset_map_v2 flag off" do
-        it "does not map migration_ids to a hash containing the destination id" do
-          json = api_call(:get,
-                          "/api/v1/courses/#{@dst.to_param}/content_migrations/#{@migration.to_param}/asset_id_mapping",
-                          { controller: "content_migrations",
-                            action: "asset_id_mapping",
-                            format: "json",
-                            course_id: @dst.to_param,
-                            id: @migration.to_param })
-          test_asset_migration_id_mapping_nil(json) do |asset|
-            migration_id(asset)
-          end
+      it "doesn't add verifiers to migration_ids hash if the file_verifiers_for_quiz_links flag is off" do
+        @dst.root_account.disable_feature!(:file_verifiers_for_quiz_links)
+        json = api_call(:get,
+                        "/api/v1/courses/#{@dst.to_param}/content_migrations/#{@migration.to_param}/asset_id_mapping",
+                        { controller: "content_migrations",
+                          action: "asset_id_mapping",
+                          format: "json",
+                          course_id: @dst.to_param,
+                          id: @migration.to_param })
+        test_asset_migration_id_mapping(json, verifiers: false) do |asset|
+          migration_id(asset)
         end
+        @dst.root_account.enable_feature!(:file_verifiers_for_quiz_links)
       end
     end
 
@@ -1148,35 +1232,16 @@ describe ContentMigrationsController, type: :request do
         @dst.root_account.enable_feature!(:file_verifiers_for_quiz_links)
       end
 
-      context "with the :content_migration_asset_map_v2 on" do
-        it "maps migration_ids to a hash containing the destination id" do
-          Account.site_admin.enable_feature!(:content_migration_asset_map_v2)
-          json = api_call(:get,
-                          "/api/v1/courses/#{@dst.to_param}/content_migrations/#{@migration.to_param}/asset_id_mapping",
-                          { controller: "content_migrations",
-                            action: "asset_id_mapping",
-                            format: "json",
-                            course_id: @dst.to_param,
-                            id: @migration.to_param })
-          test_asset_migration_id_mapping(json) do |asset|
-            migration_id(asset)
-          end
-          Account.site_admin.disable_feature!(:content_migration_asset_map_v2)
-        end
-      end
-
-      context "with the :content_migration_asset_map_v2 off" do
-        it "does not map migration_ids to a hash containing the destination id" do
-          json = api_call(:get,
-                          "/api/v1/courses/#{@dst.to_param}/content_migrations/#{@migration.to_param}/asset_id_mapping",
-                          { controller: "content_migrations",
-                            action: "asset_id_mapping",
-                            format: "json",
-                            course_id: @dst.to_param,
-                            id: @migration.to_param })
-          test_asset_migration_id_mapping_nil(json) do |asset|
-            migration_id(asset)
-          end
+      it "maps migration_ids to a hash containing the destination id" do
+        json = api_call(:get,
+                        "/api/v1/courses/#{@dst.to_param}/content_migrations/#{@migration.to_param}/asset_id_mapping",
+                        { controller: "content_migrations",
+                          action: "asset_id_mapping",
+                          format: "json",
+                          course_id: @dst.to_param,
+                          id: @migration.to_param })
+        test_asset_migration_id_mapping(json) do |asset|
+          migration_id(asset)
         end
       end
 

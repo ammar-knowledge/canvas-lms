@@ -17,15 +17,15 @@
  */
 
 import {Course} from './Course'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {shape, string, bool} from 'prop-types'
 
 export const Enrollment = {
   fragment: gql`
-    fragment Enrollment on Enrollment {
+    fragment InboxEnrollment on Enrollment {
       type
       course {
-        ...Course
+        ...InboxCourse
       }
       concluded
     }

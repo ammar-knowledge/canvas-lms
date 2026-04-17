@@ -43,10 +43,7 @@ module AssignmentsHelper
   def student_peer_review_link_for(context, assignment, assessment)
     options = assessment.completed? ? completed_link_options : in_progress_link_options
     icon_class = assessment.completed? ? "icon-check" : "icon-warning"
-    text = safe_join [
-      "<i class='#{icon_class}' aria-hidden='true'></i>".html_safe,
-      submission_author_name_for(assessment)
-    ]
+    text = tag.i(class: icon_class, aria: { hidden: true }) + submission_author_name_for(assessment)
     href = if assignment.anonymous_peer_reviews?
              context_url(context, :context_assignment_anonymous_submission_url, assignment.id, assessment.asset.anonymous_id)
            else
@@ -55,23 +52,40 @@ module AssignmentsHelper
     link_to text, href, options
   end
 
-  def student_peer_review_url_in_a2_for(context, assignment, assessment)
-    query_params = if assignment.anonymous_peer_reviews?
-                     { anonymous_asset_id: assessment.asset.anonymous_id }
-                   else
-                     { reviewee_id: assessment.asset.user_id }
-                   end
-    context_url(context, :context_assignment_url, { id: assignment.id }.merge(query_params))
+  def student_peer_review_url(context, assignment, assessment, user = nil)
+    if context&.feature_enabled?(:assignments_2_student) || assessment.assessor_asset.unsubmitted?
+      query_params = if assignment.anonymous_peer_reviews?
+                       { anonymous_asset_id: assessment.asset.anonymous_id }
+                     else
+                       { reviewee_id: assessment.asset.user_id }
+                     end
+      context_url(context, :context_assignment_url, { id: assignment.id }.merge(query_params))
+    else
+      Submission::ShowPresenter.new(
+        submission: assessment.asset,
+        current_user: user,
+        assessment_request: assessment
+      ).submission_data_url
+    end
   end
 
   def due_at(assignment, user)
     if assignment.multiple_due_dates_apply_to?(user)
-      multiple_due_dates
+      overrides = assignment.dates_hash_visible_to(user)
+      if overrides.length > 1
+        multiple_due_dates
+      else
+        single_due_at(assignment, user)
+      end
     else
-      assignment = assignment.overridden_for(user)
-      due_date = assignment.due_at || assignment.applied_overrides.filter_map(&:due_at).first
-      due_date ? datetime_string(due_date) : I18n.t("No Due Date")
+      single_due_at(assignment, user)
     end
+  end
+
+  def single_due_at(assignment, user)
+    assignment = assignment.overridden_for(user)
+    due_date = assignment.due_at || assignment.applied_overrides.filter_map(&:due_at).first
+    due_date ? datetime_string(due_date) : I18n.t("No Due Date")
   end
 
   def assignment_publishing_enabled?(assignment, user)
@@ -112,22 +126,46 @@ module AssignmentsHelper
   end
 
   def i18n_grade(grade, grading_type = nil)
+    return unless grade
+
     if grading_type == "pass_fail" && %w[complete incomplete].include?(grade)
       return (grade == "complete") ? I18n.t("Complete") : I18n.t("Incomplete")
     end
 
-    number = Float(grade.sub(/%$/, "")) rescue nil
-    if number.present?
+    begin
+      number = Float(grade.sub(/%$/, ""))
+
       if grading_type.nil?
         grading_type = (/%$/ =~ grade) ? "percent" : "points"
       end
       if grading_type == "points" || grading_type == "percent"
         return I18n.n(round_if_whole(number), percentage: (grading_type == "percent"))
       end
+    rescue ArgumentError
+      # ignore
     end
 
     return replace_dash_with_minus(grade) if grading_type == "letter_grade"
 
     grade
+  end
+
+  def show_peer_review_widget?
+    !@context.horizon_course? &&
+      @can_grade &&
+      @context.feature_enabled?(:peer_review_allocation_and_grading) &&
+      @assignment.has_peer_reviews? &&
+      @assignment.peer_review_sub_assignment.present?
+  end
+
+  def show_rubric_section?
+    !@context.horizon_course? && can_do(@assignment, @current_user, :update)
+  end
+
+  def show_legacy_peer_reviews_link?
+    @can_grade &&
+      @assignment.has_peer_reviews? &&
+      (!@assignment.context.feature_enabled?(:peer_review_allocation_and_grading) ||
+        @assignment.peer_review_sub_assignment.blank?)
   end
 end

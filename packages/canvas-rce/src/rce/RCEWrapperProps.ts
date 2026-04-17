@@ -20,6 +20,7 @@ import PropTypes from 'prop-types'
 import {trayPropTypes} from './plugins/shared/CanvasContentTray'
 import {RCEVariantValues} from './RCEVariants'
 import {PRETTY_HTML_EDITOR_VIEW, RAW_HTML_EDITOR_VIEW, WYSIWYG_VIEW} from './StatusBar'
+import type {EditorOptions} from './types'
 
 // This file contains the prop types for the RCEWrapper component, so that types can be shared without having
 // to refactor RCEWrapper.js into typescript.
@@ -37,7 +38,7 @@ export const toolbarPropType = PropTypes.arrayOf(
     // each is the name of the button some plugin has
     // registered with tinymce
     items: PropTypes.arrayOf(PropTypes.string).isRequired,
-  })
+  }),
 )
 
 export type ToolbarPropType = {
@@ -56,17 +57,8 @@ export const menuPropType = PropTypes.objectOf(
     // items is a space separated list it menu_items
     // some plugin has registered with tinymce
     items: PropTypes.string.isRequired,
-  })
+  }),
 )
-
-export interface MenuItem {
-  title?: string
-  items: string
-}
-
-export type MenuPropType = {
-  [key: string]: MenuItem
-}
 
 export const ltiToolsPropType = PropTypes.arrayOf(
   PropTypes.shape({
@@ -75,7 +67,7 @@ export const ltiToolsPropType = PropTypes.arrayOf(
 
     // is this a favorite tool?
     favorite: PropTypes.bool,
-    always_on: PropTypes.bool,
+    on_by_default: PropTypes.bool,
 
     name: PropTypes.string,
     description: PropTypes.string,
@@ -92,7 +84,7 @@ export const ltiToolsPropType = PropTypes.arrayOf(
       }),
       PropTypes.any,
     ]),
-  })
+  }),
 )
 
 export interface CanvasIconClass {
@@ -115,7 +107,7 @@ export interface LtiTool {
 
 export type LtiToolsPropType = LtiTool[]
 
-export const editorOptionsPropType = PropTypes.shape({
+export const EditorOptionsPropType = PropTypes.shape({
   // height of the RCE.
   // if a number interpreted as pixels.
   // if a string as a CSS value.
@@ -138,16 +130,7 @@ export const editorOptionsPropType = PropTypes.shape({
   init_instance_callback: PropTypes.func,
 })
 
-export type HeightType = number | string
-export interface EditorOptionsPropType {
-  height: HeightType
-  toolbar: ToolbarPropType
-  menu: MenuPropType
-  plugins: string[]
-  readonly: boolean
-  selector: string
-  init_instance_callback: () => void
-}
+export type {EditorOptions} from './types'
 
 export const externalToolsConfigPropType = PropTypes.shape({
   // List of iframe allow statements to used with LTI iframes.
@@ -178,7 +161,7 @@ export const rceWrapperPropTypes = {
   }),
   canvasOrigin: PropTypes.string,
   defaultContent: PropTypes.string,
-  editorOptions: editorOptionsPropType,
+  editorOptions: EditorOptionsPropType,
   handleUnmount: PropTypes.func,
   editorView: PropTypes.oneOf([WYSIWYG_VIEW, PRETTY_HTML_EDITOR_VIEW, RAW_HTML_EDITOR_VIEW]),
   renderKBShortcutModal: PropTypes.bool,
@@ -200,6 +183,8 @@ export const rceWrapperPropTypes = {
   menu: menuPropType,
   instRecordDisabled: PropTypes.bool,
   highContrastCSS: PropTypes.arrayOf(PropTypes.string),
+  useHighContrast: PropTypes.bool,
+  fontFamily: PropTypes.string,
   maxInitRenderedRCEs: PropTypes.number,
   use_rce_icon_maker: PropTypes.bool,
   features: PropTypes.objectOf(PropTypes.bool),
@@ -207,7 +192,6 @@ export const rceWrapperPropTypes = {
   timezone: PropTypes.string,
   userCacheKey: PropTypes.string,
   externalToolsConfig: externalToolsConfigPropType,
-  ai_text_tools: PropTypes.bool,
   variant: PropTypes.oneOf(RCEVariantValues),
 }
 

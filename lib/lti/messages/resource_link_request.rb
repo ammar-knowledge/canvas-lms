@@ -83,12 +83,12 @@ module Lti::Messages
     # the associated assignment or from the request parameters. fall back to the
     # context rlid only if needed
     def launch_resource_link_id
-      resource_link&.resource_link_uuid || Lti::Asset.opaque_identifier_for(@context)
+      resource_link&.resource_link_uuid || Lti::V1p1::Asset.opaque_identifier_for(@context)
     end
 
     def unexpanded_custom_parameters
       # Add in link-specific custom params (e.g. created by deep linking)
-      super.merge!(resource_link&.custom || {})
+      super.merge(resource_link&.custom || {})
     end
 
     def resource_link
@@ -103,7 +103,7 @@ module Lti::Messages
         unless @assignment.external_tool?
           raise launch_error.new(nil, api_message: "Assignment not configured for external tool launches")
         end
-        unless ContextExternalTool.from_assignment(@assignment) == @tool
+        unless Lti::ToolFinder.from_assignment(@assignment) == @tool
           raise launch_error.new(nil, api_message: "Assignment not configured for launches with specified tool")
         end
 

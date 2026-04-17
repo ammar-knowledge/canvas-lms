@@ -56,6 +56,26 @@ describe PlannerController do
         expect(response).to be_successful
       end
 
+      it "includes items from all enrolled courses regardless of favorites when using include all_courses" do
+        favorited_course = @course
+        course_with_student(user: @student, active_all: true)
+        unfavorited_course = @course
+        unfavorited_assignment = unfavorited_course.assignments.create!(
+          title: "unfavorited assignment",
+          due_at: 1.week.from_now
+        )
+
+        @student.favorites.create!(context: favorited_course)
+
+        get :index, params: { include: ["all_courses"] }
+        response_json = json_parse(response.body)
+        assignment_ids = response_json.select { |i| i["plannable_type"] == "assignment" }.pluck("plannable_id")
+
+        expect(assignment_ids).to include(@assignment.id)
+        expect(assignment_ids).to include(@assignment2.id)
+        expect(assignment_ids).to include(unfavorited_assignment.id)
+      end
+
       it "renders unauthorized if student in limited access account" do
         @course.root_account.enable_feature!(:allow_limited_access_for_students)
         @course.account.settings[:enable_limited_access_for_students] = true
@@ -135,8 +155,8 @@ describe PlannerController do
         get :index
         response_json = json_parse(response.body)
         expect(response_json.length).to eq 2
-        expect(response_json.find { |i| i["plannable_id"] == course1_event.id }).to_not be_nil
-        expect(response_json.find { |i| i["plannable_id"] == course2_event.id }).to_not be_nil
+        expect(response_json.find { |i| i["plannable_id"] == course1_event.id }).not_to be_nil
+        expect(response_json.find { |i| i["plannable_id"] == course2_event.id }).not_to be_nil
 
         @student1_enrollment.deactivate
         @student1 = User.find(@student1.id)
@@ -146,7 +166,7 @@ describe PlannerController do
         response_json = json_parse(response.body)
         expect(response_json.length).to eq 1
         expect(response_json.find { |i| i["plannable_id"] == course1_event.id }).to be_nil
-        expect(response_json.find { |i| i["plannable_id"] == course2_event.id }).to_not be_nil
+        expect(response_json.find { |i| i["plannable_id"] == course2_event.id }).not_to be_nil
       end
 
       it "shows the appropriate section-specific event for the user" do
@@ -173,6 +193,42 @@ describe PlannerController do
         expect(event_ids).not_to include my_event_id
       end
 
+      it "does not show section calendar events from concluded enrollments" do
+        section_a = @course.course_sections.create!(name: "Section A")
+        section_b = @course.course_sections.create!(name: "Section B")
+
+        parent_event = @course.calendar_events.build(
+          title: "Section Event",
+          child_event_data: {
+            "0" => { start_at: 1.day.from_now.iso8601, end_at: (1.day.from_now + 1.hour).iso8601, context_code: section_a.asset_string },
+            "1" => { start_at: 2.days.from_now.iso8601, end_at: (2.days.from_now + 1.hour).iso8601, context_code: section_b.asset_string }
+          }
+        )
+        parent_event.updating_user = @teacher
+        parent_event.save!
+
+        section_a_event = section_a.calendar_events.where(parent_calendar_event_id: parent_event).first
+        section_b_event = section_b.calendar_events.where(parent_calendar_event_id: parent_event).first
+
+        @student.enrollments.destroy_all
+        section_a_enrollment = @course.enroll_student(@student, section: section_a, enrollment_state: "active", allow_multiple_enrollments: true)
+
+        get :index
+        json = json_parse(response.body)
+        event_ids = json.select { |thing| thing["plannable_type"] == "calendar_event" }.pluck("plannable_id")
+        expect(event_ids).to include section_a_event.id
+        expect(event_ids).not_to include section_b_event.id
+
+        section_a_enrollment.complete!
+        @course.enroll_student(@student, section: section_b, enrollment_state: "active", allow_multiple_enrollments: true)
+
+        get :index
+        json = json_parse(response.body)
+        event_ids = json.select { |thing| thing["plannable_type"] == "calendar_event" }.pluck("plannable_id")
+        expect(event_ids).not_to include section_a_event.id
+        expect(event_ids).to include section_b_event.id
+      end
+
       it "shows appointment group reservations" do
         ag = appointment_group_model(title: "appointment group")
         ap = appointment_participant_model(participant: @student, course: @course, appointment_group: ag)
@@ -193,7 +249,6 @@ describe PlannerController do
       end
 
       it "differentiated modules: only shows section specific announcements to students who can view them" do
-        Account.site_admin.enable_feature! :selective_release_backend
         a1 = @course.announcements.create!(message: "for the defaults")
         a1.update!(only_visible_to_overrides: true)
         a1.assignment_overrides.create!(set: @course.default_section)
@@ -228,6 +283,36 @@ describe PlannerController do
         expect(disc_json["planner_override"]["plannable_type"]).to eq "discussion_topic"
       end
 
+      context "ungraded discussions" do
+        before do
+          @discussion = discussion_topic_model(context: @course, title: "discussion ghost", delayed_post_at: 3.days.ago, lock_at: 3.days.from_now, todo_date: 1.day.from_now)
+          @graded_discussion = discussion_topic_model(context: @course, title: "graded discussion", user: @teacher, todo_date: 1.day.from_now)
+          @graded_discussion.assignment = assignment_model(course: @course)
+          @graded_discussion.save!
+          PlannerOverride.create!(plannable_id: @discussion.id, plannable_type: DiscussionTopic, user_id: @student.id)
+        end
+
+        it "includes ungraded discussions but not graded ones" do
+          get :index, params: { filter: "all_ungraded_todo_items", context_codes: ["course_#{@course.id}"] }
+          response_json = json_parse(response.body)
+          titles = response_json.pluck("plannable").pluck("title")
+          expect(titles).to include @discussion.title
+          expect(titles).not_to include @graded_discussion.title
+        end
+
+        context "delayed post discussion" do
+          before do
+            @discussion.update!(delayed_post_at: 1.day.from_now, workflow_state: "post_delayed")
+          end
+
+          it "includes delayed post discussions for students" do
+            get :index, params: { filter: "all_ungraded_todo_items", context_codes: ["course_#{@course.id}"] }
+            response_json = json_parse(response.body)
+            expect(response_json.pluck("plannable").pluck("title")).to include @discussion.title
+          end
+        end
+      end
+
       it "shows planner overrides created on wiki pages" do
         page = wiki_page_model(course: @course, todo_date: 1.day.from_now)
         PlannerOverride.create!(plannable_id: page.id, plannable_type: WikiPage, user_id: @student.id)
@@ -242,14 +327,20 @@ describe PlannerController do
         @current_user = @student
         reviewee = course_with_student(course: @course, active_all: true).user
         assignment_model(course: @course, peer_reviews: true)
-        submission_model(assignment: @assignment, user: reviewee)
-        assessment_request = @assignment.assign_peer_review(@current_user, reviewee)
+        submission = submission_model(assignment: @assignment, user: reviewee)
+        assessor_submission = @assignment.submit_homework(@current_user, submission_type: "online_text_entry", body: "text")
+        assessment_request = AssessmentRequest.create!(
+          assessor: @current_user,
+          assessor_asset: assessor_submission,
+          asset: submission,
+          user: reviewee
+        )
         get :index
         response_json = json_parse(response.body)
         peer_review = response_json.detect { |i| i["plannable_type"] == "assessment_request" }
         expect(peer_review["plannable"]["id"]).to eq assessment_request.id
         expect(peer_review["plannable"]["title"]).to eq @assignment.title
-        expect(peer_review["html_url"]).to match "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
+        expect(peer_review["html_url"]).to match "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{reviewee.id}"
       end
 
       it "shows peer reviews for assignments with no 'everyone' date and no peer review date" do
@@ -378,11 +469,11 @@ describe PlannerController do
           expect(sub_account_event["plannable"]["title"]).to eq @sub_account_event.title
         end
 
-        it "returns unauthorized if the context_code is not visible" do
+        it "returns forbidden if the context_code is not visible" do
           @sub_account1.account_calendar_visible = false
           @sub_account1.save!
           get :index, params: { context_codes: [@sub_account1.asset_string] }
-          assert_unauthorized
+          assert_forbidden
         end
 
         it "does not include account calendar events by default when filtering by context_codes" do
@@ -463,6 +554,13 @@ describe PlannerController do
           expect(response_json.length).to be 16
         end
 
+        it "includes group calendar events when using include all_courses" do
+          get :index, params: { include: ["all_courses"] }
+          response_json = json_parse(response.body)
+          response_hash = response_json.map { |i| [i["plannable_type"], i["plannable_id"]] }
+          expect(response_hash).to include(["calendar_event", @group_event.id])
+        end
+
         it "returns data from contexted courses for observed user if specified" do
           observer_in_course(course: @course1, associated_user_id: @student, active_all: true)
           user_session(@observer)
@@ -539,12 +637,12 @@ describe PlannerController do
           expect(response_hash.length).to be 6
         end
 
-        it "returns unauthorized if the user doesn't have read permission on a context_code" do
+        it "returns forbidden if the user doesn't have read permission on a context_code" do
           course_with_teacher(active_all: true)
           assignment_model(course: @course, due_at: 1.day.from_now)
 
           get :index, params: { context_codes: [@course.asset_string] }
-          assert_unauthorized
+          assert_forbidden
         end
 
         it "filters ungraded_todo_items" do
@@ -557,6 +655,227 @@ describe PlannerController do
              ["wiki_page", @course_page.id],
              ["wiki_page", @group_page.id]]
           )
+        end
+
+        context "incomplete_items filter" do
+          it "filters incomplete_items excluding completed assignments and overridden items" do
+            submitted_assignment = assignment_model(course: @course1, title: "submitted assignment", due_at: 1.week.from_now)
+            submitted_assignment.submit_homework(@student, submission_type: "online_text_entry", body: "some text")
+            incomplete_assignment = assignment_model(course: @course1, title: "incomplete assignment", due_at: 2.weeks.from_now)
+
+            marked_complete_quiz = quiz_model(course: @course1, title: "marked complete quiz", due_at: 3.weeks.from_now, quiz_type: "practice_quiz")
+            marked_complete_quiz.publish!
+            PlannerOverride.create!(plannable: marked_complete_quiz, user: @student, marked_complete: true)
+
+            incomplete_quiz = quiz_model(course: @course1, title: "incomplete quiz", due_at: 4.weeks.from_now, quiz_type: "practice_quiz")
+            incomplete_quiz.publish!
+
+            get :index, params: {
+              filter: "incomplete_items",
+              context_codes: [@course1.asset_string],
+              start_date: 2.weeks.ago.iso8601,
+              end_date: 6.weeks.from_now.iso8601
+            }
+
+            response_json = json_parse(response.body)
+            incomplete_items = response_json.pluck("plannable_type", "plannable_id")
+            expect(incomplete_items).not_to include(["assignment", submitted_assignment.id], ["quiz", marked_complete_quiz.id])
+            expect(incomplete_items).to include(["assignment", incomplete_assignment.id], ["quiz", incomplete_quiz.id])
+          end
+
+          it "applies incomplete filtering to all supported planner item types" do
+            test_items = {
+              assignment: assignment_model(course: @course1, due_at: 1.week.from_now),
+              quiz: quiz_model(course: @course1, due_at: 2.weeks.from_now, quiz_type: "practice_quiz").tap(&:publish!),
+              planner_note: planner_note_model(course: @course1, user: @student, todo_date: 3.weeks.from_now),
+              calendar_event: @course1.calendar_events.create!(
+                title: "test event",
+                start_at: 4.weeks.from_now,
+                end_at: 4.weeks.from_now + 1.hour
+              ),
+              discussion_topic: discussion_topic_model(course: @course1, todo_date: 5.weeks.from_now).tap(&:publish!),
+              wiki_page: wiki_page_model(course: @course1, todo_date: 6.weeks.from_now)
+            }
+
+            test_items.each_value { |item| PlannerOverride.create!(plannable: item, user: @student, marked_complete: true) }
+
+            get :index, params: {
+              filter: "incomplete_items",
+              context_codes: [@course1.asset_string],
+              start_date: 2.weeks.ago.iso8601,
+              end_date: 8.weeks.from_now.iso8601
+            }
+
+            response_json = json_parse(response.body)
+            returned_items = response_json.pluck("plannable_type", "plannable_id")
+            test_items = test_items.map { |type, item| [type.to_s, item.id] }
+            expect(returned_items).not_to include(*test_items)
+          end
+
+          it "respects PlannerOverride precedence over submission status for incomplete_items filter" do
+            submitted_assignment = assignment_model(course: @course1, due_at: 1.week.from_now)
+            submitted_assignment.submit_homework(@student, submission_type: "online_text_entry", body: "submission")
+            PlannerOverride.create!(plannable: submitted_assignment, user: @student, marked_complete: false)
+
+            get :index, params: {
+              filter: "incomplete_items",
+              context_codes: [@course1.asset_string],
+              start_date: 2.weeks.ago.iso8601,
+              end_date: 4.weeks.from_now.iso8601
+            }
+
+            response_json = json_parse(response.body)
+            expect(response_json.pluck("plannable_id")).to include(submitted_assignment.id)
+          end
+
+          it "excludes assignments with complete overrides regardless of submission status" do
+            submitted_assignment = assignment_model(course: @course1, title: "submitted assignment", due_at: 1.week.from_now)
+            submitted_assignment.submit_homework(@student, submission_type: "online_text_entry", body: "submission")
+            PlannerOverride.create!(plannable: submitted_assignment, user: @student, marked_complete: true)
+            unsubmitted_assignment = assignment_model(course: @course1, title: "unsubmitted assignment", due_at: 2.weeks.from_now)
+            PlannerOverride.create!(plannable: unsubmitted_assignment, user: @student, marked_complete: true)
+
+            get :index, params: {
+              filter: "incomplete_items",
+              context_codes: [@course1.asset_string],
+              start_date: 2.weeks.ago.iso8601,
+              end_date: 4.weeks.from_now.iso8601
+            }
+
+            response_json = json_parse(response.body)
+            assignment_ids = response_json.pluck("plannable_id")
+            expect(assignment_ids).not_to include(submitted_assignment.id, unsubmitted_assignment.id)
+          end
+
+          it "excludes assignments from courses the student is not enrolled in" do
+            unenrolled_course = course_factory(active_all: true)
+            other_assignment = assignment_model(course: unenrolled_course, due_at: 1.week.from_now)
+
+            get :index, params: {
+              filter: "incomplete_items",
+              start_date: 2.weeks.ago.iso8601,
+              end_date: 4.weeks.from_now.iso8601
+            }
+
+            response_json = json_parse(response.body)
+            expect(response_json.pluck("plannable_id")).not_to include(other_assignment.id)
+          end
+        end
+
+        context "complete_items filter" do
+          it "filters complete_items including completed assignments and overridden items" do
+            submitted_assignment = assignment_model(course: @course1, title: "submitted assignment", due_at: 1.week.from_now)
+            submitted_assignment.submit_homework(@student, submission_type: "online_text_entry", body: "some text")
+            incomplete_assignment = assignment_model(course: @course1, title: "incomplete assignment", due_at: 2.weeks.from_now)
+
+            marked_complete_quiz = quiz_model(course: @course1, title: "marked complete quiz", due_at: 3.weeks.from_now, quiz_type: "practice_quiz")
+            marked_complete_quiz.publish!
+            PlannerOverride.create!(plannable: marked_complete_quiz, user: @student, marked_complete: true)
+
+            incomplete_quiz = quiz_model(course: @course1, title: "incomplete quiz", due_at: 4.weeks.from_now, quiz_type: "practice_quiz")
+            incomplete_quiz.publish!
+
+            get :index, params: {
+              filter: "complete_items",
+              context_codes: [@course1.asset_string],
+              start_date: 2.weeks.ago.iso8601,
+              end_date: 6.weeks.from_now.iso8601
+            }
+
+            response_json = json_parse(response.body)
+            complete_items = response_json.pluck("plannable_type", "plannable_id")
+            expect(complete_items).to include(["assignment", submitted_assignment.id], ["quiz", marked_complete_quiz.id])
+            expect(complete_items).not_to include(["assignment", incomplete_assignment.id], ["quiz", incomplete_quiz.id])
+          end
+
+          it "applies complete filtering to all supported planner item types" do
+            test_items = {
+              assignment: assignment_model(course: @course1, due_at: 1.week.from_now),
+              quiz: quiz_model(course: @course1, due_at: 2.weeks.from_now, quiz_type: "practice_quiz").tap(&:publish!),
+              planner_note: planner_note_model(course: @course1, user: @student, todo_date: 3.weeks.from_now),
+              calendar_event: @course1.calendar_events.create!(
+                title: "test event",
+                start_at: 4.weeks.from_now,
+                end_at: 4.weeks.from_now + 1.hour
+              ),
+              discussion_topic: discussion_topic_model(course: @course1, todo_date: 5.weeks.from_now).tap(&:publish!),
+              wiki_page: wiki_page_model(course: @course1, todo_date: 6.weeks.from_now)
+            }
+
+            test_items.each_value { |item| PlannerOverride.create!(plannable: item, user: @student, marked_complete: true) }
+
+            get :index, params: {
+              filter: "complete_items",
+              context_codes: [@course1.asset_string],
+              start_date: 2.weeks.ago.iso8601,
+              end_date: 8.weeks.from_now.iso8601
+            }
+
+            response_json = json_parse(response.body)
+            returned_items = response_json.pluck("plannable_type", "plannable_id")
+            test_items = test_items.map { |type, item| [type.to_s, item.id] }
+            expect(returned_items).to include(*test_items)
+          end
+
+          it "respects PlannerOverride precedence over submission status for complete_items filter" do
+            submitted_assignment = assignment_model(course: @course1, due_at: 1.week.from_now)
+            submitted_assignment.submit_homework(@student, submission_type: "online_text_entry", body: "submission")
+            PlannerOverride.create!(plannable: submitted_assignment, user: @student, marked_complete: false)
+
+            get :index, params: {
+              filter: "complete_items",
+              context_codes: [@course1.asset_string],
+              start_date: 2.weeks.ago.iso8601,
+              end_date: 4.weeks.from_now.iso8601
+            }
+
+            response_json = json_parse(response.body)
+            expect(response_json.pluck("plannable_id")).not_to include(submitted_assignment.id)
+          end
+
+          it "includes assignments with complete overrides regardless of submission status" do
+            submitted_assignment = assignment_model(course: @course1, title: "submitted assignment", due_at: 1.week.from_now)
+            submitted_assignment.submit_homework(@student, submission_type: "online_text_entry", body: "submission")
+            PlannerOverride.create!(plannable: submitted_assignment, user: @student, marked_complete: true)
+            unsubmitted_assignment = assignment_model(course: @course1, title: "unsubmitted assignment", due_at: 2.weeks.from_now)
+            PlannerOverride.create!(plannable: unsubmitted_assignment, user: @student, marked_complete: true)
+
+            get :index, params: {
+              filter: "complete_items",
+              context_codes: [@course1.asset_string],
+              start_date: 2.weeks.ago.iso8601,
+              end_date: 4.weeks.from_now.iso8601
+            }
+
+            response_json = json_parse(response.body)
+            assignment_ids = response_json.pluck("plannable_id")
+            expect(assignment_ids).to include(submitted_assignment.id, unsubmitted_assignment.id)
+          end
+
+          it "filters complete sub_assignments correctly" do
+            topic = DiscussionTopic.create_graded_topic!(course: @course1, title: "Checkpointed Discussion")
+            topic.create_checkpoints(reply_to_topic_points: 5, reply_to_entry_points: 10, reply_to_entry_required_count: 2)
+
+            reply_to_topic_checkpoint = topic.assignment.sub_assignments.find_by(sub_assignment_tag: "reply_to_topic")
+            reply_to_entry_checkpoint = topic.assignment.sub_assignments.find_by(sub_assignment_tag: "reply_to_entry")
+
+            reply_to_topic_checkpoint.update!(due_at: 1.week.from_now)
+            reply_to_entry_checkpoint.update!(due_at: 2.weeks.from_now)
+
+            reply_to_topic_checkpoint.submit_homework(@student, submission_type: "discussion_topic", body: "reply to topic")
+
+            get :index, params: {
+              filter: "complete_items",
+              context_codes: [@course1.asset_string],
+              start_date: 2.weeks.ago.iso8601,
+              end_date: 4.weeks.from_now.iso8601
+            }
+
+            response_json = json_parse(response.body)
+            sub_assignment_ids = response_json.pluck("plannable_id")
+            expect(sub_assignment_ids).to include(reply_to_topic_checkpoint.id)
+            expect(sub_assignment_ids).not_to include(reply_to_entry_checkpoint.id)
+          end
         end
 
         it "filters all_ungraded_todo_items for teachers, including unpublished items" do
@@ -619,7 +938,7 @@ describe PlannerController do
             )
           end
 
-          it "returns unauthorized if the course isn't public syllabus" do
+          it "returns forbidden if the course isn't public syllabus" do
             user_session(user_factory)
             get :index, params: {
               filter: "all_ungraded_todo_items",
@@ -627,7 +946,7 @@ describe PlannerController do
               start_date: 2.weeks.ago.iso8601,
               end_date: 2.weeks.from_now.iso8601
             }
-            assert_unauthorized
+            assert_forbidden
           end
         end
 
@@ -1025,6 +1344,124 @@ describe PlannerController do
         end
       end
 
+      context "with assignment overrides" do
+        it "generates bookmarks using cached_due_date from overrides, not base due_at" do
+          # Create extra students to trigger bug with multiple submissions
+          4.times { |i| @course.enroll_student(User.create!(name: "Extra Student #{i + 2}"), enrollment_state: "active") }
+
+          # Page 1 assignments: Due 50-51 days from now
+          assignments_page1 = [50, 51].map do |day|
+            @course.assignments.create!(title: "Page 1 Day #{day}",
+                                        due_at: day.days.from_now,
+                                        workflow_state: "published",
+                                        submission_types: "online_text_entry")
+          end
+
+          # Assignment with override: Base due 40 days (early), override 52 days (sorts to end of page 1)
+          assignment_with_override = @course.assignments.create!(
+            title: "Assignment with Override",
+            due_at: 40.days.from_now,
+            workflow_state: "published",
+            submission_types: "online_text_entry"
+          )
+          override = assignment_with_override.assignment_overrides.create!(
+            set_type: "ADHOC", due_at: 52.days.from_now, due_at_overridden: true
+          )
+          override.assignment_override_students.create!(user: @student)
+
+          # Page 2 assignments: Due 55-56 days from now
+          assignments_page2 = [55, 56].map do |day|
+            @course.assignments.create!(title: "Page 2 Day #{day}",
+                                        due_at: day.days.from_now,
+                                        workflow_state: "published",
+                                        submission_types: "online_text_entry")
+          end
+
+          SubmissionLifecycleManager.recompute_course(
+            @course,
+            assignments: assignments_page1.map(&:id) + [assignment_with_override.id] + assignments_page2.map(&:id),
+            run_immediately: true
+          )
+
+          # PAGE 1: Should contain assignments 1-2 and assignment with override
+          get :index, params: { start_date: 35.days.from_now.iso8601, end_date: 70.days.from_now.iso8601, per_page: 3 }
+
+          page1 = json_parse(response.body)
+          expect(page1.length).to eq(3)
+          expect(page1.map { |i| i["plannable"]["id"] }).to match_array(assignments_page1.map(&:id) + [assignment_with_override.id])
+
+          bookmark = Api.parse_pagination_links(response.headers["Link"]).detect { |l| l[:rel] == "next" }["page"]
+
+          # PAGE 2: Should only contain page 2 assignments (bug: if bookmark uses base due_at, page 1 assignments reappear)
+          get :index, params: { start_date: 35.days.from_now.iso8601, end_date: 70.days.from_now.iso8601, per_page: 3, page: bookmark }
+
+          expect(json_parse(response.body).map { |i| i["plannable"]["id"] }).to match_array(assignments_page2.map(&:id))
+        end
+      end
+
+      context "peer_reviews pagination" do
+        let(:per_page) { 5 }
+
+        before do
+          user_session(@user_student)
+        end
+
+        before :once do
+          @user_student = course_with_student(course: @course, active_all: true).user
+
+          @assessment_requests = []
+          @reviewees = []
+
+          assignment = assignment_model(
+            course: @course,
+            peer_reviews: true,
+            due_at: 2.days.from_now,
+            peer_reviews_due_at: 1.day.from_now
+          )
+
+          21.times do
+            reviewee = course_with_student(course: @course, active_all: true).user
+            @reviewees << reviewee
+
+            submission = submission_model(assignment:, user: @student)
+            assessor_submission = assignment.submit_homework(@student, submission_type: "online_text_entry", body: "text")
+
+            assessment_request = AssessmentRequest.create!(
+              assessor: @user_student,
+              assessor_asset: assessor_submission,
+              asset: submission,
+              user: reviewee
+            )
+
+            @assessment_requests << assessment_request
+          end
+        end
+
+        it "paginates results in correct order" do
+          collected_ids = []
+          next_page = nil
+
+          5.times do
+            opts = { per_page: }
+            opts[:page] = next_page if next_page.present?
+
+            get :index, params: opts
+            response_json = json_parse(response.body)
+            peer_reviews = response_json.select { |i| i["plannable_type"] == "assessment_request" }
+
+            collected_ids.concat(peer_reviews.pluck("plannable_id"))
+
+            links = Api.parse_pagination_links(response.headers["Link"])
+            next_link = links&.detect { |l| l[:rel] == "next" }
+
+            next_page = next_link["page"] if next_link
+          end
+
+          # Verify we got all assessment_requests (order may vary)
+          expect(collected_ids).to match_array(@assessment_requests.map(&:id))
+        end
+      end
+
       context "re-viewing the index with caching" do
         before do
           enable_cache
@@ -1033,7 +1470,14 @@ describe PlannerController do
         end
 
         it "shows new activity when a new discussion topic has been created" do
-          get :index, params: { start_date: @start_date, end_date: @end_date }
+          # the queries behind this be expensive, there is a 1.week cache on some of them, we'll do our first get
+          # in a time longer ago than the cache length
+          # (note that caching is based on contexts_cache_key --
+          # Context.last_updated_at(...) with second precision -- which can be
+          # depend on spec timing and be flaky)
+          Timecop.freeze(8.days.ago) do
+            get :index, params: { start_date: @start_date, end_date: @end_date }
+          end
           discussion_topic_model(context: @course, todo_date: 1.day.from_now)
           get :index, params: { start_date: @start_date, end_date: @end_date }
           topic_json = json_parse(response.body).find { |j| j["plannable_id"] == @topic.id && j["plannable_type"] == "discussion_topic" }
@@ -1104,7 +1548,7 @@ describe PlannerController do
           assign_json = json_parse(response.body).find { |j| j["plannable_id"] == @assignment.id && j["plannable_type"] == "assignment" }
           expect(assign_json["new_activity"]).to be true
 
-          submission.mark_item_read("comment")
+          submission.reload.mark_item_read("comment")
           get :index, params: { start_date: @start_date, end_date: @end_date }
           assign_json = json_parse(response.body).find { |j| j["plannable_id"] == @assignment.id && j["plannable_type"] == "assignment" }
           expect(assign_json["new_activity"]).to be false
@@ -1136,6 +1580,22 @@ describe PlannerController do
           response_json = json_parse(response.body)
           expect(response_json.length).to eq 1
           expect(response_json.first["plannable"]["id"]).to eq @assignment2.id
+        end
+
+        it "returns items with new submission comments with html tags if use_html_comments is true" do
+          @sub = @assignment2.submit_homework(@student)
+          @sub.add_comment(comment: "<div>hello</div>", author: @teacher)
+          get :index, params: { filter: "new_activity", use_html_comment: true }
+          response_json = json_parse(response.body)
+          expect(response_json.first["submissions"]["feedback"]["comment"]).to eq("<div>hello</div>")
+        end
+
+        it "returns items with new submission comments without html tags if use_html_comments is false" do
+          @sub = @assignment2.submit_homework(@student)
+          @sub.add_comment(comment: "<div>hello</div>", author: @teacher)
+          get :index, params: { filter: "new_activity" }
+          response_json = json_parse(response.body)
+          expect(response_json.first["submissions"]["feedback"]["comment"]).to eq("hello")
         end
 
         it "marks submitted stuff within start and end dates" do
@@ -1315,7 +1775,7 @@ describe PlannerController do
       end
 
       context "date ranges" do
-        let(:start_date) { Time.parse("2020-01-1T00:00:00") }
+        let(:start_date) { Time.zone.parse("2020-01-1T00:00:00") }
         let(:end_date) { Time.parse("2020-01-1T23:59:59Z") }
 
         it "only returns items between (inclusive) the specified dates" do
@@ -1326,6 +1786,253 @@ describe PlannerController do
           expect(response_json.length).to eq 1
           note = response_json.detect { |i| i["plannable_type"] == "planner_note" }
           expect(note["plannable"]["title"]).to eq pn.title
+        end
+      end
+
+      context "discussion checkpoints FF" do
+        let(:root_account) { Account.default }
+
+        before :once do
+          root_account.enable_feature!(:discussion_checkpoints)
+          course_with_student(active_all: true, account: root_account)
+          @reply_to_topic, @reply_to_entry = graded_discussion_topic_with_checkpoints(context: @course)
+        end
+
+        before do
+          user_session(@student)
+        end
+
+        it "includes discussion checkpoints from accounts with FF enabled" do
+          get :index
+          response_json = json_parse(response.body)
+          items = response_json.map { |i| [i["plannable_type"], i["plannable"]["id"]] }
+          expect(items).to include ["sub_assignment", @reply_to_topic.id]
+          expect(items).to include ["sub_assignment", @reply_to_entry.id]
+        end
+
+        it "does not include discussion checkpoints from accounts with FF disabled" do
+          root_account.disable_feature!(:discussion_checkpoints)
+          get :index
+          response_json = json_parse(response.body)
+          items = response_json.map { |i| [i["plannable_type"], i["plannable"]["id"]] }
+          expect(items).not_to include ["sub_assignment", @reply_to_topic.id]
+          expect(items).not_to include ["sub_assignment", @reply_to_entry.id]
+        end
+
+        it "returns sub_assignments with the 'new_activity' param" do
+          @reply_to_topic.submit_homework @student, body: "Test reply to topic for student"
+
+          get :index, params: { filter: "new_activity" }
+          res = json_parse(response.body)[0]
+
+          expect(res["plannable_id"]).to eq @reply_to_topic.id
+          expect(res["plannable"]["read_state"]).to eq "unread"
+          expect(res["plannable_type"]).to eq "sub_assignment"
+          expect(res["new_activity"]).to be true
+        end
+
+        context "sub-accounts" do
+          before :once do
+            @sub_account1 = root_account.sub_accounts.create!(name: "sub-account")
+            @sub_account2 = root_account.sub_accounts.create!(name: "sub-account")
+            root_account.allow_feature!(:discussion_checkpoints)
+            @sub_account1.enable_feature!(:discussion_checkpoints)
+            course_with_student(active_all: true, account: @sub_account1, user: @student)
+            @reply_to_topic1, @reply_to_entry1 = graded_discussion_topic_with_checkpoints(context: @course)
+            @assignment_sub1 = @course.assignments.create!(title: "Assignment in sub_account1", due_at: 1.week.from_now)
+
+            @sub_account2.enable_feature!(:discussion_checkpoints)
+            course_with_student(active_all: true, account: @sub_account2, user: @student)
+            @reply_to_topic2, @reply_to_entry2 = graded_discussion_topic_with_checkpoints(context: @course)
+            @assignment_sub2 = @course.assignments.create!(title: "Assignment in sub_account2", due_at: 2.weeks.from_now)
+          end
+
+          it "includes sub_assignments only from sub-accounts with FF enabled" do
+            # sub_account1 has FF disabled, sub_account2 has FF enabled
+            @sub_account1.disable_feature!(:discussion_checkpoints)
+            get :index
+            response_json = json_parse(response.body)
+            items = response_json.map { |i| [i["plannable_type"], i["plannable"]["id"]] }
+            expect(items.size).to eq 4
+            expect(items).not_to include ["sub_assignment", @reply_to_topic1.id]
+            expect(items).not_to include ["sub_assignment", @reply_to_entry1.id]
+            expect(items).to include ["sub_assignment", @reply_to_topic2.id]
+            expect(items).to include ["sub_assignment", @reply_to_entry2.id]
+            # regular assignments are always included regardless of the FF setting
+            expect(items).to include ["assignment", @assignment_sub1.id]
+            expect(items).to include ["assignment", @assignment_sub2.id]
+
+            # sub_account1 has FF enabled, sub_account2 has FF disabled
+            @sub_account1.enable_feature!(:discussion_checkpoints)
+            @sub_account2.disable_feature!(:discussion_checkpoints)
+            get :index
+            response_json = json_parse(response.body)
+            items = response_json.map { |i| [i["plannable_type"], i["plannable"]["id"]] }
+            expect(items.size).to eq 4
+            expect(items).to include ["sub_assignment", @reply_to_topic1.id]
+            expect(items).to include ["sub_assignment", @reply_to_entry1.id]
+            expect(items).not_to include ["sub_assignment", @reply_to_topic2.id]
+            expect(items).not_to include ["sub_assignment", @reply_to_entry2.id]
+            # regular assignments are always included regardless of the FF setting
+            expect(items).to include ["assignment", @assignment_sub1.id]
+            expect(items).to include ["assignment", @assignment_sub2.id]
+          end
+        end
+      end
+
+      context "peer_review_allocation_and_grading FF" do
+        before :once do
+          course_with_student(active_all: true)
+          @course.enable_feature!(:peer_review_allocation_and_grading)
+          @parent_assignment = @course.assignments.create!(
+            title: "Assignment with Peer Review",
+            peer_reviews: true,
+            due_at: 1.week.from_now
+          )
+          @peer_review_sub = PeerReviewSubAssignment.create!(
+            parent_assignment: @parent_assignment,
+            title: "Assignment with Peer Review Peer Review (2)",
+            due_at: 2.weeks.from_now
+          )
+        end
+
+        before do
+          user_session(@student)
+        end
+
+        it "includes peer review sub-assignments from courses with FF enabled" do
+          get :index
+          response_json = json_parse(response.body)
+          items = response_json.map { |i| [i["plannable_type"], i["plannable"]["id"]] }
+          expect(items).to include ["peer_review_sub_assignment", @peer_review_sub.id]
+        end
+
+        it "does not include peer review sub-assignments from courses with FF disabled" do
+          @course.disable_feature!(:peer_review_allocation_and_grading)
+          get :index
+          response_json = json_parse(response.body)
+          items = response_json.map { |i| [i["plannable_type"], i["plannable"]["id"]] }
+          expect(items).not_to include ["peer_review_sub_assignment", @peer_review_sub.id]
+        end
+
+        it "excludes AssessmentRequest when PeerReviewSubAssignment exists" do
+          reviewee = course_with_student(course: @course, active_all: true).user
+          submission = submission_model(assignment: @parent_assignment, user: reviewee)
+          assessor_submission = @parent_assignment.submit_homework(@student, submission_type: "online_text_entry", body: "text")
+          assessment_request = AssessmentRequest.create!(
+            assessor: @student,
+            assessor_asset: assessor_submission,
+            asset: submission,
+            user: reviewee,
+            peer_review_sub_assignment: @peer_review_sub
+          )
+
+          get :index
+          response_json = json_parse(response.body)
+          items = response_json.map { |i| [i["plannable_type"], i["plannable"]["id"]] }
+          expect(items).to include ["peer_review_sub_assignment", @peer_review_sub.id]
+          expect(items).not_to include ["assessment_request", assessment_request.id]
+        end
+
+        it "includes AssessmentRequest when FF is disabled (no PeerReviewSubAssignment)" do
+          @course.disable_feature!(:peer_review_allocation_and_grading)
+          @peer_review_sub.destroy
+
+          assessor_student = @student
+          reviewee = course_with_student(course: @course, active_all: true).user
+          submission = submission_model(assignment: @parent_assignment, user: reviewee)
+          assessor_submission = @parent_assignment.submit_homework(assessor_student, submission_type: "online_text_entry", body: "text")
+          assessment_request = AssessmentRequest.create!(
+            assessor: assessor_student,
+            assessor_asset: assessor_submission,
+            asset: submission,
+            user: reviewee
+          )
+
+          get :index
+          response_json = json_parse(response.body)
+          items = response_json.map { |i| [i["plannable_type"], i["plannable"]["id"]] }
+          expect(items).to include ["assessment_request", assessment_request.id]
+        end
+
+        it "excludes AssessmentRequest with peer_review_sub_assignment_id only when FF is enabled" do
+          assessor_student = @student
+          reviewee = course_with_student(course: @course, active_all: true).user
+          submission = submission_model(assignment: @parent_assignment, user: reviewee)
+          assessor_submission = @parent_assignment.submit_homework(assessor_student, submission_type: "online_text_entry", body: "text")
+          assessment_request = AssessmentRequest.create!(
+            assessor: assessor_student,
+            assessor_asset: assessor_submission,
+            asset: submission,
+            user: reviewee,
+            peer_review_sub_assignment: @peer_review_sub
+          )
+
+          @course.disable_feature!(:peer_review_allocation_and_grading)
+
+          get :index
+          response_json = json_parse(response.body)
+          items = response_json.map { |i| [i["plannable_type"], i["plannable"]["id"]] }
+          expect(items).to include ["assessment_request", assessment_request.id]
+        end
+
+        it "returns correct html_url pointing to peer reviews page" do
+          get :index
+          response_json = json_parse(response.body)
+          peer_review_item = response_json.detect { |i| i["plannable_type"] == "peer_review_sub_assignment" }
+          expect(peer_review_item["html_url"]).to match "/courses/#{@course.id}/assignments/#{@parent_assignment.id}/peer_reviews"
+        end
+      end
+
+      context "inactive enrollment filtering" do
+        before :once do
+          @inactive_course = course_factory(active_all: true)
+          @inactive_enrollment = @inactive_course.enroll_student(@student, enrollment_state: "active")
+          @inactive_assignment = @inactive_course.assignments.create!(
+            title: "Inactive Course Assignment",
+            due_at: 1.week.from_now
+          )
+        end
+
+        it "excludes assignments from courses where enrollment is deactivated" do
+          @inactive_enrollment.deactivate
+          @student.reload
+
+          get :index, params: { start_date: Time.zone.now.iso8601, end_date: 2.weeks.from_now.iso8601 }
+          response_json = json_parse(response.body)
+          assignment_ids = response_json.select { |i| i["plannable_type"] == "assignment" }.pluck("plannable_id")
+
+          expect(assignment_ids).not_to include(@inactive_assignment.id)
+        end
+      end
+
+      context "ADHOC override due date" do
+        it "uses cachedDueDate from ADHOC override as the plannable_date" do
+          base_due = 30.days.from_now
+          override_due = 45.days.from_now
+
+          assignment = @course.assignments.create!(
+            title: "Override Due Date Assignment",
+            due_at: base_due,
+            workflow_state: "published",
+            submission_types: "online_text_entry"
+          )
+          override = assignment.assignment_overrides.create!(
+            set_type: "ADHOC",
+            due_at: override_due,
+            due_at_overridden: true
+          )
+          override.assignment_override_students.create!(user: @student)
+
+          SubmissionLifecycleManager.recompute_course(@course, assignments: [assignment.id], run_immediately: true)
+
+          get :index, params: { start_date: 25.days.from_now.iso8601, end_date: 50.days.from_now.iso8601 }
+          response_json = json_parse(response.body)
+          item = response_json.find { |i| i["plannable_id"] == assignment.id }
+
+          expect(item).not_to be_nil
+          cached_due = @student.submissions.find_by(assignment_id: assignment.id).cached_due_date
+          expect(item["plannable_date"]).to eq(cached_due.iso8601)
         end
       end
     end
@@ -1352,16 +2059,42 @@ describe PlannerController do
         assert_unauthorized
       end
 
-      it "requires the user to be observing observed_user_id in context_codes" do
-        other_course = course_model
-        other_course.enroll_student(@observer, enrollment_state: "active")
-        get :index, params: { observed_user_id: @student.to_param, context_codes: [other_course.asset_string] }
-        assert_unauthorized
+      it "filters context_codes to only courses where observer is linked to observed student" do
+        student2 = user_factory(active_all: true)
+        course2 = Course.create!(workflow_state: "available")
+        course2.enroll_student(student2, enrollment_state: "active")
+        course2.enroll_user(@observer, "ObserverEnrollment", enrollment_state: "active", associated_user_id: student2.id)
+        course2.assignments.create!(title: "Student 2 Assignment", due_at: 1.day.from_now)
+
+        get :index, params: { observed_user_id: @student.to_param, context_codes: [@course.asset_string, course2.asset_string] }
+        expect(response).to be_successful
+        response_json = json_parse(response.body)
+        response_hash = response_json.map { |i| [i["plannable_type"], i["plannable_id"]] }
+        expect(response_hash).to include(["assignment", @assignment.id])
+        expect(response_hash).to include(["assignment", @assignment2.id])
+        expect(response_hash.none? { |type, _id| type == "assignment" && response_json.any? { |i| i["plannable"]["title"] == "Student 2 Assignment" } }).to be true
       end
 
       it "does not require context_codes if all visible courses are requested" do
         get :index, params: { observed_user_id: @student.to_param, include: %w[all_courses] }
         expect(response).to be_successful
+      end
+
+      it "only returns items from courses where the observer is observing the specified student" do
+        student2 = user_factory(active_all: true)
+        course2 = Course.create!(workflow_state: "available")
+        course2.enroll_student(@student, enrollment_state: "active")
+        course2.enroll_student(student2, enrollment_state: "active")
+        course2.enroll_user(@observer, "ObserverEnrollment", enrollment_state: "active", associated_user_id: student2.id)
+        assignment3 = course2.assignments.create!(title: "Student 2 Only", due_at: 1.day.from_now)
+
+        get :index, params: { observed_user_id: @student.to_param, include: %w[all_courses] }
+        expect(response).to be_successful
+        response_json = json_parse(response.body)
+        response_hash = response_json.map { |i| [i["plannable_type"], i["plannable_id"]] }
+        expect(response_hash).to include(["assignment", @assignment.id])
+        expect(response_hash).to include(["assignment", @assignment2.id])
+        expect(response_hash).not_to include(["assignment", assignment3.id])
       end
 
       it "allows an observer to query their observed user's planner items for valid context_codes" do
@@ -1384,8 +2117,72 @@ describe PlannerController do
         @course.update!(settings: @course.settings.merge(restrict_student_past_view: true))
         @course.enrollment_term.set_overrides(@course.account, "StudentEnrollment" => { end_at: 1.month.ago })
 
+        get :index, params: { observed_user_id: @student.to_param, context_codes: [@course.asset_string], include: %w[concluded] }
+        expect(response).to be_successful
+      end
+
+      it "does not show calendar events from concluded courses by default" do
+        @course.calendar_events.create!(title: "Course Event", start_at: 1.day.from_now)
+        @course.conclude_at = 2.days.ago
+        @course.restrict_enrollments_to_course_dates = true
+        @course.save!
+
         get :index, params: { observed_user_id: @student.to_param, context_codes: [@course.asset_string] }
         expect(response).to be_successful
+        response_json = json_parse(response.body)
+        calendar_events = response_json.select { |i| i["plannable_type"] == "calendar_event" }
+        expect(calendar_events).to be_empty
+      end
+
+      context "cross-shard account calendars" do
+        specs_require_sharding
+
+        it "handles account calendars correctly when observer and student are on different shards" do
+          # Enable auto subscription on the default account
+          Account.default.update!(
+            account_calendar_visible: true,
+            account_calendar_subscription_type: "auto"
+          )
+
+          # Create a remote account on shard 2 with auto subscription
+          @shard2.activate do
+            @remote_account = Account.create!(name: "Remote Account")
+            @remote_account.update!(
+              account_calendar_visible: true,
+              account_calendar_subscription_type: "auto"
+            )
+            @remote_course = @remote_account.courses.create!(workflow_state: "available")
+
+            # Create a student on shard 2
+            @remote_student = user_factory(active_all: true)
+            @remote_course.enroll_student(@remote_student, enrollment_state: "active")
+
+            # Enable account calendar for the student
+            local_account_id = Shard.relative_id_for(@remote_account.id, @remote_account.shard, @remote_student.shard)
+            @remote_student.set_preference(:enabled_account_calendars, [local_account_id])
+            @remote_student.save!
+          end
+
+          @local_observer = user_factory(active_all: true)
+
+          # Enroll observer to observe the student on shard 2
+          @shard2.activate do
+            @remote_course.enroll_user(
+              @local_observer,
+              "ObserverEnrollment",
+              enrollment_state: "active",
+              associated_user_id: @remote_student.id
+            )
+          end
+
+          Shard.default.activate do
+            get :index, params: {
+              observed_user_id: @remote_student.to_param,
+              include: %w[all_courses account_calendars]
+            }
+            expect(response).to be_successful
+          end
+        end
       end
     end
   end

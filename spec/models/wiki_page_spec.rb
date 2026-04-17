@@ -58,7 +58,66 @@ describe WikiPage do
     p.notify_of_update = true
     p.save!
     p.update(body: "Awgawg")
-    expect(p.messages_sent["Updated Wiki Page"].map(&:user)).to_not include(@student)
+    expect(p.messages_sent["Updated Wiki Page"].map(&:user)).not_to include(@student)
+  end
+
+  it "only sends page updated notifications to students assigned to the page" do
+    course_with_teacher(active_all: true)
+    student1 = student_in_course(active_all: true).user
+    student2 = student_in_course(active_all: true).user
+
+    notification = Notification.create(name: "Updated Wiki Page", category: "TestImmediately")
+    NotificationPolicy.create(notification:, communication_channel: student1.communication_channel, frequency: "immediately")
+    NotificationPolicy.create(notification:, communication_channel: student2.communication_channel, frequency: "immediately")
+
+    page = @course.wiki_pages.create!(title: "Selective Page", body: "Initial content")
+    page.only_visible_to_overrides = true
+    page.save!
+
+    override = page.assignment_overrides.create!
+    override.assignment_override_students.create!(user: student1)
+
+    page.created_at = 3.days.ago
+    page.save!
+    page.notify_of_update = true
+    page.update!(body: "Updated content")
+
+    recipients = page.messages_sent["Updated Wiki Page"].map(&:user)
+    expect(recipients).to include(student1)
+    expect(recipients).not_to include(student2)
+  end
+
+  it "only sends page updated notifications to students in sections assigned to the page" do
+    course_with_teacher(active_all: true)
+
+    section1 = @course.course_sections.create!(name: "Section 1")
+    section2 = @course.course_sections.create!(name: "Section 2")
+
+    student1 = user_factory(active_all: true)
+    @course.enroll_user(student1, "StudentEnrollment", section: section1, enrollment_state: "active", limit_privileges_to_course_section: true)
+
+    student2 = user_factory(active_all: true)
+    @course.enroll_user(student2, "StudentEnrollment", section: section2, enrollment_state: "active", limit_privileges_to_course_section: true)
+
+    notification = Notification.create(name: "Updated Wiki Page", category: "TestImmediately")
+    NotificationPolicy.create(notification:, communication_channel: student1.communication_channel, frequency: "immediately")
+    NotificationPolicy.create(notification:, communication_channel: student2.communication_channel, frequency: "immediately")
+
+    page = @course.wiki_pages.create!(title: "Section Page", body: "Initial content")
+    page.only_visible_to_overrides = true
+    page.save!
+
+    page.assignment_overrides.create!(set_type: "CourseSection", set_id: section1.id)
+
+    page.created_at = 3.days.ago
+    page.save!
+    page.notify_of_update = true
+    page.update!(body: "Updated content")
+
+    # Only student1 in section1 should receive the notification
+    recipients = page.messages_sent["Updated Wiki Page"].map(&:user)
+    expect(recipients).to include(student1)
+    expect(recipients).not_to include(student2)
   end
 
   describe "duplicate manages titles properly" do
@@ -87,6 +146,41 @@ describe WikiPage do
       expect(new_wiki4.assignment.title).to eq "Stupid title"
     end
 
+    context "with mastery path wiki page" do
+      before do
+        Account.site_admin.enable_feature!(:wiki_page_mastery_path_no_assignment_group)
+      end
+
+      it "works on assignment without assignment group" do
+        course_with_teacher(active_all: true)
+        @course.conditional_release = true
+        @course.save
+
+        old_wiki = wiki_page_assignment_model({ title: "Wiki Assignment" }).wiki_page
+        old_wiki.workflow_state = "published"
+        old_wiki.save!
+
+        new_wiki = old_wiki.duplicate
+        expect(new_wiki.new_record?).to be true
+        expect(new_wiki.assignment).not_to be_nil
+        expect(new_wiki.assignment.new_record?).to be true
+        expect(new_wiki.title).to eq "Wiki Assignment Copy"
+        expect(new_wiki.assignment.title).to eq "Wiki Assignment Copy"
+        expect(new_wiki.workflow_state).to eq "unpublished"
+        new_wiki.save!
+        new_wiki2 = old_wiki.duplicate
+        expect(new_wiki2.title).to eq "Wiki Assignment Copy 2"
+        expect(new_wiki2.assignment.title).to eq "Wiki Assignment Copy 2"
+        new_wiki2.save!
+        new_wiki3 = new_wiki.duplicate
+        expect(new_wiki3.title).to eq "Wiki Assignment Copy 3"
+        expect(new_wiki3.assignment.title).to eq "Wiki Assignment Copy 3"
+        new_wiki4 = new_wiki.duplicate({ copy_title: "Stupid title" })
+        expect(new_wiki4.title).to eq "Stupid title"
+        expect(new_wiki4.assignment.title).to eq "Stupid title"
+      end
+    end
+
     it "works on non-assignment" do
       course_with_teacher(active_all: true)
       old_wiki = wiki_page_model({ title: "Wiki Page" })
@@ -100,12 +194,60 @@ describe WikiPage do
     end
   end
 
+  describe "estimated_duration" do
+    subject { assignment_with_estimated_duration.duplicate }
+
+    let(:estimated_duration) { EstimatedDuration.new({ duration: 30 }) }
+    let(:assignment_with_estimated_duration) do
+      assignment = wiki_page_assignment_model({ title: "Wiki Assignment" })
+      assignment.estimated_duration = estimated_duration
+      assignment.save!
+      assignment
+    end
+
+    context "when course is a horizon_course" do
+      before do
+        assignment_with_estimated_duration.course.account.enable_feature!(:horizon_course_setting)
+        assignment_with_estimated_duration.course.update!(horizon_course: true)
+      end
+
+      it "should set estimated_duration duration on duplication" do
+        expect(subject.estimated_duration.duration.iso8601).to eq("PT30S")
+      end
+
+      it "should not save the estimated_duration to db" do
+        expect(subject.estimated_duration.id).to be_nil
+      end
+
+      context "when estimated_duration not provided" do
+        it "should set estimated_duration on duplication" do
+          assignment_with_estimated_duration.estimated_duration = nil
+          expect(subject.estimated_duration).to be_nil
+        end
+      end
+    end
+
+    context "when course is not a horizon_course" do
+      before do
+        assignment_with_estimated_duration.course.account.disable_feature!(:horizon_course_setting)
+        assignment_with_estimated_duration.course.update!(horizon_course: false)
+      end
+
+      it "should set estimated_duration on duplication" do
+        expect(subject.estimated_duration).to be_nil
+      end
+    end
+  end
+
   it "validates the title" do
     course_with_teacher(active_all: true)
     expect(@course.wiki_pages.new(title: "").valid?).not_to be_truthy
     expect(@course.wiki_pages.new(title: "!!!").valid?).not_to be_truthy
     expect(@course.wiki_pages.new(title: "a" * 256).valid?).not_to be_truthy
     expect(@course.wiki_pages.new(title: "asdf").valid?).to be_truthy
+    expect(@course.wiki_pages.new(title: "   ").valid?).not_to be_truthy
+    expect(@course.wiki_pages.new(title: " a ").valid?).to be_truthy
+    expect(@course.wiki_pages.new(title: "は").valid?).to be_truthy # foreign character
   end
 
   it "sets as front page" do
@@ -201,6 +343,15 @@ describe WikiPage do
     expect(p2.url).to eq("apples-2")
   end
 
+  it "rescues a RecordNotUnique error and throws a 409 if create_lookup tries to create a duplicate lookup" do
+    course_factory(active_all: true)
+    p1 = @course.wiki_pages.create!(title: "bananas")
+    p2 = @course.wiki_pages.create!(title: "bananas")
+    p1.save!
+    p2.update_column(:url, "bananas")
+    expect { p2.create_lookup }.to raise_error("wiki page with that url already exists")
+  end
+
   it "lets you reuse the title/url of a deleted page when permanent_page_links is disabled" do
     Account.site_admin.disable_feature! :permanent_page_links
     course_with_teacher(active_all: true)
@@ -233,7 +384,7 @@ describe WikiPage do
     p1.save
 
     # doesn't delete the lookups
-    expect(p1.current_lookup).to_not be_nil
+    expect(p1.current_lookup).not_to be_nil
 
     # therefore we can't reuse the url
     p2 = @course.wiki_pages.create(title: "Asdf")
@@ -252,6 +403,24 @@ describe WikiPage do
     course_with_teacher(active_all: true)
     wp = @course.wiki_pages.create!(title: "Asdf")
     expect(wp.root_account_id).to eql @course.root_account_id
+  end
+
+  it "versions attachment associations with the page" do
+    course_with_teacher
+    attachment_model(context: @course)
+    page = @course.wiki_pages.create!(title: "meh", body: "file linke: <a href='/courses/#{@course.id}/files/#{@attachment.id}/download'>file</a>", updating_user: @teacher)
+    page.reload.update(body: "meh", updating_user: @teacher)
+
+    expect(YAML.load(page.reload.versions.find_by(number: 1).yaml)["attachment_associations"][0]).to include({
+                                                                                                               attachment_id: @attachment.id,
+                                                                                                               context_id: page.id,
+                                                                                                               context_type: "WikiPage",
+                                                                                                               root_account_id: @course.root_account_id,
+                                                                                                               user_id: @teacher.id,
+                                                                                                               context_concern: nil
+                                                                                                             })
+
+    expect(YAML.load(page.reload.versions.find_by(number: 2).yaml)["attachment_associations"]).to eq([])
   end
 
   context "unpublished" do
@@ -281,6 +450,14 @@ describe WikiPage do
           expect(@page.can_read_page?(admin)).to be true
         end
       end
+    end
+
+    it "does not allow account admins to read without read_course_content permission" do
+      account = @course.root_account
+      role = custom_account_role("CustomAccountUser", account:)
+      RoleOverride.manage_role_override(account, role, :read_course_content, enabled: false)
+      admin = account_admin_user(account:, role:, active_all: true)
+      expect(@page.can_read_page?(admin)).to be false
     end
   end
 
@@ -391,6 +568,17 @@ describe WikiPage do
         run_jobs
         expect(@page.reload).to be_unpublished
       end
+    end
+  end
+
+  describe "#effective_group_category_id" do
+    # if and when a wiki page is allowed to be configured as a group page, this method
+    # will need to be updated to return the group category id associated with the page object
+    # or with an assignment that is created for the page.  However, it will be designed in the future.
+    it "returns nil" do
+      course_with_teacher
+      @page = @course.wiki_pages.create(title: "unpublished page", workflow_state: "unpublished")
+      expect(@page.effective_group_category_id).to be_nil
     end
   end
 
@@ -626,7 +814,7 @@ describe WikiPage do
 
         file_url = "/courses/#{some_other_course.id}/files/1"
         link_string = "<a href='#{file_url}'>link</a>"
-        page = course.wiki_pages.create!(title: "New", body: "<p>#{link_string}</p>", user: @user)
+        page = course.wiki_pages.create!(title: "New", body: "<p>#{link_string}</p>", user: @user, saving_user: @user)
         expect(page.body).to include(file_url)
       end
     end
@@ -956,9 +1144,8 @@ describe WikiPage do
       expect(page.reload.locked_for?(@student)).not_to have_key :unlock_at
     end
 
-    context "with selective_release_backend enabled" do
+    context "differentiated modules" do
       before(:once) do
-        Account.site_admin.enable_feature! :selective_release_backend
         course_with_student(active_all: true)
         @page = @course.wiki_pages.create!(title: "page")
       end
@@ -1020,6 +1207,20 @@ describe WikiPage do
           lock_info = learning_object.locked_for?(@student)
           expect(lock_info).to be_falsey
         end
+
+        it "is unlocked for a teacher with concluded term enrollment" do
+          concluded_teacher_term = Account.default.enrollment_terms.create!(name: "concluded")
+          concluded_teacher_term.set_overrides(Account.default, "TeacherEnrollment" => { start_at: "2014-12-01", end_at: "2014-12-31" })
+          @course.update(enrollment_term: concluded_teacher_term)
+          @course.enroll_user(@user, "TeacherEnrollment", enrollment_state: "active")
+
+          differentiable.update(lock_at: 1.week.ago)
+          lock_info = learning_object.locked_for?(@student)
+          expect(lock_info).to be_truthy
+
+          lock_info = learning_object.locked_for?(@user, check_policies: true)
+          expect(lock_info).to be_falsey
+        end
       end
 
       context "pages without an assignment" do
@@ -1061,6 +1262,14 @@ describe WikiPage do
     it "changes when the content changes" do
       @page.body = "changed"
       @page.save!
+      expect(@page.reload.revised_at).to be > @old_timestamp
+    end
+
+    it "changes when the page is published" do
+      @page.update!(workflow_state: "unpublished")
+      @old_timestamp = @page.reload.revised_at
+      expect(@page.unpublished?).to be true
+      @page.publish!
       expect(@page.reload.revised_at).to be > @old_timestamp
     end
 
@@ -1274,6 +1483,14 @@ describe WikiPage do
       assert_visible(@student2, [@page1])
     end
 
+    it "visible_ids_by_user includes pages for all students" do
+      @page3 = @course1.wiki_pages.create!(title: "page3")
+      visible_ids_by_user = WikiPage.visible_ids_by_user({ user_id: [@student1.id, @student2.id], course_id: [@course1.id] })
+      pages_result = [@page1, @page3].map(&:id)
+      expect(visible_ids_by_user[@student1.id]).to contain_exactly(*pages_result)
+      expect(visible_ids_by_user[@student2.id]).to contain_exactly(*pages_result)
+    end
+
     it "includes pages with assignment if the user has an override" do
       override = @assignment.assignment_overrides.create!
       override.assignment_override_students.create!(user: @student1)
@@ -1310,22 +1527,7 @@ describe WikiPage do
       end
     end
 
-    context "with selective_release_backend disabled" do
-      before :once do
-        Account.site_admin.disable_feature!(:selective_release_backend)
-      end
-
-      it "does not consider WikiPageStudentVisibility" do
-        @page1.update!(only_visible_to_overrides: true)
-        assert_visible(@student1, [@page1])
-      end
-    end
-
-    context "with selective_release_backend enabled" do
-      before :once do
-        Account.site_admin.enable_feature!(:selective_release_backend)
-      end
-
+    context "differentiated modules" do
       it "does not include pages if the page does not have an assignment but has only_visible_to_overrides set to true" do
         @page1.update!(only_visible_to_overrides: true)
         assert_visible(@student1, [])
@@ -1368,6 +1570,532 @@ describe WikiPage do
         assignment = course2.assignments.create!(title: "assignment")
         page4.update!(assignment_id: assignment.id)
         assert_visible(@student1, [@page1])
+      end
+    end
+  end
+
+  describe "show_in_search_for_user?" do
+    shared_examples_for "expected_values_for_teacher_student" do |teacher_expected, student_expected|
+      it "returns #{teacher_expected} for teacher" do
+        expect(@page.show_in_search_for_user?(@teacher)).to eq(teacher_expected)
+      end
+
+      it "returns #{student_expected} for student" do
+        expect(@page.show_in_search_for_user?(@student)).to eq(student_expected)
+      end
+    end
+
+    before(:once) do
+      course_with_teacher(active_all: true)
+      student_in_course(course: @course, active_all: true)
+      @page = @course.wiki_pages.create!(title: "page")
+    end
+
+    it_behaves_like "expected_values_for_teacher_student", true, true
+
+    context "when pages tab is disabled" do
+      before do
+        @old_tab_config = @course.tab_configuration.deep_dup
+        @course.tab_configuration = [{ id: Course::TAB_PAGES, hidden: true }]
+        @course.save!
+      end
+
+      after do
+        @course.tab_configuration = @old_tab_config
+        @course.save!
+      end
+
+      it_behaves_like "expected_values_for_teacher_student", true, false
+
+      context "and the page is in a module" do
+        before do
+          # We want to make sure that we check for _all_ modules, not just
+          # the first so we will also add the page to a locked module.
+          locked_context_module = @course.context_modules.create!(name: "module1", unlock_at: 1.day.from_now)
+          locked_context_module.add_item({ id: @page.id, type: "wiki_page" })
+
+          @context_module = @course.context_modules.create!(name: "module2")
+          @context_module.add_item({ id: @page.id, type: "wiki_page" })
+        end
+
+        after do
+          @course.context_modules.destroy_all
+        end
+
+        it_behaves_like "expected_values_for_teacher_student", true, true
+
+        context "and the module is unpublished" do
+          before do
+            @context_module.unpublish!
+          end
+
+          it_behaves_like "expected_values_for_teacher_student", true, false
+        end
+
+        context "and the module is locked" do
+          before do
+            @context_module.update!(unlock_at: 1.day.from_now)
+          end
+
+          it_behaves_like "expected_values_for_teacher_student", true, false
+        end
+      end
+    end
+  end
+
+  it_behaves_like "an accessibility scannable resource" do
+    let(:course) { course_model }
+    let(:valid_attributes) { { title: "Test Page", course: } }
+    let(:relevant_attributes_for_scan) { { body: "<p>Lorem ipsum</p>" } }
+    let(:irrelevant_attributes_for_scan) { { could_be_locked: true } }
+  end
+
+  describe "#should_index_in_pine?" do
+    let(:horizon_course) do
+      course = Course.create!
+      course.update!(horizon_course: true)
+      course.account.enable_feature!(:horizon_course_setting)
+      course
+    end
+    let(:regular_course) { Course.create! }
+    let(:wiki_page) { horizon_course.wiki_pages.create!(title: "Test Page", body: "<p>Test content</p>") }
+    let(:pine_client_mock) { class_double(PineClient) }
+
+    before do
+      allow(pine_client_mock).to receive(:enabled?).and_return(true)
+      stub_const("PineClient", pine_client_mock)
+    end
+
+    context "returns true when" do
+      it "title changes in active horizon course page" do
+        wiki_page.title = "Updated Title"
+        expect(wiki_page.should_index_in_pine?).to be true
+      end
+
+      it "body changes in active horizon course page" do
+        wiki_page.body = "<p>Updated content</p>"
+        expect(wiki_page.should_index_in_pine?).to be true
+      end
+
+      it "workflow_state changes to active (page is restored)" do
+        wiki_page.workflow_state = "deleted"
+        wiki_page.save!
+        wiki_page.workflow_state = "active"
+        expect(wiki_page.should_index_in_pine?).to be true
+      end
+    end
+
+    context "returns false when" do
+      it "context is not a Course" do
+        group = group_model
+        group_page = group.wiki_pages.create!(title: "Group Page", body: "Content")
+        expect(group_page.should_index_in_pine?).to be false
+      end
+
+      it "course is not a horizon course" do
+        regular_page = regular_course.wiki_pages.create!(title: "Page", body: "Content")
+        expect(regular_page.should_index_in_pine?).to be false
+      end
+
+      it "PineClient is disabled" do
+        allow(PineClient).to receive(:enabled?).and_return(false)
+        expect(wiki_page.should_index_in_pine?).to be false
+      end
+
+      it "page is deleted" do
+        wiki_page.workflow_state = "deleted"
+        expect(wiki_page.should_index_in_pine?).to be false
+      end
+
+      it "no relevant fields changed" do
+        wiki_page.save!
+        expect(wiki_page.should_index_in_pine?).to be false
+      end
+    end
+  end
+
+  describe "#index_in_pine" do
+    let(:horizon_course) do
+      course = Course.create!
+      course.update!(horizon_course: true)
+      course.account.enable_feature!(:horizon_course_setting)
+      course
+    end
+    let(:wiki_page) { horizon_course.wiki_pages.create!(title: "Test Page", body: "<p>Test content</p>") }
+    let(:pine_client_mock) { class_double(PineClient) }
+
+    before do
+      allow(pine_client_mock).to receive(:enabled?).and_return(true)
+      stub_const("PineClient", pine_client_mock)
+    end
+
+    it "calls delay with correct parameters and ingest_to_pine" do
+      expect(wiki_page).to receive(:delay).with(
+        n_strand: ["horizon_wiki_ingestion", horizon_course.global_root_account_id],
+        singleton: "horizon_wiki_ingestion:#{horizon_course.global_id}:#{wiki_page.id}",
+        max_attempts: 3
+      ).and_return(wiki_page)
+      expect(wiki_page).to receive(:ingest_to_pine)
+
+      wiki_page.index_in_pine
+    end
+  end
+
+  describe "#ingest_to_pine" do
+    let(:course) { Course.create! }
+    let(:wiki_page) { course.wiki_pages.create!(title: "Test Page", body: "<p>Test content</p>") }
+    let(:pine_client_mock) { class_double(PineClient) }
+
+    before do
+      allow(pine_client_mock).to receive_messages(enabled?: true, ingest_html: true)
+      stub_const("PineClient", pine_client_mock)
+    end
+
+    it "calls PineClient.ingest_html with correct parameters" do
+      expect(pine_client_mock).to receive(:ingest_html) do |**args|
+        expect(args[:html_content]).to eq("<p>Test content</p>")
+        expect(args[:metadata]).to eq({
+                                        course_id: course.id.to_s,
+                                        title: "Test Page"
+                                      })
+        expect(args[:source]).to eq("canvas")
+        expect(args[:source_id]).to eq(wiki_page.id.to_s)
+        expect(args[:source_type]).to eq("wiki_page")
+        expect(args[:feature_slug]).to eq("horizon-content-ingestion")
+        expect(args[:root_account_uuid]).to eq(course.root_account.uuid)
+        expect(args[:current_user].uuid).to be_nil
+        expect(args[:current_user].global_id).to be_nil
+        true
+      end
+
+      wiki_page.ingest_to_pine
+    end
+
+    it "does not ingest wiki pages with nil body" do
+      empty_page = course.wiki_pages.create!(title: "Empty", body: nil)
+
+      expect(pine_client_mock).not_to receive(:ingest_html)
+
+      empty_page.ingest_to_pine
+    end
+
+    it "does not ingest wiki pages with blank body" do
+      blank_page = course.wiki_pages.create!(title: "Blank", body: "")
+
+      expect(pine_client_mock).not_to receive(:ingest_html)
+
+      blank_page.ingest_to_pine
+    end
+
+    it "does not ingest wiki pages with whitespace-only body" do
+      whitespace_page = course.wiki_pages.create!(title: "Whitespace", body: "   ")
+
+      expect(pine_client_mock).not_to receive(:ingest_html)
+
+      whitespace_page.ingest_to_pine
+    end
+
+    it "does not ingest deleted wiki pages" do
+      wiki_page.destroy
+
+      expect(pine_client_mock).not_to receive(:ingest_html)
+
+      wiki_page.ingest_to_pine
+    end
+
+    it "logs error and re-raises on failure" do
+      expect(pine_client_mock).to receive(:ingest_html).and_raise(StandardError.new("API Error"))
+
+      expect(Rails.logger).to receive(:error).with(/Failed to ingest wiki page/)
+      expect { wiki_page.ingest_to_pine }.to raise_error(StandardError, "API Error")
+    end
+
+    it "does not ingest if context is not a Course" do
+      group = group_model(context: course)
+      group_page = group.wiki_pages.create!(title: "Group Page", body: "Content")
+
+      expect(pine_client_mock).not_to receive(:ingest_html)
+
+      group_page.ingest_to_pine
+    end
+  end
+
+  describe "Pine deletion" do
+    let(:horizon_course) do
+      course = Course.create!
+      course.update!(horizon_course: true)
+      course.account.enable_feature!(:horizon_course_setting)
+      course
+    end
+    let(:wiki_page) { horizon_course.wiki_pages.create!(title: "Test Page", body: "<p>Test content</p>") }
+    let(:pine_client_mock) { class_double(PineClient) }
+    let(:null_user) { Struct.new(:uuid, :global_id).new(uuid: nil, global_id: nil) }
+
+    before do
+      allow(pine_client_mock).to receive_messages(enabled?: true, delete_document: true)
+      stub_const("PineClient", pine_client_mock)
+    end
+
+    describe "#delete_from_pine" do
+      it "calls delay with correct parameters and delete_from_pine_job" do
+        expect(wiki_page).to receive(:delay).with(
+          n_strand: ["horizon_wiki_deletion", horizon_course.global_root_account_id],
+          singleton: "horizon_wiki_deletion:#{horizon_course.global_id}:#{wiki_page.id}",
+          max_attempts: 3
+        ).and_return(wiki_page)
+        expect(wiki_page).to receive(:delete_from_pine_job)
+
+        wiki_page.delete_from_pine
+      end
+
+      it "does not raise error if context is not a Course" do
+        group = group_model
+        group_page = group.wiki_pages.create!(title: "Group Page", body: "Content")
+
+        expect { group_page.delete_from_pine }.not_to raise_error
+      end
+
+      it "logs error but does not raise if delay fails" do
+        allow(wiki_page).to receive(:delay).and_raise(StandardError.new("Delayed job error"))
+
+        expect(Rails.logger).to receive(:error).with(/Failed to queue Pine deletion for wiki page/)
+        expect { wiki_page.delete_from_pine }.not_to raise_error
+      end
+    end
+
+    describe "#delete_from_pine_job" do
+      it "calls PineClient.delete_document with correct parameters" do
+        expect(pine_client_mock).to receive(:delete_document) do |**args|
+          expect(args[:source]).to eq("canvas")
+          expect(args[:source_id]).to eq(wiki_page.id.to_s)
+          expect(args[:source_type]).to eq("wiki_page")
+          expect(args[:feature_slug]).to eq("horizon-content-ingestion")
+          expect(args[:root_account_uuid]).to eq(horizon_course.root_account.uuid)
+          expect(args[:current_user]).to be_a(Struct)
+          expect(args[:current_user].uuid).to be_nil
+          expect(args[:current_user].global_id).to be_nil
+          true
+        end
+
+        wiki_page.delete_from_pine_job(null_user)
+      end
+
+      it "uses system deletion user with nil uuid and global_id" do
+        expect(pine_client_mock).to receive(:delete_document) do |**args|
+          user = args[:current_user]
+          expect(user.uuid).to be_nil
+          expect(user.global_id).to be_nil
+          true
+        end
+
+        wiki_page.delete_from_pine_job(null_user)
+      end
+
+      it "logs error and re-raises on failure" do
+        expect(pine_client_mock).to receive(:delete_document).and_raise(StandardError.new("API Error"))
+
+        expect(Rails.logger).to receive(:error).with(/Failed to delete wiki page/)
+        expect { wiki_page.delete_from_pine_job(null_user) }.to raise_error(StandardError, "API Error")
+      end
+    end
+
+    describe "deletion triggers Pine cleanup" do
+      it "calls delete_from_pine when wiki page is destroyed" do
+        # Ensure the page is eligible before destroying
+        expect(wiki_page.eligible_for_pine_indexing?).to be true
+
+        # Mock the delay chain to avoid actual delayed job
+        allow(wiki_page).to receive(:delay).and_return(wiki_page)
+        allow(wiki_page).to receive(:delete_from_pine_job)
+
+        # Expect delete_from_pine to be called
+        expect(wiki_page).to receive(:delete_from_pine).and_call_original
+
+        wiki_page.destroy
+      end
+
+      it "does not call delete_from_pine for non-eligible wiki pages" do
+        group = group_model
+        group_page = group.wiki_pages.create!(title: "Group Page", body: "Content")
+
+        expect(group_page).not_to receive(:delete_from_pine)
+        group_page.destroy
+      end
+
+      it "does not call delete_from_pine when PineClient is disabled" do
+        allow(PineClient).to receive(:enabled?).and_return(false)
+
+        expect(wiki_page).not_to receive(:delete_from_pine)
+        wiki_page.destroy
+      end
+
+      it "does not call delete_from_pine for non-horizon courses" do
+        regular_course = Course.create!
+        regular_page = regular_course.wiki_pages.create!(title: "Regular Page", body: "Content")
+
+        expect(regular_page).not_to receive(:delete_from_pine)
+        regular_page.destroy
+      end
+    end
+  end
+
+  describe "ContentService methods" do
+    let(:wiki_page) { wiki_page_model(title: "Test Page") }
+
+    let(:user_uuid) { "user-uuid-1234" }
+    let(:data) { { "content" => "block data" } }
+    let(:external_content_id) { "ext-uuid-5678" }
+
+    before do
+      stub_const("ContentServiceClient", Class.new do
+        def self.create_content(**) = nil
+        def self.update_content(**) = nil
+        def self.get_content(**) = nil
+      end)
+
+      allow(Canvas).to receive(:retriable).and_yield
+    end
+
+    describe "#create_block_editor_data" do
+      before do
+        allow(ContentServiceClient).to receive(:create_content)
+          .and_return(double(external_content_id:))
+      end
+
+      it "passes correct params to ContentServiceClient" do
+        wiki_page.create_block_editor_data(user_uuid:, data:)
+
+        expect(ContentServiceClient).to have_received(:create_content).with(
+          root_account_uuid: wiki_page.context.root_account.uuid,
+          user_uuid:,
+          context_type: "WikiPage",
+          context_id: wiki_page.id,
+          data:
+        )
+      end
+
+      it "stores the returned external_content_id" do
+        wiki_page.create_block_editor_data(user_uuid:, data:)
+
+        expect(wiki_page.external_content_reference).to be_present
+        expect(wiki_page.external_content_reference.content_id).to eql external_content_id
+      end
+
+      context "when data is nil" do
+        it "passes nil data to ContentServiceClient" do
+          wiki_page.create_block_editor_data(user_uuid:, data: nil)
+
+          expect(ContentServiceClient).to have_received(:create_content).with(
+            hash_including(data: nil)
+          )
+        end
+      end
+    end
+
+    describe "#update_block_editor_data" do
+      before do
+        wiki_page.create_external_content_reference!(content_id: external_content_id)
+        allow(ContentServiceClient).to receive(:update_content).and_return(nil)
+      end
+
+      it "passes correct params to ContentServiceClient" do
+        wiki_page.update_block_editor_data(user_uuid:, data:)
+
+        expect(ContentServiceClient).to have_received(:update_content).with(
+          root_account_uuid: wiki_page.context.root_account.uuid,
+          user_uuid:,
+          external_content_id:,
+          data:
+        )
+      end
+
+      context "when the page has no ExternalContentReference" do
+        let(:page_without_ref) { wiki_page_model(title: "No Ref Page") }
+
+        it "does not call ContentServiceClient" do
+          page_without_ref.update_block_editor_data(user_uuid:, data:)
+
+          expect(ContentServiceClient).not_to have_received(:update_content)
+        end
+
+        it "returns nil" do
+          result = page_without_ref.update_block_editor_data(user_uuid:, data:)
+
+          expect(result).to be_nil
+        end
+      end
+    end
+
+    describe "#get_block_editor_data" do
+      let(:block_editor_data) { { "type" => "doc", "content" => [] } }
+
+      before do
+        wiki_page.create_external_content_reference!(content_id: external_content_id)
+        allow(ContentServiceClient).to receive(:get_content)
+          .and_return(double(data: block_editor_data))
+      end
+
+      it "passes correct params to ContentServiceClient" do
+        wiki_page.get_block_editor_data(user_uuid:)
+
+        expect(ContentServiceClient).to have_received(:get_content).with(
+          root_account_uuid: wiki_page.context.root_account.uuid,
+          user_uuid:,
+          external_content_id:
+        )
+      end
+
+      it "returns the block_editor_data data" do
+        result = wiki_page.get_block_editor_data(user_uuid:)
+
+        expect(result).to eql block_editor_data
+      end
+
+      context "when the page has no ExternalContentReference" do
+        let(:page_without_ref) { wiki_page_model(title: "No Ref Page") }
+
+        it "returns nil without calling ContentServiceClient" do
+          result = page_without_ref.get_block_editor_data(user_uuid:)
+
+          expect(result).to be_nil
+          expect(ContentServiceClient).not_to have_received(:get_content)
+        end
+      end
+
+      context "when ContentServiceClient raises" do
+        let(:client_error) do
+          InstructureMiscPlugin::Extensions::ContentServiceClient::ClientError.new("service failure")
+        end
+
+        before do
+          allow(Canvas).to receive(:retriable).and_raise(client_error)
+        end
+
+        it "propagates the error" do
+          expect { wiki_page.get_block_editor_data(user_uuid:) }
+            .to raise_error(InstructureMiscPlugin::Extensions::ContentServiceClient::ClientError)
+        end
+      end
+    end
+
+    describe "retry configuration" do
+      it "defaults to 3" do
+        allow(ContentServiceClient).to receive(:create_content).and_return(double(external_content_id:))
+
+        wiki_page.create_block_editor_data(user_uuid:, data:)
+
+        expect(Canvas).to have_received(:retriable).with(hash_including(tries: 3))
+      end
+
+      it "reads the value from Setting" do
+        Setting.set("content_service_client_max_retries", "5")
+        allow(ContentServiceClient).to receive(:create_content).and_return(double(external_content_id:))
+
+        wiki_page.create_block_editor_data(user_uuid:, data:)
+
+        expect(Canvas).to have_received(:retriable).with(hash_including(tries: 5))
+      ensure
+        Setting.remove("content_service_client_max_retries")
       end
     end
   end

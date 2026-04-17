@@ -43,6 +43,9 @@ describe('Gradebook#applyLatePolicy', () => {
     submission4
 
   beforeEach(() => {
+    // Restore any existing spy before creating a new one to ensure clean state
+    vi.restoreAllMocks()
+
     gradingStandard = [['A', 0]]
     gradebook = createGradebook({grading_standard: gradingStandard})
     gradebook.gradingPeriodSet = {
@@ -51,9 +54,7 @@ describe('Gradebook#applyLatePolicy', () => {
         {id: 101, isClosed: false},
       ],
     }
-    latePolicyApplicator = jest
-      .spyOn(LatePolicyApplicator, 'processSubmission')
-      .mockReturnValue(true)
+    latePolicyApplicator = vi.spyOn(LatePolicyApplicator, 'processSubmission').mockReturnValue(true)
 
     submission1 = {
       user_id: 10,
@@ -99,6 +100,10 @@ describe('Gradebook#applyLatePolicy', () => {
     gradebook.courseContent.latePolicy = 'latepolicy'
   })
 
+  afterEach(() => {
+    latePolicyApplicator.mockRestore()
+  })
+
   it('skips submissions for which assignments are not loaded', () => {
     gradebook.assignments = {assignment_2: 'assignment2value'}
     gradebook.applyLatePolicy()
@@ -106,7 +111,7 @@ describe('Gradebook#applyLatePolicy', () => {
       submission1,
       'assignment1value',
       gradingStandard,
-      'latepolicy'
+      'latepolicy',
     )
   })
 
@@ -116,15 +121,15 @@ describe('Gradebook#applyLatePolicy', () => {
       submission2,
       'assignment2value',
       gradingStandard,
-      'latepolicy'
+      'latepolicy',
     )
   })
 
   it('does not grade submissions for concluded students', () => {
-    const calculateStudentGrade = jest.spyOn(gradebook, 'calculateStudentGrade')
+    const calculateStudentGrade = vi.spyOn(gradebook, 'calculateStudentGrade')
     gradebook.applyLatePolicy()
     const gradesCalculated = calculateStudentGrade.mock.calls.some(
-      call => call[0] === gradebook.students[12]
+      call => call[0] === gradebook.students[12],
     )
     expect(gradesCalculated).toBe(false)
     calculateStudentGrade.mockRestore()
@@ -136,7 +141,7 @@ describe('Gradebook#applyLatePolicy', () => {
       submission1,
       'assignment1value',
       gradingStandard,
-      'latepolicy'
+      'latepolicy',
     )
   })
 
@@ -146,7 +151,7 @@ describe('Gradebook#applyLatePolicy', () => {
       submission3,
       'assignment2value',
       gradingStandard,
-      'latepolicy'
+      'latepolicy',
     )
   })
 })

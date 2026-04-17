@@ -18,9 +18,10 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class AccountNotificationRole < ActiveRecord::Base
-  belongs_to :account_notification
+class AccountNotificationRole < ApplicationRecord
+  include Canvas::SoftDeletable
 
+  belongs_to :account_notification
   belongs_to :role
   before_save :resolve_cross_account_role
 

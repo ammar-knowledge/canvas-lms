@@ -20,6 +20,8 @@
 require "puma"
 require "httparty"
 
+# rubocop:disable RSpec/Output
+
 class SpecFriendlyWebServer
   class << self
     def bind_address
@@ -50,7 +52,11 @@ class SpecFriendlyWebServer
       print "Starting web server..."
       max_time = Time.zone.now + timeout
       while Time.zone.now < max_time
-        response = HTTParty.get("http://#{bind_address}:#{port}/health_check") rescue nil
+        begin
+          response = HTTParty.get("http://#{bind_address}:#{port}/health_check")
+        rescue
+          # ignore
+        end
         if response&.success?
           SeleniumDriverSetup.disallow_requests!
           puts " Done!"
@@ -70,3 +76,5 @@ class SpecFriendlyWebServer
     end
   end
 end
+
+# rubocop:enable RSpec/Output

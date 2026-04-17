@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 import {arrayOf, bool, number, shape, string} from 'prop-types'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 
 import {AssignmentGroup} from './AssignmentGroup'
 import {GroupSet} from './GroupSet'
@@ -28,12 +28,12 @@ import {Submission} from './Submission'
 
 export const Assignment = {
   fragment: gql`
-    fragment Assignment on Assignment {
+    fragment StudentAssignment on Assignment {
       _id
       allowedAttempts
       allowedExtensions
       assignmentGroup {
-        ...AssignmentGroup
+        ...StudentAssignmentGroup
       }
       description
       dueAt
@@ -57,6 +57,7 @@ export const Assignment = {
       pointsPossible
       submissionTypes
       unlockAt
+      rubricSelfAssessmentEnabled
     }
     ${AssignmentGroup.fragment}
     ${GroupSet.fragment}
@@ -96,7 +97,7 @@ export const AssignmentSubmissionsConnection = {
         filter: {states: [unsubmitted, graded, pending_review, submitted]}
       ) {
         nodes {
-          ...Submission
+          ...StudentAssignmentSubmission
         }
       }
     }

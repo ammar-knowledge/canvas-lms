@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2016 - present Instructure, Inc.
  *
@@ -17,12 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import htmlEscape from '@instructure/html-escape'
 import 'jquery.cookie'
 
-const I18n = useI18nScope('shared.flash_notices')
+const I18n = createI18nScope('shared.flash_notices')
 
 function updateAriaLive(this: RailsFlashNotificationsHelper, {polite} = {polite: false}) {
   if (this.screenreaderHolderReady()) {
@@ -75,7 +74,13 @@ class RailsFlashNotificationsHelper {
     return this.holder != null
   }
 
-  createNode(type, content, timeout, cssOptions = {}, classes = '') {
+  createNode(
+    type: string,
+    content: string | {html: string},
+    timeout?: number | false,
+    cssOptions: Record<string, string | number> = {},
+    classes = '',
+  ) {
     if (this.holderReady()) {
       const node = this.generateNodeHTML(type, content)
 
@@ -91,7 +96,7 @@ class RailsFlashNotificationsHelper {
     }
   }
 
-  generateNodeHTML(type, content) {
+  generateNodeHTML(type: string, content: string | {html: string}) {
     const icon = this.getIconType(type)
     const escapedType = htmlEscape(type)
     const escapedIcon = htmlEscape(icon)
@@ -112,7 +117,7 @@ class RailsFlashNotificationsHelper {
     `.trim()
   }
 
-  getIconType(type) {
+  getIconType(type: string) {
     if (type === 'success') {
       return 'check'
     } else if (type === 'warning' || type === 'error') {
@@ -137,7 +142,7 @@ class RailsFlashNotificationsHelper {
     return this.screenreader_holder != null
   }
 
-  createScreenreaderNode(content, closable = true) {
+  createScreenreaderNode(content: string | {html: string}, closable = true) {
     if (this.screenreaderHolderReady()) {
       updateAriaLive.call(this, {polite: false})
       const node = $(this.generateScreenreaderNodeHTML(content, closable))
@@ -178,7 +183,7 @@ class RailsFlashNotificationsHelper {
     }
   }
 
-  createScreenreaderNodeExclusive(content, polite = false) {
+  createScreenreaderNodeExclusive(content: string | {html: string}, polite = false) {
     if (this.screenreaderHolderReady()) {
       updateAriaLive.call(this, {polite})
       this.screenreader_holder.innerHTML = ''
@@ -187,7 +192,7 @@ class RailsFlashNotificationsHelper {
     }
   }
 
-  generateScreenreaderNodeHTML(content, closable) {
+  generateScreenreaderNodeHTML(content: string | {html: string}, closable: boolean) {
     let closeContent
     if (closable) {
       closeContent = I18n.t('Close')
@@ -198,11 +203,9 @@ class RailsFlashNotificationsHelper {
     return `<span>${this.escapeContent(content)}${htmlEscape(closeContent)}</span>`
   }
 
-  /*
-xsslint safeString.method escapeContent
-*/
-  escapeContent(content) {
-    if (content.hasOwnProperty('html')) {
+  // xsslint safeString.method escapeContent
+  escapeContent(content: string | {html: string}) {
+    if (typeof content === 'object' && 'html' in content) {
       return content.html
     } else {
       return htmlEscape(content)

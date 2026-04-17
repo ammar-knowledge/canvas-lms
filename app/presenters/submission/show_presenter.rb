@@ -88,7 +88,8 @@ class Submission::ShowPresenter
   end
 
   def comment_attachment_download_url(submission_comment:, attachment:)
-    submission_data_url(comment_id: submission_comment.id, download: attachment.id)
+    location = submission_comment.asset_string if @context.root_account.feature_enabled?(:file_association_access)
+    submission_data_url(comment_id: submission_comment.id, download: attachment.id, location:)
   end
 
   def comment_attachment_template_url
@@ -108,7 +109,7 @@ class Submission::ShowPresenter
         return @submission.entered_grade
       end
 
-      grade = @assignment.score_to_grade(@submission.score, nil, true) if @submission.score
+      grade = @assignment.score_to_grade(@submission.score, force_letter_grade: true) if @submission.score
       replace_dash_with_minus(grade)
     elsif @assignment.grading_type == "letter_grade"
       replace_dash_with_minus(@submission.entered_grade)

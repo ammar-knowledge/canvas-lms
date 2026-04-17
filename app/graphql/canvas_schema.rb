@@ -22,6 +22,7 @@ class CanvasSchema < GraphQL::Schema
   query Types::QueryType
   mutation Types::MutationType
   trace_with GraphQL::Tracing::CallLegacyTracers
+  trace_with GraphQL::Tracing::SentryTrace
 
   use GraphQL::Batch
 
@@ -29,6 +30,18 @@ class CanvasSchema < GraphQL::Schema
   connections.add(DynamoQuery, DynamoConnection)
   connections.add(AddressBook::MessageableUser::Collection, CollectionConnection)
   connections.add(BookmarkedCollection::Proxy, CollectionConnection)
+  connections.add(InstructorQuery, InstructorConnection)
+
+  def self.execute(...)
+    max_depth GraphQLTuning.max_depth
+    validate_max_errors GraphQLTuning.validate_max_errors
+    max_query_string_tokens GraphQLTuning.max_query_string_tokens
+    max_complexity GraphQLTuning.max_complexity
+    default_page_size GraphQLTuning.default_page_size
+    default_max_page_size GraphQLTuning.default_max_page_size
+
+    super
+  end
 
   def self.id_from_object(obj, type_def, _ctx)
     case obj
@@ -48,8 +61,11 @@ class CanvasSchema < GraphQL::Schema
   def self.resolve_type(abstract_type, obj, _ctx)
     case obj
     when Account then Types::AccountType
+    when AccountNotification then Types::AccountNotificationType
     when Course then Types::CourseType
-    when Assignment then Types::AssignmentType
+    when AllocationRule then Types::AllocationRuleType
+    when Assignment, SubAssignment then Types::AssignmentType
+    when PeerReviewSubAssignment then Types::PeerReviewSubAssignmentType
     when AssignmentGroup then Types::AssignmentGroupType
     when CommentBankItem then Types::CommentBankItemType
     when CustomGradeStatus then Types::CustomGradeStatusType
@@ -71,6 +87,7 @@ class CanvasSchema < GraphQL::Schema
     when PostPolicy then Types::PostPolicyType
     when WikiPage then Types::PageType
     when Attachment then Types::FileType
+    when Folder then Types::FolderType
     when DiscussionTopic then Types::DiscussionType
     when DiscussionEntry then Types::DiscussionEntryType
     when Quizzes::Quiz then Types::QuizType
@@ -82,6 +99,7 @@ class CanvasSchema < GraphQL::Schema
     when LearningOutcomeGroup then Types::LearningOutcomeGroupType
     when LearningOutcome then Types::LearningOutcomeType
     when OutcomeFriendlyDescription then Types::OutcomeFriendlyDescriptionType
+    when ContextModuleProgression then Types::ModuleProgressionType
     when ContentTag
       if abstract_type&.graphql_name == "ModuleItemInterface"
         case obj.content_type
@@ -93,16 +111,22 @@ class CanvasSchema < GraphQL::Schema
         Types::ModuleItemType
       end
     when ContextExternalTool then Types::ExternalToolType
+    when InstitutionalTag            then Types::InstitutionalTagType
+    when InstitutionalTagAssociation then Types::InstitutionalTagAssociationType
+    when InstitutionalTagCategory    then Types::InstitutionalTagCategoryType
     when Setting then Types::InternalSettingType
     when AssessmentRequest then Types::AssessmentRequestType
     when UsageRights then Types::UsageRightsType
+    when ScheduledPost then Types::ScheduledPostType
     end
   end
 
   def self.unauthorized_object(error)
     raise GraphQL::ExecutionError,
-          I18n.t("An object of type %{graphql_type} was hidden due to insufficient scopes on access token",
-                 graphql_type: error.type.graphql_name)
+          I18n.t(
+            "An object of type %{graphql_type} was hidden due to insufficient scopes on access token",
+            graphql_type: error.type.graphql_name
+          )
   end
 
   orphan_types [Types::PageType,
@@ -114,14 +138,8 @@ class CanvasSchema < GraphQL::Schema
                 Types::ModuleSubHeaderType,
                 Types::InternalSettingType]
 
-  def self.for_federation
-    @federatable_schema ||= Class.new(CanvasSchema) do
-      include ApolloFederation::Schema
-
-      # TODO: once https://github.com/Gusto/apollo-federation-ruby/pull/135 is
-      # merged and published, we can update the `apollo-federation` gem and
-      # remove this line
-      query Types::QueryType
-    end
-  end
+  # GraphQL tuning and defensive settings
+  query_analyzer(Analyzers::CanvasAntiabuseAnalyzer)
+  query_analyzer(Analyzers::LogQueryComplexity)
+  query_analyzer(Analyzers::ConversationComplexityAnalyzer)
 end

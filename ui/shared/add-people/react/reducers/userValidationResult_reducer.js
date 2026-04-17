@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {cloneDeep} from 'lodash'
+import {cloneDeep} from 'es-toolkit/compat'
 import {handleActions} from 'redux-actions'
 import {actionTypes} from '../actions'
 import {defaultState} from '../store'
@@ -38,7 +38,10 @@ function transformDupeApiResult(apiResult) {
           selectedUserId: -1,
           skip: false,
           createNew: false,
-          newUserInfo: undefined,
+          newUserInfo: {
+            name: '',
+            email: '',
+          },
           userList: d,
         }
       }
@@ -145,5 +148,5 @@ export default handleActions(
         : state
     },
   },
-  defaultState.userValidationResult
+  defaultState.userValidationResult,
 )

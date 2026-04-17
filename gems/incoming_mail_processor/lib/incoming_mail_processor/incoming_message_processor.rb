@@ -77,7 +77,11 @@ module IncomingMailProcessor
         encoding = "UTF-8" if encoding == "UTF8"
 
         # change encoding; if it throws an exception (i.e. unrecognized encoding), just strip invalid UTF-8
-        new_string = string.encode("UTF-8", encoding) rescue nil
+        begin
+          new_string = string.encode("UTF-8", encoding)
+        rescue EncodingError
+          # ignore
+        end
         new_string&.valid_encoding? ? new_string : Utf8Cleaner.strip_invalid_utf8(string)
       end
 
@@ -274,9 +278,9 @@ module IncomingMailProcessor
     end
 
     def report_stats(incoming_message, mailbox_account)
-      InstStatsd::Statsd.increment("incoming_mail_processor.incoming_message_processed.#{mailbox_account.escaped_address}",
-                                   short_stat: "incoming_mail_processor.incoming_message_processed",
-                                   tags: { mailbox: mailbox_account.escaped_address })
+      InstStatsd::Statsd.distributed_increment("incoming_mail_processor.incoming_message_processed.#{mailbox_account.escaped_address}",
+                                               short_stat: "incoming_mail_processor.incoming_message_processed",
+                                               tags: { mailbox: mailbox_account.escaped_address })
       age = age(incoming_message)
       if age
         stat_name = "incoming_mail_processor.message_age.#{mailbox_account.escaped_address}"
@@ -305,7 +309,7 @@ module IncomingMailProcessor
           if message
             @error_reporter.log_error(self.class.error_report_category, {
                                         message: "Error parsing email",
-                                        backtrace: message.errors.flatten.map(&:to_s).join("\n"),
+                                        backtrace: message.errors.flatten.join("\n"),
                                         from: message.from.try(:first),
                                         to: message.to.to_s,
                                       })

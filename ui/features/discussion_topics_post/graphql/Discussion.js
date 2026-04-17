@@ -22,7 +22,7 @@ import {Assignment} from './Assignment'
 import {Attachment} from './Attachment'
 import {Section} from './Section'
 import {DiscussionPermissions} from './DiscussionPermissions'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {User} from './User'
 import {DiscussionEntry} from './DiscussionEntry'
 import {PageInfo} from './PageInfo'
@@ -39,6 +39,7 @@ export const Discussion = {
       message
       createdAt
       updatedAt
+      editedAt
       postedAt
       requireInitialPost
       initialPostRequiredForCurrentUser
@@ -59,36 +60,47 @@ export const Discussion = {
       replyToEntryRequiredCount
       contextType
       lockInformation
+      subscriptionDisabledForUser
+      sortOrderLocked
+      expandedLocked
       editor {
-        ...User
+        ...DiscussionPostUser
       }
       author {
-        ...User
+        ...DiscussionPostUser
       }
       entryCounts {
         unreadCount
         repliesCount
       }
       attachment {
-        ...Attachment
+        ...DiscussionPostAttachment
       }
       assignment {
-        ...Assignment
+        ...DiscussionPostAssignment
       }
       permissions {
         ...DiscussionPermissions
       }
       courseSections {
-        ...Section
+        ...DiscussionPostSection
       }
       childTopics {
         ...ChildTopic
       }
       groupSet {
-        ...GroupSet
+        ...DiscussionPostGroupSet
       }
       rootTopic {
         ...RootTopic
+      }
+      participant {
+        id
+        sortOrder
+        expanded
+        summaryEnabled
+        preferredLanguage
+        posted
       }
     }
     ${User.fragment}
@@ -108,6 +120,7 @@ export const Discussion = {
     message: string,
     createdAt: string,
     updatedAt: string,
+    editedAt: string,
     postedAt: string,
     requireInitialPost: bool,
     initialPostRequiredForCurrentUser: bool,
@@ -133,6 +146,8 @@ export const Discussion = {
       unreadCount: number,
       repliesCount: number,
     }),
+    sortOrderLocked: bool,
+    expandedLocked: bool,
     author: User.shape,
     anonymousAuthor: AnonymousUser.shape,
     editor: User.shape,
@@ -145,6 +160,13 @@ export const Discussion = {
     rootTopic: RootTopic.shape,
     rootEntriesTotalPages: number,
     entriesTotalPages: number,
+    subscriptionDisabledForUser: bool,
+    participant: shape({
+      id: string,
+      sortOrder: string,
+      expanded: bool,
+      summaryEnabled: bool,
+    }),
   }),
 
   mock: ({
@@ -154,6 +176,7 @@ export const Discussion = {
     message = 'This is a Discussion Topic Message',
     createdAt = '2020-11-23T11:40:44-07:00',
     updatedAt = '2021-04-22T12:41:56-06:00',
+    editedAt = '2021-04-22T12:41:56-06:00',
     postedAt = '2020-11-23T11:40:44-07:00',
     requireInitialPost = false,
     initialPostRequiredForCurrentUser = false,
@@ -196,6 +219,18 @@ export const Discussion = {
       pageInfo: PageInfo.mock(),
       __typename: 'DiscussionEntriesConnection',
     },
+    participant = {
+      id: '1',
+      sortOrder: 'desc',
+      expanded: false,
+      summaryEnabled: false,
+      preferredLanguage: null,
+      posted: false,
+      __typename: 'DiscussionParticipant',
+    },
+    sortOrderLocked = false,
+    expandedLocked = false,
+    subscriptionDisabledForUser = false,
   } = {}) => ({
     id,
     _id,
@@ -203,6 +238,7 @@ export const Discussion = {
     message,
     createdAt,
     updatedAt,
+    editedAt,
     postedAt,
     requireInitialPost,
     initialPostRequiredForCurrentUser,
@@ -237,6 +273,10 @@ export const Discussion = {
     searchEntryCount,
     entriesTotalPages,
     discussionEntriesConnection,
+    subscriptionDisabledForUser,
+    participant,
+    sortOrderLocked,
+    expandedLocked,
     __typename: 'Discussion',
   }),
 }

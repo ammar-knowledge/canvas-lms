@@ -17,9 +17,9 @@
  */
 
 import {shape, string, bool, oneOf, object} from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('permissions_v2_propTypes')
+const I18n = createI18nScope('permissions_v2_propTypes')
 
 const propTypes = {}
 
@@ -73,4 +73,11 @@ propTypes.filteredRole = shape({
   value: string.isRequired,
 })
 
+propTypes.permissionGroups = shape({
+  [string]: shape({
+    label: string.isRequired,
+    subtitle: string,
+    course_subtitle: string,
+  }),
+})
 export default propTypes

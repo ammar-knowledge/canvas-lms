@@ -17,16 +17,13 @@
  */
 
 import $ from 'jquery'
-import {isUndefined} from 'lodash'
+import {isUndefined} from 'es-toolkit/compat'
 import Outcome from '@canvas/grade-summary/backbone/models/Outcome'
 import OutcomePopoverView from '../OutcomePopoverView'
 import OutcomeDialogView from '../OutcomeDialogView'
 import OutcomeView from '../OutcomeView'
 import ProgressBarView from '../ProgressBarView'
-import {isAccessible} from '@canvas/test-utils/jestAssertions'
-import sinon from 'sinon'
-
-const sandbox = sinon.createSandbox()
+import {isAccessible} from '@canvas/test-utils/assertions'
 
 const ok = x => expect(x).toBeTruthy()
 
@@ -48,8 +45,8 @@ describe('OutcomeViewSpec', () => {
     }
   })
 
-  test('should be accessible', function (done) {
-    isAccessible(outcomeView, done, {a11yReport: true})
+  test('should be accessible', async () => {
+    await isAccessible(outcomeView, {a11yReport: true})
   })
 
   test('assign instance of ProgressBarView on init', function () {
@@ -65,11 +62,12 @@ describe('OutcomeViewSpec', () => {
 
   test('click & keydown .more-details', function () {
     outcomeView.render()
-    const showSpy = sandbox.stub(outcomeView.dialog, 'show')
+    const showSpy = vi.spyOn(outcomeView.dialog, 'show').mockImplementation(() => {})
     outcomeView.$el.find('a.more-details').trigger(e('click'))
-    ok(showSpy.called)
-    showSpy.reset()
+    expect(showSpy).toHaveBeenCalled()
+    showSpy.mockClear()
     outcomeView.$el.find('a.more-details').trigger(e('keydown'))
-    ok(showSpy.called)
+    expect(showSpy).toHaveBeenCalled()
+    showSpy.mockRestore()
   })
 })

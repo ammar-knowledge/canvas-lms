@@ -83,8 +83,6 @@
 #
 
 class HistoryController < ApplicationController
-  before_action :require_user
-
   include Api::V1::HistoryEntry
 
   # @API List recent history for a user
@@ -110,11 +108,23 @@ class HistoryController < ApplicationController
     auas = AssetUserAccess.where(id: page_views.map(&:asset_user_access_id)).preload(:context).to_a.index_by(&:id)
 
     render json: page_views
-      .select { |pv| auas.key?(pv.asset_user_access_id) }
-      .map { |pv| history_entry_json(pv, auas[pv.asset_user_access_id], @current_user, session) }
+                 .select { |pv| auas.key?(pv.asset_user_access_id) }
+                 .map { |pv| history_entry_json(pv, auas[pv.asset_user_access_id], @current_user, session) }
+  rescue PageView::Pv4Client::Pv4BadRequest => e
+    Canvas::Errors.capture_exception(:pv4, e, :warn)
+    render json: { error: t("Page Views received an invalid or malformed request.") }, status: :bad_request
+  rescue PageView::Pv4Client::Pv4NotFound, PageView::Pv4Client::Pv4Unauthorized => e
+    Canvas::Errors.capture_exception(:pv4, e, :warn)
+    render json: { error: t("Page Views resource not found.") }, status: :not_found
+  rescue PageView::Pv4Client::Pv4TooManyRequests => e
+    Canvas::Errors.capture_exception(:pv4, e, :warn)
+    render json: { error: t("Page Views rate limit exceeded. Please wait and try again.") }, status: :too_many_requests
+  rescue PageView::Pv4Client::Pv4EmptyResponse => e
+    Canvas::Errors.capture_exception(:pv4, e, :warn)
+    render json: { error: t("Page Views data is not available at this time.") }, status: :service_unavailable
   rescue PageView::Pv4Client::Pv4Timeout => e
     Canvas::Errors.capture_exception(:pv4, e, :warn)
-    render json: { error: t("Page Views service is temporarily unavailable") }, status: :bad_gateway
+    render json: { error: t("Page Views service is temporarily unavailable.") }, status: :bad_gateway
   end
 
   def include_page_view?(pv)

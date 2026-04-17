@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class Collaborator < ActiveRecord::Base
+class Collaborator < ApplicationRecord
   belongs_to :collaboration
   belongs_to :group
   belongs_to :user
@@ -49,9 +49,9 @@ class Collaborator < ActiveRecord::Base
     end
     p.whenever do |record|
       if record.group_id.nil?
-        record.just_created && record.collaboration && record.user != record.collaboration.user
+        record.previously_new_record? && record.collaboration && record.user != record.collaboration.user
       else
-        record.just_created && record.collaboration
+        record.previously_new_record? && record.collaboration
       end
     end
     p.data { course_broadcast_data }

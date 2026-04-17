@@ -21,9 +21,10 @@ import {
   type ProcessedTool,
 } from '../utils'
 import axios from '@canvas/axios'
+import {type Mocked} from 'vitest'
 
-jest.mock('@canvas/axios')
-const mockedAxios = axios as jest.Mocked<typeof axios>
+vi.mock('@canvas/axios')
+const mockedAxios = axios as Mocked<typeof axios>
 
 describe('utils.ts', () => {
   describe('getExternalApps', () => {
@@ -33,7 +34,7 @@ describe('utils.ts', () => {
     })
 
     afterEach(() => {
-      jest.resetAllMocks()
+      vi.resetAllMocks()
     })
 
     it('handles empty array response from the API', async () => {
@@ -42,56 +43,61 @@ describe('utils.ts', () => {
     })
 
     it('processes valid tools correctly', async () => {
-      mockedAxios.get
-        .mockResolvedValueOnce({
-          data: [
-            {context: 'account', context_id: '4045', app_id: '8300'},
-            {context: 'account', context_id: '4045', app_id: '8066'},
-          ],
-        })
-        .mockResolvedValueOnce({
-          data: {
-            global_navigation: {
-              url: 'https://example.com',
-              enabled: true,
-              label: 'Local Studio',
-              icon_svg_path_64: '',
-              icon_url: 'https://example.com/icon.png',
+      mockedAxios.get.mockResolvedValueOnce({
+        data: [
+          {
+            definition_id: 8300,
+            definition_type: 'ContextExternalTool',
+            placements: {
+              global_navigation: {
+                message_type: 'basic_lti_request',
+                url: 'https://example.com',
+                title: 'Local Studio',
+                icon_svg_path_64: '',
+                icon_url: 'https://example.com/icon.png',
+                html_url: '/accounts/1/external_tools/8300?launch_type=global_navigation',
+              },
             },
           },
-        })
-        .mockResolvedValueOnce({
-          data: {
-            global_navigation: {
-              url: 'https://example2.com',
-              enabled: true,
-              label: 'Lucid Integration',
-              icon_svg_path_64: 'path/to/svg',
-              icon_url: '',
+          {
+            definition_id: 8066,
+            definition_type: 'ContextExternalTool',
+            placements: {
+              global_navigation: {
+                message_type: 'basic_lti_request',
+                url: 'https://example2.com',
+                title: 'Lucid Integration',
+                icon_svg_path_64: 'path/to/svg',
+                icon_url: '',
+                html_url: '/accounts/1/external_tools/8066?launch_type=global_navigation',
+              },
             },
           },
-        })
+        ],
+      })
 
       const result = await getExternalApps()
       expect(result).toEqual([
         {
-          href: 'https://example.com',
+          href: '/accounts/1/external_tools/8300?launch_type=global_navigation',
           label: 'Local Studio',
           svgPath: null,
           imgSrc: 'https://example.com/icon.png',
+          toolId: 'local-studio-8300',
         },
         {
-          href: 'https://example2.com',
+          href: '/accounts/1/external_tools/8066?launch_type=global_navigation',
           label: 'Lucid Integration',
           svgPath: 'path/to/svg',
           imgSrc: null,
+          toolId: 'lucid-integration-8066',
         },
       ])
     })
 
     it('ignores tools without required global_navigation data', async () => {
       mockedAxios.get.mockResolvedValueOnce({
-        data: [{context: 'account', context_id: '4045', app_id: '8300'}],
+        data: [{definition_id: '8300', definition_type: 'ContextExternalTool', placements: {}}],
       })
       const simulate_missing_global_navigation_data = {}
       mockedAxios.get.mockResolvedValueOnce({data: simulate_missing_global_navigation_data})
@@ -104,94 +110,6 @@ describe('utils.ts', () => {
       mockedAxios.get.mockResolvedValue({data: not_an_array})
       const result = await getExternalApps()
       expect(result).toEqual([])
-    })
-
-    it('uses customFields.url when present', async () => {
-      mockedAxios.get
-        .mockResolvedValueOnce({
-          data: [{context: 'account', context_id: '4045', app_id: '8300'}],
-        })
-        .mockResolvedValueOnce({
-          data: {
-            global_navigation: {
-              url: 'https://example.com',
-              enabled: true,
-              label: 'Local Studio',
-              icon_svg_path_64: '',
-              icon_url: 'https://example.com/icon.png',
-            },
-            custom_fields: {
-              url: 'https://custom.example.com',
-            },
-          },
-        })
-
-      const result = await getExternalApps()
-      expect(result).toEqual([
-        {
-          href: 'https://custom.example.com',
-          label: 'Local Studio',
-          svgPath: null,
-          imgSrc: 'https://example.com/icon.png',
-        },
-      ])
-    })
-
-    it('uses globalNavigation.url when customFields.url is not present', async () => {
-      mockedAxios.get
-        .mockResolvedValueOnce({
-          data: [{context: 'account', context_id: '4045', app_id: '8300'}],
-        })
-        .mockResolvedValueOnce({
-          data: {
-            global_navigation: {
-              url: 'https://example.com',
-              enabled: true,
-              label: 'Local Studio',
-              icon_svg_path_64: '',
-              icon_url: 'https://example.com/icon.png',
-            },
-            custom_fields: {},
-          },
-        })
-
-      const result = await getExternalApps()
-      expect(result).toEqual([
-        {
-          href: 'https://example.com',
-          label: 'Local Studio',
-          svgPath: null,
-          imgSrc: 'https://example.com/icon.png',
-        },
-      ])
-    })
-
-    it('sets href to null if both customFields.url and globalNavigation.url are not present', async () => {
-      mockedAxios.get
-        .mockResolvedValueOnce({
-          data: [{context: 'account', context_id: '4045', app_id: '8300'}],
-        })
-        .mockResolvedValueOnce({
-          data: {
-            global_navigation: {
-              enabled: true,
-              label: 'Local Studio',
-              icon_svg_path_64: '',
-              icon_url: 'https://example.com/icon.png',
-            },
-            custom_fields: {},
-          },
-        })
-
-      const result = await getExternalApps()
-      expect(result).toEqual([
-        {
-          href: null,
-          label: 'Local Studio',
-          svgPath: null,
-          imgSrc: 'https://example.com/icon.png',
-        },
-      ])
     })
   })
 
@@ -209,15 +127,25 @@ describe('utils.ts', () => {
     it('should correctly handle arrays with empty or incomplete tool objects', () => {
       const tools: ExternalTool[] = [
         {} as ExternalTool, // ignored
-        {href: 'http://example.com', label: 'LocalStudio', svgPath: ''},
+        {
+          href: 'http://example.com',
+          label: 'LocalStudio',
+          svgPath: '',
+          toolId: 'localstudio-1',
+        },
         {} as ExternalTool, // ignored
-        {href: 'https://example.com', label: 'Studio', svgPath: ''},
-        {href: 'https://example-dev.com', label: 'Dev', svgPath: ''},
-        {href: 'https://example-studio.com', label: 'Studio', svgPath: ''},
-        {href: 'https://example-iad.com', label: 'Studio IAD', svgPath: ''},
-        {href: 'https://example-pdx.com', label: 'Studio PDX', svgPath: ''},
-        {href: 'https://example-studio.com', label: 'Studio', svgPath: ''},
-        {href: 'https://example-testing.com', label: 'Studio Testing', svgPath: ''},
+        {href: 'https://example.com', label: 'Studio', svgPath: '', toolId: 'studio-2'},
+        {href: 'https://example-dev.com', label: 'Dev', svgPath: '', toolId: 'dev-3'},
+        {href: 'https://example-studio.com', label: 'Studio', svgPath: '', toolId: 'studio-4'},
+        {href: 'https://example-iad.com', label: 'Studio IAD', svgPath: '', toolId: 'studio-iad-5'},
+        {href: 'https://example-pdx.com', label: 'Studio PDX', svgPath: '', toolId: 'studio-pdx-6'},
+        {href: 'https://example-studio.com', label: 'Studio', svgPath: '', toolId: 'studio-7'},
+        {
+          href: 'https://example-testing.com',
+          label: 'Studio Testing',
+          svgPath: '',
+          toolId: 'studio-testing-8',
+        },
         {} as ExternalTool, // ignored
       ]
       const expected: ProcessedTool[] = [
@@ -225,56 +153,56 @@ describe('utils.ts', () => {
           href: 'http://example.com',
           label: 'LocalStudio',
           svgPath: null,
-          toolId: 'localstudio',
+          toolId: 'localstudio-1',
           toolImg: null,
         },
         {
           href: 'https://example.com',
           label: 'Studio',
           svgPath: null,
-          toolId: 'studio',
+          toolId: 'studio-2',
           toolImg: null,
         },
         {
           href: 'https://example-dev.com',
           label: 'Dev',
           svgPath: null,
-          toolId: 'dev',
+          toolId: 'dev-3',
           toolImg: null,
         },
         {
           href: 'https://example-studio.com',
           label: 'Studio',
           svgPath: null,
-          toolId: 'studio',
+          toolId: 'studio-4',
           toolImg: null,
         },
         {
           href: 'https://example-iad.com',
           label: 'Studio IAD',
           svgPath: null,
-          toolId: 'studio-iad',
+          toolId: 'studio-iad-5',
           toolImg: null,
         },
         {
           href: 'https://example-pdx.com',
           label: 'Studio PDX',
           svgPath: null,
-          toolId: 'studio-pdx',
+          toolId: 'studio-pdx-6',
           toolImg: null,
         },
         {
           href: 'https://example-studio.com',
           label: 'Studio',
           svgPath: null,
-          toolId: 'studio',
+          toolId: 'studio-7',
           toolImg: null,
         },
         {
           href: 'https://example-testing.com',
           label: 'Studio Testing',
           svgPath: null,
-          toolId: 'studio-testing',
+          toolId: 'studio-testing-8',
           toolImg: null,
         },
       ]
@@ -283,26 +211,28 @@ describe('utils.ts', () => {
     })
 
     it('should filter out tools with invalid toolId (derived from label)', () => {
-      const valid_tool_id_derived_from_label = 'Valid Tool'
+      const valid_tool_id_derived_from_label = 'valid-tool-1'
       const invalid_tool_id_derived_from_label = ''
       const tools: ExternalTool[] = [
         {
-          label: valid_tool_id_derived_from_label,
+          label: 'Valid Tool',
           imgSrc: 'img1.png',
           href: 'http://tool1.com',
           svgPath: 'path1',
+          toolId: valid_tool_id_derived_from_label,
         },
         {
-          label: invalid_tool_id_derived_from_label,
+          label: 'Invalid Tool',
           imgSrc: 'img2.png',
           href: 'http://tool2.com',
           svgPath: 'path2',
+          toolId: invalid_tool_id_derived_from_label,
         },
       ]
       const expected: ProcessedTool[] = [
         {
-          label: valid_tool_id_derived_from_label,
-          toolId: 'valid-tool',
+          label: 'Valid Tool',
+          toolId: valid_tool_id_derived_from_label,
           toolImg: 'img1.png',
           href: 'http://tool1.com',
           svgPath: 'path1',

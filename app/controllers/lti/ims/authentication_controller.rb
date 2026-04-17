@@ -43,6 +43,7 @@ module Lti
 
       skip_before_action :load_user, only: :authorize_redirect
       skip_before_action :verify_authenticity_token, only: :authorize_redirect
+      skip_before_action :require_user, only: %i[authorize authorize_redirect]
 
       # Redirect the "authorize" action for the domain specified
       # in the lti_message_hint
@@ -78,7 +79,6 @@ module Lti
           validate_oidc_params!
           validate_current_user!
           validate_client_id!
-          validate_launch_eligibility!
           set_extra_csp_frame_ancestor! unless @oidc_error
 
           # This was added as a resolution to the INTEROP-8200 saga. Essentially, for a reason that no one was able to
@@ -90,19 +90,33 @@ module Lti
           # overall experience, rather than just getting an obscure "login_required" error message.
           # Unless you have tracked down the root cause of the issue and are sure that it is fixed,
           # do not remove this error screen.
-          if @current_user.blank? && !public_course? && decoded_jwt.present? && Account.site_admin.feature_enabled?(:lti_login_required_error_page)
+          if @current_user.blank? && !public_course? && decoded_jwt.present?
             if context.is_a?(Account)
               account = context
             elsif context.respond_to?(:account)
               account = context.account
             end
 
-            InstStatsd::Statsd.increment("lti.oidc_login_required_error", tags: {
-                                           account: account&.global_id,
-                                           client_id: oidc_params[:client_id],
-                                         })
-            render("lti/ims/authentication/login_required_error_screen", status: :unauthorized, layout: "borderless_lti", formats: :html)
+            if params[:retried] == "true"
+              Rails.logger.info("[LTI] OIDC login required error for account #{account&.global_id}, client_id #{oidc_params[:client_id]}")
+              InstStatsd::Statsd.increment("lti.oidc_login_required_error", tags: Utils::InstStatsdUtils::Tags.tags_for(account&.shard || Shard.current))
+              render("lti/ims/authentication/login_required_error_screen", status: :unauthorized, layout: "borderless_lti", formats: :html)
+            else
+              # In some cases resubmitting the request from within Canvas can fix the missing cookie problem (see INTEROP-8868)
+              Rails.logger.info("[LTI] OIDC missing cookie retry for account #{account&.global_id}, client_id #{oidc_params[:client_id]}")
+              InstStatsd::Statsd.increment("lti.oidc_missing_cookie_retry", tags: Utils::InstStatsdUtils::Tags.tags_for(account&.shard || Shard.current))
+              @oidc_params = oidc_params
+              render("lti/ims/authentication/missing_cookie_fix", status: :ok, layout: "borderless_lti", formats: :html)
+            end
             return
+          end
+
+          # We need to validate the launch after the possible cookie fix, which resubmits the request and would otherwise invalidate the nonce.
+          validate_launch_eligibility!
+
+          if params[:retried] == "true"
+            Rails.logger.info("[LTI] OIDC missing cookie retry worked for client_id #{oidc_params[:client_id]}")
+            InstStatsd::Statsd.increment("lti.oidc_missing_cookie_retry_worked", tags: Utils::InstStatsdUtils::Tags.tags_for(account&.shard || Shard.current))
           end
 
           render(
@@ -122,7 +136,7 @@ module Lti
       def validate_client_id!
         binding_context = context.respond_to?(:account) ? context.account : context
 
-        unless developer_key.usable? && developer_key.account_binding_for(binding_context)&.workflow_state == "on"
+        unless developer_key.usable_in_context?(binding_context)
           set_oidc_error!("unauthorized_client", "Client not authorized in requested context")
         end
       end
@@ -130,7 +144,7 @@ module Lti
       def validate_current_user!
         return if public_course? && @current_user.blank?
 
-        if !@current_user || Lti::Asset.opaque_identifier_for(@current_user, context:) != oidc_params[:login_hint]
+        if !@current_user || Lti::V1p1::Asset.opaque_identifier_for(@current_user, context:) != oidc_params[:login_hint]
           set_oidc_error!("login_required", "Must have an active user session")
         end
       end
@@ -162,7 +176,7 @@ module Lti
 
       def public_course?
         # Is the context published and public?
-        context.is_a?(Course) && context&.available? && context&.is_public?
+        context.is_a?(Course) && context&.available? && context.is_public?
       end
 
       def verifier
@@ -230,8 +244,12 @@ module Lti
             if uri.include? "?"
               # Verify the required query params are present
               required_params = CGI.parse(uri.split("?").last).to_a
-              requested_params = CGI.parse(requested_query_string).to_a
-              (required_params - requested_params).empty?
+              if requested_query_string.nil?
+                required_params.empty?
+              else
+                requested_params = CGI.parse(requested_query_string).to_a
+                (required_params - requested_params).empty?
+              end
             else
               uri == requested_redirect_base
             end

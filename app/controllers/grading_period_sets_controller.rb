@@ -44,7 +44,6 @@
 #    }
 #
 class GradingPeriodSetsController < ApplicationController
-  before_action :require_user
   before_action :get_context
   before_action :check_manage_rights, except: [:index]
   before_action :check_read_rights, except: %i[update create destroy]
@@ -78,13 +77,13 @@ class GradingPeriodSetsController < ApplicationController
   # @argument enrollment_term_ids[] [Array]
   #   A list of associated term ids for the grading period set
   #
-  # @argument grading_period_set[][title] [Required, String]
+  # @argument grading_period_set[title] [Required, String]
   #   The title of the grading period set
   #
-  # @argument grading_period_set[][weighted] [Boolean]
+  # @argument grading_period_set[weighted] [Boolean]
   #   A boolean to determine whether the grading periods in the set are weighted
   #
-  # @argument grading_period_set[][display_totals_for_all_grading_periods] [Boolean]
+  # @argument grading_period_set[display_totals_for_all_grading_periods] [Boolean]
   #   A boolean to determine whether the totals for all grading periods in the set are displayed
   #
   # @example_response
@@ -108,7 +107,7 @@ class GradingPeriodSetsController < ApplicationController
 
         format.json { render json: serialized_set, status: :created }
       else
-        format.json { render json: grading_period_set.errors, status: :unprocessable_entity }
+        format.json { render json: grading_period_set.errors, status: :unprocessable_content }
       end
     end
   end
@@ -145,7 +144,7 @@ class GradingPeriodSetsController < ApplicationController
       if grading_period_set.update(set_params)
         format.json { head :no_content }
       else
-        format.json { render json: grading_period_set.errors, status: :unprocessable_entity }
+        format.json { render json: grading_period_set.errors, status: :unprocessable_content }
       end
     end
   end
@@ -181,12 +180,13 @@ class GradingPeriodSetsController < ApplicationController
   end
 
   def check_read_rights
-    render_json_unauthorized and return unless @context.grants_right?(@current_user, :read)
+    render_json_unauthorized unless @context.grants_right?(@current_user, :read)
   end
 
   def check_manage_rights
-    render_json_unauthorized and return unless @context.root_account?
-    render_json_unauthorized and return unless @context.grants_right?(@current_user, :manage)
+    return render_json_unauthorized unless @context.root_account?
+
+    render_json_unauthorized unless @context.grants_right?(@current_user, :manage)
   end
 
   def serialize_json_api(grading_period_sets, meta = {})

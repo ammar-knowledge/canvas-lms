@@ -90,6 +90,44 @@ class GradebookUserIds
   end
 
   def sort_by_pseudonym_field
+    if Account.site_admin.feature_enabled?(:gradebook_use_sis_pseudonym_order_for_sorting)
+      sort_by_pseudonym_field_fixed
+    else
+      sort_by_pseudonym_field_legacy
+    end
+  end
+
+  def sort_by_pseudonym_field_fixed
+    # Use the same pseudonym selection logic as SisPseudonym.for by delegating to SisPseudonym.order.
+    # When multiple pseudonyms exist per user, we need to pick the same one that the frontend displays.
+    # We use a subquery to select the ID of the "primary" pseudonym per user, then join only those.
+
+    sort_column = Pseudonym.best_unicode_collation_key("pseudonyms.#{pseudonym_sort_field}")
+
+    # Build a subquery that finds the "primary" pseudonym ID for each user.
+    # Uses SisPseudonym.order to apply the canonical ordering logic.
+    base_relation = Pseudonym
+                    .where("pseudonyms.workflow_state <> 'deleted'")
+                    .where("pseudonyms.user_id = users.id")
+
+    # Apply the canonical SisPseudonym ordering (sis_user_id IS NULL, unique_id, position)
+    ordered_relation = SisPseudonym.order(base_relation, "pseudonyms")
+
+    primary_pseudonym_subquery = ordered_relation
+                                 .limit(1)
+                                 .select(:id)
+                                 .to_sql
+
+    students.joins("LEFT JOIN #{Pseudonym.quoted_table_name} ON pseudonyms.id = (#{primary_pseudonym_subquery})")
+            .order(Arel.sql("#{sort_column} #{sort_direction} NULLS LAST"))
+            .order(Arel.sql("pseudonyms.id IS NULL"))
+            .order(Arel.sql("users.id #{sort_direction}"))
+            .pluck(:id)
+            .uniq
+  end
+
+  def sort_by_pseudonym_field_legacy
+    # Legacy implementation - has a bug where duplicate rows from LEFT JOIN make .uniq non-deterministic
     sort_column = Pseudonym.best_unicode_collation_key("pseudonyms.#{pseudonym_sort_field}")
 
     students.joins("LEFT JOIN #{Pseudonym.quoted_table_name} ON pseudonyms.user_id=users.id AND
@@ -222,9 +260,19 @@ class GradebookUserIds
   end
 
   def students_in_groups(students, group_id_or_group_ids)
-    students.joins(group_memberships: :group)
-            .where(group_memberships: { group: group_id_or_group_ids, workflow_state: :accepted })
-            .merge(Group.active)
+    # this will now return students who belong to regular groups or differentiation tags (aka non_collaborative groups)
+    # that match group_id_or_group_ids
+    # if a consumer supplies an id of a non_collaborative group, we can assume that they have access to that group
+    # in the UI, we already only show non_collaborative groups to users who have access to them
+    group_scope = students.joins(group_memberships: :group)
+                          .where(group_memberships: { group: group_id_or_group_ids, workflow_state: :accepted })
+                          .merge(Group.active)
+    differentiation_tag_scope = students.joins(differentiation_tag_memberships: :group)
+                                        .where(differentiation_tag_memberships: { group: group_id_or_group_ids, workflow_state: :accepted })
+                                        .merge(Group.active)
+    group_ids = group_scope.select(:id)
+    tag_ids   = differentiation_tag_scope.select(:id)
+    students.where(id: group_ids).or(students.where(id: tag_ids))
   end
 
   def sort_by_scores(type = :total_grade, id = nil)

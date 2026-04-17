@@ -16,8 +16,16 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import sinon from 'sinon'
 import store from '../AppCenterStore'
+import $ from 'jquery'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
+
+const server = setupServer()
+
+beforeAll(() => server.listen())
+afterEach(() => server.resetHandlers())
+afterAll(() => server.close())
 
 const defaultApps = () => [
   {
@@ -104,25 +112,23 @@ const defaultApps = () => [
 ]
 
 describe('ExternalApps.AppCenterStore', () => {
-  let server
   let apps
-  let response
 
   beforeEach(() => {
-    server = sinon.fakeServer.create()
     store.reset()
     apps = defaultApps()
-    response = [200, {'Content-Type': 'application/json'}, JSON.stringify(apps)]
+    // Set ENV for the store
+    window.ENV = window.ENV || {}
+    window.ENV.CONTEXT_BASE_URL = '/courses/1'
   })
 
   afterEach(() => {
-    server.restore()
     store.reset()
   })
 
   test('findAppByShortName', () => {
     store.setState({apps})
-    expect(store.getState().apps.length).toBe(3)
+    expect(store.getState().apps).toHaveLength(3)
     const thisApp = store.findAppByShortName('aleks')
     expect(thisApp.id).toBe(66)
   })
@@ -138,17 +144,38 @@ describe('ExternalApps.AppCenterStore', () => {
 
   test('filteredApps', () => {
     store.setState({apps})
-    expect(store.filteredApps().length).toBe(3)
+    expect(store.filteredApps()).toHaveLength(3)
     store.setState({filterText: 'e'})
-    expect(store.filteredApps().length).toBe(2)
+    expect(store.filteredApps()).toHaveLength(2)
     store.setState({filter: 'not_installed'})
-    expect(store.filteredApps().length).toBe(1)
+    expect(store.filteredApps()).toHaveLength(1)
   })
 
-  test('fetch', () => {
-    server.respondWith('GET', /\/app_center\/apps/, response)
+  test('fetch', async () => {
+    server.use(
+      http.get('/api/v1/courses/1/app_center/apps', () => {
+        return HttpResponse.json(apps)
+      }),
+      // AppCenterStore also triggers ExternalAppsStore.fetch() in its success handler
+      http.get('/api/v1/courses/1/lti_apps', () => {
+        return HttpResponse.json([])
+      }),
+    )
+
+    // Wait for store to update by listening to change events
+    const storeUpdatePromise = new Promise(resolve => {
+      const listener = () => {
+        if (!store.getState().isLoading && store.getState().isLoaded) {
+          store.removeChangeListener(listener)
+          resolve()
+        }
+      }
+      store.addChangeListener(listener)
+    })
+
     store.fetch()
-    server.respond()
-    expect(store.getState().apps.length).toBe(3)
+
+    await storeUpdatePromise
+    expect(store.getState().apps).toHaveLength(3)
   })
 })

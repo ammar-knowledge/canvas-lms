@@ -36,8 +36,8 @@ const scopes = [
 ]
 
 const baseProps = {
-  setSelectedScopes: jest.fn(),
-  setReadOnlySelected: jest.fn(),
+  setSelectedScopes: vi.fn(),
+  setReadOnlySelected: vi.fn(),
   selectedScopes: [scopes[0].scope],
   scopes,
   name: 'Cool Scope Group',
@@ -59,12 +59,21 @@ describe('ScopesGroup', () => {
     expect(baseProps.setSelectedScopes).toHaveBeenCalled()
   })
 
-  it("removes all scopes from 'selected scopes' when the checbox is unchecked", () => {
-    renderScopesGroup()
+  it("removes all scopes from 'selected scopes' when the checkbox is unchecked", () => {
+    // First render with all scopes selected to ensure the checkbox is checked
+    renderScopesGroup({
+      selectedScopes: scopes.map(s => s.scope),
+    })
 
+    // Reset the mock to clear previous calls
+    baseProps.setSelectedScopes.mockClear()
+
+    // Click to uncheck
     fireEvent.click(screen.getByRole('checkbox'))
 
-    expect(baseProps.setSelectedScopes).toHaveBeenCalledTimes(2)
+    // Verify setSelectedScopes was called with empty array for this group
+    expect(baseProps.setSelectedScopes).toHaveBeenCalledTimes(1)
+    expect(baseProps.setSelectedScopes).toHaveBeenCalledWith([])
   })
 
   it('checks the selected scopes', () => {
@@ -97,5 +106,37 @@ describe('ScopesGroup', () => {
     renderScopesGroup()
 
     expect(screen.getByRole('button', {name: new RegExp(baseProps.name, 'i')})).toBeInTheDocument()
+  })
+
+  describe('expanded prop', () => {
+    it('renders collapsed by default when expanded is not provided', () => {
+      renderScopesGroup()
+
+      // The toggle details should be collapsed - individual scopes should not be visible
+      expect(screen.queryByLabelText(/enable scope/i)).not.toBeInTheDocument()
+    })
+
+    it('renders collapsed when expanded is false', () => {
+      renderScopesGroup({expanded: false})
+
+      // The toggle details should be collapsed
+      expect(screen.queryByLabelText(/enable scope/i)).not.toBeInTheDocument()
+    })
+
+    it('renders expanded when expanded is true', () => {
+      renderScopesGroup({expanded: true})
+
+      // The toggle details should be expanded - individual scopes should be visible
+      expect(screen.getByLabelText(/enable scope/i)).toBeInTheDocument()
+    })
+
+    it('shows individual scopes when expanded is true', () => {
+      renderScopesGroup({expanded: true})
+
+      // Both scopes should be visible
+      const checkboxes = screen.getAllByRole('checkbox')
+      // Should have group checkbox + 2 scope checkboxes
+      expect(checkboxes.length).toBeGreaterThanOrEqual(3)
+    })
   })
 })

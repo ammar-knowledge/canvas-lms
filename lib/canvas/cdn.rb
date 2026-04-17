@@ -17,11 +17,17 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
+require "base/canvas"
+require "base/canvas/reloader"
 require "canvas/cdn/registry"
 
 module Canvas
   module Cdn
     class << self
+      Canvas::Reloader.on_reload do
+        @config = nil
+      end
+
       def config
         @config ||= begin
           config = ActiveSupport::OrderedOptions.new
@@ -72,10 +78,10 @@ module Canvas
         end
       end
 
-      def push_to_s3!(*args, **kwargs, &)
+      def push_to_s3!(*, **, &)
         return unless config.bucket
 
-        uploader = Canvas::Cdn::S3Uploader.new(*args, **kwargs)
+        uploader = Canvas::Cdn::S3Uploader.new(*, **)
         uploader.upload!(&)
       end
 

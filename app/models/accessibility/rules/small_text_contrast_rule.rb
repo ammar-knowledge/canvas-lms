@@ -1,0 +1,153 @@
+# frozen_string_literal: true
+
+#
+# Copyright (C) 2025 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+
+module Accessibility
+  module Rules
+    class SmallTextContrastRule < Accessibility::Rule
+      include Accessibility::CssAttributesHelper
+
+      CONTRAST_THRESHOLD = 4.5
+      SMALL_TEXT_MAX_SIZE_PX = 18.5
+      SMALL_TEXT_MAX_SIZE_BOLD_PX = 14.0
+
+      self.id = "small-text-contrast"
+      self.link = "https://www.w3.org/TR/WCAG20-TECHS/G17.html"
+
+      # Accessibility::Rule methods
+
+      def test(elem)
+        tag_name = elem.tag_name.downcase
+        return nil if %w[img br hr input select textarea button script style svg canvas iframe].include?(tag_name)
+        return nil if elem.text_content.strip.empty?
+
+        return nil if elem.text_content.strip.length < 3
+
+        style_str = elem.attribute("style")&.value.to_s
+        return nil if style_str.include?("display: none") || style_str.include?("visibility: hidden")
+
+        return nil unless small_text?(style_str)
+
+        foreground = extract_color(style_str, "color") || "#000000"
+        background = extract_background_color(style_str)
+
+        return nil if background.nil?
+
+        contrast_ratio = calculate_contrast_ratio(foreground, background)
+
+        if contrast_ratio < CONTRAST_THRESHOLD
+          I18n.t("Contrast ratio for small text is smaller than threshold %{value}.", { value: CONTRAST_THRESHOLD })
+        end
+      end
+
+      def form(elem)
+        style_str = elem.attribute("style")&.value.to_s
+        background = extract_background_color(style_str)
+
+        foreground = if calculate_contrast_ratio("000000", background) >= CONTRAST_THRESHOLD
+                       "#000000"
+                     else
+                       "#FFFFFF"
+                     end
+
+        Accessibility::Forms::ColorPickerField.new(
+          title_label: I18n.t("Contrast Ratio"),
+          input_label: I18n.t("New text color"),
+          label: I18n.t("Change text color"),
+          action: I18n.t("Change text color"),
+          undo_text: I18n.t("Color changed"),
+          options: ["normal"],
+          background_color: background,
+          value: foreground,
+          contrast_ratio: calculate_contrast_ratio(foreground, background)
+        )
+      end
+
+      def fix!(elem, value)
+        style_str = elem.attribute("style")&.value.to_s
+        styles = style_str.split(";").to_h { |s| s.strip.split(":") }
+
+        styles["color"] = value
+
+        new_style = styles.map { |k, v| "#{k.strip}: #{v.strip}" }.join("; ") + ";"
+
+        elem.set_attribute("style", new_style)
+
+        foreground = extract_color(new_style, "color") || "#000000"
+        background = extract_background_color(style_str)
+
+        contrast_ratio = calculate_contrast_ratio(foreground, background)
+        if contrast_ratio < CONTRAST_THRESHOLD
+          error = StandardError.new("Insufficient contrast ratio (#{contrast_ratio.round(2)})")
+          error.instance_variable_set(:@metadata, { foreground:, background: })
+          raise error
+        end
+
+        { changed: elem, foreground:, background: }
+      end
+
+      def display_name
+        I18n.t("Low contrast")
+      end
+
+      def message
+        I18n.t("This text doesn’t stand out enough from the background. Use a color that provides more contrast so it's easier to read.")
+      end
+
+      def why
+        [I18n.t("Text is difficult to read without sufficient contrast between the text and the background, especially for those with low vision."),
+         I18n.t(
+           "Note that we can only accurately detect color contrast issues in content created in Canvas using the Rich Content Editor (using in-line CSS and Hex code values for colors.) " \
+           "If colors in this content are defined by internal or external CSS, or color values other than Hex code, results may be inaccurate."
+         )]
+      end
+
+      def issue_metadata(elem)
+        style_str = elem.attribute("style")&.value.to_s
+        foreground = extract_color(style_str, "color") || "#000000"
+        background = extract_background_color(style_str)
+
+        { foreground:, background: }
+      end
+
+      # Helper methods
+
+      def small_text?(style_str)
+        font_size = extract_font_size(style_str) || 16
+        font_weight = extract_font_weight(style_str) || "normal"
+
+        is_bold = %w[bold bolder 700 800 900].include?(font_weight.to_s.downcase)
+
+        font_size < if is_bold
+                      SMALL_TEXT_MAX_SIZE_BOLD_PX
+                    else
+                      SMALL_TEXT_MAX_SIZE_PX
+                    end
+      end
+
+      def calculate_contrast_ratio(foreground, background)
+        WCAGColorContrast.ratio(foreground.delete_prefix("#"), background.delete_prefix("#"))
+      rescue WCAGColorContrast::InvalidColorError => e
+        message = e.message.blank? ? "color_missing" : "invalid_color_format"
+        error = StandardError.new(message)
+        error.instance_variable_set(:@metadata, { foreground:, background: })
+        raise error
+      end
+    end
+  end
+end

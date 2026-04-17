@@ -26,13 +26,13 @@ import {TabsBlockToolbar} from '../TabsBlockToolbar'
 
 let props = {...TabsBlock.craft.defaultProps}
 
-const mockSetProp = jest.fn((callback: (props: Record<string, any>) => void) => {
+const mockSetProp = vi.fn((callback: (props: Record<string, any>) => void) => {
   callback(props)
 })
 
-jest.mock('@craftjs/core', () => {
+vi.mock('@craftjs/core', () => {
   return {
-    useNode: jest.fn(_node => {
+    useNode: vi.fn(_node => {
       return {
         actions: {setProp: mockSetProp},
         props: TabsBlock.craft.defaultProps,
@@ -65,8 +65,8 @@ describe('TabsBlockToolbar', () => {
     expect(modern).toBeInTheDocument()
     expect(classic).toBeInTheDocument()
 
-    const li = modern.closest('li') as HTMLLIElement
-    expect(li.querySelector('svg[name="IconCheck"]')).toBeInTheDocument()
+    const li = modern?.parentElement?.parentElement as HTMLLIElement
+    expect(li?.querySelector('svg[name="IconCheck"]')).toBeInTheDocument()
   })
 
   it('calls changes the level prop on changing the style', async () => {
@@ -85,13 +85,13 @@ describe('TabsBlockToolbar', () => {
   it('call calls setProp with a new tab on clicking Add Tab', async () => {
     const {getByText} = render(<TabsBlockToolbar />)
 
-    expect(props.tabs.length).toBe(2)
+    expect(props.tabs).toHaveLength(2)
 
     const addTab = getByText('Add Tab').closest('button') as HTMLButtonElement
     await userEvent.click(addTab)
 
     expect(mockSetProp).toHaveBeenCalled()
-    expect(props.tabs.length).toBe(3)
+    expect(props.tabs).toHaveLength(3)
     expect(props.tabs[2].title).toBe('New Tab')
   })
 })

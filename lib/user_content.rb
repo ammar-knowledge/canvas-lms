@@ -24,7 +24,7 @@ module UserContent
   def self.escape(
     str,
     current_host = nil,
-    use_updated_math_rendering = true
+    use_updated_math_rendering: true
   )
     html = Nokogiri::HTML5.fragment(str, nil, **CanvasSanitize::SANITIZE[:parser_options])
     find_user_content(html) do |obj, uc|
@@ -79,7 +79,7 @@ module UserContent
       end
     end
 
-    html.to_s.html_safe
+    html.to_s.html_safe # rubocop:disable Rails/OutputSafety
   end
 
   def self.latex_to_mathml(latex)
@@ -142,7 +142,7 @@ module UserContent
   end
 
   class HtmlRewriter
-    AssetTypes = {
+    ASSET_TYPES = {
       "assignments" => :Assignment,
       "announcements" => :Announcement,
       "calendar_events" => :CalendarEvent,
@@ -163,27 +163,31 @@ module UserContent
       "modules" => :ContextModule,
       "items" => :ContentTag
     }.freeze
-    DefaultAllowedTypes = AssetTypes.keys
+    DEFAULT_ALLOWED_TYPES = ASSET_TYPES.keys
+    # "courses" is not included here because the @context is usually already a course.
+    # including it here would make the whole context prefix filtering moot.
+    FILES_LOCATIONS_PREFIXES = %w[users assessment_questions groups folders].freeze
+    IGNORE_CLOSING_TAGS = %w[/p /div /pre /span /td /th /tr /table /thead /tfoot /caption /math /iframe /ul /ol /li /h1 /h2 /h3 /h4 /h5 /h6 /blockquote /b /i /em /strong /super /sub /strike /article /footer /ol /ul /li].freeze
 
-    def initialize(context, user, contextless_types: [])
+    def initialize(context, user, contextless_types: %w[media_attachments_iframe])
       raise(ArgumentError, "context required") unless context
 
       @context = context
       @user = user
       @contextless_types = contextless_types
       @context_prefix = "/#{context.class.name.tableize}/#{context.id}"
-      @context_regex = %r{(?:/(#{context.class.name.tableize})/(#{context.id})|/(assessment_questions)/(\d+))}
-      @absolute_part = '(https?://[\w-]+(?:\.[\w-]+)*(?:\:\d{1,5})?)?'
-      @toplevel_regex = %r{#{@absolute_part}#{@context_regex}?/(\w+)(?:/([^\s"<'?/]*)([^\s"<']*))?}
+      @context_regex = %r{(?:/(#{context.class.name.tableize})/(#{context.id})|/(#{FILES_LOCATIONS_PREFIXES.join("|")})/([^\s"<'?/]+))}
+      @absolute_part = %r{(https?://[\w-]+(?:\.[\w-]+)*(?::\d{1,5})?)?}
+      @toplevel_regex = %r{#{@absolute_part.source}#{@context_regex.source}?/(\w+)(?:/([^\s"<'?/]*)([^\s"<']*))?}
       @handlers = {}
       @default_handler = nil
       @unknown_handler = nil
-      @allowed_types = DefaultAllowedTypes
+      @allowed_types = DEFAULT_ALLOWED_TYPES
     end
 
     attr_reader :user, :context
 
-    UriMatch = Struct.new(:url, :type, :obj_class, :obj_id, :rest, :prefix, :context_type, :context_id) do
+    UriMatch = Struct.new(:url, :type, :obj_class, :obj_id, :rest, :prefix, :context_type, :context_id, :host) do
       def query
         rest && rest[/\?.*/]
       end
@@ -209,59 +213,109 @@ module UserContent
     def translate_content(html)
       return html if html.blank?
 
-      return precise_translate_content(html) if Account.site_admin.feature_enabled?(:precise_link_replacements)
+      parsed_html = Nokogiri::HTML5.fragment(html, nil, **CanvasSanitize::SANITIZE[:parser_options])
+      html = add_lazy_loading(parsed_html)
+
+      return precise_translate_content(parsed_html) if Account.site_admin.feature_enabled?(:precise_link_replacements)
 
       html.gsub(@toplevel_regex) { |url| replacement(url) }
     end
 
-    def precise_translate_content(html)
-      doc = Nokogiri::HTML5::DocumentFragment.parse(html, nil, { max_tree_depth: 10_000 })
-      attributes = %w[value href longdesc src srcset title]
+    # For places we have URLs outside of HTML content
+    def translate_url(url)
+      url&.gsub(@toplevel_regex) { |matched_url| replacement(matched_url) }
+    end
 
-      doc.css("img, iframe, video, audio, source, param, a").each do |e|
-        attributes.each do |attr|
-          attribute_value = e.attributes[attr]&.value
-          if attribute_value&.match?(@toplevel_regex)
-            e.inner_html = e.inner_html.gsub(@toplevel_regex) { |url| replacement(url) } if e.name == "a" && e["href"] && e.inner_html.delete("\n").strip.include?(e["href"].strip)
-            e.set_attribute(attr, attribute_value.gsub(@toplevel_regex) { |url| replacement(url) })
-          end
+    def add_lazy_loading(parsed_html)
+      parsed_html.css("img, iframe").each do |e|
+        if e.attributes["src"]&.value&.match?(@toplevel_regex)
+          e.set_attribute("loading", "lazy")
         end
       end
-      doc.inner_html
+      parsed_html.to_html
+    end
+
+    def translate_blocks(block_editor)
+      return block_editor.blocks if block_editor.blocks.blank?
+
+      source_blocks = %w[ImageBlock MediaBlock]
+      block_editor.blocks.each do |block|
+        if source_blocks.include? block[1]["type"]["resolvedName"]
+          block[1]["props"]["src"] = replacement(block[1]["props"]["src"]) unless block[1]["props"]["src"].blank?
+        elsif block[1]["type"]["resolvedName"] == "RCETextBlock"
+          block[1]["props"]["text"] = block[1]["props"]["text"].gsub(@toplevel_regex) { |url| replacement(url) }
+        end
+      end
+    end
+
+    def precise_translate_content(parsed_html)
+      attributes = %w[value href longdesc src srcset title]
+
+      parsed_html.css("img, iframe, video, audio, source, param, a").each do |e|
+        attributes.each do |attr|
+          attribute_value = e.attributes[attr]&.value
+          next unless attribute_value&.match?(@toplevel_regex)
+
+          e.inner_html = e.inner_html.gsub(@toplevel_regex) { |url| replacement(url) } if e.name == "a" && e["href"] && e.inner_html.delete("\n").strip.include?(e["href"].strip)
+          processed_url = attribute_value.gsub(@toplevel_regex) { |url| replacement(url) }
+
+          e.set_attribute(attr, processed_url)
+        end
+      end
+      parsed_html.inner_html
     end
 
     def replacement(url)
-      asset_types = AssetTypes.slice(*@allowed_types)
-      matched = url.match(@toplevel_regex)
-      context_type, context_id, type, obj_id, rest = [matched[2] || matched[4], matched[3] || matched[5], matched[6], matched[7], matched[8]]
-      prefix = "/#{context_type}/#{context_id}" if context_type && context_id
-      return url if !@contextless_types.include?(type) && prefix != @context_prefix && url.split("?").first != @context_prefix
+      # This is a terrible, horrible hack to avoid dealing with closing tags.
+      # The regexp itself should be fixed but without a proper unit test or
+      # business description I dare not change it lest I break some exotic
+      # use case.
+      return url if IGNORE_CLOSING_TAGS.include?(url)
 
+      matched = url.match(@toplevel_regex)
+      asset_types = ASSET_TYPES.slice(*@allowed_types)
+      host = matched[1]
+      context_type = matched[2] || matched[4]
+      context_id   = matched[3] || matched[5]
+      type, obj_id, rest = matched.values_at(6, 7, 8)
+      home_link = url.match(%r{(/courses/#{Api::SHARDID_REGEX}/?(?=\b|[^/\w]|$))}o)
+      url = url.sub(%r{/$}, "") if home_link
+      prefix = "/#{context_type}/#{context_id}" if context_type && context_id
+      return url if context_type == "users" && type == "external_tools"
+      # Don't process external URLs that happen to have /files/ or other Canvas-like paths
+      # but don't belong to a Canvas context (e.g., https://www.example.edu/files/123.pdf)
+      return url if host.present? && !context_type && !@contextless_types.include?(type)
+      return url if !@contextless_types.include?(type) && prefix != @context_prefix && url.split("?").first != @context_prefix && !FILES_LOCATIONS_PREFIXES.include?(context_type)
+
+      # wiki pages can have slugs instead of ids, but nothing else can.
+      # the following takes care of throwing out invalid ids.
       if type != "wiki" && type != "pages"
-        if obj_id.to_i > 0
-          obj_id = obj_id.to_i
+        if Shard.integral_id_for(obj_id).to_i > 0
+          obj_id = Shard.integral_id_for(obj_id)
         else
-          rest = "/#{obj_id}#{rest}" if obj_id.present? || rest.present?
+          rest = "/#{obj_id}#{rest}" if obj_id && rest
           obj_id = nil
         end
       end
 
-      if (module_item = rest.try(:match, %r{/items/(\d+)}))
+      # module items can be in a format like /courses/xx/modules/yy/items/zz
+      # if that is the case, we switch from type=module, obj_id=yy
+      # to type=items, obj_id=zz
+      if (module_item = rest.try(:match, %r{/items/(#{Api::SHARDID_REGEX})}o))
         type   = "items"
         obj_id = module_item[1].to_i
       end
 
       if asset_types.key?(type)
-        klass = asset_types[type]
-        klass = klass.to_s.constantize if klass
-        match = UriMatch.new(url, type, klass, obj_id, rest, prefix, context_type, context_id)
+        klass = asset_types[type]&.to_s&.constantize
+        match = UriMatch.new(url, type, klass, obj_id, rest, prefix, context_type, context_id, host)
         handler = @handlers[type] || @default_handler
-        converted = handler&.call(match)
       else
         match = UriMatch.new(url, type)
-        converted = @unknown_handler&.call(match)
+        handler = @unknown_handler
       end
-      converted ||= url
+
+      converted = handler&.call(match) || url
       converted.gsub("&amp;", "&") # get rid of ampersand conversions, it can trip up logic that runs after this
     end
 
@@ -269,6 +323,8 @@ module UserContent
     def user_can_view_content?(content = nil)
       return false if user.blank? && content.respond_to?(:locked?) && content.locked?
       return true unless user
+
+      return content.grants_right?(user, :download) if content.is_a?(Attachment) && content.context != context
 
       # if user given, check that the user is allowed to manage all
       # context content, or read that specific item (and it's not locked)

@@ -67,7 +67,7 @@ describe "Theme Editor" do
     expect(driver.title).to include "Theme Editor"
 
     fj('.Theme__header button:contains("Exit")').click
-    driver.switch_to.alert.accept
+    f('[data-testid="cancel-theme-editor-proceed-button"]').click
     # validations
     assert_flash_notice_message("Theme editor changes have been cancelled")
     expect(driver.current_url).to end_with("/accounts/#{Account.default.id}/brand_configs")
@@ -90,7 +90,7 @@ describe "Theme Editor" do
 
     exit_btn = fj('.Theme__header button:contains("Exit")')
     exit_btn.click
-    driver.switch_to.alert.accept
+    f('[data-testid="cancel-theme-editor-proceed-button"]').click
     assert_flash_notice_message("Theme editor changes have been cancelled")
     expect(driver.current_url).to end_with("/accounts/#{Account.default.id}/brand_configs")
     expect(f("#left-side #section-tabs .brand_configs").text).to eq "Themes"
@@ -152,14 +152,13 @@ describe "Theme Editor" do
     expect(driver.title).to include "Theme Editor"
 
     # enters invalid ID and presses tab
-    f(".Theme__editor-color-block_input-text").send_keys("#xxxxx!")
+    invalid_color = "#xxxxx!"
+    f(".Theme__editor-color-block_input-text").send_keys(invalid_color)
     f(".Theme__editor-color-block_input-text").send_keys(:tab)
 
     # validations
-    expect(f(".ic-Form-message--error")).to include_text "'#xxxxx!' is not a valid color."
+    expect(f('[id="warning-message"]')).to include_text "'#{invalid_color}' is not a valid color."
   end
-
-  it "K12 Theme should be automatically set when K12 Feature Flag is turned on", priority: "1"
 
   it "previews should display a progress bar when generating preview", priority: "1" do
     open_theme_editor(Account.default.id)
@@ -167,21 +166,7 @@ describe "Theme Editor" do
 
     expect(f("body")).not_to contain_css("div.progress-bar__bar-container")
     preview_your_changes
-    expect(f("div.progress-bar__bar-container")).to be
-  end
-
-  it "has validation for every text field", priority: "2" do
-    skip("Broken after upgrade to webdriver 2.53 - seems to be a timing issue on jenkins, passes locally")
-    open_theme_editor(Account.default.id)
-
-    # input invalid text into every text field
-    create_theme("#xxxxxx")
-
-    # tab to trigger last validation
-    fj(".Theme__editor-color-block_input--has-error:last").send_keys(:tab)
-
-    # expect all 15 text fields to have working validation
-    expect(all_warning_messages.length).to eq 15
+    expect(f("div.progress-bar__bar-container")).not_to be_nil
   end
 
   it "allows fields to be changed after colors are unlinked", priority: 3 do
@@ -223,19 +208,19 @@ describe "Theme Editor" do
     end
     fj('button:contains("Save theme")').click
 
-    name_input = f("#new_theme_theme_name")
+    name_input = f('input[name="name"]')
 
     keep_trying_until(1) do
       name_input.send_keys("Test Theme")
       true
     end
-    fj('span[aria-label="Save Theme"] button:contains("Save theme")').click
+    fj('form[aria-label="Save Theme Dialog"] button:contains("Save theme")').click
     apply_btn = fj('button:contains("Apply theme")')
     keep_trying_until(1) do
       apply_btn.click
       true
     end
-    driver.switch_to.alert.accept
+    f('[data-testid="apply-theme-proceed-button"]').click
 
     # wait for the popup
     wait_for_ajaximations

@@ -55,19 +55,19 @@ describe('GradingPeriodSelect', () => {
   })
 
   it('Calls the provided callback with the selected grading period id', () => {
-    const handleSelectGradingPeriod = jest.fn()
+    const handleSelectGradingPeriod = vi.fn()
     const {getByRole, getByText} = render(
       <GradingPeriodSelect
         {...defaultProps}
         handleSelectGradingPeriod={handleSelectGradingPeriod}
-      />
+      />,
     )
     act(() => getByRole('combobox', {name: 'Select Grading Period'}).click())
     act(() => getByText('Fall 2020').click())
 
     expect(handleSelectGradingPeriod).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({value: '2'})
+      expect.objectContaining({value: '2'}),
     )
   })
 })

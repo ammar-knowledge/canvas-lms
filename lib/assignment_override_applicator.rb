@@ -39,10 +39,8 @@ module AssignmentOverrideApplicator
 
     overrides = overrides_for_assignment_and_user(learning_object, user)
 
-    if Account.site_admin.feature_enabled?(:selective_release_backend)
-      is_unassigned = overrides.find { |o| o&.unassign_item? }
-      overrides = overrides.split(is_unassigned)[0]
-    end
+    is_unassigned = overrides.find { |o| o&.unassign_item? }
+    overrides = overrides.split(is_unassigned)[0]
 
     result_learning_object = assignment_with_overrides(learning_object, overrides, user)
     result_learning_object.overridden_for_user = user
@@ -56,8 +54,11 @@ module AssignmentOverrideApplicator
 
       overridden_section_ids = result_learning_object
                                .applied_overrides.select { |o| o.set_type == "CourseSection" }
-                               .map(&:set_id)
+                                                 .map(&:set_id)
       course_section_ids = context.active_course_sections.map(&:id)
+      course_override_due_at = result_learning_object
+                               .applied_overrides.find { |o| o.set_type == "Course" }
+                                                 &.due_at
 
       if learning_object.is_a?(Assignment) || learning_object.is_a?(Quizzes::Quiz)
         result_learning_object.due_at =
@@ -68,7 +69,7 @@ module AssignmentOverrideApplicator
             result_learning_object.due_at
           else
             potential_due_dates = [
-              result_learning_object.without_overrides.due_at,
+              course_override_due_at || result_learning_object.without_overrides.due_at,
               result_learning_object.due_at
             ]
             if potential_due_dates.include?(nil)
@@ -85,7 +86,11 @@ module AssignmentOverrideApplicator
 
   def self.version_for_cache(learning_object)
     # don't really care about the version number unless it is an old one
-    learning_object.current_version? ? "current" : learning_object.version_number
+    if learning_object.is_a?(SimplyVersioned::InstanceMethods) && !learning_object.current_version?
+      learning_object.version_number
+    else
+      "current"
+    end
   end
 
   # determine list of overrides (of appropriate version) that apply to the
@@ -106,7 +111,9 @@ module AssignmentOverrideApplicator
         context.shard.activate do
           if (context.user_has_been_admin?(user) || context.user_has_no_enrollments?(user)) && context.grants_right?(user, :read_as_admin)
             overrides = learning_object.all_assignment_overrides
-            if learning_object.current_version?
+            if learning_object.is_a?(SimplyVersioned::InstanceMethods) && !learning_object.current_version?
+              overrides = current_override_version(learning_object, overrides)
+            else
               visible_user_ids = context.enrollments_visible_to(user).select(:user_id)
 
               overrides = if overrides.loaded?
@@ -122,8 +129,6 @@ module AssignmentOverrideApplicator
 
                             ovs + adhoc_ovs
                           end
-            else
-              overrides = current_override_version(learning_object, overrides)
             end
 
             unless ConditionalRelease::Service.enabled_in_context?(learning_object.context)
@@ -142,6 +147,13 @@ module AssignmentOverrideApplicator
           if ObserverEnrollment.observed_students(context, user).empty?
             groups = group_overrides(learning_object, user)
             overrides += groups if groups
+
+            # add differentiation tag overrides if allowed in account context
+            if learning_object.context.account.allow_assign_to_differentiation_tags?
+              diff_tags = differentiation_tag_overrides(learning_object, user)
+              overrides += diff_tags if diff_tags
+            end
+
             sections = section_overrides(learning_object, user)
             overrides += sections if sections
             everyone = course_overrides(learning_object, user)
@@ -151,7 +163,7 @@ module AssignmentOverrideApplicator
             overrides += observed if observed
           end
 
-          unless learning_object.current_version?
+          if learning_object.is_a?(SimplyVersioned::InstanceMethods) && !learning_object.current_version?
             overrides = current_override_version(learning_object, overrides)
           end
 
@@ -202,14 +214,14 @@ module AssignmentOverrideApplicator
                  AssignmentOverrideStudent.where(key => learning_object, :user_id => user).active.first
                end
     # only bother to check context_modules if no other override was found
-    if !override && Account.site_admin.feature_enabled?(:selective_release_backend) && learning_object.context_module_overrides
+    if !override && learning_object.context_module_overrides
       override = AssignmentOverrideStudent.where(context_module_id: learning_object.assignment_context_modules.select(:id), user_id: user).active.first
     end
     override
   end
 
   def self.group_overrides(learning_object, user)
-    return nil unless learning_object.is_a?(AbstractAssignment)
+    return nil unless learning_object.is_a?(AbstractAssignment) || learning_object.is_a?(DiscussionTopic)
 
     group_category_id = learning_object.effective_group_category_id
     return nil unless group_category_id
@@ -226,6 +238,17 @@ module AssignmentOverrideApplicator
       else
         learning_object.assignment_overrides.where(set_type: "Group", set_id: group.id).to_a
       end
+    end
+  end
+
+  def self.differentiation_tag_overrides(learning_object, user)
+    user_diff_tag_group_ids = user.differentiation_tags.pluck(:group_id)
+    return nil unless user_diff_tag_group_ids.any?
+
+    if learning_object.assignment_overrides.loaded?
+      learning_object.assignment_overrides.select { |o| o.set_type == "Group" && user_diff_tag_group_ids.include?(o.set_id) }
+    else
+      learning_object.assignment_overrides.where(set_type: "Group", set_id: user_diff_tag_group_ids).to_a
     end
   end
 
@@ -268,15 +291,13 @@ module AssignmentOverrideApplicator
   end
 
   def self.course_overrides(learning_object, user)
-    if Account.site_admin.feature_enabled? :selective_release_backend
-      context = learning_object.context
-      return nil if user.enrollments.active.where(course: context).empty?
+    context = learning_object.context
+    return nil if user.enrollments.active.where(course: context).empty?
 
-      if learning_object.preloaded_all_overrides
-        learning_object.preloaded_all_overrides.select { |o| o.set_type == "Course" && o.set_id == context.id }
-      else
-        learning_object.all_assignment_overrides.where(set_type: "Course", set_id: context.id)
-      end
+    if learning_object.preloaded_all_overrides
+      learning_object.preloaded_all_overrides.select { |o| o.set_type == "Course" && o.set_id == context.id }
+    else
+      learning_object.all_assignment_overrides.where(set_type: "Course", set_id: context.id)
     end
   end
 
@@ -359,7 +380,7 @@ module AssignmentOverrideApplicator
           # for any times in the value set, bring them back from raw UTC into the
           # current Time.zone before placing them in the assignment
           value = value.in_time_zone if value.respond_to?(:in_time_zone) && !value.is_a?(Date)
-          cloned_learning_object.write_attribute(field, value)
+          cloned_learning_object[field] = value
         end
       end
     end
@@ -386,7 +407,7 @@ module AssignmentOverrideApplicator
         %i[due_at all_day all_day_date unlock_at lock_at].each do |field|
           next unless learning_object.respond_to?(field)
 
-          value = send(:"overridden_#{field}", learning_object, overrides)
+          value = send(:"overridden_#{field}", learning_object, overrides, user)
           # force times to un-zoned UTC -- this will be a cached value and should
           # not care about the TZ of the user that cached it. the user's TZ will
           # be applied before it's returned.
@@ -405,22 +426,26 @@ module AssignmentOverrideApplicator
   end
 
   # perform overrides of specific fields
-  def self.override_for_due_at(learning_object, overrides)
-    due_at_overrides = overrides.select(&:due_at_overridden)
-    select_override_by_attribute(learning_object, due_at_overrides, :due_at, :max)
+  def self.override_for_due_at(learning_object, overrides, user = nil)
+    due_at_overrides = if overrides.all? { |o| !o.context_module_id.nil? }
+                         overrides
+                       else
+                         overrides.select(&:due_at_overridden)
+                       end
+    select_override_by_attribute(learning_object, due_at_overrides, :due_at, :max, user)
   end
 
-  def self.override_for_unlock_at(learning_object, overrides)
+  def self.override_for_unlock_at(learning_object, overrides, user = nil)
     unlock_at_overrides = overrides.select(&:unlock_at_overridden)
     # CNVS-24849 if the override has been locked it's unlock_at no longer applies
     unlock_at_overrides.reject!(&:availability_expired?)
-    select_override_by_attribute(learning_object, unlock_at_overrides, :unlock_at, :min)
+    select_override_by_attribute(learning_object, unlock_at_overrides, :unlock_at, :min, user)
   end
   private_class_method :override_for_unlock_at
 
-  def self.override_for_lock_at(learning_object, overrides)
+  def self.override_for_lock_at(learning_object, overrides, user = nil)
     lock_at_overrides = overrides.select(&:lock_at_overridden)
-    select_override_by_attribute(learning_object, lock_at_overrides, :lock_at, :max)
+    select_override_by_attribute(learning_object, lock_at_overrides, :lock_at, :max, user)
   end
   private_class_method :override_for_lock_at
 
@@ -435,14 +460,14 @@ module AssignmentOverrideApplicator
   # * Individual and Group overrides are always considered "active".
   #   A Section override that applies to an enrollment that has a state that is not "active" is
   #   considered an "inactive override" for that enrollment's user.
-  def self.select_override_by_attribute(learning_object, overrides, attribute, comparison)
+  def self.select_override_by_attribute(learning_object, overrides, attribute, comparison, user = nil)
     nonactive_overrides, applicable_overrides = overrides.partition(&:for_nonactive_enrollment?)
     selected = if applicable_overrides.any?
-                 select_override(applicable_overrides, attribute, comparison)
+                 select_override(applicable_overrides, attribute, comparison, user, learning_object)
                elsif learning_object.only_visible_to_overrides && nonactive_overrides.any?
-                 select_override(nonactive_overrides, attribute, comparison)
+                 select_override(nonactive_overrides, attribute, comparison, user, learning_object)
                end
-    if !selected || (Account.site_admin.feature_enabled?(:selective_release_backend) && selected.unassign_item)
+    if !selected || selected.unassign_item
       learning_object
     else
       selected
@@ -450,8 +475,12 @@ module AssignmentOverrideApplicator
   end
   private_class_method :select_override_by_attribute
 
-  def self.select_override(overrides, attribute, comparison)
-    if (adhoc_override = overrides.detect(&:adhoc?))
+  def self.select_override(overrides, attribute, comparison, user = nil, learning_object = nil)
+    context = learning_object&.context
+    is_admin = user && context && (context.user_has_been_admin?(user) || context.user_has_no_enrollments?(user))
+    adhoc_override = overrides.detect(&:adhoc?)
+
+    if adhoc_override && !(attribute == :lock_at && is_admin)
       adhoc_override
     elsif (override = overrides.detect { |o| o.public_send(attribute).nil? })
       override
@@ -463,30 +492,30 @@ module AssignmentOverrideApplicator
   end
   private_class_method :select_override
 
-  def self.overridden_due_at(learning_object, overrides)
-    override_for_due_at(learning_object, overrides).due_at
+  def self.overridden_due_at(learning_object, overrides, user = nil)
+    override_for_due_at(learning_object, overrides, user).due_at
   end
 
-  def self.overridden_all_day(assignment, overrides)
-    override_for_due_at(assignment, overrides).all_day
+  def self.overridden_all_day(assignment, overrides, user = nil)
+    override_for_due_at(assignment, overrides, user).all_day
   end
 
-  def self.overridden_all_day_date(assignment, overrides)
-    override_for_due_at(assignment, overrides).all_day_date
+  def self.overridden_all_day_date(assignment, overrides, user = nil)
+    override_for_due_at(assignment, overrides, user).all_day_date
   end
 
-  def self.overridden_unlock_at(learning_object, overrides)
-    override_for_unlock_at(learning_object, overrides).unlock_at
+  def self.overridden_unlock_at(learning_object, overrides, user = nil)
+    override_for_unlock_at(learning_object, overrides, user).unlock_at
   end
 
-  def self.overridden_lock_at(learning_object, overrides)
-    override_for_lock_at(learning_object, overrides).lock_at
+  def self.overridden_lock_at(learning_object, overrides, user = nil)
+    override_for_lock_at(learning_object, overrides, user).lock_at
   end
 
   def self.should_preload_override_students?(assignments, user, endpoint_key)
     return false unless user
 
-    assignment_key = Digest::SHA256.hexdigest(assignments.map(&:id).sort.map(&:to_s).join(","))
+    assignment_key = Digest::SHA256.hexdigest(assignments.map(&:id).sort.join(","))
     key = ["should_preload_assignment_override_students", user.cache_key(:enrollments), user.cache_key(:groups), endpoint_key, assignment_key].cache_key
     # if the user has been touch we should preload all of the overrides because it's almost certain we'll need them all
     if Rails.cache.read(key)

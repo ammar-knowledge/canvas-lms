@@ -24,26 +24,35 @@ import type {Props as ComponentProps} from '../renderWikiPageTitle'
 import type JQuery from 'jquery'
 import {checkForTitleConflictDebounced} from '../../utils/titleConflicts'
 
-jest.mock('../../utils/titleConflicts')
+vi.mock('../../utils/titleConflicts', () => ({
+  checkForTitleConflictDebounced: vi.fn(),
+}))
 
 const wikiPageModel = new WikiPage()
 wikiPageModel.initialize({url: 'page-1'}, {contextAssetString: 'course_1'})
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - Backbone WikiPageEditView constructor type mismatch
 const viewElement = new WikiPageEditView({
   model: wikiPageModel,
   wiki_pages_path: '/courses/1/pages',
 })
 
+// Mock the $el.toJSON method that jQuery's form serializer provides
+if ((viewElement as any).$el) {
+  (viewElement as any).$el.toJSON = vi.fn(() => ({title: ''}))
+}
+
 const getProps = (overrides?: {[k: string]: any}): ComponentProps => ({
   canEdit: true,
   defaultValue: 'Test Title',
   viewElement: viewElement as unknown as JQuery<HTMLFormElement> & WikiPageEditView,
-  validationCallback: jest.fn(),
+  validationCallback: vi.fn(),
   isContentLocked: false,
   ...overrides,
 })
 
 describe('renderWikiPageTitle', () => {
-  it('sets the wikipage title to the input', () => {
+  it('sets the wiki page title to the input', () => {
     const props = getProps()
     const component = renderWikiPageTitle(props)
     const {getByTestId} = render(component)
@@ -69,21 +78,51 @@ describe('renderWikiPageTitle', () => {
     expect(getByText('Test Title')).toBeInTheDocument()
   })
 
-  it('calls validationCallback when submitting', () => {
+  it('calls validationCallback when submitting empty title', () => {
     const titleErrors = [{message: 'title is required', type: 'required'}]
-    const callback = jest.fn(() => ({title: titleErrors}))
+    const callback = vi.fn(() => ({title: titleErrors}))
     const props = getProps({validationCallback: callback})
+
     const component = renderWikiPageTitle(props)
 
     const {getByText} = render(component)
-    props.viewElement.submit()
+    props.viewElement.trigger('submit')
     expect(getByText(titleErrors[0].message)).toBeInTheDocument()
     expect(callback).toHaveBeenCalled()
   })
 
+  it('shows error from server when submitting', () => {
+    const mockViewElement = {
+      on: vi.fn(),
+      off: vi.fn(),
+      getFormData: vi.fn(),
+    }
+    const props = getProps({viewElement: mockViewElement})
+    const component = renderWikiPageTitle(props)
+    const {getByText} = render(component)
+
+    const submitterFn = mockViewElement.on.mock.calls[0][1]
+    const mockEvent = {
+      stopPropagation: vi.fn(),
+      result: Promise.reject({
+        responseJSON: {
+          errors: {
+            title: [{message: 'Title error message'}],
+          },
+        },
+      }),
+    }
+
+    submitterFn(mockEvent)
+    expect(mockEvent.stopPropagation).toHaveBeenCalled()
+    mockEvent.result.catch(() => {
+      expect(getByText('Title error message')).toBeInTheDocument()
+    })
+  })
+
   describe('handleOnChange', () => {
     afterEach(() => {
-      jest.clearAllMocks()
+      vi.clearAllMocks()
     })
 
     it('calls checkForTitleConflictDebounced onChange', () => {
@@ -107,7 +146,7 @@ describe('renderWikiPageTitle', () => {
       expect(checkForTitleConflictDebounced).not.toHaveBeenCalled()
     })
 
-    it('does not call checkForTitleConflictDebounced when new value is whitepace', () => {
+    it('does not call checkForTitleConflictDebounced when new value is whitespace', () => {
       const {getByTestId} = render(renderWikiPageTitle(getProps()))
       const input = getByTestId('wikipage-title-input')
       fireEvent.change(input, {target: {value: '       '}})

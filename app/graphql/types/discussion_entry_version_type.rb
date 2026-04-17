@@ -26,7 +26,9 @@ module Types
     implements Interfaces::LegacyIDInterface
     global_id_field :id
 
-    field :version, Integer, null: false
     field :message, String, null: false
+    field :message_intro, String, null: false
+
+    field :version, Integer, null: false
   end
 end

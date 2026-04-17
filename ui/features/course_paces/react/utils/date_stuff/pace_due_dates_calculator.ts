@@ -56,17 +56,28 @@ import * as DateHelpers from './date_helpers'
 export const getDueDates = (
   coursePaceItems: CoursePaceItem[],
   excludeWeekends: boolean,
+  selectedDaysToSkip: string[],
   blackoutDates: BlackoutDate[],
-  startDate?: string
+  startDate?: string,
+  timezone?: string,
 ): CoursePaceItemDueDates => {
   const dueDates: {
     [key: string]: string
   } = {}
   if (!startDate) return dueDates
 
-  let currentStart = DateHelpers.formatDate(moment(startDate))
+  let currentStart = DateHelpers.formatDate(
+    timezone ? moment.tz(startDate, timezone) : moment(startDate),
+  )
   for (const item of coursePaceItems) {
-    currentStart = DateHelpers.addDays(currentStart, item.duration, excludeWeekends, blackoutDates)
+    currentStart = DateHelpers.addDays(
+      currentStart,
+      item.duration,
+      excludeWeekends,
+      selectedDaysToSkip,
+      blackoutDates,
+      timezone,
+    )
     dueDates[item.module_item_id] = currentStart
   }
 

@@ -19,14 +19,7 @@
 import $ from 'jquery'
 import Backbone from '@canvas/backbone'
 import ExternalToolLaunchView from '../ExternalToolLaunchView'
-import {isAccessible} from '@canvas/test-utils/jestAssertions'
-import sinon from 'sinon'
-
-const sandbox = sinon.createSandbox()
-const deepEqual = (x, y) => expect(x).toEqual(y)
-const strictEqual = (x, y) => expect(x).toStrictEqual(y)
-
-const ok = x => expect(x).toBeTruthy()
+import {isAccessible} from '@canvas/test-utils/assertions'
 
 let mockMigration
 let mockReturnView
@@ -36,6 +29,7 @@ describe('ExternalToolLaunchView', () => {
   beforeEach(() => {
     mockMigration = new Backbone.Model()
     mockReturnView = new Backbone.View()
+    mockReturnView.render = vi.fn().mockReturnThis()
     launchView = new ExternalToolLaunchView({
       contentReturnView: mockReturnView,
       model: mockMigration,
@@ -45,16 +39,16 @@ describe('ExternalToolLaunchView', () => {
 
   afterEach(() => {
     launchView.remove()
+    vi.clearAllMocks()
   })
 
-  test('it should be accessible', function (done) {
-    isAccessible(launchView, done, {a11yReport: true})
+  test('it should be accessible', async () => {
+    await isAccessible(launchView, {a11yReport: true})
   })
 
   test('calls render on return view when launch button clicked', function () {
-    sandbox.stub(mockReturnView, 'render').returns(this)
     launchView.$el.find('#externalToolLaunch').click()
-    ok(mockReturnView.render.calledOnce, 'render not called on return view')
+    expect(mockReturnView.render).toHaveBeenCalledTimes(1)
   })
 
   test("displays file name on 'ready'", function () {
@@ -66,7 +60,7 @@ describe('ExternalToolLaunchView', () => {
         },
       ],
     })
-    strictEqual(launchView.$fileName.text(), 'data text')
+    expect(launchView.$fileName.text()).toStrictEqual('data text')
   })
 
   test("sets settings.data_url on migration on 'ready'", function () {
@@ -78,6 +72,6 @@ describe('ExternalToolLaunchView', () => {
         },
       ],
     })
-    deepEqual(mockMigration.get('settings'), {file_url: 'data url'})
+    expect(mockMigration.get('settings')).toEqual({file_url: 'data url'})
   })
 })

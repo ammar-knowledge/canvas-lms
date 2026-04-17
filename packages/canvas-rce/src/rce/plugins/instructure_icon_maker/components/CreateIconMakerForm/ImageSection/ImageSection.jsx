@@ -17,7 +17,7 @@
  */
 
 import React, {useReducer, useEffect, useRef, Suspense} from 'react'
-import _ from 'lodash'
+import {isEqual} from 'es-toolkit/compat'
 import PropTypes from 'prop-types'
 
 import formatMessage from '../../../../../../format-message'
@@ -113,11 +113,11 @@ export const ImageSection = ({settings, onChange, editor, canvasOrigin}) => {
   useEffect(() => {
     if (state.icon && state.icon in SingleColorSVG) {
       dispatch({...actions.START_LOADING})
-      // eslint-disable-next-line promise/catch-or-return
+
       convertFileToBase64(
         new Blob([SingleColorSVG[state.icon].source(state.iconFillColor)], {
           type: 'image/svg+xml',
-        })
+        }),
       ).then(base64Image => {
         dispatch({...actions.SET_IMAGE, payload: base64Image})
         dispatch({...actions.STOP_LOADING})
@@ -136,7 +136,7 @@ export const ImageSection = ({settings, onChange, editor, canvasOrigin}) => {
       })
       createCroppedImageSvg(newCropperSettings, settings.imageSettings.image)
         .then(generatedSvg =>
-          convertFileToBase64(new Blob([generatedSvg.outerHTML], {type: 'image/svg+xml'}))
+          convertFileToBase64(new Blob([generatedSvg.outerHTML], {type: 'image/svg+xml'})),
         )
         .then(base64Image => {
           onChange({
@@ -144,7 +144,7 @@ export const ImageSection = ({settings, onChange, editor, canvasOrigin}) => {
             payload: base64Image,
           })
         })
-        // eslint-disable-next-line no-console
+
         .catch(error => console.error(error))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,7 +154,7 @@ export const ImageSection = ({settings, onChange, editor, canvasOrigin}) => {
     if (
       settings.imageSettings &&
       !isMetadataLoaded.current &&
-      !_.isEqual(settings.imageSettings, metadata)
+      !isEqual(settings.imageSettings, metadata)
     ) {
       isMetadataLoaded.current = true
       dispatch({
@@ -166,7 +166,7 @@ export const ImageSection = ({settings, onChange, editor, canvasOrigin}) => {
   }, [settings.imageSettings])
 
   useEffect(() => {
-    if (!_.isEqual(metadata, settings.imageSettings)) {
+    if (!isEqual(metadata, settings.imageSettings)) {
       onChange({
         type: svgActions.SET_IMAGE_SETTINGS,
         payload: metadata,

@@ -18,16 +18,16 @@
 
 import React from 'react'
 import PropTypes from 'prop-types'
-import {isEmpty} from 'lodash'
+import {isEmpty} from 'es-toolkit/compat'
 import GenerateLink from './GenerateLink'
 import DownloadLink from './DownloadLink'
 import ApiProgressBar from '@canvas/progress/react/components/ApiProgressBar'
 import CourseEpubExportStore from './CourseStore'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import FriendlyDatetime from '@canvas/datetime/react/components/FriendlyDatetime'
 import classnames from 'classnames'
 
-const I18n = useI18nScope('epub_exports')
+const I18n = createI18nScope('epub_exports')
 
 class CourseListItem extends React.Component {
   static displayName = 'CourseListItem'

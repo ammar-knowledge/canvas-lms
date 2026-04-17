@@ -165,11 +165,48 @@ describe SisPseudonym do
     expect { SisPseudonym.for(u, context) }.to raise_error("could not resolve root account")
   end
 
-  it "includes a pseudonym from a trusted account" do
-    pseudonym = account2.pseudonyms.create!(user: u, unique_id: "user") { |p| p.sis_user_id = "abc" }
-    allow(account1).to receive_messages(trust_exists?: true, trusted_account_ids: [account2.id])
-    expect(SisPseudonym.for(u, account1)).to be_nil
-    expect(SisPseudonym.for(u, account1, type: :trusted)).to eq(pseudonym)
+  it "raises if no user is provided" do
+    expect { SisPseudonym.for(nil, @account) }.to raise_error("user is required")
+  end
+
+  it "allows an explicit no-context... in implicit mode" do
+    pseudonym = account1.pseudonyms.create!(user: u, unique_id: "user")
+
+    expect { SisPseudonym.for(u, nil) }.to raise_error(ArgumentError)
+    expect { SisPseudonym.for(u, nil, type: :implicit) }.to raise_error(ArgumentError)
+    expect { SisPseudonym.for(u, nil, require_sis: false) }.to raise_error(ArgumentError)
+    expect(SisPseudonym.for(u, nil, type: :implicit, require_sis: false)).to eq pseudonym
+  end
+
+  context "with multiple shards" do
+    specs_require_sharding
+
+    let(:user_on_other_shard) do
+      @shard1.activate { User.create! }
+    end
+    let(:account3) do
+      @shard1.activate { account_model }
+    end
+    let!(:pseudonym) do
+      @shard1.activate do
+        account3.pseudonyms.create!(user: user_on_other_shard, unique_id: "user") do |p|
+          p.sis_user_id = "abc"
+        end
+      end
+    end
+
+    it "includes a pseudonym from a trusted account" do
+      allow(account1).to receive_messages(trust_exists?: true, trusted_account_ids: [account3.id])
+      expect(SisPseudonym.for(user_on_other_shard, account1)).to be_nil
+      expect(SisPseudonym.for(user_on_other_shard, account1, type: :trusted)).to eq(pseudonym)
+    end
+
+    it "includes a pseudonym from a trusted account when association cache is loaded" do
+      user_on_other_shard.pseudonyms.reload # to get pseudonyms collection pre-loaded
+      allow(account1).to receive_messages(trust_exists?: true, trusted_account_ids: [account3.id])
+      expect(SisPseudonym.for(user_on_other_shard, account1)).to be_nil
+      expect(SisPseudonym.for(user_on_other_shard, account1, type: :trusted)).to eq(pseudonym)
+    end
   end
 
   context "with multiple acceptable sis pseudonyms" do
@@ -186,7 +223,7 @@ describe SisPseudonym do
         p.workflow_state = "active"
         p.sis_user_id = "SIS2"
       end
-      u.pseudonyms.create!(pseud_params("alphabet@example.com")) do |p|
+      u.pseudonyms.create!(pseud_params("alphabet2@example.com")) do |p|
         p.workflow_state = "active"
         p.sis_user_id = "SIS3"
         p.authentication_provider = ldap_ap
@@ -275,6 +312,109 @@ describe SisPseudonym do
     end
   end
 
+  describe ".preload_enrollment_data" do
+    after do
+      if course1.instance_variable_defined?(:@_sis_enrollment_pseudonym_cache)
+        course1.remove_instance_variable(:@_sis_enrollment_pseudonym_cache)
+      end
+    end
+
+    it "is a no-op for non-course contexts" do
+      SisPseudonym.preload_enrollment_data(account1, [u])
+      expect(account1.instance_variable_defined?(:@_sis_enrollment_pseudonym_cache)).to be false
+    end
+
+    it "is a no-op for empty users" do
+      SisPseudonym.preload_enrollment_data(course1, [])
+      expect(course1.instance_variable_defined?(:@_sis_enrollment_pseudonym_cache)).to be false
+    end
+
+    it "caches sis pseudonyms from enrollments for a batch of users" do
+      pseudonym = u.pseudonyms.create!(pseud_params("user1@example.com")) do |x|
+        x.workflow_state = "active"
+        x.sis_user_id = "user1"
+      end
+      course1.enroll_user(u).update!(sis_pseudonym_id: pseudonym.id)
+
+      user2 = User.create!
+      course1.enroll_user(user2)
+
+      SisPseudonym.preload_enrollment_data(course1, [u, user2])
+
+      cache = course1.instance_variable_get(:@_sis_enrollment_pseudonym_cache)
+      expect(cache[u.id]).to eq pseudonym
+      expect(cache).to have_key(user2.id)
+      expect(cache[user2.id]).to be_nil
+    end
+
+    it "takes the first enrollment by id when a user has multiple" do
+      p1 = u.pseudonyms.create!(pseud_params("user1@example.com")) do |x|
+        x.workflow_state = "active"
+        x.sis_user_id = "user1"
+      end
+      p2 = u.pseudonyms.create!(pseud_params("user1b@example.com")) do |x|
+        x.workflow_state = "active"
+        x.sis_user_id = "user1b"
+      end
+      course1.enroll_user(u, "StudentEnrollment", enrollment_state: "active")
+             .update!(sis_pseudonym_id: p1.id)
+      section = course1.course_sections.create!
+      course1.enroll_user(u, "StudentEnrollment", enrollment_state: "active", section:, allow_multiple_enrollments: true)
+             .update!(sis_pseudonym_id: p2.id)
+
+      SisPseudonym.preload_enrollment_data(course1, [u])
+
+      cache = course1.instance_variable_get(:@_sis_enrollment_pseudonym_cache)
+      expect(cache[u.id]).to eq p1
+    end
+
+    it "uses cache instead of querying enrollments in SisPseudonym.for" do
+      pseudonym = u.pseudonyms.create!(pseud_params("user1@example.com")) do |x|
+        x.workflow_state = "active"
+        x.sis_user_id = "user1"
+      end
+      course1.enroll_user(u).update!(sis_pseudonym_id: pseudonym.id)
+
+      SisPseudonym.preload_enrollment_data(course1, [u])
+
+      expect(course1).not_to receive(:enrollments)
+
+      result = SisPseudonym.for(u, course1, type: :implicit, require_sis: false, root_account: Account.default)
+      expect(result).to eq pseudonym
+    end
+
+    it "falls through to find_in_home_account when enrollment pseudonym has nil sis_user_id" do
+      pseudonym_no_sis = u.pseudonyms.create!(pseud_params("no_sis@example.com")) do |x|
+        x.workflow_state = "active"
+      end
+      course1.enroll_user(u).update!(sis_pseudonym_id: pseudonym_no_sis.id)
+
+      pseudonym_with_sis = u.pseudonyms.create!(pseud_params("with_sis@example.com")) do |x|
+        x.workflow_state = "active"
+        x.sis_user_id = "user1"
+      end
+
+      SisPseudonym.preload_enrollment_data(course1, [u])
+      result = SisPseudonym.for(u, course1, type: :implicit, require_sis: false, root_account: Account.default)
+      expect(result).to eq pseudonym_with_sis
+    end
+
+    it "returns same result with and without cache" do
+      pseudonym = u.pseudonyms.create!(pseud_params("user1@example.com")) do |x|
+        x.workflow_state = "active"
+        x.sis_user_id = "user1"
+      end
+      course1.enroll_user(u).update!(sis_pseudonym_id: pseudonym.id)
+
+      without_cache = SisPseudonym.for(u, course1, type: :implicit, require_sis: false, root_account: Account.default)
+
+      SisPseudonym.preload_enrollment_data(course1, [u])
+      with_cache = SisPseudonym.for(u, course1, type: :implicit, require_sis: false, root_account: Account.default)
+
+      expect(with_cache).to eq without_cache
+    end
+  end
+
   context "sharding" do
     specs_require_sharding
 
@@ -300,7 +440,9 @@ describe SisPseudonym do
         @pseudonym = @s1root.pseudonyms.create!(user: @user, unique_id: "user") do |p|
           p.sis_user_id = "abc"
         end
-        allow_any_instantiation_of(@pseudonym).to receive(:works_for_account?).with(Account.default, true).and_return(true)
+        allow_any_instantiation_of(@pseudonym).to receive(:works_for_account?)
+          .with(Account.default, allow_implicit: true)
+          .and_return(true)
       end
       expect(SisPseudonym.for(@user, Account.default, type: :implicit)).to eq @pseudonym
       expect(SisPseudonym.for(@user, Account.default, type: :implicit, in_region: true)).to eq @pseudonym

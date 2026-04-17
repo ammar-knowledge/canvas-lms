@@ -54,7 +54,7 @@ describe "conversations new" do
         f("button[data-testid='send-button']").click
         wait_for_ajaximations
         # There is a hidden screen reader message that is not displayed and a visible error message
-        expect(ffj("span:contains('Please select a recipient.')")[1]).to be_displayed
+        expect(ffj("span:contains('Please select a recipient')")[1]).to be_displayed
       end
 
       it "only displays students in the selected course context when selecting students to reply to", :ignore_js_errors do
@@ -126,7 +126,7 @@ describe "conversations new" do
         f("div[data-testid='conversation']").click
         wait_for_ajaximations
         f("button[data-testid='message-more-options']").click
-        fj("li:contains('Reply All')").click
+        fj("span[class*='-menuItem__label']:contains('Reply All')").click
         f("textarea[data-testid='message-body']").send_keys("everybody")
         f("button[data-testid='send-button']").click
         wait_for_ajaximations

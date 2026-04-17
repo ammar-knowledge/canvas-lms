@@ -73,10 +73,10 @@ describe('Address Book Component', () => {
 
   describe('Behaviors', () => {
     it('Should call back when selected via mouse', () => {
-      const mockFunction = jest.fn()
+      const mockFunction = vi.fn()
       const {container} = setup({...defaultProps, onSelect: mockFunction})
       fireEvent.mouseDown(container.querySelector('li'))
-      expect(mockFunction.mock.calls.length).toBe(1)
+      expect(mockFunction.mock.calls).toHaveLength(1)
     })
   })
 })

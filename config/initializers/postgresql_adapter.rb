@@ -17,6 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
+require "abort_exception_matcher" # we can't rely on autoloading since this is running during boot
 require "active_record/pg_extensions/all"
 
 class QuotedValue < String
@@ -29,6 +30,10 @@ module PostgreSQLAdapterExtensions
   def initialize(*)
     super
     @max_update_limit = DEFAULT_MAX_UPDATE_LIMIT
+  end
+
+  def get_database_version # rubocop:disable Naming/AccessorMethodName -- original method name in Rails
+    with_raw_connection(materialize_transactions: false, &:server_version)
   end
 
   def configure_connection
@@ -112,10 +117,6 @@ module PostgreSQLAdapterExtensions
       hash = { "\n" => "\\n", "\r" => "\\r", "\t" => "\\t", "\\" => "\\\\" }
       value.to_s.gsub(/[\n\r\t\\]/) { |c| hash[c] }
     end
-  end
-
-  def set_standard_conforming_strings
-    # not needed in PG 9.1+
   end
 
   # we always use the default sequence name, so override it to not actually query the db
@@ -249,10 +250,10 @@ module PostgreSQLAdapterExtensions
     super
   end
 
-  def add_column(table_name, column_name, type, if_not_exists: false, **options)
+  def add_column(table_name, column_name, type, if_not_exists: false, **)
     return if if_not_exists && column_exists?(table_name, column_name)
 
-    super(table_name, column_name, type, **options)
+    super(table_name, column_name, type, **)
   end
 
   def remove_column(table_name, column_name, type = nil, if_exists: false, **options)
@@ -261,24 +262,25 @@ module PostgreSQLAdapterExtensions
     super
   end
 
-  def create_table(table_name, id: :primary_key, primary_key: nil, force: nil, **options)
-    super
+  def create_table(table_name, id: :primary_key, primary_key: nil, force: nil, if_not_exists: nil, **)
+    force_opts = force ? { force: } : { if_not_exists: }
+    super(table_name, id:, primary_key:, **force_opts, **)
 
-    add_guard_excessive_updates(table_name)
+    add_guard_excessive_updates(table_name, force: if_not_exists)
   end
 
-  def add_guard_excessive_updates(table_name)
+  def add_guard_excessive_updates(table_name, force: false)
     # Don't try to install this on rails-internal tables; they need to be created for
     # internal_metadata to exist and this guard isn't really useful there either
     return if [ActiveRecord::Base.internal_metadata_table_name, ActiveRecord::Base.schema_migrations_table_name].include?(table_name)
     # If the function doesn't exist yet it will be backfilled
-    return unless ::ActiveRecord::InternalMetadata.new(self)[:guard_dangerous_changes_installed]
+    return unless ::ActiveRecord::Base.internal_metadata[:guard_dangerous_changes_installed]
 
     ["UPDATE", "DELETE"].each do |operation|
       trigger_name = "guard_excessive_#{operation.downcase}s"
 
       execute(<<~SQL.squish)
-        CREATE TRIGGER #{trigger_name}
+        CREATE #{"OR REPLACE " if force}TRIGGER #{trigger_name}
           AFTER #{operation}
           ON #{quote_table_name(table_name)}
           REFERENCING OLD TABLE AS oldtbl
@@ -375,14 +377,6 @@ module PostgreSQLAdapterExtensions
     @collations = nil
   end
 
-  class AbortExceptionMatcher
-    def self.===(other)
-      return true if defined?(IRB::Abort) && other.is_a?(IRB::Abort)
-
-      false
-    end
-  end
-
   def execute(...)
     super
   rescue AbortExceptionMatcher
@@ -395,6 +389,36 @@ module PostgreSQLAdapterExtensions
   rescue AbortExceptionMatcher
     @raw_connection.cancel
     raise
+  end
+
+  def non_empty_tables
+    non_empty_tables = tables.select do |t|
+      select_value("SELECT COUNT(*) FROM #{quote_table_name(t)}") > 0
+    end
+    non_empty_tables.delete(ActiveRecord::Base.schema_migrations_table_name)
+    non_empty_tables.delete(ActiveRecord::Base.internal_metadata_table_name)
+    non_empty_tables.delete(Shard.table_name)
+    non_empty_tables.delete(Account.table_name) if non_empty_tables.include?(Account.table_name) && !Account.where.not(id: 0).exists?
+    non_empty_tables.delete(Setting.table_name) if non_empty_tables.include?(Setting.table_name) && !Setting.where.not(name: ["session_secret_key", "encryption_key_hash"]).exists?
+    non_empty_tables
+  end
+
+  def non_empty_tables_message(non_empty_tables)
+    message = "Test database is not empty! Tables with data: #{non_empty_tables.join(", ")}"
+    non_empty_tables.each do |table|
+      model = ActiveRecord::Base.descendants.find { |m| m.table_name == table }
+      records = model.limit(5).to_a
+      count = model.count
+
+      message += records.map do |record|
+        "\n  #{record.inspect}"
+      end.join
+
+      if count > 5
+        message += "\n ... #{count - 5} more #{model.name} records"
+      end
+    end
+    message
   end
 
   BLOCKED_INSPECT_IVS = %i[
@@ -443,7 +467,7 @@ module SchemaCreationExtensions
   end
 
   def visit_ForeignKeyDefinition(o, constraint_type: :table)
-    sql = +"CONSTRAINT #{quote_column_name(o.name)}"
+    sql = "CONSTRAINT #{quote_column_name(o.name)}"
     sql << " FOREIGN KEY (#{quote_column_name(o.column)})" if constraint_type == :table
     sql << " REFERENCES #{quote_table_name(o.to_table)} (#{quote_column_name(o.primary_key)})"
     sql << " #{action_sql("DELETE", o.on_delete)}" if o.on_delete
@@ -500,12 +524,12 @@ end
 module SchemaStatementsExtensions
   # TODO: move this to activerecord-pg-extensions
   def valid_column_definition_options
-    super + [:delay_validation]
+    super + [:delay_validation, :foreign_key]
   end
 
-  def add_column_for_alter(table_name, column_name, type, **options)
+  def add_column_for_alter(table_name, column_name, type, **)
     td = create_table_definition(table_name)
-    cd = td.new_column_definition(column_name, type, **options)
+    cd = td.new_column_definition(column_name, type, **)
     schema = schema_creation
     schema.set_table_context(table_name)
     schema.accept(ActiveRecord::ConnectionAdapters::AddColumnDefinition.new(cd))
@@ -519,14 +543,15 @@ module IndexDefinitionExtensions
     klass.attr_reader :replica_identity
   end
 
-  def initialize(*args, replica_identity: false, **kwargs)
+  def initialize(*, replica_identity: false, **)
     @replica_identity = replica_identity
 
-    super(*args, **kwargs)
+    super(*, **)
   end
 
-  def defined_for?(*, replica_identity: nil, **)
+  def defined_for?(*, replica_identity: nil, **options)
     return false unless replica_identity.nil? || self.replica_identity == replica_identity
+    return false unless !options.key?(:where) || where == options[:where]
 
     super
   end

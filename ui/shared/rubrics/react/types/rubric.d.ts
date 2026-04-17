@@ -22,13 +22,27 @@ export type Rubric = {
   criteriaCount: number
   hidePoints?: boolean
   freeFormCriterionComments?: boolean
-  locations: string[]
   buttonDisplay?: string
   ratingOrder?: string
   pointsPossible: number
   title: string
   workflowState?: string
+  unassessed?: boolean
+  canUpdateRubric?: boolean
   hasRubricAssociations?: boolean
+  public?: boolean
+}
+
+export type RubricAssociation = {
+  associationType: 'Assignment' | 'Account' | 'Course'
+  associationId: string
+  hidePoints: boolean
+  hideScoreTotal: boolean
+  useForGrading: boolean
+  hideOutcomeResults: boolean
+  id: string
+  canUpdate?: boolean
+  canDelete?: boolean
 }
 
 export type RubricCriterion = {
@@ -42,6 +56,7 @@ export type RubricCriterion = {
   ratings: RubricRating[]
   learningOutcomeId?: string
   outcome?: RubricOutcome
+  isGenerated?: boolean // frontend only, for tracking LLM generated criteria
 }
 
 export type RubricRating = {
@@ -66,19 +81,22 @@ export type RubricAssessment = {
 export type RubricAssessmentData = {
   id: string
   points?: number
+  pointsPossible?: number
   criterionId: string
   learningOutcomeId?: string
   comments: string
-  commentsEnabled: boolean
+  commentsEnabled?: boolean
   description: string
+  ignoreForScoring?: boolean
   rubricSavedComments?: string[]
   saveCommentsForLater?: boolean
+  updatedAt?: string
 }
 
 export type UpdateAssessmentData = {
   criterionId: string
   points?: number
-  description?: string
+  ratingId?: string
   comments?: string
   saveCommentsForLater?: boolean
 }
@@ -91,4 +109,37 @@ export type RubricAssessmentSelect = {
 export type RubricOutcome = {
   displayName: string
   title: string
+}
+
+export type RubricImport = {
+  attachment: {
+    id: string
+    filename: string
+    size: number
+  }
+  id: string
+  createdAt: string
+  errorCount: number
+  errorData: {
+    message: string
+  }[]
+  progress: number
+  workflowState: string
+}
+
+export type RubricSubmissionUser = {
+  name?: string
+  avatarUrl?: string
+}
+
+export type RubricSelfAssessmentData = {
+  score: number
+  data: (Omit<RubricAssessmentData, 'points'> & {
+    criterion_id: string
+    points: {
+      text: string | undefined
+      valid: boolean
+      value: number | undefined
+    }
+  })[]
 }

@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -19,7 +18,17 @@
 
 import fetchMock from 'fetch-mock'
 import {screen, waitFor} from '@testing-library/react'
-import {destroyContainer} from '@canvas/alerts/react/FlashAlert'
+import {destroyContainer, showFlashAlert, showFlashSuccess} from '@instructure/platform-alerts'
+
+vi.mock('@instructure/platform-alerts', async () => {
+  const actual = await vi.importActual('@instructure/platform-alerts')
+  return {
+    ...actual,
+    destroyContainer: vi.fn(),
+    showFlashAlert: vi.fn(),
+    showFlashSuccess: vi.fn().mockReturnValue(vi.fn()),
+  }
+})
 import {actions as uiActions} from '../ui'
 import {coursePaceActions, PUBLISH_STATUS_POLLING_MS} from '../course_paces'
 import {
@@ -28,6 +37,7 @@ import {
   COURSE,
   DEFAULT_STORE_STATE,
   PRIMARY_PACE,
+  PRIMARY_PACE_SKIP_SELECTED_DAYS_ENABLED,
   PROGRESS_FAILED,
   PROGRESS_RUNNING,
   PACE_CONTEXTS_DEFAULT_STATE,
@@ -35,9 +45,7 @@ import {
 } from '../../__tests__/fixtures'
 import {SyncState} from '../../shared/types'
 import {paceContextsActions} from '../pace_contexts'
-import {enableFetchMocks} from 'jest-fetch-mock'
-
-enableFetchMocks()
+import type {CoursePace, CoursePacesState, StoreState} from '../../types'
 
 const CREATE_API = `/api/v1/courses/${COURSE.id}/course_pacing`
 const UPDATE_API = `/api/v1/courses/${COURSE.id}/course_pacing/${PRIMARY_PACE.id}`
@@ -45,16 +53,16 @@ const PROGRESS_API = `/api/v1/progress/${PROGRESS_RUNNING.id}`
 const COMPRESS_API = `/api/v1/courses/${COURSE.id}/course_pacing/compress_dates`
 const DESTROY_API = `/api/v1/courses/${COURSE.id}/course_pacing/${PRIMARY_PACE.id}`
 
-const dispatch = jest.fn()
+const dispatch = vi.fn()
 
 const mockGetState =
   (
-    pace,
-    originalPace,
+    pace: CoursePacesState,
+    originalPace: CoursePace,
     blackoutDates = DEFAULT_BLACKOUT_DATE_STATE,
-    originalBlackoutDates = BLACKOUT_DATES
+    originalBlackoutDates = BLACKOUT_DATES,
   ) =>
-  () => ({
+  (): StoreState => ({
     ...DEFAULT_STORE_STATE,
     coursePace: {...pace},
     blackoutDates,
@@ -65,13 +73,13 @@ const mockGetState =
   })
 
 beforeEach(() => {
-  jest.useFakeTimers()
-  jest.spyOn(global, 'setTimeout')
+  vi.useFakeTimers()
+  vi.spyOn(global, 'setTimeout')
 })
 
 afterEach(() => {
-  jest.clearAllMocks()
-  jest.useRealTimers()
+  vi.clearAllMocks()
+  vi.useRealTimers()
   fetchMock.restore()
   destroyContainer()
 })
@@ -87,13 +95,13 @@ describe('Course paces actions', () => {
       })
       const thunkedAction = coursePaceActions.publishPace()
       await thunkedAction(dispatch, getState)
-      expect(dispatch.mock.calls[0]).toEqual([uiActions.startSyncing()])
-      expect(dispatch.mock.calls[1]).toEqual([uiActions.clearCategoryError('publish')])
+      expect(dispatch.mock.calls[0]).toEqual([uiActions.clearCategoryError('publish')])
+      expect(dispatch.mock.calls[1]).toEqual([uiActions.startSyncing()])
       expect(dispatch.mock.calls[2]).toEqual([coursePaceActions.saveCoursePace(updatedPace)])
       expect(dispatch.mock.calls[3]).toEqual([coursePaceActions.setProgress(PROGRESS_RUNNING)])
       // Compare dispatched functions by name since they won't be directly equal
       expect(JSON.stringify(dispatch.mock.calls[4])).toEqual(
-        JSON.stringify([coursePaceActions.pollForPublishStatus()])
+        JSON.stringify([coursePaceActions.pollForPublishStatus()]),
       )
       expect(dispatch.mock.calls[5]).toEqual([
         paceContextsActions.addPublishingPace({
@@ -129,8 +137,8 @@ describe('Course paces actions', () => {
       await thunkedAction(dispatch, getState)
 
       expect(dispatch.mock.calls).toEqual([
-        [uiActions.startSyncing()],
         [uiActions.clearCategoryError('publish')],
+        [uiActions.startSyncing()],
         [uiActions.setCategoryError('publish', error.toString())],
         [uiActions.syncingCompleted()],
       ])
@@ -186,22 +194,25 @@ describe('Course paces actions', () => {
       const progressCompleted = {...PROGRESS_RUNNING, completion: 100, workflow_state: 'completed'}
       fetchMock.get(PROGRESS_API, progressCompleted, {overwriteRoutes: true})
 
-      jest.advanceTimersByTime(PUBLISH_STATUS_POLLING_MS)
+      vi.advanceTimersByTime(PUBLISH_STATUS_POLLING_MS)
 
       await waitFor(() => {
-        expect(dispatch.mock.calls.length).toBe(6)
+        expect(dispatch.mock.calls).toHaveLength(6)
         expect(dispatch.mock.calls[1]).toEqual([uiActions.clearCategoryError('checkPublishStatus')])
         expect(dispatch.mock.calls[2]).toEqual([coursePaceActions.setProgress(undefined)])
         expect(dispatch.mock.calls[4]).toEqual([
           coursePaceActions.coursePaceSaved(getState().coursePace),
         ])
-        expect(
-          screen.getAllByText(`${contextsPublishing[0].pace_context?.name} Pace updated`)[0]
-        ).toBeInTheDocument()
+        expect(showFlashAlert).toHaveBeenCalledWith(
+          expect.objectContaining({
+            message: `${contextsPublishing[0].pace_context?.name} Pace updated`,
+          }),
+        )
       })
     })
 
     it('stops polling and displays an error message if checking the progress API fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const getState = () => ({
         ...DEFAULT_STORE_STATE,
         coursePace: {...DEFAULT_STORE_STATE.coursePace, publishingProgress: {...PROGRESS_RUNNING}},
@@ -215,13 +226,15 @@ describe('Course paces actions', () => {
         [uiActions.setCategoryError('checkPublishStatus', error?.toString())],
       ])
       expect(setTimeout).not.toHaveBeenCalled()
+      consoleSpy.mockRestore()
     })
   })
 
   describe('compressDates', () => {
-    it('Updates pace and manages loading state', async () => {
-      const updatedPace = {...PRIMARY_PACE}
-      const getState = mockGetState(updatedPace, PRIMARY_PACE)
+    const testCompressDates = async (featureFlag: boolean, pace: any, expectedBody: any) => {
+      window.ENV.FEATURES.course_paces_skip_selected_days = featureFlag
+      const updatedPace = {...pace}
+      const getState = mockGetState(updatedPace, pace)
       const compressResponse = {
         1: 'a date',
         2: 'another date',
@@ -236,41 +249,78 @@ describe('Course paces actions', () => {
       expect(dispatch.mock.calls[2]).toEqual([
         coursePaceActions.setCompressedItemDates(compressResponse),
       ])
-      // Compare dispatched functions by name since they won't be directly equal
       expect(dispatch.mock.calls[3]).toEqual([uiActions.hideLoadingOverlay()])
-      // compress() POSTs a flattened and stripped-down version of the course pace
-      expect(fetchMock.calls()[0][1]?.body).toEqual(
-        JSON.stringify({
-          blackout_dates: [
-            {
-              event_title: 'Spring break',
-              start_date: '2022-03-21T00:00:00.000-06:00',
-              end_date: '2022-03-25T00:00:00.000-06:00',
+      expect(fetchMock.calls()[0][1]?.body).toEqual(JSON.stringify(expectedBody))
+      expect(fetchMock.called(COMPRESS_API, 'POST')).toBe(true)
+    }
+
+    it('Updates pace and manages loading state.course_paces_skip_selected_days = false', async () => {
+      await testCompressDates(false, PRIMARY_PACE, {
+        blackout_dates: [
+          {
+            event_title: 'Spring break',
+            start_date: '2022-03-21T00:00:00.000-06:00',
+            end_date: '2022-03-25T00:00:00.000-06:00',
+          },
+        ],
+        course_pace: {
+          start_date: PRIMARY_PACE.start_date,
+          end_date: PRIMARY_PACE.end_date,
+          context_type: PRIMARY_PACE.context_type,
+          context_id: PRIMARY_PACE.context_id,
+          course_pace_module_items_attributes: PRIMARY_PACE.modules.reduce(
+            (runningValue: Array<any>, module) => {
+              return runningValue.concat(
+                module.items.map(item => ({
+                  id: item.id,
+                  duration: item.duration,
+                  module_item_id: item.module_item_id,
+                })),
+              )
             },
-          ],
-          course_pace: {
-            start_date: updatedPace.start_date,
-            end_date: updatedPace.end_date,
-            exclude_weekends: updatedPace.exclude_weekends,
-            course_pace_module_items_attributes: updatedPace.modules.reduce(
+            [],
+          ),
+          selected_days_to_skip: PRIMARY_PACE_SKIP_SELECTED_DAYS_ENABLED.selected_days_to_skip,
+          exclude_weekends: PRIMARY_PACE.exclude_weekends,
+        },
+      })
+    })
+
+    it('Updates pace and manages loading state.course_paces_skip_selected_days = true', async () => {
+      await testCompressDates(true, PRIMARY_PACE_SKIP_SELECTED_DAYS_ENABLED, {
+        blackout_dates: [
+          {
+            event_title: 'Spring break',
+            start_date: '2022-03-21T00:00:00.000-06:00',
+            end_date: '2022-03-25T00:00:00.000-06:00',
+          },
+        ],
+        course_pace: {
+          start_date: PRIMARY_PACE_SKIP_SELECTED_DAYS_ENABLED.start_date,
+          end_date: PRIMARY_PACE_SKIP_SELECTED_DAYS_ENABLED.end_date,
+          context_type: PRIMARY_PACE_SKIP_SELECTED_DAYS_ENABLED.context_type,
+          context_id: PRIMARY_PACE_SKIP_SELECTED_DAYS_ENABLED.context_id,
+          course_pace_module_items_attributes:
+            PRIMARY_PACE_SKIP_SELECTED_DAYS_ENABLED.modules.reduce(
               (runningValue: Array<any>, module) => {
                 return runningValue.concat(
                   module.items.map(item => ({
                     id: item.id,
                     duration: item.duration,
                     module_item_id: item.module_item_id,
-                  }))
+                  })),
                 )
               },
-              []
+              [],
             ),
-          },
-        })
-      )
-      expect(fetchMock.called(COMPRESS_API, 'POST')).toBe(true)
+          selected_days_to_skip: PRIMARY_PACE_SKIP_SELECTED_DAYS_ENABLED.selected_days_to_skip,
+          exclude_weekends: true,
+        },
+      })
     })
 
     it('Sets an error message if compression fails', async () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       const updatedPace = {...PRIMARY_PACE}
       const error = new Error('Whoops!')
       const getState = mockGetState(updatedPace, PRIMARY_PACE)
@@ -287,12 +337,13 @@ describe('Course paces actions', () => {
         [uiActions.hideLoadingOverlay()],
         [uiActions.setCategoryError('compress', error.toString())],
       ])
+      consoleSpy.mockRestore()
     })
   })
 
   describe('syncUnpublishedChanges', () => {
     it('saves blackout dates and publishes the pace', async () => {
-      const asyncDispatch = jest.fn(() => Promise.resolve())
+      const asyncDispatch = vi.fn((..._args) => Promise.resolve())
       const updatedPace = {...PRIMARY_PACE, excludeWeekends: false}
       const getState = mockGetState(updatedPace, PRIMARY_PACE, {
         syncing: SyncState.UNSYNCED,
@@ -302,7 +353,7 @@ describe('Course paces actions', () => {
       const thunkedAction = coursePaceActions.syncUnpublishedChanges()
       await thunkedAction(asyncDispatch, getState)
 
-      expect(asyncDispatch.mock.calls.length).toBe(5)
+      expect(asyncDispatch.mock.calls).toHaveLength(5)
       expect(asyncDispatch.mock.calls[0]).toEqual([uiActions.clearCategoryError('publish')])
       expect(asyncDispatch.mock.calls[1]).toEqual([uiActions.startSyncing()])
       expect(typeof asyncDispatch.mock.calls[2][0]).toBe('function') // dispatch syncBlackoutDates
@@ -311,27 +362,28 @@ describe('Course paces actions', () => {
     })
 
     it('only publishes the pace if blackout dates have not changed', async () => {
-      const asyncDispatch = jest.fn(() => Promise.resolve())
+      const asyncDispatch = vi.fn(() => Promise.resolve())
       const updatedPace = {...PRIMARY_PACE, excludeWeekends: false}
       const getState = mockGetState(updatedPace, PRIMARY_PACE)
 
       const thunkedAction = coursePaceActions.syncUnpublishedChanges()
       await thunkedAction(asyncDispatch, getState)
 
-      expect(asyncDispatch.mock.calls.length).toBe(2)
+      expect(asyncDispatch.mock.calls).toHaveLength(2)
     })
   })
 
   describe('removePace', () => {
     it('shows and hides loading overlay properly', async () => {
-      const asyncDispatch = jest.fn(() => Promise.resolve())
+      const asyncDispatch = vi.fn(() => Promise.resolve())
       const updatedPace = {...PRIMARY_PACE}
       const getState = mockGetState(updatedPace, PRIMARY_PACE)
 
+      fetchMock.deleteOnce(DESTROY_API, {course_pace: {...PRIMARY_PACE}})
       const thunkedAction = coursePaceActions.removePace()
       await thunkedAction(asyncDispatch, getState)
 
-      expect(asyncDispatch.mock.calls.length).toBe(5)
+      expect(asyncDispatch.mock.calls).toHaveLength(5)
       expect(asyncDispatch.mock.calls[0]).toEqual([
         uiActions.showLoadingOverlay('Removing pace...'),
       ])
@@ -341,8 +393,8 @@ describe('Course paces actions', () => {
     })
 
     it('fetches the pace context info again with all the previous filters', async () => {
-      const asyncDispatch = jest.fn(() => Promise.resolve())
-      paceContextsActions.fetchPaceContexts = jest.fn().mockReturnValue('fetchPaceContextsThunk')
+      const asyncDispatch = vi.fn(() => Promise.resolve())
+      paceContextsActions.fetchPaceContexts = vi.fn().mockReturnValue('fetchPaceContextsThunk')
       const page = 2
       const order = 'desc'
       const contextType = 'student_enrollment'
@@ -359,6 +411,8 @@ describe('Course paces actions', () => {
           searchTerm,
         },
       })
+
+      fetchMock.deleteOnce(DESTROY_API, {course_pace: {...PRIMARY_PACE}})
 
       await coursePaceActions.removePace()(asyncDispatch, getState)
       expect(paceContextsActions.fetchPaceContexts).toHaveBeenCalledTimes(1)
@@ -384,7 +438,7 @@ describe('Course paces actions', () => {
     })
 
     it('sets an error if the request fails', async () => {
-      const asyncDispatch = jest.fn(() => Promise.resolve())
+      const asyncDispatch = vi.fn(() => Promise.resolve())
       const updatedPace = {...PRIMARY_PACE}
       const error = new Error('Bad!')
       const getState = mockGetState(updatedPace, PRIMARY_PACE)
@@ -395,7 +449,7 @@ describe('Course paces actions', () => {
       const thunkedAction = coursePaceActions.removePace()
       await thunkedAction(asyncDispatch, getState)
 
-      expect(asyncDispatch.mock.calls.length).toBe(4)
+      expect(asyncDispatch.mock.calls).toHaveLength(4)
       expect(asyncDispatch.mock.calls[0]).toEqual([
         uiActions.showLoadingOverlay('Removing pace...'),
       ])

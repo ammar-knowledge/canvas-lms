@@ -16,10 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* eslint-disable no-void */
-
 import $ from 'jquery'
-import {omit} from 'lodash'
+import {omit} from 'es-toolkit/compat'
 import {extend} from '@canvas/backbone/utils'
 import Backbone from '@canvas/backbone'
 import splitAssetString from '@canvas/util/splitAssetString'
@@ -88,7 +86,7 @@ FilesystemObject.prototype.moveToFolder = function (newFolder, options) {
     {
       parent_folder_id: newFolder.id,
     },
-    options
+    options,
   )
   $.extend(attrs, {
     parent_folder_id: newFolder.id,
@@ -97,14 +95,14 @@ FilesystemObject.prototype.moveToFolder = function (newFolder, options) {
     {},
     {
       attrs,
-    }
+    },
   ).then(
     (function (_this) {
       return function () {
         _this.collection.remove(_this)
         return _this.updateCollection(_this, newFolder, options)
       }
-    })(this)
+    })(this),
   )
 }
 
@@ -117,7 +115,7 @@ FilesystemObject.prototype.copyToContext = function (newFolder, options) {
   attrs['source_' + type + '_id'] = attrs.id
   delete attrs.id
   const clonedModel = new this.constructor(
-    omit(attrs, 'id', 'parent_folder_id', 'parent_folder_path')
+    omit(attrs, 'id', 'parent_folder_id', 'parent_folder_path'),
   )
   const collection = this.updateCollection(clonedModel, newFolder, options)
   clonedModel.url = collection.url
@@ -165,7 +163,7 @@ FilesystemObject.prototype.updateCollection = function (model, newFolder, option
     collection.remove(
       collection.where({
         display_name: model.get('display_name'),
-      })
+      }),
     )
   }
   collection.add(model, {

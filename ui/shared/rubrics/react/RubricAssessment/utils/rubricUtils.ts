@@ -17,7 +17,11 @@
  */
 
 import htmlEscape from '@instructure/html-escape'
-import type {RubricCriterion, RubricRating} from '../../types/rubric'
+import type {RubricAssessmentData, RubricCriterion, RubricRating} from '../../types/rubric'
+
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {ProficiencyRating} from '@canvas/graphql/codegen/graphql'
+const I18n = createI18nScope('enhanced-rubrics-assessment')
 
 export const htmlEscapeCriteriaLongDescription = (criteria: RubricCriterion) => {
   const {longDescription} = criteria
@@ -27,23 +31,31 @@ export const htmlEscapeCriteriaLongDescription = (criteria: RubricCriterion) => 
   }
 }
 
-export const escapeNewLineText = (text: string) => {
+export const escapeNewLineText = (text?: string) => {
   return {
     __html: htmlEscape(text ?? '').replace(/\n/g, '<br />'),
   }
 }
 
-export const rangingFrom = (ratings: RubricRating[], index: number, ratingOrder?: string) => {
-  if (ratingOrder === 'ascending') {
-    return index > 0 ? ratings[index - 1].points + 0.1 : undefined
+export const rangingFrom = (ratings: RubricRating[], index: number): number | undefined => {
+  const currentRatingPoints = ratings[index]?.points
+  const nextRatingPoints = ratings[index + 1]?.points
+
+  if (currentRatingPoints === nextRatingPoints || currentRatingPoints === 0) {
+    return undefined
   }
-  return index < ratings.length - 1 ? ratings[index + 1].points + 0.1 : undefined
+
+  return roundToTwoDecimalPlaces(nextRatingPoints ?? 0)
+}
+
+const roundToTwoDecimalPlaces = (num: number) => {
+  return Math.round(num * 100) / 100
 }
 
 export const findCriterionMatchingRatingIndex = (
   ratings: RubricRating[],
   points?: number,
-  criterionUseRange = false
+  criterionUseRange = false,
 ): number => {
   if (points == null) {
     return -1
@@ -51,4 +63,81 @@ export const findCriterionMatchingRatingIndex = (
   return criterionUseRange
     ? ratings.findLastIndex(rating => rating.points >= points)
     : ratings.findIndex(rating => rating.points === points)
+}
+
+export const findCriterionMatchingRatingId = (
+  ratings: RubricRating[],
+  criterionUseRange: boolean,
+  rubricAssessmentData?: RubricAssessmentData,
+) => {
+  const {id, points} = rubricAssessmentData || {}
+  if (points == null) {
+    return undefined
+  }
+
+  return ratings.find(rating => rating.id === id && (criterionUseRange || rating.points === points))
+    ?.id
+}
+
+export const rubricSelectedAriaLabel = (isSelected: boolean, isSelfAssessmentSelected: boolean) => {
+  if (isSelected && isSelfAssessmentSelected) {
+    return I18n.t('Selected and Self Assessment')
+  }
+
+  if (isSelected) {
+    return I18n.t('Selected')
+  }
+
+  if (isSelfAssessmentSelected) {
+    return I18n.t('Self Assessment')
+  }
+
+  return ''
+}
+
+export const isRubricComplete = ({
+  criteria,
+  isFreeFormCriterionComments,
+  hidePoints,
+  rubricAssessment,
+}: {
+  criteria: RubricCriterion[]
+  isFreeFormCriterionComments: boolean
+  hidePoints: boolean
+  rubricAssessment: RubricAssessmentData[]
+}): boolean => {
+  if (criteria.length !== rubricAssessment.length) {
+    return false
+  }
+
+  return rubricAssessment.every(criterion => {
+    const hasComments = criterion.comments?.trim().length
+
+    // If we're hiding points and using free-form comments,
+    // we need to ensure comments are present
+    if (hidePoints && isFreeFormCriterionComments) {
+      return hasComments
+    }
+
+    const points = criterion.points
+    const validPoints = typeof points === 'number' && !Number.isNaN(points)
+    const hasPoints = points !== undefined
+    return hasPoints && validPoints
+  })
+}
+
+export const getCustomRatingColor = (
+  points: number,
+  pointsPossible: number,
+  customRatings: ProficiencyRating[],
+) => {
+  const sortedRatings = customRatings.sort((a, b) => a.points - b.points).reverse()
+  const firstRatingPoints = sortedRatings[0]?.points ?? 0
+  const scaledPoints = pointsPossible > 0 ? points * (firstRatingPoints / pointsPossible) : points
+  const selectedRating = sortedRatings.find(rating => scaledPoints >= rating.points)
+  if (selectedRating) {
+    return `#${selectedRating.color}`
+  }
+
+  return `#${sortedRatings[sortedRatings.length - 1]?.color}`
 }

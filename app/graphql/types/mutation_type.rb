@@ -34,13 +34,14 @@ class Types::MutationType < Types::ApplicationObjectType
   ##
   # wraps all mutation fields with necessary
   # extensions (e.g. pg timeout)
-  def self.field(*args, **kwargs)
-    super(*args, **kwargs, extensions: [PostgresTimeoutFieldExtension, AuditLogFieldExtension])
+  def self.field(*, **)
+    super(*, **, extensions: [PostgresTimeoutFieldExtension, AuditLogFieldExtension])
   end
 
   field :add_conversation_message, mutation: Mutations::AddConversationMessage
   field :create_conversation, mutation: Mutations::CreateConversation
   field :create_group_in_set, mutation: Mutations::CreateGroupInSet
+  field :create_group_set, mutation: Mutations::CreateGroupSet
   field :hide_assignment_grades, mutation: Mutations::HideAssignmentGrades
   field :hide_assignment_grades_for_sections, mutation: Mutations::HideAssignmentGradesForSections
   field :post_assignment_grades, mutation: Mutations::PostAssignmentGrades
@@ -49,7 +50,6 @@ class Types::MutationType < Types::ApplicationObjectType
     Sets the overridden final score for the associated enrollment, optionally limited to a specific
     grading period. This will supersede the computed final score/grade if present.
   MD
-  field :set_override_status, mutation: Mutations::SetOverrideStatus
   field :set_assignment_post_policy, <<~MD, mutation: Mutations::SetAssignmentPostPolicy
     Sets the post policy for the assignment.
   MD
@@ -57,65 +57,88 @@ class Types::MutationType < Types::ApplicationObjectType
     Sets the post policy for the course, with an option to override and delete
     existing assignment post policies.
   MD
-  field :create_learning_outcome, mutation: Mutations::CreateLearningOutcome
-  field :update_learning_outcome, mutation: Mutations::UpdateLearningOutcome
-  field :create_outcome_proficiency, mutation: Mutations::CreateOutcomeProficiency
-  field :update_outcome_proficiency, mutation: Mutations::UpdateOutcomeProficiency
-  field :delete_outcome_proficiency, mutation: Mutations::DeleteOutcomeProficiency
-  field :create_outcome_calculation_method, mutation: Mutations::CreateOutcomeCalculationMethod
-  field :update_outcome_calculation_method, mutation: Mutations::UpdateOutcomeCalculationMethod
-  field :delete_outcome_calculation_method, mutation: Mutations::DeleteOutcomeCalculationMethod
+  field :accept_enrollment_invitation, mutation: Mutations::AcceptEnrollmentInvitation
+  field :apply_institutional_tag, mutation: Mutations::ApplyInstitutionalTag
   field :create_assignment, mutation: Mutations::CreateAssignment
-  field :update_assignment, mutation: Mutations::UpdateAssignment
-  field :mark_submission_comments_read, mutation: Mutations::MarkSubmissionCommentsRead
-  field :create_submission_comment, mutation: Mutations::CreateSubmissionComment
-  field :delete_submission_comment, mutation: Mutations::DeleteSubmissionComment
-  field :create_submission_draft, mutation: Mutations::CreateSubmissionDraft
-  field :delete_submission_draft, mutation: Mutations::DeleteSubmissionDraft
+  field :create_comment_bank_item, mutation: Mutations::CreateCommentBankItem
+  field :create_discussion_entry, mutation: Mutations::CreateDiscussionEntry
+  field :create_discussion_topic, mutation: Mutations::CreateDiscussionTopic
+  field :create_institutional_tag,                         mutation: Mutations::CreateInstitutionalTag
+  field :create_institutional_tag_category,                mutation: Mutations::CreateInstitutionalTagCategory
+  field :create_internal_setting, mutation: Mutations::CreateInternalSetting
+  field :create_learning_outcome, mutation: Mutations::CreateLearningOutcome
+  field :create_learning_outcome_group, mutation: Mutations::CreateLearningOutcomeGroup
   field :create_module, mutation: Mutations::CreateModule
-  field :update_notification_preferences, mutation: Mutations::UpdateNotificationPreferences
+  field :create_outcome_calculation_method, mutation: Mutations::CreateOutcomeCalculationMethod
+  field :create_outcome_proficiency, mutation: Mutations::CreateOutcomeProficiency
+  field :create_submission_comment, mutation: Mutations::CreateSubmissionComment
+  field :create_submission_draft, mutation: Mutations::CreateSubmissionDraft
+  field :create_user_inbox_label, mutation: Mutations::CreateUserInboxLabel
+  field :delete_allocation_rule, mutation: Mutations::DeleteAllocationRule
+  field :delete_comment_bank_item, mutation: Mutations::DeleteCommentBankItem
   field :delete_conversation_messages, mutation: Mutations::DeleteConversationMessages
   field :delete_conversations, mutation: Mutations::DeleteConversations
+  field :delete_custom_grade_status, mutation: Mutations::DeleteCustomGradeStatus
   field :delete_discussion_entry, mutation: Mutations::DeleteDiscussionEntry
   field :delete_discussion_topic, mutation: Mutations::DeleteDiscussionTopic
-  field :update_conversation_participants, mutation: Mutations::UpdateConversationParticipants
-  field :set_module_item_completion, mutation: Mutations::SetModuleItemCompletion
-  field :create_discussion_topic, mutation: Mutations::CreateDiscussionTopic
-  field :update_discussion_topic, mutation: Mutations::UpdateDiscussionTopic
-  field :subscribe_to_discussion_topic, mutation: Mutations::SubscribeToDiscussionTopic
-  field :update_discussion_read_state, mutation: Mutations::UpdateDiscussionReadState
-  field :update_discussion_entries_read_state, mutation: Mutations::UpdateDiscussionEntriesReadState
-  field :create_discussion_entry, mutation: Mutations::CreateDiscussionEntry
-  field :create_discussion_entry_draft, mutation: Mutations::CreateDiscussionEntryDraft
-  field :update_discussion_entry, mutation: Mutations::UpdateDiscussionEntry
-  field :update_discussion_thread_read_state, mutation: Mutations::UpdateDiscussionThreadReadState
-  field :update_discussion_entry_participant, mutation: Mutations::UpdateDiscussionEntryParticipant
-  field :import_outcomes, mutation: Mutations::ImportOutcomes
-  field :set_friendly_description, mutation: Mutations::SetFriendlyDescription
-  field :create_comment_bank_item, mutation: Mutations::CreateCommentBankItem
-  field :delete_comment_bank_item, mutation: Mutations::DeleteCommentBankItem
-  field :update_comment_bank_item, mutation: Mutations::UpdateCommentBankItem
-  field :move_outcome_links, mutation: Mutations::MoveOutcomeLinks
-  field :delete_outcome_links, mutation: Mutations::DeleteOutcomeLinks
-  field :update_learning_outcome_group, mutation: Mutations::UpdateLearningOutcomeGroup
-  field :create_learning_outcome_group, mutation: Mutations::CreateLearningOutcomeGroup
-  field :update_split_screen_view_deeply_nested_alert, mutation: Mutations::UpdateSplitScreenViewDeeplyNestedAlert
-  field :create_internal_setting, mutation: Mutations::CreateInternalSetting
-  field :update_internal_setting, mutation: Mutations::UpdateInternalSetting
   field :delete_internal_setting, mutation: Mutations::DeleteInternalSetting
+  field :delete_outcome_calculation_method, mutation: Mutations::DeleteOutcomeCalculationMethod
+  field :delete_outcome_links, mutation: Mutations::DeleteOutcomeLinks
+  field :delete_outcome_proficiency, mutation: Mutations::DeleteOutcomeProficiency
+  field :delete_submission_comment, mutation: Mutations::DeleteSubmissionComment
+  field :delete_submission_draft, mutation: Mutations::DeleteSubmissionDraft
+  field :delete_user_inbox_label, mutation: Mutations::DeleteUserInboxLabel
+  field :dismiss_account_notification, mutation: Mutations::DismissAccountNotification
+  field :import_outcomes, mutation: Mutations::ImportOutcomes
+  field :mark_submission_comments_read, mutation: Mutations::MarkSubmissionCommentsRead
+  field :move_outcome_links, mutation: Mutations::MoveOutcomeLinks
+  field :post_draft_submission_comment, mutation: Mutations::PostDraftSubmissionComment
+  field :reject_enrollment_invitation, mutation: Mutations::RejectEnrollmentInvitation
+  field :remove_institutional_tag, mutation: Mutations::RemoveInstitutionalTag
+  field :restore_deleted_discussion_entry, mutation: Mutations::RestoreDeletedDiscussionEntry
+  field :save_rubric_assessment, mutation: Mutations::SaveRubricAssessment
+  field :select_provisional_grade, mutation: Mutations::SelectProvisionalGrade
+  field :set_friendly_description, mutation: Mutations::SetFriendlyDescription
+  field :set_module_item_completion, mutation: Mutations::SetModuleItemCompletion
+  field :set_override_status, mutation: Mutations::SetOverrideStatus
+  field :set_rubric_self_assessment, mutation: Mutations::SetRubricSelfAssessment
+  field :subscribe_to_discussion_topic, mutation: Mutations::SubscribeToDiscussionTopic
+  field :update_assignment, mutation: Mutations::UpdateAssignment
+  field :update_comment_bank_item, mutation: Mutations::UpdateCommentBankItem
+  field :update_conversation_participants, mutation: Mutations::UpdateConversationParticipants
+  field :update_discussion_entries_read_state, mutation: Mutations::UpdateDiscussionEntriesReadState
+  field :update_discussion_entry, mutation: Mutations::UpdateDiscussionEntry
+  field :update_discussion_entry_participant, mutation: Mutations::UpdateDiscussionEntryParticipant
+  field :update_discussion_read_state, mutation: Mutations::UpdateDiscussionReadState
+  field :update_discussion_thread_read_state, mutation: Mutations::UpdateDiscussionThreadReadState
+  field :update_discussion_topic, mutation: Mutations::UpdateDiscussionTopic
+  field :update_discussion_topic_participant, mutation: Mutations::UpdateDiscussionTopicParticipant
+  field :update_gradebook_group_filter, mutation: Mutations::UpdateGradebookGroupFilter
+  field :update_institutional_tag, mutation: Mutations::UpdateInstitutionalTag
+  field :update_institutional_tag_archived_state, mutation: Mutations::UpdateInstitutionalTagArchivedState
+  field :update_institutional_tag_category, mutation: Mutations::UpdateInstitutionalTagCategory
+  field :update_institutional_tag_category_archived_state, mutation: Mutations::UpdateInstitutionalTagCategoryArchivedState
+  field :update_internal_setting, mutation: Mutations::UpdateInternalSetting
+  field :update_learner_dashboard_tab_selection, mutation: Mutations::UpdateLearnerDashboardTabSelection
+  field :update_learning_outcome, mutation: Mutations::UpdateLearningOutcome
+  field :update_learning_outcome_group, mutation: Mutations::UpdateLearningOutcomeGroup
+  field :update_my_inbox_settings, mutation: Mutations::UpdateMyInboxSettings
+  field :update_notification_preferences, mutation: Mutations::UpdateNotificationPreferences
+  field :update_outcome_calculation_method, mutation: Mutations::UpdateOutcomeCalculationMethod
+  field :update_outcome_proficiency, mutation: Mutations::UpdateOutcomeProficiency
   field :update_rubric_assessment_read_state, mutation: Mutations::UpdateRubricAssessmentReadState
-  field :update_submission_student_entered_score, mutation: Mutations::UpdateSubmissionStudentEnteredScore
-  field :update_submissions_read_state, mutation: Mutations::UpdateSubmissionsReadState
+  field :update_speed_grader_settings, mutation: Mutations::UpdateSpeedGraderSettings
+  field :update_split_screen_view_deeply_nested_alert, mutation: Mutations::UpdateSplitScreenViewDeeplyNestedAlert
   field :update_submission_grade, mutation: Mutations::UpdateSubmissionGrade
   field :update_submission_grade_status, mutation: Mutations::UpdateSubmissionGradeStatus
-  field :post_draft_submission_comment, mutation: Mutations::PostDraftSubmissionComment
+  field :update_submission_sticker, mutation: Mutations::UpdateSubmissionSticker
+  field :update_submission_student_entered_score, mutation: Mutations::UpdateSubmissionStudentEnteredScore
+  field :update_submissions_read_state, mutation: Mutations::UpdateSubmissionsReadState
   field :update_user_discussions_splitscreen_view, mutation: Mutations::UpdateUserDiscussionsSplitscreenView
+  field :update_widget_dashboard_config, mutation: Mutations::UpdateWidgetDashboardConfig
+  field :update_widget_dashboard_layout, mutation: Mutations::UpdateWidgetDashboardLayout
   field :upsert_custom_grade_status, mutation: Mutations::UpsertCustomGradeStatus
   field :upsert_standard_grade_status, mutation: Mutations::UpsertStandardGradeStatus
-  field :delete_custom_grade_status, mutation: Mutations::DeleteCustomGradeStatus
-  field :create_user_inbox_label, mutation: Mutations::CreateUserInboxLabel
-  field :delete_user_inbox_label, mutation: Mutations::DeleteUserInboxLabel
-  field :update_my_inbox_settings, mutation: Mutations::UpdateMyInboxSettings
 
   # TODO: Remove the in active development string from here once this is more
   #       finalized.
@@ -123,5 +146,10 @@ class Types::MutationType < Types::ApplicationObjectType
     IN ACTIVE DEVELOPMENT, USE AT YOUR OWN RISK: Submit homework on an assignment.
   MD
 
+  field :auto_grade_submission, mutation: Mutations::AutoGradeSubmission
+  field :create_allocation_rule, mutation: Mutations::CreateAllocationRule
+  field :reorder_module_items, mutation: Mutations::ReorderModuleItems
+  field :submit_auto_grade_feedback, mutation: Mutations::SubmitAutoGradeFeedback
+  field :update_allocation_rule, mutation: Mutations::UpdateAllocationRule
   field :update_rubric_archived_state, mutation: Mutations::UpdateRubricArchivedState
 end

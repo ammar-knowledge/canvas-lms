@@ -41,7 +41,7 @@ module CanvasQuizStatistics::Analyzers::Concerns
       return [] if source.blank?
 
       source.map do |answer|
-        stats = build_answer(answer[:id], answer[:text], answer[:weight] == 100)
+        stats = build_answer(answer[:id], answer[:text], correct: answer[:weight] == 100)
         yield answer, stats if block_given?
         stats
       end
@@ -66,10 +66,10 @@ module CanvasQuizStatistics::Analyzers::Concerns
     #     aggregate "Other" and "Missing" answers)
     #
     # @return [NilClass]
-    def calculate_responses(responses, answers, *args)
+    def calculate_responses(responses, answers, *)
       responses.each do |response|
-        answer = locate_answer(response, answers, *args)
-        answer ||= if answer_present_but_unknown?(response, *args)
+        answer = locate_answer(response, answers, *)
+        answer ||= if answer_present_but_unknown?(response, *)
                      generate_unknown_answer(answers)
                    else
                      generate_missing_answer(answers)
@@ -109,7 +109,7 @@ module CanvasQuizStatistics::Analyzers::Concerns
 
     private
 
-    def build_answer(id, text, correct = false)
+    def build_answer(id, text, correct: false)
       {
         id: id.to_s,
         text: text.to_s,

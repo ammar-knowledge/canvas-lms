@@ -33,30 +33,32 @@ describe AppointmentGroupsController, type: :request do
     @user = @me
   end
 
-  expected_fields = %w[
-    allow_observer_signup
-    appointments_count
-    context_codes
-    created_at
-    description
-    end_at
-    html_url
-    id
-    location_address
-    location_name
-    max_appointments_per_participant
-    min_appointments_per_participant
-    participant_type
-    participant_visibility
-    participants_per_appointment
-    requiring_action
-    start_at
-    sub_context_codes
-    title
-    updated_at
-    url
-    workflow_state
-  ]
+  let(:expected_fields) do
+    %w[
+      allow_observer_signup
+      appointments_count
+      context_codes
+      created_at
+      description
+      end_at
+      html_url
+      id
+      location_address
+      location_name
+      max_appointments_per_participant
+      min_appointments_per_participant
+      participant_type
+      participant_visibility
+      participants_per_appointment
+      requiring_action
+      start_at
+      sub_context_codes
+      title
+      updated_at
+      url
+      workflow_state
+    ].freeze
+  end
 
   it "returns manageable appointment groups" do
     ag1 = AppointmentGroup.create!(title: "something", contexts: [@course1])
@@ -112,15 +114,15 @@ describe AppointmentGroupsController, type: :request do
     ag5 = AppointmentGroup.create!(title: "no times", contexts: [@course])
     ag5.publish!
 
-    ag6 = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]], contexts: [@course])
+    ag6 = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]], contexts: [@course])
     ag6.publish!
     cat = @course.group_categories.create(name: "foo")
     mygroup = cat.groups.create(context: @course)
     mygroup.users << @me
     @me.reload
-    ag7 = AppointmentGroup.create!(title: "double yay", sub_context_codes: [cat.asset_string], new_appointments: [["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]], contexts: [@course])
+    ag7 = AppointmentGroup.create!(title: "double yay", sub_context_codes: [cat.asset_string], new_appointments: [["#{Time.zone.now.year + 1}-01-01 13:00:00", "#{Time.zone.now.year + 1}-01-01 14:00:00"]], contexts: [@course])
     ag7.publish!
-    ag8 = AppointmentGroup.create!(title: "past", new_appointments: [["#{Time.now.year - 1}-01-01 12:00:00", "#{Time.now.year - 1}-01-01 13:00:00"]], contexts: [@course])
+    ag8 = AppointmentGroup.create!(title: "past", new_appointments: [["#{Time.zone.now.year - 1}-01-01 12:00:00", "#{Time.zone.now.year - 1}-01-01 13:00:00"]], contexts: [@course])
     ag8.publish!
 
     c1s2 = @course1.course_sections.create!
@@ -132,7 +134,7 @@ describe AppointmentGroupsController, type: :request do
     ag9 = AppointmentGroup.create! title: "multiple contexts / sub contexts",
                                    contexts: [@course1, @course2],
                                    sub_context_codes: [c1s2.asset_string, c2s2.asset_string],
-                                   new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]]
+                                   new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]]
     ag9.publish!
 
     json = api_call(:get, "/api/v1/appointment_groups?scope=reservable", {
@@ -155,11 +157,11 @@ describe AppointmentGroupsController, type: :request do
 
   it "restricts reservable appointment groups by context_codes" do
     student_in_course course: course_factory(active_all: true), user: @me, active_all: true
-    ag1 = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]], contexts: [@course])
+    ag1 = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]], contexts: [@course])
     ag1.publish!
 
     student_in_course course: course_factory(active_all: true), user: @me, active_all: true
-    ag2 = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]], contexts: [@course])
+    ag2 = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]], contexts: [@course])
     ag2.publish!
 
     json = api_call(:get, "/api/v1/appointment_groups?scope=reservable", {
@@ -175,7 +177,7 @@ describe AppointmentGroupsController, type: :request do
 
   it "returns past reservable appointment groups, if requested" do
     student_in_course course: course_factory(active_all: true), user: @me, active_all: true
-    ag = AppointmentGroup.create!(title: "past", new_appointments: [["#{Time.now.year - 1}-01-01 12:00:00", "#{Time.now.year - 1}-01-01 13:00:00"]], contexts: [@course])
+    ag = AppointmentGroup.create!(title: "past", new_appointments: [["#{Time.zone.now.year - 1}-01-01 12:00:00", "#{Time.zone.now.year - 1}-01-01 13:00:00"]], contexts: [@course])
     ag.publish!
     json = api_call(:get, "/api/v1/appointment_groups?scope=reservable&include_past_appointments=1", {
                       controller: "appointment_groups", action: "index", format: "json", scope: "reservable", include_past_appointments: "1"
@@ -208,7 +210,7 @@ describe AppointmentGroupsController, type: :request do
   end
 
   it "includes appointments and child_events, if requested" do
-    ag = AppointmentGroup.create!(title: "something", new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]], contexts: [@course])
+    ag = AppointmentGroup.create!(title: "something", new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]], contexts: [@course])
     ag.appointments.first.reserve_for @student1, @me
 
     json = api_call(:get, "/api/v1/appointment_groups?scope=manageable&include[]=appointments", {
@@ -306,7 +308,7 @@ describe AppointmentGroupsController, type: :request do
 
   it "gets a reservable appointment group" do
     student_in_course course: course_factory(active_all: true), user: @me, active_all: true
-    ag = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]], contexts: [@course])
+    ag = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]], contexts: [@course])
     ag.publish!
 
     json = api_call(:get, "/api/v1/appointment_groups/#{ag.id}", {
@@ -324,8 +326,8 @@ describe AppointmentGroupsController, type: :request do
     student2 = student_in_course(course: course2, active_all: true).user
     ag = AppointmentGroup.create!(title: "bleh",
                                   participants_per_appointment: 2,
-                                  new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"],
-                                                     ["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]],
+                                  new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"],
+                                                     ["#{Time.zone.now.year + 1}-01-01 13:00:00", "#{Time.zone.now.year + 1}-01-01 14:00:00"]],
                                   contexts: [course1, course2])
     ag.publish!
     ag.appointments.first.reserve_for(student1, @teacher)
@@ -340,7 +342,7 @@ describe AppointmentGroupsController, type: :request do
 
   it "requires action until the min has been met" do
     student_in_course course: course_factory(active_all: true), user: @me, active_all: true
-    ag = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]], min_appointments_per_participant: 1, contexts: [@course])
+    ag = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]], min_appointments_per_participant: 1, contexts: [@course])
     ag.publish!
     appt = ag.appointments.first
 
@@ -364,8 +366,8 @@ describe AppointmentGroupsController, type: :request do
   context "past appointments" do
     before :once do
       @ag = AppointmentGroup.create!(title: "yay",
-                                     new_appointments: [["#{Time.now.year - 1}-01-01 12:00:00", "#{Time.now.year - 1}-01-01 13:00:00"],
-                                                        ["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]],
+                                     new_appointments: [["#{Time.zone.now.year - 1}-01-01 12:00:00", "#{Time.zone.now.year - 1}-01-01 13:00:00"],
+                                                        ["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"]],
                                      contexts: [@course])
       @ag.publish!
     end
@@ -551,10 +553,10 @@ describe AppointmentGroupsController, type: :request do
 
   it "deletes an appointment group with appointments" do
     ag = AppointmentGroup.create!(title: "something",
-                                  new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00",
-                                                      "#{Time.now.year + 1}-01-01 13:00:00"],
-                                                     ["#{Time.now.year + 1}-01-01 13:00:00",
-                                                      "#{Time.now.year + 1}-01-01 14:00:00"]],
+                                  new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00",
+                                                      "#{Time.zone.now.year + 1}-01-01 13:00:00"],
+                                                     ["#{Time.zone.now.year + 1}-01-01 13:00:00",
+                                                      "#{Time.zone.now.year + 1}-01-01 14:00:00"]],
                                   contexts: [@course])
     student_in_course(course: @course, active_all: true)
     ag.appointments.first.reserve_for @student, @me
@@ -574,10 +576,10 @@ describe AppointmentGroupsController, type: :request do
 
   it "includes participant count, if requested" do
     ag = AppointmentGroup.create!(title: "something",
-                                  new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00",
-                                                      "#{Time.now.year + 1}-01-01 13:00:00"],
-                                                     ["#{Time.now.year + 1}-01-01 13:00:00",
-                                                      "#{Time.now.year + 1}-01-01 14:00:00"]],
+                                  new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00",
+                                                      "#{Time.zone.now.year + 1}-01-01 13:00:00"],
+                                                     ["#{Time.zone.now.year + 1}-01-01 13:00:00",
+                                                      "#{Time.zone.now.year + 1}-01-01 14:00:00"]],
                                   contexts: [@course])
     student_in_course(course: @course, active_all: true)
     ag.appointments.first.reserve_for @student, @me
@@ -595,7 +597,7 @@ describe AppointmentGroupsController, type: :request do
   end
 
   it "includes the user's reserved times, if requested" do
-    year = Time.now.year + 1
+    year = Time.zone.now.year + 1
     appointment_times = [["#{year}-01-01T12:00:00Z", "#{year}-01-01T13:00:00Z"],
                          ["#{year}-01-01T13:00:00Z", "#{year}-01-01T14:00:00Z"]]
     ag = AppointmentGroup.create!(title: "something", new_appointments: appointment_times, contexts: [@course])
@@ -622,12 +624,12 @@ describe AppointmentGroupsController, type: :request do
         @current_types = %w[users groups]
         case type
         when "users"
-          @ag = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"], ["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]], contexts: [@course])
+          @ag = AppointmentGroup.create!(title: "yay", new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"], ["#{Time.zone.now.year + 1}-01-01 13:00:00", "#{Time.zone.now.year + 1}-01-01 14:00:00"]], contexts: [@course])
           @ag.publish!
           @ag.appointments.first.reserve_for @student1, @me
         when "groups"
           cat = @course.group_categories.create(name: "foo")
-          @ag = AppointmentGroup.create!(title: "yay", sub_context_codes: [cat.asset_string], new_appointments: [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"], ["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]], contexts: [@course])
+          @ag = AppointmentGroup.create!(title: "yay", sub_context_codes: [cat.asset_string], new_appointments: [["#{Time.zone.now.year + 1}-01-01 12:00:00", "#{Time.zone.now.year + 1}-01-01 13:00:00"], ["#{Time.zone.now.year + 1}-01-01 13:00:00", "#{Time.zone.now.year + 1}-01-01 14:00:00"]], contexts: [@course])
           @ag.publish!
           group1 = cat.groups.create(context: @course)
           group1.users << @student1

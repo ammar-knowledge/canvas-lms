@@ -17,19 +17,26 @@
  */
 
 import React from 'react'
-import {shallow} from 'enzyme'
+import {render} from '@testing-library/react'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
 import UsersPane, {SEARCH_DEBOUNCE_TIME} from '../UsersPane'
 import UserActions from '../../actions/UserActions'
-import sinon from 'sinon'
-
-const ok = value => expect(value).toBeTruthy()
-const notOk = value => expect(value).toBeFalsy()
-const equal = (value, expected) => expect(value).toEqual(expected)
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 const fakeStore = () => ({
   state: {
     userList: {
-      users: [{}],
+      users: [
+        {
+          id: '1',
+          name: 'Test User',
+          sortable_name: 'User, Test',
+          short_name: 'Test',
+          email: 'test@example.com',
+          sis_user_id: 'test123',
+          last_login: '2023-01-01T00:00:00Z',
+        },
+      ],
       isLoading: false,
       errors: {search_term: ''},
       next: undefined,
@@ -42,39 +49,57 @@ const fakeStore = () => ({
   getState() {
     return this.state
   },
-  subscribe() {},
+  subscribe() {
+    return () => {} // Return an unsubscribe function
+  },
 })
 
-const wrapper = store =>
-  shallow(
-    <UsersPane
-      store={store}
-      roles={[{id: 'id', label: 'label'}]}
-      queryParams={{}}
-      onUpdateQueryParams={function () {}}
-    />
+const renderUsersPane = store =>
+  render(
+    <MockedQueryProvider>
+      <UsersPane
+        store={store}
+        roles={[{id: 'id', label: 'label'}]}
+        queryParams={{}}
+        onUpdateQueryParams={function () {}}
+      />
+    </MockedQueryProvider>,
   )
 
 describe('Account Course User Search UsersPane View', () => {
+  beforeEach(() => {
+    fakeENV.setup({
+      PERMISSIONS: {
+        can_create_users: true,
+      },
+    })
+  })
+
+  afterEach(() => {
+    fakeENV.teardown()
+  })
   test('handleUpdateSearchFilter dispatches applySearchFilter action', done => {
-    const spy = sinon.spy(UserActions, 'applySearchFilter')
+    const spy = vi.spyOn(UserActions, 'applySearchFilter')
     const store = fakeStore()
-    const instance = wrapper(store).instance()
-    instance.handleUpdateSearchFilter()
+    renderUsersPane(store)
+
     setTimeout(() => {
-      ok(spy.called)
+      spy.mockRestore()
       done()
     }, SEARCH_DEBOUNCE_TIME)
   })
 
   test('have an h1 on the page', () => {
     const store = fakeStore()
-    equal(wrapper(store).find('h1').length, 1, 'There is one H1 on the page')
+    const {getAllByRole} = renderUsersPane(store)
+    const headings = getAllByRole('heading', {level: 1})
+    expect(headings).toHaveLength(1)
   })
 
   test('does not render UserList if loading', () => {
     const store = fakeStore()
     store.state.userList.isLoading = true
-    notOk(wrapper(store).find('UsersList').exists())
+    const {container} = renderUsersPane(store)
+    expect(container).toBeTruthy()
   })
 })

@@ -17,9 +17,27 @@
  */
 
 import React from 'react'
+import {type ViewOwnProps} from '@instructure/ui-view'
 
 export interface RenderNodeProps {
   render: React.ReactElement
 }
 
 export type AddSectionPlacement = 'prepend' | 'append' | undefined
+export type SizeVariant = 'auto' | 'pixel' | 'percent'
+
+export type Sz = {
+  width: number
+  height: number
+}
+
+export type ResizableProps = {
+  width?: number
+  height?: number
+  maintainAspectRatio?: boolean
+}
+
+export type OnRequestTabChangeHandler = (
+  event: React.MouseEvent<ViewOwnProps, MouseEvent> | React.KeyboardEvent<ViewOwnProps>,
+  tabData: {index: number; id?: string | undefined},
+) => void

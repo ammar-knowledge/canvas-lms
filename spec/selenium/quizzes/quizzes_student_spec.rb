@@ -53,7 +53,7 @@ describe "quizzes" do
 
     context "with a quiz started" do
       before(:once) do
-        @qsub = quiz_with_submission(false)
+        @qsub = quiz_with_submission(complete_quiz: false)
       end
 
       context "when attempting to resume a quiz" do
@@ -162,10 +162,6 @@ describe "quizzes" do
     end
   end
 
-  context "when a student closes the session without submitting" do
-    it "automatically grades the submission when it becomes overdue", priority: "1"
-  end
-
   context "when the 'show correct answers' setting is on" do
     before(:once) do
       quiz_with_submission
@@ -223,7 +219,7 @@ describe "quizzes" do
     it "always highlights incorrect answers", priority: "1" do
       get "/courses/#{@course.id}/quizzes/#{@quiz.id}"
 
-      expect(ff(".incorrect.answer_arrow").length).to be > 0
+      expect(ff(".incorrect.answer_indicator").length).to be > 0
     end
   end
 

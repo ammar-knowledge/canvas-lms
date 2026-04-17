@@ -47,10 +47,57 @@
 #       }
 #    }
 class AdminsController < ApplicationController
-  before_action :require_user
   before_action :get_context
 
   include Api::V1::Admin
+
+  # @API List account admins
+  #
+  # A paginated list of the admins in the account
+  #
+  # @argument user_id[] [[Integer]]
+  #   Scope the results to those with user IDs equal to any of the IDs specified here.
+  #
+  # @argument search_term [String]
+  #   The partial name or full ID of the admins to match and return in the
+  #   results list. Must be at least 2 characters.
+  #
+  # @argument include_deleted [Boolean]
+  #   When set to true, returns admins who have been deleted
+  #
+  # @returns [Admin]
+  def index
+    if authorized_action(@context, @current_user, :manage_account_memberships)
+      include_deleted = value_to_boolean(params[:include_deleted])
+
+      # Get the list of admins
+      scope = @context.account_users.preload(:user, :role)
+      scope = scope.active unless include_deleted
+
+      # Filter by user_id if specified (existing functionality)
+      if params[:user_id]
+        user_ids = api_find_all(User, Array(params[:user_id])).pluck(:id)
+        scope = scope.where(user_id: user_ids) if user_ids.any?
+      end
+
+      # Filter by search_term if specified
+      if params[:search_term].present?
+        matching_users = UserSearch.for_user_in_context(
+          params[:search_term],
+          @context,
+          @current_user,
+          session
+        )
+        matching_user_ids = matching_users.reselect(:id)
+        scope = scope.where(user_id: matching_user_ids)
+      end
+
+      route = polymorphic_url([:api_v1, @context, :admins])
+      admins = Api.paginate(scope.order(:id), self, route).reject { |admin| admin.user.nil? }
+      includes = Array(params[:include])
+      render json: admins.collect { |admin| admin_json(admin, @current_user, session, includes) }
+    end
+  end
 
   # @API Make an account admin
   #
@@ -115,27 +162,9 @@ class AdminsController < ApplicationController
     require_role
     admin = @context.account_users.where(user_id: user, role_id: @role.id).first!
     if authorized_action(admin, @current_user, :destroy)
+      admin.current_user = @current_user
       admin.destroy
       render json: admin_json(admin, @current_user, session)
-    end
-  end
-
-  # @API List account admins
-  #
-  # A paginated list of the admins in the account
-  #
-  # @argument user_id[] [[Integer]]
-  #   Scope the results to those with user IDs equal to any of the IDs specified here.
-  #
-  # @returns [Admin]
-  def index
-    if authorized_action(@context, @current_user, :manage_account_memberships)
-      user_ids = api_find_all(User, Array(params[:user_id])).pluck(:id) if params[:user_id]
-      scope = @context.account_users.active.preload(:user, :role)
-      scope = scope.where(user_id: user_ids) if user_ids
-      route = polymorphic_url([:api_v1, @context, :admins])
-      admins = Api.paginate(scope.order(:id), self, route).reject { |admin| admin.user.nil? }
-      render json: admins.collect { |admin| admin_json(admin, @current_user, session) }
     end
   end
 

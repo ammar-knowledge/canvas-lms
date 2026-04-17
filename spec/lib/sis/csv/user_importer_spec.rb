@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../../spec_helper"
-
 def gen_ssha_password(password)
   salt = SecureRandom.random_bytes(10)
   "{SSHA}" + Base64.encode64(Digest::SHA1.digest(password + salt).unpack1("H*") + salt).gsub(/\s/, "")
@@ -304,6 +302,18 @@ describe SIS::CSV::UserImporter do
         "user_1,user1,tom riddle,active,<delete>"
       )
       expect(user.reload.pronouns).to eq "he/him"
+    end
+
+    it "does not add pronouns when the option is turned off" do
+      @account.settings[:can_add_pronouns] = false
+      @account.save!
+
+      process_csv_data_cleanly(
+        "user_id,login_id,full_name,status,pronouns",
+        "user_1,user1,tom riddle,active,He/Him"
+      )
+      user = Pseudonym.by_unique_id("user1").first.user
+      expect(user.pronouns).to be_nil
     end
   end
 
@@ -638,6 +648,17 @@ describe SIS::CSV::UserImporter do
     expect(user.pseudonyms.count).to eq 1
     expect(user.pseudonyms.by_unique_id("user1").first.sis_user_id).to eq "user_1"
     expect(Pseudonym.count).to eq(p_count + 1)
+  end
+
+  it "skips a row with invalid Unicode characters in login_id (rather than failing the entire import)" do
+    importer = process_csv_data(
+      "user_id,login_id,first_name,last_name,email,status",
+      "user1,user1\ufffd,User,Uno,user1@example.com,active",
+      "user2,user2,User,Dos,user2@example.com,active"
+    )
+    expect(importer.batch.workflow_state).to eq "imported_with_messages"
+    expect(importer.batch.processing_warnings.map(&:last)).to eq(["Invalid Unicode characters in login_id 'user1\ufffd'; skipping"])
+    expect(@account.pseudonyms.where(unique_id: "user2")).to exist
   end
 
   it "does not allow a secondary user account to change its login id to some other registered login id" do
@@ -1117,7 +1138,7 @@ describe SIS::CSV::UserImporter do
       "u,'long_string_for_user_login_should_throw_an_error_and_be_caught_and_be_returned_to_import_and_not_sent_to_sentry',U U,u@example.com,active"
     )
     expect(Canvas::Errors).not_to receive(:capture_exception)
-    expect(importer.errors.pluck(1)).to eq ["Could not save the user with user_id: 'u'. Unknown reason: unique_id is too long (maximum is 100 characters)"]
+    expect(importer.errors.pluck(1)).to eq ["Could not save the user with user_id: 'u'. Unknown reason: Unique ID is too long (maximum is 100 characters)"]
   end
 
   it "does not confirm an email communication channel that has an invalid email" do
@@ -1549,7 +1570,7 @@ describe SIS::CSV::UserImporter do
       user: sis_user
     )
     @badmin.reload
-    expect(@badmin.account_users.active.pluck(:id)).to_not include(@badmin.id)
+    expect(@badmin.account_users.active.pluck(:id)).not_to include(@badmin.id)
   end
 
   it "removes subaccount memberships when a user is deleted" do
@@ -1563,7 +1584,7 @@ describe SIS::CSV::UserImporter do
       user: sis_user
     )
     @badmin.reload
-    expect(@badmin.account_users.active.pluck(:id)).to_not include(@badmin.id)
+    expect(@badmin.account_users.active.pluck(:id)).not_to include(@badmin.id)
   end
 
   context "account associations" do
@@ -1744,6 +1765,19 @@ describe SIS::CSV::UserImporter do
     expect(user_2.email).to eq "user2@example.com"
     expect(user_1.pseudonym.sis_communication_channel).to eq user_1.email_channel
     expect(user_2.pseudonym.sis_communication_channel).to eq user_2.email_channel
+  end
+
+  it "clears deleted_at when restoring a pseudonym" do
+    user = user_with_pseudonym(active_all: 1, sis_user_id: "user_1", account: @account)
+    user.destroy
+    process_csv_data_cleanly(
+      "user_id,login_id,first_name,last_name,email,status",
+      "user_1,#{@pseudonym.unique_id},User,Uno,#{@pseudonym.unique_id},active",
+      { override_sis_stickiness: true }
+    )
+    ps = user.reload.pseudonyms.take
+    expect(ps.workflow_state).to eq "active"
+    expect(ps.deleted_at).to be_nil
   end
 
   it "does not resurrect a non SIS user" do

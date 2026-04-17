@@ -52,6 +52,7 @@ describe('Outcome Tests', () => {
 
     afterEach(() => {
       fakeENV.teardown()
+      vi.restoreAllMocks()
     })
 
     test('isNative returns false for an outcome imported from the account level', () => {
@@ -70,15 +71,23 @@ describe('Outcome Tests', () => {
     })
 
     test('default calculation method settings not set if calculation_method exists', () => {
-      const spy = jest.spyOn(Outcome.prototype, 'setDefaultCalcSettings')
-      new Outcome(importedOutcome, {parse: true})
-      expect(spy).not.toHaveBeenCalled()
+      const spy = vi.spyOn(Outcome.prototype, 'setDefaultCalcSettings')
+      try {
+        new Outcome(importedOutcome, {parse: true})
+        expect(spy).not.toHaveBeenCalled()
+      } finally {
+        spy.mockRestore()
+      }
     })
 
     test('default calculation method settings set if calculation_method is null', () => {
-      const spy = jest.spyOn(Outcome.prototype, 'setDefaultCalcSettings')
-      new Outcome(courseOutcome, {parse: true})
-      expect(spy).toHaveBeenCalled()
+      const spy = vi.spyOn(Outcome.prototype, 'setDefaultCalcSettings')
+      try {
+        new Outcome(courseOutcome, {parse: true})
+        expect(spy).toHaveBeenCalled()
+      } finally {
+        spy.mockRestore()
+      }
     })
   })
 
@@ -102,6 +111,7 @@ describe('Outcome Tests', () => {
 
     afterEach(() => {
       fakeENV.teardown()
+      vi.restoreAllMocks()
     })
 
     test('isNative is true for an account level outcome when viewed on the account', () => {
@@ -130,6 +140,7 @@ describe('Outcome Tests', () => {
 
     afterEach(() => {
       fakeENV.teardown()
+      vi.restoreAllMocks()
     })
 
     test('CanManage returns true for a global outcome on the course level', () => {
@@ -155,11 +166,11 @@ describe('Outcome Tests', () => {
         },
       }
       ratings = [
-        {description: 'Exceeds Mastery', points: 4.0, mastery: false, color: '127A1B'},
-        {description: 'Mastery', points: 3.0, mastery: true, color: '0B874B'},
+        {description: 'Exceeds Mastery', points: 4.0, mastery: false, color: '02672D'},
+        {description: 'Mastery', points: 3.0, mastery: true, color: '03893D'},
         {description: 'Near Mastery', points: 2.0, mastery: false, color: 'FAB901'},
         {description: 'Below Mastery', points: 1.0, mastery: false, color: 'FD5D10'},
-        {description: 'Well Below Mastery', points: 0.0, mastery: false, color: 'E0061F'},
+        {description: 'Well Below Mastery', points: 0.0, mastery: false, color: 'E62429'},
       ]
       fakeENV.setup()
       ENV.PERMISSIONS = {manage_outcomes: true}
@@ -172,6 +183,7 @@ describe('Outcome Tests', () => {
 
     afterEach(() => {
       fakeENV.teardown()
+      vi.restoreAllMocks()
     })
 
     test('it uses the ENV.MASTERY_SCALES ratings', () => {
@@ -183,7 +195,7 @@ describe('Outcome Tests', () => {
 
     test('ignores proficiency attributes during saving', () => {
       const outcome = new Outcome(importedOutcome, {parse: true})
-      jest.spyOn(outcome, 'url').mockReturnValue('fake-url')
+      vi.spyOn(outcome, 'url').mockReturnValue('fake-url')
       outcome.save({}, {})
 
       expect(outcome.get('mastery_points')).toBeUndefined()

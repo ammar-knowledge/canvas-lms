@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2019 - present Instructure, Inc.
  *
@@ -20,11 +19,13 @@
 import React, {useState} from 'react'
 import {bool, func, shape, string} from 'prop-types'
 import {Select} from '@instructure/ui-select'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Text} from '@instructure/ui-text'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - untyped function parameter, needs proper typing
 function optionIdForGradeInfo(gradeInfo) {
   if (gradeInfo.excused) {
     return 'excused'
@@ -37,12 +38,16 @@ function optionIdForGradeInfo(gradeInfo) {
   return gradeInfo.grade
 }
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - untyped function parameter, needs proper typing
 function labelForGradeInfo(gradeInfo) {
   if (gradeInfo.excused) {
     return I18n.t('Excused')
   }
 
   return (
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - dynamic object property access
     {
       complete: I18n.t('Complete'),
       incomplete: I18n.t('Incomplete'),
@@ -50,6 +55,8 @@ function labelForGradeInfo(gradeInfo) {
   )
 }
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - untyped props, component uses PropTypes instead of TS types
 export default function CompleteIncompleteGradeInput(props) {
   const {anonymizeStudents, isDisabled, gradeInfo, isBusy} = props
 
@@ -58,12 +65,18 @@ export default function CompleteIncompleteGradeInput(props) {
   const [highlightedItemId, setHighlightedItemId] = useState(currentGradeValue)
   const [isShowingOptions, setIsShowingOptions] = useState(false)
 
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore - InstUI callback parameter destructuring
   function handleHighlightOption(_event, {id}) {
     setHighlightedItemId(id)
   }
 
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore - untyped function parameter
   function gradeForOptionId(optionId) {
     return (
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - dynamic object property access
       {
         complete: 'complete',
         incomplete: 'incomplete',
@@ -71,6 +84,8 @@ export default function CompleteIncompleteGradeInput(props) {
     )
   }
 
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore - InstUI callback parameter destructuring
   function handleSelectOption(_event, {id}) {
     setIsShowingOptions(false)
     if (!isDisabled && id !== gradeInfo.grade) {
@@ -82,6 +97,8 @@ export default function CompleteIncompleteGradeInput(props) {
     inputValue: anonymizeStudents ? '' : labelForGradeInfo(gradeInfo),
   }
 
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore - untyped function parameter
   function isItemDisabled(optionId) {
     return isDisabled || (isBusy && gradeInfo.grade === gradeForOptionId(optionId))
   }
@@ -89,10 +106,14 @@ export default function CompleteIncompleteGradeInput(props) {
   let options
 
   if (gradeInfo.excused) {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - dynamic property assignment to selectProps object
     selectProps.interaction = isDisabled ? 'disabled' : 'readonly'
 
     options = [{id: 'excused', label: I18n.t('Excused')}]
   } else {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore - dynamic property assignment to selectProps object
     selectProps.interaction = isDisabled ? 'disabled' : 'enabled'
 
     options = [
@@ -105,12 +126,18 @@ export default function CompleteIncompleteGradeInput(props) {
   const label = I18n.t('Grade')
 
   return (
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore InstUI Select component type issue
     <Select
       {...selectProps}
       id="grade-detail-tray--grade-input"
       isShowingOptions={isShowingOptions}
       onRequestHideOptions={() => setIsShowingOptions(false)}
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - InstUI Select callback prop type mismatch
       onRequestHighlightOption={handleHighlightOption}
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore - InstUI Select callback prop type mismatch
       onRequestSelectOption={handleSelectOption}
       onRequestShowOptions={() => setIsShowingOptions(true)}
       renderLabel={() =>

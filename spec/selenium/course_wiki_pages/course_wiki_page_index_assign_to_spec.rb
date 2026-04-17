@@ -20,7 +20,6 @@ require_relative "../common"
 require_relative "../helpers/context_modules_common"
 require_relative "../helpers/items_assign_to_tray"
 require_relative "page_objects/wiki_index_page"
-require_relative "../../helpers/selective_release_common"
 
 describe "wiki pages show page assign to" do
   include_context "in-process server selenium tests"
@@ -28,11 +27,8 @@ describe "wiki pages show page assign to" do
   include ContextModulesCommon
   include ItemsAssignToTray
   include CourseWikiIndexPage
-  include SelectiveReleaseCommon
 
   before :once do
-    differentiated_modules_on
-
     course_with_teacher(active_all: true)
     @page = @course.wiki_pages.create!(title: "wikiwiki")
     @student1 = student_in_course(course: @course, active_all: true, name: "Student 1").user
@@ -148,22 +144,6 @@ describe "wiki pages show page assign to" do
     keep_trying_until { expect(item_tray_exists?).to be_truthy }
 
     check_element_has_focus close_button
-  end
-
-  it "focus button on close" do
-    skip("flakey test, runs in local LF-1387")
-    visit_course_wiki_index_page(@course.id)
-
-    manage_wiki_page_item_button(@page.title).click
-    wiki_page_assign_to_menu.click
-    wait_for_ajaximations
-    wait_for_assign_to_tray_spinner
-    keep_trying_until { expect(item_tray_exists?).to be_truthy }
-
-    click_cancel_button
-    keep_trying_until { expect(element_exists?(module_item_edit_tray_selector)).to be_falsey }
-
-    check_element_has_focus manage_wiki_page_item_button(@page.title)
   end
 
   it "does not show assign to button for group pages" do

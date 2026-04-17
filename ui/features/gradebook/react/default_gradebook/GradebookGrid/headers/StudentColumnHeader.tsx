@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -26,12 +25,12 @@ import {View} from '@instructure/ui-view'
 
 import {Menu} from '@instructure/ui-menu'
 import {Text} from '@instructure/ui-text'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import studentRowHeaderConstants from '../../constants/studentRowHeaderConstants'
 import ColumnHeader from './ColumnHeader'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 const {Item: MenuItem, Group: MenuGroup, Separator: MenuSeparator} = Menu as any
 
@@ -85,15 +84,19 @@ export default class StudentColumnHeader extends ColumnHeader<Props, State> {
     selectedEnrollmentFilters: arrayOf(oneOf(studentRowHeaderConstants.enrollmentFilterKeys))
       .isRequired,
     onToggleEnrollmentFilter: func.isRequired,
-    disabled: Menu.propTypes.disabled.isRequired,
-    onMenuDismiss: Menu.propTypes.onDismiss.isRequired,
-    ...ColumnHeader.propTypes,
+    disabled: bool.isRequired,
+    onMenuDismiss: func.isRequired,
+    addGradebookElement: func,
+    removeGradebookElement: func,
+    onHeaderKeyDown: func,
   }
 
   static defaultProps = {
     loginHandleName: null,
     sisName: null,
-    ...ColumnHeader.defaultProps,
+    addGradebookElement() {},
+    removeGradebookElement() {},
+    onHeaderKeyDown() {},
   }
 
   getColumnHeaderName() {
@@ -152,22 +155,27 @@ export default class StudentColumnHeader extends ColumnHeader<Props, State> {
     this.onToggleEnrollmentFilter('concluded')
   }
 
+  // @ts-expect-error
   onSelectSecondaryInfo(secondaryInfoKey) {
     this.props.onSelectSecondaryInfo(secondaryInfoKey)
   }
 
+  // @ts-expect-error
   onSelectPrimaryInfo(primaryInfoKey) {
     this.props.onSelectPrimaryInfo(primaryInfoKey)
   }
 
+  // @ts-expect-error
   onToggleEnrollmentFilter(enrollmentFilterKey) {
     this.props.onToggleEnrollmentFilter(enrollmentFilterKey)
   }
 
+  // @ts-expect-error
   bindDisplayAsMenuContent = ref => {
     this.bindFlyoutMenu(ref, 'displayAsMenuContent')
   }
 
+  // @ts-expect-error
   bindSecondaryInfoMenuContent = ref => {
     this.bindFlyoutMenu(ref, 'secondaryInfoMenuContent')
   }
@@ -196,6 +204,7 @@ export default class StudentColumnHeader extends ColumnHeader<Props, State> {
     const sortMenu = (
       <Menu
         label={I18n.t('Sort by')}
+        // @ts-expect-error
         contentRef={this.bindSortByMenuContent}
         disabled={this.props.disabled}
       >
@@ -279,6 +288,7 @@ export default class StudentColumnHeader extends ColumnHeader<Props, State> {
               <Grid.Col textAlign="center" width="auto">
                 <div className={classes}>
                   <Menu
+                    // @ts-expect-error
                     contentRef={this.bindOptionsMenuContent}
                     shouldFocusTriggerOnClose={false}
                     trigger={
@@ -300,6 +310,7 @@ export default class StudentColumnHeader extends ColumnHeader<Props, State> {
                     {this.showDisplayAsViewOption() && (
                       <Menu
                         label={I18n.t('Display as')}
+                        // @ts-expect-error
                         contentRef={this.bindDisplayAsMenuContent}
                         disabled={this.props.disabled}
                       >
@@ -325,6 +336,7 @@ export default class StudentColumnHeader extends ColumnHeader<Props, State> {
                     )}
 
                     <Menu
+                      // @ts-expect-error
                       contentRef={this.bindSecondaryInfoMenuContent}
                       disabled={this.props.disabled}
                       label={I18n.t('Secondary info')}

@@ -22,20 +22,21 @@ import userEvent from '@testing-library/user-event'
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import {useNode} from '@craftjs/core'
 import {HeadingBlock} from '../HeadingBlock'
+import {type HeadingBlockProps} from '../types'
 import {HeadingBlockToolbar} from '../HeadingBlockToolbar'
 
-let props = {...HeadingBlock.craft.defaultProps}
+let props: HeadingBlockProps = {...HeadingBlock.craft.defaultProps}
 
-const mockSetProp = jest.fn((callback: (props: Record<string, any>) => void) => {
+const mockSetProp = vi.fn((callback: (props: Record<string, any>) => void) => {
   callback(props)
 })
 
-jest.mock('@craftjs/core', () => {
+vi.mock('@craftjs/core', () => {
   return {
-    useNode: jest.fn(_node => {
+    useNode: vi.fn(_node => {
       return {
         actions: {setProp: mockSetProp},
-        props: HeadingBlock.craft.defaultProps,
+        props,
       }
     }),
   }
@@ -66,8 +67,8 @@ describe('HeadingBlockToolbar', () => {
     expect(h3).toBeInTheDocument()
     expect(h4).toBeInTheDocument()
 
-    const li = h2.closest('li') as HTMLLIElement
-    expect(li.querySelector('svg[name="IconCheck"]')).toBeInTheDocument()
+    const li = h2?.parentElement?.parentElement as HTMLLIElement
+    expect(li?.querySelector('svg[name="IconCheck"]')).toBeInTheDocument()
   })
 
   it('calls changes the level prop on changing the level', async () => {
@@ -81,5 +82,49 @@ describe('HeadingBlockToolbar', () => {
 
     expect(mockSetProp).toHaveBeenCalled()
     expect(props.level).toBe('h3')
+  })
+
+  it('checks the right font size', async () => {
+    props.fontSize = '3rem'
+    const {getByText} = render(<HeadingBlockToolbar />)
+
+    const btn = getByText('Font Size').closest('button') as HTMLButtonElement
+    await userEvent.click(btn)
+
+    const defaultSz = screen.getByText('Default')
+    const rem3 = screen.getByText('3rem')
+
+    expect(defaultSz).toBeInTheDocument()
+    expect(rem3).toBeInTheDocument()
+
+    const li = rem3?.parentElement?.parentElement as HTMLLIElement
+    expect(li?.querySelector('svg[name="IconCheck"]')).toBeInTheDocument()
+  })
+
+  it('sets the font size', async () => {
+    const {getByText} = render(<HeadingBlockToolbar />)
+
+    const btn = getByText('Font Size').closest('button') as HTMLButtonElement
+    await userEvent.click(btn)
+
+    const rem3 = screen.getByText('3rem')
+    await userEvent.click(rem3)
+
+    expect(mockSetProp).toHaveBeenCalled()
+    expect(props.fontSize).toBe('3rem')
+  })
+
+  it('sets the default font size', async () => {
+    props.fontSize = '3rem'
+    const {getByText} = render(<HeadingBlockToolbar />)
+
+    const btn = getByText('Font Size').closest('button') as HTMLButtonElement
+    await userEvent.click(btn)
+
+    const defaultSz = screen.getByText('Default')
+    await userEvent.click(defaultSz)
+
+    expect(mockSetProp).toHaveBeenCalled()
+    expect(props.fontSize).toBeUndefined()
   })
 })

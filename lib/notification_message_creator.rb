@@ -137,7 +137,7 @@ class NotificationMessageCreator
       fallback_policy ||= channel.notification_policies.create!(frequency: "daily")
     end
 
-    InstStatsd::Statsd.increment("message.fall_back_used", short_stat: "message.fall_back_used")
+    InstStatsd::Statsd.distributed_increment("message.fall_back_used")
     build_summary_for(user, fallback_policy)
   end
 
@@ -250,7 +250,7 @@ class NotificationMessageCreator
     # only use new policies for default channel when there are no other policies for the notification and user.
     # If another policy exists then it means the notification preferences page has been visited and null values
     # show as never policies in the UI.
-    default_email?(user, channel) && (user.notification_policies.find { |np| np.notification_id == @notification.id }).nil?
+    default_email?(user, channel) && user.notification_policies.find { |np| np.notification_id == @notification.id }.nil?
   end
 
   def default_email?(user, channel)
@@ -270,7 +270,7 @@ class NotificationMessageCreator
   end
 
   def user_channels(to_list)
-    to_user_channels = Hash.new([])
+    to_user_channels = Hash.new([].freeze)
     # if this method is given users we preload communication channels and they
     # are already loaded so we are using the select :active? to not do another
     # query to load them again.
@@ -297,8 +297,8 @@ class NotificationMessageCreator
     to_list = [to_list] unless to_list.is_a? Enumerable
 
     to_users = []
-    to_users += User.find(to_list.select { |to| to.is_a? Numeric }.uniq)
-    to_users += to_list.select { |to| to.is_a? User }
+    to_users += User.find(to_list.grep(Numeric).uniq)
+    to_users += to_list.grep(User)
     to_users.uniq!
 
     to_users
@@ -306,7 +306,7 @@ class NotificationMessageCreator
 
   def communication_channels_from_to_list(to_list)
     to_list = [to_list] unless to_list.is_a? Enumerable
-    to_list.select { |to| to.is_a? CommunicationChannel }.uniq
+    to_list.grep(CommunicationChannel).uniq
   end
 
   def asset_applied_to(user)
@@ -386,7 +386,11 @@ class NotificationMessageCreator
             break_this_loop = true
             # else <no conditions; we're addressing the entire partition>
           end
-          scope.update_all(workflow_state: "cancelled") if Message.connection.table_exists?(start_partition)
+
+          if Message.connection.table_exists?(start_partition)
+            effected_record_count = scope.update_all(workflow_state: "cancelled")
+            InstStatsd::Statsd.count("cancelled_duplicated_messages", effected_record_count)
+          end
 
           break if break_this_loop
 
@@ -398,7 +402,7 @@ class NotificationMessageCreator
 
   def too_many_messages_for?(user)
     if @user_counts[user.id] >= user.max_messages_per_day
-      InstStatsd::Statsd.increment("message.too_many_messages_for_was_true", short_stat: "message.too_many_messages_for_was_true")
+      InstStatsd::Statsd.distributed_increment("message.too_many_messages_for_was_true")
       true
     end
   end

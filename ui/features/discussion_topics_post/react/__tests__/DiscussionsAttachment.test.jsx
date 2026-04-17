@@ -16,47 +16,56 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {AlertManagerContext} from '@canvas/alerts/react/AlertManager'
+import {AlertManagerContext} from '@instructure/platform-alerts'
 import {updateDiscussionEntryMock} from '../../graphql/Mocks'
-
 import {fireEvent, render, waitFor} from '@testing-library/react'
-import {MockedProvider} from '@apollo/react-testing'
+import {MockedProvider} from '@apollo/client/testing'
 import React from 'react'
 import {responsiveQuerySizes} from '../utils'
-
 import {Discussion} from '../../graphql/Discussion'
 import {DiscussionEntry} from '../../graphql/DiscussionEntry'
 import {DiscussionThreadContainer} from '../containers/DiscussionThreadContainer/DiscussionThreadContainer'
 import injectGlobalAlertContainers from '@canvas/util/react/testing/injectGlobalAlertContainers'
+import fakeENV from '@canvas/test-utils/fakeENV'
+import {ObserverContext} from '../utils/ObserverContext'
+
+vi.mock('@canvas/util/globalUtils', () => ({
+  openWindow: vi.fn(),
+  windowPathname: vi.fn(() => '/courses/1'),
+}))
 
 injectGlobalAlertContainers()
 
-jest.mock('../utils', () => ({
-  ...jest.requireActual('../utils'),
-  responsiveQuerySizes: jest.fn(),
+vi.mock('../utils', async () => ({
+  ...(await vi.importActual('../utils')),
+  responsiveQuerySizes: vi.fn(),
 }))
 
 describe('DiscussionsAttachment', () => {
-  const onFailureStub = jest.fn()
-  const onSuccessStub = jest.fn()
-  const openMock = jest.fn()
+  const onFailureStub = vi.fn()
+  const onSuccessStub = vi.fn()
   beforeAll(() => {
-    delete window.location
-    window.open = openMock
-    window.ENV = {
+    fakeENV.setup({
       course_id: '1',
       SPEEDGRADER_URL_TEMPLATE: '/courses/1/gradebook/speed_grader?assignment_id=1&:student_id',
-    }
+      RICH_CONTENT_CAN_UPLOAD_FILES: true,
+      context_asset_string: 'course_1',
+      current_user_id: '1',
+    })
 
-    window.matchMedia = jest.fn().mockImplementation(() => {
+    window.matchMedia = vi.fn().mockImplementation(() => {
       return {
         matches: true,
         media: '',
         onchange: null,
-        addListener: jest.fn(),
-        removeListener: jest.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
       }
     })
+  })
+
+  afterAll(() => {
+    fakeENV.teardown()
   })
 
   const defaultProps = ({
@@ -72,12 +81,16 @@ describe('DiscussionsAttachment', () => {
   const setup = (props, mocks) => {
     return render(
       <MockedProvider mocks={mocks}>
-        <AlertManagerContext.Provider
-          value={{setOnFailure: onFailureStub, setOnSuccess: onSuccessStub}}
+        <ObserverContext.Provider
+          value={{observerRef: {current: undefined}, nodesRef: {current: new Map()}}}
         >
-          <DiscussionThreadContainer {...props} />
-        </AlertManagerContext.Provider>
-      </MockedProvider>
+          <AlertManagerContext.Provider
+            value={{setOnFailure: onFailureStub, setOnSuccess: onSuccessStub}}
+          >
+            <DiscussionThreadContainer {...props} />
+          </AlertManagerContext.Provider>
+        </ObserverContext.Provider>
+      </MockedProvider>,
     )
   }
 
@@ -105,7 +118,7 @@ describe('DiscussionsAttachment', () => {
           quotedEntryId: '1337',
           // Since we set up the mock with the quotedEntryId, the test will only pass if the mutation variables
           // match the id, else we'd get an error
-        })
+        }),
       )
 
       expect(await container.findByText('This is the parent reply')).toBeInTheDocument()
@@ -115,10 +128,14 @@ describe('DiscussionsAttachment', () => {
       fireEvent.click(container.getByTestId('edit'))
 
       await waitFor(() => {
-        expect(tinymce.editors[0]).toBeDefined()
+        expect(tinymce.get('1337')).toBeDefined()
       })
 
-      document.querySelectorAll('textarea')[0].value = ''
+      await waitFor(() => {
+        const textarea = document.querySelectorAll('textarea')[0]
+        expect(textarea).toBeDefined()
+        textarea.value = ''
+      })
 
       await waitFor(() => expect(container.queryByTestId('remove-button')).toBeTruthy())
       const removeAttachButton = container.getAllByTestId('remove-button')[0]
@@ -128,7 +145,7 @@ describe('DiscussionsAttachment', () => {
       fireEvent.click(submitButton)
 
       await waitFor(() =>
-        expect(container.queryByText('This is the parent reply')).not.toBeInTheDocument()
+        expect(container.queryByText('This is the parent reply')).not.toBeInTheDocument(),
       )
 
       await waitFor(() => {

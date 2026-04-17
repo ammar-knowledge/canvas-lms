@@ -28,13 +28,13 @@ module Factories
         course_code: opts[:course_code],
         account:,
         is_public: !!opts[:is_public],
-        enrollment_term_id: opts[:enrollment_term_id]
+        enrollment_term_id: opts[:enrollment_term_id],
+        career_learning_library_only: opts[:career_learning_library_only] || false
       )
       @course.offer! if opts[:active_course] || opts[:active_all]
       if opts[:active_all]
         u = User.create!
         u.register!
-        u.enable_feature!(:new_user_tutorial_on_off) if opts[:new_user]
         e = @course.enroll_teacher(u)
         e.workflow_state = "active"
         e.save!
@@ -47,7 +47,7 @@ module Factories
 
   def course_model(opts = {})
     opts.delete :reusable
-    @course = factory_with_protected_attributes(Course, course_valid_attributes.merge(opts))
+    @course = Course.create!(course_valid_attributes.merge(opts))
     @teacher = user_model
     e = @course.enroll_teacher(@teacher)
     e.accept
@@ -59,8 +59,8 @@ module Factories
     {
       name: "value for name",
       group_weighting_scheme: "value for group_weighting_scheme",
-      start_at: Time.now,
-      conclude_at: Time.now + 100,
+      start_at: Time.zone.now,
+      conclude_at: 100.seconds.from_now,
       is_public: true,
       allow_student_wiki_edits: true,
     }
@@ -77,6 +77,12 @@ module Factories
       @enrollment.save!
     end
     @course.reload
+    @enrollment
+  end
+
+  def course_with_test_student(opts = {})
+    course_with_user("StudentViewEnrollment", opts)
+    @test_student = @user
     @enrollment
   end
 
@@ -101,6 +107,19 @@ module Factories
     course_with_user("TeacherEnrollment", opts)
     @teacher = @user
     @enrollment
+  end
+
+  def course_with_teacher_and_student_enrolled(opts = {})
+    course_with_user("TeacherEnrollment", opts.merge(active_all: true))
+    @teacher = @user
+    @teacher_enrollment = @enrollment
+    @student = @course.shard.activate { user_factory }
+    @student_enrollment = @course.enroll_user(@student, "StudentEnrollment", opts)
+    @student.save!
+    @student_enrollment.workflow_state = "active"
+    @student_enrollment.course = @course
+    @student_enrollment.save!
+    @course.reload
   end
 
   def course_with_designer(opts = {})

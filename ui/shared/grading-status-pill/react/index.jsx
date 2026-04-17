@@ -17,11 +17,23 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render, rerender} from '@canvas/react'
 import {Pill} from '@instructure/ui-pill'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('gradingStatusPill')
+const I18n = createI18nScope('gradingStatusPill')
+
+// Store roots to prevent multiple render calls on same element
+const rootMap = new WeakMap()
+
+function renderOrRerender(element, component) {
+  if (rootMap.has(element)) {
+    rerender(rootMap.get(element), component)
+  } else {
+    const root = render(component, element)
+    rootMap.set(element, root)
+  }
+}
 
 function forEachNode(nodeList, fn) {
   for (let i = 0; i < nodeList.length; i += 1) {
@@ -36,34 +48,36 @@ export default {
         statusMap[status.id] = status
         return statusMap
       }, {}) ?? {}
+
     const missMountPoints = document.querySelectorAll('.submission-missing-pill')
     const lateMountPoints = document.querySelectorAll('.submission-late-pill')
     const excusedMountPoints = document.querySelectorAll('.submission-excused-pill')
     const extendedMountPoints = document.querySelectorAll('.submission-extended-pill')
     const customGradeStatusMountPoints = document.querySelectorAll(
-      '[class^="submission-custom-grade-status-pill-"]'
+      '[class^="submission-custom-grade-status-pill-"]',
     )
+
     forEachNode(missMountPoints, mountPoint => {
-      ReactDOM.render(<Pill color="danger">{I18n.t('missing')}</Pill>, mountPoint)
+      renderOrRerender(mountPoint, <Pill color="danger">{I18n.t('missing')}</Pill>)
     })
 
     forEachNode(lateMountPoints, mountPoint => {
-      ReactDOM.render(<Pill color="info">{I18n.t('late')}</Pill>, mountPoint)
+      renderOrRerender(mountPoint, <Pill color="info">{I18n.t('late')}</Pill>)
     })
 
     forEachNode(excusedMountPoints, mountPoint => {
-      ReactDOM.render(<Pill color="danger">{I18n.t('excused')}</Pill>, mountPoint)
+      renderOrRerender(mountPoint, <Pill color="danger">{I18n.t('excused')}</Pill>)
     })
 
     forEachNode(extendedMountPoints, mountPoint => {
-      ReactDOM.render(<Pill color="alert">{I18n.t('extended')}</Pill>, mountPoint)
+      renderOrRerender(mountPoint, <Pill color="alert">{I18n.t('extended')}</Pill>)
     })
 
     forEachNode(customGradeStatusMountPoints, mountPoint => {
       const status =
         statusMap[mountPoint.classList[0].substring('submission-custom-grade-status-pill-'.length)]
       if (status) {
-        ReactDOM.render(<Pill>{status.name}</Pill>, mountPoint)
+        renderOrRerender(mountPoint, <Pill>{status.name}</Pill>)
       }
     })
   },

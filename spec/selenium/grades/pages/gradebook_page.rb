@@ -20,6 +20,7 @@
 require_relative "../../common"
 require_relative "post_grades_tray_page"
 require_relative "hide_grades_tray_page"
+require_relative "gradebook_grade_detail_tray_page"
 
 module Gradebook
   extend SeleniumDependencies
@@ -207,27 +208,27 @@ module Gradebook
   end
 
   def self.filters_element
-    fj("li:contains(Filters) button")
+    fj("button:has(span[class*='menuItem__label']:contains('Filters'))")
   end
 
   def self.show_grading_period_filter_element
-    fxpath("//li[@role='none']//span[contains(text(), 'Grading Periods')]")
+    fj("span[class*='menuItem__label']:contains('Grading Periods')")
   end
 
   def self.show_module_filter_element
-    fxpath("//li[@role='none']//span[contains(text(), 'Modules')]")
+    fj("span[class*='menuItem__label']:contains('Modules')")
   end
 
   def self.show_section_filter_element
-    fxpath("//li[@role='none']//span[contains(text(), 'Sections')]")
+    fj("span[class*='menuItem__label']:contains('Sections')")
   end
 
   def self.show_unpublished_assignments
-    fj('li li:contains("Unpublished Assignments")')
+    fj('[class$="-menuItem"]:contains("Unpublished Assignments")')
   end
 
   def self.view_ungraded_as_zero
-    fj('li li:contains("View Ungraded as 0")')
+    fj('[class$="-menuItem"]:contains("View Ungraded as 0")')
   end
 
   def self.body
@@ -424,7 +425,7 @@ module Gradebook
   def self.wait_for_spinner
     begin
       spinner = loading_spinner
-      keep_trying_until(3) { (spinner.displayed? == false) }
+      keep_trying_until(3) { spinner.displayed? == false }
     rescue Selenium::WebDriver::Error::TimeoutError
       # ignore - sometimes spinner doesn't appear in Chrome
     end
@@ -523,7 +524,7 @@ module Gradebook
   end
 
   def self.view_menu_item(name)
-    fj("[role=menu] li:contains(#{name})")
+    fj("[role=menu] [class*=menuItem__label]:contains(#{name})")
   end
 
   def self.popover_menu_item_checked?(menu_item_name)

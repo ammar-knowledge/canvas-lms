@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import _ from 'lodash'
+import {keys, map} from 'es-toolkit/compat'
 import AssignmentOverrideHelper from '../AssignmentOverrideHelper'
 
 const defaultStudents = [
@@ -66,17 +66,17 @@ describe('AssignmentOverrideHelper#effectiveDueDatesForAssignment - assignment o
     dueDates = AssignmentOverrideHelper.effectiveDueDatesForAssignment(
       assignment,
       overrides,
-      defaultStudents
+      defaultStudents,
     )
   })
 
   test('returns dates for assigned students', () => {
-    const studentIDs = _.keys(dueDates)
+    const studentIDs = keys(dueDates)
     expect(studentIDs).toEqual(['1', '2'])
   })
 
   test('returns the most lenient (most time to turn in) applicable date for each student', () => {
-    const effectiveDates = _.map(dueDates, date => date.getTime())
+    const effectiveDates = map(dueDates, date => date.getTime())
     expect(effectiveDates).toEqual([dates.october.getTime(), dates.august.getTime()])
   })
 })
@@ -99,13 +99,13 @@ describe('AssignmentOverrideHelper#effectiveDueDatesForAssignment - assignment v
     dueDates = AssignmentOverrideHelper.effectiveDueDatesForAssignment(
       assignment,
       overrides,
-      defaultStudents
+      defaultStudents,
     )
   })
 
   test('returns dates for assigned students', () => {
-    const studentIDs = _.keys(dueDates)
-    expect(studentIDs).toEqual(_.map(defaultStudents, 'id'))
+    const studentIDs = keys(dueDates)
+    expect(studentIDs).toEqual(map(defaultStudents, 'id'))
   })
 
   test('returns the assignment due date for students without overrides', () => {

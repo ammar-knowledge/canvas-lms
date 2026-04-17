@@ -17,16 +17,14 @@
  */
 
 import React from 'react'
-import {shallow} from 'enzyme'
-import merge from 'lodash/merge'
-import sinon from 'sinon'
+import {render} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import {merge} from 'es-toolkit/compat'
 import ConfirmDeleteModal from '../ConfirmDeleteModal'
 
 const container = document.createElement('div')
 container.setAttribute('id', 'fixtures')
 document.body.appendChild(container)
-
-const equal = (x, y) => expect(x).toBe(y)
 
 const makeProps = (props = {}) =>
   merge(
@@ -38,47 +36,103 @@ const makeProps = (props = {}) =>
       selectedCount: 1,
       applicationElement: () => document.getElementById('fixtures'),
     },
-    props
+    props,
   )
 
 describe('ConfirmDeleteModal component', () => {
-  test('should call onConfirm prop after confirming delete', done => {
-    const confirmSpy = sinon.spy()
-    const tree = shallow(<ConfirmDeleteModal {...makeProps({onConfirm: confirmSpy})} />)
-    tree.find('#confirm_delete_announcements').simulate('click')
-    setTimeout(() => {
-      equal(confirmSpy.callCount, 1)
-      done()
-    })
+  let modal
+
+  beforeEach(() => {
+    modal = null
   })
 
-  test('should call onHide prop after confirming delete', done => {
-    const hideSpy = sinon.spy()
-    const tree = shallow(<ConfirmDeleteModal {...makeProps({onHide: hideSpy})} />)
-    tree.find('#confirm_delete_announcements').simulate('click')
-    setTimeout(() => {
-      equal(hideSpy.callCount, 1)
-      done()
-    })
+  afterEach(() => {
+    if (modal) {
+      modal.hide()
+    }
   })
 
-  test('should call onCancel prop after cancelling', done => {
-    const cancelSpy = sinon.spy()
-    const tree = shallow(<ConfirmDeleteModal {...makeProps({onCancel: cancelSpy})} />)
-    tree.find('#cancel_delete_announcements').simulate('click')
-    setTimeout(() => {
-      equal(cancelSpy.callCount, 1)
-      done()
+  test('should call onConfirm prop after confirming delete', async () => {
+    const user = userEvent.setup()
+    const confirmSpy = vi.fn()
+    const modalRef = vi.fn(ref => {
+      modal = ref
     })
+
+    const {getByTestId} = render(
+      <ConfirmDeleteModal {...makeProps({onConfirm: confirmSpy, modalRef})} />,
+    )
+
+    // Show the modal
+    modal.show()
+
+    const confirmButton = getByTestId('confirm-delete-announcements')
+    await user.click(confirmButton)
+
+    // Wait for setTimeout in component
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
   })
 
-  test('should call onHide prop after cancelling', done => {
-    const hideSpy = sinon.spy()
-    const tree = shallow(<ConfirmDeleteModal {...makeProps({onHide: hideSpy})} />)
-    tree.find('#confirm_delete_announcements').simulate('click')
-    setTimeout(() => {
-      equal(hideSpy.callCount, 1)
-      done()
+  test('should call onHide prop after confirming delete', async () => {
+    const user = userEvent.setup()
+    const hideSpy = vi.fn()
+    const modalRef = vi.fn(ref => {
+      modal = ref
     })
+
+    const {getByTestId} = render(<ConfirmDeleteModal {...makeProps({onHide: hideSpy, modalRef})} />)
+
+    // Show the modal
+    modal.show()
+
+    const confirmButton = getByTestId('confirm-delete-announcements')
+    await user.click(confirmButton)
+
+    // Wait for setTimeout in component
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(hideSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('should call onCancel prop after cancelling', async () => {
+    const user = userEvent.setup()
+    const cancelSpy = vi.fn()
+    const modalRef = vi.fn(ref => {
+      modal = ref
+    })
+
+    const {getByTestId} = render(
+      <ConfirmDeleteModal {...makeProps({onCancel: cancelSpy, modalRef})} />,
+    )
+
+    // Show the modal
+    modal.show()
+
+    const cancelButton = getByTestId('cancel-delete-announcements')
+    await user.click(cancelButton)
+
+    // Wait for setTimeout in component
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(cancelSpy).toHaveBeenCalledTimes(1)
+  })
+
+  test('should call onHide prop after cancelling', async () => {
+    const user = userEvent.setup()
+    const hideSpy = vi.fn()
+    const modalRef = vi.fn(ref => {
+      modal = ref
+    })
+
+    const {getByTestId} = render(<ConfirmDeleteModal {...makeProps({onHide: hideSpy, modalRef})} />)
+
+    // Show the modal
+    modal.show()
+
+    const cancelButton = getByTestId('cancel-delete-announcements')
+    await user.click(cancelButton)
+
+    // Wait for setTimeout in component
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(hideSpy).toHaveBeenCalledTimes(1)
   })
 })

@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
+class ModeratedGrading::ProvisionalGrade < ApplicationRecord
   include Canvas::GradeValidations
 
   AUDITABLE_ATTRIBUTES = %w[
@@ -32,7 +32,8 @@ class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
   has_many :rubric_assessments, as: :artifact
   has_one :selection,
           class_name: "ModeratedGrading::Selection",
-          foreign_key: :selected_provisional_grade_id
+          foreign_key: :selected_provisional_grade_id,
+          inverse_of: :provisional_grade
 
   belongs_to :source_provisional_grade, class_name: "ModeratedGrading::ProvisionalGrade"
 
@@ -135,17 +136,12 @@ class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
   end
 
   def attachment_info(user, attachment)
-    annotators = [submission.user, scorer]
-    annotators << source_provisional_grade.scorer if source_provisional_grade
     url_opts = {
       enable_annotations: true,
-      moderated_grading_allow_list: annotators.map { |u| u.moderated_grading_ids(true) }
     }
 
     {
       attachment_id: attachment.id,
-      crocodoc_url: attachment.crocodoc_available? &&
-        attachment.crocodoc_url(user, url_opts),
       canvadoc_url: attachment.canvadoc_available? &&
         attachment.canvadoc_url(user, url_opts)
     }

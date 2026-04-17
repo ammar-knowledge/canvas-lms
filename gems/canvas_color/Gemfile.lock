@@ -6,7 +6,7 @@ PATH
 GEM
   remote: https://rubygems.org/
   specs:
-    rake (13.2.1)
+    rake (13.3.1)
 
 PLATFORMS
   aarch64-linux
@@ -16,12 +16,11 @@ PLATFORMS
   x86_64-linux
 
 DEPENDENCIES
-  bundler (~> 2.2)
   canvas_color!
   rake
 
 RUBY VERSION
-   ruby 3.1.2p20
+   ruby 3.4.1p0
 
 BUNDLED WITH
-   2.5.10
+   2.6.7

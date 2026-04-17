@@ -64,17 +64,19 @@ module Lti
       end
 
       def import_completed?
-        response = Canvas.retriable(on: Timeout::Error) { CanvasHttp.get(@status_url, base_request_headers) } if @status_url
-        if response&.code.to_i == 200
-          parsed_response = JSON.parse(response.body)
-          @export_status = parsed_response["status"]
-          case @export_status
-          when SUCCESSFUL_STATUS
-            true
-          when FAILED_STATUS
-            raise parsed_response["message"]
-          else
-            false
+        InstrumentTLSCiphers.without_tls_metrics do
+          response = Canvas.retriable(on: Timeout::Error) { CanvasHttp.get(@status_url, base_request_headers) } if @status_url
+          if response&.code.to_i == 200
+            parsed_response = JSON.parse(response.body)
+            @export_status = parsed_response["status"]
+            case @export_status
+            when SUCCESSFUL_STATUS
+              true
+            when FAILED_STATUS
+              raise parsed_response["message"]
+            else
+              false
+            end
           end
         end
       rescue Timeout::Error
@@ -85,7 +87,7 @@ module Lti
 
       def start_import_post_body(content)
         {
-          context_id: Lti::Asset.opaque_identifier_for(@course),
+          context_id: Lti::V1p1::Asset.opaque_identifier_for(@course),
           data: content,
           tool_consumer_instance_guid: @root_account.lti_guid,
         }.merge(expanded_variables)
@@ -95,7 +97,7 @@ module Lti
         return @tool if @tool
 
         original_tool = ContextExternalTool.find(@original_tool_id)
-        @tool = ContextExternalTool.find_external_tool(original_tool.domain, @course, @original_tool_id).tap do |t|
+        @tool = Lti::ToolFinder.from_url(original_tool.domain, @course, preferred_tool_id: @original_tool_id).tap do |t|
           unless t&.content_migration_configured?
             raise "Unable to find external tool to import content."
           end

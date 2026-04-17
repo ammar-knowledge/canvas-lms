@@ -26,12 +26,12 @@ class OpenStruct
   end
 end
 
-class OpenObject < OpenStruct # rubocop:disable Style/OpenStructUse
-  def initialize(*args, in_specs: false)
+class OpenObject < OpenStruct # rubocop:disable Style/OpenStructUse, Style/OneClassPerFile
+  def initialize(*, in_specs: false)
     unless in_specs
       raise "Do not use OpenObject except for testing backwards compatibility with prior OpenObject usage"
     end
 
-    super(*args)
+    super(*)
   end
 end

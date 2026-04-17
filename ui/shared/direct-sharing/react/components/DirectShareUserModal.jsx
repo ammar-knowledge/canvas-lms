@@ -16,38 +16,44 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
 import React, {Suspense, lazy, useState, useRef} from 'react'
-import {oneOf, shape, string} from 'prop-types'
+import {number, oneOf, oneOfType, shape, string} from 'prop-types'
 import {Alert} from '@instructure/ui-alerts'
 import {Button} from '@instructure/ui-buttons'
 import {Spinner} from '@instructure/ui-spinner'
 import {View} from '@instructure/ui-view'
 import CanvasModal from '@canvas/instui-bindings/react/Modal'
 import {CONTENT_SHARE_TYPES} from '@canvas/content-sharing/react/proptypes/contentShare'
-import {showFlashSuccess} from '@canvas/alerts/react/FlashAlert'
+import {showFlashSuccess} from '@instructure/platform-alerts'
 import doFetchApi from '@canvas/do-fetch-api-effect'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {captureException} from '@sentry/react'
+import {queryClient} from '@instructure/platform-query'
 
-const I18n = useI18nScope('direct_share_user_modal')
+const I18n = createI18nScope('direct_share_user_modal')
 
 const DirectShareUserPanel = lazy(() => import('./DirectShareUserPanel'))
 
 DirectShareUserModal.propTypes = {
+  id: string,
   contentShare: shape({
-    content_id: string,
+    content_id: oneOfType([string, number]),
     content_type: oneOf(CONTENT_SHARE_TYPES),
   }),
   courseId: string,
 }
 
-export default function DirectShareUserModal({contentShare, courseId, ...modalProps}) {
+export default function DirectShareUserModal({id, contentShare, courseId, ...modalProps}) {
   const [selectedUsers, setSelectedUsers] = useState([])
   const [postStatus, setPostStatus] = useState(null)
+  const [selectedUsersError, setSelectedUsersError] = useState(false)
+  const userSelectInputRef = useRef(null)
   const previousOpen = useRef(modalProps.open)
+  const shouldValidateCallToAction = window.ENV.FEATURES?.validate_call_to_action || false
 
   function resetState() {
     setSelectedUsers([])
+    setSelectedUsersError(false)
     setPostStatus(null)
   }
 
@@ -73,12 +79,18 @@ export default function DirectShareUserModal({contentShare, courseId, ...modalPr
   }
 
   function handleSend() {
+    if (shouldValidateCallToAction && selectedUsers.length === 0) {
+      userSelectInputRef?.current.focus()
+      setSelectedUsersError(true)
+      return
+    }
+    setSelectedUsersError(false)
     setPostStatus('info')
     startSendOperation()
       .then(sendSuccessful)
       .catch(err => {
-        console.error(err) // eslint-disable-line no-console
-        if (err.response) console.error(err.response) // eslint-disable-line no-console
+        console.error(err)
+        if (err.response) console.error(err.response)
         setPostStatus('error')
         captureException(err)
       })
@@ -86,15 +98,18 @@ export default function DirectShareUserModal({contentShare, courseId, ...modalPr
 
   function sendSuccessful() {
     showFlashSuccess(I18n.t('Content share started successfully'))()
+    queryClient.invalidateQueries({queryKey: ['moduleItems', id || '']})
+    queryClient.invalidateQueries({queryKey: ['modules', courseId]})
     modalProps.onDismiss()
   }
 
   function Footer() {
+    const disabledByUserSelected = selectedUsers.length === 0 && !shouldValidateCallToAction
     return (
       <>
         <Button onClick={modalProps.onDismiss}>{I18n.t('Cancel')}</Button>
         <Button
-          disabled={selectedUsers.length === 0 || postStatus === 'info'}
+          disabled={disabledByUserSelected || postStatus === 'info'}
           color="primary"
           margin="0 0 0 x-small"
           onClick={handleSend}
@@ -133,7 +148,13 @@ export default function DirectShareUserModal({contentShare, courseId, ...modalPr
 
   // TODO: should show the title of item being shared
   return (
-    <CanvasModal label={I18n.t('Send To...')} size="medium" {...modalProps} footer={<Footer />}>
+    <CanvasModal
+      label={I18n.t('Send To...')}
+      size="medium"
+      footer={<Footer />}
+      data-testid="send-to-item-modal"
+      {...modalProps}
+    >
       <Suspense fallback={suspenseFallback}>
         {alert}
         <DirectShareUserPanel
@@ -141,6 +162,8 @@ export default function DirectShareUserModal({contentShare, courseId, ...modalPr
           selectedUsers={selectedUsers}
           onUserSelected={handleUserSelected}
           onUserRemoved={handleUserRemoved}
+          selectedUsersError={selectedUsersError}
+          userSelectInputRef={ref => (userSelectInputRef.current = ref)}
         />
       </Suspense>
     </CanvasModal>

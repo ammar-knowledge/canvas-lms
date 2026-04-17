@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
  *
@@ -26,34 +25,68 @@ import {SimpleSelect} from '@instructure/ui-simple-select'
 import type {SimpleSelectProps} from '@instructure/ui-simple-select'
 import {View} from '@instructure/ui-view'
 import StatusColorPanel from './StatusColorPanel'
+import type {SortDirection} from '../gradebook.d'
+import type {StatusColors} from '../constants/colors'
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {GradeStatusUnderscore} from '@canvas/grading/accountGradingStatus'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
-function buildAssignmentSortOptions(includeModules) {
+interface SortOption {
+  criterion: string
+  direction: SortDirection
+  label: string
+  value: string
+}
+
+function buildAssignmentSortOptions(includeModules: boolean): SortOption[] {
   const options = [
-    {criterion: 'default', direction: 'ascending', label: I18n.t('Default Order')},
-    {criterion: 'name', direction: 'ascending', label: I18n.t('Assignment Name - A-Z')},
-    {criterion: 'name', direction: 'descending', label: I18n.t('Assignment Name - Z-A')},
-    {criterion: 'due_date', direction: 'ascending', label: I18n.t('Due Date - Oldest to Newest')},
-    {criterion: 'due_date', direction: 'descending', label: I18n.t('Due Date - Newest to Oldest')},
-    {criterion: 'points', direction: 'ascending', label: I18n.t('Points - Lowest to Highest')},
-    {criterion: 'points', direction: 'descending', label: I18n.t('Points - Highest to Lowest')},
+    {criterion: 'default', direction: 'ascending' as SortDirection, label: I18n.t('Default Order')},
+    {
+      criterion: 'name',
+      direction: 'ascending' as SortDirection,
+      label: I18n.t('Assignment Name - A-Z'),
+    },
+    {
+      criterion: 'name',
+      direction: 'descending' as SortDirection,
+      label: I18n.t('Assignment Name - Z-A'),
+    },
+    {
+      criterion: 'due_date',
+      direction: 'ascending' as SortDirection,
+      label: I18n.t('Due Date - Oldest to Newest'),
+    },
+    {
+      criterion: 'due_date',
+      direction: 'descending' as SortDirection,
+      label: I18n.t('Due Date - Newest to Oldest'),
+    },
+    {
+      criterion: 'points',
+      direction: 'ascending' as SortDirection,
+      label: I18n.t('Points - Lowest to Highest'),
+    },
+    {
+      criterion: 'points',
+      direction: 'descending' as SortDirection,
+      label: I18n.t('Points - Highest to Lowest'),
+    },
   ]
 
   if (includeModules) {
     options.push(
       {
         criterion: 'module_position',
-        direction: 'ascending',
+        direction: 'ascending' as SortDirection,
         label: I18n.t('Module - First to Last'),
       },
       {
         criterion: 'module_position',
-        direction: 'descending',
+        direction: 'descending' as SortDirection,
         label: I18n.t('Module - Last to First'),
-      }
+      },
     )
   }
 
@@ -63,7 +96,12 @@ function buildAssignmentSortOptions(includeModules) {
   }))
 }
 
-function renderCheckbox(setting, label, key) {
+interface CheckboxSetting {
+  checked: boolean
+  onChange: (value: boolean) => void
+}
+
+function renderCheckbox(setting: CheckboxSetting, label: string, key: string) {
   return (
     <Checkbox
       checked={setting.checked}
@@ -75,6 +113,34 @@ function renderCheckbox(setting, label, key) {
   )
 }
 
+interface ColumnSort {
+  currentValue: {
+    criterion: string
+    direction: SortDirection
+  }
+  modulesEnabled: boolean
+  onChange: (value: {criterion: string; direction: SortDirection}) => void
+}
+
+interface ViewOptionsTabPanelProps {
+  columnSort: ColumnSort
+  finalGradeOverrideEnabled: boolean
+  hideAssignmentGroupTotals: CheckboxSetting
+  hideTotal: CheckboxSetting
+  showNotes: CheckboxSetting
+  showUnpublishedAssignments: CheckboxSetting
+  showSuppressedAssignments: CheckboxSetting & {allowed: boolean}
+  showSeparateFirstLastNames: CheckboxSetting & {allowed: boolean}
+  statusColors: {
+    currentValues: StatusColors
+    onChange: (colors: StatusColors) => void
+  }
+  viewUngradedAsZero: CheckboxSetting & {allowed: boolean}
+  viewHiddenGradesIndicator: CheckboxSetting
+  viewStatusForColorblindness: CheckboxSetting
+  customGradeStatuses?: GradeStatusUnderscore[]
+}
+
 export default function ViewOptionsTabPanel({
   columnSort,
   finalGradeOverrideEnabled,
@@ -82,19 +148,23 @@ export default function ViewOptionsTabPanel({
   hideTotal,
   showNotes,
   showUnpublishedAssignments,
+  showSuppressedAssignments,
   showSeparateFirstLastNames,
   statusColors,
   viewUngradedAsZero,
-}) {
+  viewHiddenGradesIndicator,
+  viewStatusForColorblindness,
+  customGradeStatuses,
+}: ViewOptionsTabPanelProps) {
   const sortOptions = buildAssignmentSortOptions(columnSort.modulesEnabled)
   const selectedSortKey =
     sortOptions.find(
       option =>
         option.criterion === columnSort.currentValue.criterion &&
-        option.direction === columnSort.currentValue.direction
+        option.direction === columnSort.currentValue.direction,
     ) || sortOptions[0]
 
-  const handleColumnSortSelected: SimpleSelectProps['onChange'] = (e, {value}) => {
+  const handleColumnSortSelected: SimpleSelectProps['onChange'] = (_e, {value}) => {
     const matchingSortOption = sortOptions.find(option => option.value === value)
 
     if (typeof matchingSortOption !== 'undefined') {
@@ -125,36 +195,52 @@ export default function ViewOptionsTabPanel({
 
         <View as="div" margin="large 0 large">
           <FormFieldGroup description={I18n.t('Show')} layout="stacked" rowSpacing="small">
+            {showSuppressedAssignments.allowed &&
+              renderCheckbox(
+                showSuppressedAssignments,
+                I18n.t('All Hidden Assignments'),
+                'showSuppressedAssignments',
+              )}
             {renderCheckbox(showNotes, I18n.t('Notes'), 'showNotes')}
             {renderCheckbox(
               showUnpublishedAssignments,
               I18n.t('Unpublished Assignments'),
-              'showUnpublishedAssignments'
+              'showUnpublishedAssignments',
             )}
             {showSeparateFirstLastNames.allowed &&
               renderCheckbox(
                 showSeparateFirstLastNames,
                 I18n.t('Split Student Names'),
-                'showSeparateFirstLastNames'
+                'showSeparateFirstLastNames',
               )}
             {renderCheckbox(
               hideAssignmentGroupTotals,
               I18n.t('Hide Assignment Group Totals'),
-              'hideAssignmentGroupTotals'
+              'hideAssignmentGroupTotals',
             )}
             {renderCheckbox(
               hideTotal,
               finalGradeOverrideEnabled
                 ? I18n.t('Hide Total and Override Columns')
                 : I18n.t('Hide Total Column'),
-              'hideTotal'
+              'hideTotal',
             )}
             {viewUngradedAsZero.allowed &&
               renderCheckbox(
                 viewUngradedAsZero,
                 I18n.t('View ungraded as 0'),
-                'viewUngradedAsZero'
+                'viewUngradedAsZero',
               )}
+            {renderCheckbox(
+              viewHiddenGradesIndicator,
+              I18n.t('View hidden grades indicator'),
+              'viewHiddenGradesIndicator',
+            )}
+            {renderCheckbox(
+              viewStatusForColorblindness,
+              I18n.t('Enable Gradebook Status Icons'),
+              'viewStatusForColorblindness',
+            )}
           </FormFieldGroup>
         </View>
 
@@ -162,6 +248,8 @@ export default function ViewOptionsTabPanel({
           <StatusColorPanel
             colors={statusColors.currentValues}
             onColorsUpdated={statusColors.onChange}
+            customGradeStatuses={customGradeStatuses}
+            viewStatusForColorblindness={viewStatusForColorblindness.checked}
           />
         </FormFieldGroup>
       </View>
@@ -195,6 +283,11 @@ ViewOptionsTabPanel.propTypes = {
     checked: bool.isRequired,
     onChange: func.isRequired,
   }).isRequired,
+  showSuppressedAssignments: shape({
+    allowed: bool.isRequired,
+    checked: bool.isRequired,
+    onChange: func.isRequired,
+  }).isRequired,
   showSeparateFirstLastNames: shape({
     allowed: bool.isRequired,
     checked: bool.isRequired,
@@ -206,6 +299,14 @@ ViewOptionsTabPanel.propTypes = {
   }).isRequired,
   viewUngradedAsZero: shape({
     allowed: bool.isRequired,
+    checked: bool.isRequired,
+    onChange: func.isRequired,
+  }).isRequired,
+  viewHiddenGradesIndicator: shape({
+    checked: bool.isRequired,
+    onChange: func.isRequired,
+  }).isRequired,
+  viewStatusForColorblindness: shape({
     checked: bool.isRequired,
     onChange: func.isRequired,
   }).isRequired,

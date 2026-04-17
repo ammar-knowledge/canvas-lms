@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
  *
@@ -19,11 +18,11 @@
 import React from 'react'
 import CanvasMediaPlayer from '@canvas/canvas-media-player'
 import {RemovableItem} from '../RemovableItem/RemovableItem'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {View} from '@instructure/ui-view'
 import {colors} from '@instructure/canvas-theme'
 
-const I18n = useI18nScope('conversations_2')
+const I18n = createI18nScope('conversations_2')
 
 type MediaAttachmentProps = {
   onRemoveMediaComment?: () => void
@@ -70,7 +69,7 @@ export function MediaAttachment(props: MediaAttachmentProps) {
           textOverflow: 'ellipsis',
           overflow: 'hidden',
           whiteSpace: 'nowrap',
-          color: colors.ash,
+          color: colors.contrasts.grey4570,
         }}
       >
         {props.file.title}
@@ -81,8 +80,14 @@ export function MediaAttachment(props: MediaAttachmentProps) {
 
 type MediaAttachmentPlayerProps = Omit<MediaAttachmentProps, 'onRemoveMediaComment'>
 
+type MediaSourceOption = {
+  label: string
+  src: string
+  bitrate: string
+}
+
 const MediaAttachmentPlayer = (props: MediaAttachmentPlayerProps) => {
-  const mediaSources = (): string[] => {
+  const mediaSources = (): MediaSourceOption[] => {
     if (props.file.src) {
       return [{label: I18n.t('Standard'), src: props.file.src, bitrate: '0'}]
     }

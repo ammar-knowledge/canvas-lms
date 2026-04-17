@@ -17,12 +17,16 @@
 //
 
 import $ from 'jquery'
-import {once, min} from 'lodash'
+import {once, min} from 'es-toolkit/compat'
 import BaseView from './AvatarUploadBaseView'
 import template from '../../jst/takePictureView.handlebars'
 import BlobFactory from '../../BlobFactory'
 
 export default class TakePictureView extends BaseView {
+  constructor(options) {
+    super(options)
+  }
+
   static initClass() {
     this.optionProperty('avatarSize')
 
@@ -69,7 +73,8 @@ export default class TakePictureView extends BaseView {
   }
 
   startMedia() {
-    return this.getUserMedia({video: true}, this.displayMedia.bind(this), $.noop)
+    const result = this.getUserMedia({video: true}, this.displayMedia.bind(this), $.noop)
+    return result
   }
 
   displayMedia(stream) {
@@ -128,7 +133,7 @@ export default class TakePictureView extends BaseView {
 
       // width and height of the source image to draw to the destination
       canvas.width,
-      canvas.height
+      canvas.height,
     )
     const url = canvas.toDataURL()
 
@@ -157,7 +162,7 @@ export default class TakePictureView extends BaseView {
 
         // width and height of the image in the destination
         this.$clip.width(),
-        this.$clip.height()
+        this.$clip.height(),
       )
 
       this.preview = canvas.toDataURL()

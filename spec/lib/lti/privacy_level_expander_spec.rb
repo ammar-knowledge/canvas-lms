@@ -20,16 +20,18 @@
 
 describe Lti::PrivacyLevelExpander do
   include ExternalToolsSpecHelper
+
   let(:course) { course_model }
   let(:user) { course_with_student(course:).user }
   let(:placement) { "resource_selection" }
   let(:tool) { new_valid_tool(course) }
   let(:launch_url) { "http://www.test.com/launch" }
   let(:variable_expander) do
+    controller = instance_double(ApplicationController, request: { body: "body content" })
     Lti::VariableExpander.new(
       course.root_account,
       course,
-      double(request: { body: "body content" }),
+      controller,
       {
         current_user: user,
         current_pseudonym: user.pseudonyms.first,
@@ -48,7 +50,7 @@ describe Lti::PrivacyLevelExpander do
   describe "expanded_variables" do
     it "expands custom fields" do
       expected_params = {
-        "custom_context_id" => Lti::Asset.opaque_identifier_for(course)
+        "custom_context_id" => Lti::V1p1::Asset.opaque_identifier_for(course)
       }
 
       expect(helper.expanded_variables!(tool.set_custom_fields(placement))).to include expected_params

@@ -18,12 +18,10 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
-
 describe "BookmarkedCollection::Collection" do
   before do
-    @bookmark = double("bookmark")
-    @bookmarker = double("bookmarker", validate: true, bookmark_for: @bookmark)
+    @bookmark = Object.new
+    @bookmarker = instance_double(BookmarkedCollection::SimpleBookmarker, validate: true, bookmark_for: @bookmark)
     @collection = BookmarkedCollection::Collection.new(@bookmarker)
   end
 
@@ -104,7 +102,7 @@ describe "BookmarkedCollection::Collection" do
 
   describe "round-tripping dates" do
     it "converts to UTC" do
-      timestamp = DateTime.parse("2020-12-31T22:00:00-09:00").in_time_zone("Alaska")
+      timestamp = Time.parse("2020-12-31T22:00:00-09:00").in_time_zone("Alaska")
       page = @collection.bookmark_to_page([1, timestamp])
       expect(page).to match(/^bookmark:/)
       bookmark = @collection.page_to_bookmark(page)
@@ -112,7 +110,7 @@ describe "BookmarkedCollection::Collection" do
     end
 
     it "preserves fractional times" do
-      timestamp = DateTime.parse("2020-02-22T22:22:22.22Z")
+      timestamp = Time.parse("2020-02-22T22:22:22.22Z").utc
       page = @collection.bookmark_to_page([1, [2, timestamp]])
       expect(page).to match(/^bookmark:/)
       bookmark = @collection.page_to_bookmark(page)
@@ -147,6 +145,17 @@ describe "BookmarkedCollection::Collection" do
       @collection.current_page = page
       expect(@collection.current_bookmark).to eq(bookmark)
     end
+
+    it "is nil if given page 1" do
+      @collection.current_page = "1"
+      expect(@collection.current_bookmark).to be_nil
+    end
+
+    it "raises an error if given page > 1" do
+      expect do
+        @collection.current_page = "2"
+      end.to raise_error(BookmarkedCollection::InvalidPage)
+    end
   end
 
   describe "#first_page" do
@@ -163,9 +172,9 @@ describe "BookmarkedCollection::Collection" do
 
   describe "#has_more!" do
     before do
-      @item = double("item")
+      @item = Object.new
       @collection << @item
-      @bookmark = double("bookmark")
+      @bookmark = Object.new
     end
 
     it "uses the bookmarker on the last item" do

@@ -132,6 +132,11 @@ over 10% different, the entire import file will be applied instead of diffing
 against a previous batch and this batch will not be used for diffing any future
 batches. The change_threshold can be set to any integer between 1 and 100.
 
+If five consecutive SIS batches with the same diffing data set identifier 
+exceed the change threshold, future imports will fail. You will be required
+to perform a remaster using the `diffing_remaster_data_set=true` option
+to resume imports with that data set identifier.
+
 change_threshold also impacts batch mode.
 
 Stickiness
@@ -276,7 +281,7 @@ recommended to omit this field over using fake email addresses for testing.</td>
 <td>text</td>
 <td></td>
 <td>✓</td>
-<td>User's preferred pronouns. Can pass "&lt;delete>" to remove the pronoun from the user.</td>
+<td>User's preferred pronouns. Can pass "&lt;delete>" to remove the pronoun from the user. This column will be ignored unless the "Enable Personal Pronouns" account setting is enabled.</td>
 </tr>
 <tr>
 <td>declared_user_type</td>
@@ -605,7 +610,7 @@ To remove the Blueprint Course link you can pass 'dissociate' in place of the id
 <p>If the start_date is set, it will override the term start date. If the end_date is set, it will
 override the term end date.</p>
 <p>To view the current status of a course that has already been imported into Canvas, please fetch the course data using the
-<a href="/doc/api/courses.html#method.courses.show" target="_blank">get a single course</a> API endpoint and refer to the workflow_state value returned in the <a href="/doc/api/courses.html#Course" target="_blank">Course</a> object.</p>
+<a href="courses.html#method.courses.show" target="_blank">get a single course</a> API endpoint and refer to the workflow_state value returned in the <a href="courses.html#Course" target="_blank">Course</a> object.</p>
 
 Sample:
 
@@ -1003,6 +1008,159 @@ Sample:
 G411208,U001,accepted
 G411208,U002,accepted
 G411208,U003,deleted
+</pre>
+
+differentiation_tag_sets.csv
+------------
+
+<table class="sis_csv">
+<tr>
+<th>Field Name</th>
+<th>Data Type</th>
+<th>Required</th>
+<th>Sticky</th>
+<th>Description</th>
+</tr>
+<tr>
+<td>tag_set_id</td>
+<td>text</td>
+<td>✓</td>
+<td></td>
+<td>A unique identifier used to reference a differentiation tag set.
+This identifier must not change for the tag set, and must be globally unique.</td>
+</tr>
+<tr>
+<td>course_id</td>
+<td>text</td>
+<td>✓</td>
+<td></td>
+<td>The course identifier from courses.csv the tag set will be attached to.</td>
+</tr>
+<tr>
+<td>set_name</td>
+<td>text</td>
+<td>✓</td>
+<td></td>
+<td>The name of the differentiation tag set.</td>
+</tr>
+<tr>
+<td>status</td>
+<td>enum</td>
+<td>✓</td>
+<td></td>
+<td>active, deleted</td>
+</tr>
+</table>
+
+Sample:
+
+<pre>tag_set_id,course_id,set_name,status
+TS08,C001,First Tag Set,active
+TS07,C001,TS7,active
+TS10,C001,TS10,deleted
+</pre>
+
+differentiation_tags.csv
+------------
+
+<table class="sis_csv">
+<tr>
+<th>Field Name</th>
+<th>Data Type</th>
+<th>Required</th>
+<th>Sticky</th>
+<th>Description</th>
+</tr>
+<tr>
+<td>tag_id</td>
+<td>text</td>
+<td>✓</td>
+<td></td>
+<td>A unique identifier used to reference a differentiation tag.
+This identifier must not change for the tag, and must be globally unique.</td>
+</tr>
+<tr>
+<td>tag_set_id</td>
+<td>text</td>
+<td>&#42;</td>
+<td></td>
+<td>The differentiation tag set identifier from differentiation_tag_sets.csv, if none is 
+specified the tag will be created as a single tag.
+</td>
+</tr>
+<tr>
+<td>course_id</td>
+<td>text</td>
+<td>&#42;</td>
+<td></td>
+<td>The course identifier from courses.csv the tag will be created in.</td>
+</tr>
+<tr>
+<td>name</td>
+<td>text</td>
+<td>✓</td>
+<td>✓</td>
+<td>The name of the differentiation tag.</td>
+</tr>
+<tr>
+<td>status</td>
+<td>enum</td>
+<td>✓</td>
+<td></td>
+<td>available, deleted</td>
+</tr>
+</table>
+
+&#42; tag_set_id or course_id is required for new tags.
+
+Sample:
+
+<pre>tag_id,tag_set_id,course_id,name,status
+T01,TS08,,Tag1,available
+T02,,C001,Tag2,available
+T03,,C001,Tag3,deleted
+</pre>
+
+differentiation_tag_membership.csv
+------------
+
+<table class="sis_csv">
+<tr>
+<th>Field Name</th>
+<th>Data Type</th>
+<th>Required</th>
+<th>Sticky</th>
+<th>Description</th>
+</tr>
+<tr>
+<td>tag_id</td>
+<td>text</td>
+<td>✓</td>
+<td></td>
+<td>The differentiation tag identifier from differentiation_tags.csv</td>
+</tr>
+<tr>
+<td>user_id</td>
+<td>text</td>
+<td>✓</td>
+<td></td>
+<td>The user identifier from users.csv</td>
+</tr>
+<tr>
+<td>status</td>
+<td>enum</td>
+<td>✓</td>
+<td></td>
+<td>accepted, deleted</td>
+</tr>
+</table>
+
+Sample:
+
+<pre>tag_id,user_id,status
+T01,U001,accepted
+T02,U002,accepted
+T03,U003,deleted
 </pre>
 
 xlists.csv

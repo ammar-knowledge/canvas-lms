@@ -17,17 +17,20 @@
  */
 
 import {z} from 'zod'
-import {executeQuery} from '@canvas/query/graphql'
-import gql from 'graphql-tag'
+import {executeQuery} from '@canvas/graphql'
+import {gql} from '@apollo/client'
 import {submissionCommentAttachmentsUpload} from '@canvas/upload-file'
 
 export const CREATE_SUBMISSION_COMMENT = gql`
-  mutation CreateSubmissionComment(
+  mutation CreateSpeedGraderSubmissionComment(
     $submissionId: ID!
     $comment: String!
     $fileIds: [ID!]
     $groupComment: Boolean!
     $draftComment: Boolean
+    $mediaObjectType: String
+    $mediaObjectId: ID
+    $attempt: Int
   ) {
     __typename
     createSubmissionComment(
@@ -37,6 +40,9 @@ export const CREATE_SUBMISSION_COMMENT = gql`
         fileIds: $fileIds
         groupComment: $groupComment
         draftComment: $draftComment
+        mediaObjectType: $mediaObjectType
+        mediaObjectId: $mediaObjectId
+        attempt: $attempt
       }
     ) {
       submissionComment {
@@ -45,6 +51,7 @@ export const CREATE_SUBMISSION_COMMENT = gql`
         comment
         read
         draft
+        mediaCommentId
         author {
           _id
           id
@@ -71,6 +78,9 @@ export const ZCreateSubmissionCommentParams = z.object({
   userId: z.string(),
   files: z.array(z.object({})),
   draftComment: z.boolean().optional(),
+  mediaObjectType: z.string().optional(),
+  mediaObjectId: z.string().optional(),
+  attempt: z.number().optional(),
 })
 
 type CreateSubmissionCommentParams = z.infer<typeof ZCreateSubmissionCommentParams>
@@ -84,6 +94,9 @@ export async function createSubmissionComment({
   userId,
   files,
   draftComment,
+  mediaObjectType,
+  mediaObjectId,
+  attempt,
 }: CreateSubmissionCommentParams): Promise<any> {
   let fileIds = []
   if (files.length > 0) {
@@ -91,7 +104,7 @@ export async function createSubmissionComment({
       files,
       courseId,
       assignmentId,
-      userId
+      userId,
     )
     fileIds = attachments.map(attachment => attachment.id)
   }
@@ -101,6 +114,9 @@ export async function createSubmissionComment({
     groupComment,
     fileIds,
     draftComment,
+    mediaObjectType,
+    mediaObjectId,
+    attempt,
   })
 
   return result

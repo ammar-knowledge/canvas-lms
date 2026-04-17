@@ -16,30 +16,31 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, {SyntheticEvent, useState} from 'react'
+import React, {type SyntheticEvent, useState} from 'react'
 import {View} from '@instructure/ui-view'
 import {Select} from '@instructure/ui-select'
 import {Spinner} from '@instructure/ui-spinner'
 import {Avatar} from '@instructure/ui-avatar'
 import {Flex, FlexItem} from '@instructure/ui-flex'
 import {Text} from '@instructure/ui-text'
-import {useQuery} from '@canvas/query'
+import {useQuery} from '@tanstack/react-query'
 import useDebouncedSearchTerm from '@canvas/search-item-selector/react/hooks/useDebouncedSearchTerm'
-import {useScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-import {ResponseSection, fetchSections} from './api'
+import {type ResponseSection, fetchSections} from './api'
 
-const I18n = useScope('roster_section_input')
+const I18n = createI18nScope('roster_section_input')
 
 type SectionInputProps = {
   onSelect: (section: ResponseSection) => void
-  courseId: number
+  courseId: string
   exclude: string[]
 }
 
 function renderSectionOption(section: ResponseSection, isHighlighted: boolean) {
   return (
     <Select.Option
+      data-testid={`section-option-${section.id}`}
       key={section.id}
       id={section.id}
       value={section.id}
@@ -75,7 +76,7 @@ const SectionInput: React.FC<SectionInputProps> = ({onSelect, courseId, exclude}
     enabled: showOptions,
   })
 
-  const handleOnSelect = (e: SyntheticEvent<Element, Event>, {id}: {id?: string}) => {
+  const handleOnSelect = (_e: SyntheticEvent<Element, Event>, {id}: {id?: string}) => {
     setSearchTerm('')
     setInputValue('')
     setShowOptions(false)
@@ -92,6 +93,7 @@ const SectionInput: React.FC<SectionInputProps> = ({onSelect, courseId, exclude}
   return (
     <View>
       <Select
+        data-testid="section-input"
         renderLabel=""
         isShowingOptions={showOptions}
         onInputChange={e => {
@@ -103,7 +105,7 @@ const SectionInput: React.FC<SectionInputProps> = ({onSelect, courseId, exclude}
         onRequestSelectOption={handleOnSelect}
         onRequestShowOptions={() => setShowOptions(true)}
         onRequestHideOptions={() => setShowOptions(false)}
-        onRequestHighlightOption={(event, {id}) => setHighlightedSectionId(id || '')}
+        onRequestHighlightOption={(_event, {id}) => setHighlightedSectionId(id || '')}
         placeholder={I18n.t('Enter a section name')}
       >
         {showSpinner && (

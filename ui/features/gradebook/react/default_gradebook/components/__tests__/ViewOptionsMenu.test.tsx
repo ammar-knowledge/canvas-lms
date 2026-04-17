@@ -69,12 +69,7 @@ function defaultProps({props = {}, filterSettings = {}} = {}) {
 }
 
 function mouseover($el: any) {
-  const event = new MouseEvent('mouseover', {
-    bubbles: true,
-    cancelable: true,
-    view: window,
-  })
-  $el.dispatchEvent(event)
+  fireEvent.mouseOver($el)
 }
 
 function getMenuItemWithLabel($parent: Element, label: any) {
@@ -83,7 +78,7 @@ function getMenuItemWithLabel($parent: Element, label: any) {
 }
 
 function getFlyoutWithLabel($parent: Element, label: any) {
-  const $children = Array.from($parent.querySelectorAll('[role="button"]'))
+  const $children = Array.from($parent.querySelectorAll('[role="menuitem"]'))
   return $children.find($child => $child.textContent?.trim() === label)
 }
 
@@ -141,7 +136,7 @@ describe('ViewOptionsMenu', () => {
     })
 
     test('triggers the onSelect when the "Notes" option is clicked', function () {
-      const spy = jest.spyOn(props.teacherNotes, 'onSelect')
+      const spy = vi.spyOn(props.teacherNotes, 'onSelect')
       wrapper = mountAndOpenOptions()
       fireEvent.click(getMenuItem(ref.current.menuContent, 'Notes'))
       expect(spy).toHaveBeenCalledTimes(1)
@@ -194,7 +189,7 @@ describe('ViewOptionsMenu', () => {
     })
 
     test('onSelect is called when a filter is selected', function () {
-      props.filterSettings.onSelect = jest.fn()
+      props.filterSettings.onSelect = vi.fn()
       wrapper = mountAndOpenOptions()
       fireEvent.click(getMenuItem(ref.current.menuContent, 'Filters', 'Grading Periods'))
       expect(props.filterSettings.onSelect).toHaveBeenCalledTimes(1)
@@ -202,7 +197,7 @@ describe('ViewOptionsMenu', () => {
     })
 
     test('onSelect is called with list of selected filters upon any selection change', function () {
-      props.filterSettings.onSelect = jest.fn()
+      props.filterSettings.onSelect = vi.fn()
       props.filterSettings.selected = ['assignmentGroups', 'sections']
       wrapper = mountAndOpenOptions()
       fireEvent.click(getMenuItem(ref.current.menuContent, 'Filters', 'Grading Periods'))
@@ -252,7 +247,7 @@ describe('ViewOptionsMenu', () => {
     test('onSelectViewUngradedAsZero is called when selected', function () {
       props.viewUngradedAsZero = false
       props.allowViewUngradedAsZero = true
-      props.onSelectViewUngradedAsZero = jest.fn()
+      props.onSelectViewUngradedAsZero = vi.fn()
       wrapper = mountAndOpenOptions()
       fireEvent.click(getMenuItem(ref.current.menuContent, 'View Ungraded as 0'))
       expect(props.onSelectViewUngradedAsZero).toHaveBeenCalledTimes(1)
@@ -280,7 +275,7 @@ describe('ViewOptionsMenu', () => {
     })
 
     test('onSelectShowUnpublishedAssignment is called when selected', function () {
-      props.onSelectShowUnpublishedAssignments = jest.fn()
+      props.onSelectShowUnpublishedAssignments = vi.fn()
       wrapper = mountAndOpenOptions()
       fireEvent.click(getMenuItem(ref.current.menuContent, 'Unpublished Assignments'))
       expect(props.onSelectShowUnpublishedAssignments).toHaveBeenCalledTimes(1)
@@ -319,7 +314,7 @@ describe('ViewOptionsMenu', () => {
       criterion = 'due_date',
       direction = 'ascending',
       disabled = false,
-      modulesEnabled = true
+      modulesEnabled = true,
     ) {
       return {
         ...defaultProps(),
@@ -328,15 +323,15 @@ describe('ViewOptionsMenu', () => {
           direction,
           disabled,
           modulesEnabled,
-          onSortByDefault: jest.fn(),
-          onSortByNameAscending: jest.fn(),
-          onSortByNameDescending: jest.fn(),
-          onSortByDueDateAscending: jest.fn(),
-          onSortByDueDateDescending: jest.fn(),
-          onSortByPointsAscending: jest.fn(),
-          onSortByPointsDescending: jest.fn(),
-          onSortByModuleAscending: jest.fn(),
-          onSortByModuleDescending: jest.fn(),
+          onSortByDefault: vi.fn(),
+          onSortByNameAscending: vi.fn(),
+          onSortByNameDescending: vi.fn(),
+          onSortByDueDateAscending: vi.fn(),
+          onSortByDueDateDescending: vi.fn(),
+          onSortByPointsAscending: vi.fn(),
+          onSortByPointsDescending: vi.fn(),
+          onSortByModuleAscending: vi.fn(),
+          onSortByModuleDescending: vi.fn(),
         },
       }
     }
@@ -375,7 +370,7 @@ describe('ViewOptionsMenu', () => {
       const menuItem = getMenuItem(
         ref.current.menuContent,
         'Arrange By',
-        'Due Date - Oldest to Newest'
+        'Due Date - Oldest to Newest',
       )
       expect(menuItem.getAttribute('aria-checked')).toEqual('true')
     })
@@ -386,7 +381,7 @@ describe('ViewOptionsMenu', () => {
       const menuItem = getMenuItem(
         ref.current.menuContent,
         'Arrange By',
-        'Due Date - Newest to Oldest'
+        'Due Date - Newest to Oldest',
       )
       expect(menuItem.getAttribute('aria-checked')).toEqual('true')
     })
@@ -397,7 +392,7 @@ describe('ViewOptionsMenu', () => {
       const menuItem = getMenuItem(
         ref.current.menuContent,
         'Arrange By',
-        'Points - Lowest to Highest'
+        'Points - Lowest to Highest',
       )
       expect(menuItem.getAttribute('aria-checked')).toEqual('true')
     })
@@ -408,7 +403,7 @@ describe('ViewOptionsMenu', () => {
       const menuItem = getMenuItem(
         ref.current.menuContent,
         'Arrange By',
-        'Points - Highest to Lowest'
+        'Points - Highest to Lowest',
       )
       expect(menuItem.getAttribute('aria-checked')).toEqual('true')
     })
@@ -431,7 +426,7 @@ describe('ViewOptionsMenu', () => {
       props = sortingProps('default', 'ascending', false, false)
       wrapper = mountAndOpenOptions()
       expect(getMenuItem(ref.current.menuContent, 'Arrange By', 'Module - First to Last')).toBe(
-        undefined
+        undefined,
       )
     })
 
@@ -439,7 +434,7 @@ describe('ViewOptionsMenu', () => {
       props = sortingProps('default', 'ascending', false, false)
       wrapper = mountAndOpenOptions()
       expect(getMenuItem(ref.current.menuContent, 'Arrange By', 'Module - Last to First')).toBe(
-        undefined
+        undefined,
       )
     })
 
@@ -474,7 +469,7 @@ describe('ViewOptionsMenu', () => {
       const menuItem = getMenuItem(
         ref.current.menuContent,
         'Arrange By',
-        'Due Date - Oldest to Newest'
+        'Due Date - Oldest to Newest',
       )
       expect(menuItem.getAttribute('aria-disabled')).toEqual('true')
     })
@@ -486,7 +481,7 @@ describe('ViewOptionsMenu', () => {
       const menuItem = getMenuItem(
         ref.current.menuContent,
         'Arrange By',
-        'Due Date - Newest to Oldest'
+        'Due Date - Newest to Oldest',
       )
       expect(menuItem.getAttribute('aria-disabled')).toEqual('true')
     })
@@ -498,7 +493,7 @@ describe('ViewOptionsMenu', () => {
       const menuItem = getMenuItem(
         ref.current.menuContent,
         'Arrange By',
-        'Points - Lowest to Highest'
+        'Points - Lowest to Highest',
       )
       expect(menuItem.getAttribute('aria-disabled')).toEqual('true')
     })
@@ -510,7 +505,7 @@ describe('ViewOptionsMenu', () => {
       const menuItem = getMenuItem(
         ref.current.menuContent,
         'Arrange By',
-        'Points - Highest to Lowest'
+        'Points - Highest to Lowest',
       )
       expect(menuItem.getAttribute('aria-disabled')).toEqual('true')
     })
@@ -556,7 +551,7 @@ describe('ViewOptionsMenu', () => {
       props = sortingProps()
       wrapper = mountAndOpenOptions()
       fireEvent.click(
-        getMenuItem(ref.current.menuContent, 'Arrange By', 'Due Date - Oldest to Newest')
+        getMenuItem(ref.current.menuContent, 'Arrange By', 'Due Date - Oldest to Newest'),
       )
       expect(props.columnSortSettings.onSortByDueDateAscending).toHaveBeenCalledTimes(1)
     })
@@ -565,7 +560,7 @@ describe('ViewOptionsMenu', () => {
       props = sortingProps()
       wrapper = mountAndOpenOptions()
       fireEvent.click(
-        getMenuItem(ref.current.menuContent, 'Arrange By', 'Due Date - Newest to Oldest')
+        getMenuItem(ref.current.menuContent, 'Arrange By', 'Due Date - Newest to Oldest'),
       )
       expect(props.columnSortSettings.onSortByDueDateDescending).toHaveBeenCalledTimes(1)
     })
@@ -574,7 +569,7 @@ describe('ViewOptionsMenu', () => {
       props = sortingProps()
       wrapper = mountAndOpenOptions()
       fireEvent.click(
-        getMenuItem(ref.current.menuContent, 'Arrange By', 'Points - Lowest to Highest')
+        getMenuItem(ref.current.menuContent, 'Arrange By', 'Points - Lowest to Highest'),
       )
       expect(props.columnSortSettings.onSortByPointsAscending).toHaveBeenCalledTimes(1)
     })
@@ -583,7 +578,7 @@ describe('ViewOptionsMenu', () => {
       props = sortingProps()
       wrapper = mountAndOpenOptions()
       fireEvent.click(
-        getMenuItem(ref.current.menuContent, 'Arrange By', 'Points - Highest to Lowest')
+        getMenuItem(ref.current.menuContent, 'Arrange By', 'Points - Highest to Lowest'),
       )
       expect(props.columnSortSettings.onSortByPointsDescending).toHaveBeenCalledTimes(1)
     })
@@ -591,7 +586,7 @@ describe('ViewOptionsMenu', () => {
 
   describe('ViewOptionsMenu - Statuses', () => {
     test('clicking Statuses calls onSelectShowStatusesModal', () => {
-      props.onSelectShowStatusesModal = jest.fn()
+      props.onSelectShowStatusesModal = vi.fn()
       wrapper = mountAndOpenOptions()
       fireEvent.click(getMenuItem(ref.current.menuContent, 'Statuses…'))
       expect(props.onSelectShowStatusesModal).toHaveBeenCalledTimes(1)

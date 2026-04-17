@@ -16,13 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
 import React from 'react'
 import PropTypes from 'prop-types'
-import iframeAllowances from '@canvas/external-apps/iframeAllowances'
 import ToolLaunchIframe from '@canvas/external-tools/react/components/ToolLaunchIframe'
-
-const I18n = useI18nScope('external_tools')
 
 export default class Lti2Iframe extends React.Component {
   static propTypes = {
@@ -33,18 +29,8 @@ export default class Lti2Iframe extends React.Component {
     toolName: PropTypes.string.isRequired,
   }
 
-  state = {
-    beforeExternalContentAlertClass: 'screenreader-only',
-    afterExternalContentAlertClass: 'screenreader-only',
-    iframeStyle: {},
-  }
-
   componentDidMount() {
     window.addEventListener('message', this.handleMessage, false)
-
-    if (this.iframe) {
-      this.iframe.setAttribute('allow', iframeAllowances())
-    }
   }
 
   componentWillUnmount() {
@@ -56,30 +42,6 @@ export default class Lti2Iframe extends React.Component {
       return this.props.registrationUrl
     }
     return 'about:blank'
-  }
-
-  handleAlertFocus = event => {
-    const newState = {
-      iframeStyle: {border: '2px solid #0374B5', width: `${this.iframe.offsetWidth - 4}px`},
-    }
-    if (event.target.className.search('before') > -1) {
-      newState.beforeExternalContentAlertClass = ''
-    } else if (event.target.className.search('after') > -1) {
-      newState.afterExternalContentAlertClass = ''
-    }
-    this.setState(newState)
-  }
-
-  handleAlertBlur = event => {
-    const newState = {
-      iframeStyle: {border: 'none', width: '100%'},
-    }
-    if (event.target.className.search('before') > -1) {
-      newState.beforeExternalContentAlertClass = 'screenreader-only'
-    } else if (event.target.className.search('after') > -1) {
-      newState.afterExternalContentAlertClass = 'screenreader-only'
-    }
-    this.setState(newState)
   }
 
   handleMessage = event => {
@@ -101,9 +63,6 @@ export default class Lti2Iframe extends React.Component {
   }
 
   render() {
-    const beforeAlertStyles = `before_external_content_info_alert ${this.state.beforeExternalContentAlertClass}`
-    const afterAlertStyles = `after_external_content_info_alert ${this.state.afterExternalContentAlertClass}`
-
     return (
       <div
         id="lti2-iframe-container"
@@ -111,43 +70,14 @@ export default class Lti2Iframe extends React.Component {
         data-testid="lti2-iframe-container"
       >
         <div className="ReactModal__Body" style={{padding: '0px !important', overflow: 'auto'}}>
-          <div
-            onFocus={this.handleAlertFocus}
-            onBlur={this.handleAlertBlur}
-            className={beforeAlertStyles}
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-            tabIndex="0"
-          >
-            <div className="ic-flash-info">
-              <div className="ic-flash__icon" aria-hidden="true">
-                <i className="icon-info" />
-              </div>
-              {I18n.t('The following content is partner provided')}
-            </div>
-          </div>
           <ToolLaunchIframe
             src={this.getLaunchUrl()}
             name="lti2_registration_frame"
             title={this.props.toolName}
-            style={this.state.iframeStyle}
             ref={e => {
               this.iframe = e
             }}
           />
-          <div
-            onFocus={this.handleAlertFocus}
-            onBlur={this.handleAlertBlur}
-            className={afterAlertStyles}
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-            tabIndex="0"
-          >
-            <div className="ic-flash-info">
-              <div className="ic-flash__icon" aria-hidden="true">
-                <i className="icon-info" />
-              </div>
-              {I18n.t('The preceding content is partner provided')}
-            </div>
-          </div>
         </div>
         {this.props.children}
       </div>

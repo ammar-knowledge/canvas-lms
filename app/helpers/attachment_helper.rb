@@ -24,33 +24,36 @@ module AttachmentHelper
     url_opts = {
       anonymous_instructor_annotations: attrs.delete(:anonymous_instructor_annotations),
       enable_annotations: attrs.delete(:enable_annotations),
-      moderated_grading_allow_list: attrs[:moderated_grading_allow_list],
       submission_id: attrs.delete(:submission_id)
     }
     url_opts[:enrollment_type] = attrs.delete(:enrollment_type) if url_opts[:enable_annotations]
 
-    if attachment.crocodoc_available?
-      begin
-        attrs[:crocodoc_session_url] = attachment.crocodoc_url(@current_user, url_opts)
-      rescue => e
-        Canvas::Errors.capture_exception(:crocodoc, e)
-      end
-    elsif attachment.canvadocable?
-      attrs[:canvadoc_session_url] = attachment.canvadoc_url(@current_user, url_opts)
+    if attachment.canvadocable?
+      attrs[:canvadoc_session_url] = attachment.canvadoc_url(@current_user, url_opts, access_token: params[:access_token])
     end
+    attrs[:attachment_name] = attachment.display_name
     attrs[:attachment_id] = attachment.id
     attrs[:mimetype] = attachment.mimetype
     context_name = url_helper_context_from_object(attachment.context)
     url_helper = "#{context_name}_file_inline_view_url"
     if respond_to?(url_helper)
-      attrs[:attachment_view_inline_ping_url] = send(url_helper, attachment.context, attachment.id, { verifier: params[:verifier] })
+      attrs[:attachment_view_inline_ping_url] = send(
+        url_helper,
+        attachment.context,
+        attachment.id,
+        {
+          access_token: params[:access_token],
+          verifier: params[:verifier],
+          location: params[:location]
+        }
+      )
     end
     if attachment.pending_upload? || attachment.processing?
       attrs[:attachment_preview_processing] = true
     end
     attrs.map do |attr, val|
       %(data-#{attr}="#{ERB::Util.html_escape(val)}")
-    end.join(" ").html_safe
+    end.join(" ").html_safe # rubocop:disable Rails/OutputSafety
   end
 
   def media_preview_attributes(attachment, attrs = {})
@@ -60,6 +63,44 @@ module AttachmentHelper
     attrs[:download_url] = context_url(attachment.context, :context_file_download_url, attachment.id)
     attrs[:media_entry_id] = attachment.media_entry_id if attachment.media_entry_id
     attrs.inject(+"") { |s, (attr, val)| s << "data-#{attr}=#{val} " }
+  end
+
+  def sf_verifier_match?(attachment, access_type)
+    return false unless @access_verifier
+
+    access_permission = (@access_verifier[:permission] == "download") ? %w[download read] : Array(@access_verifier[:permission])
+    @sf_verifier_match ||= @access_verifier && access_permission.include?(access_type.to_s) && @access_verifier[:attachment_id] == attachment.global_id.to_s
+  end
+
+  def jwt_resource_match(attachment)
+    # If we're getting a JWT token from New Quizzes, the file might be in a an item
+    # bank, which can be used in multiple contexts, and we need to give access to
+    # it in all of them, even if the user doesn't have access to the context the file
+    # original comes from.
+    @jwt_resource_match ||= ensure_token_resource_link(@token, attachment)
+  end
+
+  def ensure_token_resource_link(token, attachment)
+    return false unless token.respond_to?(:jwt_payload)
+    return false unless (resource = token.jwt_payload[:resource])
+    return false unless (tenant_auth = token.jwt_payload[:tenant_auth])
+    return false unless InstFS.enabled?
+    return false unless params[:instfs_id]
+
+    parsed_file_url = Rails.application.routes.recognize_path(resource)
+    file_id = parsed_file_url[:attachment_id] || parsed_file_url[:file_id] || parsed_file_url[:id]
+    return false unless file_id == (params[:attachment_id] || params[:file_id] || params[:id])
+
+    attachment.instfs_uuid = params[:instfs_id] if params[:instfs_id]
+    attachment.instfs_tenant_auth = tenant_auth
+    # TODO: One day it would be good if InstFS owned the Canvadoc/Studio file previews and we could use the
+    # preview URL without having to ask InstFS if the file is linked to the tenant_auth location, but for now,
+    # we need to ask InstFS before we show a file preview.
+    metadata = InstFS.get_file_metadata(attachment)
+    @attachment_authorization = { attachment:, permission: :download } if metadata.present?
+    metadata.present?
+  rescue ActionController::RoutingError, InstFS::MetadataError
+    false
   end
 
   def attachment_locked?(attachment)
@@ -72,27 +113,103 @@ module AttachmentHelper
     !!mct.restrictions[:content] || !!mct.restrictions[:all]
   end
 
-  def doc_preview_json(attachment, locked_for_user: false)
+  def doc_preview_json(attachment, locked_for_user: false, access_token: nil)
     # Don't add canvadoc session URL if the file is locked to the user
     return {} if locked_for_user
 
     {
-      canvadoc_session_url: attachment.canvadoc_url(@current_user),
-      crocodoc_session_url: attachment.crocodoc_url(@current_user),
+      canvadoc_session_url: attachment.canvadoc_url(@current_user, access_token:),
     }
   end
 
-  def render_or_redirect_to_stored_file(attachment:, verifier: nil, inline: false)
+  def load_media_object
+    if params[:attachment_id].present?
+      @attachment = Attachment.find_by(id: params[:attachment_id])
+      @attachment = @attachment.context.attachments.find(params[:attachment_id]) if @attachment&.deleted?
+      return render_unauthorized_action if @attachment&.deleted? && !(@instfs_verified_token ||= ensure_token_resource_link(@token, @attachment))
+      return render_unauthorized_action unless @attachment&.media_entry_id
+
+      # Look on active shard
+      @media_object = MediaObject.by_media_id(@attachment&.media_entry_id).take
+      # Look on attachment's shard
+      @media_object ||= @attachment&.media_object_by_media_id
+      # Look on attachment's root account and user shards
+      @media_object ||= Shard.shard_for(@attachment.root_account).activate { MediaObject.by_media_id(@attachment.media_entry_id).take }
+      @media_object ||= Shard.shard_for(@attachment.user).activate { MediaObject.by_media_id(@attachment.media_entry_id).take }
+      @media_object.current_attachment = @attachment unless @media_object.nil?
+      @media_id = @media_object&.id
+    elsif params[:media_object_id].present?
+      @media_id = params[:media_object_id]
+      @media_object = MediaObject.by_media_id(@media_id).take
+    end
+  end
+
+  def check_media_permissions(access_type: :download)
+    if @attachment.present?
+      access_allowed(attachment: @attachment, user: @current_user, access_type:)
+    else
+      media_object_exists = @media_object.present?
+      render_unauthorized_action unless media_object_exists
+      media_object_exists
+    end
+  end
+
+  def access_allowed(attachment:, user:, access_type:, no_error_on_failure: false)
+    return true if sf_verifier_match?(attachment, access_type) || jwt_resource_match(attachment) || access_via_location?(attachment, user, access_type)
+
+    if params[:verifier]
+      verifier_checker = Attachments::Verification.new(attachment)
+      return true if verifier_checker.valid_verifier_for_permission?(
+        params[:verifier],
+        access_type,
+        @domain_root_account,
+        session,
+        request:,
+        files_domain: @files_domain
+      )
+    end
+
+    submissions = attachment.attachment_associations.where(context_type: "Submission").preload(:context)
+                            .filter_map(&:context)
+    return true if submissions.any? { |submission| submission.grants_right?(user, session, access_type) }
+
+    if access_type == :update && attachment.editing_restricted?(:content)
+      return no_error_on_failure ? false : render_unauthorized_action
+    end
+
+    no_error_on_failure ? attachment.grants_right?(user, session, access_type) : authorized_action(attachment, user, access_type)
+  end
+
+  def access_via_location?(attachment, user, access_type)
+    location = params[:location]
+    if location && [:read, :download].include?(access_type)
+      if location.start_with?("avatar_")
+        avatar_user = User.find_by(id: location.split("_").last)
+        return avatar_user&.allow_avatar_access?(attachment) || false
+      else
+        return AttachmentAssociation.verify_access(location, attachment, user, session)
+      end
+    end
+
+    false
+  end
+
+  def render_or_redirect_to_stored_file(attachment:, verifier: nil, inline: false, options: {})
     can_proxy = inline && attachment.can_be_proxied?
     must_proxy = inline && csp_enforced? && attachment.mime_class == "html"
     direct = attachment.stored_locally? || can_proxy || must_proxy
 
+    if !inline && attachment.kaltura_manifest_file? && (download_url = attachment.kaltura_media_download_url)
+      redirect_to download_url
+      return
+    end
+
     # up here to preempt files domain redirect
     if attachment.instfs_hosted? && file_location_mode? && !direct
       url = if inline
-              authenticated_inline_url(attachment)
+              authenticated_inline_url(attachment, options:)
             else
-              authenticated_download_url(attachment)
+              authenticated_download_url(attachment, options:)
             end
       render_file_location(url)
       return
@@ -103,7 +220,9 @@ module AttachmentHelper
       redirect_to safe_domain_file_url(attachment,
                                        host_and_shard: @safer_domain_host,
                                        verifier:,
-                                       download: !inline)
+                                       download: !inline,
+                                       authorization: @attachment_authorization,
+                                       query_params: options.slice(:location))
     elsif attachment.stored_locally?
       @headers = false if @files_domain
       send_file(attachment.full_filename, type: attachment.content_type_with_encoding, disposition: (inline ? "inline" : "attachment"), filename: attachment.display_name)
@@ -115,9 +234,9 @@ module AttachmentHelper
     elsif must_proxy
       render 400, text: I18n.t("It's not allowed to redirect to HTML files that can't be proxied while Content-Security-Policy is being enforced")
     elsif inline
-      redirect_to authenticated_inline_url(attachment)
+      redirect_to authenticated_inline_url(attachment, options:)
     else
-      redirect_to authenticated_download_url(attachment)
+      redirect_to authenticated_download_url(attachment, options:)
     end
   end
 
@@ -148,5 +267,21 @@ module AttachmentHelper
       response.headers["Cache-Control"] = "private, max-age=#{ttl.seconds}"
       response.headers["Expires"] = ttl.from_now.httpdate
     end
+  end
+
+  def file_index_scope(context_or_folder, current_user, params)
+    params[:sort] ||= params[:sort_by]
+    params[:include] = Array(params[:include])
+    params[:include] << "user" if params[:sort] == "user"
+
+    scope = Attachments::ScopedToUser.new(context_or_folder, current_user).scope
+    scope = scope.preload(:user) if params[:include].include?("user") && params[:sort] != "user"
+    scope = scope.preload(:usage_rights) if params[:include].include?("usage_rights")
+
+    scope = Attachment.search_by_attribute(scope, :display_name, params[:search_term], normalize_unicode: true) if params[:search_term].present?
+    scope = scope.by_content_types(Array(params[:content_types])) if params[:content_types].present?
+    scope = scope.by_exclude_content_types(Array(params[:exclude_content_types])) if params[:exclude_content_types].present?
+    scope = scope.for_category(params[:category]) if params[:category].present?
+    scope
   end
 end

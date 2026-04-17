@@ -32,14 +32,14 @@ describe UsersController, type: :request do
     get("/api/v1/users/self/activity_stream")
     assert_status(401)
 
-    @course = factory_with_protected_attributes(Course, course_valid_attributes)
+    @course = Course.create!(course_valid_attributes)
     raw_api_call(:get,
                  "/api/v1/courses/#{@course.id}/activity_stream",
                  controller: "courses",
                  action: "activity_stream",
                  format: "json",
                  course_id: @course.to_param)
-    assert_status(401)
+    assert_status(403)
   end
 
   it "returns the activity stream" do
@@ -193,6 +193,86 @@ describe UsersController, type: :request do
     end
   end
 
+  it "returns correct data for notification_category filter" do
+    @student = user_factory(active_all: true)
+    announcement_model
+    assignment_model(course: @course)
+    message_model(user: @user, to: "dashboard", notification: Notification.create(notification_valid_attributes.merge(category: "Due Date")))
+    message_model(user: @user, to: "dashboard", notification: Notification.create(notification_valid_attributes.merge(category: "Due Date")))
+    message_model(user: @user, to: "dashboard", notification: Notification.create(notification_valid_attributes.merge(category: "Message")))
+    message_model(user: @user, to: "dashboard", notification: Notification.create(notification_valid_attributes.merge(category: "Test")))
+    json = api_call(:get,
+                    "/api/v1/users/self/activity_stream?notification_categories[]=Due Date",
+                    { controller: "users", action: "activity_stream", format: "json", notification_categories: ["Due Date"] })
+
+    expect(json.count).to eq(2)
+
+    json = api_call(:get,
+                    "/api/v1/users/self/activity_stream?notification_categories[]=Test",
+                    { controller: "users", action: "activity_stream", format: "json", notification_categories: ["Test"] })
+
+    expect(json.count).to eq(1)
+
+    json = api_call(:get,
+                    "/api/v1/users/self/activity_stream?notification_categories[]=Test&notification_categories[]=null",
+                    { controller: "users", action: "activity_stream", format: "json", notification_categories: ["Test", "null"] })
+
+    expect(json.count).to eq(2)
+  end
+
+  it "handles empty filter results" do
+    @student = user_factory(active_all: true)
+    announcement_model
+    assignment_model(course: @course)
+    message_model(user: @user, to: "dashboard", notification: Notification.create(notification_valid_attributes.merge(category: "Due Date")))
+
+    json = api_call(:get,
+                    "/api/v1/users/self/activity_stream?notification_categories[]=Message",
+                    { controller: "users", action: "activity_stream", format: "json", notification_categories: ["Message"] })
+
+    expect(json.count).to eq(0)
+
+    json = api_call(:get,
+                    "/api/v1/users/self/activity_stream?notification_categories[]=null&notification_categories[]=Message",
+                    { controller: "users", action: "activity_stream", format: "json", notification_categories: ["null", "Message"] })
+
+    expect(json.count).to eq(1)
+  end
+
+  it "returns correct data for asset_type array" do
+    @student = user_factory(active_all: true)
+    @teacher = User.create!(name: "teacher")
+    announcement_model
+    message_model(user: @user, to: "dashboard", notification: Notification.create(notification_valid_attributes.merge(category: "Due Date")))
+    @conversation = Conversation.initiate([@student, @user], false)
+    @message = @conversation.add_message(@student, "hello")
+    @assignment = @course.assignments.create!(title: "assignment 1", description: "test", points_possible: "14.2", submission_types: "online_text_entry")
+    @course.enroll_teacher(@teacher)
+    @course.enroll_student(@user)
+    @sub = @assignment.grade_student(@user, { grade: "12", grader: @teacher }).first
+    @sub.workflow_state = "submitted"
+    @sub.submission_comments.create!(comment: "c1", author: @teacher)
+    @sub.submission_comments.create!(comment: "c2", author: @user)
+    @sub.save!
+    json = api_call(:get,
+                    "/api/v1/users/self/activity_stream?asset_type[]=Submission&asset_type[]=Conversation",
+                    { controller: "users", action: "activity_stream", format: "json", asset_type: ["Submission", "Conversation"] })
+
+    expect(json.count).to eq(2)
+
+    json = api_call(:get,
+                    "/api/v1/users/self/activity_stream?asset_type[]=DiscussionTopic",
+                    { controller: "users", action: "activity_stream", format: "json", asset_type: ["DiscussionTopic"] })
+
+    expect(json.count).to eq(1)
+
+    json = api_call(:get,
+                    "/api/v1/users/self/activity_stream?asset_type=DiscussionTopic",
+                    { controller: "users", action: "activity_stream", format: "json", asset_type: "DiscussionTopic" })
+
+    expect(json.count).to eq(1)
+  end
+
   it "formats DiscussionTopic" do
     @context = @course
     discussion_topic_model
@@ -225,6 +305,17 @@ describe UsersController, type: :request do
       ],
       "course_id" => @course.id,
     }]
+  end
+
+  it "add file attachment location to returned message when file_association_access feature flag is enabled" do
+    attachment = attachment_model(context: @student, content_type: "application/pdf")
+    attachment.root_account.enable_feature!(:file_association_access)
+    discussion_topic_model(context: @course, message: "<img src='/users/#{@student.id}/files/#{attachment.id}' />", user: @student)
+
+    json = api_call(:get,
+                    "/api/v1/users/activity_stream.json",
+                    { controller: "users", action: "activity_stream", format: "json" })
+    expect(json.first["message"]).to include("location=#{StreamItem.last.asset_string}")
   end
 
   it "does not return discussion entries if user has not posted" do
@@ -266,10 +357,21 @@ describe UsersController, type: :request do
   it "translates user content in discussion topic" do
     should_translate_user_content(@course) do |user_content|
       @context = @course
-      discussion_topic_model(message: user_content)
+      discussion_topic_model(message: user_content, user: @user)
       json = api_call(:get,
                       "/api/v1/users/activity_stream.json",
                       { controller: "users", action: "activity_stream", format: "json" })
+      json.first["message"]
+    end
+  end
+
+  it "translates user content in discussion topic without verifiers" do
+    should_translate_user_content(@course, include_verifiers: false) do |user_content|
+      @context = @course
+      discussion_topic_model(message: user_content, user: @user)
+      json = api_call(:get,
+                      "/api/v1/users/activity_stream.json",
+                      { controller: "users", action: "activity_stream", format: "json", no_verifiers: true })
       json.first["message"]
     end
   end
@@ -282,6 +384,18 @@ describe UsersController, type: :request do
       json = api_call(:get,
                       "/api/v1/users/activity_stream.json",
                       { controller: "users", action: "activity_stream", format: "json" })
+      json.first["root_discussion_entries"].first["message"]
+    end
+  end
+
+  it "translates user content in discussion entry without verifiers" do
+    should_translate_user_content(@course, include_verifiers: false) do |user_content|
+      @context = @course
+      discussion_topic_model
+      @topic.reply_from(user: @user, html: user_content)
+      json = api_call(:get,
+                      "/api/v1/users/activity_stream.json",
+                      { controller: "users", action: "activity_stream", format: "json", no_verifiers: true })
       json.first["root_discussion_entries"].first["message"]
     end
   end
@@ -321,10 +435,21 @@ describe UsersController, type: :request do
   it "translates user content in announcement messages" do
     should_translate_user_content(@course) do |user_content|
       @context = @course
-      announcement_model(message: user_content)
+      announcement_model(message: user_content, user: @user)
       json = api_call(:get,
                       "/api/v1/users/activity_stream.json",
                       { controller: "users", action: "activity_stream", format: "json" })
+      json.first["message"]
+    end
+  end
+
+  it "translates user content in announcement messages without verifiers" do
+    should_translate_user_content(@course, include_verifiers: false) do |user_content|
+      @context = @course
+      announcement_model(message: user_content, user: @user)
+      json = api_call(:get,
+                      "/api/v1/users/activity_stream.json",
+                      { controller: "users", action: "activity_stream", format: "json", no_verifiers: true })
       json.first["message"]
     end
   end
@@ -337,6 +462,18 @@ describe UsersController, type: :request do
       json = api_call(:get,
                       "/api/v1/users/activity_stream.json",
                       { controller: "users", action: "activity_stream", format: "json" })
+      json.first["root_discussion_entries"].first["message"]
+    end
+  end
+
+  it "translates user content in announcement discussion entries without verifiers" do
+    should_translate_user_content(@course, include_verifiers: false) do |user_content|
+      @context = @course
+      announcement_model
+      @a.reply_from(user: @user, html: user_content)
+      json = api_call(:get,
+                      "/api/v1/users/activity_stream.json",
+                      { controller: "users", action: "activity_stream", format: "json", no_verifiers: true })
       json.first["root_discussion_entries"].first["message"]
     end
   end
@@ -591,11 +728,12 @@ describe UsersController, type: :request do
         "license" => nil,
         "homeroom_course" => false,
         "course_color" => nil,
-        "friendly_name" => nil
+        "friendly_name" => nil,
+        "template" => false
       },
 
       "user" => {
-        "name" => "User", "sortable_name" => "User", "id" => @sub.user_id, "short_name" => "User", "created_at" => @user.created_at.iso8601
+        "name" => "User", "sortable_name" => "User", "id" => @sub.user_id, "short_name" => "User", "created_at" => @user.created_at.as_json
       },
 
       "context_type" => "Course",
@@ -736,11 +874,12 @@ describe UsersController, type: :request do
         "license" => nil,
         "homeroom_course" => false,
         "course_color" => nil,
-        "friendly_name" => nil
+        "friendly_name" => nil,
+        "template" => false
       },
 
       "user" => {
-        "name" => "User", "sortable_name" => "User", "id" => @sub.user_id, "short_name" => "User", "created_at" => @user.created_at.iso8601
+        "name" => "User", "sortable_name" => "User", "id" => @sub.user_id, "short_name" => "User", "created_at" => @user.created_at.as_json
       },
       "context_type" => "Course",
       "course_id" => @course.id,
@@ -777,6 +916,49 @@ describe UsersController, type: :request do
     expect(json).to eq []
   end
 
+  it "formats discussion checkpoint submission with parent assignment ID" do
+    @course.root_account.enable_feature!(:discussion_checkpoints)
+    @teacher = User.create!(name: "teacher")
+    @course.enroll_teacher(@teacher)
+
+    # Create a graded discussion with checkpoints
+    @discussion_topic = DiscussionTopic.create_graded_topic!(course: @course, title: "Checkpointed Discussion")
+    parent_assignment = @discussion_topic.assignment
+
+    # Create checkpoints
+    reply_to_topic_checkpoint = Checkpoints::DiscussionCheckpointCreatorService.call(
+      discussion_topic: @discussion_topic,
+      checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+      dates: [{ type: "everyone", due_at: 1.day.from_now }],
+      points_possible: 5
+    )
+
+    Checkpoints::DiscussionCheckpointCreatorService.call(
+      discussion_topic: @discussion_topic,
+      checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+      dates: [{ type: "everyone", due_at: 2.days.from_now }],
+      points_possible: 5,
+      replies_required: 2
+    )
+
+    # Student submits to the checkpoint
+    sub_assignment = reply_to_topic_checkpoint
+    @sub = sub_assignment.grade_student(@user, { grade: "4", grader: @teacher }).first
+    @sub.workflow_state = "submitted"
+    @sub.submission_comments.create!(comment: "Great work!", author: @teacher)
+    @sub.save!
+
+    # Call activity stream API
+    json = api_call(:get,
+                    "/api/v1/users/activity_stream.json",
+                    { controller: "users", action: "activity_stream", format: "json" })
+
+    # Verify the response uses parent assignment ID, not sub-assignment ID
+    expect(json.first["assignment_id"]).to eq parent_assignment.id
+    expect(json.first["html_url"]).to include("assignments/#{parent_assignment.id}")
+    expect(json.first["html_url"]).not_to include("assignments/#{sub_assignment.id}")
+  end
+
   it "formats Collaboration" do
     google_docs_collaboration_model(user_id: @user.id, title: "hey")
     json = api_call(:get,
@@ -799,7 +981,7 @@ describe UsersController, type: :request do
 
   it "formats WebConference" do
     allow(WebConference).to receive(:plugins).and_return(
-      [instance_double("Canvas::Plugin",
+      [instance_double(Canvas::Plugin,
                        id: "big_blue_button",
                        name: "BigBlueButton",
                        settings: { domain: "bbb.instructure.com", secret_dec: "secret" },

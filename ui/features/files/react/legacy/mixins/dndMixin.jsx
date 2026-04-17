@@ -17,11 +17,11 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
-import DragFeedback from '../../components/DragFeedback'
+import {legacyRender, legacyUnmountComponentAtNode} from '@canvas/react'
+import DragFeedback from '@canvas/files/react/components/DragFeedback'
 import moveStuff from '../util/moveStuff'
 import $ from 'jquery'
-import {isArray} from 'lodash'
+import {isArray} from 'es-toolkit/compat'
 
 export default {
   itemsToDrag() {
@@ -32,16 +32,17 @@ export default {
       this.dragHolder = $('<div>').appendTo(document.body)
     }
     // This should be in JSX, but /o\
-    ReactDOM.render(
+
+    legacyRender(
       <DragFeedback pageX={pageX} pageY={pageY} itemsToDrag={this.itemsToDrag()} />,
-      this.dragHolder[0]
+      this.dragHolder[0],
     )
   },
 
   removeDragFeedback() {
     $(document).off('.MultiDraggableMixin')
     if (this.dragHolder) {
-      ReactDOM.unmountComponentAtNode(this.dragHolder[0])
+      legacyUnmountComponentAtNode(this.dragHolder[0])
     }
     this.dragHolder = null
   },
@@ -55,7 +56,7 @@ export default {
       if (itemsToDrag.length && isArray(itemsToDrag)) {
         event.dataTransfer.setData(
           'text/uri-list',
-          itemsToDrag.map(item => item.get('url')).join('\n')
+          itemsToDrag.map(item => item.get('url')).join('\n'),
         )
       }
 
@@ -110,7 +111,7 @@ export default {
           if (callback) {
             return callback({success: false, event})
           }
-        }
+        },
       )
       .done(this.clearSelectedItems)
   },

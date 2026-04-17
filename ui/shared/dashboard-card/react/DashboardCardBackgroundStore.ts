@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {uniq, filter, groupBy, chain, keys, sample, difference, each} from 'lodash'
+import {groupBy, difference, filter, keys, sample, each, uniq, max} from 'es-toolkit/compat'
 import createStore, {type CanvasStore} from '@canvas/backbone/createStore'
 import ContextColorer from '@canvas/util/contextColorer'
 
@@ -79,7 +79,7 @@ DashboardCardBackgroundStore.getUsedDefaults = function () {
 // @ts-expect-error
 DashboardCardBackgroundStore.setColorForCourse = function (
   courseAssetString: string,
-  colorCode: string
+  colorCode: string,
 ) {
   const originalColors = this.getCourseColors()
   const newColors = {...originalColors, [courseAssetString]: colorCode}
@@ -110,12 +110,11 @@ DashboardCardBackgroundStore.leastUsedDefaults = function () {
 
   const usedColorsByFrequency = groupBy(
     usedDefaults,
-    (x: string) => filter(usedDefaults, (y: string) => x === y).length
+    (x: string) => filter(usedDefaults, (y: string) => x === y).length,
   )
 
-  const mostCommonColors = uniq(
-    usedColorsByFrequency[chain(usedColorsByFrequency).keys().max().value()]
-  )
+  const maxFrequency = max(keys(usedColorsByFrequency))
+  const mostCommonColors = uniq(usedColorsByFrequency[maxFrequency as string])
 
   return difference(DEFAULT_COLOR_OPTIONS, mostCommonColors).length === 0
     ? mostCommonColors
@@ -133,7 +132,7 @@ DashboardCardBackgroundStore.markColorUsed = function (usedColor: string) {
 
 DashboardCardBackgroundStore.persistNewColor = function (
   courseAssetString: string,
-  colorForCourse: string
+  colorForCourse: string,
 ) {
   const tmp: Record<string, string> = {}
   tmp[courseAssetString] = colorForCourse

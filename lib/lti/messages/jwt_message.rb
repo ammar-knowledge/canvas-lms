@@ -66,17 +66,19 @@ module Lti::Messages
       add_context_claims! if include_claims?(:context)
       add_tool_platform_claims! if include_claims?(:tool_platform)
       add_launch_presentation_claims! if include_claims?(:launch_presentation)
+      add_platform_notification_service_claims! if include_platform_notification_service_claims?
       add_i18n_claims! if include_claims?(:i18n)
       add_roles_claims! if include_claims?(:roles)
       add_custom_params_claims! if include_claims?(:custom_params)
       add_assignment_and_grade_service_claims! if include_assignment_and_grade_service_claims?
       add_names_and_roles_service_claims! if include_names_and_roles_service_claims?
-      add_lti11_legacy_user_id!
+      add_lti11_legacy_user_id! if include_claims?(:lti11_legacy_user_id)
       add_lti1p1_claims! if include_lti1p1_claims?
+      add_eulaservice_claims! if include_eulaservice_claims?
       add_extension("placement", @opts[:resource_type])
       add_extension("lti_student_id", @opts[:student_id].to_s) if @opts[:student_id].present?
-
-      @expander.expand_variables!(@message.extensions)
+      add_extension("student_context", { "id" => @opts[:student_lti_id] }) if @opts[:student_lti_id].present?
+      @expander&.expand_variables!(@message.extensions)
       @message.validate! if validate_launch
       @message
     end
@@ -113,7 +115,7 @@ module Lti::Messages
       @message.iss = Canvas::Security.config["lti_iss"]
       @message.nonce = SecureRandom.uuid
       @message.sub = @user&.lookup_lti_id(@context) if include_sub_claim?
-      @message.target_link_uri = target_link_uri
+      @message.target_link_uri = target_link_uri if include_claims?(:target_link_uri)
     end
 
     def include_sub_claim?
@@ -127,7 +129,7 @@ module Lti::Messages
     end
 
     def add_context_claims!
-      @message.context.id = Lti::Asset.opaque_identifier_for(@context)
+      @message.context.id = Lti::V1p1::Asset.opaque_identifier_for(@context)
       @message.context.label = @context.course_code if @context.respond_to?(:course_code)
       @message.context.title = @context.name
       @message.context.type = [Lti::SubstitutionsHelper::LIS_V2_ROLE_MAP[@context.class] || @context.class.to_s]
@@ -159,7 +161,11 @@ module Lti::Messages
     end
 
     def add_roles_claims!
-      @message.roles = expand_variable("$com.instructure.User.allRoles").split ","
+      @message.roles = if @expander.present?
+                         expand_variable("$com.instructure.User.allRoles")&.split ","
+                       else
+                         Lti::SubstitutionsHelper.new(@context, @context.root_account, @user, @tool).all_roles("lti1_3").split ","
+                       end
     end
 
     def add_custom_params_claims!
@@ -213,19 +219,57 @@ module Lti::Messages
         @tool.developer_key.scopes.intersect?(TokenScopes::LTI_AGS_SCOPES)
     end
 
+    # Follows 1EdTech Platform Notification Spec at https://www.imsglobal.org/spec/lti-pns/v1p0/main
+    def include_platform_notification_service_claims?
+      include_claims?(:platform_notification_service) &&
+        @tool.developer_key.scopes.include?(TokenScopes::LTI_PNS_SCOPE)
+    end
+
+    def include_eulaservice_claims?
+      include_claims?(:eulaservice) &&
+        @tool.root_account.feature_enabled?(:lti_asset_processor)
+    end
+
     # Follows the spec at https://www.imsglobal.org/spec/lti-ags/v2p0/#assignment-and-grade-service-claim
     # see ResourceLinkRequest#add_line_item_url_to_ags_claim! for adding the 'lineitem' properties
     def add_assignment_and_grade_service_claims!
       @message.assignment_and_grade_service.scope = @tool.developer_key.scopes & TokenScopes::LTI_AGS_SCOPES
 
       @message.assignment_and_grade_service.lineitems =
-        @expander.controller.lti_line_item_index_url(
+        Rails.application.routes.url_helpers.lti_line_item_index_url(
           host: @context.root_account.environment_specific_domain, course_id: course_id_for_ags_url
         )
     end
 
+    def add_platform_notification_service_claims!
+      @message.platform_notification_service.service_versions = ["1.0"]
+      @message.platform_notification_service.platform_notification_service_url = notification_service_url
+
+      @message.platform_notification_service.scope = [TokenScopes::LTI_PNS_SCOPE]
+      @message.platform_notification_service.notice_types_supported = Lti::Pns::NoticeTypes::ALL
+    end
+
+    def notification_service_url
+      if @expander&.controller.present?
+        @expander.controller.lti_notice_handlers_url(
+          host: @context.root_account.environment_specific_domain,
+          context_external_tool_id: @tool.id
+        )
+      else
+        Rails.application.routes.url_helpers.lti_notice_handlers_url(
+          context_external_tool_id: @tool.id,
+          host: @context.root_account.environment_specific_domain
+        )
+      end
+    end
+
+    def add_eulaservice_claims!
+      @message.eulaservice.url = @tool.asset_processor_eula_url
+      @message.eulaservice.scope = [TokenScopes::LTI_EULA_USER_SCOPE, TokenScopes::LTI_EULA_DEPLOYMENT_SCOPE]
+    end
+
     def associated_1_1_tool
-      @associated_1_1_tool ||= @tool&.associated_1_1_tool(@context, target_link_uri)
+      @associated_1_1_tool ||= Lti::ToolFinder.associated_1_1_tool(@tool, @context, target_link_uri)
     end
 
     # Used to construct URLs for AGS endpoints like line item index, or line item show
@@ -237,7 +281,8 @@ module Lti::Messages
     def include_names_and_roles_service_claims?
       include_claims?(:names_and_roles_service) &&
         (@context.is_a?(Course) || @context.is_a?(Group)) &&
-        @tool.developer_key&.scopes&.include?(TokenScopes::LTI_NRPS_V2_SCOPE)
+        @tool.developer_key&.scopes&.include?(TokenScopes::LTI_NRPS_V2_SCOPE) &&
+        @expander.controller.present?
     end
 
     def add_names_and_roles_service_claims!
@@ -250,7 +295,16 @@ module Lti::Messages
     end
 
     def expand_variable(variable)
-      @expander.expand_variables!({ value: variable })[:value]
+      expanded = @expander.expand_variables!({ value: variable })[:value]
+
+      # For convenience, we use variable expansions for the values of some
+      # claims. We don't want to return the variable name (e.g.
+      # $Person.sourcedId) if they don't resolve.
+      if expanded == variable && @tool.root_account.feature_enabled?(:lti_suppress_unresolved_variable_names_in_claims)
+        return nil
+      end
+
+      expanded
     end
 
     def current_observee_list
@@ -289,6 +343,11 @@ module Lti::Messages
       return unless include_extension?(key.to_sym)
 
       @message.extensions["#{JwtMessage::EXTENSION_PREFIX}#{key}"] = value
+    end
+
+    def add_activity_claim!(assignment)
+      @message.activity.id = assignment.lti_context_id
+      @message.activity.title = assignment.title
     end
   end
 end

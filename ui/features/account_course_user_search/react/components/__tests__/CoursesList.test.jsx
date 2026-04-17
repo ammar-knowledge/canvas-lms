@@ -18,7 +18,7 @@
 
 import React from 'react'
 import {render} from '@testing-library/react'
-import {omit} from 'lodash'
+import {omit} from 'es-toolkit/compat'
 import CoursesList from '../CoursesList'
 
 describe('Account Course User Search CoursesList Sorting', () => {
@@ -165,7 +165,7 @@ describe('Account Course User Search CoursesList Sorting', () => {
             sort: columnID,
             order: 'asc',
           }}
-        />
+        />,
       )
 
       expect(wrapper.container.querySelector(`svg[name="IconMiniArrowDown"]`)).toBeNull()
@@ -188,7 +188,7 @@ describe('Account Course User Search CoursesList Sorting', () => {
             sort: columnID,
             order: 'desc',
           }}
-        />
+        />,
       )
 
       expect(wrapper.container.querySelector(`svg[name="IconMiniArrowUp"]`)).toBeNull()
@@ -204,14 +204,14 @@ describe('Account Course User Search CoursesList Sorting', () => {
     })
 
     test(`clicking the ${label} column header calls onChangeSort with ${columnID}`, () => {
-      const onChangeSort = jest.fn()
+      const onChangeSort = vi.fn()
       const wrapper = render(
         <CoursesList
           {...{
             ...coursesProps,
             onChangeSort,
           }}
-        />
+        />,
       )
 
       wrapper.getByRole('button', {name: label}).click()

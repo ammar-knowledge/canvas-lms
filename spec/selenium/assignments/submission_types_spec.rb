@@ -29,7 +29,7 @@ describe "assignments" do
     driver.switch_to.alert.accept # doing this step and the step above to avoid the alert from failing other selenium specs
   end
 
-  def update_assignment_attributes(assignment, attribute, values, click_submit_link = true)
+  def update_assignment_attributes(assignment, attribute, values, click_submit_link: true)
     assignment.update(attribute => values)
     get "/courses/#{@course.id}/assignments/#{assignment.id}"
     f(".submit_assignment_link").click if click_submit_link
@@ -51,7 +51,7 @@ describe "assignments" do
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
 
       expect(driver.current_url).to match %r{/courses/\d+/discussion_topics/\d+}
-      expect(f("h1.discussion-title")).to include_text(@assignment.title)
+      expect(f('[data-testid="message_title"]')).to include_text(@assignment.title)
     end
 
     it "validates an assignment created with the type of not graded" do
@@ -62,18 +62,18 @@ describe "assignments" do
     end
 
     it "validates on paper submission assignment type" do
-      update_assignment_attributes(@assignment, :submission_types, "on_paper", false)
+      update_assignment_attributes(@assignment, :submission_types, "on_paper", click_submit_link: false)
       expect(f("#content")).not_to contain_css(".submit_assignment_link")
     end
 
     it "validates no submission assignment type" do
-      update_assignment_attributes(@assignment, :submission_types, nil, false)
+      update_assignment_attributes(@assignment, :submission_types, nil, click_submit_link: false)
       expect(f("#content")).not_to contain_css(".submit_assignment_link")
     end
 
     it "validates that website url submissions are allowed" do
       update_assignment_attributes(@assignment, :submission_types, "online_url")
-      expect(f("#submission_url")).to be_displayed
+      expect(f("#online-url-input")).to be_displayed
     end
 
     it "validates that text entry submissions are allowed" do
@@ -91,7 +91,10 @@ describe "assignments" do
     it "validates an assignment created with the type of external tool", priority: "1" do
       allow(BasicLTI::Sourcedid).to receive(:encryption_secret) { "encryption-secret-5T14NjaTbcYjc4" }
       allow(BasicLTI::Sourcedid).to receive(:signing_secret) { "signing-secret-vp04BNqApwdwUYPUI" }
-      t1 = factory_with_protected_attributes(@course.context_external_tools, url: "http://www.example.com/", shared_secret: "test123", consumer_key: "test123", name: "tool 1")
+      t1 = @course.context_external_tools.create!(url: "http://www.example.com/",
+                                                  shared_secret: "test123",
+                                                  consumer_key: "test123",
+                                                  name: "tool 1")
       external_tool_assignment = assignment_model(course: @course, title: "test2", submission_types: "external_tool")
       external_tool_assignment.create_external_tool_tag(url: t1.url)
       external_tool_assignment.external_tool_tag.update_attribute(:content_type, "ContextExternalTool")

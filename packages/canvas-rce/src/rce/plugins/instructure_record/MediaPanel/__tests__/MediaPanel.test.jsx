@@ -16,9 +16,16 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import {trackPendoEvent} from '@instructure/canvas-media'
+import {fireEvent, render} from '@testing-library/react'
 import React from 'react'
-import {render} from '@testing-library/react'
+import RCEGlobals from '../../../../../rce/RCEGlobals'
 import MediaPanel from '../index'
+
+jest.mock('@instructure/canvas-media', () => ({
+  ...jest.requireActual('@instructure/canvas-media'),
+  trackPendoEvent: jest.fn(),
+}))
 
 function getPanelProps(contextType, mediaprops) {
   return {
@@ -48,7 +55,7 @@ function renderComponent(props) {
       fetchNextMedia={() => {}}
       onMediaEmbed={() => {}}
       {...props}
-    />
+    />,
   )
 }
 
@@ -111,14 +118,14 @@ describe('RCE "Media" Plugin > MediaPanel', () => {
     it('shows a "pending" message for the file', () => {
       const {getByText} = renderComponent(getPanelProps('course', filesObj))
       expect(getByText('pending file').parentElement.parentElement.outerHTML).toContain(
-        'Media file is processing. Please try again later.'
+        'Media file is processing. Please try again later.',
       )
     })
   })
 
   it('renders load more button if there is more', () => {
     const {getByText} = renderComponent(
-      getPanelProps('course', makeFiles({hasMore: true, bookmark: 'next.docs'}))
+      getPanelProps('course', makeFiles({hasMore: true, bookmark: 'next.docs'})),
     )
 
     expect(getByText('Load More')).toBeInTheDocument()
@@ -167,9 +174,35 @@ describe('RCE "Media" Plugin > MediaPanel', () => {
 
   it('shows spinner while loading more', () => {
     const {getByText} = renderComponent(
-      getPanelProps('course', makeFiles({isLoading: true, hasMore: true}))
+      getPanelProps('course', makeFiles({isLoading: true, hasMore: true})),
     )
 
     expect(getByText('Loading')).toBeInTheDocument()
+  })
+
+  describe('Pendo analytics', () => {
+    beforeEach(() => {
+      jest.spyOn(RCEGlobals, 'getFeatures').mockReturnValue({rce_asr_captioning_improvements: true})
+      trackPendoEvent.mockClear()
+    })
+
+    afterEach(() => {
+      jest.restoreAllMocks()
+    })
+
+    it('tracks canvas_native_media_embedded when a file is clicked', () => {
+      const onMediaEmbed = jest.fn()
+      const {getByText} = renderComponent({
+        ...getPanelProps('course', makeFiles()),
+        onMediaEmbed,
+      })
+      fireEvent.click(getByText('file1'))
+      expect(trackPendoEvent).toHaveBeenCalledWith('canvas_native_media_embedded', {
+        insertion_method: 'select_existing',
+        media_id: 1,
+        media_kind: 'video',
+        resourceType: 'course',
+      })
+    })
   })
 })

@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {forEach, find, extend as lodashExtend} from 'lodash'
+import {forEach, extend as lodashExtend} from 'es-toolkit/compat'
 import $ from 'jquery'
 import '@canvas/jquery/jquery.ajaxJSON'
 import '@canvas/jquery/jquery.instructure_misc_helpers' /* replaceTags */
@@ -27,10 +27,10 @@ import '@canvas/media-comments' /* mediaComment */
 import axios from '@canvas/axios'
 import {camelizeProperties} from '@canvas/convert-case'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render, rerender} from '@canvas/react'
 import gradingPeriodSetsApi from '@canvas/grading/jquery/gradingPeriodSetsApi'
-import htmlEscape from '@instructure/html-escape'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {htmlEscape} from '@instructure/html-escape'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import round from '@canvas/round'
 import numberHelper from '@canvas/i18n/numberHelper'
 import CourseGradeCalculator from '@canvas/grading/CourseGradeCalculator'
@@ -42,11 +42,18 @@ import GradeSummaryManager from '../react/GradeSummary/GradeSummaryManager'
 import SelectMenuGroup from '../react/SelectMenuGroup'
 import SubmissionCommentsTray from '../react/SubmissionCommentsTray'
 import ClearBadgeCountsButton from '../react/ClearBadgeCountsButton'
+import {
+  LtiAssetProcessorCellWithData,
+  AssetProcessorHeaderForGrades,
+  ZLtiAssetProcessorCellWithDataProps,
+} from '../react/LtiAssetProcessorCellWithData'
+import {renderAPComponent} from '@canvas/lti-asset-processor/react/util/renderToElements'
 import {scoreToPercentage, scoreToScaledPoints} from '@canvas/grading/GradeCalculationHelper'
 import useStore from '../react/stores'
 import replaceTags from '@canvas/util/replaceTags'
+import {ZUseCourseAssignmentsAssetReportsParams} from '@canvas/lti-asset-processor/react/hooks/useCourseAssignmentsAssetReports'
 
-const I18n = useI18nScope('gradingGradeSummary')
+const I18n = createI18nScope('gradingGradeSummary')
 
 const SUBMISSION_UNREAD_PREFIX = 'submission_unread_dot_'
 
@@ -136,7 +143,7 @@ const GradeSummary = {
     }
 
     // set 'isChanged' to true if the user entered the score already on the submission
-    const isChanged = score.numericalValue != originalScore.numericalValue // eslint-disable-line eqeqeq
+    const isChanged = score.numericalValue != originalScore.numericalValue
 
     // update '.what_if_score' with the parsed value from '#grade_entry'
     $assignment.find('.what_if_score').text(score.formattedValue)
@@ -153,7 +160,7 @@ const GradeSummary = {
       const url = replaceTags(
         $('.update_submission_url').attr('href'),
         'assignment_id',
-        assignmentId
+        assignmentId,
       )
       // if the original score was entered, remove the student entered score
       const scoreForUpdate = isChanged ? score.numericalValue : null
@@ -165,7 +172,7 @@ const GradeSummary = {
           const updatedData = {student_entered_score: data.submission.student_entered_score}
           $assignment.fillTemplateData({data: updatedData})
         },
-        $.noop
+        $.noop,
       )
     }
 
@@ -320,14 +327,14 @@ function calculateGrades() {
       ENV.group_weighting_scheme,
       ENV.grade_calc_ignore_unposted_anonymous_enabled,
       getGradingPeriodSet(),
-      scopeToUser(ENV.effective_due_dates, ENV.student_id)
+      scopeToUser(ENV.effective_due_dates, ENV.student_id),
     )
   } else {
     grades = CourseGradeCalculator.calculate(
       ENV.submissions,
       ENV.assignment_groups,
       ENV.group_weighting_scheme,
-      ENV.grade_calc_ignore_unposted_anonymous_enabled
+      ENV.grade_calc_ignore_unposted_anonymous_enabled,
     )
   }
 
@@ -382,7 +389,7 @@ function calculateSubtotals(byGradingPeriod, calculatedGrades, currentOrFinal) {
       elementIdPrefix: '#submission_group',
     }
   }
-  if (params.grades) {
+  if (params.grades && params.bins) {
     for (let i = 0; i < params.bins.length; i++) {
       const binId = params.bins[i].id
       let grade = params.grades[binId]
@@ -402,9 +409,9 @@ function calculateSubtotals(byGradingPeriod, calculatedGrades, currentOrFinal) {
             scoreToScaledPoints(
               grade.score,
               grade.possible,
-              ENV.course_active_grading_scheme.scaling_factor
+              ENV.course_active_grading_scheme.scaling_factor,
             ),
-            ENV.course_active_grading_scheme.scaling_factor
+            ENV.course_active_grading_scheme.scaling_factor,
           ),
           rowElementId: `${params.elementIdPrefix}-${binId}`,
         }
@@ -461,7 +468,7 @@ function calculateTotals(calculatedGrades, currentOrFinal, groupWeightingScheme)
   const finalPossible = calculatedGrades[currentOrFinal].possible
   const scoreAsPoints = `${I18n.n(finalScore, {precision: round.DEFAULT})} / ${I18n.n(
     finalPossible,
-    {precision: round.DEFAULT}
+    {precision: round.DEFAULT},
   )}`
   const scoreAsPercent = calculateGrade(finalScore, finalPossible)
 
@@ -482,7 +489,7 @@ function calculateTotals(calculatedGrades, currentOrFinal, groupWeightingScheme)
         scoreToUse,
         grading_scheme,
         ENV.course_active_grading_scheme?.points_based,
-        ENV.course_active_grading_scheme?.scaling_factor
+        ENV.course_active_grading_scheme?.scaling_factor,
       ) || I18n.t('N/A')
 
     $('.final_grade .letter_grade').text(GradeFormatHelper.replaceDashWithMinus(letterGrade))
@@ -494,7 +501,7 @@ function calculateTotals(calculatedGrades, currentOrFinal, groupWeightingScheme)
       const scaledPointsOverride = scoreToScaledPoints(
         (ENV.effective_final_score / 100.0) * finalPossible,
         finalPossible,
-        ENV.course_active_grading_scheme.scaling_factor
+        ENV.course_active_grading_scheme.scaling_factor,
       )
       finalGrade = formatScaledPointsGrade(scaledPointsOverride, scaledPointsPossible)
       teaserText = scoreAsPoints
@@ -504,11 +511,11 @@ function calculateTotals(calculatedGrades, currentOrFinal, groupWeightingScheme)
         scoreToLetterGrade(
           calculatePercentGrade(
             Number(scaledPointsOverride.toFixed(2)),
-            Number(scaledPointsPossible.toFixed(2))
+            Number(scaledPointsPossible.toFixed(2)),
           ),
           grading_scheme,
           ENV.course_active_grading_scheme.points_based,
-          scaledPointsPossible
+          scaledPointsPossible,
         ) || I18n.t('N/A')
 
       $('.final_grade .letter_grade').text(GradeFormatHelper.replaceDashWithMinus(letterGrade))
@@ -520,7 +527,7 @@ function calculateTotals(calculatedGrades, currentOrFinal, groupWeightingScheme)
     const scaledPointsEarned = scoreToScaledPoints(
       finalScore,
       finalPossible,
-      ENV.course_active_grading_scheme.scaling_factor
+      ENV.course_active_grading_scheme.scaling_factor,
     )
     const scaledPointsPossible = ENV.course_active_grading_scheme.scaling_factor
     finalGrade = formatScaledPointsGrade(scaledPointsEarned, scaledPointsPossible)
@@ -531,10 +538,10 @@ function calculateTotals(calculatedGrades, currentOrFinal, groupWeightingScheme)
       scoreToLetterGrade(
         calculatePercentGrade(
           Number(scaledPointsEarned.toFixed(2)),
-          Number(scaledPointsPossible.toFixed(2))
+          Number(scaledPointsPossible.toFixed(2)),
         ),
         grading_scheme,
-        ENV.course_active_grading_scheme.points_based
+        ENV.course_active_grading_scheme.points_based,
       ) || I18n.t('N/A')
 
     $('.final_grade .letter_grade').text(GradeFormatHelper.replaceDashWithMinus(letterGrade))
@@ -555,11 +562,11 @@ function calculateTotals(calculatedGrades, currentOrFinal, groupWeightingScheme)
       .find('.status')
       .html('')
       .append(
-        `<span class='submission-custom-grade-status-pill-${ENV.final_override_custom_grade_status_id}'></span>`
+        `<span class='submission-custom-grade-status-pill-${ENV.final_override_custom_grade_status_id}'></span>`,
       )
 
     const matchingCustomStatus = ENV?.custom_grade_statuses?.find(
-      status => status.id === ENV.final_override_custom_grade_status_id
+      status => status.id === ENV.final_override_custom_grade_status_id,
     )
     if (matchingCustomStatus?.allow_final_grade_value === false) {
       $finalGradeRow.find('.grade').text('-')
@@ -596,7 +603,7 @@ function overrideScorePresent() {
 
 function updateStudentGrades() {
   const droppedMessage = I18n.t(
-    'This assignment is dropped and will not be considered in the total calculation'
+    'This assignment is dropped and will not be considered in the total calculation',
   )
   const ignoreUngradedSubmissions = $('#only_consider_graded_assignments').prop('checked')
   const currentOrFinal = ignoreUngradedSubmissions ? 'current' : 'final'
@@ -615,7 +622,7 @@ function updateStudentGrades() {
     forEach(grades[currentOrFinal].submissions, submission => {
       $(`#submission_${submission.submission.assignment_id}`).toggleClass(
         'dropped',
-        !!submission.drop
+        !!submission.drop,
       )
     })
   })
@@ -629,7 +636,7 @@ function updateStudentGrades() {
 }
 
 function updateScoreForAssignment(assignmentId, score, workflowStateOverride) {
-  const submission = find(ENV.submissions, s => `${s.assignment_id}` === `${assignmentId}`)
+  const submission = ENV.submissions?.find(s => `${s.assignment_id}` === `${assignmentId}`)
 
   if (submission) {
     submission.score = score
@@ -655,6 +662,10 @@ function bindShowAllDetailsButton($ariaAnnouncer) {
           $(`#rubric_${assignmentId}`).show()
           $(`#grade_info_${assignmentId}`).show()
           $(`#final_grade_info_${assignmentId}`).show()
+          $(`.parent_assignment_id_${assignmentId}`).show()
+          $(`#parent_assignment_id_${assignmentId} i`)
+            .removeClass('icon-arrow-open-end')
+            .addClass('icon-arrow-open-down')
         }
       })
       $ariaAnnouncer.text(I18n.t('assignment details expanded'))
@@ -662,10 +673,19 @@ function bindShowAllDetailsButton($ariaAnnouncer) {
       $button.text(I18n.t('Show All Details'))
       $('tr.rubric_assessments').hide()
       $('tr.comments').hide()
+      $('tr.sub_assignment_row').hide()
+      $(`.toggle_sub_assignments i`)
+        .removeClass('icon-arrow-open-down')
+        .addClass('icon-arrow-open-end')
       $ariaAnnouncer.text(I18n.t('assignment details collapsed'))
     }
   })
 }
+
+$(window).on('beforeprint', function () {
+  $('tr.sub_assignment_row').show()
+  $(`.toggle_sub_assignments i`).removeClass('icon-arrow-open-end').addClass('icon-arrow-open-down')
+})
 
 function displayPageContent() {
   document.getElementById('grade-summary-content').style.display = ''
@@ -705,15 +725,28 @@ function getCourseId() {
   return ENV.context_asset_string.match(/.*_(\d+)$/)[1]
 }
 
+let selectMenuRoot = null
+let gradeSummaryRoot = null
+let submissionCommentsTrayRoot = null
+let clearBadgeCountsRoot = null
+
 function renderSelectMenuGroup() {
-  ReactDOM.render(
-    <SelectMenuGroup {...GradeSummary.getSelectMenuGroupProps()} />,
-    document.getElementById('GradeSummarySelectMenuGroup')
-  )
+  const container = document.getElementById('GradeSummarySelectMenuGroup')
+  const element = <SelectMenuGroup {...GradeSummary.getSelectMenuGroupProps()} />
+  if (!selectMenuRoot) {
+    selectMenuRoot = render(element, container)
+  } else {
+    rerender(selectMenuRoot, element)
+  }
 }
 
 function renderGradeSummaryTable() {
-  ReactDOM.render(<GradeSummaryManager />, document.getElementById('grade-summary-react'))
+  const container = document.getElementById('grade-summary-react')
+  if (!gradeSummaryRoot) {
+    gradeSummaryRoot = render(<GradeSummaryManager />, container)
+  } else {
+    rerender(gradeSummaryRoot, <GradeSummaryManager />)
+  }
 }
 
 function handleSubmissionsCommentTray(assignmentId) {
@@ -759,26 +792,62 @@ function getSubmissionCommentsTrayProps(assignmentId) {
 }
 
 function renderSubmissionCommentsTray() {
-  ReactDOM.unmountComponentAtNode(document.getElementById('GradeSummarySubmissionCommentsTray'))
-  ReactDOM.render(
+  const container = document.getElementById('GradeSummarySubmissionCommentsTray')
+  const trayElement = (
     <SubmissionCommentsTray
       onDismiss={() => {
         const {submissionTrayAssignmentId} = useStore.getState()
         $(`#comments_thread_${submissionTrayAssignmentId}`).removeClass('comment_thread_show_print')
         $(`#submission_${submissionTrayAssignmentId}`).removeClass('selected-assignment')
       }}
-    />,
-    document.getElementById('GradeSummarySubmissionCommentsTray')
+    />
   )
+  if (!submissionCommentsTrayRoot) {
+    submissionCommentsTrayRoot = render(trayElement, container)
+  } else {
+    rerender(submissionCommentsTrayRoot, trayElement)
+  }
 }
 
 function renderClearBadgeCountsButton() {
-  ReactDOM.unmountComponentAtNode(document.getElementById('ClearBadgeCountsButton'))
+  const container = document.getElementById('ClearBadgeCountsButton')
   const userId = ENV.student_id
   const courseId = ENV.course_id ?? ENV.context_asset_string.replace('course_', '')
-  ReactDOM.render(
-    <ClearBadgeCountsButton userId={userId} courseId={courseId} />,
-    document.getElementById('ClearBadgeCountsButton')
+  const badgeElement = <ClearBadgeCountsButton userId={userId} courseId={courseId} />
+  if (!clearBadgeCountsRoot) {
+    clearBadgeCountsRoot = render(badgeElement, container)
+  } else {
+    rerender(clearBadgeCountsRoot, badgeElement)
+  }
+}
+
+function addAssetProcessorToLegacyTable() {
+  if (!ENV.FEATURES?.lti_asset_processor) {
+    return
+  }
+
+  const fetchParams = {
+    courseId: ENV.course_id,
+    studentId: ENV.student_id,
+    gradingPeriodId: GradeSummary.getSelectedGradingPeriodId(),
+  }
+
+  if (!fetchParams.courseId || !fetchParams.studentId) {
+    return
+  }
+
+  renderAPComponent(
+    '#asset_processors_header',
+    AssetProcessorHeaderForGrades,
+    ZUseCourseAssignmentsAssetReportsParams,
+    _element => fetchParams,
+  )
+
+  renderAPComponent(
+    '.asset_processors_cell',
+    LtiAssetProcessorCellWithData,
+    ZLtiAssetProcessorCellWithDataProps,
+    element => ({...fetchParams, assignmentId: element.dataset.assignmentId}),
   )
 }
 
@@ -804,7 +873,7 @@ function setup() {
     // manages toggling and screenreader focus for comments, scoring, and rubric details
     $(
       '.toggle_comments_link, .toggle_score_details_link, ' +
-        '.toggle_rubric_assessments_link, .toggle_final_grade_info'
+        '.toggle_rubric_assessments_link, .toggle_final_grade_info',
     ).click(function (event) {
       event.preventDefault()
       const $row = $(`#${$(this).attr('aria-controls')}`)
@@ -842,6 +911,25 @@ function setup() {
         const mark_rubric_comments_read_url = $unreadIcon.data('href')
         $.ajaxJSON(mark_rubric_comments_read_url, 'PUT', {}, () => {})
         $unreadIcon.remove()
+      }
+    })
+    $('.toggle_sub_assignments').on('click', function (event) {
+      event.preventDefault()
+      const assignmentcode = $(this).prop('id')
+      if ($(`#${assignmentcode} i`).prop('class').includes('icon-arrow-open-end')) {
+        $(`.${assignmentcode}`).show()
+        $(`.${assignmentcode}`).prop('aria-expanded', true)
+        $(`#${assignmentcode} i`)
+          .removeClass('icon-arrow-open-end')
+          .addClass('icon-arrow-open-down')
+        $('#aria-announcer').text(I18n.t('Sub Assignment details expanded'))
+      } else {
+        $(`.${assignmentcode}`).hide()
+        $(`.${assignmentcode}`).prop('aria-expanded', true)
+        $(`#${assignmentcode} i`)
+          .removeClass('icon-arrow-open-down')
+          .addClass('icon-arrow-open-end')
+        $('#aria-announcer').text(I18n.t('Sub Assignment details collapsed'))
       }
     })
 
@@ -926,7 +1014,7 @@ function setup() {
       },
       function () {
         $(this).find('th.title .context').removeClass('context_hover')
-      }
+      },
     )
 
     $('.show_guess_grades_link').click(() => {
@@ -1000,4 +1088,6 @@ export default lodashExtend(GradeSummary, {
   renderClearBadgeCountsButton,
   updateScoreForAssignment,
   updateStudentGrades,
+  bindShowAllDetailsButton,
+  addAssetProcessorToLegacyTable,
 })

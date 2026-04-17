@@ -18,11 +18,13 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class MediaObject < ActiveRecord::Base
+class MediaObject < ApplicationRecord
   include Workflow
   include SearchTermHelper
 
   class VideoCaptionServiceError < Delayed::RetriableError; end
+
+  VIEWER_RESTRICTION_KEYS = %w[show_rolling_transcript].freeze
 
   AUTO_CAPTION_STATUSES = {
     processing: -> { I18n.t("Processing") },
@@ -34,6 +36,8 @@ class MediaObject < ActiveRecord::Base
     failed_to_pull: -> { I18n.t("Error - Captions not found") },
     complete: -> { I18n.t("Complete") },
   }.freeze
+
+  MAX_CAPTION_ATTEMPTS = 10
 
   belongs_to :user
   belongs_to :context,
@@ -50,12 +54,12 @@ class MediaObject < ActiveRecord::Base
   belongs_to :root_account, class_name: "Account"
 
   validates :media_id, :workflow_state, presence: true
-  validates :auto_caption_status, inclusion: { in: AUTO_CAPTION_STATUSES.keys }, allow_nil: true
+  validates :auto_caption_status, inclusion: { in: AUTO_CAPTION_STATUSES.keys.map(&:to_s) }, allow_nil: true
+  validate :validate_viewer_restrictions
   has_many :media_tracks, ->(media_object) { where(attachment_id: [nil, media_object.attachment_id]).order(:locale) }, dependent: :destroy, inverse_of: :media_object
   has_many :attachments_by_media_id, class_name: "Attachment", primary_key: :media_id, foreign_key: :media_entry_id, inverse_of: :media_object_by_media_id
   before_create :create_attachment
   after_create :retrieve_details_later
-  after_create :generate_captions
   after_save :update_title_on_kaltura_later
   serialize :data
 
@@ -63,7 +67,7 @@ class MediaObject < ActiveRecord::Base
 
   def user_entered_title=(val)
     @push_user_title = true
-    write_attribute(:user_entered_title, val)
+    super
   end
 
   def update_title_on_kaltura_later
@@ -94,29 +98,13 @@ class MediaObject < ActiveRecord::Base
   end
 
   set_policy do
-    #################### Begin legacy permission block #########################
     given do |user|
-      !context_root_account(user)&.feature_enabled?(:granular_permissions_manage_course_content) &&
-        ((self.user && self.user == user) || context&.grants_right?(user, :manage_content))
-    end
-    can :add_captions and can :delete_captions
-
-    given do |user|
-      !context_root_account(user)&.feature_enabled?(:granular_permissions_manage_course_content) &&
-        Account.site_admin.feature_enabled?(:media_links_use_attachment_id) && attachment&.grants_right?(user, :update)
-    end
-    can :add_captions and can :delete_captions
-    ##################### End legacy permission block ##########################
-
-    given do |user|
-      context_root_account(user)&.feature_enabled?(:granular_permissions_manage_course_content) &&
-        (attachment.present? ? attachment.grants_right?(user, :update) : (context&.grants_right?(user, :manage_course_content_add) || (self.user && self.user == user)))
+      attachment.present? ? attachment.grants_right?(user, :update) : (context&.grants_right?(user, :manage_course_content_add) || (self.user && self.user == user))
     end
     can :add_captions
 
     given do |user|
-      context_root_account(user)&.feature_enabled?(:granular_permissions_manage_course_content) &&
-        (attachment.present? ? attachment.grants_right?(user, :update) : (context&.grants_right?(user, :manage_course_content_delete) || (self.user && self.user == user)))
+      attachment.present? ? attachment.grants_right?(user, :update) : (context&.grants_right?(user, :manage_course_content_delete) || (self.user && self.user == user))
     end
     can :delete_captions
   end
@@ -163,9 +151,12 @@ class MediaObject < ActiveRecord::Base
     root_account = Account.where(id: root_account_id).first
     data[:entries].each do |entry|
       attachment_id = nil
-      if entry[:originalId].present? && (Integer(entry[:originalId]).is_a?(Integer) rescue false)
-        attachment_id = entry[:originalId]
-      elsif entry[:originalId].present? && entry[:originalId].length >= 2
+      begin
+        attachment_id = Integer(entry[:originalId]) if entry[:originalId].present?
+      rescue ArgumentError
+        # ignore
+      end
+      if !attachment_id && entry[:originalId].present? && entry[:originalId].length >= 2
         partner_data = Rack::Utils.parse_nested_query(entry[:originalId]).with_indifferent_access
         attachment_id = partner_data[:attachment_id] if partner_data[:attachment_id].present?
       end
@@ -220,7 +211,7 @@ class MediaObject < ActiveRecord::Base
   # typically call this in a delayed job, since it has to contact kaltura
   def self.create_if_id_exists(media_id, **create_opts)
     if media_id_exists?(media_id) && by_media_id(media_id).none?
-      create!(**create_opts.merge(media_id:))
+      create!(**create_opts, media_id:)
     end
   end
 
@@ -252,7 +243,7 @@ class MediaObject < ActiveRecord::Base
         Canvas::Errors.capture(:media_object_failure,
                                {
                                  message: "Kaltura flavor retrieval failed",
-                                 object: inspect.to_s,
+                                 object: inspect,
                                },
                                :warn)
       end
@@ -274,6 +265,7 @@ class MediaObject < ActiveRecord::Base
       self.duration = entry[:duration].to_i
       data[:plays] = entry[:plays].to_i
       data[:download_url] = entry[:downloadUrl]
+      data[:status] = CanvasKaltura::ClientV3::Enums::KalturaEntryStatus[entry[:status]].to_s
       tags = (entry[:tags] || "").split(",").map(&:strip)
       old_id = tags.detect { |t| t.include?("old_id_") }
       self.old_media_id = old_id.sub("old_id_", "") if old_id
@@ -347,24 +339,29 @@ class MediaObject < ActiveRecord::Base
   def generate_captions
     return unless Account.site_admin.feature_enabled?(:speedgrader_studio_media_capture)
 
-    # On error, the job is scheduled again in 5 seconds + N ** 4, where N is the number of attempts
-    delay(max_attempts: 10).request_captions
+    delay.request_captions(attempt: 1)
   end
 
-  def request_captions
-    raise VideoCaptionServiceError unless media_sources.any?
-
-    VideoCaptionService.call(self)
+  def request_captions(attempt:)
+    if media_sources.any?
+      VideoCaptionService.call(self)
+    elsif attempt > MAX_CAPTION_ATTEMPTS
+      error = VideoCaptionServiceError.new("No media sources to generate captions for and max attempts reached")
+      Canvas::Errors.capture(error, { media_object_id: global_id }, :warn)
+    else
+      run_at = (5 + (attempt**4)).seconds.from_now # same backoff that inst-jobs uses
+      delay(run_at:).request_captions(attempt: attempt + 1)
+    end
   end
 
   def data
-    read_or_initialize_attribute(:data, {})
+    self["data"] ||= {}
   end
 
-  def viewed!
+  def viewed! # rubocop:disable Naming/PredicateMethod
     # in the delayed job, current_attachment gets reset
     # so we pass it in here and then set it again in the next method
-    delay.updated_viewed_at_and_retrieve_details(Time.now, current_attachment) if !self.data[:last_viewed_at] || self.data[:last_viewed_at] > 1.hour.ago
+    delay.updated_viewed_at_and_retrieve_details(Time.zone.now, current_attachment) if !self.data[:last_viewed_at] || self.data[:last_viewed_at] > 1.hour.ago
     true
   end
 
@@ -378,6 +375,10 @@ class MediaObject < ActiveRecord::Base
     return if current_attachment || attachment_id || Attachment.find_by(media_entry_id: media_id)
     return unless %w[Account Course Group User].include?(context_type)
 
+    if context.is_a?(Course) && context.usage_rights_required && Account.site_admin.feature_enabled?(:default_copyright_on_attachments)
+      usage_rights = context.usage_rights.find_or_create_by!(context:, use_justification: "own_copyright")
+    end
+
     self.attachment = Folder.media_folder(context).attachments
                             .create!(
                               context:,
@@ -387,7 +388,8 @@ class MediaObject < ActiveRecord::Base
                               media_entry_id: media_id,
                               # in case teachers don't mean for this to be visible to students in the files section
                               file_state: "hidden",
-                              workflow_state: "pending_upload"
+                              workflow_state: "pending_upload",
+                              usage_rights:
                             )
     attachment.handle_duplicates(:rename)
     media_tracks.update_all(attachment_id: attachment.id)
@@ -445,5 +447,25 @@ class MediaObject < ActiveRecord::Base
   workflow do
     state :active
     state :deleted
+  end
+
+  private
+
+  def validate_viewer_restrictions
+    unless viewer_restrictions.is_a?(Hash)
+      errors.add(:viewer_restrictions, "must be a hash")
+      return
+    end
+
+    viewer_restrictions.each do |key, value|
+      unless VIEWER_RESTRICTION_KEYS.include?(key.to_s)
+        errors.add(:viewer_restrictions, "invalid key #{key}")
+        next
+      end
+
+      unless value.is_a?(TrueClass) || value.is_a?(FalseClass)
+        errors.add(:viewer_restrictions, "value for #{key} must be a boolean")
+      end
+    end
   end
 end

@@ -17,16 +17,25 @@
  */
 
 import React from 'react'
-import {act, render, waitForElementToBeRemoved} from '@testing-library/react'
+import {act, render, waitFor, waitForElementToBeRemoved} from '@testing-library/react'
 import moment from 'moment-timezone'
 import {ignoreTodo} from '@canvas/k5/react/utils'
-import {destroyContainer} from '@canvas/alerts/react/FlashAlert'
+import {destroyContainer, showFlashError} from '@instructure/platform-alerts'
+
+vi.mock('@instructure/platform-alerts', async () => {
+  const actual = await vi.importActual('@instructure/platform-alerts')
+  return {
+    ...actual,
+    destroyContainer: vi.fn(),
+    showFlashError: vi.fn().mockReturnValue(vi.fn()),
+  }
+})
 
 import {MOCK_TODOS} from './mocks'
 import Todo from '../Todo'
 
-jest.mock('moment-timezone')
-jest.mock('@canvas/k5/react/utils')
+vi.mock('moment-timezone')
+vi.mock('@canvas/k5/react/utils')
 
 const timeZone = 'Europe/Dublin'
 
@@ -44,7 +53,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  jest.resetAllMocks()
+  vi.resetAllMocks()
   // Clear flash alerts between tests
   destroyContainer()
 })
@@ -129,6 +138,24 @@ describe('Todo', () => {
     expect(getByText('(Multiple Due Dates)')).toBeInTheDocument()
   })
 
+  it('renders "Multiple Due Dates" without specific date when all_dates_count > 25 and all_dates is empty', () => {
+    const props = {
+      ...defaultProps,
+      assignment: {
+        ...defaultProps.assignment,
+        all_dates_count: 26,
+        all_dates: [],
+        due_at: '2021-07-02T23:59:59Z',
+      },
+    }
+    const {getByText, queryByText} = render(<Todo {...props} />)
+    expect(getByText('Multiple Due Dates')).toBeInTheDocument()
+    // Should NOT show the "(Multiple Due Dates)" text with parentheses
+    expect(queryByText('(Multiple Due Dates)')).not.toBeInTheDocument()
+    // Should NOT show a specific date like "Jul 2 at 11:59pm"
+    expect(queryByText(/Jul 2/)).not.toBeInTheDocument()
+  })
+
   it('displays a badge with the number of submissions that need grading with correct pluralization', () => {
     const multiSubmissions = render(<Todo {...defaultProps} />)
     expect(multiSubmissions.getByText('3 submissions need grading')).toBeInTheDocument()
@@ -141,7 +168,7 @@ describe('Todo', () => {
     const {queryByText} = render(<Todo {...defaultProps} assignment={undefined} />)
     expect(queryByText('Plant some plants')).not.toBeInTheDocument()
   })
-
+  // Skip with LX-2092
   it('displays a button that ignores the associated todo and removes it from the rendered list', async () => {
     ignoreTodo.mockResolvedValue({ignored: true})
 
@@ -157,12 +184,18 @@ describe('Todo', () => {
   it('shows a flash error if ignoring a todo fails', async () => {
     ignoreTodo.mockRejectedValue(new Error('Uh oh'))
 
-    const {findAllByText, getByRole} = render(<Todo {...defaultProps} />)
+    const {getByRole} = render(<Todo {...defaultProps} />)
     const ignoreButton = getByRole('button', {name: 'Ignore Plant a plant until new submission'})
 
-    act(() => ignoreButton.click())
+    const handler = () => {}
+    process.prependListener('unhandledRejection', handler)
 
-    expect((await findAllByText('Failed to ignore assignment'))[0]).toBeInTheDocument()
+    ignoreButton.click()
+    await waitFor(() => {
+      expect(showFlashError).toHaveBeenCalledWith('Failed to ignore assignment')
+    })
+
+    process.removeListener('unhandledRejection', handler)
   })
 
   it('adds target attribute to link if openInNewTab is true', () => {

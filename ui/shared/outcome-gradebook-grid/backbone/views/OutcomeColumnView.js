@@ -18,7 +18,7 @@
 
 import {extend} from '@canvas/backbone/utils'
 import {View} from '@canvas/backbone'
-import {extend as lodashExtend, each, map, filter, find} from 'lodash'
+import {each, map, filter, find, extend as lodashExtend} from 'es-toolkit/compat'
 import Popover from 'jquery-popover'
 import Outcome from '@canvas/grade-summary/backbone/models/Outcome'
 import d3 from 'd3'
@@ -88,7 +88,7 @@ OutcomeColumnView.prototype.mouseleave = function (_e) {
         return delete _this.popover
       }
     })(this),
-    this.TIMEOUT_LENGTH
+    this.TIMEOUT_LENGTH,
   )
 }
 
@@ -102,7 +102,7 @@ OutcomeColumnView.prototype.pickColors = function () {
   const mastery_pos = data.indexOf(
     find(data, function (x) {
       return x.points === mastery
-    })
+    }),
   )
   const color = d3.scale
     .linear()
@@ -165,7 +165,7 @@ OutcomeColumnView.prototype.renderArcFills = function () {
             return _this.data[i].color
           }
         }
-      })(this)
+      })(this),
     )
     .attr('d', this.arc)
     .transition()
@@ -188,7 +188,7 @@ OutcomeColumnView.prototype.renderLabels = function () {
           })
           return 'translate(' + c + ')'
         }
-      })(this)
+      })(this),
     )
     .attr(
       'text-anchor',
@@ -206,7 +206,7 @@ OutcomeColumnView.prototype.renderLabels = function () {
             return 'start'
           }
         }
-      })(this)
+      })(this),
     )
     .attr(
       'dominant-baseline',
@@ -224,7 +224,7 @@ OutcomeColumnView.prototype.renderLabels = function () {
             return 'auto'
           }
         }
-      })(this)
+      })(this),
     )
     .text(
       (function (_this) {
@@ -233,7 +233,7 @@ OutcomeColumnView.prototype.renderLabels = function () {
             percentage: true,
           })
         }
-      })(this)
+      })(this),
     )
 }
 
@@ -266,7 +266,7 @@ OutcomeColumnView.prototype.renderLabelLines = function () {
           })
           return 'M' + c1[0] + ' ' + c1[1] + ' L' + c2[0] + ' ' + c2[1]
         }
-      })(this)
+      })(this),
     )
 }
 

@@ -20,7 +20,7 @@
 
 module Lti
   # @API Originality Reports
-  # **LTI API for OriginalityReports (Must use <a href="jwt_access_tokens.html">JWT access tokens</a> with this API).**
+  # **LTI API for OriginalityReports (Must use <a href="file.jwt_access_tokens.html">JWT access tokens</a> with this API).**
   #
   # Originality reports may be used by external tools providing plagiarism
   # detection services to give an originality score to an assignment
@@ -124,7 +124,7 @@ module Lti
       }.freeze
     ].freeze
 
-    skip_before_action :load_user
+    skip_before_action :load_user, :require_user
     skip_before_action :verify_authenticity_token
     before_action :authorized_lti2_tool
     before_action :attachment_in_context, only: [:create]
@@ -200,7 +200,7 @@ module Lti
           render json: @report.errors, status: :bad_request
         end
       end
-    rescue StandError => e
+    rescue => e
       logger.warn e.message
     end
 
@@ -243,8 +243,19 @@ module Lti
     #
     # @returns OriginalityReport
     def update
+      updated = false
       updates = { error_message: nil }.merge(update_report_params)
-      if @report.update(updates)
+      # Check if the score is the same as the current score and if so,
+      # only .touch to update the updated_at timestamp
+
+      if !@report.originality_score.nil? && (updates["originality_score"].to_f - @report.originality_score).abs < Float::EPSILON
+        @report.touch
+        updated = true
+      else
+        updated = @report.update(updates)
+      end
+
+      if updated
         @report.copy_to_group_submissions_later!
         render json: api_json(@report, @current_user, session)
       else
@@ -270,16 +281,12 @@ module Lti
       render_unauthorized_action unless tool_proxy_associated?
     end
 
-    def link_fragment
-      Lti::Asset.global_context_id_for(submission)
-    end
-
     def tool_proxy_associated?
       PermissionChecker.authorized_lti2_action?(tool: tool_proxy, context: assignment)
     end
 
     def create_attributes
-      (update_attributes + [:file_id]).freeze # rubocop:disable Rails/ActiveRecordAliases not ActiveRecord::Base#update_attributes
+      (update_attributes + [:file_id]).freeze
     end
 
     def update_attributes
@@ -311,17 +318,10 @@ module Lti
     def attachment
       @_attachment ||= begin
         attachment = Attachment.find(params[:file_id]) if params[:file_id].present?
-        if attachment.blank? && params.require(:originality_report)[:file_id].present?
+        if attachment.blank? && params.dig(:originality_report, :file_id).present?
           attachment = Attachment.find(params.require(:originality_report)[:file_id])
         end
         attachment
-      end
-    end
-
-    def attachment_association
-      @_attachment_association ||= begin
-        file = originality_report&.attachment || attachment
-        file.attachment_associations.find { |a| a.context == submission }
       end
     end
 
@@ -338,7 +338,7 @@ module Lti
 
     def update_report_params
       @_update_report_params ||= begin
-        report_attributes = params.require(:originality_report).permit(update_attributes) # rubocop:disable Rails/ActiveRecordAliases not ActiveRecord::Base#update_attributes
+        report_attributes = params.require(:originality_report).permit(update_attributes)
         report_attributes[:lti_link_attributes] = lti_link_params
         report_attributes
       end
@@ -376,7 +376,7 @@ module Lti
     end
 
     def attachment_in_context
-      verify_submission_attachment(attachment, submission)
+      params.require(:originality_report) && verify_submission_attachment(attachment, submission)
     end
 
     def report_by_attempt(attempt)
@@ -402,7 +402,7 @@ module Lti
         # For Text Entry cases (there is never an attachment), in the `create`
         # method, clients can choose which submission version the report is for
         # by supplying the attempt number.  Thus we can tell if they are
-        # updating an exising report or making a new one for a new version.
+        # updating an existing report or making a new one for a new version.
         @report ||=
           if params.require(:originality_report)[:attempt].present?
             report_by_attempt(params[:originality_report][:attempt])

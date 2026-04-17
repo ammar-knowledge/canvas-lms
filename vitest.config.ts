@@ -19,118 +19,236 @@
  */
 
 import {defineConfig} from 'vitest/config'
+import {resolve} from 'path'
 import handlebarsPlugin from './ui-build/esbuild/handlebars-plugin'
 import svgPlugin from './ui-build/esbuild/svg-plugin'
 
+// Plugin to handle .graphql files as raw text
+const graphqlPlugin = {
+  name: 'graphql-loader',
+  transform(code: string, id: string) {
+    if (id.endsWith('.graphql')) {
+      return {
+        code: `export default ${JSON.stringify(code)}`,
+        map: null,
+      }
+    }
+  },
+}
+
+// Plugin to handle CSS imports as empty modules (like Jest's styleMock.js)
+const cssPlugin = {
+  name: 'css-loader',
+  transform(_code: string, id: string) {
+    if (id.endsWith('.css')) {
+      return {
+        code: 'export default {}',
+        map: null,
+      }
+    }
+  },
+}
+
+// Plugin to transform jest.mock() calls to vi.mock() for Vitest hoisting compatibility
+// Jest hoists jest.mock() calls, but Vitest only hoists vi.mock() calls
+// This plugin finds all jest.mock() calls and adds corresponding vi.mock() calls at the top
+const jestMockHoistPlugin = {
+  name: 'jest-mock-hoist',
+  enforce: 'pre' as const,
+  transform(code: string, id: string) {
+    // Only process test files
+    if (!id.includes('__tests__') || !id.match(/\.(test|spec)\.(ts|tsx|js|jsx)$/)) {
+      return null
+    }
+
+    // Find all jest.mock() calls with their module paths
+    const jestMockRegex = /jest\.mock\(\s*(['"`])([^'"`]+)\1/g
+    const mocks: string[] = []
+    let match
+
+    while ((match = jestMockRegex.exec(code)) !== null) {
+      const quote = match[1]
+      const modulePath = match[2]
+      mocks.push(`vi.mock(${quote}${modulePath}${quote})`)
+    }
+
+    if (mocks.length === 0) {
+      return null
+    }
+
+    // Check if vi.mock calls already exist for these modules
+    const existingViMocks = new Set<string>()
+    const viMockRegex = /vi\.mock\(\s*(['"`])([^'"`]+)\1/g
+    while ((match = viMockRegex.exec(code)) !== null) {
+      existingViMocks.add(match[2])
+    }
+
+    // Filter out mocks that already have vi.mock
+    const newMocks = mocks.filter(mock => {
+      const modulePath = mock.match(/vi\.mock\(\s*(['"`])([^'"`]+)\1/)?.[2]
+      return modulePath && !existingViMocks.has(modulePath)
+    })
+
+    if (newMocks.length === 0) {
+      return null
+    }
+
+    // Add vi.mock calls at the very top of the file (after any shebang/pragma)
+    // These will be hoisted by Vitest
+    const viMockBlock = `// Auto-generated vi.mock() calls for Vitest hoisting\n${newMocks.join('\n')}\n\n`
+
+    // Find the best insertion point (after any leading comments/pragmas)
+    let insertIndex = 0
+    const leadingCommentMatch = code.match(/^(\s*(\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*\s*)/)
+    if (leadingCommentMatch) {
+      insertIndex = leadingCommentMatch[0].length
+    }
+
+    const newCode = code.slice(0, insertIndex) + viMockBlock + code.slice(insertIndex)
+
+    return {
+      code: newCode,
+      map: null,
+    }
+  },
+}
+
 export default defineConfig({
+  esbuild: {
+    jsx: 'automatic',
+  },
   test: {
-    environment: 'happy-dom',
+    testTimeout: 30000,
+    hookTimeout: 30000,
+    environment: 'jsdom',
+    // Use forks pool for better memory isolation between tests
+    // Limit to 4 workers to balance parallelism with memory pressure
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        minForks: 1,
+        maxForks: 4,
+        isolate: true,
+      },
+    },
+    sequence: {
+      shuffle: true,
+    },
+    reporters: [
+      'default',
+      [
+        'junit',
+        {
+          suiteName: 'Vitest Tests',
+          outputFile: process.env.TEST_RESULT_OUTPUT_DIR
+            ? `${process.env.TEST_RESULT_OUTPUT_DIR}/jest.xml`
+            : './coverage-js/junit-reports/jest.xml',
+        },
+      ],
+    ],
+    // Configure jsdom to use http://localhost without port (matching Jest's default)
+    // This prevents test failures where URLs are compared with hardcoded 'http://localhost/...'
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost',
+      },
+    },
     globals: true,
     setupFiles: 'ui/setup-vitests.tsx',
-    include: ['ui/**/__tests__/**/*.test.?(c|m)[jt]s?(x)', 'packages/**/__tests__/**/*.test.?(c|m)[jt]s?(x)'],
+    include: ['ui/**/__tests__/**/*.(test|spec).?(c|m)[jt]s?(x)'],
     exclude: [
+      // Exclude non-ui directories that vitest might auto-detect
+      '**/node_modules/**',
+      'packages/**',
+      'gems/**',
       'ui/boot/initializers/**/*',
-      'ui/features/account_calendar_settings/**/*',
-      'ui/features/account_course_user_search/**/*',
-      'ui/features/account_grading_settings/**/*',
-      'ui/features/account_notification_settings/**/*',
-      'ui/features/account_settings/**/*',
-      'ui/features/analytics_hub/**/*',
-      'ui/features/assignment_edit/**/*',
-      'ui/features/assignment_grade_summary/**/*',
-      'ui/features/assignment_index/**/*',
-      'ui/features/assignments_show_student/**/*',
-      'ui/features/assignments_show_teacher/**/*',
-      'ui/features/brand_configs/**/*',
-      'ui/features/calendar/**/*',
-      'ui/features/conferences/**/*',
-      'ui/features/content_migrations/**/*',
-      'ui/features/content_shares/**/*',
-      'ui/features/course_paces/**/*',
-      'ui/features/course_people/**/*',
-      'ui/features/course_settings/**/*',
-      'ui/features/dashboard/**/*',
-      'ui/features/developer_keys_v2/**/*',
-      'ui/features/discussion_topic_edit_v2/**/*',
-      'ui/features/discussion_topics_post/**/*',
-      'ui/features/discussion_topics/**/*',
-      'ui/features/edit_calendar_event/**/*',
-      'ui/features/enhanced_individual_gradebook/**/*',
-      'ui/features/external_apps/**/*',
-      'ui/features/files/**/*',
-      'ui/features/grade_summary/**/*',
-      'ui/features/gradebook_history/**/*',
-      'ui/features/gradebook/**/*',
-      'ui/features/inbox/**/*',
-      'ui/features/job_stats/**/*',
-      'ui/features/jobs_v2/**/*',
-      'ui/features/k5_course/**/*',
-      'ui/features/k5_dashboard/**/*',
-      'ui/features/learning_mastery_v2/**/*',
-      'ui/features/navigation_header/**/*',
-      'ui/features/outcome_management/**/*',
-      'ui/features/permissions/**/*',
-      'ui/features/post_message_forwarding/**/*',
-      'ui/features/quiz_log_auditing/**/*',
-      'ui/features/quiz_statistics/**/*',
-      'ui/features/quizzes_index/**/*',
-      'ui/features/rubrics/**/*',
-      'ui/features/speed_grader/**/*',
-      'ui/features/submit_assignment/**/*',
-      'ui/features/syllabus/**/*',
-      'ui/shared/apollo-v3/**/*',
-      'ui/shared/apollo/**/*',
-      'ui/shared/assignments/**/*',
-      'ui/shared/brandable-css/**/*',
-      'ui/shared/calendar-conferences/**/*',
-      'ui/shared/calendar/**/*',
-      'ui/shared/canvas-media-player/**/*',
-      'ui/shared/context-module-file-drop/**/*',
-      'ui/shared/context-modules/**/*',
-      'ui/shared/copy-to-clipboard/**/*',
-      'ui/shared/dashboard-card/**/*',
-      'ui/shared/datetime/**/*',
-      'ui/shared/deep-linking/**/*',
-      'ui/shared/direct-sharing/**/*',
-      'ui/shared/discussions/**/*',
-      'ui/shared/error-boundary/**/*',
-      'ui/shared/external-tools/**/*',
-      'ui/shared/feature-flags/**/*',
-      'ui/shared/files/**/*',
-      'ui/shared/final-grade-override/**/*',
-      'ui/shared/generic-error-page/**/*',
-      'ui/shared/grade-summary/**/*',
-      'ui/shared/grading_scheme/**/*',
-      'ui/shared/grading/**/*',
-      'ui/shared/graphql-query-mock/**/*',
-      'ui/shared/group-modal/**/*',
-      'ui/shared/immersive-reader/**/*', // fails inline snapshot
-      'ui/shared/integrations/**/*',
-      'ui/shared/k5/**/*',
-      'ui/shared/mediaelement/**/*',
-      'ui/shared/message-attachments/**/*',
-      'ui/shared/message-students-dialog/**/*',
-      'ui/shared/message-students-modal/**/*',
-      'ui/shared/network/**/*',
-      'ui/shared/notification-preferences-course/**/*',
-      'ui/shared/outcomes/**/*',
-      'ui/shared/planner/**/*',
-      'ui/shared/publish-button-view/**/*',
-      'ui/shared/rce/**/*',
-      'ui/shared/rubrics/**/*',
-      'ui/shared/search-item-selector/**/*',
-      'ui/shared/submission-sticker/**/*',
-      'ui/shared/temporary-enrollment/**/*',
-      'ui/shared/tinymce-external-tools/**/*',
-      'ui/shared/use-state-with-callback-hook/**/*',
-      'ui/shared/wiki/**/*',
-      'ui/shared/with-breakpoints/**/*',
     ],
     coverage: {
       include: ['ui/**/*.ts?(x)', 'ui/**/*.js?(x)'],
       exclude: ['ui/**/__tests__/**/*'],
       reportOnFailure: true,
     },
+    // Force modules to be bundled together so they share state
+    // - graphql: prevent "Cannot use GraphQLSchema from another module" errors
+    // Note: jQuery is handled via alias to jquery-with-plugins.ts wrapper
+    server: {
+      deps: {
+        inline: [/graphql/],
+      },
+    },
   },
-  plugins: [handlebarsPlugin(), svgPlugin()],
+  resolve: {
+    // Force jQuery to be deduplicated - ensures all imports get the same instance
+    dedupe: ['jquery'],
+    extensions: ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json'],
+    alias: [
+      // CRITICAL: Redirect all jQuery imports to our wrapper with plugins pre-attached
+      // This ensures toJSON, dialog, droppable, etc. are available on all jQuery instances
+      {
+        find: /^jquery$/,
+        replacement: resolve(__dirname, 'ui/shared/test-utils/jquery-with-plugins.ts'),
+      },
+      // Match tsconfig.json paths for @canvas/* imports (must come before other aliases)
+      {
+        find: /^@canvas\/(.+)$/,
+        replacement: resolve(__dirname, 'ui/shared/$1'),
+      },
+      // Match webpack's modules config: resolve(canvasDir, 'public/javascripts')
+      {find: 'translations', replacement: resolve(__dirname, 'public/javascripts/translations')},
+      // Match Jest's moduleNameMapper for backbone versions
+      {find: 'node_modules-version-of-backbone', replacement: 'backbone'},
+      {find: 'node_modules-version-of-react-modal', replacement: 'react-modal'},
+      // Backbone global alias
+      {find: 'Backbone', replacement: resolve(__dirname, 'public/javascripts/Backbone.js')},
+      // TinyMCE React mock
+      {
+        find: '@tinymce/tinymce-react',
+        replacement: resolve(__dirname, 'packages/canvas-rce/src/rce/__mocks__/tinymceReact.jsx'),
+      },
+      // decimal.js ESM compatibility
+      {find: 'decimal.js/decimal.mjs', replacement: 'decimal.js/decimal.js'},
+      // Studio player mock
+      {
+        find: '@instructure/studio-player',
+        replacement: resolve(
+          __dirname,
+          'packages/canvas-rce/src/rce/__mocks__/_mockStudioPlayer.js',
+        ),
+      },
+      // Crypto-es mock
+      {
+        find: 'crypto-es',
+        replacement: resolve(__dirname, 'packages/canvas-rce/src/rce/__mocks__/_mockCryptoEs.ts'),
+      },
+      // @jest/globals compatibility shim - redirect to vitest
+      {
+        find: '@jest/globals',
+        replacement: resolve(__dirname, 'ui/shared/test-utils/jest-globals-shim.ts'),
+      },
+      // Mock ui-icons SVG imports (Vite can't resolve directory import without index.js)
+      {
+        find: '@instructure/ui-icons/es/svg',
+        replacement: resolve(__dirname, 'packages/canvas-rce/src/rce/__tests__/_mockIcons.js'),
+      },
+    ],
+  },
+  plugins: [
+    jestMockHoistPlugin,
+    handlebarsPlugin(),
+    svgPlugin(),
+    graphqlPlugin,
+    cssPlugin,
+    // Mock for newquizzes/appInjector module federation remote (not available in test env)
+    {
+      name: 'mock-newquizzes-app-injector',
+      resolveId(id: string) {
+        if (id === 'newquizzes/appInjector') return '\0newquizzes/appInjector'
+      },
+      load(id: string) {
+        if (id === '\0newquizzes/appInjector') {
+          return 'export const render = () => {}; export const unmount = () => {}'
+        }
+      },
+    },
+  ],
 })

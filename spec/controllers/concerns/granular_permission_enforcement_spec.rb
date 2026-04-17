@@ -17,11 +17,11 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
-require "spec_helper"
 
 describe GranularPermissionEnforcement do
   controller(ApplicationController) do
     include GranularPermissionEnforcement
+
     before_action :authorize_action
 
     def index
@@ -59,42 +59,24 @@ describe GranularPermissionEnforcement do
       course_with_student(active_all: true)
     end
 
-    shared_examples_for "when authorizing" do
-      it "is not authorized" do
-        user_session(@student)
-        get :index, params: { course: @course }
-        expect(response).to have_http_status :unauthorized
-      end
-
-      it "is authorized" do
-        user_session(@teacher)
-        get :index, params: { course: @course }
-        expect(response).to have_http_status :ok
-      end
-
-      it "raises error if current controller action is missing from provided actions" do
-        user_session(@teacher)
-        expect_any_instance_of(GranularPermissionEnforcement)
-          .to receive(:enforce_granular_permissions)
-          .and_throw(/Missing current controller action/)
-        get :new, params: { course: @course }
-      end
+    it "is not authorized" do
+      user_session(@student)
+      get :index, params: { course: @course }
+      expect(response).to have_http_status :unauthorized
     end
 
-    context "with :granular_permissions_manage_course_content feature preview disable" do
-      before do
-        @course.root_account.disable_feature!(:granular_permissions_manage_course_content)
-      end
-
-      it_behaves_like "when authorizing"
+    it "is authorized" do
+      user_session(@teacher)
+      get :index, params: { course: @course }
+      expect(response).to have_http_status :ok
     end
 
-    context "with :granular_permissions_manage_course_content feature preview enabled" do
-      before do
-        @course.root_account.enable_feature!(:granular_permissions_manage_course_content)
-      end
-
-      it_behaves_like "when authorizing"
+    it "raises error if current controller action is missing from provided actions" do
+      user_session(@teacher)
+      expect_any_instance_of(GranularPermissionEnforcement)
+        .to receive(:enforce_granular_permissions)
+        .and_throw(/Missing current controller action/)
+      get :new, params: { course: @course }
     end
   end
 end

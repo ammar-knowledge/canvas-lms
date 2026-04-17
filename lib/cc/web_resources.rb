@@ -33,24 +33,28 @@ module CC
     def add_course_files
       return if for_course_copy
 
-      (@html_exporter.referenced_files.keys + @html_exporter.referenced_assessment_question_files.keys).each do |att_id|
+      referenced_folders = {}
+      media_folder_name = Folder.media_folder(@course).name
+      @html_exporter.referenced_files.each do |att_id, att|
         add_item_to_export("attachment_#{att_id}", "attachments")
-      end
+        next if att.context_type == "Course"
 
-      @html_exporter.referenced_assessment_question_files.each_value do |att|
-        path = "#{CCHelper::WEB_RESOURCES_FOLDER}/assessment_questions#{att.full_display_path}"
+        path = if att.context_type == "User"
+                 referenced_folders[media_folder_name] ||= Folder.media_folder(@course)
+                 "#{CCHelper::WEB_RESOURCES_FOLDER}/#{media_folder_name}/#{att.display_name}"
+               elsif att.context_type == "AssessmentQuestion"
+                 referenced_folders["assessment_questions"] ||= Folder.new(name: "assessment_questions", full_name: "assessment_questions", hidden: true)
+                 "#{CCHelper::WEB_RESOURCES_FOLDER}/assessment_questions#{att.full_display_path}"
+               end
         add_file_to_manifest(att, path, create_key(att))
         content_zipper.add_attachment_to_zip(att, @zip_file, path)
       end
 
-      course_folder = Folder.root_folders(@course).first
-      files_with_metadata = { folders: [], files: [] }
-      if @html_exporter.referenced_assessment_question_files.present?
-        aq_folder = Folder.new(name: "assessment_questions", full_name: "assessment_questions", hidden: true)
-        files_with_metadata[:folders] << [aq_folder, "assessment_questions"]
-      end
       @added_attachments = {}
 
+      course_folder = Folder.root_folders(@course).first
+      folders = referenced_folders.map { |name, folder| [folder, name] }
+      files_with_metadata = { folders:, files: [] }
       content_zipper.process_folder(
         course_folder,
         @zip_file,
@@ -74,7 +78,7 @@ module CC
         end
         add_file_to_manifest(file, path, migration_id)
       rescue
-        title = file.unencoded_filename rescue I18n.t("course_exports.unknown_titles.file", "Unknown file")
+        title = file.try(:unencoded_filename) || I18n.t("course_exports.unknown_titles.file", "Unknown file")
         add_error(I18n.t("course_exports.errors.file", "The file \"%{file_name}\" failed to export", file_name: title), $!)
       end
 
@@ -216,20 +220,12 @@ module CC
           root_node.media(identifierref: file_id) do |media_node|
             track_list.each do |track|
               # <track identifierref='(srt resource id)' kind='subtitles' locale='en'/>
-              media_node_creation(media_node, track)
+              media_node.track(track[:content], track.slice(:kind, :locale, :identifierref))
             end
           end
         end
       end
       tracks_file.close
-    end
-
-    def media_node_creation(media_node, track)
-      if Account.site_admin.feature_enabled?(:media_links_use_attachment_id)
-        media_node.track(track[:content], track.slice(:kind, :locale, :identifierref))
-      else
-        media_node.track(track)
-      end
     end
 
     def add_media_tracks

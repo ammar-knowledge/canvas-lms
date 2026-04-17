@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
-require_relative "../spec_helper"
+
 require "webmock/rspec"
 
 describe CanvasOutcomesHelper do
@@ -206,17 +206,7 @@ describe CanvasOutcomesHelper do
       end
     end
 
-    context "without outcome_service_results_to_canvas feature flag enabled" do
-      it "returns nil" do
-        expect(subject.get_outcome_alignments(@course, "123")).to be_nil
-      end
-    end
-
     context "returns results" do
-      before do
-        @course.enable_feature!(:outcome_service_results_to_canvas)
-      end
-
       def mock_alignment_response(external_ids, include_group, alignments)
         response = external_ids.split(",").map do |e_id|
           {
@@ -253,25 +243,25 @@ describe CanvasOutcomesHelper do
       end
 
       it "raises error on non 2xx response" do
-        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1").to_return(status: 401, body: '{"valid_jwt":false}')
-        expect { subject.get_outcome_alignments(@course, "1") }.to raise_error(RuntimeError, /Error retrieving aligned assets from Outcomes Service:/)
+        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&page=1&per_page=200").to_return(status: 401, body: '{"valid_jwt":false}')
+        expect { subject.get_outcome_alignments(@course, "1") }.to raise_error(CanvasOutcomesHelper::OSFetchError, /Error retrieving results from Outcomes Service:/)
       end
 
       it "outcomes only" do
-        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1")
-          .to_return(status: 200, body: mock_alignment_response("1", false, false).to_json)
+        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&page=1&per_page=200")
+          .to_return(status: 200, body: mock_alignment_response("1", false, false).to_json, headers: { "Per-Page" => 200, "Total" => 1 })
         expect(subject.get_outcome_alignments(@course, "1")).to eq mock_alignment_response("1", false, false)
       end
 
       it "multiple outcomes" do
-        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1,2")
-          .to_return(status: 200, body: mock_alignment_response("1,2", false, false).to_json)
+        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1,2&page=1&per_page=200")
+          .to_return(status: 200, body: mock_alignment_response("1,2", false, false).to_json, headers: { "Per-Page" => 200, "Total" => 1 })
         expect(subject.get_outcome_alignments(@course, "1,2")).to eq mock_alignment_response("1,2", false, false)
       end
 
       it "outcome with no alignments" do
-        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&includes=alignments")
-          .to_return(status: 200, body: mock_alignment_response("1", false, false).to_json)
+        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&includes=alignments&page=1&per_page=200")
+          .to_return(status: 200, body: mock_alignment_response("1", false, false).to_json, headers: { "Per-Page" => 200, "Total" => 1 })
         expect(subject.get_outcome_alignments(@course, "1", { includes: "alignments" })).to eq mock_alignment_response("1", false, false)
 
         outcome = LearningOutcome.new(id: 1)
@@ -279,8 +269,8 @@ describe CanvasOutcomesHelper do
       end
 
       it "outcome with alignments" do
-        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&includes=alignments")
-          .to_return(status: 200, body: mock_alignment_response("1", false, true).to_json)
+        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&includes=alignments&page=1&per_page=200")
+          .to_return(status: 200, body: mock_alignment_response("1", false, true).to_json, headers: { "Per-Page" => 200, "Total" => 1 })
         expect(subject.get_outcome_alignments(@course, "1", { includes: "alignments" })).to eq mock_alignment_response("1", false, true)
 
         outcome = LearningOutcome.new(id: 1)
@@ -288,31 +278,40 @@ describe CanvasOutcomesHelper do
       end
 
       it "outcome with alignments and groups" do
-        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&includes=alignments&list_groups=true")
-          .to_return(status: 200, body: mock_alignment_response("1", true, true).to_json)
+        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&includes=alignments&list_groups=true&page=1&per_page=200")
+          .to_return(status: 200, body: mock_alignment_response("1", true, true).to_json, headers: { "Per-Page" => 200, "Total" => 1 })
         expect(subject.get_outcome_alignments(@course, "1", { includes: "alignments", list_groups: true })).to eq mock_alignment_response("1", true, true)
       end
 
       it "outcome with alignments and no groups" do
-        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&includes=alignments&list_groups=false")
-          .to_return(status: 200, body: mock_alignment_response("1", false, true).to_json)
+        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&includes=alignments&list_groups=false&page=1&per_page=200")
+          .to_return(status: 200, body: mock_alignment_response("1", false, true).to_json, headers: { "Per-Page" => 200, "Total" => 1 })
         expect(subject.get_outcome_alignments(@course, "1", { includes: "alignments", list_groups: false })).to eq mock_alignment_response("1", false, true)
+      end
+
+      context "pagination" do
+        it "returns all results with multiple pages" do
+          mock_response = mock_alignment_response((1..201).to_a.join(","), false, true)
+          mock_response_first_page = mock_response.first(200)
+          mock_response_second_page = mock_response.last(1)
+          stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&includes=alignments&per_page=200&page=1")
+            .to_return(status: 200, body: mock_response_first_page.to_json, headers: { "Per-Page" => 200, "Total" => 201 })
+          stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=1&includes=alignments&per_page=200&page=2")
+            .to_return(status: 200, body: mock_response_second_page.to_json, headers: { "Per-Page" => 200, "Total" => 201 })
+          expect(subject.get_outcome_alignments(@course, "1", { includes: "alignments" })).to eq mock_response
+        end
       end
     end
 
     context "no results found" do
-      before do
-        @course.enable_feature!(:outcome_service_results_to_canvas)
-      end
-
       it "returns empty array when no outcome ids are matched" do
-        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=123").to_return(status: 200, body: "[]")
+        stub_get_alignments("context_uuid=#{@course.uuid}&external_outcome_id_list=123&page=1&per_page=200").to_return(status: 200, body: "[]", headers: { "Per-Page" => 200, "Total" => 0 })
         expect(subject.get_outcome_alignments(@course, "123")).to eq []
       end
 
       it "returns empty array when context is not matched" do
         @course.update!(uuid: "someguid")
-        stub_get_alignments("context_uuid=someguid&external_outcome_id_list=1").to_return(status: 200, body: "[]")
+        stub_get_alignments("context_uuid=someguid&external_outcome_id_list=1&page=1&per_page=200").to_return(status: 200, body: "[]", headers: { "Per-Page" => 200, "Total" => 0 })
         expect(subject.get_outcome_alignments(@course, "1")).to eq []
       end
     end
@@ -324,13 +323,13 @@ describe CanvasOutcomesHelper do
 
     context "without account outcome settings" do
       it "returns nil with no provision settings" do
-        expect(subject.get_lmgb_results(account, "1", "assign.type", "1", one_user_uuid)).to be_nil
+        expect(subject.get_lmgb_results(account, "1", "assign.type", "1", one_user_uuid)).to eq []
       end
 
       it "returns nil with no outcome provision settings" do
         account.settings[:provision] = {}
         account.save!
-        expect(subject.get_lmgb_results(account, "1", "assign.type", "1", one_user_uuid)).to be_nil
+        expect(subject.get_lmgb_results(account, "1", "assign.type", "1", one_user_uuid)).to eq []
       end
     end
 
@@ -373,11 +372,13 @@ describe CanvasOutcomesHelper do
 
       context "without user uuids" do
         it "returns nil when user uuids is nil" do
-          expect(subject.get_lmgb_results(account, "1", "assign.type", "1", nil)).to be_nil
+          stub_get_lmgb_results("artifact_type=quizzes.quiz&associated_asset_id_list=1&associated_asset_type=assign.type&external_outcome_id_list=1&page=1&per_page=200").to_return(status: 200, body: '{"results":[]}', headers: { "Per-Page" => 200, "Total" => 1 })
+          expect(subject.get_lmgb_results(account, "1", "assign.type", "1", nil)).to be_empty
         end
 
         it "returns nil when user uuids is empty" do
-          expect(subject.get_lmgb_results(account, "1", "assign.type", "1", "")).to be_nil
+          stub_get_lmgb_results("artifact_type=quizzes.quiz&associated_asset_id_list=1&associated_asset_type=assign.type&external_outcome_id_list=1&page=1&per_page=200").to_return(status: 200, body: '{"results":[]}', headers: { "Per-Page" => 200, "Total" => 1 })
+          expect(subject.get_lmgb_results(account, "1", "assign.type", "1", "")).to be_empty
         end
       end
 
@@ -386,10 +387,6 @@ describe CanvasOutcomesHelper do
           let(:user1) { User.create! }
           let(:user2) { User.create! }
           let(:multiple_user_uuids) { "#{user1.uuid},#{user2.uuid}" }
-
-          before do
-            @course.enable_feature!(:outcome_service_results_to_canvas)
-          end
 
           it "throws OSFetchError if call fails" do
             expect(CanvasHttp).to receive(:get).and_raise("failed call").exactly(3).times
@@ -504,16 +501,6 @@ describe CanvasOutcomesHelper do
             end
           end
         end
-
-        context "with outcome_service_results_to_canvas FF off" do
-          before do
-            @course.disable_feature!(:outcome_service_results_to_canvas)
-          end
-
-          it "returns nil when FF is off" do
-            expect(subject.get_lmgb_results(@course, "1", "assign.type", "1", one_user_uuid)).to be_nil
-          end
-        end
       end
     end
   end
@@ -529,17 +516,7 @@ describe CanvasOutcomesHelper do
         account.save!
       end
 
-      context "with outcome_service_results_to_canvas FF off" do
-        it "returns nil when FF is off" do
-          expect(subject.get_lmgb_results(account, "1", "assign.type", "1", one_user_uuid)).to be_nil
-        end
-      end
-
       context "with outcome_service_results_to_canvas FF on" do
-        before do
-          account.enable_feature!(:outcome_service_results_to_canvas)
-        end
-
         it "returns results with one assignment id" do
           expected_results = [{ result: "stuff" }]
           stub_get_lmgb_results("associated_asset_id_list=1&associated_asset_type=assign.type&external_outcome_id_list=1&artifact_type=quizzes.quiz&user_uuid_list=#{one_user_uuid}&per_page=200&page=1").to_return(status: 200, body: '{"results":[{"result":"stuff"}]}', headers: { "Per-Page" => 200, "Total" => 1 })
@@ -653,7 +630,7 @@ describe CanvasOutcomesHelper do
           ]
 
           stub_get_lmgb_results("associated_asset_id_list=1&associated_asset_type=assign.type&external_outcome_id_list=1&artifact_type=quizzes.quiz&user_uuid_list=#{one_user_uuid}&per_page=200&page=1")
-            .to_return(status: 200, body: mocked_result.to_json.to_s, headers: { "Per-Page" => 200, "Total" => 2 })
+            .to_return(status: 200, body: mocked_result.to_json, headers: { "Per-Page" => 200, "Total" => 2 })
 
           expect(subject.get_lmgb_results(account, "1", "assign.type", "1", one_user_uuid)).to eq expected_results
         end
@@ -706,6 +683,68 @@ describe CanvasOutcomesHelper do
       expect(subject.build_request_url("protocol", "domain", "endpoint", params)).to eq "protocol://domain/endpoint"
       params = nil
       expect(subject.build_request_url("protocol", "domain", "endpoint", params)).to eq "protocol://domain/endpoint"
+    end
+  end
+
+  describe "#enqueue_rollup_calculation" do
+    let(:course) { course_model }
+    let(:student) { user_model }
+
+    context "with feature flag enabled" do
+      before do
+        Account.site_admin.enable_feature!(:outcomes_rollup_propagation)
+      end
+
+      it "enqueues student rollup calculation with course_id and student_id" do
+        expect(Outcomes::StudentOutcomeRollupCalculationService).to receive(:calculate_for_student)
+          .with(course_id: course.id, student_id: student.id)
+
+        subject.enqueue_rollup_calculation(course_id: course.id, student_id: student.id)
+      end
+
+      it "enqueues course rollup calculation with only course_id" do
+        expect(Outcomes::StudentOutcomeRollupCalculationService).to receive(:calculate_for_course)
+          .with(course_id: course.id)
+
+        subject.enqueue_rollup_calculation(course_id: course.id)
+      end
+
+      it "accepts outcome_id parameter but does not affect behavior" do
+        expect(Outcomes::StudentOutcomeRollupCalculationService).to receive(:calculate_for_student)
+          .with(course_id: course.id, student_id: student.id)
+
+        subject.enqueue_rollup_calculation(course_id: course.id, student_id: student.id, outcome_id: 123)
+      end
+    end
+
+    context "with feature flag disabled" do
+      before do
+        Account.site_admin.disable_feature!(:outcomes_rollup_propagation)
+      end
+
+      it "does not enqueue rollup calculation when feature flag is disabled" do
+        expect(Outcomes::StudentOutcomeRollupCalculationService).not_to receive(:calculate_for_student)
+        expect(Outcomes::StudentOutcomeRollupCalculationService).not_to receive(:calculate_for_course)
+
+        result = subject.enqueue_rollup_calculation(course_id: course.id, student_id: student.id)
+        expect(result).to be_nil
+      end
+    end
+
+    context "edge cases" do
+      before do
+        Account.site_admin.enable_feature!(:outcomes_rollup_propagation)
+      end
+
+      it "raises ArgumentError when course_id is not provided" do
+        expect { subject.enqueue_rollup_calculation(student_id: student.id) }
+          .to raise_error(ArgumentError, "Must provide at least course_id")
+      end
+
+      it "raises ArgumentError when neither course_id nor student_id is provided but outcome_id is provided" do
+        expect { subject.enqueue_rollup_calculation(outcome_id: 123) }
+          .to raise_error(ArgumentError, "Must provide at least course_id")
+      end
     end
   end
 end

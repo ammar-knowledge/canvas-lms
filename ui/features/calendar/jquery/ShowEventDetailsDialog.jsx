@@ -19,10 +19,10 @@
 import $ from 'jquery'
 import React from 'react'
 import ReactDOM from 'react-dom'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import htmlEscape from '@instructure/html-escape'
 import Popover from 'jquery-popover'
-import _, {find, every} from 'lodash'
+import {find, every, reject} from 'es-toolkit/compat'
 import fcUtil from '@canvas/calendar/jquery/fcUtil'
 import commonEventFactory from '@canvas/calendar/jquery/CommonEvent/index'
 import {renderDeleteCalendarEventDialog} from '@canvas/calendar/react/RecurringEvents/DeleteCalendarEventDialog'
@@ -33,7 +33,7 @@ import reservationOverLimitDialog from '../jst/reservationOverLimitDialog.handle
 import MessageParticipantsDialog from '@canvas/calendar/jquery/MessageParticipantsDialog'
 import preventDefault from '@canvas/util/preventDefault'
 import axios from '@canvas/axios'
-import {encodeQueryString} from '@canvas/query-string-encoding'
+import {encodeQueryString} from '@instructure/query-string-encoding'
 import {publish} from 'jquery-tinypubsub'
 import '@canvas/jquery/jquery.ajaxJSON'
 import '@canvas/jquery/jquery.instructure_misc_helpers'
@@ -41,8 +41,9 @@ import '@canvas/jquery/jquery.instructure_misc_plugins'
 import Conference from '@canvas/calendar-conferences/react/Conference'
 import getConferenceType from '@canvas/calendar-conferences/getConferenceType'
 import replaceTags from '@canvas/util/replaceTags'
+import {subAssignmentOrOverride} from '@canvas/calendar/jquery/CommonEvent/SubAssignment'
 
-const I18n = useI18nScope('calendar')
+const I18n = createI18nScope('calendar')
 
 const destroyArguments = fn =>
   function () {
@@ -56,9 +57,40 @@ export default class ShowEventDetailsDialog {
     this.contexts = event.contexts
   }
 
+  isUserStudent = () => {
+    return ENV.current_user_roles && ENV.current_user_roles.includes('student')
+  }
+
+  canCreateEvent = () => {
+    return !(ENV?.FEATURES?.restrict_student_access && this.isUserStudent())
+  }
+
   showEditDialog = () => {
+    if (!this.canCreateEvent()) {
+      console.warn('User does not have permission to create events')
+      return
+    }
+
     this.popover.hide()
     new EditEventDetailsDialog(this.event).show()
+  }
+
+  getEventType = () => {
+    if (this.event.isAppointmentGroupEvent()) return I18n.t('Appointment')
+    if (/assignment/.test(this.event.eventType)) return I18n.t('Assignment')
+    if (this.event.eventType === 'planner_note') return I18n.t('Planner')
+    if (this.event.eventType === 'todo_item') return I18n.t('To Do')
+
+    return I18n.t('Event')
+  }
+
+  deleteChildrenEvents = (deletedEvent, context) => {
+    const eventsInContext = this.dataSource.cache.contexts[context].events
+    const eventsToBeDeleted = []
+    Object.values(eventsInContext).forEach(e => {
+      if (deletedEvent.id === e.assignment.parent_assignment_id) eventsToBeDeleted.push(e)
+    })
+    eventsToBeDeleted.forEach(e => $.publish('CommonEvent/eventDeleted', e))
   }
 
   deleteEvent = (event, _opts = {}) => {
@@ -71,6 +103,8 @@ export default class ShowEventDetailsDialog {
     // We can't delete todo items or assignments via the synthetic calendar_event
     if (event.deleteObjectURL) {
       url = event.deleteObjectURL
+    } else if (subAssignmentOrOverride(event.eventType)) {
+      url = event.deleteURL
     } else if (event.assignment) {
       url = replaceTags(this.event.deleteURL, 'id', this.event.object.id)
     }
@@ -94,7 +128,13 @@ export default class ShowEventDetailsDialog {
       onDeleted: deletedEvents => {
         ReactDOM.unmountComponentAtNode(delModalContainer)
         if (!Array.isArray(deletedEvents) || deletedEvents.length === 1) {
-          publish('CommonEvent/eventDeleted', event)
+          const deletedEvent = Array.isArray(deletedEvents) ? deletedEvents[0] : deletedEvents
+          if (subAssignmentOrOverride(event.eventType)) {
+            // delete parent assignment then remove its children events from the calendar
+            this.deleteChildrenEvents(deletedEvent, event.contextCode())
+          } else {
+            publish('CommonEvent/eventDeleted', event)
+          }
         } else {
           publish('CommonEvent/eventsDeletedFromSeries', {deletedEvents})
         }
@@ -106,6 +146,7 @@ export default class ShowEventDetailsDialog {
       isRepeating: !!event.calendarEvent?.series_uuid,
       isSeriesHead: !!event.calendarEvent?.series_head,
       eventType: event.eventType,
+      isAppointmentGroup: event.isAppointmentGroupEvent() && !event.calendarEvent?.parent_event_id,
     })
   }
 
@@ -117,7 +158,7 @@ export default class ShowEventDetailsDialog {
         errorHandled = true
         error.past_appointments = every(
           error.reservations,
-          res => fcUtil.wrap(res.end_at) < fcUtil.now()
+          res => fcUtil.wrap(res.end_at) < fcUtil.now(),
         )
         error.reschedulable = error.reservations.length === 1 && !error.past_appointments
         const $dialog = $(reservationOverLimitDialog(error)).dialog({
@@ -139,8 +180,8 @@ export default class ShowEventDetailsDialog {
                   click: () => {
                     $dialog.disableWhileLoading(
                       this.reserveEvent({cancel_existing: true}).always(() =>
-                        $dialog.dialog('close')
-                      )
+                        $dialog.dialog('close'),
+                      ),
                     )
                   },
                 },
@@ -163,7 +204,7 @@ export default class ShowEventDetailsDialog {
         $.fn.defaultAjaxError.object,
         data,
         request,
-        ...otherArgs
+        ...otherArgs,
       )
     }
   }
@@ -209,7 +250,7 @@ export default class ShowEventDetailsDialog {
       'POST',
       params,
       this.reserveSuccessCB.bind(this, params.cancel_existing),
-      this.reserveErrorCB
+      this.reserveErrorCB,
     )
   }
 
@@ -245,7 +286,7 @@ export default class ShowEventDetailsDialog {
           message: I18n.t('Are you sure you want to cancel your appointment with %{name}?', {
             name: (event.user && event.user.short_name) || event.group.name,
           }),
-        })
+        }),
       ),
       dialog: {
         title: I18n.t('Confirm Removal'),
@@ -254,8 +295,9 @@ export default class ShowEventDetailsDialog {
       },
       prepareData: $dialog => ({cancel_reason: $dialog.find('#cancel_reason').val()}),
       success: () => {
-        this.event.object.child_events = _(this.event.object.child_events).reject(
-          e => e.url === $appt.data('url')
+        this.event.object.child_events = reject(
+          this.event.object.child_events,
+          e => e.url === $appt.data('url'),
         )
         $appt.remove()
 
@@ -271,6 +313,8 @@ export default class ShowEventDetailsDialog {
       },
     })
   }
+
+  editSubAssignment = () => (window.location.href = `${this.event.assignment.html_url}/edit`)
 
   show = jsEvent => {
     const params = $.extend(true, {}, this.event, {
@@ -307,12 +351,12 @@ export default class ShowEventDetailsDialog {
         ;(params.reservations ? params.reservations : (params.reservations = [])).push(reservation)
         if (e.user) {
           ;(params.reserved_users ? params.reserved_users : (params.reserved_users = [])).push(
-            reservation
+            reservation,
           )
         }
         if (e.group) {
           ;(params.reserved_groups ? params.reserved_groups : (params.reserved_groups = [])).push(
-            reservation
+            reservation,
           )
         }
       })
@@ -326,7 +370,7 @@ export default class ShowEventDetailsDialog {
       const MAX_PAGE_SIZE = 25
       axios
         .get(
-          `api/v1/calendar_events/${this.event.object.parent_event_id}/participants?per_page=${MAX_PAGE_SIZE}`
+          `api/v1/calendar_events/${this.event.object.parent_event_id}/participants?per_page=${MAX_PAGE_SIZE}`,
         )
         .then(response => {
           if (response.data && response.data.length) {
@@ -382,6 +426,7 @@ export default class ShowEventDetailsDialog {
         .filter(context => context.length > 0)
     }
 
+    params.eventType = this.getEventType()
     params.use_new_scheduler = ENV.CALENDAR.SHOW_SCHEDULER
     params.is_appointment_group = !!this.event.isAppointmentGroupEvent() // this returns the actual url so make it boolean for clarity
     params.reserve_comments =
@@ -407,7 +452,12 @@ export default class ShowEventDetailsDialog {
 
     this.popover.el.find('.view_event_link').click(preventDefault(this.openShowPage))
 
-    this.popover.el.find('.edit_event_link').click(preventDefault(this.showEditDialog))
+    const editButton = this.popover.el.find('.edit_event_link')
+    if (subAssignmentOrOverride(this.event.eventType)) {
+      editButton.click(preventDefault(this.editSubAssignment))
+    } else {
+      editButton.click(preventDefault(this.showEditDialog))
+    }
 
     this.popover.el
       .find('.delete_event_link')
@@ -423,23 +473,24 @@ export default class ShowEventDetailsDialog {
       preventDefault(e => {
         const $appt = $(e.target).closest('li')
         this.cancelAppointment($appt)
-      })
+      }),
     )
 
     this.popover.el.find('.message_students').click(
       preventDefault(() => {
         new MessageParticipantsDialog({timeslot: this.event.calendarEvent}).show()
-      })
+      }),
     )
 
     if (params.webConference) {
       const conferenceNode = this.popover.el.find('.conferencing')[0]
+
       ReactDOM.render(
         <Conference
           conference={params.webConference}
           conferenceType={getConferenceType(ENV.conferences.conference_types, params.webConference)}
         />,
-        conferenceNode
+        conferenceNode,
       )
     }
 

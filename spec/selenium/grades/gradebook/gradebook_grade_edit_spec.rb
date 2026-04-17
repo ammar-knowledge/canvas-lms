@@ -24,17 +24,29 @@ require_relative "../pages/gradebook_page"
 require_relative "../pages/grading_curve_page"
 require_relative "../setup/gradebook_setup"
 
-describe "Gradebook editing grades" do
+# NOTE: We are aware that we're duplicating some unnecessary testcases, but this was the
+# easiest way to review, and will be the easiest to remove after the feature flag is
+# permanently removed. Testing both flag states is necessary during the transition phase.
+shared_examples "Gradebook editing grades" do |ff_enabled|
   include_context "in-process server selenium tests"
   include GradebookCommon
   include GradebookSetup
 
   before(:once) do
+    # Set feature flag state for the test run - this affects how the gradebook data is fetched, not the data setup
+    if ff_enabled
+      Account.site_admin.enable_feature!(:performance_improvements_for_gradebook)
+    else
+      Account.site_admin.disable_feature!(:performance_improvements_for_gradebook)
+    end
     gradebook_data_setup
     show_sections_filter(@teacher)
   end
 
   before do
+    if ff_enabled
+      allow(Services::PlatformServiceGradebook).to receive(:use_graphql?).and_return(true)
+    end
     user_session(@teacher)
   end
 
@@ -44,7 +56,10 @@ describe "Gradebook editing grades" do
 
   it "updates a graded quiz and have the points carry over to the quiz attempts page", priority: "1" do
     points = 50
-    q = factory_with_protected_attributes(@course.quizzes, title: "new quiz", points_possible: points, quiz_type: "assignment", workflow_state: "available")
+    q = @course.quizzes.create!(title: "new quiz",
+                                points_possible: points,
+                                quiz_type: "assignment",
+                                workflow_state: "available")
     q.save!
     qs = q.generate_submission(@student_1)
     Quizzes::SubmissionGrader.new(qs).grade_submission
@@ -101,7 +116,7 @@ describe "Gradebook editing grades" do
     assignment_model(course: @course, grading_type: "letter_grade", points_possible: 100, title: "no-points")
     @assignment.update!(grading_standard_id: grading_standard.id)
     @assignment.grade_student(@student_1, grade: 89, grader: @teacher)
-    puts(@student_1.name)
+
     Gradebook.visit(@course)
     expect(f("#gradebook_grid .container_1 .slick-row:nth-child(1) .b4")).to include_text("F")
     edit_grade("#gradebook_grid .container_1 .slick-row:nth-child(1) .b4", "90")
@@ -124,10 +139,13 @@ describe "Gradebook editing grades" do
 
     first_cell = Gradebook::Cells.grading_cell(@student_1, @second_assignment)
     first_cell.click
+    wait_for_animations
 
     # Tab to the options menu, then again to leave the cell
     driver.action.send_keys(:tab).perform
+    wait_for_animations
     driver.action.send_keys(:tab).perform
+    wait_for_animations
 
     next_cell = f("#gradebook_grid .container_1 .slick-row:nth-child(1) .b3")
     expect(next_cell).not_to have_class("editable")
@@ -199,21 +217,6 @@ describe "Gradebook editing grades" do
     expect(f("body")).not_to contain_css(".gradebook_cell_editable")
   end
 
-  it "validates curving grades option", priority: "1" do
-    skip_if_chrome("issue with set_value")
-    skip_if_safari(:alert)
-    curved_grade_text = "8"
-
-    Gradebook.visit(@course)
-    Gradebook.click_assignment_header_menu_element(@first_assignment.id, "curve grades")
-    curve_form = GradingCurvePage.new
-    curve_form.edit_grade_curve(curved_grade_text)
-    curve_form.curve_grade_submit
-    accept_alert
-
-    expect(find_slick_cells(1, f("#gradebook_grid .container_1"))[0]).to include_text curved_grade_text
-  end
-
   it "assigns zeroes to unsubmitted assignments during curving", priority: "1" do
     skip_if_safari(:alert)
     @first_assignment.grade_student(@student_2, grade: "", grader: @teacher)
@@ -223,6 +226,8 @@ describe "Gradebook editing grades" do
     f("#assign_blanks").click
     fj(".ui-dialog-buttonpane button:visible").click
     accept_alert
+
+    wait_for_ajaximations
 
     expect(find_slick_cells(1, f("#gradebook_grid .container_1"))[0]).to include_text "0"
   end
@@ -247,6 +252,71 @@ describe "Gradebook editing grades" do
     grade_grid = f("#gradebook_grid .container_1")
     StudentEnrollment.count.times do |n|
       expect(find_slick_cells(n, grade_grid)[2]).to include_text expected_grade
+    end
+  end
+
+  context "checkpoints", :ignore_js_errors do
+    before do
+      Account.site_admin.enable_feature! :discussion_checkpoints
+
+      @due_at = 2.days.from_now
+      @replies_required = 2
+      @checkpointed_discussion = DiscussionTopic.create_graded_topic!(course: @course, title: "checkpointed discussion")
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: @checkpointed_discussion,
+        checkpoint_label: CheckpointLabels::REPLY_TO_TOPIC,
+        dates: [{ type: "everyone", due_at: @due_at }],
+        points_possible: 6
+      )
+      Checkpoints::DiscussionCheckpointCreatorService.call(
+        discussion_topic: @checkpointed_discussion,
+        checkpoint_label: CheckpointLabels::REPLY_TO_ENTRY,
+        dates: [{ type: "everyone", due_at: @due_at }],
+        points_possible: 7,
+        replies_required: @replies_required
+      )
+    end
+
+    it "sets a default grade as expected for type points" do
+      Gradebook.visit(@course)
+      Gradebook.click_assignment_header_menu(@checkpointed_discussion.assignment.id)
+      set_checkpoints_default_grade("1", "3")
+
+      reply_to_topic_checkpoint = @checkpointed_discussion.assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+      reply_to_entry_checkpoint = @checkpointed_discussion.assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY)
+
+      reply_to_topic_checkpoint.submissions.each do |submission|
+        expect(submission.grade).to eq "1"
+      end
+
+      reply_to_entry_checkpoint.submissions.each do |submission|
+        expect(submission.grade).to eq "3"
+      end
+    end
+
+    it "sets a default grade as expected for type pass_fail" do
+      @checkpointed_discussion.assignment.update!(grading_type: "pass_fail")
+      @checkpointed_discussion.assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC).update!(grading_type: "pass_fail")
+      @checkpointed_discussion.assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY).update!(grading_type: "pass_fail")
+
+      Gradebook.visit(@course)
+      Gradebook.click_assignment_header_menu(@checkpointed_discussion.assignment.id)
+      set_checkpoints_default_grade_for_pass_fail("Complete", "Incomplete")
+
+      reply_to_topic_checkpoint = @checkpointed_discussion.assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_TOPIC)
+      reply_to_entry_checkpoint = @checkpointed_discussion.assignment.sub_assignments.find_by(sub_assignment_tag: CheckpointLabels::REPLY_TO_ENTRY)
+
+      reply_to_topic_checkpoint.submissions.each do |submission|
+        expect(submission.grade).to eq "complete"
+      end
+
+      reply_to_entry_checkpoint.submissions.each do |submission|
+        expect(submission.grade).to eq "incomplete"
+      end
+
+      @checkpointed_discussion.assignment.submissions.each do |submission|
+        expect(submission.grade).to eq "incomplete"
+      end
     end
   end
 
@@ -375,4 +445,9 @@ describe "Gradebook editing grades" do
       end
     end
   end
+end
+
+describe "Gradebook editing grades" do
+  it_behaves_like "Gradebook editing grades", true
+  it_behaves_like "Gradebook editing grades", false
 end

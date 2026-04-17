@@ -70,6 +70,8 @@ describe "recurring events" do
       create_new_calendar_event
       enter_event_title("Test event")
       newdate = "July 20, 2023"
+
+      handle_event_date_input_arrow_down
       enter_new_event_date(newdate)
 
       select_frequency_option("Monthly on the third Thursday")
@@ -84,6 +86,8 @@ describe "recurring events" do
       create_new_calendar_event
       enter_event_title("Test event")
       newdate = "July 20, 2023"
+
+      handle_event_date_input_arrow_down
       enter_new_event_date(newdate)
 
       select_frequency_option("Annually on July 20")
@@ -99,6 +103,8 @@ describe "recurring events" do
       create_new_calendar_event
       enter_event_title("Test event")
       newdate = "July 20, 2023"
+
+      handle_event_date_input_arrow_down
       enter_new_event_date(newdate)
 
       select_frequency_option("Weekly on Thursday")
@@ -106,22 +112,6 @@ describe "recurring events" do
       click_submit_button
 
       expect(all_events_in_month_view.length).to eq(3)
-    end
-
-    it "creates daily recurring event and verifies on month view calendar" do
-      skip("LF-578 - needs update to ajax time to work properly")
-      get "/calendar2#view_name=month&view_start=2023-07-01"
-      create_new_calendar_event
-      newdate = "July 20, 2023"
-      enter_new_event_date(newdate)
-
-      select_frequency_option("Daily")
-      click_submit_button
-
-      # show the events are in july calendar (includes both July and first week of August events on this view)
-      get "/calendar2#view_name=month&view_start=2023-07-01"
-
-      expect(all_events_in_month_view.length).to eq(17)
     end
   end
 
@@ -225,21 +215,6 @@ describe "recurring events" do
       expect(frequency_picker).to be_displayed
       select_frequency_option("Daily")
       expect(frequency_picker_value).to eq("Daily")
-    end
-
-    it "creates recurring event and verifies monthly calendar" do
-      skip("LF-578: Skipping due to performance issues")
-      get "/courses/#{@course.id}/calendar_events/new"
-      wait_for_ajaximations
-      wait_for_calendar_rce
-      newdate = "July 20, 2023"
-      enter_calendar_start_date(newdate)
-      select_frequency_option("Daily")
-      click_create_event_button
-      wait_for_ajaximations
-      get "/calendar2#view_name=month&view_start=2023-07-01"
-      wait_for_ajaximations
-      expect(all_events_in_month_view.length).to eq(17)
     end
 
     it "selects the weekly, then weekdays frequency in the calendar event modal" do

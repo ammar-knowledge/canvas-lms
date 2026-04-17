@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class SubmissionComment < ActiveRecord::Base
+class SubmissionComment < ApplicationRecord
   include SendToStream
   include HtmlTextHelper
   include Workflow
@@ -63,12 +63,15 @@ class SubmissionComment < ActiveRecord::Base
   end
   validates :workflow_state, inclusion: { in: ["active"] }, allow_nil: true
 
+  sanitize_field :comment, CanvasSanitize::SANITIZE
+
   after_destroy :refresh_submission_comment_read_state
   before_save :infer_details
   before_save :set_root_account_id
   before_save :set_edited_at
   after_save :update_participation
   after_save :check_for_media_object
+  after_save :request_captions, if: -> { context.account.feature_enabled?(:submission_comment_media_auto_captioning) }
   after_update :publish_other_comments_in_this_group
   after_update :post_submission_for_finalized_draft, if: -> { saved_change_to_draft?(from: true, to: false) }
   after_destroy :delete_other_comments_in_this_group
@@ -160,6 +163,12 @@ class SubmissionComment < ActiveRecord::Base
     media_comment_id && media_comment_type
   end
 
+  def media_object
+    return nil unless media_comment?
+
+    MediaObject.by_media_id(media_comment_id).first
+  end
+
   def self.serialize_media_comment(media_comment_id)
     media_object = MediaObject.by_media_id(media_comment_id).first
     return nil unless media_object.present?
@@ -180,6 +189,14 @@ class SubmissionComment < ActiveRecord::Base
                                       user: author,
                                       context: author)
     end
+  end
+
+  def request_captions
+    obj = media_object
+    return unless obj.present? && obj.auto_caption_status.nil? && obj.media_id.present? && obj.media_type.include?("video") && obj.media_tracks.where(kind: "subtitles").none?
+
+    InstStatsd::Statsd.distributed_increment("submission_comment.request_captions")
+    obj&.generate_captions
   end
 
   on_create_send_to_streams do
@@ -228,11 +245,11 @@ class SubmissionComment < ActiveRecord::Base
     p.whenever do |record|
       # allows broadcasting when this record is initially saved (assuming draft == false) and also when it gets updated
       # from draft to final
-      (!record.draft? && (record.just_created || record.saved_change_to_draft?)) &&
+      !record.draft? && (record.previously_new_record? || record.saved_change_to_draft?) &&
         record.provisional_grade_id.nil? &&
         record.submission.assignment &&
         record.submission.assignment.context.available? &&
-        record.submission.posted? &&
+        record.submission.comments_posted? &&
         record.submission.assignment.context.grants_right?(record.submission.user, :read) &&
         (!record.submission.assignment.context.instructors.include?(author) || record.submission.assignment.published?)
     end
@@ -241,7 +258,7 @@ class SubmissionComment < ActiveRecord::Base
     p.dispatch :submission_comment_for_teacher
     p.to { submission.assignment.context.instructors_in_charge_of(author_id) - [author] }
     p.whenever do |record|
-      (!record.draft? && (record.just_created || record.saved_change_to_draft?)) &&
+      !record.draft? && (record.previously_new_record? || record.saved_change_to_draft?) &&
         record.provisional_grade_id.nil? &&
         record.submission.user_id == record.author_id
     end
@@ -280,10 +297,16 @@ class SubmissionComment < ActiveRecord::Base
       end
     end
 
+    if submission.user_id == user.id && submission.needs_review? && submission.submitted_at.present? && assignment.external_tool?
+      return true
+    end
+
     # The student who owns the submission can't see draft or hidden comments (or,
     # generally, any instructor comments if the assignment is muted); the same
     # holds for anyone observing the student
     if submission.user_id == user.id || User.observing_students_in_course(submission.user, assignment.context).include?(user)
+      # For scheduled comment releases, return true if they have been posted
+      return true if submission.posted_comments_at.present?
       return false if draft? || hidden? || !submission.posted?
 
       # Generally the student should see only non-provisional comments--but they should
@@ -310,12 +333,52 @@ class SubmissionComment < ActiveRecord::Base
 
   def can_read_author?(user, session)
     RequestCache.cache("user_can_read_author", self, user, session) do
-      return false if user.nil? || (author_id != user.id && submission.assignment.anonymize_students?)
+      return false if user.nil? || (author_id != user.id && author_id == submission.user.id && submission.assignment.anonymize_students?)
 
       author_id == user.id ||
         (!anonymous? && !submission.assignment.anonymous_peer_reviews?) ||
         submission.assignment.context.grants_right?(user, session, :view_all_grades) ||
         submission.assignment.context.grants_right?(author, session, :view_all_grades)
+    end
+  end
+
+  # Returns the visible name for the comment author based on anonymity settings and user permissions
+  def author_visible_name(viewing_user)
+    return I18n.t("Someone") if author.nil?
+    return author.short_name if author_id == viewing_user.id
+
+    if submission.assignment.moderated_grading?
+      if author.id == submission.user_id
+        return author.short_name unless submission.assignment.anonymize_students?
+
+        get_anonymous_student_name(author, submission.assignment)
+      else
+        return author.short_name if submission.assignment.can_view_other_grader_identities?(viewing_user)
+
+        get_anonymous_grader_name(author, submission.assignment)
+      end
+    else
+      return author.short_name if grants_right?(viewing_user, :read_author)
+
+      get_anonymous_student_name(author, submission.assignment)
+    end
+  end
+
+  # Returns the anonymous identity for a student
+  def get_anonymous_student_name(author, assignment)
+    student_identity = assignment.anonymous_student_identities[author.id]
+    student_identity&.dig(:name) || I18n.t("Anonymous Student")
+  end
+
+  # Returns the anonymous name for a grader
+  def get_anonymous_grader_name(author, assignment)
+    if assignment.moderated_grading?
+      grader_identities = assignment.grader_identities
+      grader_identity = grader_identities.find { |grader| grader[:user_id] == author.id }
+      anonymous_identity = Assignments::GraderIdentities.anonymize_grader_identity(grader_identity)
+      anonymous_identity&.dig(:name) || I18n.t("Anonymous Grader")
+    else
+      I18n.t("Anonymous Instructor")
     end
   end
 
@@ -339,7 +402,7 @@ class SubmissionComment < ActiveRecord::Base
   end
 
   def context
-    read_attribute(:context) || submission.assignment.context rescue nil
+    super || submission&.assignment&.context
   end
 
   def parse_attachment_ids
@@ -357,18 +420,18 @@ class SubmissionComment < ActiveRecord::Base
     # on the assignment for now.
     attachments ||= []
     old_ids = parse_attachment_ids
-    write_attribute(:attachment_ids, attachments.select do |a|
+    self["attachment_ids"] = attachments.select do |a|
       old_ids.include?(a.id) ||
-      a.recently_created ||
-      a.ok_for_submission_comment
-    end.map(&:id).join(","))
+        a.recently_created ||
+        a.ok_for_submission_comment
+    end.map(&:id).join(",")
   end
 
   def infer_details
     self.anonymous = submission.assignment.anonymous_peer_reviews
-    self.author_name ||= author.short_name rescue t(:unknown_author, "Someone")
+    self.author_name ||= author&.short_name || t(:unknown_author, "Someone")
     self.cached_attachments = attachments.map(&:attributes)
-    self.context = read_attribute(:context) || submission.assignment.context rescue nil
+    self.context = context unless context_id
 
     self.workflow_state ||= "active"
   end
@@ -436,9 +499,7 @@ class SubmissionComment < ActiveRecord::Base
 
   def formatted_body(truncate = nil)
     # stream items pre-serialize the return value of this method
-    if (formatted_body = read_attribute(:formatted_body))
-      return formatted_body
-    end
+    return self["formatted_body"] if has_attribute?("formatted_body")
 
     res = format_message(comment).first
     res = truncate_html(res, max_length: truncate, words: true) if truncate
@@ -455,7 +516,7 @@ class SubmissionComment < ActiveRecord::Base
 
   def serialization_methods
     methods = []
-    methods << :avatar_path if context.root_account.service_enabled?(:avatars)
+    methods << :avatar_path if root_account&.service_enabled?(:avatars)
     methods
   end
 
@@ -464,12 +525,13 @@ class SubmissionComment < ActiveRecord::Base
   end
 
   def publishable_for?(user)
+    return false unless user
+
     draft? && author_id == user.id
   end
 
   def update_participation
-    # id_changed? because new_record? is false in after_save callbacks
-    if saved_change_to_id? || (saved_change_to_hidden? && !hidden?)
+    if previously_new_record? || (saved_change_to_hidden? && !hidden?)
       return if draft? || submission.user_id == author_id || submission.assignment.deleted? || provisional_grade_id.present?
 
       self.class.connection.after_transaction_commit do
@@ -488,6 +550,10 @@ class SubmissionComment < ActiveRecord::Base
   end
 
   def allows_posting_submission?
+    # This logic is also implemented in SQL in
+    # app/graphql/loaders/has_postable_comments_loader.rb
+    # to determine if a submission has any postable comments.
+    # Any changes made here should also be reflected in the loader.
     hidden? && !draft?
   end
 
@@ -501,7 +567,7 @@ class SubmissionComment < ActiveRecord::Base
 
   def updating_user_present?
     # For newly-created comments, the updating user is always the commenter
-    updating_user = saved_change_to_id? ? author : @updating_user
+    updating_user = previously_new_record? ? author : @updating_user
     updating_user.present?
   end
 
@@ -516,7 +582,7 @@ class SubmissionComment < ActiveRecord::Base
   end
 
   def record_save_audit_event
-    updating_user = saved_change_to_id? ? author : @updating_user
+    updating_user = previously_new_record? ? author : @updating_user
     event_type = event_type_for_save
     changes_to_save = auditable_changes(event_type:)
     return if changes_to_save.empty?
@@ -534,7 +600,7 @@ class SubmissionComment < ActiveRecord::Base
     # We don't track draft comments, so publishing a draft comment is
     # considered to be a "creation" event.
     publishing_draft = saved_change_to_draft? && !draft?
-    treat_as_created = saved_change_to_id? || publishing_draft
+    treat_as_created = previously_new_record? || publishing_draft
     if treat_as_created
       :submission_comment_created
     else

@@ -15,15 +15,22 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import React from 'react'
-import {fireEvent, render, screen, waitFor} from '@testing-library/react'
+import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react'
 import {RegistrationWizardModal} from '../RegistrationWizardModal'
 import {ZAccountId} from '../../model/AccountId'
 import {
-  openDynamicRegistrationWizard,
   openRegistrationWizard,
   useRegistrationModalWizardState,
 } from '../RegistrationWizardModalState'
+import {apiError, genericError, success} from '../../../common/lib/apiResult/ApiResult'
+import {mockJsonUrlWizardService} from './helpers'
+import {
+  mockDynamicRegistrationWizardService,
+  mockLti1p3RegistrationWizardService,
+} from '../../dynamic_registration_wizard/__tests__/helpers'
+import userEvent from '@testing-library/user-event'
+import {ZUnifiedToolId} from '../../model/UnifiedToolId'
+import {mockInternalConfiguration} from '../../lti_1p3_registration_form/__tests__/helpers'
 
 describe('RegistrationWizardModal', () => {
   let error: (...data: any[]) => void
@@ -33,35 +40,48 @@ describe('RegistrationWizardModal', () => {
     // instui logs an error when we render a component
     // immediately under Modal
 
-    // eslint-disable-next-line no-console
     error = console.error
-    // eslint-disable-next-line no-console
+
     warn = console.warn
 
-    // eslint-disable-next-line no-console
-    console.error = jest.fn()
-    // eslint-disable-next-line no-console
-    console.warn = jest.fn()
+    console.error = vi.fn()
+
+    console.warn = vi.fn()
   })
 
   afterAll(() => {
-    // eslint-disable-next-line no-console
     console.error = error
-    // eslint-disable-next-line no-console
+
     console.warn = warn
   })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  const fetchRegistrationToken = vi.fn().mockImplementation(() => new Promise(() => {}))
+
+  const emptyServices = {
+    jsonUrlWizardService: mockJsonUrlWizardService({}),
+    dynamicRegistrationWizardService: mockDynamicRegistrationWizardService({
+      fetchRegistrationToken,
+    }),
+    lti1p3RegistrationWizardService: mockLti1p3RegistrationWizardService({}),
+  }
 
   describe('When opened normally', () => {
     beforeEach(() => {
       openRegistrationWizard({
         dynamicRegistrationUrl: '',
-        unifiedToolId: '',
+        unifiedToolId: undefined,
         lti_version: '1p3',
+        isInstructureTool: undefined,
+        showBlankConfigurationMessage: undefined,
         method: 'dynamic_registration',
         registering: false,
-        progress: 0,
-        progressMax: 100,
-        exitOnCancel: false,
+        jsonUrl: '',
+        onSuccessfulInstallation: vi.fn(),
+        jsonFetch: {_tag: 'initial'},
       })
     })
 
@@ -71,14 +91,14 @@ describe('RegistrationWizardModal', () => {
 
     it('should render the modal title', () => {
       const accountId = ZAccountId.parse('123')
-      render(<RegistrationWizardModal accountId={accountId} />)
+      render(<RegistrationWizardModal accountId={accountId} {...emptyServices} />)
       const headerText = screen.getByText(/Install App/i)
       expect(headerText).toBeInTheDocument()
     })
 
     it('should disable the next button when there is no dynamic registration url', () => {
       const accountId = ZAccountId.parse('123')
-      render(<RegistrationWizardModal accountId={accountId} />)
+      render(<RegistrationWizardModal accountId={accountId} {...emptyServices} />)
       const nextButton = screen.getByRole('button', {
         name: /Next/i,
       })
@@ -88,7 +108,7 @@ describe('RegistrationWizardModal', () => {
 
     it('should enable the next button when there is a valid url in the dynamic registration input', () => {
       const accountId = ZAccountId.parse('123')
-      render(<RegistrationWizardModal accountId={accountId} />)
+      render(<RegistrationWizardModal accountId={accountId} {...emptyServices} />)
       const urlInput = screen.getByLabelText(/Dynamic Registration URL/i, {selector: 'input'})
       fireEvent.change(urlInput, {target: {value: 'https://example.com'}})
       const nextButton = screen.getByRole('button', {
@@ -100,7 +120,7 @@ describe('RegistrationWizardModal', () => {
 
     it('should render the dynamic registration wizard when dynamic registration is selected', () => {
       const accountId = ZAccountId.parse('123')
-      const screen = render(<RegistrationWizardModal accountId={accountId} />)
+      const screen = render(<RegistrationWizardModal accountId={accountId} {...emptyServices} />)
       const urlInput = screen.getByLabelText(/Dynamic Registration URL/i, {selector: 'input'})
       fireEvent.change(urlInput, {target: {value: 'https://example.com'}})
       const nextButton = screen.getByRole('button', {
@@ -113,25 +133,410 @@ describe('RegistrationWizardModal', () => {
     })
   })
 
+  describe('When opened with JSON URL', () => {
+    beforeEach(() => {
+      openRegistrationWizard({
+        dynamicRegistrationUrl: '',
+        unifiedToolId: undefined,
+        lti_version: '1p3',
+        isInstructureTool: undefined,
+        showBlankConfigurationMessage: undefined,
+        method: 'json_url',
+        registering: false,
+        jsonUrl: '',
+        jsonCode: '',
+        onSuccessfulInstallation: vi.fn(),
+        jsonFetch: {_tag: 'initial'},
+      })
+    })
+
+    afterEach(() => {
+      useRegistrationModalWizardState.getState().close()
+    })
+
+    it('should validate the json configuration from the URL', async () => {
+      const accountId = ZAccountId.parse('123')
+      const fetchThirdPartyToolConfiguration = vi
+        .fn()
+        .mockResolvedValue(success(mockInternalConfiguration()))
+
+      const jsonUrlWizardService = mockJsonUrlWizardService({fetchThirdPartyToolConfiguration})
+
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={jsonUrlWizardService}
+        />,
+      )
+      screen.getByTestId('json-url-input').focus()
+
+      await userEvent.paste('https://example.com/json')
+
+      await userEvent.click(screen.getByTestId('registration-wizard-next-button'))
+
+      expect(fetchThirdPartyToolConfiguration).toHaveBeenCalledWith(
+        {url: 'https://example.com/json'},
+        accountId,
+      )
+    })
+
+    it('renders an error screen when the third party configuration fetch fails', async () => {
+      const accountId = ZAccountId.parse('123')
+      const fetchThirdPartyToolConfiguration = vi
+        .fn()
+        .mockResolvedValue(
+          genericError('An error occurred while fetching the third party tool configuration.'),
+        )
+
+      const jsonUrlWizardService = mockJsonUrlWizardService({fetchThirdPartyToolConfiguration})
+
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={jsonUrlWizardService}
+        />,
+      )
+      screen.getByTestId('json-url-input').focus()
+
+      await userEvent.paste('https://example.com/json')
+
+      await userEvent.click(screen.getByTestId('registration-wizard-next-button'))
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/An error occurred. Please try again./i, {ignore: 'title'}),
+        ).toBeInTheDocument()
+      })
+
+      expect(fetchThirdPartyToolConfiguration).toHaveBeenCalledWith(
+        {url: 'https://example.com/json'},
+        accountId,
+      )
+    })
+
+    it('renders an error screen when the third party configuration is invalid', async () => {
+      const accountId = ZAccountId.parse('123')
+
+      const fetchThirdPartyToolConfiguration = vi
+        .fn()
+        .mockResolvedValue(apiError(422, {errors: ['Bad config']}))
+
+      const jsonUrlWizardService = mockJsonUrlWizardService({fetchThirdPartyToolConfiguration})
+
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={jsonUrlWizardService}
+        />,
+      )
+      screen.getByTestId('json-url-input').focus()
+
+      await userEvent.paste('https://example.com/json')
+
+      await userEvent.click(screen.getByTestId('registration-wizard-next-button'))
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /The configuration is invalid. Please reach out to the app provider for assistance./i,
+            {ignore: 'title'},
+          ),
+        ).toBeInTheDocument()
+      })
+
+      expect(fetchThirdPartyToolConfiguration).toHaveBeenCalledWith(
+        {url: 'https://example.com/json'},
+        accountId,
+      )
+    })
+  })
+
+  describe('When opened with JSON Code', () => {
+    beforeEach(() => {
+      openRegistrationWizard({
+        dynamicRegistrationUrl: '',
+        unifiedToolId: undefined,
+        lti_version: '1p3',
+        isInstructureTool: undefined,
+        showBlankConfigurationMessage: undefined,
+        method: 'json',
+        registering: false,
+        jsonUrl: '',
+        jsonCode: '',
+        onSuccessfulInstallation: vi.fn(),
+        jsonFetch: {_tag: 'initial'},
+      })
+    })
+
+    it('should validate the json configuration', async () => {
+      const accountId = ZAccountId.parse('123')
+      const fetchThirdPartyToolConfiguration = vi
+        .fn()
+        .mockResolvedValue(success(mockInternalConfiguration()))
+
+      const jsonUrlWizardService = mockJsonUrlWizardService({fetchThirdPartyToolConfiguration})
+
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={jsonUrlWizardService}
+        />,
+      )
+      screen.getByTestId('json-code-input').focus()
+
+      await userEvent.paste('{}')
+
+      await userEvent.click(screen.getByTestId('registration-wizard-next-button'))
+
+      expect(fetchThirdPartyToolConfiguration).toHaveBeenCalledWith(
+        {lti_configuration: {}},
+        accountId,
+      )
+    })
+
+    it('renders an error screen when the third party configuration fetch fails', async () => {
+      const accountId = ZAccountId.parse('123')
+      const fetchThirdPartyToolConfiguration = vi
+        .fn()
+        .mockResolvedValue(
+          genericError('An error occurred while fetching the third party tool configuration.'),
+        )
+
+      const jsonUrlWizardService = mockJsonUrlWizardService({fetchThirdPartyToolConfiguration})
+
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={jsonUrlWizardService}
+        />,
+      )
+      screen.getByTestId('json-code-input').focus()
+
+      await userEvent.paste('{}')
+
+      await userEvent.click(screen.getByTestId('registration-wizard-next-button'))
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/An error occurred. Please try again./i, {ignore: 'title'}),
+        ).toBeInTheDocument()
+      })
+
+      expect(fetchThirdPartyToolConfiguration).toHaveBeenCalledWith(
+        {lti_configuration: {}},
+        accountId,
+      )
+    })
+
+    it('renders an error screen when the third party configuration is invalid', async () => {
+      const accountId = ZAccountId.parse('123')
+
+      const fetchThirdPartyToolConfiguration = vi
+        .fn()
+        .mockResolvedValue(apiError(422, {errors: ['Bad config']}))
+
+      const jsonUrlWizardService = mockJsonUrlWizardService({fetchThirdPartyToolConfiguration})
+
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={jsonUrlWizardService}
+        />,
+      )
+      screen.getByTestId('json-code-input').focus()
+
+      await userEvent.paste('{}')
+
+      await userEvent.click(screen.getByTestId('registration-wizard-next-button'))
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            /The configuration is invalid. Please reach out to the app provider for assistance./i,
+            {ignore: 'title'},
+          ),
+        ).toBeInTheDocument()
+      })
+
+      expect(fetchThirdPartyToolConfiguration).toHaveBeenCalledWith(
+        {lti_configuration: {}},
+        accountId,
+      )
+    })
+  })
+
+  describe('When opened with Manual', () => {
+    beforeEach(() => {
+      openRegistrationWizard({
+        dynamicRegistrationUrl: '',
+        unifiedToolId: undefined,
+        lti_version: '1p3',
+        isInstructureTool: undefined,
+        showBlankConfigurationMessage: undefined,
+        method: 'manual',
+        registering: false,
+        jsonUrl: '',
+        jsonCode: '',
+        onSuccessfulInstallation: vi.fn(),
+        jsonFetch: {_tag: 'initial'},
+      })
+    })
+
+    it('should disable the Next button when the name is empty', async () => {
+      const accountId = ZAccountId.parse('123')
+
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={mockJsonUrlWizardService()}
+        />,
+      )
+      const nameInput = screen.getByTestId('manual-name-input')
+      nameInput.focus()
+
+      // Clear the input field
+      await userEvent.clear(nameInput)
+
+      expect(screen.getByTestId('registration-wizard-next-button')).toBeDisabled()
+
+      // Type spaces only
+      await userEvent.clear(nameInput)
+      await userEvent.type(nameInput, '   ')
+
+      expect(screen.getByTestId('registration-wizard-next-button')).toBeDisabled()
+    })
+
+    it('should start the registration wizard when the user clicks Next', async () => {
+      const accountId = ZAccountId.parse('123')
+
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={mockJsonUrlWizardService()}
+        />,
+      )
+      screen.getByTestId('manual-name-input').focus()
+
+      await userEvent.paste('My App')
+
+      await userEvent.click(screen.getByTestId('registration-wizard-next-button'))
+
+      await waitFor(() => {
+        expect(screen.getByText(/LTI 1.3 Registration/i)).toBeInTheDocument()
+      })
+    })
+
+    it('should not show the alert with info about contacting someone for install info', async () => {
+      const accountId = ZAccountId.parse('123')
+
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={mockJsonUrlWizardService()}
+        />,
+      )
+
+      const alert = screen.queryByText('A configuration is not available', {exact: false})
+      expect(alert).not.toBeInTheDocument()
+    })
+  })
+
+  describe('when opened without having configuration info available', () => {
+    it('shows an alert', async () => {
+      openRegistrationWizard({
+        dynamicRegistrationUrl: '',
+        unifiedToolId: undefined,
+        lti_version: '1p3',
+        isInstructureTool: true,
+        showBlankConfigurationMessage: true,
+        method: 'manual',
+        registering: false,
+        jsonUrl: '',
+        jsonCode: '',
+        onSuccessfulInstallation: vi.fn(),
+        jsonFetch: {_tag: 'initial'},
+      })
+
+      const accountId = ZAccountId.parse('123')
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={mockJsonUrlWizardService()}
+        />,
+      )
+      const alert = screen.getByText('reach out to your CSM', {exact: false})
+      expect(alert).toBeInTheDocument()
+    })
+
+    it('shows an alert saying to contact the tool provider', () => {
+      openRegistrationWizard({
+        dynamicRegistrationUrl: '',
+        unifiedToolId: undefined,
+        lti_version: '1p3',
+        isInstructureTool: false,
+        showBlankConfigurationMessage: true,
+        method: 'manual',
+        registering: false,
+        jsonUrl: '',
+        jsonCode: '',
+        onSuccessfulInstallation: vi.fn(),
+        jsonFetch: {_tag: 'initial'},
+      })
+
+      const accountId = ZAccountId.parse('123')
+      const screen = render(
+        <RegistrationWizardModal
+          accountId={accountId}
+          {...emptyServices}
+          jsonUrlWizardService={mockJsonUrlWizardService()}
+        />,
+      )
+
+      const alert = screen.getByText('reach out to the tool', {exact: false})
+      expect(alert).toBeInTheDocument()
+    })
+  })
+
   describe('when pre-opened with dynamic registration', () => {
-    it('should exit the modal when the cancel button is clicked & exitOnCancel is true', async () => {
+    beforeEach(() => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+    })
+
+    afterEach(() => {
+      ;(window.confirm as unknown as any).mockReset()
+    })
+
+    it('should exit the modal when the cancel button is clicked', async () => {
       openRegistrationWizard({
         dynamicRegistrationUrl: 'http://example.com',
-        unifiedToolId: 'asdf',
+        unifiedToolId: ZUnifiedToolId.parse('asdf'),
         lti_version: '1p3',
+        isInstructureTool: undefined,
+        showBlankConfigurationMessage: undefined,
         method: 'dynamic_registration',
         registering: true,
-        progress: 0,
-        progressMax: 100,
-        exitOnCancel: true,
+        jsonUrl: '',
+        onSuccessfulInstallation: vi.fn(),
+        jsonFetch: {_tag: 'initial'},
       })
       const accountId = ZAccountId.parse('123')
-      const screen = render(<RegistrationWizardModal accountId={accountId} />)
+      const screen = render(<RegistrationWizardModal accountId={accountId} {...emptyServices} />)
       const cancelButton = screen.getByRole('button', {
         name: /Cancel/i,
       })
       fireEvent.click(cancelButton)
       await waitFor(() => {
+        expect(window.confirm).toHaveBeenCalled()
         expect(screen.queryByText(/Install App/i)).not.toBeInTheDocument()
       })
     })

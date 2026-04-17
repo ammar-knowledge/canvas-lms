@@ -17,6 +17,8 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
+require "irb"
+
 module MicrosoftSync
   class StateMachineJobTestStepsBase
     MAX_DELAY = 6.hours
@@ -259,9 +261,9 @@ module MicrosoftSync
 
       it "increments a statsd counter when complete" do
         expect(steps_object).to receive(:step_initial).and_return StateMachineJob::COMPLETE
-        allow(InstStatsd::Statsd).to receive(:increment).and_call_original
+        allow(InstStatsd::Statsd).to receive(:distributed_increment).and_call_original
         subject.send(:run, nil, nil)
-        expect(InstStatsd::Statsd).to have_received(:increment)
+        expect(InstStatsd::Statsd).to have_received(:distributed_increment)
           .with("microsoft_sync.smj.complete", tags: { microsoft_sync_step: "step_initial" })
       end
 
@@ -280,9 +282,9 @@ module MicrosoftSync
           end
 
           it 'increments the "retry" statsd counter' do
-            allow(InstStatsd::Statsd).to receive(:increment).and_call_original
+            allow(InstStatsd::Statsd).to receive(:distributed_increment).and_call_original
             subject.send(:run, nil, nil)
-            expect(InstStatsd::Statsd).to have_received(:increment).with(
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
               "microsoft_sync.smj.retry",
               tags: {
                 microsoft_sync_step: "step_initial", category: error_name_underscored,
@@ -322,10 +324,10 @@ module MicrosoftSync
           end
 
           it 'increments the "final_retry" statsd counter' do
-            allow(InstStatsd::Statsd).to receive(:increment).and_call_original
+            allow(InstStatsd::Statsd).to receive(:distributed_increment).and_call_original
             expect { subject.send(:run, :step_initial, nil) }
               .to raise_error(Errors::PublicError)
-            expect(InstStatsd::Statsd).to have_received(:increment).with(
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
               "microsoft_sync.smj.final_retry",
               tags: { microsoft_sync_step: "step_initial", category: "MicrosoftSync__Errors__PublicError" }
             )
@@ -367,9 +369,9 @@ module MicrosoftSync
             end
 
             it 'increments a "canceled" statsd metric' do
-              allow(InstStatsd::Statsd).to receive(:increment).and_call_original
+              allow(InstStatsd::Statsd).to receive(:distributed_increment).and_call_original
               subject.send(:run, :step_initial, nil)
-              expect(InstStatsd::Statsd).to have_received(:increment).with(
+              expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
                 "microsoft_sync.smj.cancel",
                 tags: {
                   microsoft_sync_step: "step_initial",
@@ -386,7 +388,7 @@ module MicrosoftSync
             end
 
             it "does not send anything to Canvas::Errors" do
-              expect(Canvas::Errors).to_not receive(:capture)
+              expect(Canvas::Errors).not_to receive(:capture)
               subject.send(:run, :step_initial, nil)
             end
           end
@@ -411,7 +413,7 @@ module MicrosoftSync
 
           context "when delay is an array of integers" do
             it "uses delays based on the per-step retry count" do
-              delays = steps_object.steps_run.select { |step| step.is_a?(Array) }
+              delays = steps_object.steps_run.grep(Array)
               expect(delays).to eq([
                                      [:delay_run, [{ run_at: nil, strand: }], [:step_initial, nil]],
                                      [:delay_run, [{ run_at: nil, strand: }], [:step_initial, nil]],
@@ -430,7 +432,7 @@ module MicrosoftSync
             end
 
             let(:run_ats) do
-              delays = steps_object.steps_run.select { |step| step.is_a?(Array) }
+              delays = steps_object.steps_run.grep(Array)
               delays.map { |d| d[1][0][:run_at] }
             end
 
@@ -584,9 +586,9 @@ module MicrosoftSync
           end
 
           it 'increments the "failure" statsd metric' do
-            allow(InstStatsd::Statsd).to receive(:increment).and_call_original
+            allow(InstStatsd::Statsd).to receive(:distributed_increment).and_call_original
             expect { subject.send(:run, :step_initial, nil) }.to raise_error(error)
-            expect(InstStatsd::Statsd).to have_received(:increment).with(
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
               "microsoft_sync.smj.failure",
               tags: {
                 microsoft_sync_step: "step_second", category: "MicrosoftSync__Errors__PublicError"
@@ -615,9 +617,9 @@ module MicrosoftSync
           end
 
           it 'increments a "canceled" statsd metric' do
-            allow(InstStatsd::Statsd).to receive(:increment).and_call_original
+            allow(InstStatsd::Statsd).to receive(:distributed_increment).and_call_original
             subject.send(:run, nil, nil)
-            expect(InstStatsd::Statsd).to have_received(:increment).with(
+            expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
               "microsoft_sync.smj.cancel",
               tags: {
                 microsoft_sync_step: "step_initial",
@@ -749,9 +751,9 @@ module MicrosoftSync
             end
 
             it 'increments a "stalled" statsd metric' do
-              allow(InstStatsd::Statsd).to receive(:increment).and_call_original
+              allow(InstStatsd::Statsd).to receive(:distributed_increment).and_call_original
               subject.send(:run, nil, nil)
-              expect(InstStatsd::Statsd).to have_received(:increment).with(
+              expect(InstStatsd::Statsd).to have_received(:distributed_increment).with(
                 "microsoft_sync.smj.stalled",
                 tags: { microsoft_sync_step: "step_initial" }
               )
@@ -822,7 +824,7 @@ module MicrosoftSync
                   expect(state_record.job_state[:step]).to eq(:step_initial)
                   expect(steps_object).not_to receive(:step_initial)
                   expect { subject.send(:run, nil, mem_state1) }
-                    .to_not change { state_record.reload.attributes }
+                    .not_to change { state_record.reload.attributes }
                 end
               end
 
@@ -836,7 +838,7 @@ module MicrosoftSync
                   subject.direct_enqueue_run(2.minutes.from_now, nil, mem_state2)
                   expect(steps_object).not_to receive(:step_initial)
                   steps_object.steps_run.clear
-                  expect { subject.send(:run, nil, mem_state1) }.to_not change { state_record.reload.attributes }
+                  expect { subject.send(:run, nil, mem_state1) }.not_to change { state_record.reload.attributes }
                   expect(steps_object.steps_run).to eq([
                                                          [:delay_run, [{ strand:, run_at: 61.seconds.from_now }], [nil, mem_state1]]
                                                        ])

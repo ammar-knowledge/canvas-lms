@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class Wiki < ActiveRecord::Base
+class Wiki < ApplicationRecord
   has_many :wiki_pages, dependent: :destroy
   has_one :course
   has_one :group
@@ -188,6 +188,7 @@ class Wiki < ActiveRecord::Base
         t :default_group_wiki_name, "%{group_name} Wiki", group_name: nil
 
         extend TextHelper
+
         name = CanvasTextHelper.truncate_text(context.name, { max_length: 200, ellipsis: "" })
 
         context.wiki = wiki = Wiki.create!(title: "#{name} Wiki", root_account_id: context.root_account_id)
@@ -223,11 +224,13 @@ class Wiki < ActiveRecord::Base
             else
               wiki_pages.not_deleted
             end
-    lookup = if Account.site_admin.feature_enabled?(:permanent_page_links)
-               # Just want to look at the WikiPageLookups associated with the pages in this wiki
-               wiki_lookups = WikiPageLookup.by_wiki_id(id)
-               wiki_lookups.where(slug: [param.to_s, param.to_url]).first
-             end
+
+    if Account.site_admin.feature_enabled?(:permanent_page_links)
+      # prioritize precise matches
+      lookup = WikiPageLookup.by_wiki_id(id).find_by(slug: [param.to_s])
+      lookup ||= WikiPageLookup.by_wiki_id(id).find_by(slug: [param.to_url])
+    end
+
     if lookup
       scope.where(id: lookup.wiki_page_id).first
     else

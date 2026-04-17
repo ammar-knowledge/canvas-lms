@@ -18,7 +18,7 @@
 
 import $ from 'jquery'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render as canvasRender, rerender} from '@canvas/react'
 import '@canvas/jquery/jquery.ajaxJSON'
 
 import OutcomeGradebookView from '../backbone/views/OutcomeGradebookView'
@@ -37,6 +37,8 @@ function currentSectionIdFromSettings(settings) {
 export default class LearningMastery {
   constructor(options) {
     this.options = options
+    this.paginatorRoot = null
+    this.gradebookMenuRoot = null
 
     this.view = new OutcomeGradebookView({
       el: $('.outcome-gradebook'),
@@ -70,10 +72,19 @@ export default class LearningMastery {
 
   renderPagination(page = 0, pageCount = 0) {
     const loadPage = this.view.loadPage.bind(this.view)
-    ReactDOM.render(
-      <Paginator page={page} pageCount={pageCount} loadPage={loadPage} />,
-      document.getElementById('outcome-gradebook-paginator')
-    )
+    const container = document.getElementById('outcome-gradebook-paginator')
+
+    if (!this.paginatorRoot) {
+      this.paginatorRoot = canvasRender(
+        <Paginator page={page} pageCount={pageCount} loadPage={loadPage} />,
+        container,
+      )
+    } else {
+      rerender(
+        this.paginatorRoot,
+        <Paginator page={page} pageCount={pageCount} loadPage={loadPage} />,
+      )
+    }
   }
 
   saveSettings() {
@@ -97,24 +108,30 @@ export default class LearningMastery {
 
   destroy() {
     this.view.remove()
-    ReactDOM.unmountComponentAtNode(document.querySelector('[data-component="GradebookMenu"]'))
-    ReactDOM.unmountComponentAtNode(document.getElementById('outcome-gradebook-paginator'))
+    if (this.gradebookMenuRoot) {
+      this.gradebookMenuRoot.unmount()
+    }
+    if (this.paginatorRoot) {
+      this.paginatorRoot.unmount()
+    }
   }
 
   // PRIVATE
 
   _renderGradebookMenu() {
     // This only needs to render once.
-    const $container = document.querySelector('[data-component="GradebookMenu"]')
+    const container = document.querySelector('[data-component="GradebookMenu"]')
     const props = {
       courseUrl: this.options.context_url,
       learningMasteryEnabled: true,
-      enhancedIndividualGradebookEnabled: Boolean(
-        ENV.GRADEBOOK_OPTIONS.individual_gradebook_enhancements
-      ),
       variant: 'DefaultGradebookLearningMastery',
     }
-    ReactDOM.render(<GradebookMenu {...props} />, $container)
+
+    if (!this.gradebookMenuRoot) {
+      this.gradebookMenuRoot = canvasRender(<GradebookMenu {...props} />, container)
+    } else {
+      rerender(this.gradebookMenuRoot, <GradebookMenu {...props} />)
+    }
   }
 
   _setCurrentSectionId(sectionId) {

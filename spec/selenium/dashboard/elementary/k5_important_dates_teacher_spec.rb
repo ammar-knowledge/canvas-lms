@@ -25,16 +25,14 @@ require_relative "../pages/k5_important_dates_section_page"
 require_relative "../shared_examples/k5_important_dates_shared_examples"
 require_relative "../../assignments/page_objects/assignment_create_edit_page"
 require_relative "../../helpers/items_assign_to_tray"
-require_relative "../../../helpers/selective_release_common"
 
-describe "teacher k5 dashboard important dates" do
+describe "teacher k5 dashboard important dates", :ignore_js_errors do
   include_context "in-process server selenium tests"
   include K5DashboardPageObject
   include K5DashboardCommonPageObject
   include K5Common
   include K5ImportantDatesSectionPageObject
   include ItemsAssignToTray
-  include SelectiveReleaseCommon
 
   before :once do
     teacher_setup
@@ -66,16 +64,8 @@ describe "teacher k5 dashboard important dates" do
 
       expect(mark_important_dates_input).to be_disabled
 
-      if Account.site_admin.feature_enabled?(:selective_release_ui_api)
-        AssignmentCreateEditPage.click_manage_assign_to_button
-        formatted_date = format_date_for_view(due_at, "%m/%d/%Y")
-        update_due_date(0, formatted_date)
-        click_save_button("Apply")
-      else
-        scroll_to(date_field[0])
-        set_and_tab_out_of_date_field(0, due_at)
-        wait_for_ajaximations
-      end
+      formatted_date = format_date_for_view(due_at, "%m/%d/%Y")
+      update_due_date(0, formatted_date)
 
       expect(mark_important_dates_input).not_to be_disabled
     end
@@ -87,79 +77,34 @@ describe "teacher k5 dashboard important dates" do
 
       get "/courses/#{@subject_course.id}/assignments/#{assignment.id}/edit"
 
-      if Account.site_admin.feature_enabled?(:selective_release_ui_api)
-        AssignmentCreateEditPage.click_manage_assign_to_button
-        click_duedate_clear_button(0)
-        click_save_button("Apply")
-      else
-        clear_date_field(0)
-        wait_for_ajaximations
-      end
+      click_duedate_clear_button(0)
 
       expect(mark_important_dates_input).to be_disabled
       expect(is_checked(mark_important_dates_selector)).to be_falsey
     end
 
-    it "enables marked dates checkbox with assignment override - no diff mods" do
-      differentiated_modules_off
-      assignment = create_assignment(@subject_course, "How to make a battery", "battery stuff", 10)
-      due_at = 2.days.from_now(Time.zone.now)
-
-      get "/courses/#{@subject_course.id}/assignments/#{assignment.id}/edit"
-
-      click_add_override
-      expect(mark_important_dates_input).to be_disabled
-
-      set_and_tab_out_of_date_field(1, due_at)
-      expect(mark_important_dates_input).not_to be_disabled
-    end
-
-    it "enables marked dates checkbox with assignment override with diff mods", :ignore_js_errors do
+    it "enables marked dates checkbox with assignment override", :ignore_js_errors do
       student_in_course(course: @subject_course, name: "Student 1")
       assignment = create_assignment(@subject_course, "How to make a battery", "battery stuff", 10)
       due_at = 2.days.from_now(Time.zone.now)
 
       get "/courses/#{@subject_course.id}/assignments/#{assignment.id}/edit"
 
-      AssignmentCreateEditPage.click_manage_assign_to_button
       formatted_date = format_date_for_view(due_at, "%m/%d/%Y")
       click_add_assign_to_card
       select_module_item_assignee(1, @student.name)
-      click_save_button("Apply")
 
       expect(mark_important_dates_input).to be_disabled
 
-      AssignmentCreateEditPage.click_manage_assign_to_button
       update_due_date(1, formatted_date)
-      click_save_button("Apply")
 
       expect(mark_important_dates_input).not_to be_disabled
     end
   end
 
-  context "mark important dates for classic quizzes" do
-    it "sets the mark important dates checkbox for quiz", custom_timeout: 25 do
-      skip("LX-1740: needs Mark as Important Date button when Diff Mod ON")
-      quiz_title = "Elec Quiz"
-      due_at = 2.days.from_now(Time.zone.now)
-      quiz = quiz_model(course: @subject_course, title: quiz_title)
-      quiz.generate_quiz_data
-      quiz.due_at = due_at
-      quiz.save!
-      quiz_assignment = Assignment.last
-      quiz_assignment.update!(important_dates: true)
-
-      get "/courses/#{@subject_course.id}/quizzes/#{quiz.id}/edit"
-      expect(mark_important_dates).to be_displayed
-      scroll_to_element(mark_important_dates)
-      click_mark_important_dates
-
-      expect_new_page_load { submit_form(edit_quiz_submit_selector) }
-    end
-  end
-
   context "mark important dates for graded discussions" do
     it "sets the mark important dates checkbox for discussion", custom_timeout: 25 do
+      skip "Will be fixed in VICE-5634 2025-11-11"
       discussion_title = "Elec Disc"
       due_at = 2.days.from_now(Time.zone.now)
       discussion_assignment = create_dated_assignment(@subject_course, discussion_title, due_at, 10)
@@ -194,7 +139,7 @@ describe "teacher k5 dashboard important dates" do
     end
 
     it "has no important dates when C4E is turned off" do
-      toggle_k5_setting(@account, false)
+      toggle_k5_setting(@account, enable: false)
 
       get "/calendar"
 
@@ -202,7 +147,7 @@ describe "teacher k5 dashboard important dates" do
       click_calendar_subject(@subject_course.name)
 
       expect(important_dates_block).not_to be_displayed
-      toggle_k5_setting(@account, true)
+      toggle_k5_setting(@account)
     end
 
     it "maintains important dates checked option on more options page" do

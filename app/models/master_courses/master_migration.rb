@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-class MasterCourses::MasterMigration < ActiveRecord::Base
+class MasterCourses::MasterMigration < ApplicationRecord
   # represents and handles a blueprint sync event
   # a sync is considered successful when all associated courses have the same data
   # (barring any "exceptions" i.e. modifications on the associated course that we'll leave alone)
@@ -49,6 +49,7 @@ class MasterCourses::MasterMigration < ActiveRecord::Base
   has_a_broadcast_policy
 
   include Workflow
+
   workflow do
     state :created
     state :queued # before the migration job has run
@@ -86,6 +87,10 @@ class MasterCourses::MasterMigration < ActiveRecord::Base
 
   def copy_settings=(val)
     migration_settings[:copy_settings] = val
+  end
+
+  def send_item_notifications=(val)
+    migration_settings[:send_item_notifications] = val
   end
 
   def publish_after_initial_sync=(val)
@@ -140,7 +145,7 @@ class MasterCourses::MasterMigration < ActiveRecord::Base
 
   def perform_exports(priority: Delayed::LOW_PRIORITY)
     self.workflow_state = "exporting"
-    self.exports_started_at = Time.now
+    self.exports_started_at = Time.zone.now
     save!
 
     subs = master_template.child_subscriptions.active.preload(:child_course).to_a
@@ -165,7 +170,7 @@ class MasterCourses::MasterMigration < ActiveRecord::Base
 
     unless workflow_state == "exports_failed"
       self.workflow_state = "imports_queued"
-      self.imports_queued_at = Time.now
+      self.imports_queued_at = Time.zone.now
       save!
       queue_imports(cms, priority:)
     end
@@ -177,7 +182,7 @@ class MasterCourses::MasterMigration < ActiveRecord::Base
   def export_to_child_courses(type, subscriptions, export_is_primary)
     @export_type = type
     if type == :selective
-      @deletions = master_template.deletions_since_last_export
+      @deletions = master_template.deletions_by_type
       @creations = {} # will be populated during export
       @updates = {}   # "
       @export_count = 0
@@ -213,7 +218,8 @@ class MasterCourses::MasterMigration < ActiveRecord::Base
     ce.save!
     ce.master_migration = self # don't need to reload
     ce.export_course(export_opts)
-    if type == :selective && ce.referenced_files.present?
+    if ce.referenced_files.present?
+      ce.settings[:referenced_user_file_ids] = ce.referenced_files.each_with_object([]) { |(id, att), arr| arr << id if att.context_type == "User" }
       ce.settings[:referenced_file_migration_ids] = ce.referenced_files.values.map(&:export_id)
       ce.save!
     end
@@ -292,6 +298,7 @@ class MasterCourses::MasterMigration < ActiveRecord::Base
       cm.migration_settings[:hide_from_index] = true # we may decide we want to show this after all, but hide them for now
       cm.migration_settings[:master_course_export_id] = export.id
       cm.migration_settings[:master_migration_id] = id
+      cm.migration_settings[:send_item_notifications] = true if migration_settings[:send_item_notifications]
       cm.migration_settings[:publish_after_completion] = type == :full && migration_settings[:publish_after_initial_sync]
       cm.child_subscription_id = sub.id
       cm.source_course_id = master_template.course_id # apparently this is how some lti tools try to track copied content :/
@@ -331,7 +338,7 @@ class MasterCourses::MasterMigration < ActiveRecord::Base
             self.workflow_state = "imports_failed"
           else
             self.workflow_state = "completed"
-            self.imports_completed_at = Time.now
+            self.imports_completed_at = Time.zone.now
           end
           save!
         end

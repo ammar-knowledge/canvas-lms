@@ -33,25 +33,22 @@ const trayHeight: string = ''
 //   return trayHeight
 // }
 
-export type isStyledFunction = (node: Element) => boolean
-export type unstyleFunction = (node: Element) => void
-export type styleSelectionFunction = () => void
-
-export function makeSelectionBold(): void {
-  unstyleSelection(isElementBold, unboldElement)
+// bold is unique because font-weight can be 'bold' or a number
+export function isCaretAtBoldText(): boolean {
   const selection = window.getSelection()
   if (selection?.rangeCount) {
     const range = selection.getRangeAt(0)
-    const boldNode = document.createElement('span')
-    boldNode.style.fontWeight = 'bold'
-    boldNode.appendChild(range.extractContents())
-    range.insertNode(boldNode)
-    selection.removeAllRanges()
-    selection.addRange(range)
+    const caretNode = range.startContainer
+    const caretElement =
+      caretNode.nodeType === Node.TEXT_NODE ? caretNode.parentElement : (caretNode as Element)
+    return isElementBold(caretElement)
   }
+  return false
 }
 
-export function isElementBold(elem: Element): boolean {
+export function isElementBold(elem: Element | null): boolean {
+  if (!elem) return false
+
   const computedStyle = window.getComputedStyle(elem)
   const isBold: boolean =
     computedStyle.fontWeight === 'bold' ||
@@ -61,120 +58,36 @@ export function isElementBold(elem: Element): boolean {
   return isBold
 }
 
-export function unboldElement(elem: Element): void {
-  if (
-    elem.tagName === 'B' ||
-    elem.tagName === 'STRONG' ||
-    elem.getAttribute('style')?.split(':').length === 2 // font-weight is the only style attribute
-  ) {
-    // Replace the <b>, <strong>, or bold-styled tag with its contents
-    const fragment = document.createDocumentFragment()
-    while (elem.firstChild) {
-      fragment.appendChild(elem.firstChild)
-    }
-    elem.parentNode?.replaceChild(fragment, elem)
-  } else {
-    // Remove bold styling from the element
-    ;(elem as HTMLElement).style.fontWeight = 'normal'
+export function isCaretAtStyledText(property: string, value: string): boolean {
+  const selection = window.getSelection()
+  if (selection?.rangeCount) {
+    const range = selection.getRangeAt(0)
+    const caretNode = range.startContainer
+    const caretElement =
+      caretNode.nodeType === Node.TEXT_NODE ? caretNode.parentElement : (caretNode as Element)
+    return isElementOfStyle(property, value, caretElement)
   }
+  return false
 }
 
-export function isSelectionAllStyled(styleChecker: isStyledFunction): boolean {
-  const selection = window.getSelection()
-  if (!selection || selection.rangeCount === 0) {
-    return false
-  }
+export function isElementOfStyle(property: string, value: string, elem: Element | null): boolean {
+  if (!elem) return false
 
-  // Iterate over all ranges in the selection
-  for (let i = 0; i < selection.rangeCount; i++) {
-    const range: Range = selection.getRangeAt(i)
-    const commonAncestor: Node = range.commonAncestorContainer
-
-    // Create a tree walker to traverse all nodes within the range
-    const walker: TreeWalker = document.createTreeWalker(commonAncestor, NodeFilter.SHOW_TEXT, {
-      acceptNode: (node: Node): number => {
-        // Only consider nodes that are fully or partially within the range
-        return range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
-      },
-    })
-
-    let node: Node | null
-
-    // Special case handling for direct TextNode selection
-    if (commonAncestor.nodeType === Node.TEXT_NODE) {
-      node = commonAncestor
-    } else {
-      node = walker.nextNode()
+  let currentElem: Element | null = elem
+  while (currentElem) {
+    const computedStyle = window.getComputedStyle(currentElem)
+    if (computedStyle.getPropertyValue(property) === value) {
+      return true
     }
-
-    while (node) {
-      const parentElement = node.parentElement
-
-      if (parentElement) {
-        const isBold = styleChecker(parentElement)
-
-        if (!isBold) {
-          return false
-        }
-      }
-      node = walker.nextNode()
-    }
+    currentElem = currentElem.parentElement
   }
-
-  return true
-}
-
-export function unstyleSelection(
-  isElemStyled: isStyledFunction,
-  unStyleElement: unstyleFunction
-): void {
-  const selection = window.getSelection()
-  if (!selection || selection.rangeCount === 0) {
-    return
-  }
-
-  // Iterate over all ranges in the selection
-  for (let i = 0; i < selection.rangeCount; i++) {
-    const range: Range = selection.getRangeAt(i)
-    const commonAncestor: Node = range.commonAncestorContainer
-
-    // Create a tree walker to traverse all nodes within the range
-    const walker: TreeWalker = document.createTreeWalker(commonAncestor, NodeFilter.SHOW_TEXT, {
-      acceptNode: (node: Node): number => {
-        // Only consider nodes that are fully or partially within the range
-        return range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
-      },
-    })
-
-    let node: Node | null
-
-    // Special case handling for direct TextNode selection
-    if (commonAncestor.nodeType === Node.TEXT_NODE) {
-      node = commonAncestor
-    } else {
-      node = walker.nextNode()
-    }
-
-    while (node) {
-      const parentElement = node.parentElement
-
-      if (parentElement) {
-        // Check if the parent element of the text node is bold
-        const isBold = isElemStyled(parentElement)
-
-        if (isBold) {
-          unStyleElement(parentElement)
-        }
-      }
-      node = walker.nextNode()
-    }
-  }
+  return false
 }
 
 export function scrollIntoViewWithCallback(
   element: HTMLElement | null,
   scrollIntoViewOpts: any,
-  callback: () => void
+  callback: () => void,
 ) {
   if (!element) return
 
@@ -189,7 +102,7 @@ export function scrollIntoViewWithCallback(
         observer.disconnect()
       }
     },
-    {threshold: 1.0}
+    {threshold: 1.0},
   )
 
   // Observe the target element
@@ -199,11 +112,26 @@ export function scrollIntoViewWithCallback(
   element.scrollIntoView(scrollIntoViewOpts)
 }
 
-// export function validateSVG(svg: string): boolean {
-//   const parser = new DOMParser()
-//   const doc = parser.parseFromString(svg, 'image/svg+xml')
-//   if (doc.documentElement.childElementCount !== 1 || doc.querySelector('svg') === null) {
-//     return false
-//   }
-//   return true
-// }
+export function mountNode(): HTMLElement {
+  return document.querySelector('.block-editor-editor') as HTMLElement
+}
+
+const focusableSelector = `
+  a[href],
+  button,
+  input:not([type="hidden"]),
+  select,
+  textarea,
+  [tabindex]:not([tabindex="-1"]),
+  summary
+`
+
+function isFocusable(element: HTMLElement): boolean {
+  return typeof element.focus === 'function' && !element.hasAttribute('disabled')
+}
+export function firstFocusableElement(parent?: HTMLElement): HTMLElement | undefined {
+  if (!parent) return undefined
+  const focusableElements = Array.from(parent.querySelectorAll(focusableSelector)) as HTMLElement[]
+  const firstFocusable = focusableElements.find(isFocusable)
+  return firstFocusable
+}

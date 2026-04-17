@@ -1,0 +1,8 @@
+{
+  "name": "@canvas/download-submissions-modal",
+  "private": true,
+  "version": "1.0.0",
+  "author": "EGG",
+  "main": "./react/index.tsx",
+  "owner": "EVAL"
+}

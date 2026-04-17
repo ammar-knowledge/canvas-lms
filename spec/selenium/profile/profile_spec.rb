@@ -28,30 +28,42 @@ describe "profile" do
     edit_form
   end
 
-  def add_skype_service
-    f("#unregistered_service_skype > a").click
-    skype_dialog = f("#unregistered_service_skype_dialog")
-    skype_dialog.find_element(:id, "skype_user_service_user_name").send_keys("jakesorce")
-    wait_for_new_page_load { submit_dialog(skype_dialog, ".btn") }
-    expect(f("#registered_services")).to include_text("Skype")
+  def add_diigo_service
+    f("#unregistered_service_diigo > a").click
+    diigo_dialog = f("[role=dialog][aria-label='Diigo login']")
+    diigo_dialog.find_element(:name, "username").send_keys("diigo")
+    diigo_dialog.find_element(:name, "password").send_keys("password")
+    wait_for_new_page_load { submit_form(diigo_dialog) }
+    expect(f("#registered_services")).to include_text("Diigo")
   end
 
-  def generate_access_token(purpose = "testing", close_dialog = false)
-    generate_access_token_with_expiration(nil, purpose)
-    if close_dialog
-      close_visible_dialog
-    end
+  def set_up_diigo_service
+    # Mock Diigo connection and API calls
+    allow(Diigo::Connection).to receive_messages(
+      config: { api_key: "test_key" },
+      verify_credentials: true,
+      diigo_get_bookmarks: []
+    )
+    allow_any_instance_of(UserService).to receive(:verify_diigo_credentials).and_return(true)
+    @user.account.enable_service(:diigo)
   end
 
-  def generate_access_token_with_expiration(date, purpose = "testing")
+  def generate_access_token(expiration: nil, purpose: "testing", close_dialog: true)
     f(".add_access_token_link").click
-    access_token_form = f("#access_token_form")
-    access_token_form.find_element(:id, "token_purpose").send_keys(purpose)
-    access_token_form.find_element(:id, "token_expires_at").send_keys(date) unless date.nil?
-    submit_dialog_form(access_token_form)
+    access_token_dialog = f("[role=dialog][aria-label='New Access Token']")
+    access_token_dialog.find_element(:name, "purpose").send_keys(purpose)
+    if expiration.present?
+      expiration_date = access_token_dialog.find_element(:css, "[data-testid='expiration-date']")
+      expiration_date.send_keys(expiration)
+      expiration_date.send_keys(:tab)
+    end
+    submit_form(access_token_dialog)
     wait_for_ajax_requests
-    details_dialog = f("#token_details_dialog")
+    details_dialog = f("[role=dialog][aria-label='Access Token Details']")
     expect(details_dialog).to be_displayed
+    if close_dialog
+      close_instui_dialog
+    end
   end
 
   def log_in_to_settings
@@ -67,6 +79,10 @@ describe "profile" do
     edit_form.find_element(:id, "pseudonym_password").send_keys(new_password)
     edit_form.find_element(:id, "pseudonym_password_confirmation").send_keys(new_password)
     wait_for_new_page_load { submit_form(edit_form) }
+  end
+
+  def close_instui_dialog
+    f("[role=dialog] [class*='closeButton']").click
   end
 
   it "gives error - wrong old password" do
@@ -114,16 +130,16 @@ describe "profile" do
 
       get "/profile/settings"
       add_email_link
-      f('#communication_channels a[href="#register_email_address"]').click
-      form = f("#register_email_address")
+      form = f("[role=dialog][aria-label='Register Communication']")
       test_email = "nobody+1234@example.com"
-      form.find_element(:id, "communication_channel_email").send_keys(test_email)
+      form.find_element(:name, "email").send_keys(test_email)
       submit_form(form)
 
-      confirmation_dialog = f("#confirm_email_channel")
+      confirmation_dialog_selector = "[role=dialog][aria-label='Confirm Email Address']"
+      confirmation_dialog = f(confirmation_dialog_selector)
       expect(confirmation_dialog).to be_displayed
-      submit_dialog(confirmation_dialog, ".cancel_button")
-      expect(confirmation_dialog).not_to be_displayed
+      submit_form(confirmation_dialog)
+      expect(element_exists?(confirmation_dialog_selector)).to be_falsey
       expect(f(".email_channels")).to include_text(test_email)
     end
 
@@ -217,12 +233,12 @@ describe "profile" do
         test_cell_number = "8017121011"
         get "/profile/settings"
         f(".add_contact_link").click
-        register_form = f("#register_sms_number")
-        register_form.find_element(:css, ".sms_number").send_keys(test_cell_number)
+        register_form = f("[role=dialog][aria-label='Register Communication']")
+        register_form.find_element(:name, "sms").send_keys(test_cell_number)
         driver.action.send_keys(:tab).perform
         submit_form(register_form)
         wait_for_ajaximations
-        close_visible_dialog
+        close_instui_dialog
         expect(f(".other_channels .path")).to include_text(test_cell_number)
       end
 
@@ -234,10 +250,10 @@ describe "profile" do
         Account.default.save!
         get "/profile/settings"
         f(".add_contact_link").click
-        # ensure sms number registration form is not present
-        expect(element_exists?("#register_sms_number")).to be false
-        # ensure email address registration form is shown
-        expect(f("#register_email_address")).to be_present
+        # ensure sms number registration tab is not present
+        expect(element_exists?("[role=tab][aria-controls=sms]")).to be false
+        # ensure email address registration tab is shown
+        expect(f("[role=tab][aria-controls=email]")).to be_present
       end
 
       # scenario 2A: MFA disabled, in US region
@@ -248,10 +264,10 @@ describe "profile" do
         Account.default.save!
         get "/profile/settings"
         f(".add_contact_link").click
-        # ensure sms number registration form is not present
-        expect(element_exists?("#register_sms_number")).to be false
-        # ensure email address registration form is shown
-        expect(f("#register_email_address")).to be_present
+        # ensure sms number registration tab is not present
+        expect(element_exists?("[role=tab][aria-controls=sms]")).to be false
+        # ensure email address registration tab is shown
+        expect(f("[role=tab][aria-controls=email]")).to be_present
       end
 
       # scenario 2B: MFA disabled, NOT in US region
@@ -262,10 +278,10 @@ describe "profile" do
         Account.default.save!
         get "/profile/settings"
         f(".add_contact_link").click
-        # ensure sms number registration form is not present
-        expect(element_exists?("#register_sms_number")).to be false
-        # ensure email address registration form is shown
-        expect(f("#register_email_address")).to be_present
+        # ensure sms number registration tab is not present
+        expect(element_exists?("[role=tab][aria-controls=sms]")).to be false
+        # ensure email address registration tab is shown
+        expect(f("[role=tab][aria-controls=email]")).to be_present
       end
 
       # scenario 3A: MFA required for admins, in US region
@@ -277,12 +293,12 @@ describe "profile" do
         test_cell_number = "8017121011"
         get "/profile/settings"
         f(".add_contact_link").click
-        register_form = f("#register_sms_number")
-        register_form.find_element(:css, ".sms_number").send_keys(test_cell_number)
+        register_form = f("[role=dialog][aria-label='Register Communication']")
+        register_form.find_element(:name, "sms").send_keys(test_cell_number)
         driver.action.send_keys(:tab).perform
         submit_form(register_form)
         wait_for_ajaximations
-        close_visible_dialog
+        close_instui_dialog
         expect(f(".other_channels .path")).to include_text(test_cell_number)
       end
 
@@ -294,10 +310,10 @@ describe "profile" do
         Account.default.save!
         get "/profile/settings"
         f(".add_contact_link").click
-        # ensure sms number registration form is not present
-        expect(element_exists?("#register_sms_number")).to be false
-        # ensure email address registration form is shown
-        expect(f("#register_email_address")).to be_present
+        # ensure sms number registration tab is not present
+        expect(element_exists?("[role=tab][aria-controls=sms]")).to be false
+        # ensure email address registration tab is shown
+        expect(f("[role=tab][aria-controls=email]")).to be_present
       end
 
       # scenario 4A: MFA required, in US region
@@ -309,12 +325,12 @@ describe "profile" do
         test_cell_number = "8017121011"
         get "/profile/settings"
         f(".add_contact_link").click
-        register_form = f("#register_sms_number")
-        register_form.find_element(:css, ".sms_number").send_keys(test_cell_number)
+        register_form = f("[role=dialog][aria-label='Register Communication']")
+        register_form.find_element(:name, "sms").send_keys(test_cell_number)
         driver.action.send_keys(:tab).perform
         submit_form(register_form)
         wait_for_ajaximations
-        close_visible_dialog
+        close_instui_dialog
         expect(f(".other_channels .path")).to include_text(test_cell_number)
       end
 
@@ -326,10 +342,10 @@ describe "profile" do
         Account.default.save!
         get "/profile/settings"
         f(".add_contact_link").click
-        # ensure sms number registration form is not present
-        expect(element_exists?("#register_sms_number")).to be false
-        # ensure email address registration form is shown
-        expect(f("#register_email_address")).to be_present
+        # ensure sms number registration tab is not present
+        expect(element_exists?("[role=tab][aria-controls=sms]")).to be false
+        # ensure email address registration tab is shown
+        expect(f("[role=tab][aria-controls=email]")).to be_present
       end
     end
 
@@ -338,35 +354,37 @@ describe "profile" do
       test_slack_email = "sburnett@instructure.com"
       get "/profile/settings"
       f(".add_contact_link").click
-      f('a[href="#register_slack_handle"]').click
-      f("#communication_channel_slack").send_keys(test_slack_email)
-      driver.action.send_keys(:tab).perform
-      register_form = f("#register_slack_handle")
+      register_form = f("[role=dialog][aria-label='Register Communication']")
+      f("[role=tab][aria-controls=slack]", register_form).click
+      register_form.find_element(:name, "slack").send_keys(test_slack_email)
       submit_form(register_form)
       wait_for_ajaximations
-      close_visible_dialog
+      close_instui_dialog
       expect(f(".other_channels .path")).to include_text(test_slack_email)
     end
 
     it "registers a service" do
+      set_up_diigo_service
       get "/profile/settings"
-      add_skype_service
+      add_diigo_service
     end
 
     it "deletes a service" do
+      set_up_diigo_service
       get "/profile/settings"
-      add_skype_service
+      add_diigo_service
       driver.action.move_to(f(".service")).perform
       f(".delete_service_link").click
       expect(driver.switch_to.alert).not_to be_nil
       driver.switch_to.alert.accept
       wait_for_ajaximations
-      expect(f("#unregistered_services")).to include_text("Skype")
+      expect(f("#unregistered_services")).to include_text("Diigo")
     end
 
     it "toggles user services visibility" do
+      set_up_diigo_service
       get "/profile/settings"
-      add_skype_service
+      add_diigo_service
       selector = "#show_user_services"
       expect(f(selector).selected?).to be_truthy
       f(selector).click
@@ -382,15 +400,14 @@ describe "profile" do
 
     it "generates a new access token without an expiration", priority: "2" do
       get "/profile/settings"
-      generate_access_token("testing", true)
+      generate_access_token
       expect(fj(".access_token:visible .expires")).to include_text("never")
     end
 
     it "generates a new access token with an expiration", priority: "2" do
       Timecop.freeze do
         get "/profile/settings"
-        generate_access_token_with_expiration(format_date_for_view(2.days.from_now, :medium))
-        close_visible_dialog
+        generate_access_token(expiration: format_date_for_view(2.days.from_now, :medium))
       end
       expect(fj(".access_token:visible .expires")).to include_text(format_time_for_view(2.days.from_now.midnight))
     end
@@ -398,36 +415,38 @@ describe "profile" do
     it "regenerates a new access token", priority: "2" do
       skip_if_safari(:alert)
       get "/profile/settings"
-      generate_access_token
-      token = f(".visible_token").text
-      f(".regenerate_token").click
+      generate_access_token(close_dialog: false)
+      token_selector = "[data-testid='visible_token']"
+      token = f(token_selector).text
+      f("[type=submit][aria-label='Regenerate Token']").click
       expect(driver.switch_to.alert).not_to be_nil
       driver.switch_to.alert.accept
       wait_for_ajaximations
-      new_token = f(".visible_token").text
+      new_token = f(token_selector).text
       expect(token).not_to eql(new_token)
     end
 
     it "tests canceling creating a new access token" do
       get "/profile/settings"
       f(".add_access_token_link").click
-      access_token_form = f("#access_token_form")
-      access_token_form.find_element(:xpath, "../..").find_element(:css, ".ui-dialog-buttonpane .cancel_button").click
-      expect(access_token_form).not_to be_displayed
+      access_token_dialog_selector = "[role=dialog][aria-label='New Access Token']"
+      access_token_dialog = f(access_token_dialog_selector)
+      access_token_dialog.find_element(:css, "[aria-label='Cancel']").click
+      expect(element_exists?(access_token_dialog_selector)).to be_falsey
     end
 
     it "views the details of an access token" do
       get "/profile/settings"
-      generate_access_token("testing", true)
+      generate_access_token
       # using :visible because we don't want to grab the template element
       fj("#access_tokens .show_token_link:visible").click
-      expect(f("#token_details_dialog")).to be_displayed
+      expect(f("[role=dialog][aria-label='Access Token Details']")).to be_displayed
     end
 
     it "deletes an access token", priority: "2" do
       skip_if_safari(:alert)
       get "/profile/settings"
-      generate_access_token("testing", true)
+      generate_access_token
       # using :visible because we don't want to grab the template element
       fj("#access_tokens .delete_key_link:visible").click
       expect(driver.switch_to.alert).not_to be_nil
@@ -450,7 +469,6 @@ describe "profile" do
 
     context "when access token restrictions are enabled" do
       before do
-        @course.root_account.enable_feature!(:admin_manage_access_tokens)
         @course.root_account.settings[:limit_personal_access_tokens] = true
         @course.root_account.save!
       end
@@ -475,11 +493,19 @@ describe "profile" do
       course_with_teacher_logged_in
     end
 
-    it "links back to profile/settings in oauth callbacks" do
-      get "/profile/settings"
-      links = ff("#unregistered_services .service .content a")
-      links.each do |l|
-        expect(l).to have_attribute("href", "profile%2Fsettings")
+    context "google drive" do
+      it "links back to profile/settings in oauth callbacks" do
+        allow(Canvas::Plugin).to receive(:find).and_call_original
+        allow(Canvas::Plugin).to receive(:find).with(:google_drive).and_return(instance_double(Canvas::Plugin, enabled?: true))
+        @user.account.enable_service(:google_drive)
+        @user.account.save!
+        get "/profile/settings"
+
+        f("#unregistered_service_google_drive > a").click
+
+        dialog = f("[role=dialog][aria-label='Authorize Google Drive']")
+        link = dialog.find_element(:css, "a[aria-label='Authorize Google Drive Access']")
+        expect(link).to have_attribute("href", "profile%2Fsettings")
       end
     end
   end
@@ -500,9 +526,6 @@ describe "profile" do
       expect(is_checked("#account_services_avatars")).to be_truthy
     end
 
-    # TODO: reimplement per CNVS-29610, but make sure we're testing at the right level
-    it "should successfully upload profile pictures"
-
     it "allows users to choose an avatar from their profile page" do
       course_with_teacher_logged_in
 
@@ -514,10 +537,10 @@ describe "profile" do
       get "/about/#{@user.to_param}"
       wait_for_ajaximations
 
-      f(".profile-link").click
+      f(".profile-edit-link").click
       wait_for_ajaximations
 
-      expect(ff(".avatar-content").length).to eq 1
+      expect(f("[data-testid='avatar-modal']")).to be_truthy
     end
   end
 
@@ -527,7 +550,7 @@ describe "profile" do
     account.settings[:enable_profiles] = true
     account.save!
     get "/profile"
-    expect(fj("h1:contains('User Profile')").attribute("class")).to eq "screenreader-only"
+    expect(fj("h1:contains('User Profile')")).to be_displayed
   end
 
   it "renders empty state messages when missing information in profile" do
@@ -543,9 +566,87 @@ describe "profile" do
     expect(f("#links_empty_message").text).to eq "No links have been added"
   end
 
-  describe "profile pictures s3 tests" do
-    # TODO: reimplement per CNVS-29611, but make sure we're testing at the right level
-    it "should successfully upload profile pictures"
+  describe "profile field permissions" do
+    def show_edit_form
+      f("[data-event='editProfile']").click
+
+      # assert we are actually in edit mode
+      expect(f("[data-event='cancelEditProfile']")).to be_displayed
+    end
+
+    before :once do
+      @account = Account.default
+      @account.settings[:enable_profiles] = true
+    end
+
+    it "can edit title when profiles and title setting are enabled" do
+      user_logged_in
+      # set to false to assert that we aren't relying on the name setting
+      # which was the original setting check
+      @account.settings[:users_can_edit_name] = false
+      @account.settings[:users_can_edit_profile] = true
+      @account.settings[:users_can_edit_title] = true
+      @account.save!
+      get "/profile"
+
+      show_edit_form
+      expect(f("[name='user_profile[title]']")).to be_displayed
+    end
+
+    it "can edit biography when profiles and biography setting are enabled" do
+      user_logged_in
+      @account.settings[:users_can_edit_profile] = true
+      @account.settings[:users_can_edit_bio] = true
+      @account.save!
+      get "/profile"
+
+      show_edit_form
+      expect(f("[name='user_profile[bio]']")).to be_displayed
+    end
+
+    it "can edit profile links when profiles and profile links setting are enabled" do
+      user_logged_in
+      @account.settings[:users_can_edit_profile] = true
+      @account.settings[:users_can_edit_profile_links] = true
+      @account.save!
+      get "/profile"
+
+      show_edit_form
+      expect(f("#edit_links_table")).to be_displayed
+    end
+
+    it "cannot edit biography when biography setting is disabled" do
+      user_logged_in
+      @account.settings[:users_can_edit_profile] = true
+      @account.settings[:users_can_edit_bio] = false
+      @account.save!
+      get "/profile"
+
+      show_edit_form
+      expect(element_exists?("[name='user_profile[bio]']")).to be false
+    end
+
+    it "cannot edit title when title setting is disabled" do
+      user_logged_in
+      @account.settings[:users_can_edit_profile] = true
+      @account.settings[:users_can_edit_title] = false
+      @account.save!
+      get "/profile"
+
+      show_edit_form
+      expect(element_exists?("[name='user_profile[title]']")).to be false
+    end
+
+    it "cannot edit profile links when profile links setting is disabled" do
+      user_logged_in
+      @account.settings[:users_can_edit_profile] = true
+      @account.settings[:users_can_edit_profile_links] = false
+      @account.save!
+      get "/profile"
+
+      show_edit_form
+      expect(element_exists?("#edit_links_table")).to be false
+    end
   end
 
   describe "avatar reporting" do

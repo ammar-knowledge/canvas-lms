@@ -17,12 +17,12 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require "spec_helper"
+require "prism"
 require "i18n_extraction/i18nliner_extensions"
 
 describe I18nliner::Extractors::RubyExtractor do
   def extract(source, scope = I18nliner::Scope.new("asdf"))
-    sexps = RubyParser.new.parse(source)
+    sexps = Prism::Translation::RubyParser.new.parse(source)
     extractor = I18nliner::Extractors::RubyExtractor.new(sexps, scope)
     translations = []
     extractor.each_translation { |translation| translations << translation }
@@ -72,6 +72,10 @@ describe I18nliner::Extractors::RubyExtractor do
 
     it "does not auto-scope keys with I18n as the receiver" do
       expect(extract("I18n.t 'foo', 'Foo'")).to eq({ "foo" => "Foo" })
+    end
+
+    it "does not auto-scope keys when scope cannot be inferred correctly (e.g. in abstract models)" do
+      expect(extract("t 'foo', 'Foo'", I18nliner::Scope.new(""))).to eq({ "foo" => "Foo" })
     end
 
     it "auto-scopes plugin registration" do

@@ -18,14 +18,16 @@
 
 import React from 'react'
 import {BrowserRouter, Route, Routes} from 'react-router-dom'
-import {MockedProvider} from '@apollo/react-testing'
-import {render, fireEvent, waitFor, act} from '@testing-library/react'
+import {MockedProvider} from '@apollo/client/testing'
+import {render, fireEvent, waitFor, act, cleanup} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   AccountStatusManagement,
   type AccountStatusManagementProps,
 } from '../AccountStatusManagement'
 import {setupGraphqlMocks} from './fixtures'
+import fakeENV from '@canvas/test-utils/fakeENV'
+import {destroyContainer as destroyFlashAlertContainer} from '@instructure/platform-alerts'
 
 describe('Account Grading Status Management', () => {
   const renderGradingStatusManagement = (props: Partial<AccountStatusManagementProps>) => {
@@ -47,14 +49,21 @@ describe('Account Grading Status Management', () => {
             }
           />
         </Routes>
-      </BrowserRouter>
+      </BrowserRouter>,
     )
   }
 
-  const getSRAlert = () => document.querySelector('#flash_screenreader_holder')?.textContent
+  const getSRAlert = () => document.querySelector('#flash_screenreader_holder')?.textContent?.trim()
 
   beforeEach(async () => {
+    fakeENV.setup()
     await new Promise(resolve => setTimeout(resolve, 0))
+  })
+
+  afterEach(() => {
+    cleanup()
+    destroyFlashAlertContainer()
+    fakeENV.teardown()
   })
 
   describe('when the account is a root account', () => {
@@ -67,8 +76,8 @@ describe('Account Grading Status Management', () => {
       expect(getByText('Custom Statuses')).toBeInTheDocument()
 
       expect(queryAllByTestId(/standard-status-/)).toHaveLength(6)
-      expect(queryAllByTestId(/custom\-status\-[0-9]/)).toHaveLength(2)
-      expect(queryAllByTestId(/custom\-status\-new\-[0-2]/)).toHaveLength(1)
+      expect(queryAllByTestId(/custom-status-[0-9]/)).toHaveLength(2)
+      expect(queryAllByTestId(/custom-status-new-[0-2]/)).toHaveLength(1)
     })
 
     it('should not render extended status when isExtendedStatusEnabled is false', async () => {
@@ -149,8 +158,8 @@ describe('Account Grading Status Management', () => {
       await act(async () => {
         await new Promise(resolve => setTimeout(resolve, 0))
       })
-      expect(queryAllByTestId(/custom\-status\-[0-9]/)).toHaveLength(2)
-      expect(queryAllByTestId(/custom\-status\-new\-[0-2]/)).toHaveLength(1)
+      expect(queryAllByTestId(/custom-status-[0-9]/)).toHaveLength(2)
+      expect(queryAllByTestId(/custom-status-new-[0-2]/)).toHaveLength(1)
       const statusToDelete = getByTestId('custom-status-2')
 
       const deleteButton = statusToDelete?.querySelectorAll('button')[1]
@@ -163,7 +172,7 @@ describe('Account Grading Status Management', () => {
       await waitFor(() => expect(queryAllByTestId(/custom\-status\-[0-9]/)).toHaveLength(1))
       expect(queryAllByTestId(/custom\-status\-new\-[0-2]/)).toHaveLength(2)
 
-      expect(getSRAlert()).toEqual('Successfully deleted custom status custom 2')
+      expect(getSRAlert()).toContain('Successfully deleted custom status custom 2')
     })
 
     it('should pick edit color & name of custom status item', async () => {
@@ -190,7 +199,12 @@ describe('Account Grading Status Management', () => {
       const customStatusItemUpdated = getByTestId('custom-status-1')
       expect(customStatusItemUpdated.textContent).toContain('New Status 10')
 
-      expect(getSRAlert()).toEqual('Custom status New Status 10 updated')
+      // Verify icon is still present after update (from mutation response)
+      const icon = customStatusItemUpdated.querySelector('img')
+      expect(icon).toBeInTheDocument()
+      expect(icon).toHaveAttribute('src')
+
+      expect(getSRAlert()).toContain('Custom status New Status 10 updated')
     })
 
     it('should add a new custom status item', async () => {
@@ -220,6 +234,11 @@ describe('Account Grading Status Management', () => {
 
       expect(newItem.textContent).toContain('New Status 11')
       expect(newItem.firstChild).toHaveStyle('background-color: #E5F3FC')
+
+      // Verify icon is present immediately after creation (from mutation response)
+      const icon = newItem.querySelector('img')
+      expect(icon).toBeInTheDocument()
+      expect(icon).toHaveAttribute('src')
     })
   })
 
@@ -257,6 +276,74 @@ describe('Account Grading Status Management', () => {
 
       const customDeleteButton = customStatusItem?.querySelector('button') as Element
       expect(customDeleteButton).not.toBeInTheDocument()
+    })
+  })
+
+  describe('icon display', () => {
+    it('displays icons for all standard statuses', async () => {
+      const {queryAllByTestId} = renderGradingStatusManagement({
+        isRootAccount: true,
+      })
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
+
+      // Get all standard status items
+      const standardStatusItems = queryAllByTestId(/standard-status-/)
+      expect(standardStatusItems.length).toBeGreaterThanOrEqual(5)
+
+      // Each standard status should have an icon
+      standardStatusItems.forEach(item => {
+        const icon = item.querySelector('img')
+        expect(icon).toBeInTheDocument()
+        expect(icon).toHaveAttribute('src')
+        expect(icon).toHaveAttribute('alt', '')
+      })
+    })
+
+    it('displays icons for all custom statuses', async () => {
+      const {queryAllByTestId} = renderGradingStatusManagement({isRootAccount: true})
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
+
+      const customStatusItems = queryAllByTestId(/custom-status-[0-9]/)
+      expect(customStatusItems.length).toBeGreaterThanOrEqual(2)
+
+      // Each custom status should have an icon
+      customStatusItems.forEach(item => {
+        const icon = item.querySelector('img')
+        expect(icon).toBeInTheDocument()
+        expect(icon).toHaveAttribute('src')
+        expect(icon).toHaveAttribute('alt', '')
+      })
+    })
+
+    it('displays icons for both standard and custom statuses in sub accounts', async () => {
+      const {queryAllByTestId} = renderGradingStatusManagement({isRootAccount: false})
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
+
+      // Standard statuses should have icons
+      const standardStatusItems = queryAllByTestId(/standard-status-/)
+      standardStatusItems.forEach(item => {
+        const icon = item.querySelector('img')
+        expect(icon).not.toBeNull()
+        if (icon) {
+          expect(icon).toBeInTheDocument()
+        }
+      })
+
+      // Custom statuses should have icons
+      const customStatusItems = queryAllByTestId(/custom-status-[0-9]/)
+      customStatusItems.forEach(item => {
+        const icon = item.querySelector('img')
+        expect(icon).not.toBeNull()
+        if (icon) {
+          expect(icon).toBeInTheDocument()
+        }
+      })
     })
   })
 })

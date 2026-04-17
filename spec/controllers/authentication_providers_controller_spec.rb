@@ -71,6 +71,46 @@ describe AuthenticationProvidersController do
         expect(response).to be_successful
       end
     end
+
+    context "when new_login_ui_identity_discovery_page feature flag is enabled" do
+      before do
+        Account.site_admin.enable_feature!(:new_login_ui_identity_discovery_page)
+      end
+
+      it "includes auth_providers in js_env with id, url, and name" do
+        saml = account.authentication_providers.create!(saml_hash)
+        cas = account.authentication_providers.create!(cas_hash)
+        canvas = account.authentication_providers.find_by(auth_type: "canvas")
+        get "index", params: { account_id: account.id }
+        expect(response).to be_successful
+        js_env = assigns(:js_env)
+        expect(js_env).to include(auth_providers: be_an(Array))
+        auth_providers = js_env[:auth_providers]
+        expect(auth_providers).not_to be_empty
+        expect(auth_providers).to all(include(id: be_an(Integer), url: be_a(String), auth_type: be_a(String)))
+        expect(auth_providers.pluck(:id)).to match_array([saml.id, cas.id, canvas.id])
+      end
+
+      it "includes discovery_page_url in js_env" do
+        get "index", params: { account_id: account.id }
+        expect(response).to be_successful
+        expect(assigns(:js_env)).to include(:discovery_page_url)
+      end
+    end
+
+    context "when new_login_ui_identity_discovery_page feature flag is disabled" do
+      before do
+        Account.site_admin.disable_feature!(:new_login_ui_identity_discovery_page)
+      end
+
+      it "does not include auth_providers in js_env" do
+        account.authentication_providers.create!(saml_hash)
+        get "index", params: { account_id: account.id }
+        expect(response).to be_successful
+        js_env = assigns(:js_env)
+        expect(js_env&.key?(:auth_providers)).to be_falsey
+      end
+    end
   end
 
   describe "refresh_saml_metadata" do
@@ -127,7 +167,7 @@ describe AuthenticationProvidersController do
         put "start_debugging", params: { account_id: account.id, authentication_provider_id: account.canvas_authentication_provider.id }, format: :json
         expect(response).to have_http_status :bad_request
         expect(response.body).to match("Unsupported authentication type")
-        expect(account.canvas_authentication_provider).to_not be_debugging
+        expect(account.canvas_authentication_provider).not_to be_debugging
       end
     end
 
@@ -229,7 +269,60 @@ describe AuthenticationProvidersController do
       account.authentication_providers.create!(linkedin)
 
       post "create", format: :json, params: { account_id: account.id }.merge(linkedin)
-      expect(response).to have_http_status :unprocessable_entity
+      expect(response).to have_http_status :unprocessable_content
+    end
+
+    context "when the auth provider type is restorable" do
+      subject(:create_provider) { post "create", format: :json, params: }
+
+      let(:params) do
+        {
+          auth_type: "apple",
+          account_id: account.id
+        }
+      end
+
+      before do
+        allow(AuthenticationProvider::Apple).to receive(:restorable?).and_return(true)
+      end
+
+      context "and a deleted authentication provider of the same type exists" do
+        let!(:existing_provider) { account.authentication_providers.create!(params.merge(workflow_state: "deleted")) }
+
+        it { is_expected.to be_successful }
+
+        it "restores the deleted provider" do
+          expect { create_provider }.to change { existing_provider.reload.workflow_state }.from("deleted").to("active")
+        end
+
+        it "does not create a new provider" do
+          expect { create_provider }.not_to change { account.authentication_providers.count }
+        end
+      end
+
+      context "and an active existing provider of the same type exists" do
+        before { account.authentication_providers.create!(params.merge(workflow_state: "active")) }
+
+        it { is_expected.to have_http_status :unprocessable_content }
+
+        it "indicates an active auth provider of the type already exists" do
+          create_provider
+          expect(json_parse["errors"].first["message"]).to eq "duplicate provider apple"
+        end
+      end
+
+      context "and no existing provider of the same type exists" do
+        it { is_expected.to be_successful }
+
+        it "creates a new provider" do
+          expect { create_provider }.to change { account.authentication_providers.count }.by(1)
+        end
+
+        it "creates the requested authentication provider" do
+          create_provider
+          expect(AuthenticationProvider.find(json_parse["id"]).auth_type).to eq "apple"
+        end
+      end
     end
 
     it "allows multiple non-singleton types" do
@@ -305,6 +398,173 @@ describe AuthenticationProvidersController do
         ap = account.authentication_providers.active.last
         expect(ap.mfa_required).to be(false)
         expect(ap.skip_internal_mfa).to be(false)
+      end
+    end
+
+    it "does not allow non-admins" do
+      user = user_with_pseudonym(active_all: true)
+      user_session(user)
+      post :create, params: { account_id: account.id, auth_type: "cas", auth_base: "http://example.com" }
+      expect(response).to be_unauthorized
+    end
+
+    it "allows admins" do
+      user = account_admin_user(account:)
+      user_session(user)
+      post :create, params: { account_id: account.id, auth_type: "cas", auth_base: "http://example.com" }
+      expect(response).to be_redirect
+    end
+  end
+
+  describe "PUT #update" do
+    let!(:auth_provider) { account.authentication_providers.create!(cas_hash) }
+
+    it "does not allow non-admins" do
+      user = user_with_pseudonym(active_all: true)
+      user_session(user)
+      put :update, params: { account_id: account.id, id: auth_provider.id, auth_base: "http://updated.example.com" }
+      expect(response).to be_unauthorized
+    end
+
+    it "allows admins" do
+      user = account_admin_user(account:)
+      user_session(user)
+      put :update, params: { account_id: account.id, id: auth_provider.id, auth_base: "http://updated.example.com" }
+      expect(response).to be_redirect
+    end
+  end
+
+  describe "PUT #restore" do
+    it "restores a deleted auth config successfully" do
+      account.authentication_providers.create!(saml_hash)
+      aac = account.authentication_providers.active.find_by(auth_type: "saml")
+      aac.destroy
+
+      put "restore", params: { account_id: account.id, id: aac.id }
+
+      expect(aac.reload).to be_active
+    end
+  end
+
+  describe "destroy_all" do
+    subject { delete :destroy_all, params: { account_id: account.id } }
+
+    context "with multiple authentication providers" do
+      before do
+        3.times do
+          account.authentication_providers.create!(auth_type: "google")
+        end
+      end
+
+      it "soft deletes all authentication providers in the account" do
+        expect { subject }.to change {
+          account.authentication_providers.active.count
+        }.from(4).to(1)
+
+        # Canvas re-create the Canvas auth provider unless non-Canvas
+        # providers are configured
+        expect(account.authentication_providers.active.first.auth_type).to eq "canvas"
+      end
+
+      context "when the current user root account management permissions" do
+        let(:non_admin) { user_model }
+
+        before { user_session(non_admin) }
+
+        it { is_expected.to be_unauthorized }
+      end
+    end
+  end
+
+  describe "discovery_page_active SSO setting" do
+    before do
+      Account.site_admin.enable_feature!(:new_login_ui_identity_discovery_page)
+    end
+
+    it "includes discovery_page_active in the sso_settings response when allowed" do
+      account.settings[:discovery_page] = { active: true, primary: [], secondary: [] }
+      account.save!
+      get :show_sso_settings, params: { account_id: account.id }, format: :json
+      expect(response).to be_successful
+      json = response.parsed_body
+      expect(json["sso_settings"]["discovery_page_active"]).to be(true)
+    end
+
+    it "does not include discovery_page_active when not allowed" do
+      Account.site_admin.disable_feature!(:new_login_ui_identity_discovery_page)
+      account.settings[:discovery_page] = { active: true, primary: [], secondary: [] }
+      account.save!
+      get :show_sso_settings, params: { account_id: account.id }, format: :json
+      expect(response).to be_successful
+      json = response.parsed_body
+      expect(json["sso_settings"]).not_to have_key("discovery_page_active")
+    end
+
+    it "updates discovery_page_active via update_sso_settings when feature flag is enabled" do
+      put :update_sso_settings, params: {
+        account_id: account.id,
+        sso_settings: { discovery_page_active: true }
+      }
+      expect(response).to be_redirect
+      account.reload
+      expect(account.discovery_page_active?).to be(true)
+    end
+
+    it "ignores discovery_page_active parameter when not allowed" do
+      Account.site_admin.disable_feature!(:new_login_ui_identity_discovery_page)
+      put :update_sso_settings, params: {
+        account_id: account.id,
+        sso_settings: { discovery_page_active: true }
+      }
+      expect(response).to be_redirect
+      account.reload
+      expect(account.discovery_page_active?).to be(false)
+    end
+
+    it "can disable discovery_page_active when feature flag is enabled" do
+      account.settings[:discovery_page] = { active: true, primary: [], secondary: [] }
+      account.save!
+      put :update_sso_settings, params: {
+        account_id: account.id,
+        sso_settings: { discovery_page_active: false }
+      }
+      expect(response).to be_redirect
+      account.reload
+      expect(account.discovery_page_active?).to be(false)
+    end
+  end
+
+  describe "#destroy with validation errors" do
+    let(:aac) { account.authentication_providers.create!(auth_type: "saml") }
+
+    before do
+      allow(Account.site_admin).to receive(:feature_enabled?).and_call_original
+      allow(Account.site_admin).to receive(:feature_enabled?)
+        .with(:new_login_ui_identity_discovery_page).and_return(true)
+      account.settings[:discovery_page] = {
+        active: true,
+        primary: [{ authentication_provider_id: aac.id, label: "Test Provider" }],
+        secondary: []
+      }
+      account.save!
+    end
+
+    context "HTML format" do
+      it "redirects with error flash" do
+        delete :destroy, params: { account_id: account.id, id: aac.id }
+
+        expect(response).to redirect_to(account_authentication_providers_path(account))
+        expect(flash[:error]).to include(match(/remove.*from the discovery page/))
+      end
+    end
+
+    context "JSON format" do
+      it "returns unprocessable_content with error messages" do
+        delete :destroy, params: { account_id: account.id, id: aac.id }, format: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        json = response.parsed_body
+        expect(json["errors"]).to include(match(/remove.*from the discovery page/))
       end
     end
   end

@@ -18,7 +18,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-class CustomData < ActiveRecord::Base
+class CustomData < ApplicationRecord
   class WriteConflict < RuntimeError
     attr_accessor :conflict_scope, :type_at_conflict, :value_at_conflict
 
@@ -42,12 +42,10 @@ class CustomData < ActiveRecord::Base
 
   belongs_to :user
 
-  serialize :data, type: Hash
-
   validates :user, :namespace, presence: true
 
   def get_data(scope)
-    hash_data_from_scope(data_frd, "d/#{scope}")
+    hash_data_from_scope(data_json, "d/#{scope}")
   end
 
   def lock_and_save
@@ -59,11 +57,11 @@ class CustomData < ActiveRecord::Base
   end
 
   def set_data(scope, val)
-    set_hash_data_from_scope(data_frd, "d/#{scope}", val)
+    set_hash_data_from_scope(data_json, "d/#{scope}", val)
   end
 
   def delete_data(scope)
-    delete_hash_data_from_scope(data_frd, "d/#{scope}")
+    delete_hash_data_from_scope(data_json, "d/#{scope}")
   end
 
   private
@@ -124,9 +122,5 @@ class CustomData < ActiveRecord::Base
     ret = del_frd.call(hash)
     destroy if hash.empty?
     ret
-  end
-
-  def data_frd
-    read_or_initialize_attribute(:data, {})
   end
 end

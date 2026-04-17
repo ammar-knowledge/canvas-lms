@@ -23,9 +23,9 @@ import {Flex} from '@instructure/ui-flex'
 import {IconButton} from '@instructure/ui-buttons'
 import {IconTrashLine} from '@instructure/ui-icons'
 import type {Module} from './types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-const I18n = useI18nScope('differentiated_modules')
+const I18n = createI18nScope('differentiated_modules')
 
 export interface PrerequisiteSelectorProps {
   selection: string
@@ -46,12 +46,13 @@ export default function PrerequisiteSelector({
   focusDropdown = false,
   focusDeleteButton = false,
 }: PrerequisiteSelectorProps) {
-  const removeButton = useRef<Element | null>(null)
+  const removeButton = useRef<HTMLButtonElement | null>(null)
   const dropdown = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
-    // @ts-expect-error
-    focusDeleteButton && removeButton.current?.focus()
+    if (focusDeleteButton) {
+      removeButton.current?.focus()
+    }
   }, [focusDeleteButton, removeButton])
 
   useEffect(() => {
@@ -63,7 +64,6 @@ export default function PrerequisiteSelector({
       <Flex.Item shouldGrow={true} shouldShrink={true}>
         <CanvasSelect
           id={`prerequisite-${index}`}
-          // @ts-expect-error
           inputRef={el => (dropdown.current = el)}
           value={selection}
           label={<ScreenReaderContent>{I18n.t('Select Prerequisite')}</ScreenReaderContent>}
@@ -83,7 +83,9 @@ export default function PrerequisiteSelector({
       </Flex.Item>
       <Flex.Item margin="0 0 0 medium">
         <IconButton
-          elementRef={el => (removeButton.current = el)}
+          elementRef={el => {
+            removeButton.current = el instanceof HTMLButtonElement ? el : null
+          }}
           renderIcon={<IconTrashLine color="error" />}
           onClick={() => onDropPrerequisite(index)}
           screenReaderLabel={I18n.t('Remove %{name} Prerequisite', {

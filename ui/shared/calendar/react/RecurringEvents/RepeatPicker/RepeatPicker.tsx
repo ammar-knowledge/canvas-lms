@@ -19,7 +19,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react'
 import moment from 'moment-timezone'
 import WeekdayPicker from '../WeekdayPicker/WeekdayPicker'
-import {useScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import {NumberInput} from '@instructure/ui-number-input'
 import {px} from '@instructure/ui-utils'
@@ -41,7 +41,7 @@ import {
   weekdaysFromMoment,
 } from '../utils'
 
-const I18n = useScope('calendar_custom_recurring_event_repeat_picker')
+const I18n = createI18nScope('calendar_custom_recurring_event_repeat_picker')
 
 const {Option: SimpleSelectOption} = SimpleSelect as any
 
@@ -68,7 +68,7 @@ export type OnRepeatPickerChangeType = {
 export const getByMonthdateString = (
   datetime: moment.Moment,
   locale: string,
-  timezone: string
+  timezone: string,
 ): string => {
   const cardinal = cardinalDayInMonth(datetime)
   const dayname = getWeekdayName(datetime, locale, timezone)
@@ -101,7 +101,7 @@ export default function RepeatPicker({
   const [currInterval, setCurrInterval] = useState<number>(interval)
   const [currFreq, setCurrFreq] = useState<FrequencyValue>(freq)
   const [currWeekDays, setCurrWeekdays] = useState<SelectedDaysArray>(
-    weekdays ?? weekdaysFromMoment(eventStart)
+    weekdays ?? weekdaysFromMoment(eventStart),
   )
   const [currPos, setCurrPos] = useState<number | undefined>(pos)
   const [currMonthlyMode, setCurrMonthlyMode] = useState<MonthlyModeValue>(() => {
@@ -151,7 +151,14 @@ export default function RepeatPicker({
   }, [freq])
 
   const fireOnChange = useCallback(
-    (i, f, w, md, m, p) => {
+    (
+      i: number,
+      f: FrequencyValue,
+      w: SelectedDaysArray | undefined,
+      md: number | undefined,
+      m: number | undefined,
+      p: number | undefined,
+    ) => {
       if (f === 'YEARLY') {
         onChange({
           interval: i,
@@ -183,11 +190,11 @@ export default function RepeatPicker({
         })
       }
     },
-    [onChange]
+    [onChange],
   )
 
   const handleChangeMonthlyMode = useCallback(
-    (_event, {value}) => {
+    (_event: React.SyntheticEvent, {value}: {value?: string | number; id?: string}) => {
       const newMonthlyMode = value as MonthlyModeValue
 
       setCurrMonthlyMode(newMonthlyMode)
@@ -206,7 +213,7 @@ export default function RepeatPicker({
     },
     // it wants eventStart, which we replace with dtstart and timezone
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dtstart, timezone, fireOnChange, currInterval, currFreq, currPos]
+    [dtstart, timezone, fireOnChange, currInterval, currFreq, currPos],
   )
 
   const handleIntervalChange = useCallback(
@@ -215,7 +222,7 @@ export default function RepeatPicker({
         | React.ChangeEvent<HTMLInputElement>
         | React.KeyboardEvent<HTMLInputElement>
         | React.MouseEvent<HTMLButtonElement, MouseEvent>,
-      value: string | number
+      value: string | number,
     ) => {
       const num = typeof value === 'string' ? parseInt(value, 10) : value
       if (Number.isNaN(num)) return
@@ -229,25 +236,34 @@ export default function RepeatPicker({
 
       fireOnChange(num, currFreq, currWeekDays, monthdate, month, currPos)
     },
-    [currFreq, fireOnChange, currWeekDays, currPos, eventStart]
+    [currFreq, fireOnChange, currWeekDays, currPos, eventStart],
   )
 
   const handleFreqChange = useCallback(
-    (_event, {value}) => {
+    (_event: React.SyntheticEvent, {value}: {value?: string | number; id?: string}) => {
+      if (!value) return
+      const freqValue = value as FrequencyValue
       activeElement.current = document.activeElement as HTMLElement
 
-      setCurrFreq(value)
-      if (value === 'YEARLY') {
+      setCurrFreq(freqValue)
+      if (freqValue === 'YEARLY') {
         const monthdate = eventStart.date()
         const month = eventStart.month() + 1
-        fireOnChange(currInterval, value, undefined, monthdate, month, undefined)
-      } else if (value === 'MONTHLY') {
+        fireOnChange(currInterval, freqValue, undefined, monthdate, month, undefined)
+      } else if (freqValue === 'MONTHLY') {
         handleChangeMonthlyMode(_event, {value: currMonthlyMode})
       } else {
-        fireOnChange(currInterval, value, currWeekDays, undefined, undefined, undefined)
+        fireOnChange(currInterval, freqValue, currWeekDays, undefined, undefined, undefined)
       }
     },
-    [eventStart, fireOnChange, currInterval, handleChangeMonthlyMode, currMonthlyMode, currWeekDays]
+    [
+      eventStart,
+      fireOnChange,
+      currInterval,
+      handleChangeMonthlyMode,
+      currMonthlyMode,
+      currWeekDays,
+    ],
   )
 
   const handleWeekdayChange = useCallback(
@@ -256,7 +272,7 @@ export default function RepeatPicker({
       if (currFreq !== 'WEEKLY') return
       fireOnChange(currInterval, currFreq, newSelectedDays, undefined, undefined, undefined)
     },
-    [fireOnChange, currInterval, currFreq]
+    [fireOnChange, currInterval, currFreq],
   )
 
   const yearlyFreqToText = useCallback(() => {
@@ -287,6 +303,7 @@ export default function RepeatPicker({
         >
           <span style={{flexShrink: 1}}>
             <NumberInput
+              allowStringValue={true}
               data-testid="repeat-interval"
               display="inline-block"
               renderLabel={<ScreenReaderContent>{I18n.t('every')}</ScreenReaderContent>}
@@ -323,21 +340,21 @@ export default function RepeatPicker({
                 {I18n.t(
                   'single_and_plural_weeks',
                   {one: 'Week', other: 'Weeks'},
-                  {count: interval}
+                  {count: interval},
                 )}
               </SimpleSelectOption>
               <SimpleSelectOption id="MONTHLY" value="MONTHLY">
                 {I18n.t(
                   'single_and_plural_months',
                   {one: 'Month', other: 'Months'},
-                  {count: interval}
+                  {count: interval},
                 )}
               </SimpleSelectOption>
               <SimpleSelectOption id="YEARLY" value="YEARLY">
                 {I18n.t(
                   'single_and_plural_years',
                   {one: 'Year', other: 'Years'},
-                  {count: interval}
+                  {count: interval},
                 )}
               </SimpleSelectOption>
             </SimpleSelect>

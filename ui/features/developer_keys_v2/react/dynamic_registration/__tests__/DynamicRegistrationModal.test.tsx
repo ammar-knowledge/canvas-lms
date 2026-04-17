@@ -28,32 +28,30 @@ describe('DynamicRegistrationModal', () => {
   let error: (...data: any[]) => void
   let warn: (...data: any[]) => void
 
+  const store = {
+    dispatch: vi.fn(),
+  }
+
   beforeAll(() => {
     // instui logs an error when we render a component
     // immediately under Modal
 
-    // eslint-disable-next-line no-console
     error = console.error
-    // eslint-disable-next-line no-console
+
     warn = console.warn
 
-    // eslint-disable-next-line no-console
-    console.error = jest.fn()
-    // eslint-disable-next-line no-console
-    console.warn = jest.fn()
+    console.error = vi.fn()
+
+    console.warn = vi.fn()
   })
 
   afterAll(() => {
-    // eslint-disable-next-line no-console
     console.error = error
-    // eslint-disable-next-line no-console
+
     console.warn = warn
   })
 
   describe('default export', () => {
-    const store = {
-      dispatch: jest.fn(),
-    }
     it('opens the modal', async () => {
       useDynamicRegistrationState.getState().open()
       const component = render(<DynamicRegistrationModal contextId="1" store={store as any} />)
@@ -74,7 +72,7 @@ describe('DynamicRegistrationModal', () => {
       expect(iframe).toBeInTheDocument()
       expect(iframe).toHaveAttribute(
         'src',
-        '/api/lti/accounts/1/dr_iframe?url=http%3A%2F%2Flocalhost%2F%3Ffoo%3Dbar%26openid_configuration%3Dhttp%253A%252F%252Fcanvas.instructure.com%26registration_token%3Dabc'
+        '/api/lti/accounts/1/dr_iframe?url=http%3A%2F%2Flocalhost%2F%3Ffoo%3Dbar%26openid_configuration%3Dhttp%253A%252F%252Fcanvas.instructure.com%26registration_token%3Dabc',
       )
     })
 
@@ -156,12 +154,44 @@ describe('DynamicRegistrationModal', () => {
       const component = render(<DynamicRegistrationModal contextId="1" store={store as any} />)
 
       const enableAndCloseButton = await component.findByTestId(
-        'dynamic-reg-modal-enable-and-close-button'
+        'dynamic-reg-modal-enable-and-close-button',
       )
       expect(enableAndCloseButton).toBeInTheDocument()
 
       const confirmationScreen = await component.findByTestId('dynamic-reg-modal-confirmation')
       expect(confirmationScreen).toBeInTheDocument()
+    })
+  })
+
+  describe('when devKeysReadOnly is true', () => {
+    let originalEnv: any
+
+    beforeEach(() => {
+      originalEnv = window.ENV
+      window.ENV = {...originalEnv, devKeysReadOnly: true}
+    })
+
+    afterEach(() => {
+      window.ENV = originalEnv
+    })
+
+    it('disables the registration button', async () => {
+      useDynamicRegistrationState.getState().open('http://localhost/?foo=bar')
+
+      const component = render(<DynamicRegistrationModal contextId="1" store={store as any} />)
+      const continueButton = await component.findByTestId('dynamic-reg-modal-continue-button')
+      expect(continueButton).toBeDisabled()
+    })
+
+    it('shows tooltip explaining lack of permissions', async () => {
+      useDynamicRegistrationState.getState().open('http://localhost/?foo=bar')
+
+      const component = render(<DynamicRegistrationModal contextId="1" store={store as any} />)
+      const continueButton = await component.findByTestId('dynamic-reg-modal-continue-button')
+      expect(continueButton).toHaveAttribute(
+        'title',
+        'You do not have permission to create or modify developer keys / LTI registrations in this account',
+      )
     })
   })
 })

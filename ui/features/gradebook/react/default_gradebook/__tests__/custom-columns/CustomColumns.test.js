@@ -49,12 +49,12 @@ describe('Gradebook > Custom Columns', () => {
       gradebook.gotCustomColumns(customColumns)
       const storedColumns = gradebook.gradebookContent.customColumns
       expect(storedColumns.map(customColumn => customColumn.id)).toEqual(
-        customColumns.map(customColumn => customColumn.id)
+        customColumns.map(customColumn => customColumn.id),
       )
     })
 
     test('updates essential data load status', () => {
-      const spy = jest.spyOn(gradebook, '_updateEssentialDataLoaded')
+      const spy = vi.spyOn(gradebook, '_updateEssentialDataLoaded')
       gradebook.gotCustomColumns(customColumns)
       expect(spy).toHaveBeenCalledTimes(1)
     })

@@ -16,20 +16,20 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-/* eslint-disable no-void */
-
 import {extend} from '@canvas/backbone/utils'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import Backbone from '@canvas/backbone'
 import htmlEscape from '@instructure/html-escape'
 import '@canvas/jquery/jquery.instructure_forms'
 import * as tz from '@instructure/moment-utils'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render as canvasRender} from '@canvas/react'
 import DelayedPublishDialog from '../../react/components/DelayedPublishDialog'
+import {Spinner} from '@instructure/ui-spinner'
+import {Mask, Overlay} from '@instructure/ui-overlays'
 
-const I18n = useI18nScope('publish_btn_module')
+const I18n = createI18nScope('publish_btn_module')
 
 export default (function (superClass) {
   extend(PublishButton, superClass)
@@ -76,6 +76,8 @@ export default (function (superClass) {
     '.dpd-mount': '$dpd_mount',
   }
 
+  PublishButton.prototype.dpdRoot = null
+
   PublishButton.prototype.initialize = function () {
     let ref
     PublishButton.__super__.initialize.apply(this, arguments)
@@ -88,7 +90,7 @@ export default (function (superClass) {
                 return _this.disable()
               }
             }
-          })(this)
+          })(this),
         )
       : void 0
   }
@@ -152,40 +154,79 @@ export default (function (superClass) {
     return this.$el.focus()
   }
 
+  PublishButton.prototype.loadingSpinnerRoot = {}
+
+  PublishButton.prototype.renderOverlayLoadingSpinner = function (loadingSpinnerStatus) {
+    const loadingSpinnerContainer = $('#overlay-loading-spinner')[0]
+    if (loadingSpinnerContainer) {
+      this.loadingSpinnerRoot['root'] = canvasRender(
+        <Overlay open={true} label={loadingSpinnerStatus} shouldReturnFocus shouldContainFocus>
+          <Mask>
+            <Spinner renderTitle={I18n.t('Loading')} size="large" margin="0 0 0 medium" />
+          </Mask>
+        </Overlay>,
+        loadingSpinnerContainer,
+      )
+    }
+  }
+
+  PublishButton.prototype.hideOverlayLoadingSpinner = function () {
+    this.loadingSpinnerRoot['root']?.unmount()
+    this.loadingSpinnerRoot['root'] = null
+  }
+
   // calling publish/unpublish on the model expects a deferred object
   PublishButton.prototype.publish = function (_event) {
     this.renderPublishing()
-    return this.model.publish().always(
-      (function (_this) {
-        return function () {
-          let ref, ref1
-          _this.trigger('publish')
-          _this.enable()
-          _this.render()
-          _this.setFocusToElement()
-          if (
-            !['discussion_topic', 'quiz', 'assignment'].includes(
-              _this.model.attributes.module_type
-            ) ||
-            (_this.model.attributes.module_type === 'discussion_topic' &&
-              !((ref = _this.$el[0]) != null
-                ? (ref1 = ref.dataset) != null
-                  ? ref1.assignmentId
-                  : void 0
-                : void 0))
-          ) {
-            return false
+    return this.model
+      .publish()
+      .done(
+        (function (_this) {
+          return function () {
+            _this.hideOverlayLoadingSpinner()
+            let ref, ref1
+            _this.trigger('publish')
+            _this.enable()
+            _this.render()
+            _this.setFocusToElement()
+            if (
+              !['discussion_topic', 'quiz', 'assignment'].includes(
+                _this.model.attributes.module_type,
+              ) ||
+              (_this.model.attributes.module_type === 'discussion_topic' &&
+                !((ref = _this.$el[0]) != null
+                  ? (ref1 = ref.dataset) != null
+                    ? ref1.assignmentId
+                    : void 0
+                  : void 0))
+            ) {
+              return false
+            }
+            const $sgLink = $(
+              '#speed-grader-container-' +
+                _this.model.attributes.module_type +
+                '-' +
+                _this.model.attributes.content_id,
+            )
+            return $sgLink.removeClass('hidden')
           }
-          const $sgLink = $(
-            '#speed-grader-container-' +
-              _this.model.attributes.module_type +
-              '-' +
-              _this.model.attributes.content_id
-          )
-          return $sgLink.removeClass('hidden')
-        }
-      })(this)
-    )
+        })(this),
+      )
+      .fail(
+        (function (_this) {
+          return function (error) {
+            _this.hideOverlayLoadingSpinner()
+            if (error.status === 403) {
+              $.flashError(_this.model.disabledMessage())
+            } else {
+              $.flashError(I18n.t('This assignment has failed to publish'))
+            }
+            _this.disable()
+            _this.renderPublish()
+            return _this.setFocusToElement()
+          }
+        })(this),
+      )
   }
 
   PublishButton.prototype.unpublish = function (_event) {
@@ -195,6 +236,7 @@ export default (function (superClass) {
       .done(
         (function (_this) {
           return function () {
+            _this.hideOverlayLoadingSpinner()
             _this.trigger('unpublish')
             _this.disable()
             _this.render()
@@ -203,23 +245,26 @@ export default (function (superClass) {
               '#speed-grader-container-' +
                 _this.model.attributes.module_type +
                 '-' +
-                _this.model.attributes.content_id
+                _this.model.attributes.content_id,
             )
             return $sgLink.addClass('hidden')
           }
-        })(this)
+        })(this),
       )
       .fail(
         (function (_this) {
           return function (error) {
+            _this.hideOverlayLoadingSpinner()
             if (error.status === 403) {
               $.flashError(_this.model.disabledMessage())
+            } else {
+              $.flashError(I18n.t('This assignment has failed to unpublish'))
             }
             _this.disable()
             _this.renderPublished()
             return _this.setFocusToElement()
           }
-        })(this)
+        })(this),
       )
   }
 
@@ -269,7 +314,7 @@ export default (function (superClass) {
         this.publishedClass +
         ' ' +
         this.unpublishClass +
-        ' published-status restricted'
+        ' published-status restricted',
     )
     this.$icon.removeClass('icon-publish icon-unpublish icon-unpublished')
     return this.$el.removeAttr('title aria-label')
@@ -320,6 +365,9 @@ export default (function (superClass) {
     if (this.model.get('bulkPublishInFlight')) {
       this.disable()
     }
+    if (ENV.horizon_course && this.model.get('publishable') === false) {
+      this.disable()
+    }
     return this
   }
 
@@ -352,6 +400,7 @@ export default (function (superClass) {
 
   PublishButton.prototype.renderPublishing = function () {
     this.disable()
+    this.renderOverlayLoadingSpinner(I18n.t('Publishing in progress overlay'))
     const text = I18n.t('buttons.publishing', 'Publishing...')
     return this.renderState({
       text,
@@ -362,6 +411,7 @@ export default (function (superClass) {
 
   PublishButton.prototype.renderUnpublishing = function () {
     this.disable()
+    this.renderOverlayLoadingSpinner(I18n.t('Unpublishing in progress overlay'))
     const text = I18n.t('buttons.unpublishing', 'Unpublishing...')
     return this.renderState({
       text,
@@ -395,7 +445,7 @@ export default (function (superClass) {
     // Grade permission.
     if (this.model.get('disabledForModeration')) {
       return this.disableWithMessage(
-        'You do not have permissions to edit this moderated assignment'
+        'You do not have permissions to edit this moderated assignment',
       )
       // unpublishable (i.e., able to be unpublished)
     } else if (this.model.get('unpublishable') == null || this.model.get('unpublishable')) {
@@ -439,12 +489,20 @@ export default (function (superClass) {
       })(this),
       onClose: (function (_this) {
         return function () {
-          return ReactDOM.unmountComponentAtNode(_this.$dpd_mount[0])
+          if (_this.dpdRoot) {
+            _this.dpdRoot.unmount()
+            _this.dpdRoot = null
+          }
         }
       })(this),
     }
-    // eslint-disable-next-line react/no-render-return-value
-    return ReactDOM.render(React.createElement(DelayedPublishDialog, props), this.$dpd_mount[0])
+    if (this.dpdRoot) {
+      this.dpdRoot.unmount()
+    }
+    this.dpdRoot = canvasRender(
+      React.createElement(DelayedPublishDialog, props),
+      this.$dpd_mount[0],
+    )
   }
 
   return PublishButton

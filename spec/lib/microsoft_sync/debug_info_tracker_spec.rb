@@ -17,8 +17,6 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-require_relative "../../spec_helper"
-
 describe MicrosoftSync::DebugInfoTracker do
   subject { described_class.new(group) }
 
@@ -33,7 +31,7 @@ describe MicrosoftSync::DebugInfoTracker do
     expect(actual_msg).to be_a(Hash)
     expect(actual_msg[:msg]).to eq(msg)
     expect(actual_msg[:timestamp]).to match(/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z/)
-    expect(Time.parse(actual_msg[:timestamp])).to be_within(1.minute).of(Time.now)
+    expect(Time.zone.parse(actual_msg[:timestamp])).to be_within(1.minute).of(Time.zone.now)
     expect(actual_msg[:data]).to match(data)
 
     if user_ids
@@ -81,9 +79,10 @@ describe MicrosoftSync::DebugInfoTracker do
 
   describe "#record_diff_stats" do
     it "adds an i18nized message about the number of owners and members" do
-      diff = double(
-        local_owners: Set.new([double]),
-        local_owners_or_members: Set.new([double, double])
+      diff = instance_double(
+        MicrosoftSync::MembershipDiff,
+        local_owners: Set.new(["owner1"]),
+        local_owners_or_members: Set.new(%w[owner1 member1])
       )
       subject.record_diff_stats(diff)
       expect(group.debug_info.length).to eq(2)

@@ -27,7 +27,7 @@
 #       "description": "",
 #       "properties": {
 #         "type": {
-#           "description": "one of 'must_view', 'must_submit', 'must_contribute', 'min_score', 'must_mark_done'",
+#           "description": "one of 'must_view', 'must_submit', 'must_contribute', 'min_score', 'min_percentage', 'must_mark_done'",
 #           "example": "min_score",
 #           "type": "string",
 #           "allowableValues": {
@@ -36,6 +36,7 @@
 #               "must_submit",
 #               "must_contribute",
 #               "min_score",
+#               "min_percentage",
 #               "must_mark_done"
 #             ]
 #           }
@@ -43,6 +44,11 @@
 #         "min_score": {
 #           "description": "minimum score required to complete (only present when type == 'min_score')",
 #           "example": 10,
+#           "type": "integer"
+#         },
+#         "min_percentage": {
+#           "description": "minimum percentage required to complete (only present when type == 'min_percentage')",
+#           "example": 70,
 #           "type": "integer"
 #         },
 #         "completed": {
@@ -236,12 +242,12 @@
 #
 class ContextModuleItemsApiController < ApplicationController
   before_action :require_context
-  before_action :require_user, only: [:select_mastery_path]
+  skip_before_action :require_user, only: %i[index item_sequence show]
   before_action :find_student, only: %i[index show select_mastery_path]
-  before_action :disable_escape_html_entities, only: [:index, :show]
-  after_action :enable_escape_html_entities, only: [:index, :show]
   include Api::V1::ContextModule
   include PlannerApiHelper
+
+  PAGE_TYPES = ["Page", "WikiPage"].freeze
 
   # @API List module items
   #
@@ -271,7 +277,10 @@ class ContextModuleItemsApiController < ApplicationController
       route = polymorphic_url([:api_v1, @context, mod, :items])
       scope = mod.content_tags_visible_to(@student || @current_user)
       scope = ContentTag.search_by_attribute(scope, :title, params[:search_term])
-      items = Api.paginate(scope, self, route)
+      # with modules_perf flag enabled we call the api with the only[]=title (and maybe others) param
+      # in this case we want all the items because we're using the api to get a list of all
+      # the items in the module
+      items = params[:only] ? scope.to_a : Api.paginate(scope, self, route)
       prog = @student ? mod.evaluate_for(@student) : nil
       includes = Array(params[:include])
       opts = {}
@@ -281,7 +290,8 @@ class ContextModuleItemsApiController < ApplicationController
       if includes.include?("mastery_paths")
         opts[:conditional_release_rules] = ConditionalRelease::Service.rules_for(@context, @student, session)
       end
-      opts[:can_view_published] = @context.grants_right?((@student || @current_user), session, :read_as_admin)
+      opts[:can_view_published] = @context.grants_right?(@student || @current_user, session, :read_as_admin)
+      opts[:can_have_estimated_time] = @context.horizon_course?
       render json: items.map { |item| module_item_json(item, @student || @current_user, session, mod, prog, includes, opts) }
     end
   end
@@ -307,8 +317,12 @@ class ContextModuleItemsApiController < ApplicationController
   def show
     if authorized_action(@context, @current_user, :read)
       get_module_item
+      opts = { can_view_published: @context.grants_right?(@student || @current_user, session, :read_as_admin) }
+      if @context.horizon_course?
+        opts[:can_have_estimated_time] = true
+        @item.context_module_action(@current_user, :read) if @current_user
+      end
       prog = @student ? @module.evaluate_for(@student) : nil
-      opts = { can_view_published: @context.grants_right?((@student || @current_user), session, :read_as_admin) }
       render json: module_item_json(@item, @student || @current_user, session, @module, prog, Array(params[:include]), opts)
     end
   end
@@ -398,35 +412,67 @@ class ContextModuleItemsApiController < ApplicationController
   def create
     @module = @context.context_modules.not_deleted.find(params[:module_id])
     if authorized_action(@module, @current_user, :update)
-      return render json: { message: "missing module item parameter" }, status: :bad_request unless params[:module_item]
+      return render json: { message: "missing module item parameter" }, status: :bad_request unless params[:module_item] || params[:module_items]
 
-      item_params = params[:module_item].slice(:title, :type, :indent, :new_tab, :position)
-      item_params[:id] = params[:module_item][:content_id]
-      if ["Page", "WikiPage"].include?(item_params[:type])
-        if (page_url = params[:module_item][:page_url])
-          if (wiki_page = @context.wiki_pages.not_deleted.where(url: page_url).first)
-            item_params[:id] = wiki_page.id
-          else
-            return render json: { message: "invalid page_url parameter" }, status: :bad_request
+      module_items = params[:module_items] || [params[:module_item]]
+      created_items = []
+      errors = []
+
+      ContextModule.transaction do
+        module_items.each_with_index do |module_item_params, index|
+          item_params = module_item_params.slice(:title, :type, :indent, :new_tab, :position)
+          item_params[:id] = module_item_params[:content_id]
+
+          if PAGE_TYPES.include?(item_params[:type])
+            if (page_url = module_item_params[:page_url])
+              if (wiki_page = @context.wiki_pages.not_deleted.where(url: page_url).first)
+                item_params[:id] = wiki_page.id
+              else
+                errors << { index:, message: "invalid page_url parameter" }
+                next
+              end
+            else
+              errors << { index:, message: "missing page_url parameter" }
+              next
+            end
           end
-        else
-          return render json: { message: "missing page_url parameter" }, status: :bad_request
+
+          item_params[:url] = module_item_params[:external_url]
+
+          if (iframe = module_item_params[:iframe])
+            item_params[:link_settings] = { selection_width: iframe[:width], selection_height: iframe[:height] }
+          end
+
+          @tag = @module.add_item(item_params, nil, resolve_conflicts: true)
+          if @tag&.persisted?
+            original_params = params[:module_item]
+            params[:module_item] = module_item_params
+            if set_position && set_completion_requirement
+              created_items << module_item_json(@tag, @current_user, session, @module, nil)
+            elsif @tag.errors.any?
+              errors << { index:, message: @tag.errors.full_messages.join(", ") }
+            end
+            params[:module_item] = original_params
+          elsif @tag
+            errors << { index:, message: @tag.errors.full_messages.join(", ") }
+          else
+            errors << { index:, message: t(:invalid_content, "Could not find content") }
+          end
         end
+
+        @module.touch if created_items.any?
       end
 
-      item_params[:url] = params[:module_item][:external_url]
-
-      if (iframe = params[:module_item][:iframe])
-        item_params[:link_settings] = { selection_width: iframe[:width], selection_height: iframe[:height] }
-      end
-
-      if (@tag = @module.add_item(item_params, nil, position: item_params[:position].to_i)) && set_position && set_completion_requirement
-        @module.touch
-        render json: module_item_json(@tag, @current_user, session, @module, nil)
+      if params[:module_items]
+        response = { created: created_items }
+        response[:errors] = errors if errors.any?
+        render json: response
+      elsif created_items.any?
+        render json: created_items.first
       elsif @tag
         render json: @tag.errors, status: :bad_request
       else
-        render status: :bad_request, json: { message: t(:invalid_content, "Could not find content") }
+        render json: { message: errors.first[:message] }, status: :bad_request
       end
     end
   end
@@ -514,7 +560,7 @@ class ContextModuleItemsApiController < ApplicationController
           if module_item_publishable?(@tag)
             @tag.publish
           else
-            return render json: { message: "item can't be published" }, status: :unprocessable_entity
+            return render json: { message: "item can't be published" }, status: :unprocessable_content
           end
         elsif module_item_unpublishable?(@tag)
           @tag.unpublish
@@ -522,7 +568,7 @@ class ContextModuleItemsApiController < ApplicationController
           return render json: { message: "item can't be unpublished" }, status: :forbidden
         end
         @tag.save
-        @tag.update_asset_workflow_state!
+        @tag.update_asset_workflow_state!(user: @current_user)
         @tag.context_module.save
       end
 
@@ -559,7 +605,7 @@ class ContextModuleItemsApiController < ApplicationController
   #
   def select_mastery_path
     return unless authorized_action(@context, @current_user, :read)
-    return unless @student == @current_user || authorized_action(@context, @current_user, [:manage_assignments, :manage_assignments_edit])
+    return unless @student == @current_user || authorized_action(@context, @current_user, :manage_assignments_edit)
     return render json: { message: "mastery paths not enabled" }, status: :bad_request unless cyoe_enabled?(@context)
     return render json: { message: "assignment_set_id required" }, status: :bad_request unless params[:assignment_set_id]
 
@@ -716,11 +762,13 @@ class ContextModuleItemsApiController < ApplicationController
   #       -H 'Authorization: Bearer <token>'
   #
   include ContextModulesHelper
+
   def duplicate
     original_tag = @context.context_module_tags.not_deleted.find(params[:id])
     if authorized_action(original_tag.context_module, @current_user, :update)
       if original_tag.duplicate_able?
-        new_content = original_tag.content.duplicate
+        new_content = original_tag.content.duplicate({ user: @current_user })
+        new_content.saving_user = @current_user if new_content.respond_to?(:saving_user)
         new_content.save!
         new_tag = original_tag.context_module.add_item({
                                                          type: original_tag.content_type,
@@ -741,6 +789,7 @@ class ContextModuleItemsApiController < ApplicationController
           graded: new_tag.graded?,
           content_details: content_details(new_tag, @current_user),
           assignment_id: new_tag.assignment.try(:id),
+          is_checkpointed: new_tag.assignment.try(:has_sub_assignments),
           is_duplicate_able: new_tag.duplicate_able?,
           can_manage_assign_to: new_tag.content&.grants_right?(@current_user, session, :manage_assign_to)
         )
@@ -750,16 +799,6 @@ class ContextModuleItemsApiController < ApplicationController
       end
     end
   end
-
-  def disable_escape_html_entities
-    ActiveSupport.escape_html_entities_in_json = false
-  end
-  private :disable_escape_html_entities
-
-  def enable_escape_html_entities
-    ActiveSupport.escape_html_entities_in_json = true
-  end
-  private :enable_escape_html_entities
 
   def set_position
     return true unless @tag && params[:module_item][:position]
@@ -789,7 +828,7 @@ class ContextModuleItemsApiController < ApplicationController
 
     if params[:module_item][:completion_requirement].blank?
       reqs[@tag.id] = {}
-    elsif %w[must_view must_submit must_contribute min_score must_mark_done].include?(params[:module_item][:completion_requirement][:type])
+    elsif %w[must_view must_submit must_contribute min_score min_percentage must_mark_done].include?(params[:module_item][:completion_requirement][:type])
       reqs[@tag.id] = params[:module_item][:completion_requirement].to_unsafe_h
     else
       @tag.errors.add(:completion_requirement, t(:invalid_requirement_type, "Invalid completion requirement type"))

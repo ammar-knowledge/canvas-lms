@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../spec_helper"
-
 RSpec.describe Lti::LineItem do
   context "when validating" do
     let(:line_item) { line_item_model }
@@ -124,9 +122,9 @@ RSpec.describe Lti::LineItem do
 
   context "when updating the associated assignment" do
     let(:line_item) do
-      Time.now
-      tool = AccessToken.create!
-      line_item_params = { start_date_time: Time.now - 1.day, end_date_time: Time.now, score_maximum: 10.0, label: "a line item" }
+      Time.zone.now
+      tool = AccessToken.create!(purpose: "tool")
+      line_item_params = { start_date_time: 1.day.ago, end_date_time: Time.zone.now, score_maximum: 10.0, label: "a line item" }
       line_item = Lti::LineItem.create_line_item!(nil, course_model, tool, line_item_params)
       # This is necessary because the line item only gets associated to the assignment after
       # the assignment is created. This line_item variable is up-to-date with "knowing" its

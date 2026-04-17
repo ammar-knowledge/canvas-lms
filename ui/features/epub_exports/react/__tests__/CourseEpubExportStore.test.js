@@ -16,17 +16,19 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {isEmpty, isUndefined} from 'lodash'
 import CourseStore from '../CourseStore'
-import sinon from 'sinon'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 
-const ok = x => expect(x).toBeTruthy()
-const deepEqual = (x, y) => expect(x).toEqual(y)
+const server = setupServer()
 
-let courses
-let server
+describe('CourseEpubExportStore', () => {
+  let courses
 
-describe('CourseEpubExportStoreSpec', () => {
+  beforeAll(() => {
+    server.listen()
+  })
+
   beforeEach(() => {
     CourseStore.clearState()
     courses = {
@@ -42,61 +44,81 @@ describe('CourseEpubExportStoreSpec', () => {
         },
       ],
     }
-    server = sinon.fakeServer.create()
+
+    server.use(
+      http.get('/api/v1/epub_exports', () => {
+        return HttpResponse.json(courses)
+      }),
+      http.get('/api/v1/courses/:courseId/epub_exports/:exportId', ({params}) => {
+        if (params.courseId === '1' && params.exportId === '1') {
+          return HttpResponse.json(courses.courses[0])
+        }
+        return new HttpResponse(null, {status: 404})
+      }),
+      http.post('/api/v1/courses/:courseId/epub_exports', ({params}) => {
+        const course_id = parseInt(params.courseId, 10)
+        const response = {
+          name: 'Creative Writing',
+          id: course_id,
+          epub_export: {
+            permissions: {},
+            workflow_state: 'created',
+          },
+        }
+        return HttpResponse.json(response)
+      }),
+    )
   })
 
   afterEach(() => {
     CourseStore.clearState()
-    server.restore()
+    server.resetHandlers()
   })
 
-  test('getAll', function () {
-    server.respondWith('GET', '/api/v1/epub_exports', [
-      200,
-      {'Content-Type': 'application/json'},
-      JSON.stringify(courses),
-    ])
-    ok(isEmpty(CourseStore.getState()), 'precondition')
+  afterAll(() => {
+    server.close()
+  })
+
+  it('gets all courses', async () => {
+    expect(CourseStore.getState()).toEqual({})
     CourseStore.getAll()
-    server.respond()
+
+    // Wait for the async request to complete
+    await new Promise(resolve => setTimeout(resolve, 10))
+
     const state = CourseStore.getState()
-    return courses.courses.forEach(course => deepEqual(state[course.id], course))
+    courses.courses.forEach(course => {
+      expect(state[course.id]).toEqual(course)
+    })
   })
 
-  test('get', function () {
-    const url = '/api/v1/courses/1/epub_exports/1'
-    const course = courses.courses[0]
-    server.respondWith('GET', url, [
-      200,
-      {'Content-Type': 'application/json'},
-      JSON.stringify(course),
-    ])
-    ok(isEmpty(CourseStore.getState()), 'precondition')
+  it('gets a specific course', async () => {
+    expect(CourseStore.getState()).toEqual({})
     CourseStore.get(1, 1)
-    server.respond()
+
+    // Wait for the async request to complete
+    await new Promise(resolve => setTimeout(resolve, 10))
+
     const state = CourseStore.getState()
-    deepEqual(state[course.id], course)
+    expect(state[courses.courses[0].id]).toEqual(courses.courses[0])
   })
 
-  test('create', function () {
+  it('creates a new epub export', async () => {
     const course_id = 3
-    const epub_export = {
+    expect(CourseStore.getState()[course_id]).toBeUndefined()
+    CourseStore.create(course_id)
+
+    // Wait for the async request to complete
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    const state = CourseStore.getState()
+    expect(state[course_id]).toEqual({
       name: 'Creative Writing',
       id: course_id,
       epub_export: {
         permissions: {},
         workflow_state: 'created',
       },
-    }
-    server.respondWith('POST', `/api/v1/courses/${course_id}/epub_exports`, [
-      200,
-      {'Content-Type': 'application/josn'},
-      JSON.stringify(epub_export),
-    ])
-    ok(isUndefined(CourseStore.getState()[course_id]), 'precondition')
-    CourseStore.create(course_id)
-    server.respond()
-    const state = CourseStore.getState()
-    deepEqual(state[course_id], epub_export, 'should add new object to state')
+    })
   })
 })

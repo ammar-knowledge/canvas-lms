@@ -32,7 +32,7 @@ describe('LoginAttributeSelector', () => {
   })
 
   it('calls the specified callback on clicks', () => {
-    const changedMock = jest.fn()
+    const changedMock = vi.fn()
     const container = setup({attributeChangedHandler: changedMock})
 
     fireEvent.click(container.getByRole('combobox', {name: /login attribute selector/i}))
@@ -47,7 +47,7 @@ describe('LoginAttributeSelector', () => {
     expect(
       container.getByRole('combobox', {
         name: /login attribute selector/i,
-      }).value
+      }).value,
     ).toMatch(/Unique User ID/i)
   })
 })

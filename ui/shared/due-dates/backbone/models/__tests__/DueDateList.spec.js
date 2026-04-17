@@ -69,12 +69,20 @@ describe('DueDateList', () => {
     expect(dueDateList.containsSectionsWithoutOverrides()).toBe(false)
   })
 
+  test(`containsSectionsWithoutOverrides returns false when overrides contain a course override`, () => {
+    const overridesWithDefaultDueDate = new AssignmentOverrideCollection(partialOverrides.toJSON())
+    const courseOverride = new AssignmentOverride({course_id: '1'})
+    overridesWithDefaultDueDate.add(courseOverride)
+    const dueDateList = new DueDateList(overridesWithDefaultDueDate, sections, assignment)
+    expect(dueDateList.containsSectionsWithoutOverrides()).toBe(false)
+  })
+
   test(`containsSectionsWithoutOverrides returns false if all sections belong to an assignment override`, () => {
     expect(completeOverridesList.containsSectionsWithoutOverrides()).toBe(false)
   })
 
   test(`constructor adds an override representing the default due date using the assignment's due date, lock_at, and unlock_at, if an assignment is given and overrides don't already cover all sections`, () => {
-    expect(partialOverridesList.overrides.length).toBe(3)
+    expect(partialOverridesList.overrides).toHaveLength(3)
     const override = partialOverridesList.overrides.pop()
     expect(override.get('due_at')).toBe(date)
     expect(override.get('unlock_at')).toBe(date)
@@ -82,17 +90,44 @@ describe('DueDateList', () => {
   })
 
   test(`constructor adds a section to the list of sections representing the assignment's default due date if an assignment is given`, () => {
-    expect(partialOverridesList.sections.length).toBe(4)
+    expect(partialOverridesList.sections).toHaveLength(4)
     expect(partialOverridesList.sections.shift().id).toBe(Section.defaultDueDateSectionID)
   })
 
   test(`constructor adds a section to the list of sections as an option even if all sections are already covered by overrides`, () => {
-    expect(completeOverridesList.sections.length).toBe(4)
+    expect(completeOverridesList.sections).toHaveLength(4)
     expect(completeOverridesList.sections.shift().id).toBe(Section.defaultDueDateSectionID)
   })
 
   test(`constructor adds a default due date section if the section list passed is empty`, () => {
     const dueDateList = new DueDateList(partialOverrides, new SectionList([]), assignment)
-    expect(dueDateList.sections.length).toBe(1)
+    expect(dueDateList.sections).toHaveLength(1)
+  })
+
+  test(`constructor adds peer review dates from peer_review_sub_assignment to the default override`, () => {
+    const peerReviewDate = new Date('2026-01-06T12:00:00Z')
+    const peerReviewUnlock = new Date('2026-01-05T12:00:00Z')
+    const peerReviewLock = new Date('2026-01-07T12:00:00Z')
+    const assignmentWithPeerReview = new Assignment({
+      due_at: date,
+      unlock_at: date,
+      lock_at: date,
+      peer_review_sub_assignment: {
+        due_at: peerReviewDate,
+        unlock_at: peerReviewUnlock,
+        lock_at: peerReviewLock,
+      },
+    })
+    const freshPartialOverrides = new AssignmentOverrideCollection([
+      new AssignmentOverride({course_section_id: '1'}),
+      new AssignmentOverride({course_section_id: '2'}),
+    ])
+    const dueDateList = new DueDateList(freshPartialOverrides, sections, assignmentWithPeerReview)
+
+    expect(dueDateList.overrides).toHaveLength(3)
+    const override = dueDateList.overrides.pop()
+    expect(override.get('peer_review_due_at')).toBe(peerReviewDate)
+    expect(override.get('peer_review_available_from')).toBe(peerReviewUnlock)
+    expect(override.get('peer_review_available_to')).toBe(peerReviewLock)
   })
 })

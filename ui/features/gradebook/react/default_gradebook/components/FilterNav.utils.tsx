@@ -17,11 +17,11 @@
  */
 
 import {useMemo} from 'react'
-import uuid from 'uuid'
+import * as uuid from 'uuid'
 import useStore from '../stores/index'
 import type {AssignmentGroup, Module, Section, StudentGroupCategoryMap} from '../../../../../api.d'
 import type {CamelizedGradingPeriod} from '@canvas/grading/grading.d'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import natcompare from '@canvas/util/natcompare'
 import {
   doFiltersMatch,
@@ -38,7 +38,7 @@ import type {
 } from '../gradebook.d'
 import type {GradeStatus} from '@canvas/grading/accountGradingStatus'
 
-const I18n = useI18nScope('gradebook')
+const I18n = createI18nScope('gradebook')
 
 function useFilterDropdownData({
   appliedFilters,
@@ -68,7 +68,7 @@ function useFilterDropdownData({
   const assignments = assignmentGroups.flatMap(ag => ag.assignments)
   const modulesWithGradeableAssignments = useMemo(() => {
     return modules.filter(m =>
-      assignments.some(a => a.grading_type !== 'not_graded' && (a.module_ids || []).includes(m.id))
+      assignments.some(a => a.grading_type !== 'not_graded' && (a.module_ids || []).includes(m.id)),
     )
   }, [modules, assignments])
   const {toggleFilter, toggleFilterMultiSelect} = useStore.getState()
@@ -217,37 +217,79 @@ function useFilterDropdownData({
     }
 
     if (Object.values(studentGroupCategories).length > 0) {
-      filterItems['student-groups'] = {
-        id: 'student-groups',
-        name: I18n.t('Student Groups'),
-        parentId: 'savedFilterPresets',
-        isSelected: appliedFilters.some(c => c.type === 'student-group'),
-        itemGroups: Object.values(studentGroupCategories)
-          .sort((c1, c2) => natcompare.strings(c1.name, c2.name))
-          .map(category => ({
-            id: category.id,
-            name: category.name,
-            items: category.groups
-              .sort((g1, g2) => natcompare.strings(g1.name, g2.name))
-              .map(group => ({
-                id: group.id,
-                name: group.name,
-                isSelected: appliedFilters.some(
-                  c => c.type === 'student-group' && c.value === group.id
-                ),
-                onToggle: () => {
-                  const filter: Filter = {
-                    id: uuid.v4(),
-                    type: 'student-group',
-                    value: group.id,
-                    created_at: new Date().toISOString(),
-                  }
-                  toggleFilterHelper(filter)
-                },
-              })),
-          })),
+      const student_groups = Object.values(studentGroupCategories).filter(
+        category => category.non_collaborative === false,
+      )
+      if (student_groups.length > 0) {
+        filterItems['student-groups'] = {
+          id: 'student-groups',
+          name: I18n.t('Student Groups'),
+          parentId: 'savedFilterPresets',
+          isSelected: appliedFilters.some(c => c.type === 'student-group'),
+          itemGroups: student_groups
+            .sort((c1, c2) => natcompare.strings(c1.name, c2.name))
+            .map(category => ({
+              id: category.id,
+              name: category.name,
+              items: category.groups
+                .sort((g1, g2) => natcompare.strings(g1.name, g2.name))
+                .map(group => ({
+                  id: group.id,
+                  name: group.name,
+                  isSelected: appliedFilters.some(
+                    c => c.type === 'student-group' && c.value === group.id,
+                  ),
+                  onToggle: () => {
+                    const filter: Filter = {
+                      id: uuid.v4(),
+                      type: 'student-group',
+                      value: group.id,
+                      created_at: new Date().toISOString(),
+                    }
+                    toggleFilterHelper(filter)
+                  },
+                })),
+            })),
+        }
+        dataMap['student-groups'] = filterItems['student-groups']
       }
-      dataMap['student-groups'] = filterItems['student-groups']
+
+      const non_collaborative_groups = Object.values(studentGroupCategories).filter(
+        category => category.non_collaborative === true,
+      )
+      if (non_collaborative_groups.length > 0) {
+        filterItems['non-collaborative-groups'] = {
+          id: 'non-collaborative-groups',
+          name: I18n.t('Differentiation Tags'),
+          parentId: 'savedFilterPresets',
+          isSelected: appliedFilters.some(c => c.type === 'non-collaborative-group'),
+          itemGroups: non_collaborative_groups
+            .sort((c1, c2) => natcompare.strings(c1.name, c2.name))
+            .map(category => ({
+              id: category.id,
+              name: category.name,
+              items: category.groups
+                .sort((g1, g2) => natcompare.strings(g1.name, g2.name))
+                .map(group => ({
+                  id: group.id,
+                  name: group.name,
+                  isSelected: appliedFilters.some(
+                    c => c.type === 'non-collaborative-group' && c.value === group.id,
+                  ),
+                  onToggle: () => {
+                    const filter: Filter = {
+                      id: uuid.v4(),
+                      type: 'non-collaborative-group',
+                      value: group.id,
+                      created_at: new Date().toISOString(),
+                    }
+                    toggleFilterHelper(filter)
+                  },
+                })),
+            })),
+        }
+        dataMap['non-collaborative-groups'] = filterItems['non-collaborative-groups']
+      }
     }
     const customStatusIdStrings = getCustomStatusIdStrings(customStatuses)
     filterItems.status = {
@@ -265,7 +307,7 @@ function useFilterDropdownData({
             'excused',
             'extended',
             ...customStatusIdStrings,
-          ].includes(c.value || '')
+          ].includes(c.value || ''),
       ),
       items: [
         {
@@ -300,7 +342,7 @@ function useFilterDropdownData({
           id: '3',
           name: I18n.t('Resubmitted'),
           isSelected: appliedFilters.some(
-            c => c.type === 'submissions' && c.value === 'resubmitted'
+            c => c.type === 'submissions' && c.value === 'resubmitted',
           ),
           onToggle: () => {
             const filter: Filter = {
@@ -363,7 +405,7 @@ function useFilterDropdownData({
         id: mapCustomStatusToIdString(status),
         name: status.name,
         isSelected: appliedFilters.some(
-          c => c.type === 'submissions' && c.value === mapCustomStatusToIdString(status)
+          c => c.type === 'submissions' && c.value === mapCustomStatusToIdString(status),
         ),
         onToggle: () => {
           const filter: Filter = {
@@ -390,14 +432,14 @@ function useFilterDropdownData({
             'has-submissions',
             'has-no-submissions',
             'has-unposted-grades',
-          ].includes(c.value || '')
+          ].includes(c.value || ''),
       ),
       items: [
         {
           id: '1',
           name: I18n.t('Has Ungraded Submissions'),
           isSelected: appliedFilters.some(
-            c => c.type === 'submissions' && c.value === 'has-ungraded-submissions'
+            c => c.type === 'submissions' && c.value === 'has-ungraded-submissions',
           ),
           onToggle: () => {
             const filter: Filter = {
@@ -413,7 +455,7 @@ function useFilterDropdownData({
           id: '2',
           name: I18n.t('Has Submissions'),
           isSelected: appliedFilters.some(
-            c => c.type === 'submissions' && c.value === 'has-submissions'
+            c => c.type === 'submissions' && c.value === 'has-submissions',
           ),
           onToggle: () => {
             const filter: Filter = {
@@ -429,7 +471,7 @@ function useFilterDropdownData({
           id: '3',
           name: I18n.t('Has No Submissions'),
           isSelected: appliedFilters.some(
-            c => c.type === 'submissions' && c.value === 'has-no-submissions'
+            c => c.type === 'submissions' && c.value === 'has-no-submissions',
           ),
           onToggle: () => {
             const filter: Filter = {
@@ -445,7 +487,7 @@ function useFilterDropdownData({
           id: '4',
           name: I18n.t('Has Unposted Grades'),
           isSelected: appliedFilters.some(
-            c => c.type === 'submissions' && c.value === 'has-unposted-grades'
+            c => c.type === 'submissions' && c.value === 'has-unposted-grades',
           ),
           onToggle: () => {
             const filter: Filter = {
@@ -466,7 +508,7 @@ function useFilterDropdownData({
       name: I18n.t('Start & End Date'),
       parentId: 'savedFilterPresets',
       isSelected: appliedFilters.some(
-        f => (f.type === 'start-date' || f.type === 'end-date') && isFilterNotEmpty(f)
+        f => (f.type === 'start-date' || f.type === 'end-date') && isFilterNotEmpty(f),
       ),
       onToggle: onToggleDateModal,
     }

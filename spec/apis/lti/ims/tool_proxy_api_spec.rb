@@ -56,7 +56,7 @@ module Lti
 
       describe "Get #show" do
         before do
-          allow(OAuth::Signature).to receive(:build).and_return(double(verify: true))
+          allow(OAuth::Signature).to receive(:build).and_return(instance_double(OAuth::Signature::Base, verify: true))
           allow(OAuth::Helper).to receive(:parse_header).and_return({ "oauth_consumer_key" => "key" })
         end
 
@@ -73,7 +73,7 @@ module Lti
 
       describe "POST #create" do
         before do
-          mock_oauth_sig = double("oauth_signature")
+          mock_oauth_sig = instance_double(OAuth::Signature::Base)
           allow(mock_oauth_sig).to receive(:verify).and_return(true)
           allow(OAuth::Signature).to receive(:build).and_return(mock_oauth_sig)
           allow(OAuth::Helper).to receive(:parse_header).and_return({ "oauth_consumer_key" => "key" })
@@ -144,8 +144,7 @@ module Lti
           end
           let(:tcp_url) { polymorphic_url([account, :tool_consumer_profile], tool_consumer_profile_id: tcp.uuid) }
           let(:access_token) do
-            aud = host rescue (@request || request).host
-            Lti::OAuth2::AccessToken.create_jwt(aud:, sub: developer_key.global_id, reg_key: "reg_key")
+            Lti::OAuth2::AccessToken.create_jwt(aud: host, sub: developer_key.global_id, reg_key: "reg_key")
           end
           let(:request_headers) { { Authorization: "Bearer #{access_token}" } }
 
@@ -169,9 +168,8 @@ module Lti
 
       describe "POST #create with JWT access token" do
         let(:access_token) do
-          aud = host rescue (@request || request).host
           developer_key.update(vendor_code:)
-          Lti::OAuth2::AccessToken.create_jwt(aud:, sub: developer_key.global_id, reg_key: "reg_key")
+          Lti::OAuth2::AccessToken.create_jwt(aud: host, sub: developer_key.global_id, reg_key: "reg_key")
         end
         let(:request_headers) { { "Authorization" => "Bearer #{access_token}", "Content-Type" => "application/json" } }
 
@@ -202,7 +200,7 @@ module Lti
 
       describe "POST #reregistration" do
         before do
-          mock_siq = double("signature")
+          mock_siq = instance_double(OAuth::Signature::Base)
           allow(mock_siq).to receive(:verify).and_return(true)
           allow(OAuth::Signature).to receive(:build).and_return(mock_siq)
         end
@@ -215,7 +213,7 @@ module Lti
         end
 
         it "checks for valid oauth signatures" do
-          mock_siq = double("signature")
+          mock_siq = instance_double(OAuth::Signature::Base)
           allow(mock_siq).to receive(:verify).and_return(false)
           allow(OAuth::Signature).to receive(:build).and_return(mock_siq)
           course_with_teacher_logged_in(active_all: true)
@@ -225,7 +223,7 @@ module Lti
         end
 
         it "updates the tool proxy update payload" do
-          mock_siq = double("signature")
+          mock_siq = instance_double(OAuth::Signature::Base)
           allow(mock_siq).to receive(:verify).and_return(true)
           allow(OAuth::Signature).to receive(:build).and_return(mock_siq)
           course_with_teacher_logged_in(active_all: true)
@@ -249,7 +247,7 @@ module Lti
         end
 
         it "Errors on invalid payload" do
-          mock_siq = double("signature")
+          mock_siq = instance_double(OAuth::Signature::Base)
           allow(mock_siq).to receive(:verify).and_return(true)
           allow(OAuth::Signature).to receive(:build).and_return(mock_siq)
           course_with_teacher_logged_in(active_all: true)

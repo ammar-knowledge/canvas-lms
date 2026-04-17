@@ -16,10 +16,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {
-  canvas as canvasBaseTheme,
-  canvasHighContrast as canvasHighContrastTheme,
-} from '@instructure/ui-themes'
 import filterUselessConsoleMessages from '../../packages/filter-console-messages'
 import moment from 'moment'
 import './initializers/fakeRequireJSFallback'
@@ -41,7 +37,6 @@ window.Buffer = Buffer
 try {
   initSentry()
 } catch (e) {
-  // eslint-disable-next-line no-console
   console.error('Failed to init Sentry, errors will not be captured', e)
 }
 
@@ -60,7 +55,6 @@ let runOnceAfterLocaleFiles = () => {
   import('@canvas/enhanced-user-content')
     .then(({enhanceTheEntireUniverse}) => enhanceTheEntireUniverse())
     .catch(e => {
-      // eslint-disable-next-line no-console
       console.error('Failed to init @canvas/enhanced-user-content', e)
     })
 }
@@ -80,37 +74,11 @@ if (process.env.NODE_ENV !== 'production') {
     try {
       filterUselessConsoleMessages(console)
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error(`ERROR: could not set up console log filtering: ${e.message}`)
     }
   }
 
   setupConsoleMessageFilter()
-}
-
-// Set up the default InstUI theme
-// Override the fontFamily to include "Lato Extended", which we prefer
-// to load over plain Lato (see LS-1559)
-const typography = {
-  fontFamily: 'LatoWeb, "Lato Extended", Lato, "Helvetica Neue", Helvetica, Arial, sans-serif',
-}
-
-if (ENV.use_high_contrast) {
-  canvasHighContrastTheme.use({overrides: {typography}})
-} else {
-  const brandvars = window.CANVAS_ACTIVE_BRAND_VARIABLES || {}
-
-  // Set CSS transitions to 0ms in Selenium and JS tests
-  let transitionOverride = {}
-  if (process.env.NODE_ENV === 'test' || window.INST.environment === 'test') {
-    transitionOverride = {
-      transitions: {
-        duration: '0ms',
-      },
-    }
-  }
-
-  canvasBaseTheme.use({overrides: {...transitionOverride, ...brandvars, typography}})
 }
 
 /* #__PURE__ */ if (process.env.NODE_ENV === 'test' || window.INST.environment === 'test') {
@@ -131,7 +99,7 @@ if (ENV.use_high_contrast) {
   window.fetch = function () {
     window.__CANVAS_IN_FLIGHT_XHR_REQUESTS__++
     const promise = fetch.apply(this, arguments)
-    // eslint-disable-next-line promise/catch-or-return
+
     promise.finally(() => {
       window.__CANVAS_IN_FLIGHT_XHR_REQUESTS__--
     })

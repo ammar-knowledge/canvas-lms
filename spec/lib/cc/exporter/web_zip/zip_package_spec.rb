@@ -26,9 +26,7 @@ describe "ZipPackage" do
     end
   end
 
-  def create_key(obj)
-    CC::CCHelper.create_key(obj)
-  end
+  delegate :create_key, to: :"CC::CCHelper"
 
   before :once do
     course_with_student(active_all: true)
@@ -38,7 +36,7 @@ describe "ZipPackage" do
 
   before do
     @module = @course.context_modules.create!(name: "first_module")
-    @exporter = CC::Exporter::WebZip::Exporter.new(File.open(@cartridge_path), false, :web_zip)
+    @exporter = CC::Exporter::WebZip::Exporter.new(File.open(@cartridge_path), export_type: :web_zip)
   end
 
   context "parse_module_data" do
@@ -432,6 +430,18 @@ describe "ZipPackage" do
       expect(module_item_data[:requiredPoints]).to eq 7
     end
 
+    it "parses required points if module item requirement is min_percentage" do
+      assign = @course.assignments.create!(title: "Assignment 1", points_possible: 10)
+      assign_item = @module.content_tags.create!(content: assign, context: @course, indent: 0)
+      @module.content_tags.create!(content: assign, context: @course)
+      @module.completion_requirements = [{ id: assign_item.id, type: "min_percentage", min_percentage: 60 }]
+      @module.save!
+
+      zip_package = CC::Exporter::WebZip::ZipPackage.new(@exporter, @course, @student, @cache_key)
+      module_item_data = zip_package.parse_module_item_data(@module).first
+      expect(module_item_data[:requiredPoints]).to eq 6
+    end
+
     it "parses export id for assignments, quizzes, discussions and wiki pages" do
       assign = @course.assignments.create!(title: "Assignment 1", points_possible: 10)
       @module.content_tags.create!(content: assign, context: @course)
@@ -601,7 +611,7 @@ describe "ZipPackage" do
       export.user = @student
       export.save
       export.export_course
-      exporter = CC::Exporter::WebZip::Exporter.new(export.attachment.open, false, :web_zip, global_identifiers: true)
+      exporter = CC::Exporter::WebZip::Exporter.new(export.attachment.open, export_type: :web_zip, global_identifiers: true)
       CC::Exporter::WebZip::ZipPackage.new(exporter, @course, @student, @cache_key)
     end
 
@@ -825,6 +835,7 @@ describe "ZipPackage" do
       it "exports files linked from module items" do
         file = add_file(fixture_file_upload("amazing_file.txt", "plain/txt"), @course, "amazing_file.txt")
         assign = @course.assignments.create!(title: "Assignment 1",
+                                             saving_user: @student,
                                              description: "<a href=\"/courses/#{@course.id}/files/#{file.id}/download?wrap=1\">Link</a>")
         @module.content_tags.create!(content: assign, context: @course, indent: 0)
         course_data = create_zip_package.parse_course_data
@@ -838,6 +849,7 @@ describe "ZipPackage" do
       it "exports items linked from other linked items" do
         file = add_file(fixture_file_upload("amazing_file.txt", "plain/txt"), @course, "amazing_file.txt")
         assign = @course.assignments.create!(title: "Assignment 1",
+                                             saving_user: @student,
                                              description: "<a href=\"/courses/#{@course.id}/files/#{file.id}\">Link</a>")
         page = @course.wiki_pages.create!(title: "Page 1",
                                           wiki: @course.wiki,
@@ -868,6 +880,7 @@ describe "ZipPackage" do
           @course.wiki_pages.create!(
             title: "Home Page",
             wiki: @course.wiki,
+            saving_user: @student,
             body:
               "<p><iframe style=\"width: 320px; height: 14.25rem; display: inline-block;\" title=\"Audio player for 292.mp3\" data-media-type=\"audio\" src=\"/media_objects_iframe?mediahref=/files/#{media.id}/download&amp;type=audio?type=audio\" data-media-id=\"maybe\"></iframe><img src=\"/courses/#{@course.id}/files/#{image.id}/preview\" alt=\"cn_image.jpg\"</p>" \
               "<p><a class=\"instructure_file_link instructure_scribd_file\" title=\"amazing_file.txt\" href=\"/courses/#{@course.id}/files/#{text.id}?wrap=1\" target=\"_blank\" data-canvas-previewable=\"true\">amazing_file.txt</a>&nbsp;</p>"
@@ -888,6 +901,7 @@ describe "ZipPackage" do
           @course.wiki_pages.create!(
             title: "Home Page",
             wiki: @course.wiki,
+            saving_user: @student,
             body:
               "<p>
                 <iframe style=\"width: 320px; height: 14.25rem; display: inline-block;\"
@@ -913,7 +927,7 @@ describe "ZipPackage" do
           context: @course,
           content_type: "video/mp4"
         )
-        allow_any_instance_of(Attachment).to receive(:media_object).and_return(double(media_id:))
+        allow_any_instance_of(Attachment).to receive(:media_object).and_return(instance_double(MediaObject, media_id:))
         allow_any_instance_of(CC::Exporter::WebZip::ZipPackage).to receive(:create_tree_data).and_return(file_data)
 
         path = CGI.escape(att.full_path)
@@ -941,7 +955,7 @@ describe "ZipPackage" do
           context: @course,
           content_type: "video/mp4"
         )
-        allow_any_instance_of(Attachment).to receive(:media_object).and_return(double(media_id:))
+        allow_any_instance_of(Attachment).to receive(:media_object).and_return(instance_double(MediaObject, media_id:))
         allow_any_instance_of(CC::Exporter::WebZip::ZipPackage).to receive(:create_tree_data).and_return(file_data)
 
         path = CGI.escape(att.full_path)
@@ -991,6 +1005,7 @@ describe "ZipPackage" do
         survey = @course.quizzes.create!(title: "Survey 1",
                                          due_at:,
                                          quiz_type: "survey",
+                                         saving_user: @user,
                                          description: "<img src=\"/courses/#{@course.id}/files/#{file.id}\" />")
         survey.publish!
         @module.content_tags.create!(content: survey, context: @course, indent: 0)
@@ -999,7 +1014,7 @@ describe "ZipPackage" do
           exportId: create_key(survey),
           title: "Survey 1",
           type: "Quizzes::Quiz",
-          content: "<img src=\"viewer/files/cn_image.jpg\">",
+          content: %(<img src="viewer/files/cn_image.jpg" loading="lazy">),
           assignmentExportId: create_key(survey.assignment),
           questionCount: 0,
           timeLimit: nil,
@@ -1062,6 +1077,8 @@ describe "ZipPackage" do
         folder = @course.folders.create!(name: "folder#1", parent_folder: Folder.root_folders(@course).first)
         file = add_file(fixture_file_upload("cn_image.jpg", "image/jpg"), @course, "cn_image.jpg", folder)
         disc = @course.discussion_topics.create!(title: "Discussion 1",
+                                                 user: @student,
+                                                 saving_user: @student,
                                                  message: "<img src=\"/courses/#{@course.id}/files/#{file.id}\" />")
         @module.content_tags.create!(content: disc, context: @course, indent: 0)
         course_data = create_zip_package.parse_course_data
@@ -1069,7 +1086,7 @@ describe "ZipPackage" do
           exportId: create_key(disc),
           title: "Discussion 1",
           type: "DiscussionTopic",
-          content: "<img src=\"viewer/files/folder%231/cn_image.jpg\">",
+          content: %(<img src="viewer/files/folder%231/cn_image.jpg" loading="lazy">),
           lockAt: nil,
           unlockAt: nil,
           graded: false

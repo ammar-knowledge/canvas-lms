@@ -20,8 +20,6 @@
 require_relative "factory_bot_spec_helper"
 
 RSpec.shared_examples "a soft-deletable model" do
-  it { is_expected.to have_db_column(:deleted_at) }
-
   it "adds a deleted_at where clause when requested" do
     expect(described_class.active.all.where_clause.ast.to_sql).to include('"deleted_at" IS NULL')
   end
@@ -42,7 +40,7 @@ RSpec.shared_examples "a soft-deletable model" do
     instance = create(described_class.name.underscore.sub("conditional_release/", "").to_sym)
     copy = instance.clone
     instance.destroy!
-    expect { copy.save! }.to_not raise_error
+    expect { copy.save! }.not_to raise_error
   end
 end
 
@@ -50,7 +48,7 @@ module ConditionalRelease
   module SpecHelper
     def setup_course_with_native_conditional_release(course: nil)
       # set up a trigger assignment with rules and whatnot
-      course ||= course_with_student(active_all: true) && @course
+      course ||= course_with_student(active_all: true, course: @course) && @course
       @trigger_assmt = course.assignments.create!(points_possible: 10, submission_types: "online_text_entry")
       @sub = @trigger_assmt.submit_homework(@student, body: "hi") if @student
 

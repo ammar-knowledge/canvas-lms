@@ -38,6 +38,7 @@ describe "course copy" do
 
   before(:once) do
     Account.site_admin.disable_feature! :instui_for_import_page
+    Account.site_admin.disable_feature! :instui_for_course_copy_page
   end
 
   it "copies the course" do
@@ -177,7 +178,7 @@ describe "course copy" do
     before do
       course_with_admin_logged_in
       @date_to_use = 2.weeks.from_now.monday.strftime("%Y-%m-%d")
-      @course.start_at = Time.now
+      @course.start_at = Time.zone.now
       @course.save!
     end
 
@@ -199,6 +200,37 @@ describe "course copy" do
       new_course = Course.where(name: new_course_name).last
       new_event = new_course.calendar_events.where(title: "Monday Event").last
       expect(new_event.all_day_date).to eq event.all_day_date + 7.days
+    end
+  end
+
+  context "with LTI context controls" do
+    before do
+      course_with_admin_logged_in
+      @account = @course.account
+      @registration = lti_registration_with_tool(account: @account)
+      @tool = @registration.new_external_tool(@course)
+      @tool.update!(name: "Test LTI Tool")
+      @control = @tool.primary_context_control
+      @control.update!(available: true)
+    end
+
+    it "copies context controls with their associated tools" do
+      get "/courses/#{@course.id}/copy"
+      expect_new_page_load { CourseCopyPage.create_course_button.click }
+      expect(ContentMigrationPage.progress_status_label.text.include?("Queued")).to be(true)
+      run_jobs
+      wait_for_ajaximations
+      wait_for_migration_to_complete
+
+      @new_course = Course.last
+      # Verify the tool was copied
+      new_tool = @new_course.context_external_tools.active.find_by(name: "Test LTI Tool")
+      expect(new_tool).not_to be_nil
+
+      # Verify the context control was copied
+      new_control = Lti::ContextControl.active.find_by(course: @new_course, deployment: new_tool)
+      expect(new_control).not_to be_nil
+      expect(new_control.available).to be true
     end
   end
 end

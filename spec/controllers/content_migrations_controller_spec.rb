@@ -24,19 +24,33 @@ describe ContentMigrationsController do
   include K5Common
 
   context "course" do
-    before(:once) do
-      course_factory active_all: true
-    end
-
-    let(:migration) do
-      migration = @course.content_migrations.build(migration_settings: {})
-      migration.save!
-      migration
+    before :once do
+      course_factory(active_all: true)
+      attachment_model(context: @course, uploaded_data: fixture_file_upload("migration/canvas_cc_minimum.zip", "application/zip"))
+      @migration = @course.content_migrations.create(migration_settings: {}, attachment: @attachment)
     end
 
     describe "#index" do
       before do
         user_session(@teacher)
+        @course.start_at = 3.days.from_now
+        @course.conclude_at = 7.days.from_now
+        @course.save!
+      end
+
+      context "disable_verified_content_export_links enabled", type: :request do
+        before do
+          Account.site_admin.enable_feature!(:disable_verified_content_export_links)
+
+          # this one also removes the verifier, but we're waiting to turn it on til after the first one
+          Account.site_admin.disable_feature!(:disable_adding_uuid_verifier_in_api)
+        end
+
+        it "does not include verifiers in the content migration attachment URLs in the app" do
+          get "/api/v1/courses/#{@course.id}/content_migrations"
+          expect(response.parsed_body[0].dig("attachment", "url")).to be_present
+          expect(response.parsed_body[0].dig("attachment", "url")).not_to include "verifier="
+        end
       end
 
       it "exports quizzes_next environment" do
@@ -56,7 +70,6 @@ describe ContentMigrationsController do
         toggle_k5_setting(@course.account)
         get :index, params: { course_id: @course.id }
         expect(assigns(:css_bundles).flatten).to include(:k5_theme)
-        expect(assigns(:js_bundles).flatten).to include(:k5_theme)
       end
 
       context "instui_for_import_page flag" do
@@ -76,7 +89,11 @@ describe ContentMigrationsController do
           expect(assigns[:js_env][:NEW_QUIZZES_MIGRATION]).not_to be_nil
           expect(assigns[:js_env][:NEW_QUIZZES_MIGRATION_DEFAULT]).not_to be_nil
           expect(assigns[:js_env][:NEW_QUIZZES_MIGRATION_REQUIRED]).not_to be_nil
-          expect(assigns[:js_env][:SHOW_SELECTABLE_OUTCOMES_IN_IMPORT]).not_to be_nil
+          expect(assigns[:js_env][:NEW_QUIZZES_UNATTACHED_BANK_MIGRATIONS]).not_to be_nil
+          expect(assigns[:js_env][:OLD_START_DATE]).not_to be_nil
+          expect(assigns[:js_env][:OLD_END_DATE]).not_to be_nil
+          expect(assigns[:js_env][:NEW_USER_TUTORIALS]).not_to be_nil
+          expect(assigns[:js_env][:NEW_USER_TUTORIALS_ENABLED_AT_ACCOUNT]).not_to be_nil
         end
 
         it "exports proper environment variables with the flag ON" do
@@ -88,14 +105,29 @@ describe ContentMigrationsController do
           expect(assigns[:js_env][:QUESTION_BANKS]).not_to be_nil
           expect(assigns[:js_env][:COURSE_ID]).not_to be_nil
           expect(assigns[:js_env][:CONTENT_MIGRATIONS]).to be_nil
-          expect(assigns[:js_env][:SHOW_SELECT]).to be_nil
-          expect(assigns[:js_env][:CONTENT_MIGRATIONS_EXPIRE_DAYS]).to be_nil
+          expect(assigns[:js_env][:SHOW_SELECT]).not_to be_nil
+          expect(assigns[:js_env][:CONTENT_MIGRATIONS_EXPIRE_DAYS]).not_to be_nil
           expect(assigns[:js_env][:QUIZZES_NEXT_ENABLED]).not_to be_nil
           expect(assigns[:js_env][:NEW_QUIZZES_IMPORT]).not_to be_nil
           expect(assigns[:js_env][:NEW_QUIZZES_MIGRATION]).not_to be_nil
           expect(assigns[:js_env][:NEW_QUIZZES_MIGRATION_DEFAULT]).not_to be_nil
           expect(assigns[:js_env][:NEW_QUIZZES_MIGRATION_REQUIRED]).not_to be_nil
-          expect(assigns[:js_env][:SHOW_SELECTABLE_OUTCOMES_IN_IMPORT]).to be_nil
+          expect(assigns[:js_env][:NEW_QUIZZES_UNATTACHED_BANK_MIGRATIONS]).not_to be_nil
+          expect(assigns[:js_env][:OLD_START_DATE]).not_to be_nil
+          expect(assigns[:js_env][:OLD_END_DATE]).not_to be_nil
+        end
+
+        context "MISSING_POLICY_ENABLED value" do
+          it "is false when the course has no missing submission policy" do
+            get :index, params: { course_id: @course.id }
+            expect(assigns[:js_env][:MISSING_POLICY_ENABLED]).to be false
+          end
+
+          it "is true when the course has missing submission deduction enabled" do
+            @course.create_late_policy!(missing_submission_deduction_enabled: true, missing_submission_deduction: 100)
+            get :index, params: { course_id: @course.id }
+            expect(assigns[:js_env][:MISSING_POLICY_ENABLED]).to be true
+          end
         end
       end
     end
@@ -106,7 +138,7 @@ describe ContentMigrationsController do
           user_session(@teacher)
           get :show, params: {
             course_id: @course.id,
-            id: migration.id,
+            id: @migration.id,
             include: ["audit_info"]
           }
           expect(response).to be_successful
@@ -119,7 +151,7 @@ describe ContentMigrationsController do
           user_session(@teacher)
           get :show, params: {
             course_id: @course.id,
-            id: migration.id
+            id: @migration.id
           }
           expect(response).to be_successful
           expect(response.body).not_to include("audit_info")

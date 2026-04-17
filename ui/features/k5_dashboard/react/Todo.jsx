@@ -19,7 +19,7 @@
 import React, {useState} from 'react'
 import PropTypes from 'prop-types'
 import moment from 'moment-timezone'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import {AccessibleContent, PresentationContent} from '@instructure/ui-a11y-content'
 import {Badge} from '@instructure/ui-badge'
@@ -30,11 +30,11 @@ import {IconButton} from '@instructure/ui-buttons'
 import {IconEndSolid} from '@instructure/ui-icons'
 import {Flex} from '@instructure/ui-flex'
 
-import {showFlashError} from '@canvas/alerts/react/FlashAlert'
+import {showFlashError} from '@instructure/platform-alerts'
 import {ignoreTodo} from '@canvas/k5/react/utils'
 import * as tz from '@instructure/moment-utils'
 
-const I18n = useI18nScope('todo')
+const I18n = createI18nScope('todo')
 
 export const getBaseDueAt = ({all_dates}) =>
   (all_dates.filter(d => d.base)[0] || all_dates[0])?.due_at
@@ -52,9 +52,9 @@ const Todo = ({
 
   // Only assignments are supported (ungraded_quizzes are not)
   if (!assignment || ignored) return null
-  const {id, all_dates, name, points_possible} = assignment
+  const {id, all_dates, all_dates_count, name, points_possible} = assignment
   const baseDueAt = getBaseDueAt(assignment)
-  const hasMultipleDueDates = all_dates.length > 1
+  const hasMultipleDueDates = all_dates_count ? all_dates_count > 1 : all_dates.length > 1
 
   const handleIgnoreTodo = () => {
     ignoreTodo(ignore)
@@ -82,7 +82,7 @@ const Todo = ({
                 one: '1 submission needs grading',
                 other: '%{count} submissions need grading',
               },
-              {count: needs_grading_count}
+              {count: needs_grading_count},
             )}
           >
             {formattedCount}
@@ -118,9 +118,15 @@ const Todo = ({
               •
             </View>
           </PresentationContent>
-          <View>{dueDate}</View>
-          {hasMultipleDueDates && (
-            <View margin="0 0 0 x-small">{I18n.t('(Multiple Due Dates)')}</View>
+          {all_dates_count > 1 && all_dates.length === 0 ? (
+            <View>{I18n.t('Multiple Due Dates')}</View>
+          ) : (
+            <>
+              <View>{dueDate}</View>
+              {hasMultipleDueDates && (
+                <View margin="0 0 0 x-small">{I18n.t('(Multiple Due Dates)')}</View>
+              )}
+            </>
           )}
         </Text>
       </Flex>
@@ -146,8 +152,9 @@ Todo.propTypes = {
       PropTypes.shape({
         base: PropTypes.bool,
         due_at: PropTypes.string,
-      })
+      }),
     ).isRequired,
+    all_dates_count: PropTypes.number,
     due_at: PropTypes.string,
     name: PropTypes.string.isRequired,
     points_possible: PropTypes.number.isRequired,

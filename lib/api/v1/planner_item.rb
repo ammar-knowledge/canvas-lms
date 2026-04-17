@@ -30,6 +30,7 @@ module Api::V1::PlannerItem
   include Api::V1::PlannerNote
   include Api::V1::AssessmentRequest
   include PlannerApiHelper
+  include AssignmentsHelper
 
   API_PLANNABLE_FIELDS = %i[id
                             title
@@ -51,6 +52,7 @@ module Api::V1::PlannerItem
   GRADABLE_FIELDS = %i[assignment_id points_possible due_at].freeze
   PLANNER_NOTE_FIELDS = [:user_id].freeze
   ASSESSMENT_REQUEST_FIELDS = [:workflow_state].freeze
+  SUB_ASSIGNMENT_FIELDS = [:sub_assignment_tag].freeze
 
   def planner_item_json(item, user, session, opts = {})
     planner_override = item.planner_override_for(user)
@@ -65,13 +67,24 @@ module Api::V1::PlannerItem
         hash[:plannable_date] = item.start_at || item.created_at
         hash[:plannable] = plannable_json(item.attributes, extra_fields: CALENDAR_PLANNABLE_FIELDS)
         hash[:html_url] = calendar_url_for(item.effective_context, event: item)
+      elsif item.is_a?(SubAssignment) && item.parent_assignment&.discussion_topic
+        topic = item.parent_assignment&.discussion_topic
+        unread_count, read_state = topics_status_for(user, topic.id, opts[:topics_status])[topic.id]
+        unread_attributes = { unread_count:, read_state: }
+        hash[:details] = {
+          reply_to_entry_required_count: item.parent_assignment&.discussion_topic&.reply_to_entry_required_count || 1
+        }
+        hash[:plannable_type] = PlannerHelper::PLANNABLE_TYPES.key(item.class_name)
+        hash[:plannable_date] = item[:cached_due_date] || item.due_at
+        hash[:plannable] = plannable_json(item.attributes.merge(unread_attributes), extra_fields: SUB_ASSIGNMENT_FIELDS + GRADABLE_FIELDS)
+        hash[:html_url] = assignment_html_url(item.parent_assignment, user, hash[:submissions])
       elsif item.is_a?(::PlannerNote)
         hash[:plannable_date] = item.todo_date || item.created_at
         hash[:plannable] = plannable_json(item.attributes, extra_fields: PLANNER_NOTE_FIELDS)
         # TODO: We don't currently have an html_url for individual planner items.
         # hash[:html_url] = ???
       elsif item.is_a?(Quizzes::Quiz) || (item.respond_to?(:quiz?) && item.quiz?)
-        hash[:plannable_date] = item[:user_due_date] || item.due_at
+        hash[:plannable_date] = item[:cached_due_date] || item[:user_due_date] || item.due_at
         quiz = item.is_a?(Quizzes::Quiz) ? item : item.quiz
         hash[:plannable_id] = quiz.id
         hash[:plannable_type] = PlannerHelper::PLANNABLE_TYPES.key(quiz.class_name)
@@ -97,23 +110,25 @@ module Api::V1::PlannerItem
         unread_count, read_state = topics_status_for(user, topic.id, opts[:topics_status])[topic.id]
         unread_attributes = { unread_count:, read_state: }
         hash[:plannable_id] = topic.id
-        hash[:plannable_date] = item[:user_due_date] || topic.todo_date || topic.posted_at || topic.created_at
+        hash[:plannable_date] = item[:cached_due_date] || topic.todo_date || topic.posted_at || topic.created_at
         hash[:plannable_type] = PlannerHelper::PLANNABLE_TYPES.key(topic.class_name)
         hash[:plannable] = plannable_json(unread_attributes.merge(item.attributes).merge(topic.attributes), extra_fields: GRADABLE_FIELDS)
         hash[:html_url] = discussion_topic_html_url(topic, user, hash[:submissions])
         hash[:planner_override] ||= planner_override_json(topic.planner_override_for(user), user, session, topic.class_name)
+      elsif item.is_a?(PeerReviewSubAssignment)
+        hash[:plannable_type] = PlannerHelper::PLANNABLE_TYPES.key(item.class_name)
+        hash[:plannable_date] = item[:cached_due_date] || item.due_at
+        hash[:plannable] = plannable_json(item.attributes, extra_fields: GRADABLE_FIELDS)
+        hash[:html_url] = context_url(item.context, :context_assignment_peer_reviews_url, item.parent_assignment_id)
       elsif item.is_a?(AssessmentRequest)
         hash[:plannable_type] = PlannerHelper::PLANNABLE_TYPES.key(item.class_name)
         hash[:plannable_date] = item.asset.assignment.peer_reviews_due_at || item.assessor_asset.cached_due_date
         title_date = { title: item.asset&.assignment&.title, todo_date: hash[:plannable_date] }
         hash[:plannable] = plannable_json(title_date.merge(item.attributes), extra_fields: ASSESSMENT_REQUEST_FIELDS)
-        hash[:html_url] = Submission::ShowPresenter.new(
-          submission: item.asset,
-          current_user: user,
-          assessment_request: item
-        ).submission_data_url
+        submission = item.asset
+        hash[:html_url] = student_peer_review_url(submission.context, submission.assignment, item, user)
       else
-        hash[:plannable_date] = item[:user_due_date] || item.due_at
+        hash[:plannable_date] = item[:cached_due_date] || item[:user_due_date] || item.due_at
         hash[:plannable] = plannable_json(item.attributes, extra_fields: GRADABLE_FIELDS)
         hash[:html_url] = assignment_html_url(item, user, hash[:submissions])
       end
@@ -133,7 +148,7 @@ module Api::V1::PlannerItem
   def planner_items_json(items, user, session, opts = {})
     preload_items = items.each_with_object([]) do |item, memo|
       memo << item
-      if item.try(:submittable_object)
+      if item.try(:submittable_object) && item.is_a?(Assignment)
         item.submittable_object.assignment = item # fixes loading for inverse associations that don't seem to be working
         memo << item.submittable_object
       end
@@ -147,9 +162,15 @@ module Api::V1::PlannerItem
     notes, context_items = plannable_items.partition { |i| i.is_a?(::PlannerNote) }
     ActiveRecord::Associations.preload(notes, user: { pseudonym: :account }) if notes.any?
     ActiveRecord::Associations.preload(context_items, { context: :root_account }) if context_items.any?
-    ss = submission_statuses(context_items.select { |i| i.is_a?(::Assignment) }, user)
-    discussions = context_items.select { |i| i.is_a?(::DiscussionTopic) }
+    ss = submission_statuses(context_items.select { |i| i.is_a?(::Assignment) || i.is_a?(::SubAssignment) || i.is_a?(::PeerReviewSubAssignment) }, user, opts:)
+    discussions = context_items.grep(::DiscussionTopic)
     topics_status = topics_status_for(user, discussions.map(&:id))
+
+    items = items.reject do |item|
+      item.try(:context).is_a?(Course) &&
+        item.context.horizon_course? &&
+        !item.context.grants_right?(user, session, :read_as_admin)
+    end
 
     items.map do |item|
       planner_item_json(item, user, session, opts.merge(submission_statuses: ss, topics_status:))
@@ -169,20 +190,31 @@ module Api::V1::PlannerItem
 
   def submission_statuses_for(user, item, opts = {})
     submission_status = { submissions: false }
-    return submission_status unless item.is_a?(Assignment)
+    return submission_status unless item.is_a?(Assignment) || item.is_a?(SubAssignment) || item.is_a?(PeerReviewSubAssignment)
 
     ss = opts[:submission_statuses] || submission_statuses(item, user)
     submission_status[:submissions] = ss[item.id]&.except(:new_activity)
     submission_status
   end
 
-  def submission_statuses(assignments, user)
+  def submission_statuses(assignments, user, opts: {})
     subs = Submission.where(assignment: assignments, user:)
                      .preload([:content_participations, visible_submission_comments: :author])
     subs_hash = subs.index_by(&:assignment_id)
     subs_data_hash = {}
+
+    parent_assignment_ids = Array(assignments)
+                            .grep(SubAssignment)
+                            .map(&:parent_assignment_id)
+                            .uniq
+    parent_subs = Submission.where(assignment_id: parent_assignment_ids, user:)
+                            .preload([:content_participations, visible_submission_comments: :author]) # rubocop:disable Style/HashAsLastArrayItem
+    parent_subs_hash = parent_subs.index_by(&:assignment_id)
+
     Array(assignments).each do |assign|
       submission = subs_hash[assign.id]
+      parent_submission = parent_subs_hash[assign.parent_assignment_id]
+      sub_or_parent_sub = assign.is_a?(SubAssignment) ? parent_submission : submission
       submission.assignment = assign if submission # fixes loading for inverse associations that don't seem to be working
       sub_data_hash = {
         submitted: submission&.has_submission?,
@@ -192,21 +224,21 @@ module Api::V1::PlannerItem
         late: submission&.late?,
         missing: submission&.missing?,
         needs_grading: submission&.needs_grading?,
-        has_feedback: submission&.last_teacher_comment.present?,
-        new_activity: submission&.unread?(user),
+        has_feedback: sub_or_parent_sub&.last_teacher_comment.present?,
+        new_activity: sub_or_parent_sub&.unread?(user),
         redo_request: submission&.redo_request?
       }
-      sub_data_hash[:feedback] = feedback_data(submission, user) if sub_data_hash[:has_feedback]
+      sub_data_hash[:feedback] = feedback_data(sub_or_parent_sub, user, opts[:use_html_comment]) if sub_data_hash[:has_feedback]
       subs_data_hash[assign.id] = sub_data_hash
     end
     subs_data_hash
   end
 
-  def feedback_data(submission, user)
+  def feedback_data(submission, user, use_html_comment)
     feedback_hash = {}
     last_teacher_comment = submission.last_teacher_comment
     last_teacher_comment.submission = submission # otherwise you get a couple more queries, because the association is lost somehow
-    feedback_hash[:comment] = last_teacher_comment.comment
+    feedback_hash[:comment] = use_html_comment ? last_teacher_comment.comment : Nokogiri::HTML(last_teacher_comment.comment).text
     feedback_hash[:is_media] = last_teacher_comment.media_comment_id?
     if last_teacher_comment.can_read_author?(user, nil)
       feedback_hash[:author_name] = last_teacher_comment.author_name
@@ -248,9 +280,28 @@ module Api::V1::PlannerItem
     end
     if item.is_a?(DiscussionTopic) || item.try(:discussion_topic)
       topic = item.try(:discussion_topic) || item
+      # For announcements: marking done in planner always clears new activity,
+      # regardless of unread counts (announcements have no replies to read).
+      return false if item.is_a?(Announcement) && item.planner_override_for(user)&.marked_complete?
+
       unread_count, read_state = opts.dig(:topics_status, topic.id)
-      return read_state == "unread" || unread_count > 0 if unread_count && read_state
+      if unread_count && read_state
+        return read_state == "unread" || unread_count > 0
+      end
       return topic.unread?(user) || topic.unread_count(user) > 0 if topic
+    end
+    if item.is_a?(SubAssignment)
+      topic = item.parent_assignment&.discussion_topic
+
+      if topic
+        unread_count, read_state = opts.dig(:topics_status, topic.id)
+        ss = opts[:submission_statuses] || submission_statuses(item, user)
+        return true if ss.dig(item.id, :new_activity) || (unread_count && read_state && (read_state == "unread" || unread_count > 0)) || (topic && (topic.unread?(user) || topic.unread_count(user) > 0))
+      end
+    end
+    if item.is_a?(PeerReviewSubAssignment)
+      ss = opts[:submission_statuses] || submission_statuses(item, user)
+      return true if ss.dig(item.id, :new_activity)
     end
     false
   end

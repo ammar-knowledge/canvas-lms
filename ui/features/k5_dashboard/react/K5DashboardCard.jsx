@@ -18,7 +18,7 @@
 
 import React, {useContext} from 'react'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import {AccessibleContent} from '@instructure/ui-a11y-content'
 import {Flex} from '@instructure/ui-flex'
@@ -35,9 +35,13 @@ import K5DashboardContext from '@canvas/k5/react/K5DashboardContext'
 import {DEFAULT_COURSE_COLOR, FOCUS_TARGETS} from '@canvas/k5/react/utils'
 import instFSOptimizedImageUrl from '@canvas/dashboard-card/util/instFSOptimizedImageUrl'
 
-const k5ThemeVariables = getK5ThemeVars()
+const k5ThemeVariables = getK5ThemeVars(
+  Boolean(ENV.use_high_contrast),
+  Boolean(ENV.USE_CLASSIC_FONT),
+  Boolean(ENV.use_dyslexic_font),
+)
 
-const I18n = useI18nScope('k5_dashboard_card')
+const I18n = createI18nScope('k5_dashboard_card')
 
 export const CARD_SIZE_PX = 300
 
@@ -69,8 +73,8 @@ DashboardCardHeaderHero.propTypes = {
 }
 
 export const LatestAnnouncementLink = ({courseId, color, loading, title, html_url}) => {
-  const customSkeleton = props => (
-    <Flex alignItems="start" margin="xx-small small xx-small small" {...props}>
+  const customSkeleton = ({key, ...props}) => (
+    <Flex key={key} alignItems="start" margin="xx-small small xx-small small" {...props}>
       <Flex.Item shouldGrow={true} shouldShrink={true}>
         <LoadingSkeleton
           screenReaderLabel={I18n.t('Loading latest announcement link')}
@@ -156,8 +160,8 @@ export const AssignmentLinks = ({
             display="block"
             isWithinText={false}
             themeOverride={{
-              color: k5ThemeVariables.colors.textDarkest,
-              hoverColor: k5ThemeVariables.colors.textDarkest,
+              color: k5ThemeVariables.colors.contrasts.grey125125,
+              hoverColor: k5ThemeVariables.colors.contrasts.grey125125,
             }}
           >
             <AccessibleContent
@@ -187,8 +191,8 @@ export const AssignmentLinks = ({
               display="block"
               isWithinText={false}
               themeOverride={{
-                color: k5ThemeVariables.colors.textDanger,
-                hoverColor: k5ThemeVariables.colors.textDanger,
+                color: k5ThemeVariables.colors.contrasts.red4570,
+                hoverColor: k5ThemeVariables.colors.contrasts.red4570,
               }}
             >
               <AccessibleContent
@@ -262,7 +266,7 @@ const K5DashboardCard = ({
   const loadingOpportunities = k5Context?.loadingOpportunities || false
   const isStudent = k5Context?.isStudent || false
   const latestAnnouncement = k5Context.subjectAnnouncements.find(
-    a => a.context_code === `course_${id}`
+    a => a.context_code === `course_${id}`,
   )
 
   const handleHeaderClick = e => {
@@ -308,8 +312,8 @@ const K5DashboardCard = ({
             display="block"
             isWithinText={false}
             themeOverride={{
-              color: k5ThemeVariables.colors.textDarkest,
-              hoverColor: k5ThemeVariables.colors.textDarkest,
+              color: k5ThemeVariables.colors.contrasts.grey125125,
+              hoverColor: k5ThemeVariables.colors.contrasts.grey125125,
               fontWeight: 700,
             }}
           >

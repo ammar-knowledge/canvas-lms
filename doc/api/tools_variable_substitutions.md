@@ -54,10 +54,10 @@ arbitrary_name=$Canvas.api.domain
 ```
 
 ## Via API
-Custom fields can also be <a href="/doc/api/external_tools.html#method.external_tools.create">configured via API</a>.
+Custom fields can also be <a href="external_tools.html#method.external_tools.create">configured via API</a>.
 
 This would install a course-level tool with domain as a custom field:
-```
+```bash
 curl 'https://<domain>.instructure.com/api/v1/courses/<course_id>/external_tools' \
   -X POST \
   -H "Authorization: Bearer <token>;" \
@@ -74,7 +74,7 @@ JSON can be used to <a href="https://community.canvaslms.com/t5/Admin-Guide/How-
 
 The following JSON would create a developer key with the a placement specfic custom field and a tool-level custom field:
 
-```
+```json
 {  
    "title":"Variable Expansion Tool",
    "scopes":[  
@@ -123,11 +123,11 @@ The following JSON would create a developer key with the a placement specfic cus
 ```
 
 ## Via XML Configuration (LTI 1.1)
-Custom fields can also be <a href="/doc/api/file.tools_xml.html">configured via XML</a>.
+Custom fields can also be <a href="file.tools_xml.html">configured via XML</a>.
 
 This would create a tool in a course with custom fields, some of which are specific for a
 particular placement:
-```
+```xml
 <?xml version="1.0" encoding="UTF-8"?>
    <cartridge_basiclti_link xmlns="http://www.imsglobal.org/xsd/imslticc_v1p0"
        xmlns:blti = "http://www.imsglobal.org/xsd/imsbasiclti_v1p0"
@@ -159,6 +159,7 @@ particular placement:
      </blti:extensions>
    </cartridge_basiclti_link>
 ```
+
 # Supported Substitutions
 ## ResourceLink.id
 LTI - Custom parameter substitution: ResourceLink.id
@@ -417,7 +418,7 @@ If the context is a Course, returns sourced Id of the context.
 ```
 ## Context.id.history
 With respect to the current course, recursively returns the context ids of the courses from which content has been copied (excludes cartridge imports).
-Will show a limit of 1000 context ids.  When the number passes 1000, 'truncated' will show at the end of the list.
+Will show a limit of 1000 context ids. When the number passes 1000, 'truncated' will show at the end of the list.
 
 This is an alias of `Canvas.course.previousContextIds.recursive`.
 
@@ -426,6 +427,19 @@ This is an alias of `Canvas.course.previousContextIds.recursive`.
 
 ```
 "1234,4567"
+```
+## Activity.id.history
+With respect to the current assignment, recursively returns the activity (assignment)
+LTI ids of the assignments from which the current assignment was copied or imported.
+The value of this variable is updated only if the source assignment has at least one asset processor attached.
+Tools can use this to detect copies and automatically import related resources.
+The result is limited to 1000 ids. When the number passes 1000, 'truncated' will show at the end of the list.
+
+**Availability**: *when launched as an assignment*  
+
+
+```
+"25de3090-de71-4419-9a7c-53b509945710,057361e2-87f9-4597-b072-4b7464bdefde"
 ```
 ## Message.documentTarget
 communicates the kind of browser window/frame where the Canvas has launched a tool.
@@ -540,7 +554,7 @@ returns the root account's sis source id for the current context.
 ## Canvas.externalTool.global_id
 returns the global ID for the external tool that was launched. Only available for LTI 1.
 
-**Availability**: *always and when in an LTI 1*  
+**Availability**: *when in an LTI 1*  
 
 
 ```
@@ -558,7 +572,7 @@ returns the URL for the external tool that was launched. Only available for LTI 
 ## com.instructure.brandConfigJSON.url
 returns the URL to retrieve the brand config JSON for the launching context.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -567,7 +581,7 @@ returns the URL to retrieve the brand config JSON for the launching context.
 ## com.instructure.brandConfigJSON
 returns the brand config JSON itself for the launching context.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -579,7 +593,7 @@ This URL should be used as the src attribute for a script tag on the external to
 provider's web page. It is configured to be used with the [instructure-ui node module](https://github.com/instructure/instructure-ui).
 More information on on how to use instructure ui react components can be found [here](http://instructure.github.io/instructure-ui/).
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -588,7 +602,7 @@ More information on on how to use instructure ui react components can be found [
 ## Canvas.css.common
 returns the URL for the common css file.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -775,7 +789,7 @@ enabled.
 **Launch Parameter**: *com_instructure_assignment_anonymous_grading*  
 
 ```
-true
+"true"
 ```
 ## com.instructure.Assignment.restrict_quantitative_data
 returns true if the assignment restricts quantitative data.
@@ -785,7 +799,7 @@ Assignment types: points, percentage, gpa_scale are all considered quantitative.
 **Launch Parameter**: *com_instructure_assignment_restrict_quantitative_data*  
 
 ```
-true
+"true"
 ```
 ## com.instructure.Course.gradingScheme
 returns the grading scheme data for the course
@@ -829,6 +843,17 @@ This is a list of IMS LIS roles should have a different key.
 ```
 "urn:lti:sysrole:ims/lis/None"
 ```
+## Canvas.membership.permissions<>
+Returns a comma-separated list of permissions granted to the user in the current context,
+given a comma-separated set to check using the format
+`$Canvas.membership.permissions<example_permission,example_permission2,..>`.
+
+**Availability**: *when launched from a course or an account (or a Group within a course or account)*  
+
+
+```
+"example_permission_1,example_permission_2"
+```
 ## Canvas.course.previousContextIds
 With respect to the current course, returns the context ids of the courses from which content has been copied (excludes cartridge imports).
 
@@ -858,6 +883,17 @@ With respect to the current course, returns the course ids of the courses from w
 
 ```
 1234
+```
+## com.instructure.Course.rce_studio_embed_improvements
+Returns "true" if the RCE Studio embed improvements feature is enabled
+for the current course, or account context "false" otherwise.
+This allows LTI tools to adapt their UI based on Canvas feature flags.
+
+**Availability**: *always*  
+
+
+```
+"true"
 ```
 ## Person.name.full
 Returns the full name of the launching user.
@@ -994,6 +1030,15 @@ Returns the users preference for high contrast colors (an accessibility feature)
 ```
 false
 ```
+## Canvas.user.prefersDyslexicFont
+Returns the users preference for using a dyslexia friendly font (an accessibility feature).
+
+**Availability**: *when launched by a logged in user*  
+
+
+```
+false
+```
 ## com.instructure.Course.groupIds
 returns the Canvas ids of all active groups in the current course.
 
@@ -1065,7 +1110,7 @@ Returns true for root account admins and false for all other roles.
 
 
 ```
-true
+"true"
 ```
 ## Canvas.user.adminableAccounts
 Returns a string with a comma-separated list of the (local) account IDs
@@ -1153,7 +1198,7 @@ Returns the logout service url for the user.
 This is the pseudonym the user is actually logged in as.
 It may not hold all the sis info needed in other launch substitutions.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -1220,7 +1265,7 @@ Returns true if the user can only view and interact with users in their own sect
 
 
 ```
-true
+"true"
 ```
 ## Canvas.course.sectionSisSourceIds
 Returns a comma separated list of section sis_id's that the user is enrolled in.
@@ -1267,6 +1312,24 @@ Returns the assignment_id of the assignment that was launched.
 ```
 1234
 ```
+## Canvas.assignment.new_quizzes_type
+Returns the new_quizzes type of the assignment that was launched.
+
+**Availability**: *when launched as an assignment*  
+
+
+```
+"graded_quiz"
+```
+## Canvas.assignment.anonymous_participants
+Returns whether the assignment that was launched anonymizes the participants.
+
+**Availability**: *when launched as an assignment*  
+
+
+```
+true
+```
 ## Canvas.assignment.description
 Returns the assignment_description of the assignment that was launched.
 
@@ -1276,9 +1339,22 @@ Returns the assignment_description of the assignment that was launched.
 ```
 "Example Description"
 ```
+## CourseGroup.id
+Returns the Canvas id of the group the current user is in if launching
+from a group assignment otherwise empty string.
+
+**Availability**: *when launched by a logged in user and when launched as an assignment*  
+
+
+```
+481
+```
 ## com.instructure.Group.id
 Returns the Canvas id of the group the current user is in if launching
 from a group assignment.
+
+This is similar to `CourseGroup.id` but unlike that this returns
+`$com.instructure.Group.id` for non group assignments and not an empty string.
 
 **Availability**: *when launched by a logged in user and when launched as an assignment*  
 **Launch Parameter**: *vnd_canvas_group_id*  
@@ -1296,6 +1372,26 @@ from a group assignment.
 ```
 "Group One"
 ```
+## com.instructure.Tag.id
+Returns the Canvas id of the differentiation tag the current user is assigned to
+for the current assignment context.
+
+**Availability**: *when launched by a logged in user and when launched as an assignment*  
+**Launch Parameter**: *com_instructure_tag_id*  
+
+```
+123
+```
+## com.instructure.Tag.name
+Returns the name of the differentiation tag the current user is assigned to
+for the current assignment context.
+
+**Availability**: *when launched by a logged in user and when launched as an assignment*  
+**Launch Parameter**: *com_instructure_tag_name*  
+
+```
+"Advanced Students"
+```
 ## Canvas.assignment.title
 Returns the title of the assignment that was launched.
 
@@ -1308,11 +1404,31 @@ Returns the title of the assignment that was launched.
 ## Canvas.assignment.pointsPossible
 Returns the points possible of the assignment that was launched.
 
+This is an alias of `LineItem.resultValue.max`.
+
 **Availability**: *when launched as an assignment*  
 
 
 ```
 100
+```
+## Canvas.assignment.hideInGradebook
+Returns true if the assignment is hidden in the gradebook.
+
+**Availability**: *when launched as an assignment*  
+
+
+```
+"true"
+```
+## Canvas.assignment.omitFromFinalGrade
+Returns true if the assignment is omitted from students' final grade.
+
+**Availability**: *when launched as an assignment*  
+
+
+```
+"true"
 ```
 ## Canvas.assignment.unlockAt *[deprecated]*
 deprecated in favor of ISO8601.
@@ -1356,17 +1472,16 @@ Only available when launched as an assignment with a `lock_at` set.
 2018-02-20:00:00Z
 ```
 ## Canvas.assignment.dueAt.iso8601
-Returns the `due_at` date of the assignment that was launched. Only
-available when launched as an assignment with a `due_at` set. If the tool
-is launched as a student, this will be the date that assignment is due
-for that student (or unexpanded -- "$Canvas.assignment.dueAt.iso8601" --
-if there is no due date for the student). If the tool is launched as an
-instructor and there are multiple possible due dates (i.e., there are
-multiple sections and at least one has a due date override), this will be
-the LATEST effective due date of any section or student (or unexpanded if
-there is at least one section or student with no effective due date).
+Returns the `due_at` date of the assignment that was launched.
+If the tool is launched as a student, this will be the date that assignment
+is due for that student (or unexpanded -- "$Canvas.assignment.dueAt.iso8601" --
+if there is no due date for the student).
+If the tool is launched as an instructor and there are multiple
+possible due dates (i.e., there are multiple sections and at
+least one has a due date override), this will be the LATEST effective
+due date of any section or student.
 
-**Availability**: *always*  
+**Availability**: *when launched as an assignment*  
 
 
 ```
@@ -1412,7 +1527,7 @@ Only available when launched as an assignment.
 
 
 ```
-true
+"true"
 ```
 ## Canvas.assignment.lockdownEnabled
 Returns true if the assignment is LDB enabled.
@@ -1422,7 +1537,7 @@ Only available when launched as an assignment.
 
 
 ```
-true
+"true"
 ```
 ## Canvas.assignment.allowedAttempts
 Returns the allowed number of submission attempts.
@@ -1446,7 +1561,7 @@ Returns the number of submission attempts which the student did.
 Returns the endpoint url for accessing link-level tool settings
 Only available for LTI 2.0.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -1456,7 +1571,7 @@ Only available for LTI 2.0.
 Returns the endpoint url for accessing context-level tool settings
 Only available for LTI 2.0.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -1476,7 +1591,7 @@ Only available for LTI 2.0.
 Returns the [Tool Consumer Profile](https://www.imsglobal.org/specs/ltiv2p0/implementation-guide#toc-46) url for the tool.
 Only available for LTI 2.0.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -1574,7 +1689,7 @@ Value is a comma-separated array of one or more values of: ["assignment", "assig
 Only functional when `com_instructure_course_accept_canvas_resource_types` is included as a query param
 in Canvas-side GET request that triggers the LTI launch.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -1593,7 +1708,7 @@ Value is the largest logical unit of the page. Possible values are: ["assignment
 Only functional when `com_instructure_course_canvas_resource_type` is included as a query param
 in Canvas-side GET request that triggers the LTI launch.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -1604,7 +1719,7 @@ Returns the target resource id for the current page, forwarded from the request.
 `com_instructure_course_canvas_resource_type` is included as a query param. Currently, this is not
 supported generally, and is only implemented for specific use cases.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -1617,11 +1732,11 @@ True for Modules page and Assignment Groups page. False for other content index 
 Only functional when `com_instructure_course_allow_canvas_resource_selection` is included as a query param
 in Canvas-side GET request that triggers the LTI launch.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
-true
+"true"
 ```
 ## com.instructure.Course.available_canvas_resources
 Returns a JSON-encoded list of content groups which can be selected, providing ID and name of each group,
@@ -1631,7 +1746,7 @@ Empty value if com.instructure.Course.allow_canvas_resource_selection is false.
 Only functional when `com_instructure_course_available_canvas_resources` is included as a query param
 in Canvas-side GET request that triggers the LTI launch.
 
-**Availability**: *always*  
+**Availability**: *when a tool is launched (excludes background messages like PNS notices)*  
 
 
 ```
@@ -1644,3 +1759,58 @@ in Canvas-side GET request that triggers the LTI launch.
 
 
 
+## com.instructure.user.lti_1_1_id.history
+Returns a comma-separated list of historical `lti_context_id` of a user in chronological order including the current id.
+The `lti_context_id` of a user is the same that is sent as `user_id` in 1.1 launches.
+This variable helps tools handle the merged user's history.
+
+**Availability**: *when launched by a logged in user*  
+
+
+```
+123,456,789
+```
+## LineItem.resultValue.max
+Returns the points possible of the assignment that was launched.
+For other LineItem properties, use the LTI 1.3 <a href="file.assignment_tools.html">Assignments and Grade Services</a>
+
+This is an alias of `Canvas.assignment.pointsPossible`.
+
+**Availability**: *when launched as an assignment*  
+
+
+```
+100
+```
+## Canvas.account.decimal_separator
+Returns the decimal separator for the current context account.
+This is used to have custom formatting on numbers, independent from the account's locale.
+If the account does not have a decimal separator set, it will return "$Canvas.account.decimal_separator".
+
+**Availability**: *when launched in a course (or a Group within a course)*  
+
+
+```
+"comma"
+```
+## Canvas.account.thousand_separator
+Returns the thousand separator for the current context account.
+This is used to have custom formatting on numbers, independent from the account's locale.
+If the account does not have a thousand separator set, it will return "$Canvas.account.thousand_separator".
+
+**Availability**: *when launched in a course (or a Group within a course)*  
+
+
+```
+"period"
+```
+## Canvas.course.aiQuizGeneration
+Returns true if the AI quiz generation feature is enabled for the course.
+This is used to determine whether to display the "Generate With AI" button in the UI.
+
+**Availability**: *when launched in a course (or a Group within a course)*  
+
+
+```
+"true"
+```

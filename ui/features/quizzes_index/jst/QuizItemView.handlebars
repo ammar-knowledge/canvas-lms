@@ -123,12 +123,12 @@
               <span data-view="publish-icon" class="publish-icon"></span>
           {{/if}}
           <div class="inline-block">
-            <button class="al-trigger al-trigger-gray Button--icon-action" aria-haspopup="true" aria-owns="ui-id-{{id}}-1" role="button">
+            <button class="al-trigger al-trigger-gray Button--icon-action" id="btn-id-{{id}}-1" data-popup-collision="fit flipfit">
               <i class="icon-more" aria-hidden="true"></i>
               <span class="screenreader-only">{{#t}}Options for {{title_label}}{{/t}}</span>
             </button>
 
-            <ul id="ui-id-{{id}}-1" class="al-options" role="menu" tabindex="0" aria-hidden="true" aria-expanded="false" aria-activedescendant="ui-id-{{id}}-2">
+            <ul id="ui-id-{{id}}-1" class="al-options" role="menu" aria-hidden="true" aria-expanded="false" aria-activedescendant="ui-id-{{id}}-2">
               {{#if can_update}}
                 <li role="presentation">
                   <a href="{{edit_url}}" id="ui-id-{{id}}-2" class="icon-edit" tabindex="-1" role="menuitem" title='{{#t}}Edit Quiz{{/t}}'>{{#t}}Edit{{/t}}</a>
@@ -141,7 +141,7 @@
               {{/if}}
               {{#ifAll assignment_id showSpeedGraderLink}}
                 <li role="presentation" class="speed-grader-link-container {{#if initialUnpublishedState}}hidden{{/if}}">
-                  <a href="/courses/{{courseId}}/gradebook/speed_grader?assignment_id={{assignment_id}}" id="ui-id-{{id}}-6" class="icon-speed-grader speed-grader-link" tabindex="-1" role="menuitem" title="{{#t}}Navigate to SpeedGrader for {{name}}{{/t}}">{{#t}}SpeedGrader{{/t}}</a>
+                  <a href="/courses/{{courseId}}/gradebook/speed_grader?assignment_id={{assignment_id}}" target="_blank" rel="noopener" id="ui-id-{{id}}-6" class="icon-speed-grader speed-grader-link" tabindex="-1" role="menuitem" title="{{#t}}Navigate to SpeedGrader for {{name}}{{/t}}">{{#t}}SpeedGrader{{/t}}</a>
                 </li>
               {{/ifAll}}
               {{#if canDuplicate}}
@@ -155,22 +155,21 @@
               </li>
               {{/if}}
               {{#if canManageAssignTo}}
-                {{#if differentiatedModulesFlag}}
                   <li>
                     <a
                       class="assign-to-link icon-permissions"
                       id="assign_to_{{id}}_link"
                       href="{{id}}%>"
-                      data-quiz-name="{{name}}"
-                      data-quiz-context-id="{{courseId}}"
-                      data-quiz-id="{{id}}"
-                      data-is-lti-quiz="{{isQuizzesNext}}"
                       title="<%= {{#t}}Assign this Quiz{{/t}} %>"
                       aria-label="{{#t}}Assign To...{{/t}}"
                       data-focus-returns-to="assign_{{id}}_manage_link"
-                    >{{#t}}Assign To...{{/t}}</a>
+                    ><span class="assign-to-link-resources"
+                      translate="no"
+                      data-quiz-name="{{name}}"
+                      data-quiz-context-id="{{courseId}}"
+                      data-quiz-id="{{id}}"
+                      data-is-lti-quiz="{{isQuizzesNext}}"></span>{{#t}}Assign To...{{/t}}</a>
                   </li>
-                {{/if}}
               {{/if}}
               {{#unless is_locked}}
                 <li role="presentation">
@@ -220,12 +219,12 @@
               <span data-view="publish-icon" class="publish-icon"></span>
           {{/if}}
           <div class="inline-block">
-            <button class="al-trigger al-trigger-gray Button--icon-action" aria-haspopup="true" aria-owns="ui-id-{{id}}-1" role="button">
+            <button class="al-trigger al-trigger-gray Button--icon-action" id="btn-id-{{id}}-1">
               <i class="icon-more" aria-hidden="true"></i>
               <span class="screenreader-only">{{#t}}Options for {{title_label}}{{/t}}</span>
             </button>
 
-            <ul id="ui-id-{{id}}-1" class="al-options" role="menu" tabindex="0" aria-hidden="true" aria-expanded="false" aria-activedescendant="ui-id-{{id}}-2">
+            <ul id="ui-id-{{id}}-1" class="al-options" role="menu" aria-hidden="true" aria-expanded="false" aria-activedescendant="ui-id-{{id}}-2">
               {{#if can_update}}
                 <li role="presentation">
                   <a href="{{edit_url}}" id="ui-id-{{id}}-2" class="icon-edit" tabindex="-1" role="menuitem" title='{{#t}}Edit Quiz{{/t}}'>{{#t}}Edit{{/t}}</a>
@@ -247,22 +246,21 @@
               </li>
               {{/if}}
               {{#if canManageAssignTo}}
-                {{#if differentiatedModulesFlag}}
                   <li>
                     <a
                       class="assign-to-link icon-permissions"
                       id="assign_to_{{id}}_link"
                       href="{{id}}%>"
-                      data-quiz-name="{{name}}"
-                      data-quiz-context-id="{{courseId}}"
-                      data-quiz-id="{{id}}"
-                      data-is-lti-quiz="{{isQuizzesNext}}"
                       title="<%= {{#t}}Assign this Quiz{{/t}} %>"
                       aria-label="{{#t}}Assign To...{{/t}}"
                       data-focus-returns-to="assign_{{id}}_manage_link"
-                    >{{#t}}Assign To...{{/t}}</a>
+                    ><span class="assign-to-link-resources"
+                      translate="no"
+                      data-quiz-name="{{name}}"
+                      data-quiz-context-id="{{courseId}}"
+                      data-quiz-id="{{id}}"
+                      data-is-lti-quiz="{{isQuizzesNext}}"></span>{{#t}}Assign To...{{/t}}</a>
                   </li>
-                {{/if}}
               {{/if}}
               {{#ifAll can_update cyoe.isCyoeAble}}
               <li role="presentation">

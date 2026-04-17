@@ -18,6 +18,8 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+require "webmock/rspec"
+
 describe FilePreviewsController do
   before(:once) do
     @account = Account.default
@@ -29,11 +31,45 @@ describe FilePreviewsController do
     user_session(@student)
   end
 
+  describe "with JWT access token" do
+    include_context "InstAccess setup"
+
+    before do
+      attachment_model.update!(file_state: "hidden", instfs_uuid: "stuff")
+      user_with_pseudonym
+      jwt_payload = {
+        resource: "/courses/#{@course.id}/files/#{@attachment.id}?instfs_id=stuff",
+        aud: [@course.root_account.uuid],
+        sub: @user.uuid,
+        tenant_auth: { location: "location" },
+        iss: "instructure:inst_access",
+        exp: 1.hour.from_now.to_i,
+        iat: Time.now.to_i
+      }
+      @token_string = InstAccess::Token.send(:new, jwt_payload).to_unencrypted_token_string
+      allow(Canvadocs).to receive(:enabled?).and_return(true)
+      allow(InstFS).to receive_messages(enabled?: true, app_host: "http://instfs.test")
+      stub_request(:get, "http://instfs.test/files/stuff/metadata").to_return(status: 200, body: { url: "http://instfs.test/stuff" }.to_json)
+    end
+
+    it "allows access" do
+      get :show, params: { course_id: @course.id, file_id: @attachment.id, access_token: @token_string, instfs_id: "stuff" }
+      expect(response).to be_successful
+    end
+
+    it "does not allow access if the file doesn't match" do
+      attachment_model.update!(file_state: "hidden", instfs_uuid: "otherstuff")
+      get :show, params: { course_id: @course.id, file_id: @attachment.id, access_token: @token_string, instfs_id: "stuff" }
+      expect(response).to be_unauthorized
+    end
+  end
+
   it "requires authorization to view the file" do
     course_model
     attachment_model
     get :show, params: { course_id: @course.id, file_id: @attachment.id }
     expect(response).to have_http_status :unauthorized
+    expect(response).to render_template "unauthorized_preview"
   end
 
   it "accepts a valid verifier token" do
@@ -66,16 +102,7 @@ describe FilePreviewsController do
     expect(assigns["show_left_side"]).to be false
   end
 
-  it "redirects to crododoc_url if available and params[:annotate] is given" do
-    allow_any_instance_of(Attachment).to receive(:crocodoc_url).and_return("http://example.com/fake_crocodoc_url")
-    allow_any_instance_of(Attachment).to receive(:canvadoc_url).and_return("http://example.com/fake_canvadoc_url")
-    attachment_model content_type: "application/msword"
-    get :show, params: { course_id: @course.id, file_id: @attachment.id, annotate: 1 }
-    expect(response).to redirect_to @attachment.crocodoc_url
-  end
-
   it "redirects to canvadocs_url if available" do
-    allow_any_instance_of(Attachment).to receive(:crocodoc_url).and_return("http://example.com/fake_crocodoc_url")
     allow_any_instance_of(Attachment).to receive(:canvadoc_url).and_return("http://example.com/fake_canvadoc_url")
     attachment_model content_type: "application/msword"
     get :show, params: { course_id: @course.id, file_id: @attachment.id }
@@ -83,7 +110,6 @@ describe FilePreviewsController do
   end
 
   it "redirects to a google doc preview if available" do
-    allow_any_instance_of(Attachment).to receive(:crocodoc_url).and_return(nil)
     allow_any_instance_of(Attachment).to receive(:canvadoc_url).and_return(nil)
     attachment_model content_type: "application/msword"
     get :show, params: { course_id: @course.id, file_id: @attachment.id }
@@ -92,7 +118,6 @@ describe FilePreviewsController do
   end
 
   it "redirects to file if it's html" do
-    allow_any_instance_of(Attachment).to receive(:crocodoc_url).and_return(nil)
     allow_any_instance_of(Attachment).to receive(:canvadoc_url).and_return(nil)
     attachment_model content_type: "text/html"
     get :show, params: { course_id: @course.id, file_id: @attachment.id }
@@ -101,7 +126,6 @@ describe FilePreviewsController do
   end
 
   it "renders a download link if no previews are available" do
-    allow_any_instance_of(Attachment).to receive(:crocodoc_url).and_return(nil)
     allow_any_instance_of(Attachment).to receive(:canvadoc_url).and_return(nil)
     @account.disable_service(:google_docs_previews)
     @account.save!
@@ -166,11 +190,37 @@ describe FilePreviewsController do
       @account.save!
     end
 
-    it "renders unauthorized" do
+    it "allows students to see individual files" do
       course_model
       attachment_model
       get :show, params: { course_id: @course.id, file_id: @attachment.id, verifier: @attachment.uuid }
-      expect(response).to have_http_status :unauthorized
+      expect(response).to have_http_status :ok
+    end
+  end
+
+  context "unauthenticated access" do
+    before do
+      remove_user_session
+    end
+
+    it "allows unauthenticated access with valid course syllabus location parameter" do
+      @account.root_account.enable_feature!(:disable_file_verifiers_in_public_syllabus)
+      @account.root_account.enable_feature!(:file_association_access)
+      course_factory(account: @account, active_all: true, is_public: true)
+      @attachment = attachment_model(context: @course, content_type: "image/png")
+
+      html = "<p><img src='/courses/#{@course.id}/files/#{@attachment.id}/preview' alt='test'></p>"
+      @course.syllabus_body = html
+      @course.updating_user = @user
+      @course.save!
+
+      get :show, params: {
+        course_id: @course.id,
+        file_id: @attachment.id,
+        location: "course_syllabus_#{@course.id}"
+      }
+      expect(response).to have_http_status :ok
+      expect(response).to render_template "img_preview"
     end
   end
 end

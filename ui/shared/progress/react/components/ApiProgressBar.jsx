@@ -20,7 +20,7 @@ import React from 'react'
 import PropTypes from 'prop-types'
 import ProgressStore from '../../stores/ProgressStore'
 import ProgressBar from './ProgressBar'
-import {isObject} from 'lodash'
+import {isObject} from 'es-toolkit/compat'
 
 class ApiProgressBar extends React.Component {
   static displayName = 'ProgressBar'
@@ -119,7 +119,7 @@ class ApiProgressBar extends React.Component {
     }
 
     return (
-      <div style={{width: '300px'}}>
+      <div style={{width: '300px'}} data-testid="api-progress-bar">
         <ProgressBar progress={this.state.completion} />
       </div>
     )

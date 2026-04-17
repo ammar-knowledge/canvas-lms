@@ -21,11 +21,12 @@ import {arrayOf, func, object} from 'prop-types'
 import {SimpleSelect} from '@instructure/ui-simple-select'
 import {Flex} from '@instructure/ui-flex'
 import {EnrollmentShape} from './Shape'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {groupBy, sortBy, sortedUniqBy} from 'lodash'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {groupBy, sortBy} from 'es-toolkit/compat'
+import {sortedUniqBy} from '@canvas/util/sortedUniqBy'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 
-const I18n = useI18nScope('notification_preferences')
+const I18n = createI18nScope('notification_preferences')
 
 export default function NotificationPreferencesContextSelect(props) {
   const sortedGroupedUniqueEnrollments = useMemo(() => {
@@ -43,7 +44,7 @@ export default function NotificationPreferencesContextSelect(props) {
         props.handleContextChanged({value: data.value, name})
       }
     },
-    [props]
+    [props],
   )
 
   return (

@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2021 - present Instructure, Inc.
@@ -33,36 +34,49 @@ describe('ViewOptionsTabPanel', () => {
       columnSort: {
         currentValue: {criterion: 'points', direction: 'descending'},
         modulesEnabled: true,
-        onChange: jest.fn(),
+        onChange: vi.fn(),
       },
       finalGradeOverrideEnabled: true,
       hideAssignmentGroupTotals: {
         checked: false,
-        onChange: jest.fn(),
+        onChange: vi.fn(),
       },
       hideTotal: {
         checked: false,
-        onChange: jest.fn(),
+        onChange: vi.fn(),
       },
       showNotes: {
         checked: true,
-        onChange: jest.fn(),
+        onChange: vi.fn(),
       },
       showUnpublishedAssignments: {
         checked: true,
-        onChange: jest.fn(),
+        onChange: vi.fn(),
+      },
+      showSuppressedAssignments: {
+        allowed: false,
+        checked: false,
+        onChange: vi.fn(),
       },
       statusColors: {
         currentValues: statusColors(),
-        onChange: jest.fn(),
+        onChange: vi.fn(),
       },
       viewUngradedAsZero: {
         allowed: true,
         checked: true,
-        onChange: jest.fn(),
+        onChange: vi.fn(),
       },
       showSeparateFirstLastNames: {
         allowed: true,
+        checked: false,
+        onChange: vi.fn(),
+      },
+      viewHiddenGradesIndicator: {
+        checked: false,
+        onChange: vi.fn(),
+      },
+      viewStatusForColorblindness: {
         checked: false,
         onChange: jest.fn(),
       },
@@ -112,7 +126,7 @@ describe('ViewOptionsTabPanel', () => {
     })
 
     it('calls .onChange when the user selects a new setting', () => {
-      const onChange = jest.fn()
+      const onChange = vi.fn()
       const {getByText} = renderPanel({
         columnSort: {...props.columnSort, onChange},
       })
@@ -140,7 +154,7 @@ describe('ViewOptionsTabPanel', () => {
     })
 
     it('calls .onChange when the user toggles the item', () => {
-      const onChange = jest.fn()
+      const onChange = vi.fn()
       const {getByLabelText} = renderPanel({showNotes: {checked: false, onChange}})
 
       fireEvent.click(getByLabelText('Notes'))
@@ -164,11 +178,46 @@ describe('ViewOptionsTabPanel', () => {
     })
 
     it('calls .onChange when the user toggles the item', () => {
-      const onChange = jest.fn()
+      const onChange = vi.fn()
       const {getByLabelText} = renderPanel({showUnpublishedAssignments: {checked: false, onChange}})
 
       fireEvent.click(getByLabelText('Unpublished Assignments'))
       expect(onChange).toHaveBeenCalledWith(true)
+    })
+  })
+
+  describe('.showSuppressedAssignments', () => {
+    describe('when .allowed is true', () => {
+      it('is checked if .checked is true', () => {
+        const {getByLabelText} = renderPanel({
+          showSuppressedAssignments: {allowed: true, checked: true, onChange: () => {}},
+        })
+        expect(getByLabelText('All Hidden Assignments')).toBeChecked()
+      })
+
+      it('is unchecked if .checked is false', () => {
+        const {getByLabelText} = renderPanel({
+          showSuppressedAssignments: {allowed: true, checked: false, onChange: () => {}},
+        })
+        expect(getByLabelText('All Hidden Assignments')).not.toBeChecked()
+      })
+
+      it('calls .onChange when the user toggles the item', () => {
+        const onChange = vi.fn()
+        const {getByLabelText} = renderPanel({
+          showSuppressedAssignments: {allowed: true, checked: false, onChange},
+        })
+
+        fireEvent.click(getByLabelText('All Hidden Assignments'))
+        expect(onChange).toHaveBeenCalledWith(true)
+      })
+    })
+
+    it('is not present when .allowed is false', () => {
+      const {queryByText} = renderPanel({
+        showSuppressedAssignments: {allowed: false, checked: true, onChange: () => {}},
+      })
+      expect(queryByText('All hidden Assignments')).not.toBeInTheDocument()
     })
   })
 
@@ -189,7 +238,7 @@ describe('ViewOptionsTabPanel', () => {
       })
 
       it('calls .onChange when the user toggles the item', () => {
-        const onChange = jest.fn()
+        const onChange = vi.fn()
         const {getByLabelText} = renderPanel({
           viewUngradedAsZero: {allowed: true, checked: false, onChange},
         })
@@ -223,7 +272,7 @@ describe('ViewOptionsTabPanel', () => {
     })
 
     it('calls .onChange when the user toggles the item', () => {
-      const onChange = jest.fn()
+      const onChange = vi.fn()
       const {getByLabelText} = renderPanel({
         hideAssignmentGroupTotals: {allowed: true, checked: false, onChange},
       })
@@ -260,7 +309,7 @@ describe('ViewOptionsTabPanel', () => {
     })
 
     it('calls .onChange when the user toggles the item', () => {
-      const onChange = jest.fn()
+      const onChange = vi.fn()
       const {getByLabelText} = renderPanel({
         hideTotal: {allowed: true, checked: false, onChange},
       })
@@ -287,7 +336,7 @@ describe('ViewOptionsTabPanel', () => {
       })
 
       it('calls .onChange when the user toggles the item', () => {
-        const onChange = jest.fn()
+        const onChange = vi.fn()
         const {getByLabelText} = renderPanel({
           showSeparateFirstLastNames: {allowed: true, checked: false, onChange},
         })
@@ -302,6 +351,58 @@ describe('ViewOptionsTabPanel', () => {
         showSeparateFirstLastNames: {allowed: false, checked: true, onChange: () => {}},
       })
       expect(queryByText('Split Student Names')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('.viewHiddenGradesIndicator', () => {
+    it('is checked if .checked is true', () => {
+      const {getByLabelText} = renderPanel({
+        viewHiddenGradesIndicator: {checked: true, onChange: () => {}},
+      })
+      expect(getByLabelText('View hidden grades indicator')).toBeChecked()
+    })
+
+    it('is unchecked if .checked is false', () => {
+      const {getByLabelText} = renderPanel({
+        viewHiddenGradesIndicator: {checked: false, onChange: () => {}},
+      })
+      expect(getByLabelText('View hidden grades indicator')).not.toBeChecked()
+    })
+
+    it('calls .onChange when the user toggles the item', () => {
+      const onChange = vi.fn()
+      const {getByLabelText} = renderPanel({
+        viewHiddenGradesIndicator: {checked: false, onChange},
+      })
+
+      fireEvent.click(getByLabelText('View hidden grades indicator'))
+      expect(onChange).toHaveBeenCalledWith(true)
+    })
+  })
+
+  describe('.viewStatusForColorblindness', () => {
+    it('is checked if .checked is true', () => {
+      const {getByLabelText} = renderPanel({
+        viewStatusForColorblindness: {checked: true, onChange: () => {}},
+      })
+      expect(getByLabelText('Enable Gradebook Status Icons')).toBeChecked()
+    })
+
+    it('is unchecked if .checked is false', () => {
+      const {getByLabelText} = renderPanel({
+        viewStatusForColorblindness: {checked: false, onChange: () => {}},
+      })
+      expect(getByLabelText('Enable Gradebook Status Icons')).not.toBeChecked()
+    })
+
+    it('calls .onChange when the user toggles the item', () => {
+      const onChange = jest.fn()
+      const {getByLabelText} = renderPanel({
+        viewStatusForColorblindness: {checked: false, onChange},
+      })
+
+      fireEvent.click(getByLabelText('Enable Gradebook Status Icons'))
+      expect(onChange).toHaveBeenCalledWith(true)
     })
   })
 
@@ -320,7 +421,7 @@ describe('ViewOptionsTabPanel', () => {
     })
 
     it('calls .onChange when the user changes a color', () => {
-      const onChange = jest.fn()
+      const onChange = vi.fn()
       const {getByText} = renderPanel({
         statusColors: {
           currentValues: {...statusColors(), excused: '#ffffff'},
@@ -333,7 +434,7 @@ describe('ViewOptionsTabPanel', () => {
       fireEvent.click(getByText(/Apply/))
 
       expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({excused: defaultColors.salmon})
+        expect.objectContaining({excused: defaultColors.salmon}),
       )
     })
   })

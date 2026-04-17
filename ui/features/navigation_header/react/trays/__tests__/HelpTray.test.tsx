@@ -17,16 +17,28 @@
  */
 
 import React from 'react'
-import {render as testingLibraryRender} from '@testing-library/react'
+import {render as testingLibraryRender, screen} from '@testing-library/react'
 import HelpTray from '../HelpTray'
-import {QueryProvider, queryClient} from '@canvas/query'
-import doFetchApi from '@canvas/do-fetch-api-effect'
+import {queryClient} from '@instructure/platform-query'
+import {MockedQueryProvider} from '@canvas/test-utils/query'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 
-// Mock the API call
-jest.mock('@canvas/do-fetch-api-effect')
+const server = setupServer()
 
-const render = (children: unknown) =>
-  testingLibraryRender(<QueryProvider>{children}</QueryProvider>)
+const props = {
+  closeTray: vi.fn(),
+  badgeDisabled: false,
+  setBadgeDisabled: vi.fn(),
+  forceUnreadPoll: vi.fn(),
+}
+const render = () => {
+  return testingLibraryRender(
+    <MockedQueryProvider>
+      <HelpTray {...props} />
+    </MockedQueryProvider>,
+  )
+}
 
 describe('HelpTray', () => {
   const links = [
@@ -46,35 +58,33 @@ describe('HelpTray', () => {
     },
   ]
 
-  const props = {
-    closeTray: jest.fn(),
-    badgeDisabled: false,
-    setBadgeDisabled: jest.fn(),
-    forceUnreadPoll: jest.fn(),
-  }
+  beforeAll(() => server.listen())
+  afterAll(() => server.close())
 
   beforeEach(() => {
-    // @ts-expect-error
-    window.ENV = {FEATURES: {featured_help_links: true}}
-    ;(doFetchApi as jest.Mock).mockResolvedValueOnce({response: {status: 200, ok: true}})
+    // Default handler for help_links API
+    server.use(http.get('/help_links', () => HttpResponse.json([])))
   })
 
   afterEach(() => {
-    // @ts-expect-error
-    window.ENV = {}
+    server.resetHandlers()
     queryClient.removeQueries()
   })
 
   it('renders title header', () => {
     window.ENV.help_link_name = 'Halp'
-    const {getByText} = render(<HelpTray {...props} />)
-    expect(getByText('Halp')).toBeVisible()
+
+    render()
+
+    expect(screen.getByText('Halp')).toBeVisible()
   })
 
   it('renders help dialog links', () => {
     queryClient.setQueryData(['helpLinks'], links)
-    const {getByText} = render(<HelpTray {...props} />)
-    getByText('Search the Canvas Guides')
-    getByText('Report a Problem')
+
+    render()
+
+    expect(screen.getByText('Search the Canvas Guides')).toBeVisible()
+    expect(screen.getByText('Report a Problem')).toBeVisible()
   })
 })

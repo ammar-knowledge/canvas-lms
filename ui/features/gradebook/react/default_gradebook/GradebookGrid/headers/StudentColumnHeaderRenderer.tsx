@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
@@ -18,7 +19,7 @@
  */
 
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {legacyRender, legacyUnmountComponentAtNode} from '@canvas/react'
 import {getProps} from './StudentColumnHeaderRenderer.utils'
 import type Gradebook from '../../Gradebook'
 import type GridSupport from '../GridSupport'
@@ -39,10 +40,11 @@ export default class StudentColumnHeaderRenderer {
   render(_column, $container: HTMLElement, _gridSupport: GridSupport, options) {
     const Element = this.element
     const props = getProps(this.gradebook, options, this.columnName)
-    ReactDOM.render(<Element {...props} />, $container)
+
+    legacyRender(<Element {...props} />, $container)
   }
 
   destroy(_column, $container: HTMLElement, _gridSupport: GridSupport) {
-    ReactDOM.unmountComponentAtNode($container)
+    legacyUnmountComponentAtNode($container)
   }
 }

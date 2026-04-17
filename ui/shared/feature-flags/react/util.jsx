@@ -16,10 +16,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 
-const I18n = useI18nScope('feature_flags')
+const I18n = createI18nScope('feature_flags')
 
 export function buildTransitions(flag, allowsDefaults) {
   const ret = {}
@@ -109,7 +109,17 @@ export function buildDescription(flag, allowsDefaults, appliesTo) {
   return descriptions[flag.state][contextType]
 }
 
-export function shouldDelete(flag, allowsDefaults, state) {
+export function shouldDelete({
+  flag,
+  allowsDefaults,
+  state,
+  rootOptIn = false,
+  isRootAccount = false,
+}) {
+  // Root opt-in flags on root account level should never be delete as they play a critical role in the inheritance model.
+  if (rootOptIn && isRootAccount) {
+    return false
+  }
   // Easy case
   if (flag.parent_state === state) {
     return true
@@ -120,6 +130,11 @@ export function shouldDelete(flag, allowsDefaults, state) {
   }
   // Revert to inheriting when reasonable
   if (!allowsDefaults && flag.parent_state === 'allowed_on' && state === 'on') {
+    // Exception: new_user_tutorial_on_off needs explicit 'on' flags for legacy users
+    // (created before 2017-04-22) who must explicitly opt-in to the tutorial
+    if (flag.feature === 'new_user_tutorial_on_off') {
+      return false
+    }
     return true
   }
   if (!allowsDefaults && flag.parent_state === 'allowed' && state === 'off') {
@@ -148,29 +163,6 @@ export function transitionLocked(flag, name) {
   }
 
   return null
-}
-
-export function transitionMessage(flag, name) {
-  let message = null
-  if (flag.transitions[name]) {
-    message = flag.transitions[name].message
-  }
-
-  if (ENV.ACCOUNT?.site_admin && ENV.RAILS_ENVIRONMENT !== 'development') {
-    message = (
-      <div>
-        <p>
-          {I18n.t(
-            `You are currently in the %{environment} environment. This will affect every customer. Are you sure?`,
-            {environment: ENV.RAILS_ENVIRONMENT}
-          )}
-        </p>
-        <p>{message}</p>
-      </div>
-    )
-  }
-
-  return message
 }
 
 export function isEnabled(flag) {

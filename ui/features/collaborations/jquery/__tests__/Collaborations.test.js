@@ -20,25 +20,51 @@ import collaborations from '../index'
 import $ from 'jquery'
 import 'jquery-migrate' // required
 import '@canvas/jquery/jquery.ajaxJSON'
-import sinon from 'sinon'
-
-const sandbox = sinon.createSandbox()
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
+import fakeENV from '@canvas/test-utils/fakeENV'
 
 const container = document.createElement('div')
 container.setAttribute('id', 'fixtures')
 document.body.appendChild(container)
 
-const equal = (x, y) => expect(x).toBe(y)
-
-let oldAjaxJSON = null
+const server = setupServer()
 
 describe('Collaborations', () => {
+  let originalRemoveCollaboration
+
+  beforeAll(() => {
+    server.listen()
+    fakeENV.setup()
+    originalRemoveCollaboration = collaborations.Util.removeCollaboration
+    collaborations.Util.removeCollaboration = vi.fn()
+  })
+
+  afterEach(() => {
+    server.resetHandlers()
+    $('#delete_collaboration_dialog').remove()
+    $('#fixtures').empty()
+  })
+
+  afterAll(() => {
+    server.close()
+    fakeENV.teardown()
+    collaborations.Util.removeCollaboration = originalRemoveCollaboration
+  })
+
   beforeEach(() => {
-    oldAjaxJSON = $.ajaxJSON
+    $.screenReaderFlashMessage = vi.fn()
+    const collaboration = $('<div class="collaboration">')
+    collaboration.dim = vi.fn()
     const link = $('<a></a>')
     link.addClass('delete_collaboration_link')
     link.attr('href', 'http://test.com')
-    const dialog = $('<div id=delete_collaboration_dialog></div>').data('collaboration', link)
+    collaboration.append(link)
+
+    const dialog = $('<div id=delete_collaboration_dialog></div>').data(
+      'collaboration',
+      collaboration,
+    )
     dialog.dialog({
       width: 550,
       height: 500,
@@ -46,30 +72,33 @@ describe('Collaborations', () => {
       modal: true,
       zIndex: 1000,
     })
+    dialog.dialog = vi.fn()
     const dom = $('<div></div>')
     dom.append(dialog)
     $('#fixtures').append(dom)
   })
 
-  afterEach(() => {
-    $('#delete_collaboration_dialog').remove()
-    $('#fixtures').empty()
-    $.ajaxJSON = oldAjaxJSON
-  })
+  test('shows a flash message when deletion is complete', async () => {
+    server.use(
+      http.post('http://test.com', () => {
+        return HttpResponse.json({})
+      }),
+    )
 
-  test('shows a flash message when deletion is complete', () => {
-    sandbox.spy($, 'screenReaderFlashMessage')
+    const button = $('<button class="delete_button"></button>')
     const e = {
       originalEvent: MouseEvent,
       type: 'click',
       timeStamp: 1433863761376,
-      jQuery17209791898143012077: true,
+      currentTarget: button[0],
     }
-    $.ajaxJSON = function (url, method, data, callback) {
-      const responseData = {}
-      return callback.call(responseData)
-    }
-    collaborations.Events.onDelete(e)
-    equal($.screenReaderFlashMessage.callCount, 1)
+
+    collaborations.Events.onDelete.call(button[0], e)
+
+    // Wait for the ajax request to complete
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    expect($.screenReaderFlashMessage).toHaveBeenCalledTimes(1)
+    expect($.screenReaderFlashMessage).toHaveBeenCalledWith('Collaboration was deleted')
   })
 })

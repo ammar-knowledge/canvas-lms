@@ -22,16 +22,19 @@ import {render, fireEvent, waitFor} from '@testing-library/react'
 import {responsiveQuerySizes} from '../../../utils'
 import {ThreadingToolbar} from '../ThreadingToolbar'
 
-jest.mock('../../../utils')
+vi.mock('../../../utils')
+vi.mock('../../../hooks/useSpeedGrader', () => ({
+  default: vi.fn(() => false),
+}))
 
 beforeAll(() => {
-  window.matchMedia = jest.fn().mockImplementation(() => {
+  window.matchMedia = vi.fn().mockImplementation(() => {
     return {
       matches: true,
       media: '',
       onchange: null,
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
     }
   })
 })
@@ -42,13 +45,13 @@ beforeEach(() => {
   }))
 })
 
-describe('PostToolbar', () => {
+describe('ThreadingToolbar', () => {
   it('renders "Go to Reply" button when filter is set to unread', () => {
     const {getByText} = render(
       <ThreadingToolbar searchTerm="" filter="unread">
         <>First</>
         <>Second</>
-      </ThreadingToolbar>
+      </ThreadingToolbar>,
     )
 
     expect(getByText('Go to Reply')).toBeTruthy()
@@ -59,7 +62,7 @@ describe('PostToolbar', () => {
       <ThreadingToolbar searchTerm="" filter="unread" isSplitView={true}>
         <>First</>
         <>Second</>
-      </ThreadingToolbar>
+      </ThreadingToolbar>,
     )
 
     expect(queryByText('Go to Reply')).toBeNull()
@@ -70,7 +73,7 @@ describe('PostToolbar', () => {
       <ThreadingToolbar searchTerm="asdf">
         <>First</>
         <>Second</>
-      </ThreadingToolbar>
+      </ThreadingToolbar>,
     )
 
     expect(getByText('Go to Reply')).toBeTruthy()
@@ -78,7 +81,7 @@ describe('PostToolbar', () => {
 
   describe('when rootEntryId is present', () => {
     it('calls the onOpenSplitView callback with the parent entry id', async () => {
-      const onOpenSplitView = jest.fn()
+      const onOpenSplitView = vi.fn()
       const container = render(
         <ThreadingToolbar
           discussionEntry={DiscussionEntry.mock({
@@ -89,7 +92,7 @@ describe('PostToolbar', () => {
           })}
           searchTerm="neato"
           onOpenSplitView={onOpenSplitView}
-        />
+        />,
       )
 
       fireEvent.click(container.getByText('Go to Reply'))
@@ -99,7 +102,7 @@ describe('PostToolbar', () => {
 
   describe('when rootEntryId is not present', () => {
     it('calls the onOpenSplitView callback with the entry id', async () => {
-      const onOpenSplitView = jest.fn()
+      const onOpenSplitView = vi.fn()
       const container = render(
         <ThreadingToolbar
           discussionEntry={DiscussionEntry.mock({
@@ -109,7 +112,7 @@ describe('PostToolbar', () => {
           })}
           searchTerm="neato"
           onOpenSplitView={onOpenSplitView}
-        />
+        />,
       )
 
       fireEvent.click(container.getByText('Go to Reply'))
@@ -118,7 +121,7 @@ describe('PostToolbar', () => {
   })
 
   it('calls the onOpenSplitView callback with its own id if it is a root entry', async () => {
-    const onOpenSplitView = jest.fn()
+    const onOpenSplitView = vi.fn()
     const container = render(
       <ThreadingToolbar
         discussionEntry={DiscussionEntry.mock({
@@ -128,7 +131,7 @@ describe('PostToolbar', () => {
         })}
         searchTerm="neato"
         onOpenSplitView={onOpenSplitView}
-      />
+      />,
     )
 
     fireEvent.click(container.getByText('Go to Reply'))
@@ -140,7 +143,7 @@ describe('PostToolbar', () => {
       <ThreadingToolbar filter="all" searchTerm="" isSplitView={false}>
         <>First</>
         <>Second</>
-      </ThreadingToolbar>
+      </ThreadingToolbar>,
     )
 
     expect(getByText('First')).toBeTruthy()
@@ -159,7 +162,7 @@ describe('PostToolbar', () => {
         <ThreadingToolbar>
           <>First</>
           <>Second</>
-        </ThreadingToolbar>
+        </ThreadingToolbar>,
       )
 
       expect(queryAllByTestId('mobile-thread-tool')).toBeTruthy()

@@ -23,23 +23,33 @@ module Importers
 
     def self.process_migration(data, migration)
       tools = data["external_tools"] || []
+      context_controls = (data["lti_context_controls"] || [])
+                         .reject { it["deployment_migration_id"].blank? }
+                         .index_by { it["deployment_migration_id"] }
+
       tools.each do |tool|
         next unless migration.import_object?("context_external_tools", tool["migration_id"]) || migration.import_object?("external_tools", tool["migration_id"])
 
         begin
-          import_from_migration(tool, migration.context, migration)
+          import_from_migration(tool,
+                                migration.context,
+                                migration:,
+                                associated_control_from_migration: context_controls[tool["migration_id"]])
         rescue
           migration.add_import_warning(t("#migration.external_tool_type", "External Tool"), tool[:title], $!)
         end
       end
       migration.imported_migration_items_by_class(ContextExternalTool).each do |tool|
         if (tool.consumer_key == "fake" || tool.shared_secret == "fake") && !tool.use_1_3?
-          migration.add_warning(t("external_tool_attention_needed", 'The security parameters for the external tool "%{tool_name}" need to be set in Course Settings.', tool_name: tool.name))
+          migration.add_warning(t("external_tool_attention_needed", 'The security parameters for the external tool "%{tool_name}" may need to be set in Course Settings.', tool_name: tool.name))
         end
       end
     end
 
-    def self.import_from_migration(hash, context, migration, item = nil, persist = true)
+    def self.import_from_migration(hash, context, migration: nil, item: nil, persist: true, associated_control_from_migration: nil)
+      # TODO: We really should make this method *just* do importing, not validation/setting properties
+      # like some stuff like
+      # Lti::Registration.new_external_tool and ContextExternalTool use it for. Makes it really hard to follow.
       hash = hash.with_indifferent_access
       return nil if hash[:migration_id] && hash[:external_tools_to_import] && !hash[:external_tools_to_import][hash[:migration_id]]
 
@@ -60,15 +70,19 @@ module Importers
         url = migration.process_domain_substitutions(url) if migration
         item.url = url
       end
-      item.domain = hash[:domain] unless hash[:domain].blank?
+      item.domain = hash[:domain]
       item.privacy_level = hash[:privacy_level] || "name_only"
       item.not_selectable = hash[:not_selectable] if hash[:not_selectable]
       item.consumer_key ||= hash[:consumer_key] || "fake"
       item.shared_secret ||= hash[:shared_secret] || "fake"
-      item.developer_key_id ||= hash.dig(:settings, :client_id)
       item.lti_version = hash[:lti_version] || (hash.dig(:settings, :client_id) && "1.3") || (hash.dig(:settings, :use_1_3) && "1.3") || "1.1"
-      item.unified_tool_id = hash[:unified_tool_id]
+      item.unified_tool_id = hash[:unified_tool_id] if hash[:unified_tool_id]
       item.settings = create_tool_settings(hash)
+
+      if (developer_key_id = hash.dig(:settings, :client_id)).present?
+        item.developer_key_id ||= developer_key_id
+        item.lti_registration_id ||= item.developer_key&.lti_registration_id
+      end
 
       Lti::ResourcePlacement::PLACEMENTS.each do |placement|
         next unless item.settings.key?(placement)
@@ -83,9 +97,20 @@ module Importers
 
       return if item.new_record? && ContextExternalTool.where(identity_hash: item.calculate_identity_hash).exists?
 
-      item.save! if persist
-      migration&.add_imported_item(item)
-      item
+      if persist &&
+         context.root_account.feature_enabled?(:lock_lti_registrations) &&
+         item&.lti_registration&.lock_deploying?
+        migration&.add_warning(
+          t("The app \"%{name}\" was not imported because it has been locked for deployment by an administrator. Please ask your administrator to unlock it before importing.",
+            name: item.name)
+        )
+        return item
+      end
+
+      if persist && persist_tool(item, migration, associated_control_from_migration).present?
+        migration&.add_imported_item(item)
+        item
+      end
     end
 
     def self.create_tool_settings(hash)
@@ -148,7 +173,11 @@ module Importers
             return tool
           end
         elsif tool.url.present?
-          match_domain = URI.parse(tool.url).host rescue nil
+          begin
+            match_domain = URI.parse(tool.url).host
+          rescue URI::InvalidURIError
+            # ignore
+          end
 
           if domain && match_domain == domain
             # turn the matched tool into a domain only tool
@@ -175,14 +204,9 @@ module Importers
       url, domain, settings = extract_for_translation(hash)
       return unless domain
 
-      tool_contexts = ContextExternalTool.contexts_to_search(migration.context)
-      return unless tool_contexts.present?
-
-      tools = ContextExternalTool.active.where(context: tool_contexts)
-
-      tools.each do |tool|
+      Lti::ContextToolFinder.all_tools_for(migration.context).each do |tool|
         # check if tool is compatible
-        next unless matching_settings?(migration, hash, tool, settings, true)
+        next unless matching_settings?(migration, hash, tool, settings, preexisting_tool: true)
 
         if tool.url.blank? && tool.domain.present?
           if domain && domain == tool.domain
@@ -203,7 +227,11 @@ module Importers
       url = hash[:url].presence
 
       domain = hash[:domain]
-      domain ||= (URI.parse(url).host rescue nil) if url
+      begin
+        domain ||= URI.parse(url).host if url
+      rescue URI::InvalidURIError
+        # ignore
+      end
 
       settings = create_tool_settings(hash).with_indifferent_access.except(:custom_fields, :vendor_extensions)
 
@@ -218,11 +246,11 @@ module Importers
       end
     end
 
-    def self.matching_settings?(migration, hash, tool, settings, preexisting_tool = false)
+    def self.matching_settings?(migration, hash, tool, settings, preexisting_tool: false)
       return false if hash[:privacy_level] && tool.privacy_level != hash[:privacy_level]
       return false if migration.migration_type == "canvas_cartridge_importer" && hash[:title] && tool.name != hash[:title]
 
-      if preexisting_tool && (((hash[:consumer_key] || "fake") == "fake") && ((hash[:shared_secret] || "fake") == "fake"))
+      if preexisting_tool && ((hash[:consumer_key] || "fake") == "fake") && ((hash[:shared_secret] || "fake") == "fake")
         # we're matching to existing tools; go with their config if we don't have a real one
         ignore_key_check = true
       end
@@ -235,5 +263,70 @@ module Importers
         settings == tool_settings
       end
     end
+
+    # Persists a ContextExternalTool to the database and handles associated context control creation.
+    #
+    # This method saves the tool and, under certain conditions, creates a primary Lti::ContextControl
+    # for the tool. This is particularly important for course imports/copies to ensure that tools
+    # from older migrations or external sources work properly with Availability & Exceptions.
+    #
+    # @param tool [ContextExternalTool] The external tool to be persisted
+    # @param migration [ContentMigration, nil] The migration object associated with the import
+    # @param associated_control_from_migration [Hash, nil] An existing context control from the migration data
+    #
+    # @return [ContextExternalTool | nil]
+    #
+    # @note This method will add an import warning and return early if the tool doesn't have an lti_registration_id
+    # @note Uses a database transaction to ensure atomicity of the tool save and context control creation
+    def self.persist_tool(tool, migration, associated_control_from_migration)
+      if tool.use_1_3? && tool.developer_key.blank?
+        migration.add_error(t("#migration.external_tool_blank_developer_key",
+                              "The tool %{tool_title} doesn't have any developer key associated with it and cannot be imported. Any assignments, module items, or links that reference it likely won't work. Please contact your administrator to have them create a registration for this tool and then install the tool in this course.",
+                              tool_title: tool[:title]))
+        return
+      elsif tool.use_1_3? && !tool.developer_key.usable_in_context?(migration.context)
+        migration.add_error(t("#migration.external_tool_developer_key_unusable",
+                              "The developer key associated with %{tool_title} is not available or enabled in this context, so it wasn't imported. Please contact your administrator and have them enable the developer key with a Client ID of %{client_id}",
+                              tool_title: tool[:title],
+                              client_id: tool.developer_key.global_id))
+        return
+      elsif tool.use_1_3? && tool.lti_registration_id.blank?
+        Sentry.with_scope do |scope|
+          scope.set_tags(context_id: migration.context.global_id, context_type: migration.context.class)
+          scope.set_context("tool", { client_id: tool.developer_key.global_id })
+          Sentry.capture_message("ContextExternalToolImporter#import_from_migration Developer Key and Tool without matching lti_registration", level: :error)
+        end
+        migration.add_error(t("#migration.external_tool_missing_lti_registration_id",
+                              "The developer key associated with %{tool_title} is invalid. Please contact have your administrator contact Canvas Support for assistance and include the import file that caused this error.",
+                              tool_title: tool[:title]))
+        return
+      end
+
+      ContextExternalTool.transaction do
+        tool.save!
+
+        # For old course exports that either didn't export a context control for this at all
+        # or exported it in a way we can't use. Ensure the tool will still be available.
+        if create_primary_context_control?(tool, migration, associated_control_from_migration)
+          control = Lti::ContextControlService.create_or_update({
+                                                                  course_id: migration.context.id,
+                                                                  deployment_id: tool.id,
+                                                                  registration_id: tool.lti_registration_id,
+                                                                  available: true,
+                                                                  created_by_id: migration.user&.id,
+                                                                  updated_by_id: migration.user&.id
+                                                                })
+          migration.add_imported_item(control, key: control.global_id)
+        end
+        tool
+      end
+    end
+    private_class_method :persist_tool
+
+    def self.create_primary_context_control?(tool, migration, associated_context_control)
+      migration.present? && migration.context.instance_of?(Course) && associated_context_control.blank? && tool.use_1_3?
+    end
+
+    private_class_method :create_primary_context_control?
   end
 end

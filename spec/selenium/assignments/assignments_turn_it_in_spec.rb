@@ -59,6 +59,20 @@ describe "assignments turn it in" do
     expect(f("#content")).not_to contain_css("#assignment_turnitin_settings")
   end
 
+  def change_turnitin_small_matches_settings
+    expect(f("#assignment_submission_type")).to be_displayed
+    click_option("#assignment_submission_type", "Online")
+    f("#assignment_text_entry").click
+    expect(f("#advanced_turnitin_settings_link")).not_to be_displayed
+    f("#assignment_turnitin_enabled").click
+    expect(f("#advanced_turnitin_settings_link")).to be_displayed
+    f("#advanced_turnitin_settings_link").click
+    expect(f("#assignment_turnitin_settings")).to be_displayed
+
+    click_option("#settings_originality_report_visibility", "After the Due Date")
+    f("#exclude_small_matches").click # 0 -> 1
+  end
+
   def expected_settings
     {
       "originality_report_visibility" => "after_due_date",
@@ -74,20 +88,8 @@ describe "assignments turn it in" do
     }
   end
 
-  it "creates turnitin settings" do
-    skip_if_chrome("issue with change_turnitin_settings method")
-    # although we "saved" the dialog, we haven't actually posted anything yet
-    expect do
-      get "/courses/#{@course.id}/assignments/new"
-      f("#assignment_name").send_keys("test assignment")
-      change_turnitin_settings
-    end.to_not change { Assignment.count }
-    expect_new_page_load { submit_form("#edit_assignment_form") }
-    expect(Assignment.last.turnitin_settings).to eq expected_settings
-  end
-
-  it "edits turnitin settings" do
-    skip_if_chrome("issue with change_turnitin_settings method")
+  it "displays validation errors for small matches inputs" do
+    skip("EGG-2147 2025-01-28 issue with change_turnitin_settings method")
     assignment = @course.assignments.create!(
       name: "test assignment",
       due_at: (Time.now.utc + 2.days),
@@ -95,12 +97,21 @@ describe "assignments turn it in" do
     )
 
     get "/courses/#{@course.id}/assignments/#{assignment.id}/edit"
+    change_turnitin_small_matches_settings
 
-    change_turnitin_settings
-    expect_new_page_load { submit_form("#edit_assignment_form") }
+    # validation is run on words input
+    f("#exclude_small_matches_type_r1").click
+    f("#exclude_small_matches_words_value").click
+    f("#exclude_small_matches_words_value").send_keys([:backspace, "abc"])
+    submit_dialog_form("#assignment_turnitin_settings")
+    expect(f("[data-testid='error-message-container']")).to be_displayed
 
-    assignment.reload
-    expect(assignment.turnitin_settings).to eq expected_settings
+    # validation is run on percent input
+    f("#exclude_small_matches_type_r2").click
+    f("#exclude_small_matches_percent_value").click
+    f("#exclude_small_matches_percent_value").send_keys([:backspace, "abc"])
+    submit_dialog_form("#assignment_turnitin_settings")
+    expect(f("[data-testid='error-message-container']")).to be_displayed
   end
 
   it "does not allow edits to turnitin settings after submissions have been made" do

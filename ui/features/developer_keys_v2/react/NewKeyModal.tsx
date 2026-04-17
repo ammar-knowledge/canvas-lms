@@ -16,9 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
-import _ from 'lodash'
 
 import {CloseButton, Button} from '@instructure/ui-buttons'
 import {Heading} from '@instructure/ui-heading'
@@ -29,11 +28,14 @@ import React from 'react'
 import NewKeyForm from './NewKeyForm'
 import type {AvailableScope} from './reducers/listScopesReducer'
 import type {DeveloperKeyCreateOrEditState} from './reducers/createOrEditReducer'
-import actions from './actions/developerKeysActions'
+import type actions from './actions/developerKeysActions'
 import type {AnyAction, Dispatch} from 'redux'
 import type {DeveloperKey} from '../model/api/DeveloperKey'
+import {confirmWithPrompt} from '@canvas/instui-bindings/react/ConfirmWithPrompt'
+import {QueryClientProvider} from '@tanstack/react-query'
+import {queryClient} from '@instructure/platform-query'
 
-const I18n = useI18nScope('react_developer_keys')
+const I18n = createI18nScope('react_developer_keys')
 
 type Props = {
   createOrEditDeveloperKeyState: DeveloperKeyCreateOrEditState
@@ -49,7 +51,7 @@ type Props = {
   }
   actions: typeof actions
   selectedScopes: Array<string>
-  handleSuccessfulSave: (warningMessage?: string) => void
+  handleSuccessfulSave: (warningMessage?: string | string[]) => void
 }
 
 type ConfigurationMethod = 'manual' | 'json' | 'url'
@@ -61,6 +63,7 @@ type State = {
   toolConfigurationUrl: string | null
   isSaving: boolean
   configurationMethod: ConfigurationMethod
+  isRedirectUrisValid: boolean
 }
 
 export default class DeveloperKeyModal extends React.Component<Props, State> {
@@ -73,6 +76,7 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
     toolConfigurationUrl: '',
     isSaving: false,
     configurationMethod: 'manual',
+    isRedirectUrisValid: true,
   }
 
   developerKeyUrl() {
@@ -134,6 +138,10 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
     return this.state.configurationMethod === 'manual'
   }
 
+  get isSiteAdmin() {
+    return this.props.ctx.params.contextId === 'site_admin'
+  }
+
   get hasRedirectUris() {
     const redirect_uris = this.developerKey.redirect_uris
     return Boolean(redirect_uris && redirect_uris.trim().length !== 0)
@@ -152,8 +160,8 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
   alertAboutInvalidRedirectUris() {
     $.flashError(
       I18n.t(
-        "One of the supplied redirect_uris is too long. Please ensure you've entered the correct value(s) for your redirect_uris."
-      )
+        "One of the supplied redirect_uris is too long. Please ensure you've entered the correct value(s) for your redirect_uris.",
+      ),
     )
   }
 
@@ -169,8 +177,13 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
     const method = editing ? 'put' : 'post'
     const toSubmit = this.developerKey
 
-    if (!toSubmit.require_scopes) {
-      toSubmit.require_scopes = false
+    if (this.newForm && !this.newForm.valid()) {
+      this.setState({submitted: true})
+      return
+    }
+
+    if (toSubmit.require_scopes === undefined) {
+      toSubmit.require_scopes = true
     }
     if (!toSubmit.name) {
       toSubmit.name = 'Unnamed Tool'
@@ -187,18 +200,24 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
       return
     }
 
+    this.setState({isSaving: true})
     return dispatch(
       createOrEditDeveloperKey(
         {developer_key: toSubmit},
         this.developerKeyUrl(),
-        method
-      ) as unknown as AnyAction
-    ).then(() => {
-      if (this.keySavedSuccessfully) {
-        this.props.handleSuccessfulSave()
-      }
-      this.closeModal()
-    })
+        method,
+      ) as unknown as AnyAction,
+    )
+      .then(() => {
+        this.setState({isSaving: false})
+        if (this.keySavedSuccessfully) {
+          this.props.handleSuccessfulSave()
+        }
+        this.closeModal()
+      })
+      .catch(() => {
+        this.setState({isSaving: false})
+      })
   }
 
   saveLTIKeyEdit(
@@ -206,7 +225,7 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
       scopes?: any
       custom_fields?: any
     },
-    developerKey: DeveloperKey
+    developerKey: DeveloperKey,
   ) {
     const {
       store: {dispatch},
@@ -234,11 +253,18 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
       actions,
     } = this.props
     const developer_key = {...this.developerKey}
+
+    if (!developer_key.redirect_uris?.trim()) {
+      delete developer_key.redirect_uris
+    }
+
     if (!this.hasRedirectUris && !this.isUrlConfig) {
-      $.flashError(I18n.t('A redirect_uri is required, please supply one.'))
+      this.setState({isRedirectUrisValid: false})
+      this.newForm?.valid()
       this.setState({submitted: true})
       return
     } else if (this.hasInvalidRedirectUris) {
+      this.setState({isRedirectUrisValid: false})
       this.alertAboutInvalidRedirectUris()
       return
     }
@@ -246,12 +272,7 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
       scopes?: unknown
     } = {}
 
-    if (this.isJsonConfig) {
-      if (!this.state.toolConfiguration || _.isEmpty(this.state.toolConfiguration)) {
-        this.setState({submitted: true})
-        $.flashError(I18n.t('Configuration JSON cannot be empty.'))
-        return
-      }
+    if (this.isJsonConfig || this.isUrlConfig) {
       if (!this.toolConfigForm.valid()) {
         this.setState({submitted: true})
         return
@@ -280,12 +301,7 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
         developer_key,
       }
       if (this.isUrlConfig) {
-        if (!this.state.toolConfigurationUrl) {
-          $.flashError(I18n.t('A json url is required, please supply one.'))
-          this.setState({submitted: true})
-          return
-        }
-        toSave.settings_url = this.state.toolConfigurationUrl
+        toSave.settings_url = this.state.toolConfigurationUrl || undefined
       } else {
         toSave.settings = settings
       }
@@ -298,7 +314,7 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
             this.props.handleSuccessfulSave(data.warning_message)
             this.closeModal()
           },
-          () => this.setState({isSaving: false})
+          () => this.setState({isSaving: false}),
         )
     }
   }
@@ -307,15 +323,11 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
     this.setState({toolConfigurationUrl})
   }
 
-  updateToolConfiguration = (update: any, field: string | null = null, sync = false) => {
+  updateToolConfiguration = (update: any, field: string | null = null) => {
     if (field) {
       this.setState(state => ({toolConfiguration: {...state.toolConfiguration, [field]: update}}))
     } else {
       this.setState({toolConfiguration: update})
-    }
-
-    if (sync) {
-      this.updateDeveloperKey('redirect_uris', this.developerKey.tool_configuration.target_link_uri)
     }
 
     if (!this.hasRedirectUris) {
@@ -324,7 +336,7 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
   }
 
   syncRedirectUris = () => {
-    this.updateToolConfiguration(this.toolConfiguration, null, true)
+    this.updateDeveloperKey('redirect_uris', this.state.toolConfiguration?.target_link_uri)
   }
 
   updateDeveloperKey = (field: string, update: any) => {
@@ -346,6 +358,47 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
       toolConfigurationUrl: null,
       developerKey: {},
     })
+    // Find the appropriate button to focus on based on whether we were editing or adding
+    if (
+      this.props.createOrEditDeveloperKeyState.editing &&
+      this.props.createOrEditDeveloperKeyState.developerKey?.id
+    ) {
+      document
+        .getElementById(
+          `edit-developer-key-button-${this.props.createOrEditDeveloperKeyState.developerKey.id}`,
+        )
+        ?.focus()
+    } else {
+      document.getElementById('add-developer-key-button')?.focus()
+    }
+  }
+
+  confirmSave = () => {
+    return confirmWithPrompt({
+      title: I18n.t('Environment Confirmation'),
+      message: I18n.t(
+        'Changing Site Admin Developer Keys impacts all customers. To proceed, please confirm the current Canvas environment by typing it in the box below.',
+      ),
+      label: I18n.t('Environment'),
+      placeholder: ENV.RAILS_ENVIRONMENT,
+      hintText: I18n.t('The current environment is %{env}, case-insensitive', {
+        env: ENV.RAILS_ENVIRONMENT,
+      }),
+      valueMatchesExpected: (value: string) =>
+        value?.toLowerCase() === ENV.RAILS_ENVIRONMENT?.toLowerCase(),
+    })
+  }
+
+  handleSave = async () => {
+    if (this.isSiteAdmin && !(await this.confirmSave())) {
+      return
+    }
+
+    if (this.props.createOrEditDeveloperKeyState.isLtiKey) {
+      this.saveLtiToolConfiguration()
+    } else {
+      this.submitForm()
+    }
   }
 
   render() {
@@ -356,73 +409,84 @@ export default class DeveloperKeyModal extends React.Component<Props, State> {
       createOrEditDeveloperKeyState: {editing, developerKeyModalOpen, isLtiKey},
     } = this.props
     return (
-      <div>
-        <Modal
-          open={developerKeyModalOpen}
-          onDismiss={this.closeModal}
-          size="fullscreen"
-          label={editing ? I18n.t('Edit Developer Key') : I18n.t('Create Developer Key')}
-          shouldCloseOnDocumentClick={false}
-        >
-          <Modal.Header>
-            <CloseButton
-              placement="end"
-              onClick={this.closeModal}
-              screenReaderLabel={I18n.t('Cancel')}
-            />
-            <Heading level="h1">{I18n.t('Key Settings')}</Heading>
-          </Modal.Header>
-          <Modal.Body>
-            {this.isSaving ? (
-              <View as="div" textAlign="center">
-                <Spinner
-                  renderTitle={editing ? I18n.t('Saving Key') : I18n.t('Creating Key')}
-                  margin="0 0 0 medium"
-                  aria-live="polite"
-                />
-              </View>
-            ) : (
-              <NewKeyForm
-                ref={this.setNewFormRef}
-                developerKey={this.developerKey}
-                availableScopes={availableScopes}
-                availableScopesPending={availableScopesPending}
-                dispatch={this.props.store.dispatch}
-                listDeveloperKeyScopesSet={actions.listDeveloperKeyScopesSet}
-                tool_configuration={this.toolConfiguration}
-                editing={editing}
-                showRequiredMessages={this.state.submitted}
-                showMissingRedirectUrisMessage={
-                  this.state.submitted && isLtiKey && !this.hasRedirectUris && !this.isUrlConfig
-                }
-                hasRedirectUris={this.hasRedirectUris}
-                syncRedirectUris={this.syncRedirectUris}
-                updateToolConfiguration={this.updateToolConfiguration}
-                updateDeveloperKey={this.updateDeveloperKey}
-                updateToolConfigurationUrl={this.updateToolConfigurationUrl}
-                toolConfigurationUrl={this.state.toolConfigurationUrl}
-                configurationMethod={this.state.configurationMethod}
-                updateConfigurationMethod={this.updateConfigurationMethod}
-                isLtiKey={isLtiKey}
-                isRedirectUriRequired={isLtiKey && !this.isUrlConfig}
+      <QueryClientProvider client={queryClient}>
+        <div>
+          <Modal
+            open={developerKeyModalOpen}
+            onDismiss={this.closeModal}
+            size="fullscreen"
+            label={editing ? I18n.t('Edit Developer Key') : I18n.t('Create Developer Key')}
+            shouldCloseOnDocumentClick={false}
+          >
+            <Modal.Header>
+              <CloseButton
+                placement="end"
+                onClick={this.closeModal}
+                screenReaderLabel={I18n.t('Cancel')}
               />
-            )}
-          </Modal.Body>
-          <Modal.Footer>
-            <Button id="lti-key-cancel-button" onClick={this.closeModal} margin="0 small 0 0">
-              {I18n.t('Cancel')}
-            </Button>
-            <Button
-              id="lti-key-save-button"
-              onClick={isLtiKey ? this.saveLtiToolConfiguration : this.submitForm}
-              color="primary"
-              disabled={this.isSaving}
-            >
-              {I18n.t('Save')}
-            </Button>
-          </Modal.Footer>
-        </Modal>
-      </div>
+              <Heading level="h1">{I18n.t('Key Settings')}</Heading>
+            </Modal.Header>
+            <Modal.Body>
+              {this.isSaving ? (
+                <View as="div" textAlign="center">
+                  <Spinner
+                    renderTitle={editing ? I18n.t('Saving Key') : I18n.t('Creating Key')}
+                    margin="0 0 0 medium"
+                    aria-live="polite"
+                  />
+                </View>
+              ) : (
+                <NewKeyForm
+                  ref={this.setNewFormRef}
+                  developerKey={this.developerKey}
+                  availableScopes={availableScopes}
+                  availableScopesPending={availableScopesPending}
+                  dispatch={this.props.store.dispatch}
+                  listDeveloperKeyScopesSet={actions.listDeveloperKeyScopesSet}
+                  tool_configuration={this.toolConfiguration}
+                  editing={editing}
+                  showRequiredMessages={this.state.submitted}
+                  showMissingRedirectUrisMessage={
+                    this.state.submitted && isLtiKey && !this.hasRedirectUris && !this.isUrlConfig
+                  }
+                  hasRedirectUris={this.hasRedirectUris}
+                  hasInvalidRedirectUris={this.hasInvalidRedirectUris}
+                  syncRedirectUris={this.syncRedirectUris}
+                  updateToolConfiguration={this.updateToolConfiguration}
+                  updateDeveloperKey={this.updateDeveloperKey}
+                  updateToolConfigurationUrl={this.updateToolConfigurationUrl}
+                  toolConfigurationUrl={this.state.toolConfigurationUrl}
+                  configurationMethod={this.state.configurationMethod}
+                  updateConfigurationMethod={this.updateConfigurationMethod}
+                  isLtiKey={isLtiKey}
+                  isRedirectUriRequired={isLtiKey && !this.isUrlConfig}
+                  contextId={this.props.ctx.params.contextId}
+                />
+              )}
+            </Modal.Body>
+            <Modal.Footer>
+              <Button id="lti-key-cancel-button" onClick={this.closeModal} margin="0 small 0 0">
+                {I18n.t('Cancel')}
+              </Button>
+              <Button
+                id="lti-key-save-button"
+                onClick={this.handleSave}
+                color="primary"
+                disabled={this.isSaving || ENV.devKeysReadOnly}
+                title={
+                  ENV.devKeysReadOnly
+                    ? I18n.t(
+                        'You do not have permission to create or modify developer keys in this account',
+                      )
+                    : undefined
+                }
+              >
+                {I18n.t('Save')}
+              </Button>
+            </Modal.Footer>
+          </Modal>
+        </div>
+      </QueryClientProvider>
     )
   }
 }

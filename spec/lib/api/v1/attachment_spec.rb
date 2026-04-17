@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require "spec_helper"
-
 describe Api::V1::Attachment do
   include Api::V1::Attachment
   include Rails.application.routes.url_helpers
@@ -39,6 +37,25 @@ describe Api::V1::Attachment do
       Canvadoc.create!(document_id: "abc123#{attachment.id}", attachment_id: attachment.id)
     end
 
+    it "hides the verifier parameter from url in the returned hash when 'disable_adding_uuid_verifier_in_api' ff is enabled" do
+      attachment.root_account.enable_feature!(:disable_adding_uuid_verifier_in_api)
+      json = attachment_json(attachment, teacher, {})
+      expect(json.fetch("url")).not_to include("verifier")
+    end
+
+    it "includes the location parameter in the url when the opts contains it and file_association_access feature flag is enabled" do
+      attachment.root_account.enable_feature!(:file_association_access)
+      params = {
+        include: ["preview_url"],
+        skip_permission_checks: true
+      }
+      url_options = {
+        location: "course_123"
+      }
+      json = attachment_json(attachment, teacher, url_options, params)
+      expect(json.fetch("url")).to include("location=course_123")
+    end
+
     it "includes the submission id in the url_opts when preview_url is included" do
       params = {
         include: ["preview_url"],
@@ -56,6 +73,17 @@ describe Api::V1::Attachment do
         )
       json = attachment_json(a, teacher, {}, {})
       expect(json.fetch("thumbnail_url")).to eq json.fetch("url")
+    end
+  end
+
+  describe "#attachments_json" do
+    let_once(:course) { Course.create! }
+    let_once(:teacher) { course_with_user("TeacherEnrollment", course:, active_all: true).user }
+
+    it "preloads last_attachment_upload_status" do
+      file = attachment_model(content_type: "application/pdf", context: course)
+      attachments_json([file], teacher, {}, { skip_permission_checks: true })
+      expect(file.association(:last_attachment_upload_status)).to be_loaded
     end
   end
 
@@ -247,13 +275,25 @@ describe Api::V1::Attachment do
 
   describe "#api_attachment_preflight" do
     let_once(:context) { course_model }
-    let(:request) { OpenStruct.new({ params: ActionController::Parameters.new(params) }) }
+    let(:request) { instance_double(Rack::Request, { params: ActionController::Parameters.new(params), ssl?: false }) }
     let(:params) { { name: "name", filename: "filename.png" } }
     let(:opts) { {} }
 
     def logged_in_user; end
 
     def render(*); end
+
+    context "submit_assignment param" do
+      it "includes as=1 (auto_submitted) in request headers" do
+        expect(RequestContext::Generator).to receive(:add_meta_header).with("as", "1")
+        api_attachment_preflight(context, request, submit_assignment: true)
+      end
+
+      it "includes as=0 (auto_submitted) in request headers" do
+        expect(RequestContext::Generator).to receive(:add_meta_header).with("as", "0")
+        api_attachment_preflight(context, request, submit_assignment: false)
+      end
+    end
 
     context "with the category param set" do
       subject { Attachment.find_by(display_name: params[:name]) }

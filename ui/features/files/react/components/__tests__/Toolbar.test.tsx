@@ -18,6 +18,7 @@
 
 import React from 'react'
 import {render} from '@testing-library/react'
+import '@canvas/files/mockFilesENV'
 import Toolbar from '../Toolbar'
 import Folder from '@canvas/files/backbone/models/Folder'
 import File from '@canvas/files/backbone/models/File'
@@ -54,14 +55,20 @@ const buttonsEnabled = (toolbar: any, config: any) => {
 
 describe('Toolbar', () => {
   beforeEach(() => {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore Legacy class constructor not typed
     file = new File({id: 1})
     courseFolder = new Folder({context_type: 'Course', context_id: 1})
     userFolder = new Folder({context_type: 'User', context_id: 2})
   })
 
+  afterEach(() => {
+    delete window.ENV.FEATURES?.restrict_student_access
+  })
+
   test('renders multi select action items when there is more than one item selected', () => {
     const toolbar = render(
-      <Toolbar params="foo" query="" selectedItems={[file]} contextId="1" contextType="courses" />
+      <Toolbar params="foo" query="" selectedItems={[file]} contextId="1" contextType="courses" />,
     )
     toolbar.container.querySelector('.ui-buttonset .ui-button')
     expect(toolbar.container.querySelector('.ui-buttonset .ui-button')).toBeInTheDocument()
@@ -80,7 +87,7 @@ describe('Toolbar', () => {
         userCanEditFilesForContext={false}
         userCanDeleteFilesForContext={false}
         userCanRestrictFilesForContext={false}
-      />
+      />,
     )
     const config = {
       '.btn-view': true,
@@ -107,7 +114,7 @@ describe('Toolbar', () => {
         userCanEditFilesForContext={true}
         userCanDeleteFilesForContext={true}
         userCanRestrictFilesForContext={true}
-      />
+      />,
     )
     const config = {
       '.btn-view': true,
@@ -117,6 +124,37 @@ describe('Toolbar', () => {
       '.btn-delete': true,
       '.btn-add-folder': true,
       '.btn-upload': true,
+    }
+    expect(buttonsEnabled(toolbar, config)).toBeTruthy()
+  })
+
+  test.skip('does not renders upload, move & download buttons for student with restricted permissions', () => {
+    if (!window.ENV) window.ENV = {} as any
+    if (!window.ENV.FEATURES) window.ENV.FEATURES = {}
+    window.ENV.FEATURES.restrict_student_access = true
+    window.ENV.current_user_roles = ['student']
+    const toolbar = render(
+      <Toolbar
+        params="foo"
+        query=""
+        selectedItems={[file]}
+        currentFolder={courseFolder}
+        contextId="1"
+        contextType="courses"
+        userCanAddFilesForContext={true}
+        userCanEditFilesForContext={true}
+        userCanDeleteFilesForContext={true}
+        userCanRestrictFilesForContext={true}
+      />,
+    )
+    const config = {
+      '.btn-view': true,
+      '.btn-download': false,
+      '.btn-move': false,
+      '.btn-restrict': true,
+      '.btn-delete': true,
+      '.btn-add-folder': true,
+      '.btn-upload': false,
     }
     expect(buttonsEnabled(toolbar, config)).toBeTruthy()
   })
@@ -133,7 +171,7 @@ describe('Toolbar', () => {
         userCanEditFilesForContext={true}
         userCanDeleteFilesForContext={true}
         userCanRestrictFilesForContext={true}
-      />
+      />,
     )
     const config = {
       '.btn-view': true,
@@ -158,7 +196,7 @@ describe('Toolbar', () => {
         contextType="courses"
         userCanAddFilesForContext={true}
         userCanDeleteFilesForContext={true}
-      />
+      />,
     )
     const config = {
       '.btn-view': true,
@@ -184,7 +222,7 @@ describe('Toolbar', () => {
         userCanAddFilesForContext={true}
         userCanEditFilesForContext={true}
         userCanRestrictFilesForContext={true}
-      />
+      />,
     )
     const config = {
       '.btn-view': true,
@@ -211,7 +249,7 @@ describe('Toolbar', () => {
         userCanEditFilesForContext={true}
         userCanDeleteFilesForContext={true}
         userCanRestrictFilesForContext={true}
-      />
+      />,
     )
     const config = {
       '.btn-view': false,
@@ -221,6 +259,129 @@ describe('Toolbar', () => {
       '.btn-delete': true,
       '.btn-add-folder': true,
       '.btn-upload': true,
+    }
+    expect(buttonsEnabled(toolbar, config)).toBeTruthy()
+  })
+
+  test('does not render switch to new files button when feature flags are off', () => {
+    ENV.FEATURES.files_a11y_rewrite_toggle = false
+    ENV.FEATURES.files_a11y_rewrite = false
+    const toolbar = render(
+      <Toolbar
+        params="foo"
+        query=""
+        selectedItems={[file]}
+        currentFolder={courseFolder}
+        contextId="1"
+        contextType="courses"
+        userCanAddFilesForContext={true}
+        userCanEditFilesForContext={true}
+        userCanDeleteFilesForContext={true}
+        userCanRestrictFilesForContext={true}
+      />,
+    )
+    const config = {
+      '.btn-view': true,
+      '.btn-download': true,
+      '.btn-move': true,
+      '.btn-restrict': true,
+      '.btn-delete': true,
+      '.btn-add-folder': true,
+      '.btn-upload': true,
+      '.btn-switch-to-new-files-page': false,
+    }
+    expect(buttonsEnabled(toolbar, config)).toBeTruthy()
+  })
+
+  test('renders switch to new files button when feature flags are on', () => {
+    ENV.FEATURES.files_a11y_rewrite_toggle = true
+    ENV.FEATURES.files_a11y_rewrite = true
+    ENV.current_user_id = '1'
+    const toolbar = render(
+      <Toolbar
+        params="foo"
+        query=""
+        selectedItems={[file]}
+        currentFolder={courseFolder}
+        contextId="1"
+        contextType="courses"
+        userCanAddFilesForContext={true}
+        userCanEditFilesForContext={true}
+        userCanDeleteFilesForContext={true}
+        userCanRestrictFilesForContext={true}
+      />,
+    )
+    const config = {
+      '.btn-view': true,
+      '.btn-download': true,
+      '.btn-move': true,
+      '.btn-restrict': true,
+      '.btn-delete': true,
+      '.btn-add-folder': true,
+      '.btn-upload': true,
+      '.btn-switch-to-new-files-page': true,
+    }
+    expect(buttonsEnabled(toolbar, config)).toBeTruthy()
+  })
+
+  test('does not render switch to new files button when only toggle flag is on', () => {
+    ENV.FEATURES.files_a11y_rewrite_toggle = true
+    ENV.FEATURES.files_a11y_rewrite = false
+    ENV.current_user_id = '1'
+    const toolbar = render(
+      <Toolbar
+        params="foo"
+        query=""
+        selectedItems={[file]}
+        currentFolder={courseFolder}
+        contextId="1"
+        contextType="courses"
+        userCanAddFilesForContext={true}
+        userCanEditFilesForContext={true}
+        userCanDeleteFilesForContext={true}
+        userCanRestrictFilesForContext={true}
+      />,
+    )
+    const config = {
+      '.btn-view': true,
+      '.btn-download': true,
+      '.btn-move': true,
+      '.btn-restrict': true,
+      '.btn-delete': true,
+      '.btn-add-folder': true,
+      '.btn-upload': true,
+      '.btn-switch-to-new-files-page': false,
+    }
+    expect(buttonsEnabled(toolbar, config)).toBeTruthy()
+  })
+
+  test('does not render switch to new files button when user is anonymous', () => {
+    ENV.FEATURES.files_a11y_rewrite_toggle = true
+    ENV.FEATURES.files_a11y_rewrite = true
+    ENV.current_user_id = null
+    const toolbar = render(
+      <Toolbar
+        params="foo"
+        query=""
+        selectedItems={[file]}
+        currentFolder={courseFolder}
+        contextId="1"
+        contextType="courses"
+        userCanAddFilesForContext={true}
+        userCanEditFilesForContext={true}
+        userCanDeleteFilesForContext={true}
+        userCanRestrictFilesForContext={true}
+      />,
+    )
+    const config = {
+      '.btn-view': true,
+      '.btn-download': true,
+      '.btn-move': true,
+      '.btn-restrict': true,
+      '.btn-delete': true,
+      '.btn-add-folder': true,
+      '.btn-upload': true,
+      '.btn-switch-to-new-files-page': false,
     }
     expect(buttonsEnabled(toolbar, config)).toBeTruthy()
   })

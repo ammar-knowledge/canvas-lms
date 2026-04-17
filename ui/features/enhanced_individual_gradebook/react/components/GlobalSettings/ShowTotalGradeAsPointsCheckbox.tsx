@@ -17,12 +17,12 @@
  */
 
 import React from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import doFetchApi from '@canvas/do-fetch-api-effect'
 import type {HandleCheckboxChange} from '../../../types'
 import CheckboxTemplate from './CheckboxTemplate'
 
-const I18n = useI18nScope('enhanced_individual_gradebook')
+const I18n = createI18nScope('enhanced_individual_gradebook')
 type Props = {
   settingUpdateUrl?: string | null
   showTotalGradeAsPoints: boolean
@@ -35,13 +35,15 @@ export default function ShowTotalGradesAsPointsCheckbox({
 }: Props) {
   const handleShowTotalGradeAsPointsChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const checked = event.target.checked
-    doFetchApi({
-      method: 'PUT',
-      path: settingUpdateUrl,
-      body: {
-        show_total_grade_as_points: checked,
-      },
-    })
+    if (settingUpdateUrl) {
+      doFetchApi({
+        method: 'PUT',
+        path: settingUpdateUrl,
+        body: {
+          show_total_grade_as_points: checked,
+        },
+      })
+    }
     handleCheckboxChange('showTotalGradeAsPoints', checked)
   }
 

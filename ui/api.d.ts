@@ -43,6 +43,8 @@ export type Enrollment = Readonly<{
   updated_at: string
   user_id: string
   grades: {
+    // *_grades are represented as strings in the backend, but for some reason they are defined as
+    // number here
     html_url: string
     current_grade: null | number
     current_score: null | number
@@ -63,7 +65,7 @@ export type Student = Readonly<{
   group_ids: string[]
   id: string
   integration_id: null | string
-  login_id: string
+  login_id: string | null
   short_name: string
   sis_import_id: null | string
   sis_user_id: null | string
@@ -134,6 +136,7 @@ export type StudentGroupCategory = Readonly<{
   self_signup: null | string
   sis_group_category_id: null | string
   sis_import_id: null | string
+  non_collaborative: null | boolean
 }>
 
 export type StudentGroupMap = {
@@ -204,6 +207,7 @@ export type Assignment = Readonly<{
   intra_group_peer_reviews: boolean
   is_quiz_assignment: boolean
   lock_at: null | string
+  has_rubric: null | boolean
   locked_for_user: boolean
   lti_context_id: string
   max_name_length: number
@@ -220,7 +224,10 @@ export type Assignment = Readonly<{
   original_lti_resource_link_id: null | string
   original_quiz_id: null | string
   peer_reviews: boolean
-  points_possible: number
+  peer_review_sub_assignment: PeerReviewSubAssignment | null
+  parent_assignment_id?: string
+  parent_assignment?: Assignment
+  points_possible: number | null
   position: number
   post_to_sis: boolean
   published: boolean
@@ -228,6 +235,7 @@ export type Assignment = Readonly<{
   secure_params: string
   sis_assignment_id: null | string
   submission_types: string[]
+  suppress_assignment: boolean
   submissions_download_url: string
   unlock_at: null | string
   unpublishable: boolean
@@ -237,6 +245,7 @@ export type Assignment = Readonly<{
 }> & {
   anonymize_students: boolean
   assignment_visibility: string[]
+  new_quizzes_anonymous_participants: boolean
   post_manually: boolean
 } & Partial<{
     assignment_group: AssignmentGroup
@@ -245,6 +254,18 @@ export type Assignment = Readonly<{
     inClosedGradingPeriod: boolean
     overrides: Override[]
   }>
+
+export type PeerReviewSubAssignment = Readonly<{
+  id: string
+  name: string
+  html_url: string
+  points_possible: number | null
+  grading_type: GradingType
+  submission_types: string[]
+  workflow_state: WorkflowState
+  published: boolean
+  assignment_group_id: string
+}>
 
 export type AssignmentMap = {
   [assignmentId: string]: Assignment
@@ -293,19 +314,16 @@ export type AttachmentData = Readonly<{
 }>
 
 export type Attachment = {
+  _id: string
   canvadoc_url?: string
   comment_id?: string
   content_type: string
   created_at: string
-  crocodoc_url?: string
   display_name: string
   filename: string
-  hijack_crocodoc_session?: boolean
   id: string
   mime_class: string
   provisional_canvadoc_url?: null | string
-  provisional_crocodoc_url?: null | string
-  submitted_to_crocodoc?: boolean
   submitter_id: string
   updated_at: string
   upload_status: 'pending' | 'failed' | 'success'
@@ -346,6 +364,7 @@ export type SectionMap = {
 }
 
 export type GradingType =
+  | 'no_submission'
   | 'points'
   | 'percent'
   | 'letter_grade'
@@ -355,6 +374,8 @@ export type GradingType =
 
 export type SubmissionType =
   | null
+  | ''
+  | 'none'
   | 'basic_lti_launch'
   | 'discussion_topic'
   | 'external_tool'
@@ -393,6 +414,18 @@ export type TurnitinAsset = {
   public_error_message?: string
 }
 
+export type SubAssignmentSubmission = {
+  grade: string | null
+  score: number | null
+  published_grade: string | null
+  published_score: string | null
+  grade_matches_current_submission: boolean
+  sub_assignment_tag: string
+  entered_grade: string | null
+  entered_score: number | null
+  excused: boolean
+}
+
 export type Submission = Readonly<{
   anonymous_id?: string
   assignment_id: string
@@ -405,7 +438,7 @@ export type Submission = Readonly<{
   entered_score: null | number
   grade_matches_current_submission: boolean
   gradeLocked: boolean
-  grading_period_id: string
+  grading_period_id: string | null
   grading_type: GradingType
   has_originality_report: boolean
   has_postable_comments: boolean
@@ -418,6 +451,7 @@ export type Submission = Readonly<{
   redo_request: boolean
   score: null | number
   seconds_late: number
+  sticker: string | null
   similarityInfo: null | SimilarityScore
   submission_type: SubmissionType
   url?: null | string
@@ -425,9 +459,9 @@ export type Submission = Readonly<{
   versioned_attachments?: any
   word_count: null | number
   workflow_state: WorkflowState
+  sub_assignment_submissions?: SubAssignmentSubmission[]
 }> & {
   assignedAssessments?: AssignedAssessments[]
-  attempt?: number
   excused: boolean
   external_tool_url?: string
   grade: string | null
@@ -440,6 +474,7 @@ export type Submission = Readonly<{
   rawGrade: string | null
   submission_comments: SubmissionComment[]
   submitted_at: null | Date
+  // this type is possibly wrong, it should be Record<string, TurnitinAsset>...
   turnitin_data?: TurnitinAsset & {
     // TODO: refactor to separate out the dynamic object
     [key: string]: any
@@ -596,9 +631,15 @@ export type Account = Readonly<{
 }>
 
 // '/api/v1/users/self/favorites/courses?include[]=term&include[]=sections&sort=nickname',
+// '/api/v1/courses/:id',
 export type Course = Readonly<{
   id: string
   name: string
+  course_code?: string
+  start_at?: string
+  end_at?: string
+  time_zone: string
+  blueprint: boolean
   workflow_state: string
   enrollment_term_id: number
   term: {
@@ -610,8 +651,26 @@ export type Course = Readonly<{
     {
       id: string
       name: string
-    }
+    },
   ]
+  restrict_enrollments_to_course_dates: boolean
+  horizon_course: boolean
+}>
+
+export type ContentMigration = Readonly<{
+  id: string
+  migration_type: string
+}>
+
+export type Term = Readonly<{
+  id: string
+  name: string
+  start_at: string
+  end_at: string
+}>
+
+export type EnrollmentTerms = Readonly<{
+  enrollment_terms: Term[]
 }>
 
 // '/api/v1/users/self/tabs',
@@ -624,6 +683,7 @@ export type ProfileTab = Readonly<{
   label: string
   html_url: string
   counts: TabCountsObj
+  type?: 'internal' | 'external'
 }>
 
 // '/api/v1/users/self/groups?include[]=can_access',
@@ -632,6 +692,8 @@ export type AccessibleGroup = Readonly<{
   name: string
   can_access?: boolean
   concluded: boolean
+  context_type?: string
+  context_name?: string
 }>
 
 // '/help_links',
@@ -667,6 +729,8 @@ export type Checkpoint = {
   overrides: CheckpointOverride[]
   points_possible: number
   tag: string
+  unlock_at: string | null
+  lock_at: string | null
 }
 
 export type CheckpointOverride = {
@@ -678,4 +742,124 @@ export type CheckpointOverride = {
   student_ids: string[]
   title: string
   unassign_item: boolean
+  unlock_at: string | null
+  lock_at: string | null
 }
+
+export type AttachmentPreflight = {
+  upload_url: string
+  upload_params: any
+  file_param: string
+}
+
+export type PreAttachmentRequest = {
+  name: string
+  size?: number
+  content_type?: string
+  no_redirect?: boolean
+  [key: string]: any // Other file upload properties per documentation
+}
+
+export type SisImportRequestBody = {
+  import_type?: 'instructure_csv'
+  // File upload options
+  attachment?: File | Blob
+  pre_attachment?: PreAttachmentRequest
+  extension?: 'zip' | 'xml' | 'csv' | string
+  // Batch mode options
+  batch_mode?: boolean
+  batch_mode_term_id?: string
+  multi_term_batch_mode?: boolean
+  // Processing options
+  skip_deletes?: boolean
+  override_sis_stickiness?: boolean
+  add_sis_stickiness?: boolean
+  clear_sis_stickiness?: boolean
+  update_sis_id_if_login_claimed?: boolean
+  // Diffing options
+  diffing_data_set_identifier?: string
+  diffing_remaster_data_set?: boolean
+  diffing_drop_status?: 'deleted' | 'completed' | 'inactive'
+  diffing_user_remove_status?: 'deleted' | 'suspended'
+  batch_mode_enrollment_drop_status?: 'deleted' | 'completed' | 'inactive'
+  change_threshold?: number
+}
+
+export type SisImport = {
+  id: string
+  created_at: string
+  started_at: string | null
+  ended_at: string | null
+  updated_at: string
+  progress: number
+  workflow_state: string
+  data: {
+    import_type: string
+  }
+  batch_mode: boolean
+  batch_mode_term_id: string
+  multi_term_batch_mode: boolean
+  override_sis_stickiness: boolean
+  add_sis_stickiness: boolean
+  update_sis_id_if_login_claimed: boolean
+  clear_sis_stickiness: boolean
+  diffing_data_set_identifier: string
+  diffing_remaster: boolean
+  diffed_against_import_id: string
+  diffing_drop_status: string
+  diffing_user_remove_status: string
+  skip_deletes: boolean
+  change_threshold: number
+  diff_row_count_threshold: number
+  user: User
+  pre_attachment?: AttachmentPreflight
+}
+
+export type ExperienceSummary = {
+  current_app: string
+  available_apps: string[]
+}
+
+export type SwitchExperienceResponse = {
+  experience: string
+}
+
+export type YoutubeEmbed = Readonly<{
+  path: string
+  src: string
+  resource_type: string
+  field: string
+  id: number
+  resource_group_key: string
+  converted?: boolean
+  converted_at?: string
+}>
+
+export type YoutubeScanResource = Readonly<{
+  id: number
+  name: string
+  type: string
+  content_url: string
+  count: number
+  converted_count?: number
+  failed?: boolean
+  embeds: Array<YoutubeEmbed>
+}>
+
+export type YoutubeScanWorkflowState =
+  | 'completed'
+  | 'failed'
+  | 'queued'
+  | 'running'
+  | 'waiting_for_external_tool'
+
+export type YoutubeScanResultReport = Readonly<{
+  workflow_state: YoutubeScanWorkflowState | null
+  resources: Array<YoutubeScanResource>
+  total_count: number | null
+  total_converted?: number
+  id: number
+  page: number
+  per_page: number
+  total_pages: number
+}>

@@ -48,11 +48,11 @@ describe Canvas::Apm do
 
       it "is false if missing or set to false" do
         inject_apm_settings("sample_rate: 0.5\nhost_sample_rate: 1.0")
-        expect(Canvas::Apm).to_not be_analytics_enabled
+        expect(Canvas::Apm).not_to be_analytics_enabled
         Canvas::Apm.reset!
         DynamicSettings.reset_cache!
         inject_apm_settings("sample_rate: 0.5\nhost_sample_rate: 1.0\napp_analytics_enabled: false")
-        expect(Canvas::Apm).to_not be_analytics_enabled
+        expect(Canvas::Apm).not_to be_analytics_enabled
       end
     end
   end
@@ -130,9 +130,9 @@ describe Canvas::Apm do
     it "adds shard and account tags to active span" do
       Canvas::Apm.hostname = "testbox"
       Canvas::Apm.tracer.trace("TESTING") do |span|
-        shard = OpenStruct.new({ id: 42 })
-        account = OpenStruct.new({ global_id: 420_000_042 })
-        user = OpenStruct.new({ global_id: 42_100_000_421 })
+        shard = instance_double(Shard, { id: 42 })
+        account = instance_double(Account, { global_id: 420_000_042 })
+        user = instance_double(User, { global_id: 42_100_000_421 })
         generate_request_id = "1234567890"
         expect(tracer.active_root_span).to eq(span)
         Canvas::Apm.annotate_trace(shard, account, generate_request_id, user)
@@ -172,7 +172,7 @@ describe Canvas::Apm do
           }
         }
       }
-      expect(Canvas::Apm).to_not be_configured
+      expect(Canvas::Apm).not_to be_configured
       Canvas::Apm.trace("test") do |span|
         expect(span.class).to eq(Canvas::Apm::StubTracer::StubSpan)
       end

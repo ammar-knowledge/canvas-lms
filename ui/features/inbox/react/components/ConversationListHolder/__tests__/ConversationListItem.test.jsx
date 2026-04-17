@@ -22,22 +22,21 @@ import {ConversationListItem} from '../ConversationListItem'
 import {responsiveQuerySizes} from '../../../../util/utils'
 import {SubmissionComment} from '../../../../graphql/SubmissionComment'
 
-jest.mock('../../../../util/utils', () => ({
-  ...jest.requireActual('../../../../util/utils'),
-  responsiveQuerySizes: jest.fn(),
+vi.mock('../../../../util/utils', async (importOriginal) => ({
+  ...(await importOriginal()),
+  responsiveQuerySizes: vi.fn(),
 }))
 
-const submissionsCommentsMock = () => {
-  return {
-    _id: 1,
-    subject: 'XavierSchool - This is an Assignment',
-    lastMessageCreatedAt: '2022-02-15T06:50:54-07:00',
-    lastMessageContent: 'Hey!',
-    participantString: 'Hank Mccoy',
-    messages: [SubmissionComment.mock(), SubmissionComment.mock(), SubmissionComment.mock()],
-    count: 3,
-  }
-}
+const submissionsCommentsMock = (overrides = {}) => ({
+  _id: 1,
+  subject: 'XavierSchool - This is an Assignment',
+  lastMessageCreatedAt: '2022-02-15T06:50:54-07:00',
+  lastMessageContent: 'Hey!',
+  participantString: 'Hank Mccoy',
+  messages: [SubmissionComment.mock(), SubmissionComment.mock(), SubmissionComment.mock()],
+  count: 3,
+  ...overrides,
+})
 
 describe('ConversationListItem', () => {
   const createProps = overrides => {
@@ -85,25 +84,25 @@ describe('ConversationListItem', () => {
         ],
       },
       isUnread: false,
-      onSelect: jest.fn(),
-      onOpen: jest.fn(),
-      onStar: jest.fn(),
-      onMarkAsRead: jest.fn(),
-      onMarkAsUnRead: jest.fn(),
-      readStateChangeConversationParticipants: jest.fn(),
+      onSelect: vi.fn(),
+      onOpen: vi.fn(),
+      onStar: vi.fn(),
+      onMarkAsRead: vi.fn(),
+      onMarkAsUnRead: vi.fn(),
+      readStateChangeConversationParticipants: vi.fn(),
       ...overrides,
     }
   }
 
   beforeAll(() => {
     // Add appropriate mocks for responsive
-    window.matchMedia = jest.fn().mockImplementation(() => {
+    window.matchMedia = vi.fn().mockImplementation(() => {
       return {
         matches: true,
         media: '',
         onchange: null,
-        addListener: jest.fn(),
-        removeListener: jest.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
       }
     })
 
@@ -115,7 +114,7 @@ describe('ConversationListItem', () => {
 
   describe('behavior', () => {
     it('calls the onSelect callback with the new state', () => {
-      const onSelectMock = jest.fn()
+      const onSelectMock = vi.fn()
 
       const props = createProps({onSelect: onSelectMock})
 
@@ -131,7 +130,7 @@ describe('ConversationListItem', () => {
     })
 
     it('calls onStar on not-starred click', () => {
-      const onStarMock = jest.fn()
+      const onStarMock = vi.fn()
 
       const props = createProps({onStar: onStarMock})
 
@@ -162,7 +161,7 @@ describe('ConversationListItem', () => {
         bubbles: true,
         cancelable: true,
       })
-      Object.assign(clickEvent, {stopPropagation: jest.fn()})
+      Object.assign(clickEvent, {stopPropagation: vi.fn()})
       fireEvent(unreadBadge, clickEvent)
 
       expect(clickEvent.stopPropagation).toHaveBeenCalledTimes(1)
@@ -179,7 +178,7 @@ describe('ConversationListItem', () => {
     })
 
     it('update read state called with correct parameters', () => {
-      const onMarkAsUnread = jest.fn()
+      const onMarkAsUnread = vi.fn()
 
       const props = createProps({
         onMarkAsUnread,
@@ -200,6 +199,26 @@ describe('ConversationListItem', () => {
       const {getByText} = render(<ConversationListItem {...props} />)
 
       expect(getByText('(No subject)')).toBeTruthy()
+    })
+
+    it('renders correct checkbox accessible name when conversation is not selected', () => {
+      const props = createProps({isSelected: false})
+
+      const {getByLabelText} = render(<ConversationListItem {...props} />)
+
+      expect(
+        getByLabelText('Message This is the subject line from Nov 5, 2020 not selected'),
+      ).toBeInTheDocument()
+    })
+
+    it('renders correct checkbox accessible name when conversation is selected', () => {
+      const props = createProps({isSelected: true})
+
+      const {getByLabelText} = render(<ConversationListItem {...props} />)
+
+      expect(
+        getByLabelText('Message This is the subject line from Nov 5, 2020 selected'),
+      ).toBeInTheDocument()
     })
   })
 
@@ -251,7 +270,7 @@ describe('ConversationListItem', () => {
     })
 
     it('sends correct submission id to be marked as read', () => {
-      const onMarkAsRead = jest.fn()
+      const onMarkAsRead = vi.fn()
       const props = createProps({
         conversation: submissionsCommentsMock(),
         isUnread: true,

@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React, {Component} from 'react'
 import PropTypes from 'prop-types'
 
@@ -28,9 +28,9 @@ import {ScreenReaderContent, PresentationContent} from '@instructure/ui-a11y-con
 
 import {IconBlueprintLockSolid, IconBlueprintSolid} from '@instructure/ui-icons'
 
-import WithBreakpoints, {breakpointsShape} from '@canvas/with-breakpoints'
+import {WithBreakpoints} from '@instructure/platform-with-breakpoints'
 
-const I18n = useI18nScope('blueprint_coursesLockToggle')
+const I18n = createI18nScope('blueprint_coursesLockToggle')
 
 const modes = {
   ADMIN_LOCKED: {
@@ -76,7 +76,6 @@ class LockToggle extends Component {
     isLocked: PropTypes.bool.isRequired,
     isToggleable: PropTypes.bool,
     onClick: PropTypes.func,
-    breakpoints: breakpointsShape,
   }
 
   static defaultProps = {

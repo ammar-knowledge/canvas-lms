@@ -20,8 +20,6 @@ import FakeEditor from './FakeEditor'
 import {screen} from '@testing-library/dom'
 import {makeMarkerEditable, makeBodyEditable} from '../contentEditable'
 
-jest.mock('react-dom')
-
 describe('contentEditable', () => {
   describe('makeMarkerEditable()', () => {
     let editor
@@ -35,13 +33,13 @@ describe('contentEditable', () => {
           <span id="test"> @
             <span data-testid="mentions-marker" id="mentions-marker">wes</span>
           </span>
-        </div>`
+        </div>`,
       )
     })
 
     afterEach(() => {
       editor.setContent('')
-      jest.resetAllMocks()
+      vi.resetAllMocks()
     })
 
     it('sets contenteditable to false on the body', () => {
@@ -55,7 +53,7 @@ describe('contentEditable', () => {
     })
 
     it('moves the cursor to the editable span', () => {
-      editor.selection.setCursorLocation = jest.fn()
+      editor.selection.setCursorLocation = vi.fn()
       subject()
       expect(editor.selection.setCursorLocation).toHaveBeenCalled()
     })
@@ -68,15 +66,15 @@ describe('contentEditable', () => {
 
     beforeEach(() => {
       editor = new FakeEditor()
-      editor.selection.getBookmark = jest.fn()
-      editor.selection.moveToBookmark = jest.fn()
+      editor.selection.getBookmark = vi.fn()
+      editor.selection.moveToBookmark = vi.fn()
 
       editor.setContent(
         `<div data-testid="fake-body" contenteditable="false">
           <span id="test"> @
             <span data-testid="mentions-marker" id="mentions-marker" contenteditable="true">wes</span>
           </span>
-        </div>`
+        </div>`,
       )
     })
 

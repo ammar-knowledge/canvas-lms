@@ -17,7 +17,7 @@
  */
 
 import React, {useState, useEffect} from 'react'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {Flex} from '@instructure/ui-flex'
 import {Button, IconButton} from '@instructure/ui-buttons'
 import {Heading} from '@instructure/ui-heading'
@@ -26,7 +26,15 @@ import {IconAddLine} from '@instructure/ui-icons'
 import {Responsive} from '@instructure/ui-responsive'
 import {SimpleSelect} from '@instructure/ui-simple-select'
 
-const I18n = useI18nScope('calendar.header')
+const I18n = createI18nScope('calendar.header')
+
+const isUserStudent = () => {
+  return ENV.current_user_roles && ENV.current_user_roles.includes('student')
+}
+
+const shouldShowCreateEventButton = () => {
+  return !(ENV?.FEATURES?.restrict_student_access && isUserStudent())
+}
 
 const RenderAddEventButton = ({size}: {size: string}) => {
   if (size === 'large') {
@@ -42,7 +50,7 @@ const RenderAddEventButton = ({size}: {size: string}) => {
   }
 
   return (
-    <Button id="create_new_event_link" renderIcon={IconAddLine} display="block">
+    <Button id="create_new_event_link" renderIcon={<IconAddLine />} display="block">
       {I18n.t('Add Event')}
     </Button>
   )
@@ -62,10 +70,8 @@ const RenderViewsSelector = ({
   }
 
   useEffect(() => {
-    // eslint-disable-next-line no-undef
     document.addEventListener('calendar:header:select_view', handleViewChange as EventListener)
     return () =>
-      // eslint-disable-next-line no-undef
       document.removeEventListener('calendar:header:select_view', handleViewChange as EventListener)
   }, [view])
 
@@ -175,7 +181,7 @@ const RenderContent = ({
               <div className="recommend_agenda screenreader-only">
                 <button id="use_agenda" className="accessibility-warning" type="button">
                   {I18n.t(
-                    'Warning: For improved accessibility, please use the "Agenda view" Calendar.'
+                    'Warning: For improved accessibility, please use the "Agenda view" Calendar.',
                   )}
                 </button>
               </div>
@@ -198,11 +204,13 @@ const RenderContent = ({
                   />
                 </Flex.Item>
 
-                <Flex.Item overflowY="visible">
-                  <span className="add_event_button_responsive">
-                    <RenderAddEventButton size={size} />
-                  </span>
-                </Flex.Item>
+                {shouldShowCreateEventButton() && (
+                  <Flex.Item overflowY="visible">
+                    <span className="add_event_button_responsive">
+                      <RenderAddEventButton size={size} />
+                    </span>
+                  </Flex.Item>
+                )}
               </Flex>
             </Flex.Item>
           </Flex>

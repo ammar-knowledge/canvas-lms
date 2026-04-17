@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2019 - present Instructure, Inc.
  *
@@ -21,7 +20,6 @@ import React, {Component, useEffect, useState} from 'react'
 import ReactDOM from 'react-dom'
 import {px} from '@instructure/ui-utils'
 import indicatorRegion from '../../../indicatorRegion'
-import {isAudioOrVideo, isImage} from '../fileTypeUtils'
 import indicate from '../../../../common/indicate'
 
 import {StoreProvider} from '../StoreContext'
@@ -31,8 +29,11 @@ import UploadFileModal from './UploadFileModal'
 import RCEWrapper from '../../../RCEWrapper'
 import {Editor} from 'tinymce'
 
+import {UploadCanvasPanelIds} from '../canvasContentUtils'
+
 export const UploadFilePanelIds = ['COMPUTER', 'URL'] as const
-export type UploadFilePanelId = (typeof UploadFilePanelIds)[number]
+export const FullPanelIds = [...UploadCanvasPanelIds, ...UploadFilePanelIds]
+export type UploadFilePanelId = (typeof FullPanelIds)[number]
 
 /**
  * Handles uploading data based on what type of data is submitted.
@@ -41,10 +42,13 @@ export const handleSubmit = (
   editor: Editor,
   accept: string,
   selectedPanel: UploadFilePanelId,
+  // @ts-expect-error
   uploadData,
+  // @ts-expect-error
   storeProps,
-  source,
-  afterInsert: Function = () => undefined
+  // @ts-expect-error
+  _source,
+  afterInsert: Function = () => undefined,
 ) => {
   Bridge.focusEditor(RCEWrapper.getByEditor(editor)) // necessary since it blurred when the modal opened
   const {altText, isDecorativeImage, displayAs} = uploadData?.imageOptions || {}
@@ -63,13 +67,7 @@ export const handleSubmit = (
         usageRights:
           uploadData?.usageRights?.usageRight === 'choose' ? undefined : uploadData?.usageRights,
       }
-      let tabContext = 'documents'
-      if (isImage(theFile.type)) {
-        tabContext = 'images'
-      } else if (isAudioOrVideo(theFile.type)) {
-        tabContext = 'media'
-      }
-      storeProps.startMediaUpload(tabContext, fileMetaData)
+      storeProps.startMediaUpload(fileMetaData)
       break
     }
     case 'URL': {
@@ -99,10 +97,12 @@ export interface UploadFileProps {
   onSubmit?: Function
   onDismiss: Function
   accept?: string[] | string
-  editor: Editor
+  editor?: Editor
   label: string
   panels?: UploadFilePanelId[]
   requireA11yAttributes?: boolean
+  forBlockEditorUse?: boolean
+  uploading?: boolean
   trayProps?: object
   canvasOrigin?: string
   preselectedFile?: File // a JS File
@@ -115,6 +115,8 @@ export function UploadFile({
   panels,
   onDismiss,
   requireA11yAttributes = true,
+  forBlockEditorUse = false,
+  uploading = false,
   trayProps,
   canvasOrigin,
   onSubmit = handleSubmit,
@@ -125,6 +127,7 @@ export function UploadFile({
   const [theFile] = useState(preselectedFile)
   const bodyRef = React.useRef<Component>()
 
+  // @ts-expect-error
   trayProps = trayProps || Bridge.trayProps.get(editor)
 
   // the panels get rendered inside tab panels. it's difficult for them to
@@ -144,10 +147,11 @@ export function UploadFile({
 
   return (
     <StoreProvider {...trayProps} canvasOrigin={canvasOrigin}>
+      {/* @ts-expect-error */}
       {contentProps => (
         <UploadFileModal
           ref={bodyRef}
-          // @ts-ignore
+          // @ts-expect-error
           preselectedFile={theFile}
           editor={editor}
           trayProps={trayProps}
@@ -161,6 +165,8 @@ export function UploadFile({
           modalBodyWidth={modalBodyWidth}
           modalBodyHeight={modalBodyHeight}
           requireA11yAttributes={requireA11yAttributes}
+          forBlockEditorUse={forBlockEditorUse}
+          uploading={uploading}
         />
       )}
     </StoreProvider>

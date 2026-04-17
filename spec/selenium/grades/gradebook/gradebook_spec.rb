@@ -23,16 +23,28 @@ require_relative "../pages/gradebook_page"
 require_relative "../pages/gradebook_cells_page"
 require_relative "../../helpers/groups_common"
 
-describe "Gradebook" do
+# NOTE: We are aware that we're duplicating some unnecessary testcases, but this was the
+# easiest way to review, and will be the easiest to remove after the feature flag is
+# permanently removed. Testing both flag states is necessary during the transition phase.
+shared_examples "Gradebook" do |ff_enabled|
   include_context "in-process server selenium tests"
   include GradebookCommon
   include GroupsCommon
 
   before(:once) do
+    # Set feature flag state for the test run - this affects how the gradebook data is fetched, not the data setup
+    if ff_enabled
+      Account.site_admin.enable_feature!(:performance_improvements_for_gradebook)
+    else
+      Account.site_admin.disable_feature!(:performance_improvements_for_gradebook)
+    end
     gradebook_data_setup
   end
 
   before do
+    if ff_enabled
+      allow(Services::PlatformServiceGradebook).to receive(:use_graphql?).and_return(true)
+    end
     user_session(@teacher)
   end
 
@@ -325,21 +337,11 @@ describe "Gradebook" do
     Gradebook.visit(@course)
     expect(f("body")).not_to contain_css(".late")
 
-    @student_3_submission.write_attribute(:cached_due_date, 1.week.ago)
+    @student_3_submission.cached_due_date = 1.week.ago
     @student_3_submission.save!
     Gradebook.visit(@course)
 
     expect(ff(".late")).to have_size(1)
-  end
-
-  it "hides the speedgrader link for large courses", priority: "2" do
-    pending("TODO: Refactor this and add it back as part of CNVS-32440")
-    allow(@course).to receive(:large_roster?).and_return(true)
-
-    Gradebook.visit(@course)
-
-    f(".Gradebook__ColumnHeaderAction button").click
-    expect(f(".gradebook-header-menu")).not_to include_text("SpeedGrader")
   end
 
   context "grading quiz submissions" do
@@ -435,4 +437,9 @@ describe "Gradebook" do
       expect_flash_message :success, "Gradebook export has started. This may take a few minutes."
     end
   end
+end
+
+describe "Gradebook" do
+  it_behaves_like "Gradebook", true
+  it_behaves_like "Gradebook", false
 end

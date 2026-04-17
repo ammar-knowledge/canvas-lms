@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../spec_helper"
-
 describe SmartSearch do
   before do
     skip "not available" unless ActiveRecord::Base.connection.table_exists?("wiki_page_embeddings")
@@ -76,7 +74,7 @@ describe SmartSearch do
       worker.perform(@cm)
     end
 
-    before :once do
+    before do
       next unless ActiveRecord::Base.connection.table_exists?("wiki_page_embeddings")
 
       @copy_from = @course
@@ -95,7 +93,7 @@ describe SmartSearch do
     end
 
     context "destination enables smart search feature" do
-      before :once do
+      before do
         @copy_to&.enable_feature! :smart_search
       end
 
@@ -137,7 +135,7 @@ describe SmartSearch do
       @mm.reload
     end
 
-    before :once do
+    before do
       next unless ActiveRecord::Base.connection.table_exists?("wiki_page_embeddings")
 
       @blueprint = @course

@@ -18,7 +18,7 @@
 
 import React, {useEffect, useState} from 'react'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
 import {FormFieldGroup} from '@instructure/ui-form-field'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
@@ -31,39 +31,42 @@ import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
 
 import {Modal} from '@instructure/ui-modal'
-import {showFlashError} from '@canvas/alerts/react/FlashAlert'
+import {showFlashError} from '@instructure/platform-alerts'
 import {DEFAULT_COURSE_COLOR, saveSelectedContexts} from '@canvas/k5/react/utils'
 
-const I18n = useI18nScope('filter_calendars_modal')
+const I18n = createI18nScope('filter_calendars_modal')
 
 export const ContextCheckbox = ({
   assetString,
-  color = DEFAULT_COURSE_COLOR,
+  color,
   maxContextsReached,
   name,
   onChange,
   selected,
-}) => (
-  <InstUISettingsProvider
-    theme={{
-      componentOverrides: {
-        [CheckboxFacade.componentId]: {
-          checkedBackground: color,
-          checkedBorderColor: color,
+}) => {
+  const checkboxColor = color || DEFAULT_COURSE_COLOR
+  return (
+    <InstUISettingsProvider
+      theme={{
+        componentOverrides: {
+          [CheckboxFacade.componentId]: {
+            checkedBackground: checkboxColor,
+            checkedBorderColor: checkboxColor,
+          },
         },
-      },
-    }}
-  >
-    <Checkbox
-      data-testid="subject-calendars"
-      label={name}
-      value={`${assetString}_selected`}
-      checked={selected}
-      disabled={maxContextsReached && !selected}
-      onChange={() => onChange(assetString)}
-    />
-  </InstUISettingsProvider>
-)
+      }}
+    >
+      <Checkbox
+        data-testid="subject-calendars"
+        label={name}
+        value={`${assetString}_selected`}
+        checked={selected}
+        disabled={maxContextsReached && !selected}
+        onChange={() => onChange(assetString)}
+      />
+    </InstUISettingsProvider>
+  )
+}
 
 const FilterCalendarsModal = ({
   closeModal,
@@ -88,17 +91,16 @@ const FilterCalendarsModal = ({
     setPendingSelectedContexts(currentlySelected => {
       const contextIndex = currentlySelected.indexOf(assetString)
       if (contextIndex === -1) {
-        currentlySelected.push(assetString)
+        return [...currentlySelected, assetString]
       } else {
-        currentlySelected.splice(contextIndex, 1)
+        return currentlySelected.filter(context => context !== assetString)
       }
-      return [...currentlySelected]
     })
   }
 
   const submitSelectedContexts = () => {
     saveSelectedContexts(pendingSelectedContexts).catch(
-      showFlashError(I18n.t('Failed to save selected calendars'))
+      showFlashError(I18n.t('Failed to save selected calendars')),
     )
     updateSelectedContextCodes([...pendingSelectedContexts])
     closeModal()
@@ -125,7 +127,7 @@ const FilterCalendarsModal = ({
                 one: 'Choose up to 1 subject calendar',
                 other: 'Choose up to %{count} subject calendars',
               },
-              {count: selectedContextsLimit}
+              {count: selectedContextsLimit},
             )}
           </Text>
         </View>
@@ -155,7 +157,7 @@ const FilterCalendarsModal = ({
                     one: 'You have 1 calendar left',
                     other: 'You have %{count} calendars left',
                   },
-                  {count: selectedContextsLimit - pendingSelectedContexts.length}
+                  {count: selectedContextsLimit - pendingSelectedContexts.length},
                 )}
               </Text>
             </Flex.Item>

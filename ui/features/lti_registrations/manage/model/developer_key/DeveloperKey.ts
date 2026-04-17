@@ -18,7 +18,7 @@
 import {ZDeveloperKeyAccountBinding} from './DeveloperKeyAccountBinding'
 import {ZDeveloperKeyId} from './DeveloperKeyId'
 import * as z from 'zod'
-import {ZLtiScope} from '../LtiScope'
+import {ZLtiScope} from '@canvas/lti/model/LtiScope'
 import {ZLtiConfiguration} from '../lti_tool_configuration/LtiConfiguration'
 import {ZLtiImsRegistration} from '../lti_ims_registration/LtiImsRegistration'
 
@@ -36,9 +36,9 @@ export const ZDeveloperKey = z.object({
   icon_url: z.string().nullable(),
   vendor_code: z.string().nullable(),
   redirect_uri: z.string().nullable(),
-  redirect_uris: z.string().nullable(),
+  redirect_uris: z.array(z.string()).nullable(),
   public_jwk_url: z.string().nullable(),
-  public_jwk: z.string().nullable(),
+  public_jwk: z.object({}).nullable(),
   email: z.string().nullable(),
   name: z.string().nullable(),
   require_scopes: z.boolean().nullable(),

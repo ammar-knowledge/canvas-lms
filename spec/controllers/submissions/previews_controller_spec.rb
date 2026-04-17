@@ -18,7 +18,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+require_relative "../../lti_spec_helper"
+
 describe Submissions::PreviewsController do
+  include LtiSpecHelper
+
   describe "GET :show" do
     before do
       course_with_student_and_submitted_homework
@@ -46,7 +50,7 @@ describe Submissions::PreviewsController do
         before do
           user_session(@teacher)
           submission = @quiz.assignment.submissions.where(user_id: @student).first
-          submission.quiz_submission.with_versioning(true) do
+          submission.quiz_submission.with_versioning do
             submission.quiz_submission.update_attribute(:finished_at, 1.hour.ago)
           end
         end
@@ -121,6 +125,31 @@ describe Submissions::PreviewsController do
 
         get :show, params: { course_id: @course.id, assignment_id: assignment.id, id: @student.id, preview: true }
         expect(response).to be_unauthorized
+      end
+    end
+
+    context "when Asset Processor is attached and submission type is online_upload" do
+      render_views
+
+      before do
+        @attachment1 = attachment_with_context @student, { display_name: "a1.txt", uploaded_data: StringIO.new("hello") }
+        @attachment2 = attachment_with_context @student, { display_name: "a2.txt", uploaded_data: StringIO.new("world") }
+        @submission = @assignment.submit_homework(@student, attachments: [@attachment1, @attachment2], submission_type: "online_upload")
+        @context = @course
+        user_session(@student)
+      end
+
+      it "renders show_preview with asset processor data attributes for uploaded files" do
+        get :show, params: { course_id: @context.id, assignment_id: @assignment.id, id: @student.id, preview: true }
+
+        body = response.body
+
+        # Verify asset report status containers have all required data attributes
+        [@attachment1, @attachment2].each do |attachment|
+          expect(body).to include('data-attachment-id="' + attachment.id.to_s + '"')
+          expect(body).to include('data-submission-id="' + @submission.id.to_s + '"')
+          expect(body).to include('data-submission-type="online_upload"')
+        end
       end
     end
   end

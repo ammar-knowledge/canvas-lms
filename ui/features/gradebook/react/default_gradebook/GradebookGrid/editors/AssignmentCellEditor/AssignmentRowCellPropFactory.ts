@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -19,13 +18,15 @@
 
 import {extractSimilarityInfo} from '@canvas/grading/SubmissionHelper'
 import type Gradebook from '../../../Gradebook'
+import type {Submission} from '../../../../../../../api.d'
 
-function isTrayOpen(gradebook: Gradebook, student, assignment) {
+function isTrayOpen(gradebook: Gradebook, student: {id: string}, assignment: {id: string}) {
   const {open, studentId, assignmentId} = gradebook.getSubmissionTrayState()
   return open && studentId === student.id && assignmentId === assignment.id
 }
 
-function similarityInfoToShow(submission) {
+function similarityInfoToShow(submission: Submission | undefined) {
+  if (!submission) return null
   const allSimilarityInfo = extractSimilarityInfo(submission)
 
   if (allSimilarityInfo && allSimilarityInfo.entries?.length > 0) {
@@ -47,7 +48,7 @@ export default class AssignmentRowCellPropFactory {
     this.gradebook = gradebook
   }
 
-  getProps(editorOptions) {
+  getProps(editorOptions: {item: {id: string}; column: {assignmentId: string}}) {
     const student = this.gradebook.student(editorOptions.item.id)
     const assignment = this.gradebook.getAssignment(editorOptions.column.assignmentId)
     const submission = this.gradebook.getSubmission(student.id, assignment.id)
@@ -76,6 +77,7 @@ export default class AssignmentRowCellPropFactory {
 
     const pendingGradeInfo = this.gradebook.getPendingGradeInfo(cleanSubmission)
     const gradingScheme = this.gradebook.getAssignmentGradingScheme(assignment.id)
+    const isPeerReviewAssignment = Boolean(assignment.parent_assignment_id)
 
     return {
       assignment: {
@@ -90,12 +92,14 @@ export default class AssignmentRowCellPropFactory {
       pointsBasedGradingScheme: gradingScheme?.pointsBased,
       scalingFactor: gradingScheme?.scalingFactor,
       isSubmissionTrayOpen: isTrayOpen(this.gradebook, student, assignment),
+      isPeerReviewAssignment,
 
       onToggleSubmissionTrayOpen: () => {
         this.gradebook.toggleSubmissionTrayOpen(student.id, assignment.id)
       },
 
       onGradeSubmission: this.gradebook.gradeSubmission,
+      peerReviewAssignment: isPeerReviewAssignment ? assignment : null,
       pendingGradeInfo,
       student,
       submission: cleanSubmission,

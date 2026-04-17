@@ -53,7 +53,7 @@ describe('CommonEvent', () => {
         start_at: '2016-02-25T23:30:00Z',
         end_at: '2016-02-26T00:30:00Z',
       },
-      ['course_1']
+      ['course_1'],
     )
     expect(event.end.date()).toBe(26)
     expect(event.end.hours()).toBe(0)
@@ -67,11 +67,26 @@ describe('CommonEvent', () => {
         start_at: '2016-02-25T23:30:00Z',
         all_context_codes: 'course_1,course_23',
       },
-      ['course_1', 'course_23']
+      ['course_1', 'course_23'],
     )
     expect(event.isOnCalendar('course_1')).toBeTruthy()
     expect(event.isOnCalendar('course_23')).toBeTruthy()
     expect(event.isOnCalendar('course_2')).toBeFalsy()
+  })
+
+  test('isOnCalendar with cross-shard global IDs', () => {
+    const event = commonEventFactory(
+      {
+        title: 'cross-shard appointment',
+        start_at: '2026-01-26T18:00:00Z',
+        all_context_codes: 'course_97700000000059053',
+      },
+      ['course_97700000000059053'],
+    )
+    expect(event.isOnCalendar('course_97700000000059053')).toBeTruthy()
+    expect(event.isOnCalendar('course_59053')).toBeFalsy()
+    expect(event.isOnCalendar('course_59054')).toBeFalsy()
+    expect(event.isOnCalendar('course_590')).toBeFalsy()
   })
 
   test('finds a context for multi-context events', () => {
@@ -88,9 +103,53 @@ describe('CommonEvent', () => {
         appointment_group_url: 'http://localhost:3000/api/v1/appointment_groups/2',
         own_reservation: true,
       },
-      [{asset_string: 'course_2'}]
+      [{asset_string: 'course_2'}],
     )
     expect(event).not.toBeNull()
+  })
+
+  test('matches context when API returns consistent IDs', () => {
+    const event = commonEventFactory(
+      {
+        title: 'Cross-shard appointment',
+        start_at: '2026-01-26T18:00:00Z',
+        effective_context_code: 'course_97700000000059053',
+        context_code: 'course_97700000000059053',
+        all_context_codes: 'course_97700000000059053',
+        appointment_group_id: '2',
+        appointment_group_url: 'http://localhost:3000/api/v1/appointment_groups/2',
+      },
+      [{asset_string: 'course_97700000000059053', can_create_calendar_events: true}],
+    )
+    expect(event).not.toBeNull()
+    expect(event.contextCode()).toBe('course_97700000000059053')
+  })
+
+  test('matches context in multi-context events', () => {
+    const event = commonEventFactory(
+      {
+        title: 'Multi-context',
+        start_at: '2026-01-26T18:00:00Z',
+        effective_context_code: 'course_97700000000059053,course_97700000000059054',
+        context_code: 'user_2',
+        all_context_codes: 'course_97700000000059053,course_97700000000059054',
+      },
+      [{asset_string: 'course_97700000000059053'}, {asset_string: 'course_97700000000059054'}],
+    )
+    expect(event).not.toBeNull()
+  })
+
+  test('returns null when context cannot be matched', () => {
+    const event = commonEventFactory(
+      {
+        title: 'Unmatched context',
+        start_at: '2026-01-26T18:00:00Z',
+        effective_context_code: 'course_99999',
+        all_context_codes: 'course_99999',
+      },
+      [{asset_string: 'course_59053'}],
+    )
+    expect(event).toBeNull()
   })
 })
 
@@ -110,7 +169,7 @@ describe('CommonEvent#iconType', () => {
         start_at: '2016-12-01T12:30:00Z',
         appointment_group_url: 'http://some_url',
       },
-      ['course_1']
+      ['course_1'],
     )
     expect(event.iconType()).toBe('calendar-add')
   })
@@ -123,7 +182,7 @@ describe('CommonEvent#iconType', () => {
         appointment_group_url: 'http://some_url',
         child_events: [{}],
       },
-      ['course_1']
+      ['course_1'],
     )
     expect(event.iconType()).toBe('calendar-reserved')
   })
@@ -135,7 +194,7 @@ describe('CommonEvent#iconType', () => {
         start_at: '2016-12-01T12:30:00Z',
         appointment_group_url: 'http://some_url',
       },
-      ['course_1']
+      ['course_1'],
     )
     event.appointmentGroupEventStatus = 'Reserved'
     expect(event.iconType()).toBe('calendar-reserved')
@@ -147,7 +206,7 @@ describe('CommonEvent#iconType', () => {
         title: 'some title',
         start_at: '2016-12-01T12:30:00Z',
       },
-      ['course_1']
+      ['course_1'],
     )
     expect(event.iconType()).toBe('calendar-month')
   })
@@ -159,7 +218,7 @@ describe('CommonEvent#iconType', () => {
         plannable_type: 'discussion_topic',
         plannable: {id: '123', title: 'some title', todo_date: '2016-12-01T12:30:00Z'},
       },
-      [{asset_string: 'course_1', can_update_discussion_topic: false, can_update_todo_date: false}]
+      [{asset_string: 'course_1', can_update_discussion_topic: false, can_update_todo_date: false}],
     )
     expect(event.iconType()).toBe('discussion')
     expect(event.can_edit).toBe(false)
@@ -174,7 +233,7 @@ describe('CommonEvent#iconType', () => {
         plannable_type: 'wiki_page',
         plannable: {url: 'some_title', title: 'some title', todo_date: '2016-12-01T12:30:00Z'},
       },
-      [{asset_string: 'course_1', can_update_wiki_page: false, can_update_todo_date: false}]
+      [{asset_string: 'course_1', can_update_wiki_page: false, can_update_todo_date: false}],
     )
     expect(event.iconType()).toBe('document')
     expect(event.can_edit).toBe(false)
@@ -190,7 +249,7 @@ describe('CommonEvent#iconType', () => {
         html_url: 'http://example.org/courses/1/discussion_topics/123',
         plannable: {id: '123', title: 'some title', todo_date: '2016-12-01T12:30:00Z'},
       },
-      [{asset_string: 'course_1', can_update_discussion_topic: true, can_update_todo_date: true}]
+      [{asset_string: 'course_1', can_update_discussion_topic: true, can_update_todo_date: true}],
     )
     expect(event.can_edit).toBe(true)
     expect(event.can_delete).toBe(true)
@@ -207,7 +266,7 @@ describe('CommonEvent#iconType', () => {
         html_url: 'http://example.org/courses/1/pages/some-page',
         plannable: {url: 'some_page', title: 'some page', todo_date: '2016-12-01T12:30:00Z'},
       },
-      [{asset_string: 'course_1', can_update_wiki_page: true, can_update_todo_date: true}]
+      [{asset_string: 'course_1', can_update_wiki_page: true, can_update_todo_date: true}],
     )
     expect(event.iconType()).toBe('document')
     expect(event.can_edit).toBe(true)
@@ -215,5 +274,18 @@ describe('CommonEvent#iconType', () => {
     expect(event.can_change_context).toBe(false)
     expect(event.fullDetailsURL()).toBe('http://example.org/courses/1/pages/some-page')
     expect(event.readableType()).toBe('Page')
+  })
+
+  test('should not throw an error if the assignment_overrides is an empty array', () => {
+    const event = commonEventFactory(
+      {
+        title: 'some title',
+        start_at: '2016-12-01T12:30:00Z',
+        assignment_overrides: [],
+      },
+      ['course_1'],
+    )
+    expect(event).toBeTruthy()
+    expect(event.assignment_overrides).toBeUndefined()
   })
 })

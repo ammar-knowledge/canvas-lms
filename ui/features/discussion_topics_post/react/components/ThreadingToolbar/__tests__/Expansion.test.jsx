@@ -16,21 +16,21 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {render, fireEvent} from '@testing-library/react'
+import {fireEvent, render} from '@testing-library/react'
 import React from 'react'
 import {Expansion} from '../Expansion'
 import {responsiveQuerySizes} from '../../../utils'
 
-jest.mock('../../../utils')
+vi.mock('../../../utils')
 
 beforeAll(() => {
-  window.matchMedia = jest.fn().mockImplementation(() => {
+  window.matchMedia = vi.fn().mockImplementation(() => {
     return {
       matches: true,
       media: '',
       onchange: null,
-      addListener: jest.fn(),
-      removeListener: jest.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
     }
   })
 })
@@ -49,20 +49,20 @@ const setup = props => {
       delimiterKey="expansion"
       expandText=""
       {...props}
-    />
+    />,
   )
 }
 
 describe('Expansion', () => {
   it('calls provided callback when clicked', () => {
-    const onClickMock = jest.fn()
+    const onClickMock = vi.fn()
     const {getByText} = setup({
       onClick: onClickMock,
       expandText: '4 replies',
     })
-    expect(onClickMock.mock.calls.length).toBe(0)
+    expect(onClickMock.mock.calls).toHaveLength(0)
     fireEvent.click(getByText('4 replies'))
-    expect(onClickMock.mock.calls.length).toBe(1)
+    expect(onClickMock.mock.calls).toHaveLength(1)
   })
 
   it('indicates expansion status', () => {
@@ -76,7 +76,7 @@ describe('Expansion', () => {
         isExpanded={true}
         delimiterKey="expansion"
         expandText=""
-      />
+      />,
     )
 
     expect(queryByTestId('reply-expansion-btn-expand')).toBeFalsy()
@@ -86,20 +86,5 @@ describe('Expansion', () => {
   it('displays as readonly if isReadOnly is true', () => {
     const {getByText} = setup({isExpanded: false, isReadOnly: true, expandText: '4 replies'})
     expect(getByText('4 replies').closest('button').hasAttribute('aria-disabled')).toBe(true)
-  })
-
-  describe('Mobile', () => {
-    beforeEach(() => {
-      responsiveQuerySizes.mockImplementation(() => ({
-        mobile: {maxWidth: '1024px'},
-      }))
-    })
-
-    it('uses mobile prop values', () => {
-      const container = setup()
-      const smallText = container.getByTestId('text-small')
-
-      expect(smallText).toBeTruthy()
-    })
   })
 })

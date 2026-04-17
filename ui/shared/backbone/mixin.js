@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {extend, flatten} from 'lodash'
+import {extend, flatten} from 'es-toolkit/compat'
 
 // Merges mixins into target, being mindful of certain properties (like
 // events) that need to be merged also.
@@ -47,7 +47,7 @@ export default function (target, ...mixins) {
         let name
         const [alreadyMixedIn, notMixedInYet] = Array.from(match.slice(1))
         ;(target[(name = `__${alreadyMixedIn || notMixedInYet}__`)] || (target[name] = [])).push(
-          prop
+          prop,
         )
       } else {
         target[key] = prop

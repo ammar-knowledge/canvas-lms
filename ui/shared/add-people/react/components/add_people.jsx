@@ -16,7 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
 import {bool, func, shape, arrayOf, oneOfType} from 'prop-types'
 import {Modal} from '@instructure/ui-modal'
@@ -36,36 +36,16 @@ import PeopleSearch from './people_search'
 import PeopleReadyList from './people_ready_list'
 import PeopleValidationIssues from './people_validation_issues'
 import APIError from './api_error'
+import {parseNameList, findEmailInEntry, emailValidator, validateEmailForNewUser} from '../helpers'
+import {showFlashSuccess} from '@instructure/platform-alerts'
 
-const I18n = useI18nScope('add_people')
+const I18n = createI18nScope('add_people')
 
 const PEOPLESEARCH = 'peoplesearch'
 const PEOPLEREADYLIST = 'peoplereadylist'
 const PEOPLEVALIDATIONISSUES = 'peoplevalidationissues'
 const RESULTPENDING = 'resultpending'
 const APIERROR = 'apierror'
-
-const isReadyToCreate = candidate =>
-  !!(candidate.createNew && candidate.newUserInfo && candidate.newUserInfo.email) // newUserInfo.name is now optional
-
-// @param props: the component's properties to consider
-// @returns true if our user has dealt with all the duplicates and missing
-//          search results
-function arePeopleValidationIssuesResolved(props) {
-  let found = Object.keys(props.userValidationResult.duplicates).find(address => {
-    const dupe = props.userValidationResult.duplicates[address]
-    return !(dupe.selectedUserId >= 0 || dupe.skip || isReadyToCreate(dupe))
-  })
-  if (found) return false
-
-  found = Object.keys(props.userValidationResult.missing).find(address => {
-    const miss = props.userValidationResult.missing[address]
-    return miss.createNew && !isReadyToCreate(miss)
-  })
-  if (found) return false
-
-  return true
-}
 
 export default class AddPeople extends React.Component {
   // TODO: deal with defaut props after the warmfix to keep this change small
@@ -95,10 +75,12 @@ export default class AddPeople extends React.Component {
       arrayOf(
         shape({
           enrollment: shape(newUserShape),
-        })
+        }),
       ),
     ]), // it IS used in componentWillReceiveProps.
   }
+
+  peopleSearchTextareaRef = React.createRef()
 
   constructor(props) {
     super(props)
@@ -106,6 +88,9 @@ export default class AddPeople extends React.Component {
     this.state = {
       currentPage: PEOPLESEARCH, // the page to render
       focusToTop: false, // move focus to the top of the panel
+      hasSubmittedOnce: false,
+      validationIssueFieldsRefAndError: {},
+      keepUpLoadingState: false,
     }
     this.content = null
   }
@@ -115,11 +100,19 @@ export default class AddPeople extends React.Component {
   }
 
   UNSAFE_componentWillReceiveProps(nextProps) {
-    if (nextProps.usersEnrolled) this.close()
     if (nextProps.apiState && nextProps.apiState.error) {
       this.setState({
         focusToClose: true,
       })
+    }
+    const isClosedAndWillOpen = !this.props.isOpen && nextProps.isOpen
+    if (isClosedAndWillOpen) {
+      this.setState({
+        currentPage: PEOPLESEARCH,
+        focusToTop: true,
+        keepUpLoadingState: false,
+      })
+      this.props.reset()
     }
   }
 
@@ -130,7 +123,13 @@ export default class AddPeople extends React.Component {
   // event handlers  ---------------------
   // search input changes
   onChangeSearchInput = newValue => {
-    const inputParams = {...this.props.inputParams, ...newValue}
+    const searchInputError = this.state.hasSubmittedOnce
+      ? this.validateSearchInput(
+          newValue?.nameList ?? this.props.inputParams.nameList,
+          newValue?.searchType ?? this.props.inputParams.searchType,
+        )
+      : null
+    const inputParams = {...this.props.inputParams, ...newValue, searchInputError}
     this.props.setInputParams(inputParams)
   }
 
@@ -170,32 +169,113 @@ export default class AddPeople extends React.Component {
     }
   }
 
-  // modal next and back handlers ---------------------
-  // on next callback from PeopleSearch page
+  validateSearchInput = (nameList, searchType) => {
+    let error
+    const searchByEmail = searchType === 'cc_path'
+    const isTextAreaEmpty = !nameList.length
+
+    if (isTextAreaEmpty) {
+      error = {text: I18n.t('This field is required.'), type: 'newError'}
+    } else if (searchByEmail) {
+      const users = parseNameList(nameList)
+      const badEmail = users.find(u => {
+        const email = findEmailInEntry(u)
+        return !emailValidator.test(email)
+      })
+
+      if (badEmail) {
+        error = {
+          text: I18n.t('It looks like you have an invalid email address: "%{addr}"', {
+            addr: badEmail,
+          }),
+          type: 'newError',
+        }
+      }
+    }
+
+    return error
+  }
+
   searchNext = () => {
+    const searchInputError = this.validateSearchInput(
+      this.props.inputParams.nameList,
+      this.props.inputParams.searchType,
+    )
+
+    if (searchInputError) {
+      this.peopleSearchTextareaRef.current.focus()
+      this.props.setInputParams({...this.props.inputParams, searchInputError})
+      this.setState({hasSubmittedOnce: true})
+      return
+    }
+
     this.setState({currentPage: PEOPLEVALIDATIONISSUES, focusToClose: true})
     this.props.validateUsers()
   }
 
-  // on next callback from PeopleValidationIssues page
+  validateFieldsForPeopleIssuesComponent = () => {
+    const errors = []
+
+    Object.entries(this.props.userValidationResult.duplicates)
+      .concat(Object.entries(this.props.userValidationResult.missing))
+      .forEach(([address, {createNew, newUserInfo}]) => {
+        errors.push([
+          address,
+          {
+            errorMessage: createNew ? validateEmailForNewUser(newUserInfo) : null,
+          },
+        ])
+      })
+
+    return errors
+  }
+
+  handleErrorsForPeopleIssuesComponent = errors => {
+    const updatedValidationIssueFieldsRef = {...this.state.validationIssueFieldsRefAndError}
+    let hasFocusedOnTheFirstErrorField = false
+
+    errors.forEach(([address, {errorMessage}]) => {
+      const field = updatedValidationIssueFieldsRef[address]
+      if (!field) {
+        return
+      }
+
+      if (!hasFocusedOnTheFirstErrorField && field.ref) {
+        hasFocusedOnTheFirstErrorField = true
+        field.ref.focus()
+      }
+
+      field.errorMessage = errorMessage
+    })
+    this.setState({validationIssueFieldsRef: updatedValidationIssueFieldsRef})
+  }
+
   validationIssuesNext = () => {
+    const errors = this.validateFieldsForPeopleIssuesComponent()
+
+    const hasErrors = errors.some(([_, {errorMessage}]) => errorMessage)
+    if (hasErrors) {
+      this.handleErrorsForPeopleIssuesComponent(errors)
+      return
+    }
+
     this.setState({currentPage: PEOPLEREADYLIST, focusToTop: true})
     this.props.resolveValidationIssues()
   }
 
   // on next callback from the ready list of users
   enrollUsers = () => {
-    this.props.enrollUsers()
+    this.props.enrollUsers(async () => {
+      this.setState({keepUpLoadingState: true})
+
+      this.close()
+
+      showFlashSuccess(I18n.t('Users successfully added to the course.'))()
+    })
   }
 
-  // we're finished. close up shop.
   close = () => {
-    this.setState({
-      currentPage: PEOPLESEARCH,
-      focusToTop: true,
-    })
     if (typeof this.props.onClose === 'function') this.props.onClose()
-    this.props.reset()
   }
 
   // go back to a previous panel in the modal
@@ -226,7 +306,7 @@ export default class AddPeople extends React.Component {
     // this.state.currentPage is the requested page,
     // but it may get overridden
     let currentPage = this.state.currentPage
-    if (this.props.apiState.pendingCount) {
+    if (this.props.apiState.pendingCount || this.state.keepUpLoadingState) {
       // api call is in-flight
       currentPage = RESULTPENDING
     } else if (this.props.apiState.error) {
@@ -269,14 +349,15 @@ export default class AddPeople extends React.Component {
           <PeopleSearch
             {...this.props.inputParams}
             {...this.props.courseParams}
+            textareaRef={this.peopleSearchTextareaRef}
             onChange={this.onChangeSearchInput}
           />
         )
         onNext = this.searchNext
-        readyForNext = this.props.inputParams.nameList.length > 0
+        readyForNext = true
         panelLabel = I18n.t('User search panel')
         panelDescription = I18n.t(
-          'Use this panel to search for people you wish to add to this course.'
+          'Use this panel to search for people you wish to add to this course.',
         )
         break
       case PEOPLEVALIDATIONISSUES:
@@ -287,14 +368,15 @@ export default class AddPeople extends React.Component {
             inviteUsersURL={this.props.courseParams.inviteUsersURL}
             onChangeDuplicate={this.onChangeDuplicate}
             onChangeMissing={this.onChangeMissing}
+            fieldsRefAndError={this.state.validationIssueFieldsRefAndError}
           />
         )
         onNext = this.validationIssuesNext
         onBack = this.peopleValidationIssuesOnBack
-        readyForNext = arePeopleValidationIssuesResolved(this.props)
+        readyForNext = true
         panelLabel = I18n.t('User vaildation issues panel')
         panelDescription = I18n.t(
-          'Use this panel to resolve duplicate results or people not found with your search.'
+          'Use this panel to resolve duplicate results or people not found with your search.',
         )
         break
       case PEOPLEREADYLIST:

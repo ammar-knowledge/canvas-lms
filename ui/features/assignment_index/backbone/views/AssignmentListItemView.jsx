@@ -16,15 +16,16 @@
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import Assignment from '@canvas/assignments/backbone/models/Assignment'
-import DateAvailableColumnView from '@canvas/assignments/backbone/views/DateAvailableColumnView'
-import DateDueColumnView from '@canvas/assignments/backbone/views/DateDueColumnView'
+import DateAvailable from '@canvas/assignments/react/DateAvailable'
+import DateDue from '@canvas/assignments/react/DateDue'
 import Backbone from '@canvas/backbone'
 import CyoeHelper from '@canvas/conditional-release-cyoe-helper'
 import DirectShareCourseTray from '@canvas/direct-sharing/react/components/DirectShareCourseTray'
 import DirectShareUserModal from '@canvas/direct-sharing/react/components/DirectShareUserModal'
 import {scoreToPercentage} from '@canvas/grading/GradeCalculationHelper'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import {ListViewCheckpoints} from '@canvas/list-view-checkpoints/react/ListViewCheckpoints'
+import {PeerReviewInfo} from '@canvas/assignments/react/PeerReviewInfo'
 import {TeacherCheckpointsInfo} from '@canvas/list-view-checkpoints/react/TeacherCheckpointsInfo'
 import LockIconView from '@canvas/lock-icon'
 import * as MoveItem from '@canvas/move-item-tray'
@@ -34,24 +35,26 @@ import round from '@canvas/round'
 import SisButtonView from '@canvas/sis/backbone/views/SisButtonView'
 import {StudentViewPeerReviews} from '@canvas/student_view_peer_reviews/react/StudentViewPeerReviews'
 import {shimGetterShorthand} from '@canvas/util/legacyCoffeesScriptHelpers'
-import preventDefault from '@canvas/util/preventDefault'
 import {scoreToGrade} from '@instructure/grading-utils'
 import $ from 'jquery'
-import 'jqueryui/tooltip'
+import ModuleTooltip from '../../react/ModuleTooltip'
 import React from 'react'
 import ReactDOM from 'react-dom'
 import template from '../../jst/AssignmentListItem.handlebars'
 import scoreTemplate from '../../jst/_assignmentListItemScore.handlebars'
 import AssignmentKeyBindingsMixin from '../mixins/AssignmentKeyBindingsMixin'
 import CreateAssignmentView from './CreateAssignmentView'
-import ItemAssignToTray from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToTray'
+import ItemAssignToManager from '@canvas/context-modules/differentiated-modules/react/Item/ItemAssignToManager'
 import {captureException} from '@sentry/browser'
+import CreateAssignmentViewAdapter from './CreateAssignmentViewAdapter'
+import {createRoot} from 'react-dom/client'
+import {render, rerender} from '@canvas/react'
 
-const I18n = useI18nScope('AssignmentListItemView')
+const I18n = createI18nScope('AssignmentListItemView')
 
 let AssignmentListItemView
 
-export default AssignmentListItemView = (function () {
+export default (AssignmentListItemView = (function () {
   AssignmentListItemView = class AssignmentListItemView extends Backbone.View {
     constructor(...args) {
       super(...args)
@@ -90,6 +93,9 @@ export default AssignmentListItemView = (function () {
       this.focusOnFirstGroup = this.focusOnFirstGroup.bind(this)
       this.onAlignmentCloneFailedRetry = this.onAlignmentCloneFailedRetry.bind(this)
       this.updateAssignmentCollectionItem = this.updateAssignmentCollectionItem.bind(this)
+      this.cleanupPeerReviewInfo = this.cleanupPeerReviewInfo.bind(this)
+      this.buildPeerReviewAssignmentData = this.buildPeerReviewAssignmentData.bind(this)
+      this.renderPeerReviewInfo = this.renderPeerReviewInfo.bind(this)
     }
 
     static initClass() {
@@ -101,14 +107,10 @@ export default AssignmentListItemView = (function () {
 
       this.child('publishIconView', '[data-view=publish-icon]')
       this.child('lockIconView', '[data-view=lock-icon]')
-      this.child('dateDueColumnView', '[data-view=date-due]')
-      this.child('dateAvailableColumnView', '[data-view=date-available]')
-      this.child('editAssignmentView', '[data-view=edit-assignment]')
       this.child('sisButtonView', '[data-view=sis-button]')
 
       this.prototype.els = {
         '.al-trigger': '$settingsButton',
-        '.edit_assignment': '$editAssignmentButton',
         '.move_assignment': '$moveAssignmentButton',
       }
 
@@ -118,7 +120,6 @@ export default AssignmentListItemView = (function () {
         'click .assign-to-link': 'onAssign',
         'click .send_assignment_to': 'onSendAssignmentTo',
         'click .copy_assignment_to': 'onCopyAssignmentTo',
-        'click .tooltip_link': preventDefault(function () {}),
         keydown: 'handleKeys',
         mousedown: 'stopMoveIfProtected',
         'click .icon-lock': 'onUnlockAssignment',
@@ -130,6 +131,7 @@ export default AssignmentListItemView = (function () {
         'click .import-failed-cancel': 'onDuplicateOrImportFailedCancel',
         'click .alignment-clone-failed-retry': 'onAlignmentCloneFailedRetry',
         'click .alignment-clone-failed-cancel': 'onDuplicateOrImportFailedCancel',
+        'click .edit_assignment': 'renderCreateEditAssignmentModal',
       }
 
       this.prototype.messages = shimGetterShorthand(
@@ -141,7 +143,7 @@ export default AssignmentListItemView = (function () {
           ag_move_label() {
             return I18n.beforeLabel(I18n.t('Assignment Group'))
           },
-        }
+        },
       )
     }
 
@@ -190,7 +192,6 @@ export default AssignmentListItemView = (function () {
       this.lockIconView = false
       this.sisButtonView = false
       this.editAssignmentView = false
-      this.dateAvailableColumnView = false
 
       if (this.canManage()) {
         this.publishIconView = new PublishIconView({
@@ -211,9 +212,6 @@ export default AssignmentListItemView = (function () {
       }
 
       this.initializeSisButton()
-
-      this.dateDueColumnView = new DateDueColumnView({model: this.model})
-      return (this.dateAvailableColumnView = new DateAvailableColumnView({model: this.model}))
     }
 
     initializeSisButton() {
@@ -252,7 +250,7 @@ export default AssignmentListItemView = (function () {
             this.model.collection.view != null
               ? this.model.collection.view.parentCollection
               : undefined,
-            col => col.get('assignments')
+            col => col.get('assignments'),
           ),
         },
         onMoveSuccess: res => {
@@ -264,7 +262,7 @@ export default AssignmentListItemView = (function () {
             res.data.order,
             res.groupId,
             this.model,
-            keys
+            keys,
           )
         },
         focusOnExit: () => {
@@ -287,6 +285,73 @@ export default AssignmentListItemView = (function () {
         .toggleClass('ig-published', this.view.model.get('published'))
     }
 
+    cleanupDateAvailableColumn() {
+      if (this._dateAvailableRoot) {
+        this._dateAvailableRoot.unmount()
+        this._dateAvailableRoot = null
+      }
+    }
+
+    renderDateAvailableColumn() {
+      const mountPoint = this.$el.find('[data-view=date-available]')[0]
+
+      if (!mountPoint) return
+
+      const group = this.model.defaultDates()
+      const data = this.model.toView()
+      const component = (
+        <DateAvailable
+          multipleDueDates={data.multipleDueDates}
+          allDates={this.model.allDates()}
+          defaultDates={group.toJSON()}
+          linkHref={this.model.htmlUrl()}
+        />
+      )
+
+      if (this._dateAvailableRoot) {
+        rerender(this._dateAvailableRoot, component)
+      } else {
+        this._dateAvailableRoot = render(component, mountPoint)
+      }
+    }
+
+    cleanupDateDueColumn() {
+      if (this._dateDueRoot) {
+        this._dateDueRoot.unmount()
+        this._dateDueRoot = null
+      }
+    }
+
+    renderDateDueColumn() {
+      const mountPoint = this.$el.find('[data-view=date-due]')[0]
+
+      if (!mountPoint) return
+
+      const data = this.model.toView()
+      const component = (
+        <DateDue
+          multipleDueDates={data.multipleDueDates}
+          allDates={this.model.allDates()}
+          singleSectionDueDate={data.singleSectionDueDate}
+          todoDate={data.todo_date}
+          linkHref={this.model.htmlUrl()}
+        />
+      )
+
+      if (this._dateDueRoot) {
+        rerender(this._dateDueRoot, component)
+      } else {
+        this._dateDueRoot = render(component, mountPoint)
+      }
+    }
+
+    cleanupPeerReviewInfo() {
+      if (this.peerReviewInfoRoot) {
+        this.peerReviewInfoRoot.unmount()
+        this.peerReviewInfoRoot = null
+      }
+    }
+
     // call remove on children so that they can clean up old dialogs.
     render() {
       this.toggleHidden(this.model, this.model.get('hidden'))
@@ -299,12 +364,10 @@ export default AssignmentListItemView = (function () {
       if (this.editAssignmentView) {
         this.editAssignmentView.remove()
       }
-      if (this.dateDueColumnView) {
-        this.dateDueColumnView.remove()
-      }
-      if (this.dateAvailableColumnView) {
-        this.dateAvailableColumnView.remove()
-      }
+      this.cleanupDateDueColumn()
+      this.cleanupDateAvailableColumn()
+      this.cleanupPeerReviewInfo()
+      this.cleanupModuleToolTip()
 
       super.render(...arguments)
       this.initializeSisButton()
@@ -315,15 +378,25 @@ export default AssignmentListItemView = (function () {
       }
     }
 
+    remove() {
+      this.cleanupDateDueColumn()
+      this.cleanupDateAvailableColumn()
+      this.cleanupPeerReviewInfo()
+      this.cleanupModuleToolTip()
+      return super.remove()
+    }
+
+    cleanupModuleToolTip() {
+      if (!this.moduleTooltipRoot) return
+
+      this.moduleTooltipRoot.unmount()
+      this.moduleTooltipRoot = null
+    }
+
     afterRender() {
       this.createModuleToolTip()
-
-      if (this.editAssignmentView) {
-        this.editAssignmentView.hide()
-        if (this.canEdit()) {
-          this.editAssignmentView.setTrigger(this.$editAssignmentButton)
-        }
-      }
+      this.renderDateDueColumn()
+      this.renderDateAvailableColumn()
 
       const {attributes = {}} = this.model
       const {assessment_requests: assessmentRequests, checkpoints} = attributes
@@ -331,23 +404,25 @@ export default AssignmentListItemView = (function () {
       if (checkpoints && checkpoints.length && !this.canManage()) {
         try {
           const checkpointsElem =
-          this.$el.find(`#assignment_student_checkpoints_${this.model.id}`) ?? []
+            this.$el.find(`#assignment_student_checkpoints_${this.model.id}`) ?? []
           const mountPoint = checkpointsElem[0]
 
           ReactDOM.render(
             React.createElement(ListViewCheckpoints, {
               assignment: attributes,
             }),
-            mountPoint
+            mountPoint,
           )
         } catch (error) {
           const errorMessage = I18n.t('Checkpoints mount point element not found')
-          // eslint-disable-next-line no-console
+
           console.error(errorMessage, error)
           captureException(new Error(errorMessage), error)
         }
-      } else if(checkpoints && checkpoints.length && this.canManage()) {
-        const checkpointsElem = this.$el.find(`#assignment_teacher_checkpoint_info_${this.model.id}`)
+      } else if (checkpoints && checkpoints.length && this.canManage()) {
+        const checkpointsElem = this.$el.find(
+          `#assignment_teacher_checkpoint_info_${this.model.id}`,
+        )
         const mountPoint = checkpointsElem[0]
         if (mountPoint) {
           try {
@@ -355,7 +430,7 @@ export default AssignmentListItemView = (function () {
               React.createElement(TeacherCheckpointsInfo, {
                 assignment: this.model.attributes,
               }),
-              mountPoint
+              mountPoint,
             )
           } catch (error) {
             const errorMessage = I18n.t('Checkpoints mount point element not found')
@@ -365,7 +440,15 @@ export default AssignmentListItemView = (function () {
         }
       }
 
-      if (assessmentRequests && assessmentRequests.length) {
+      if (this.model.shouldShowPeerReviewInfo && this.model.shouldShowPeerReviewInfo()) {
+        this.renderPeerReviewInfo()
+      }
+
+      if (
+        assessmentRequests &&
+        assessmentRequests.length &&
+        !(ENV.PEER_REVIEW_ALLOCATION_AND_GRADING_ENABLED && this.model.peerReviewSubAssignment())
+      ) {
         const peerReviewElem =
           this.$el.find(`#assignment_student_peer_review_${this.model.id}`) ?? []
         const mountPoint = peerReviewElem[0]
@@ -374,13 +457,74 @@ export default AssignmentListItemView = (function () {
             React.createElement(StudentViewPeerReviews, {
               assignment: attributes,
             }),
-            mountPoint
+            mountPoint,
           )
         }
       }
 
       if (this.canReadGrades()) {
         return this.updateScore()
+      }
+
+      if (ENV.horizon_course) {
+        this.publishIconView.$el.addClass('disabled')
+      }
+    }
+
+    buildPeerReviewAssignmentData() {
+      const peerReviewSub = this.model.peerReviewSubAssignment()
+      const assignmentDefaultDates = this.model.defaultDates()
+      const assignmentSingleSection = this.model.singleSection()
+
+      const assignmentData = {
+        ...this.model.attributes,
+        defaultDates: assignmentDefaultDates.toJSON(),
+        all_dates: this.model.allDates(),
+        singleSectionAvailability: assignmentSingleSection?.availabilityStatus,
+      }
+
+      if (peerReviewSub) {
+        const peerReviewDefaultDates = this.model.peerReviewDefaultDates()
+        const peerReviewSingleSection = this.model.peerReviewSingleSection()
+
+        assignmentData.peer_review_sub_assignment = {
+          ...peerReviewSub,
+          defaultDates: peerReviewDefaultDates ? peerReviewDefaultDates.toJSON() : null,
+          all_dates: this.model.peerReviewAllDates(),
+          singleSectionAvailability: peerReviewSingleSection?.availabilityStatus,
+        }
+      }
+
+      return assignmentData
+    }
+
+    renderPeerReviewInfo() {
+      const peerReviewInfoElem = this.$el.find(`#assignment_peer_review_info_${this.model.id}`)
+      const mountPoint = peerReviewInfoElem[0]
+
+      if (!mountPoint) return
+
+      const assignmentData = this.buildPeerReviewAssignmentData()
+
+      try {
+        if (!this.peerReviewInfoRoot) {
+          this.peerReviewInfoRoot = render(
+            React.createElement(PeerReviewInfo, {
+              assignment: assignmentData,
+            }),
+            mountPoint,
+          )
+        } else {
+          rerender(
+            this.peerReviewInfoRoot,
+            React.createElement(PeerReviewInfo, {
+              assignment: assignmentData,
+            }),
+          )
+        }
+      } catch (error) {
+        const errorMessage = I18n.t('Peer review info mount point element not found')
+        captureException(new Error(errorMessage), error)
       }
     }
 
@@ -396,31 +540,26 @@ export default AssignmentListItemView = (function () {
     }
 
     createModuleToolTip() {
-      const link = this.$el.find('.tooltip_link')
-      if (link.length > 0) {
-        return link.tooltip({
-          position: {
-            my: 'center bottom',
-            at: 'center top-10',
-            collision: 'fit fit',
-          },
-          tooltipClass: 'center bottom vertical',
-          content() {
-            return $(link.data('tooltipSelector')).html()
-          },
-        })
-      }
+      const modules = this.model.get('modules')
+      if (!modules || modules.length <= 1) return
+
+      const labelId = this.model.labelId()
+      const mountPoint = this.$el.find(`#module_tooltip_mount_${labelId}`)[0]
+      if (!mountPoint) return
+
+      this.moduleTooltipRoot = createRoot(mountPoint)
+      this.moduleTooltipRoot.render(<ModuleTooltip modules={modules} />)
     }
 
     toJSON() {
       let modules
       let data = this.model.toView()
       data.canManage = this.canManage()
+      data.isTeacher = this.isTeacher()
       if (!data.canManage) {
         data = this._setJSONForGrade(data)
       }
       data.courseId = this.model.get('course_id')
-      data.differentiatedModulesFlag = ENV.FEATURES?.selective_release_ui_api
       data.showSpeedGraderLinkFlag = ENV.FLAGS?.show_additional_speed_grader_link
       data.showSpeedGraderLink = ENV.SHOW_SPEED_GRADER_LINK
       // publishing and unpublishing the underlying model does not rerender this view.
@@ -435,8 +574,7 @@ export default AssignmentListItemView = (function () {
       data.is_locked = this.model.isRestrictedByMasterCourse()
       data.isCheckpoint = this.model.get('checkpoints') && this.model.get('checkpoints').length > 0
       data.showAvailability =
-        !data.isCheckpoint &&
-        !(this.model.inPacedCourse() && this.canManage()) &&
+        !this.model.inPacedCourse() &&
         (this.model.multipleDueDates() || !this.model.defaultDates().available())
       data.showDueDate =
         !data.isCheckpoint &&
@@ -445,7 +583,7 @@ export default AssignmentListItemView = (function () {
 
       data.cyoe = CyoeHelper.getItemData(
         data.id,
-        this.isGraded() && (!this.model.isQuiz() || data.is_quiz_assignment)
+        this.isGraded() && (!this.model.isQuiz() || data.is_quiz_assignment),
       )
       data.return_to = encodeURIComponent(window.location.pathname)
 
@@ -457,8 +595,12 @@ export default AssignmentListItemView = (function () {
       data.item_assignment_type = data.is_quiz_assignment
         ? 'quiz'
         : data.isQuizLTIAssignment
-        ? 'lti-quiz'
-        : 'assignment'
+          ? 'lti-quiz'
+          : 'assignment'
+
+      if (this.model.shouldShowPeerReviewInfo && this.model.shouldShowPeerReviewInfo()) {
+        data.hasPeerReviewInfo = true
+      }
 
       if (data.canManage) {
         data.spanWidth = 'span3'
@@ -480,9 +622,10 @@ export default AssignmentListItemView = (function () {
             tool.base_url +
             `&discussion_topics[]=${__guard__(this.model.get('discussion_topic'), x => x.id)}`)
         })
+        data.item_assignment_type = 'discussion_topic'
       } else {
         const isNewQuizzes = this.model.isQuizLTIAssignment()
-        const isShareToCommons = (tool) => tool.canvas_icon_class === 'icon-commons'
+        const isShareToCommons = tool => tool.canvas_icon_class === 'icon-commons'
         const tools = ENV.assignment_menu_tools || []
 
         if (!isNewQuizzes || ENV.FEATURES.commons_new_quizzes) {
@@ -495,7 +638,6 @@ export default AssignmentListItemView = (function () {
           return (tool.url = tool.base_url + `&assignments[]=${this.model.get('id')}`)
         })
       }
-
       if ((modules = this.model.get('modules'))) {
         const moduleName = modules[0]
         const has_modules = modules.length > 0
@@ -600,23 +742,44 @@ export default AssignmentListItemView = (function () {
       return this.delete({silent: true})
     }
 
+    renderCreateEditAssignmentModal() {
+      const mountPoint = document.getElementById('create-edit-mount-point')
+      const root = createRoot(mountPoint)
+      const onClose = () => {
+        root.unmount()
+
+        // Rerender the list item
+        this.render()
+        document.getElementById(`assign_${this.model.id}_manage_link`)?.focus()
+      }
+      root.render(<CreateAssignmentViewAdapter assignment={this.model} closeHandler={onClose} />)
+    }
+
     renderItemAssignToTray(open, returnFocusTo, itemProps) {
+      const mountPoint = document.getElementById('assign-to-mount-point')
+      if (mountPoint.hasChildNodes()) {
+        ReactDOM.unmountComponentAtNode(mountPoint)
+        mountPoint.innerHTML = ''
+      }
+
       ReactDOM.render(
-        <ItemAssignToTray
+        <ItemAssignToManager
           open={open}
           onClose={() => {
-            ReactDOM.unmountComponentAtNode(document.getElementById('assign-to-mount-point'))
+            ReactDOM.unmountComponentAtNode(mountPoint)
           }}
           onDismiss={() => {
             this.renderItemAssignToTray(false, returnFocusTo, itemProps)
             returnFocusTo.focus()
           }}
+          // Spread itemProps first so explicit props below can override them
+          {...itemProps}
           itemType="assignment"
           locale={ENV.LOCALE || 'en'}
           timezone={ENV.TIMEZONE || 'UTC'}
-          {...itemProps}
+          isCheckpointed={itemProps.isCheckpoint}
         />,
-        document.getElementById('assign-to-mount-point')
+        mountPoint,
       )
     }
 
@@ -624,17 +787,23 @@ export default AssignmentListItemView = (function () {
       e.preventDefault()
       const returnFocusTo = $(e.target).closest('ul').prev('.al-trigger')
 
-      const courseId = e.target.getAttribute('data-assignment-context-id')
-      const itemName = e.target.getAttribute('data-assignment-name')
-      const itemContentId = e.target.getAttribute('data-assignment-id')
+      // Get data from the inner span with translate="no"
+      const $link = $(e.target).closest('.assign-to-link')
+      const $dataSpan = $link.find('.assign-to-link-resources')
+
+      const courseId = $dataSpan.attr('data-assignment-context-id')
+      const itemName = $dataSpan.attr('data-assignment-name')
+      const itemContentId = $dataSpan.attr('data-assignment-id')
       const pointsPossible = this.model.get('points_possible')
-      const iconType = e.target.getAttribute('data-assignment-type')
+      const iconType = $dataSpan.attr('data-assignment-type')
+      const isCheckpoint = $dataSpan.attr('data-assignment-has-checkpoint')
       this.renderItemAssignToTray(true, returnFocusTo, {
         courseId,
         itemName,
         itemContentId,
         pointsPossible,
         iconType,
+        isCheckpoint,
       })
     }
 
@@ -643,7 +812,7 @@ export default AssignmentListItemView = (function () {
       if (!this.canDelete()) {
         return
       }
-      // eslint-disable-next-line no-alert
+
       if (!window.confirm(this.messages.confirm)) {
         return this.$el.find('a[id*=manage_link]').focus()
       }
@@ -664,6 +833,7 @@ export default AssignmentListItemView = (function () {
         if (!mountPoint) {
           return
         }
+
         ReactDOM.render(
           React.createElement(DirectShareUserModal, {
             open,
@@ -672,7 +842,7 @@ export default AssignmentListItemView = (function () {
             shouldReturnFocus: false,
             onDismiss: dismissModal,
           }),
-          mountPoint
+          mountPoint,
         )
       }
 
@@ -692,6 +862,7 @@ export default AssignmentListItemView = (function () {
         if (!mountPoint) {
           return
         }
+
         ReactDOM.render(
           React.createElement(DirectShareCourseTray, {
             open,
@@ -700,7 +871,7 @@ export default AssignmentListItemView = (function () {
             shouldReturnFocus: false,
             onDismiss: dismissTray,
           }),
-          mountPoint
+          mountPoint,
         )
       }
 
@@ -799,6 +970,10 @@ export default AssignmentListItemView = (function () {
       )
     }
 
+    isTeacher() {
+      return ENV?.current_user_roles && ENV?.current_user_roles.includes('teacher')
+    }
+
     gradeStrings(grade) {
       const pass_fail_map = {
         incomplete: I18n.t('incomplete', 'Incomplete'),
@@ -867,7 +1042,7 @@ export default AssignmentListItemView = (function () {
               scoreToPercentage(json.submission.score, json.pointsPossible),
               ENV.grading_scheme,
               ENV.points_based,
-              ENV.scaling_factor
+              ENV.scaling_factor,
             )
           }
         }
@@ -980,7 +1155,7 @@ export default AssignmentListItemView = (function () {
   }
   AssignmentListItemView.initClass()
   return AssignmentListItemView
-})()
+})())
 
 function __guard__(value, transform) {
   return typeof value !== 'undefined' && value !== null ? transform(value) : undefined

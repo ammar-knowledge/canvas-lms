@@ -19,13 +19,13 @@
 import {arrayOf, bool, number, shape, string} from 'prop-types'
 import {ConversationMessage} from './ConversationMessage'
 import {ConversationParticipant} from './ConversationParticipant'
-import gql from 'graphql-tag'
+import {gql} from '@apollo/client'
 import {PageInfo} from './PageInfo'
 import {User} from './User'
 
 export const Conversation = {
   fragment: gql`
-    fragment Conversation on Conversation {
+    fragment InboxConversation on Conversation {
       _id
       id
       contextId
@@ -37,7 +37,7 @@ export const Conversation = {
       isPrivate
       conversationParticipantsConnection {
         nodes {
-          ...ConversationParticipant
+          ...InboxConversationParticipant
         }
       }
     }

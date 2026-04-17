@@ -18,13 +18,13 @@
 
 import ready from '@instructure/ready'
 import React from 'react'
-import ReactDOM from 'react-dom'
+import {render} from '@canvas/react'
 import PasswordComplexityConfiguration from './react/PasswordComplexityConfiguration'
 
 ready(() => {
   const container = document.querySelector('#password_complexity_configuration')
 
   if (container) {
-    ReactDOM.render(<PasswordComplexityConfiguration />, container)
+    render(<PasswordComplexityConfiguration />, container)
   }
 })

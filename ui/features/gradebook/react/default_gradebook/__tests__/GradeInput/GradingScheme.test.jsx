@@ -17,16 +17,14 @@
  */
 
 import React from 'react'
-import { render, cleanup, fireEvent } from '@testing-library/react'
+import {render, cleanup, fireEvent} from '@testing-library/react'
 import GradeInput from '../../components/GradeInput'
-import '@testing-library/jest-dom/extend-expect'
-import sinon from 'sinon'
 
 describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
   let props
 
   beforeEach(() => {
-    ENV.GRADEBOOK_OPTIONS = { assignment_missing_shortcut: true }
+    ENV.GRADEBOOK_OPTIONS = {assignment_missing_shortcut: true}
 
     const assignment = {
       anonymizeStudents: false,
@@ -54,7 +52,7 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
       disabled: false,
       enterGradesAs: 'gradingScheme',
       gradingScheme,
-      onSubmissionUpdate: sinon.stub(),
+      onSubmissionUpdate: vi.fn(),
       pendingGradeInfo: null,
       submission,
     }
@@ -67,19 +65,19 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
   const renderComponent = () => render(<GradeInput {...props} />)
 
   it('displays a label of "Letter Grade"', () => {
-    const { getByLabelText } = renderComponent()
+    const {getByLabelText} = renderComponent()
     expect(getByLabelText('Letter Grade')).toBeInTheDocument()
   })
 
   it('sets the scheme key grade of the submission as the input value', () => {
-    const { getByDisplayValue } = renderComponent()
+    const {getByDisplayValue} = renderComponent()
     expect(getByDisplayValue('C')).toBeInTheDocument()
   })
 
   it('is blank when the submission is not graded', () => {
     props.submission.enteredGrade = null
     props.submission.enteredScore = null
-    const { queryByDisplayValue } = renderComponent()
+    const {queryByDisplayValue} = renderComponent()
     expect(queryByDisplayValue('')).toBeInTheDocument()
   })
 
@@ -89,12 +87,12 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
     })
 
     it('sets the input value to "Excused"', () => {
-      const { getByDisplayValue } = renderComponent()
+      const {getByDisplayValue} = renderComponent()
       expect(getByDisplayValue('Excused')).toBeInTheDocument()
     })
 
     it('disables the input', () => {
-      const { getByDisplayValue } = renderComponent()
+      const {getByDisplayValue} = renderComponent()
       const input = getByDisplayValue('Excused')
       expect(input).toBeDisabled()
     })
@@ -102,13 +100,13 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
 
   it('is blank when the assignment has anonymized students', () => {
     props.assignment.anonymizeStudents = true
-    const { queryByDisplayValue } = renderComponent()
+    const {queryByDisplayValue} = renderComponent()
     expect(queryByDisplayValue('')).toBeInTheDocument()
   })
 
   it('disables the input when disabled is true', () => {
     props.disabled = true
-    const { getByDisplayValue } = renderComponent()
+    const {getByDisplayValue} = renderComponent()
     const input = getByDisplayValue('C')
     expect(input).toBeDisabled()
   })
@@ -117,7 +115,7 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
     beforeEach(() => {
       renderComponent()
       const input = document.querySelector('input')
-      fireEvent.change(input, { target: { value: 'A' } })
+      fireEvent.change(input, {target: {value: 'A'}})
     })
 
     it('updates the input to the given value', () => {
@@ -126,7 +124,7 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
     })
 
     it('does not call the onSubmissionUpdate prop', () => {
-      expect(props.onSubmissionUpdate.callCount).toBe(0)
+      expect(props.onSubmissionUpdate).not.toHaveBeenCalled()
     })
   })
 
@@ -134,21 +132,23 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
     beforeEach(() => {
       renderComponent()
       const input = document.querySelector('input')
-      fireEvent.change(input, { target: { value: 'A' } })
+      fireEvent.change(input, {target: {value: 'A'}})
       fireEvent.blur(input)
     })
 
     it('calls the onSubmissionUpdate prop', () => {
-      expect(props.onSubmissionUpdate.callCount).toBe(1)
+      expect(props.onSubmissionUpdate).toHaveBeenCalledTimes(1)
     })
 
     it('calls the onSubmissionUpdate prop with the submission', () => {
-      const [updatedSubmission] = props.onSubmissionUpdate.lastCall.args
+      const [updatedSubmission] =
+        props.onSubmissionUpdate.mock.calls[props.onSubmissionUpdate.mock.calls.length - 1]
       expect(updatedSubmission).toBe(props.submission)
     })
 
     it('calls the onSubmissionUpdate prop with the current grade info', () => {
-      const [, gradeInfo] = props.onSubmissionUpdate.lastCall.args
+      const [, gradeInfo] =
+        props.onSubmissionUpdate.mock.calls[props.onSubmissionUpdate.mock.calls.length - 1]
       expect(gradeInfo.grade).toBe('A')
     })
 
@@ -158,9 +158,10 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
       beforeEach(() => {
         renderComponent()
         const input = document.querySelector('input')
-        fireEvent.change(input, { target: { value: '8.9' } })
+        fireEvent.change(input, {target: {value: '8.9'}})
         fireEvent.blur(input)
-        gradeInfo = props.onSubmissionUpdate.lastCall.args[1]
+        gradeInfo =
+          props.onSubmissionUpdate.mock.calls[props.onSubmissionUpdate.mock.calls.length - 1][1]
       })
 
       it('calls the onSubmissionUpdate prop with the scheme key form of the entered grade', () => {
@@ -182,9 +183,10 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
       beforeEach(() => {
         renderComponent()
         const input = document.querySelector('input')
-        fireEvent.change(input, { target: { value: '89.1%' } })
+        fireEvent.change(input, {target: {value: '89.1%'}})
         fireEvent.blur(input)
-        gradeInfo = props.onSubmissionUpdate.lastCall.args[1]
+        gradeInfo =
+          props.onSubmissionUpdate.mock.calls[props.onSubmissionUpdate.mock.calls.length - 1][1]
       })
 
       it('calls the onSubmissionUpdate prop with the scheme key form of the entered grade', () => {
@@ -206,9 +208,10 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
       beforeEach(() => {
         renderComponent()
         const input = document.querySelector('input')
-        fireEvent.change(input, { target: { value: 'B' } })
+        fireEvent.change(input, {target: {value: 'B'}})
         fireEvent.blur(input)
-        gradeInfo = props.onSubmissionUpdate.lastCall.args[1]
+        gradeInfo =
+          props.onSubmissionUpdate.mock.calls[props.onSubmissionUpdate.mock.calls.length - 1][1]
       })
 
       it('calls the onSubmissionUpdate prop with the scheme key form of the entered grade', () => {
@@ -230,9 +233,10 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
       beforeEach(() => {
         renderComponent()
         const input = document.querySelector('input')
-        fireEvent.change(input, { target: { value: 'EX' } })
+        fireEvent.change(input, {target: {value: 'EX'}})
         fireEvent.blur(input)
-        gradeInfo = props.onSubmissionUpdate.lastCall.args[1]
+        gradeInfo =
+          props.onSubmissionUpdate.mock.calls[props.onSubmissionUpdate.mock.calls.length - 1][1]
       })
 
       it('calls the onSubmissionUpdate prop with a null grade form', () => {
@@ -254,9 +258,10 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
       beforeEach(() => {
         renderComponent()
         const input = document.querySelector('input')
-        fireEvent.change(input, { target: { value: 'unknown' } })
+        fireEvent.change(input, {target: {value: 'unknown'}})
         fireEvent.blur(input)
-        gradeInfo = props.onSubmissionUpdate.lastCall.args[1]
+        gradeInfo =
+          props.onSubmissionUpdate.mock.calls[props.onSubmissionUpdate.mock.calls.length - 1][1]
       })
 
       it('calls the onSubmissionUpdate prop with the grade set to the given value', () => {
@@ -272,36 +277,36 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
     beforeEach(() => {
       renderComponent()
       const input = document.querySelector('input')
-      fireEvent.change(input, { target: { value: 'A' } })
-      fireEvent.change(input, { target: { value: 'C' } })
+      fireEvent.change(input, {target: {value: 'A'}})
+      fireEvent.change(input, {target: {value: 'C'}})
       fireEvent.blur(input)
     })
     it('does not call the onSubmissionUpdate prop', () => {
-      expect(props.onSubmissionUpdate.callCount).toBe(0)
+      expect(props.onSubmissionUpdate).not.toHaveBeenCalled()
     })
   })
 
   describe('when the submission grade is updating', () => {
     beforeEach(() => {
-      props.submission = { ...props.submission, enteredGrade: null, enteredScore: null }
+      props.submission = {...props.submission, enteredGrade: null, enteredScore: null}
       props.submissionUpdating = true
-      props.pendingGradeInfo = { grade: 'A', score: 9.8, valid: true, excused: false }
+      props.pendingGradeInfo = {grade: 'A', score: 9.8, valid: true, excused: false}
     })
 
     it('updates the text input with the value of the pending grade', () => {
-      const { getAllByDisplayValue } = renderComponent()
+      const {getAllByDisplayValue} = renderComponent()
       const inputs = getAllByDisplayValue('A')
       expect(inputs.length).toBeGreaterThan(0)
     })
 
     it('sets the text input to "Excused" when the submission is being excused', () => {
-      props.pendingGradeInfo = { grade: null, valid: false, excused: true }
-      const { getByDisplayValue } = renderComponent()
+      props.pendingGradeInfo = {grade: null, valid: false, excused: true}
+      const {getByDisplayValue} = renderComponent()
       expect(getByDisplayValue('Excused')).toBeInTheDocument()
     })
 
     it('sets the input to "read only"', () => {
-      const { getAllByDisplayValue } = renderComponent()
+      const {getAllByDisplayValue} = renderComponent()
       const inputs = getAllByDisplayValue('A')
       inputs.forEach(input => {
         expect(input).toHaveAttribute('readOnly')
@@ -311,19 +316,19 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
     describe('when the submission grade finishes updating', () => {
       beforeEach(() => {
         renderComponent()
-        props.submission = { ...props.submission, enteredGrade: 'A', enteredScore: 9.8 }
+        props.submission = {...props.submission, enteredGrade: 'A', enteredScore: 9.8}
         props.submissionUpdating = false
         renderComponent()
       })
 
       it('updates the input value with the updated grade', () => {
-        const { getAllByDisplayValue } = renderComponent()
+        const {getAllByDisplayValue} = renderComponent()
         const inputs = getAllByDisplayValue('A')
         expect(inputs.length).toBeGreaterThan(0)
       })
 
       it('enables the input', () => {
-        const { getAllByDisplayValue } = renderComponent()
+        const {getAllByDisplayValue} = renderComponent()
         const inputs = getAllByDisplayValue('A')
         inputs.forEach(input => {
           expect(input).not.toBeDisabled()
@@ -335,17 +340,17 @@ describe('Gradebook > Default Gradebook > Components > GradeInput', () => {
   describe('when the submission is otherwise being updated', () => {
     it('does not update the input value when the submission begins updating', () => {
       renderComponent()
-      props.submission = { ...props.submission, enteredGrade: 'A', enteredScore: 9.8 }
+      props.submission = {...props.submission, enteredGrade: 'A', enteredScore: 9.8}
       props.submissionUpdating = true
-      const { queryByDisplayValue } = renderComponent()
+      const {queryByDisplayValue} = renderComponent()
       expect(queryByDisplayValue('C')).toBeInTheDocument()
     })
     it('updates the input value when the submission finishes updating', () => {
       props.submissionUpdating = true
       renderComponent()
-      props.submission = { ...props.submission, enteredGrade: 'A', enteredScore: 9.8 }
+      props.submission = {...props.submission, enteredGrade: 'A', enteredScore: 9.8}
       props.submissionUpdating = false
-      const { queryByDisplayValue } = renderComponent()
+      const {queryByDisplayValue} = renderComponent()
       expect(queryByDisplayValue('A')).toBeInTheDocument()
     })
   })

@@ -27,6 +27,9 @@ module Canvas
 
     def initialize(path, content_type)
       @content_type = content_type
+      if @content_type == "unknown/unknown" && (content_type = MimeMagic.by_magic(File.open(path))&.type)
+        @content_type = content_type
+      end
       @original_filename = File.basename(path)
       @tempfile = File.open(path, "rb")
     end

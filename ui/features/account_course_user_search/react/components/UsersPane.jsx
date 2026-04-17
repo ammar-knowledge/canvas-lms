@@ -18,8 +18,8 @@
 
 import React from 'react'
 import {shape, func, string, arrayOf} from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
-import {debounce, isEmpty} from 'lodash'
+import {useScope as createI18nScope} from '@canvas/i18n'
+import {debounce, isEmpty} from 'es-toolkit/compat'
 import {ScreenReaderContent} from '@instructure/ui-a11y-content'
 import UsersList from './UsersList'
 import UsersToolbar from './UsersToolbar'
@@ -27,7 +27,7 @@ import SearchMessage from './SearchMessage'
 import SRSearchMessage from './SRSearchMessage'
 import UserActions from '../actions/UserActions'
 
-const I18n = useI18nScope('account_course_user_search')
+const I18n = createI18nScope('account_course_user_search')
 
 const MIN_SEARCH_LENGTH = 2
 export const SEARCH_DEBOUNCE_TIME = 750
@@ -43,7 +43,7 @@ export default class UsersPane extends React.Component {
       shape({
         id: string.isRequired,
         label: string.isRequired,
-      })
+      }),
     ).isRequired,
     onUpdateQueryParams: func.isRequired,
     queryParams: shape({
@@ -64,7 +64,7 @@ export default class UsersPane extends React.Component {
     }
     this.debouncedDispatchApplySearchFilter = debounce(
       this.handleApplyingSearchFilter,
-      SEARCH_DEBOUNCE_TIME
+      SEARCH_DEBOUNCE_TIME,
     )
   }
 
@@ -82,7 +82,7 @@ export default class UsersPane extends React.Component {
         search_term,
         role_filter_id,
         include_deleted_users: bool_include_deleted_users,
-      })
+      }),
     )
 
     this.props.store.dispatch(UserActions.applySearchFilter(MIN_SEARCH_LENGTH))
@@ -144,6 +144,8 @@ export default class UsersPane extends React.Component {
 
   render() {
     const {links, accountId, users, isLoading, errors, searchFilter} = this.state.userList
+    const includeDeleted =
+      this.props.store.getState().userList.searchFilter.include_deleted_users ?? false
     return (
       <div>
         <ScreenReaderContent>
@@ -170,11 +172,12 @@ export default class UsersPane extends React.Component {
             handleSubmitEditUserForm={this.handleSubmitEditUserForm}
             permissions={this.state.userList.permissions}
             sortColumnHeaderRef={this.handleSetSortColumnHeaderRef}
+            includeDeletedUsers={includeDeleted}
           />
         )}
 
         <SearchMessage
-          collection={{data: users, loading: isLoading, links}}
+          collection={{data: users, loading: isLoading, error: errors.requestFailed, links}}
           setPage={this.handleSetPage}
           knownLastPage={this.state.knownLastPage}
           noneFoundMessage={I18n.t('No users found')}

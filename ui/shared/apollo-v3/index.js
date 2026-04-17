@@ -16,11 +16,18 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import getCookie from '@instructure/get-cookie'
-import introspectionQueryResultData from '@canvas/apollo/fragmentTypes.json'
-import {ApolloClient, InMemoryCache, HttpLink, ApolloLink} from '@apollo/client'
-import {IntrospectionFragmentMatcher} from 'apollo-cache-inmemory'
-import {persistCache} from 'apollo-cache-persist'
+import {getCookie} from '@instructure/platform-get-cookie'
+import possibleTypes from '@canvas/apollo-v3/possibleTypes.json'
+import {
+  ApolloClient,
+  ApolloProvider,
+  InMemoryCache,
+  HttpLink,
+  ApolloLink,
+  gql,
+} from '@apollo/client'
+import {Query} from '@apollo/client/react/components'
+import {persistCache} from 'apollo3-cache-persist'
 import {onError} from '@apollo/client/link/error'
 
 import EncryptedForage from '../encrypted-forage'
@@ -29,7 +36,7 @@ function createConsoleErrorReportLink() {
   return onError(({graphQLErrors, networkError}) => {
     if (graphQLErrors)
       graphQLErrors.map(({message, locations, path}) =>
-        console.log(`[GraphQL error]: Message: ${message}, Location: ${locations}, Path: ${path}`)
+        console.log(`[GraphQL error]: Message: ${message}, Location: ${locations}, Path: ${path}`),
       )
     if (networkError) console.log(`[Network error]: ${networkError}`)
   })
@@ -68,6 +75,10 @@ function createCache() {
 
       if (object.id) {
         cacheKey = object.id
+      } else if (object._id && object.__typename === 'RubricAssessmentRating') {
+        cacheKey = object.__typename + object._id + object.rubricAssessmentId
+      } else if (object.__typename === 'RubricRating') {
+        cacheKey = object.__typename + object._id + object.rubricId
       } else if (object._id && object.__typename) {
         cacheKey = object.__typename + object._id
       } else {
@@ -86,9 +97,74 @@ function createCache() {
       }
       return cacheKey
     },
-    fragmentMatcher: new IntrospectionFragmentMatcher({
-      introspectionQueryResultData,
-    }),
+    possibleTypes: possibleTypes,
+    typePolicies: {
+      Query: {
+        fields: {
+          node: {
+            merge(existing = {}, incoming, {mergeObjects}) {
+              return mergeObjects(existing, incoming)
+            },
+          },
+          legacyNode: {
+            merge(existing = {}, incoming, {mergeObjects}) {
+              return mergeObjects(existing, incoming)
+            },
+          },
+        },
+      },
+      User: {
+        fields: {
+          commentBankItemsConnection: {
+            keyArgs: ['query'],
+            merge(existing, incoming, {args}) {
+              // If we're paginating (have an 'after' cursor), merge the nodes
+              if (args?.after && existing) {
+                return {
+                  ...incoming,
+                  nodes: [...existing.nodes, ...incoming.nodes],
+                }
+              }
+              // Otherwise, replace with new data (e.g., new search query)
+              return incoming
+            },
+          },
+          recipientsObservers: {
+            keyArgs: ['contextCode', 'recipientIds'],
+            merge(existing, incoming, {args}) {
+              // If we're paginating (have an 'after' cursor), merge the nodes
+              if (args?.after && existing) {
+                return {
+                  ...incoming,
+                  nodes: [...existing.nodes, ...incoming.nodes],
+                }
+              }
+              // Otherwise, replace with new data (e.g., new query)
+              return incoming
+            },
+          },
+        },
+      },
+      Discussion: {
+        fields: {
+          mentionableUsersConnection: {
+            keyArgs: ['searchTerm'],
+            merge(existing, incoming, {args}) {
+              // Reset on new search (no cursor) or first page
+              if (!args?.after || !existing) {
+                return incoming
+              }
+
+              // Append new page to existing nodes
+              return {
+                ...incoming,
+                nodes: [...(existing.nodes || []), ...(incoming.nodes || [])],
+              }
+            },
+          },
+        },
+      },
+    },
   })
 }
 
@@ -102,7 +178,7 @@ async function createPersistentCache(passphrase = null) {
 }
 
 function createClient(opts = {}) {
-  const cache = opts.cache || new InMemoryCache()
+  const cache = opts.cache || createCache()
 
   // there are some cases where we need to override these options.
   //  If we're using an API gateway instead of talking to canvas directly,
@@ -114,7 +190,10 @@ function createClient(opts = {}) {
   // https://github.com/apollographql/apollo-client/blob/main/src/link/core/ApolloLink.ts
   const httpLinkOptions = opts.httpLinkOptions || {}
 
-  const links = [createConsoleErrorReportLink(), setHeadersLink(), createHttpLink(httpLinkOptions)]
+  const links =
+    createClient.mockLink == null
+      ? [createConsoleErrorReportLink(), setHeadersLink(), createHttpLink(httpLinkOptions)]
+      : [createConsoleErrorReportLink(), createClient.mockLink]
 
   const client = new ApolloClient({
     link: ApolloLink.from(links),
@@ -124,4 +203,4 @@ function createClient(opts = {}) {
   return client
 }
 
-export {createClient, createCache, createPersistentCache}
+export {ApolloProvider, createClient, createCache, createPersistentCache, Query, gql}

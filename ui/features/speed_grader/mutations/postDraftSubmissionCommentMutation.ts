@@ -35,8 +35,8 @@
  */
 
 import {z} from 'zod'
-import {executeQuery} from '@canvas/query/graphql'
-import gql from 'graphql-tag'
+import {executeQuery} from '@canvas/graphql'
+import {gql} from '@apollo/client'
 
 export const POST_DRAFT_SUBMISSION_COMMENT = gql`
   mutation PostDraftSubmissionComment($submissionCommentId: ID!) {

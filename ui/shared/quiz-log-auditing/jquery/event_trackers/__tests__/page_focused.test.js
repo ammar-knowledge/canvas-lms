@@ -19,35 +19,40 @@
 import Subject from '../page_focused'
 import K from '../../constants'
 import $ from 'jquery'
-import sinon from 'sinon'
-
-const capture = sinon.spy()
-const tracker = new Subject()
-tracker.install(capture)
 
 describe('Quizzes::LogAuditing::EventTrackers::PageFocused', () => {
-  afterEach(() => {
-    sinon.restore()
+  let capture
+  let tracker
+
+  beforeEach(() => {
+    // Stub window.focus and window.blur as they're not implemented in jsdom
+    window.focus = vi.fn()
+    window.blur = vi.fn()
+
+    // Create fresh tracker and capture for each test
+    capture = vi.fn()
+    tracker = new Subject()
+    tracker.install(capture)
   })
 
-  it.skip('#constructor: it sets up the proper context', () => {
+  it('#constructor: it sets up the proper context', () => {
     expect(tracker.eventType).toEqual(K.EVT_PAGE_FOCUSED)
     expect(tracker.priority).toEqual(K.EVT_PRIORITY_LOW)
   })
 
-  it.skip('capturing: it works', () => {
-    $(window).focus()
+  it('capturing: it works', () => {
+    $(window).trigger('focus')
     // it captures page focus
-    expect(capture.called).toBeTruthy()
+    expect(capture).toHaveBeenCalled()
   })
 
-  it.skip('capturing: it throttles captures', () => {
-    $(window).focus()
-    $(window).blur()
-    $(window).focus()
-    $(window).blur()
-    $(window).focus()
+  it('capturing: it throttles captures', () => {
+    $(window).trigger('focus')
+    $(window).trigger('blur')
+    $(window).trigger('focus')
+    $(window).trigger('blur')
+    $(window).trigger('focus')
     // it ignores rapidly repetitive focuses
-    expect(capture.callCount).toEqual(1)
+    expect(capture).toHaveBeenCalledTimes(1)
   })
 })

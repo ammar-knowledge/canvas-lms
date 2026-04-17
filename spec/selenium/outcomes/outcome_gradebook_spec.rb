@@ -21,10 +21,28 @@ require_relative "../grades/pages/gradebook_page"
 require_relative "../grades/setup/gradebook_setup"
 require_relative "../helpers/gradebook_common"
 
-describe "outcome gradebook" do
+# NOTE: We are aware that we're duplicating some unnecessary testcases, but this was the
+# easiest way to review, and will be the easiest to remove after the feature flag is
+# permanently removed. Testing both flag states is necessary during the transition phase.
+shared_examples "outcome gradebook" do |ff_enabled|
   include_context "in-process server selenium tests"
   include GradebookCommon
   include GradebookSetup
+
+  before :once do
+    # Set feature flag state for the test run - this affects how the gradebook data is fetched, not the data setup
+    if ff_enabled
+      Account.site_admin.enable_feature!(:performance_improvements_for_gradebook)
+    else
+      Account.site_admin.disable_feature!(:performance_improvements_for_gradebook)
+    end
+  end
+
+  before do
+    if ff_enabled
+      allow(Services::PlatformServiceGradebook).to receive(:graphql_usage_rate).and_return(100)
+    end
+  end
 
   context "as a teacher" do
     before(:once) do
@@ -294,7 +312,10 @@ describe "outcome gradebook" do
           expect(averages).to contain_exactly("2.33", "2.67")
         end
 
-        it "outcome ordering persists accross page refresh" do
+        it "outcome ordering persists across page refresh" do
+          # Set arrangement to custom so backend uses the drag & drop positions
+          @teacher.set_preference(:learning_mastery_gradebook_settings, @course.global_id, { "outcome_arrangement" => "custom" })
+
           get "/courses/#{@course.id}/gradebook"
           select_learning_mastery
           wait_for_ajax_requests
@@ -620,7 +641,7 @@ describe "outcome gradebook" do
           select_learning_mastery
           wait_for_ajax_requests
 
-          expect(selected_values_colors).to contain_exactly("#0B874B")
+          expect(selected_values_colors).to contain_exactly("#03893D")
         end
 
         it "Displays mastery not achieved if Account Level Mastery Scales FF is disabled" do
@@ -631,7 +652,7 @@ describe "outcome gradebook" do
           select_learning_mastery
           wait_for_ajax_requests
 
-          expect(selected_values_colors).to contain_exactly("#FC5E13")
+          expect(selected_values_colors).to contain_exactly("#F06E26")
         end
       end
 
@@ -707,4 +728,9 @@ describe "outcome gradebook" do
       end
     end
   end
+end
+
+describe "outcome gradebook" do
+  it_behaves_like "outcome gradebook", true
+  it_behaves_like "outcome gradebook", false
 end

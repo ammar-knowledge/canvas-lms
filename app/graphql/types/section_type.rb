@@ -53,7 +53,19 @@ module Types
       end
     end
 
+    field :grades_present, Boolean, null: false do
+      argument :assignment_id, ID, required: true
+    end
+    def grades_present(assignment_id:)
+      Loaders::SectionGradesPresentState.for(assignment_id, object.root_account_id).load(object).then do |has_grades|
+        has_grades
+      end
+    end
+
     field :students, UserType.connection_type, null: true
     delegate :students, to: :object
+
+    field :all_students, UserType.connection_type, null: true
+    delegate :all_students, to: :object
   end
 end

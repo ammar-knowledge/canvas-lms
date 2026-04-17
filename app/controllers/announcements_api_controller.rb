@@ -25,9 +25,11 @@
 
 class AnnouncementsApiController < ApplicationController
   include Api::V1::DiscussionTopics
+  include Api::V1::AccessibilityResourceScan
 
   before_action :parse_context_codes, only: [:index]
   before_action :get_dates, only: [:index]
+  before_action :require_context_and_announcement, only: [:accessibility_scan, :accessibility_queue_scan]
 
   # @API List announcements
   #
@@ -46,6 +48,10 @@ class AnnouncementsApiController < ApplicationController
   #   Only return announcements posted before the end_date (inclusive).
   #   Defaults to 28 days from start_date. The value should be formatted as: yyyy-mm-dd or ISO 8601 YYYY-MM-DDTHH:MM:SSZ.
   #   Announcements scheduled for future posting will only be returned to course administrators.
+  # @argument available_after [Optional, Date]
+  #   Only return announcements having locked_at nil or after available_after (exclusive).
+  #   The value should be formatted as: yyyy-mm-dd or ISO 8601 YYYY-MM-DDTHH:MM:SSZ.
+  #   Effective only for students (who don't have moderate forum right).
   # @argument active_only [Optional, Boolean]
   #   Only return active announcements that have been published.
   #   Applies only to requesting users that have permission to view
@@ -109,6 +115,12 @@ class AnnouncementsApiController < ApplicationController
       else
         scope = scope.ordered_between(@start_date, @end_date)
       end
+      unless params[:available_after].nil?
+        show_expired_announcements = courses.all? do |course|
+          course.grants_right?(@current_user, session, :moderate_forum)
+        end
+        scope = scope.available_after(params[:available_after]) unless show_expired_announcements
+      end
 
       # only filter by section visibility if user has no course manage rights
       skip_section_filtering = courses.all? do |course|
@@ -117,7 +129,6 @@ class AnnouncementsApiController < ApplicationController
           :read_as_admin,
           :manage_grades,
           *RoleOverride::GRANULAR_MANAGE_ASSIGNMENT_PERMISSIONS,
-          :manage_content,
           *RoleOverride::GRANULAR_MANAGE_COURSE_CONTENT_PERMISSIONS
         ) || User.observing_full_course(course).where(id: @current_user).any?
       end
@@ -143,7 +154,28 @@ class AnnouncementsApiController < ApplicationController
                                             include_sections_user_count: include_params.include?("sections_user_count"))
   end
 
+  def accessibility_scan
+    return unless authorized_action(@announcement, @current_user, :update)
+    return render_unauthorized_action unless @context.a11y_checker_enabled?
+
+    scan = Accessibility::ResourceScannerService.new(resource: @announcement).call_sync
+    render json: accessibility_resource_scan_json(scan)
+  end
+
+  def accessibility_queue_scan
+    return unless authorized_action(@announcement, @current_user, :update)
+    return render_unauthorized_action unless @context.a11y_checker_enabled?
+
+    scan = Accessibility::ResourceScannerService.new(resource: @announcement).call
+    render json: accessibility_resource_scan_json(scan)
+  end
+
   private
+
+  def require_context_and_announcement
+    require_context
+    @announcement = @context.announcements.active.find(params[:announcement_id])
+  end
 
   def parse_context_codes
     context_codes = Array(params[:context_codes])

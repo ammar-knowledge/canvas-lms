@@ -22,7 +22,6 @@ import {Img} from '@instructure/ui-img'
 import {Heading} from '@instructure/ui-heading'
 import {Text} from '@instructure/ui-text'
 import {View} from '@instructure/ui-view'
-// @ts-expect-error
 import PandaMapSVGURL from '../images/panda-map.svg'
 import type {HelpLink} from '../../../api.d'
 
@@ -32,7 +31,7 @@ type Props = {
 }
 
 export default function FeaturedHelpLink({featuredLink, handleClick}: Props) {
-  if (featuredLink && window.ENV.FEATURES.featured_help_links) {
+  if (featuredLink) {
     return (
       <View textAlign="center" display="block">
         <Img data-testid="cheerful-panda-svg" src={PandaMapSVGURL} margin="small 0" />

@@ -18,8 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../spec_helper"
-
 describe GradebookImporter do
   let(:gradebook_user) do
     teacher = User.create!
@@ -92,7 +90,6 @@ describe GradebookImporter do
     it "expects and deals with invalid upload files" do
       user = user_model
       progress = Progress.create!(tag: "test", context: @user)
-      upload = GradebookUpload.new
       upload = GradebookUpload.create!(course: gradebook_course, user: gradebook_user, progress:)
       expect do
         GradebookImporter.create_from(progress, upload, user, invalid_gradebook_contents)
@@ -204,6 +201,102 @@ describe GradebookImporter do
           expect(actual_grades).to match_array(expected_grades)
         end
       end
+
+      context "with percentages containing spaces" do
+        before do
+          # Use actual Unicode characters for non-breaking spaces
+          nbsp = "\u00A0"  # Non-breaking space (U+00A0)
+          nnbsp = "\u202F" # Narrow non-breaking space (U+202F)
+          figsp = "\u2007" # Figure space (U+2007)
+
+          @rows = [
+            "Student;ID;Section;Aufgabe 1;Aufgabe 2;Aufgabe 3;Aufgabe 4;Aufgabe 5;Aufgabe 6",
+            "Points Possible;;;10;10;10;10;10;10",
+            '"Student 1";1;Kurs;80 %;81%;-75 %;83,5 %; 90% ;85%',
+            "\"Student 2\";2;Kurs;80  %;81#{nbsp}%;82.5#{nbsp}%;83,5#{nnbsp}%;-70#{nbsp}%;95#{figsp}%"
+          ]
+
+          importer_with_rows(*@rows)
+        end
+
+        it "normalizes percentages with single regular space" do
+          actual_grade = @gi.upload.gradebook.fetch("students").first.fetch("submissions").first.fetch("grade")
+          expect(actual_grade).to eq("80%")
+        end
+
+        it "normalizes percentages with multiple regular spaces" do
+          actual_grade = @gi.upload.gradebook.fetch("students").second.fetch("submissions").first.fetch("grade")
+          expect(actual_grade).to eq("80%")
+        end
+
+        it "normalizes percentages with non-breaking space (U+00A0)" do
+          actual_grade = @gi.upload.gradebook.fetch("students").second.fetch("submissions").second.fetch("grade")
+          expect(actual_grade).to eq("81%")
+        end
+
+        it "normalizes decimal percentages with non-breaking space (U+00A0)" do
+          actual_grade = @gi.upload.gradebook.fetch("students").second.fetch("submissions").third.fetch("grade")
+          expect(actual_grade).to eq("82.5%")
+        end
+
+        it "normalizes European format (comma decimal) with regular space" do
+          actual_grade = @gi.upload.gradebook.fetch("students").first.fetch("submissions")[3].fetch("grade")
+          expect(actual_grade).to eq("83.5%")
+        end
+
+        it "normalizes European format with narrow non-breaking space (U+202F)" do
+          actual_grade = @gi.upload.gradebook.fetch("students").second.fetch("submissions")[3].fetch("grade")
+          expect(actual_grade).to eq("83.5%")
+        end
+
+        it "normalizes percentages with figure space (U+2007)" do
+          actual_grade = @gi.upload.gradebook.fetch("students").second.fetch("submissions")[5].fetch("grade")
+          expect(actual_grade).to eq("95%")
+        end
+
+        it "normalizes negative percentages with space" do
+          actual_grade = @gi.upload.gradebook.fetch("students").first.fetch("submissions").third.fetch("grade")
+          expect(actual_grade).to eq("-75%")
+        end
+
+        it "normalizes negative percentages with non-breaking space" do
+          actual_grade = @gi.upload.gradebook.fetch("students").second.fetch("submissions")[4].fetch("grade")
+          expect(actual_grade).to eq("-70%")
+        end
+
+        it "handles percentages without spaces (baseline test)" do
+          actual_grade = @gi.upload.gradebook.fetch("students").first.fetch("submissions").second.fetch("grade")
+          expect(actual_grade).to eq("81%")
+        end
+
+        it "strips leading and trailing spaces from entire value" do
+          actual_grade = @gi.upload.gradebook.fetch("students").first.fetch("submissions")[4].fetch("grade")
+          expect(actual_grade).to eq("90%")
+        end
+      end
+
+      context "with spaces within numbers (preserves invalid formats unchanged)" do
+        # Not a pure number or percentage, return as-is (e.g., letter grades)
+        before do
+          @rows = [
+            "Student;ID;Section;Aufgabe 1;Aufgabe 2",
+            "Points Possible;;;10;10",
+            '"Student 1";1;Kurs;1 234.5%;80 .5'
+          ]
+
+          importer_with_rows(*@rows)
+        end
+
+        it "preserves percentages with spaces within the number unchanged" do
+          actual_grade = @gi.upload.gradebook.fetch("students").first.fetch("submissions").first.fetch("grade")
+          expect(actual_grade).to eq("1 234.5%")
+        end
+
+        it "preserves pure numbers with spaces within them unchanged" do
+          actual_grade = @gi.upload.gradebook.fetch("students").first.fetch("submissions").second.fetch("grade")
+          expect(actual_grade).to eq("80 .5")
+        end
+      end
     end
 
     context "when dealing with a file containing comma field separators" do
@@ -282,6 +375,66 @@ describe GradebookImporter do
 
       it "sets the uploads course as the importer context" do
         expect(importer.context).to eq(gradebook_course)
+      end
+    end
+
+    context "when assignment checkpoints are present" do
+      before(:once) do
+        @course = course_factory(active_course: true)
+        @course.account.enable_feature!(:discussion_checkpoints)
+        @reply_to_topic, @reply_to_entry = graded_discussion_topic_with_checkpoints(context: @course)
+      end
+
+      it "handles checkpoint assignments" do
+        importer_with_rows(
+          "Student,ID,Section,#{@reply_to_topic.title} Reply To Topic (#{@reply_to_topic.id}),#{@reply_to_entry.title} Required Replies (#{@reply_to_entry.id}),Final Score",
+          "Points Possible,,5,5,",
+          '"Blend, Bill",6,My Course,5,3,'
+        )
+
+        expect(@gi.assignments.length).to eq 2
+        expect(@gi.assignments.first.id).to eq @reply_to_topic.id
+        expect(@gi.assignments.last.id).to eq @reply_to_entry.id
+      end
+
+      it "handles checkpoint assignments grade changes" do
+        importer_with_rows(
+          "Student,ID,Section,#{@reply_to_topic.title} Reply To Topic (#{@reply_to_topic.id}),#{@reply_to_entry.title} Required Replies (#{@reply_to_entry.id}),Final Score",
+          "Points Possible,,5,5,",
+          '"Blend, Bill",6,My Course,5,3,'
+        )
+        submission = @gi.upload.gradebook.fetch("students").first.fetch("submissions").first
+        expect(submission["original_grade"]).to be_nil
+        expect(submission["grade"]).to eq "5"
+        expect(submission["assignment_id"]).to eq @reply_to_topic.id
+      end
+
+      it "properly formats title for checkpoint assignments" do
+        importer_with_rows(
+          "Student,ID,Section,#{@reply_to_topic.title} Reply To Topic (#{@reply_to_topic.id}),#{@reply_to_entry.title} Required Replies (#{@reply_to_entry.id}),Final Score",
+          "Points Possible,,5,5,",
+          '"Blend, Bill",6,My Course,5,3,'
+        )
+        gradebook = @gi.upload.gradebook
+        reply_to_topic_title = gradebook.fetch("assignments").first.fetch("title")
+        reply_to_entry_title = gradebook.fetch("assignments").last.fetch("title")
+        expect(reply_to_topic_title).to eq "#{@reply_to_topic.title} Reply To Topic"
+        expect(reply_to_entry_title).to eq "#{@reply_to_entry.title} Required Replies"
+      end
+
+      it "ignores grade changes to parent assignments" do
+        importer_with_rows(
+          "Student,ID,Section,#{@assignment.title} (#{@assignment.id}),Final Score",
+          "Points Possible,,5,",
+          '"Blend, Bill",6,My Course,5,'
+        )
+        gradebook = @gi.upload.gradebook
+        submission = gradebook.fetch("students").first.fetch("submissions").first
+        prevented_grading_ungradeable_submission = gradebook.fetch("warning_messages").fetch("prevented_grading_ungradeable_submission")
+        expect(submission["original_grade"]).to be_nil
+        expect(submission["grade"]).to be_nil
+        expect(submission["assignment_id"]).to eq @assignment.id
+        expect(prevented_grading_ungradeable_submission).to be true
       end
     end
   end
@@ -635,7 +788,7 @@ describe GradebookImporter do
       "Points Possible,,,(read only),20,(read only),20,,,"
     )
     expect(@gi.assignments).to include(@assignment1, @assignment2)
-    expect(@gi.assignments.map(&:title)).to_not include("Final Score", "Current Points")
+    expect(@gi.assignments.map(&:title)).not_to include("Final Score", "Current Points")
     expect(@gi.missing_assignments).to be_empty
   end
 
@@ -1163,7 +1316,7 @@ describe GradebookImporter do
             ",#{@student.id},,5,5"
           )
           assignment_ids = assignments.pluck(:id)
-          expect(assignment_ids).to_not include @closed_assignment.id
+          expect(assignment_ids).not_to include @closed_assignment.id
         end
 
         it "includes assignments if there is at least one submission in the assignment being uploaded" do
@@ -1189,7 +1342,7 @@ describe GradebookImporter do
               ",#{@student.id},,5,5"
             )
             assignment_ids = student_submissions.pluck("assignment_id")
-            expect(assignment_ids).to_not include @closed_assignment.id
+            expect(assignment_ids).not_to include @closed_assignment.id
           end
 
           it "includes submissions that do not fall in closed grading periods" do
@@ -1208,7 +1361,7 @@ describe GradebookImporter do
               "Student,ID,Section,Assignment in closed period,Assignment in open period",
               ",#{@student.id},,5,5"
             )
-            expect(student_submissions.pluck("assignment_id")).to_not include @closed_assignment.id
+            expect(student_submissions.pluck("assignment_id")).not_to include @closed_assignment.id
           end
 
           it "includes submissions that will not fall in closed grading periods" do
@@ -1312,7 +1465,7 @@ describe GradebookImporter do
               ",#{@student.id},,5,5"
             )
             assignment_ids = student_submissions.pluck("assignment_id")
-            expect(assignment_ids).to_not include @open_assignment.id
+            expect(assignment_ids).not_to include @open_assignment.id
           end
 
           it "includes submissions that will not fall in closed grading periods" do

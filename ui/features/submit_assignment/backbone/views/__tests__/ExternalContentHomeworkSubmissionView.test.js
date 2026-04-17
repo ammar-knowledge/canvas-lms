@@ -18,10 +18,11 @@
 
 import Backbone from '@canvas/backbone'
 import ExternalContentHomeworkSubmissionView from '../ExternalContentHomeworkSubmissionView'
-import sinon from 'sinon'
 
-const ok = x => expect(x).toBeTruthy()
-const notOk = x => expect(x).toBeFalsy()
+// mock windowAlert
+vi.mock('@canvas/util/globalUtils', () => ({
+  windowAlert: vi.fn(),
+}))
 
 const container = document.createElement('div')
 container.setAttribute('id', 'fixtures')
@@ -41,43 +42,43 @@ describe('ExternalContentHomeworkSubmissionView#uploadFileFromUrl', () => {
 
   test('Does submit the assignment if the EULA checkbox is not checked', () => {
     const view = newView()
-    const submitSpy = sinon.spy()
+    const submitSpy = vi.fn()
 
     const input = document.createElement('input')
+    input.id = 'turnitin_pledge_external_content'
     input.type = 'checkbox'
-    input.className = 'turnitin_pledge external-tool'
     input.checked = false
 
     document.getElementById('fixtures').appendChild(input)
     view.submitHomework = submitSpy
     view._triggerSubmit({preventDefault: () => {}, stopPropagation: () => {}})
 
-    notOk(submitSpy.called)
+    expect(submitSpy).not.toHaveBeenCalled()
   })
 
   test('Does submit the assignment if the EULA checkbox is checked', () => {
     const view = newView()
-    const submitSpy = sinon.spy()
+    const submitSpy = vi.fn()
 
     const input = document.createElement('input')
+    input.id = 'turnitin_pledge_external_content'
     input.type = 'checkbox'
-    input.className = 'turnitin_pledge external-tool'
     input.checked = true
 
     document.getElementById('fixtures').appendChild(input)
     view.submitHomework = submitSpy
     view._triggerSubmit({preventDefault: () => {}, stopPropagation: () => {}})
 
-    ok(submitSpy.called)
+    expect(submitSpy).toHaveBeenCalled()
   })
 
   test('Does submit the assignment if the EULA checkbox does not exist', () => {
     const view = newView()
-    const submitSpy = sinon.spy()
+    const submitSpy = vi.fn()
 
     view.submitHomework = submitSpy
     view._triggerSubmit({preventDefault: () => {}, stopPropagation: () => {}})
 
-    ok(submitSpy.called)
+    expect(submitSpy).toHaveBeenCalled()
   })
 })

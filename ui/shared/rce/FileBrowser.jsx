@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import React from 'react'
-import _ from 'lodash'
+import {cloneDeep} from 'es-toolkit/compat'
 import $ from 'jquery'
 import axios from '@canvas/axios'
 import minimatch from 'minimatch'
@@ -36,11 +36,11 @@ import {
 import PropTypes from 'prop-types'
 import {getRootFolder, uploadFile} from '@canvas/files/util/apiFileUtils'
 import parseLinkHeader from 'link-header-parsing/parseLinkHeader'
-import {showFlashSuccess, showFlashError} from '@canvas/alerts/react/FlashAlert'
+import {showFlashSuccess, showFlashError} from '@instructure/platform-alerts'
 import natcompare from '@canvas/util/natcompare'
 import {captureException} from '@sentry/react'
 
-const I18n = useI18nScope('react_files')
+const I18n = createI18nScope('react_files')
 
 class FileBrowser extends React.Component {
   static propTypes = {
@@ -136,7 +136,13 @@ class FileBrowser extends React.Component {
   populateRootFolder(data, opts = {}) {
     this.decreaseLoadingCount()
     this.populateCollectionsList([data], opts)
-    this.getFolderData(data.id)
+    // Read locked status from the API response directly rather than from
+    // this.state, because React 18's automatic batching may not have
+    // committed the populateCollectionsList setState yet.
+    if (!data.locked_for_user) {
+      this.getPaginatedData(this.folderFileApiUrl(data.id, 'folders'), this.populateCollectionsList)
+      this.getPaginatedData(this.folderFileApiUrl(data.id), this.populateItemsList)
+    }
   }
 
   getFolderData(id) {
@@ -158,11 +164,9 @@ class FileBrowser extends React.Component {
         }
       })
       .catch(error => {
-        /* eslint-disable no-console */
         console.error('Error fetching data from API')
         console.error(error)
         captureException(error)
-        /* eslint-enable no-console */
       })
   }
 
@@ -172,7 +176,7 @@ class FileBrowser extends React.Component {
 
   populateCollectionsList = (folderList, opts = {}) => {
     this.setState(function ({collections}) {
-      const newCollections = _.cloneDeep(collections)
+      const newCollections = cloneDeep(collections)
       folderList.forEach(folder => {
         const collection = this.formatFolderInfo(folder, opts)
         newCollections[collection.id] = collection
@@ -182,7 +186,7 @@ class FileBrowser extends React.Component {
           collectionCollections.push(collection.id)
           newCollections[parent_id].collections = this.orderedIdsFromList(
             newCollections,
-            collectionCollections
+            collectionCollections,
           )
         }
       })
@@ -207,8 +211,8 @@ class FileBrowser extends React.Component {
 
   populateItemsList = fileList => {
     this.setState(function ({items, collections}) {
-      const newItems = _.cloneDeep(items)
-      const newCollections = _.cloneDeep(collections)
+      const newItems = cloneDeep(items)
+      const newCollections = cloneDeep(collections)
       fileList.forEach(file => {
         if (this.contentTypeIsAllowed(file['content-type'])) {
           const item = this.formatFileInfo(file)
@@ -245,7 +249,7 @@ class FileBrowser extends React.Component {
       existingCollections && {
         collections: existingCollections.collections,
         items: existingCollections.items,
-      }
+      },
     )
     return folder
   }
@@ -272,7 +276,6 @@ class FileBrowser extends React.Component {
       const sortedIds = ids.sort((a, b) => natcompare.strings(list[a].name, list[b].name))
       return sortedIds
     } catch (error) {
-      // eslint-disable-next-line no-console
       console.error(error)
       captureException(error)
       return ids
@@ -348,7 +351,9 @@ class FileBrowser extends React.Component {
 
   clearUploadInfo() {
     this.setState({uploading: false})
-    this.uploadInput.value = ''
+    if (this.uploadInput) {
+      this.uploadInput.value = ''
+    }
   }
 
   setSuccessMessage = message => {

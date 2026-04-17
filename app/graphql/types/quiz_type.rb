@@ -27,7 +27,32 @@ module Types
     implements Interfaces::TimestampInterface
     implements Interfaces::ModuleItemInterface
     implements Interfaces::LegacyIDInterface
+    implements Interfaces::AssignedDatesInterface
 
     global_id_field :id
+
+    field :anonymous_submissions, Boolean, null: false
+    field :quiz_type, String, "The type of quiz: 'quiz' for regular quizzes, 'assignment' for LTI quiz assignments", null: false
+
+    field :submissions_connection, Types::SubmissionType.connection_type, null: true do
+      description "submissions for this quiz's assignment"
+      argument :filter, Types::SubmissionSearchFilterInputType, required: false
+      argument :order_by, [Types::SubmissionSearchOrderInputType], required: false
+    end
+    def quiz_type
+      # Check if the object is an Assignment (LTI quiz) or a Quiz (regular quiz)
+      object.is_a?(Assignment) ? "assignment" : "quiz"
+    end
+
+    def submissions_connection(filter: nil, order_by: nil)
+      return nil if current_user.nil? || object.assignment.nil?
+
+      filter = filter.to_h
+      order_by ||= []
+      filter[:states] ||= Types::DEFAULT_SUBMISSION_STATES
+      filter[:states] = filter[:states] + ["unsubmitted"].freeze if filter[:include_unsubmitted]
+      filter[:order_by] = order_by.map(&:to_h)
+      SubmissionSearch.new(object.assignment, current_user, session, filter).search
+    end
   end
 end

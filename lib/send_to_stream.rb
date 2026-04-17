@@ -43,7 +43,7 @@ module SendToStream
 
   module SendToStreamInstanceMethods
     def queue_create_stream_items
-      block = self.class.send_to_stream_block rescue nil
+      block = self.class.send_to_stream_block
       stream_recipients = Array(instance_eval(&block)) if block
       if stream_recipients.present?
         delay_if_production(priority: Delayed::LOW_PRIORITY).create_stream_items
@@ -68,6 +68,7 @@ module SendToStream
     def generate_stream_items(stream_recipients)
       @generated_stream_items ||= []
       extend TextHelper
+
       @stream_item_recipient_ids = stream_recipients.compact.filter_map { |u| User.infer_id(u) }.uniq
       @generated_stream_items = StreamItem.generate_all(self, @stream_item_recipient_ids)
     end

@@ -42,10 +42,7 @@ describe "people" do
   end
 
   def create_student_group(group_text = "new student group")
-    expect_new_page_load do
-      f("#people-options .Button").click
-      fln("View User Groups").click
-    end
+    get "/courses/#{@course.id}/groups"
     open_student_group_dialog
     replace_and_proceed f("#new-group-set-name"), group_text
     f(%(button[data-testid="group-set-save"])).click
@@ -196,7 +193,6 @@ describe "people" do
     end
 
     it "does not display resend invitation dropdown item for a student when the granular add student permission is disabled" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
       RoleOverride.create!(context: Account.default, permission: "add_student_to_course", role: teacher_role, enabled: false)
       get "/courses/#{@course.id}/users"
       open_dropdown_menu("tr[id=user_#{@student_1.id}]")
@@ -205,7 +201,6 @@ describe "people" do
 
     it "displays the resend invitation dropdown item for student with dual roles with granular permissions enabled for one of the roles" do
       enroll_ta(@student_1)
-      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
       RoleOverride.create!(context: Account.default, permission: "add_student_to_course", role: teacher_role, enabled: false)
       RoleOverride.create!(context: Account.default, permission: "add_ta_to_course", role: teacher_role, enabled: true)
       get "/courses/#{@course.id}/users"
@@ -213,25 +208,34 @@ describe "people" do
       expect(dropdown_item_visible?("resendInvitation", "tr[id=user_#{@student_1.id}]")).to be true
     end
 
-    context "when the deprecate_faculty_journal flag is disabled" do
-      before { Account.site_admin.disable_feature!(:deprecate_faculty_journal) }
-
-      it "has a working Faculty Journal menu option" do
-        a = Account.default
-        a.enable_user_notes = true
-        a.save!
-        get "/courses/#{@course.id}/users"
-        open_dropdown_menu("tr[id=user_#{@student_1.id}]")
-        wait_for_new_page_load { f("a[href='/users/#{@student_1.id}/user_notes']").click }
-        expect(fj("h1:contains('Faculty Journal for #{@student_1.name}')")).to be_present
-      end
+    it "focuses on the + Group Set button before the tabs", custom_timeout: 30 do
+      get "/courses/#{@course.id}/users"
+      f("#people-options .Button").click
+      close_dropdown_menu
+      f("body").send_keys(:tab)
+      check_element_has_focus(f(".group-categories-actions .btn-primary"))
+      f("body").send_keys(:tab)
+      check_element_has_focus(f(".collectionViewItems > li:first-child"))
     end
 
-    it "focuses on the + Group Set button after the tabs" do
-      get "/courses/#{@course.id}/users"
-      driver.execute_script("$('.collectionViewItems > li:last a').focus()")
-      active = driver.execute_script("return document.activeElement")
-      active.send_keys(:tab)
+    it "focuses on the + Group Set button before the tabs on groups page", custom_timeout: 30 do
+      GroupCategory.create(name: "Test Group", context: @course)
+      get "/courses/#{@course.id}/groups"
+      wait_for_ajaximations
+
+      # Click on the group tab to ensure we're on the groups page
+      group_tab = f(".collectionViewItems > li:nth-child(2)")
+      group_tab.click
+      wait_for_ajaximations
+
+      # Tab from the group tab to verify next focus is on group tab content, not button
+      # This verifies the button comes BEFORE tabs in DOM
+      f("body").send_keys(:tab)
+      # Should focus on something in the tab content area, not the button
+      # The button should only be reachable by shift+tab
+      f("body").send_keys([:shift, :tab])
+      check_element_has_focus(f(".collectionViewItems > li:nth-child(2)"))
+      f("body").send_keys([:shift, :tab])
       check_element_has_focus(f(".group-categories-actions .btn-primary"))
     end
 
@@ -247,7 +251,7 @@ describe "people" do
       f("#people-options .Button").click
       fln("View Registered Services").click
       fln("Link web services to my account").click
-      expect(f("#unregistered_services")).to be_displayed
+      expect(f("#unregistered_services")).to be_present
     end
 
     it "makes a new set of student groups" do
@@ -255,27 +259,13 @@ describe "people" do
       create_student_group
     end
 
-    # This just duplicates a test in the Jest spec for the modal
-    xit "tests self sign up functionality" do
-      get "/courses/#{@course.id}/users"
-      f("#people-options .Button").click
-      expect_new_page_load { fln("View User Groups").click }
-      dialog = open_student_group_dialog
-      dialog.find_element(:css, "#enable_self_signup").click
-      expect(dialog.find_element(:css, "#split_groups")).not_to be_displayed
-      expect(dialog).to include_text("groups now")
-    end
-
     it "tests self sign up / group structure functionality" do
-      get "/courses/#{@course.id}/users"
+      get "/courses/#{@course.id}/groups"
       group_count = "4"
-      expect_new_page_load do
-        f("#people-options .Button").click
-        fln("View User Groups").click
-      end
       open_student_group_dialog
       replace_and_proceed f("#new-group-set-name"), "new group"
-      fxpath("//input[@data-testid='checkbox-allow-self-signup']/..").click
+      f("body").send_keys(:tab)
+      f("span[data-testid='allow-self-signup-wrapper'] div div").click
       force_click('[data-testid="initial-group-count"]')
       f('[data-testid="initial-group-count"]').send_keys("4")
       f(%(button[data-testid="group-set-save"])).click
@@ -285,56 +275,16 @@ describe "people" do
     end
 
     it "errors if the user tries to set the limit group members to 1" do
-      get "/courses/#{@course.id}/users"
-      expect_new_page_load do
-        f("#people-options .Button").click
-        fln("View User Groups").click
-      end
+      get "/courses/#{@course.id}/groups"
       open_student_group_dialog
       replace_and_proceed f("#new-group-set-name"), "new group"
-      fxpath("//input[@data-testid='checkbox-allow-self-signup']/..").click
+      f("body").send_keys(:tab)
+      f("span[data-testid='allow-self-signup-wrapper'] div div").click
       force_click('[data-testid="initial-group-count"]')
       f('[data-testid="group-member-limit"]').send_keys("1")
       f(%(button[data-testid="group-set-save"])).click
       wait_for_ajaximations
       expect(fj("span:contains('If you are going to define a limit group members, it must be greater than 1.')")).to be_truthy
-    end
-
-    it "tests group structure functionality" do
-      skip "FOO-3810 (10/6/2023)"
-      get "/courses/#{@course.id}/users"
-      enroll_more_students
-
-      group_count = "4"
-      expect_new_page_load do
-        f("#people-options .Button").click
-        fln("View User Groups").click
-      end
-      open_student_group_dialog
-      replace_and_proceed f("#new-group-set-name"), "new group"
-      force_click('[data-testid="group-structure-selector"]')
-      force_click('[data-testid="group-structure-num-groups"]')
-      f('[data-testid="split-groups"]').send_keys(group_count)
-      expect(@course.groups.count).to eq 0
-      f(%(button[data-testid="group-set-save"])).click
-      run_jobs
-      wait_for_ajaximations
-      expect(@course.groups.count).to eq group_count.to_i
-      expect(f(".groups-with-count")).to include_text("Groups (#{group_count})")
-    end
-
-    it "auto-creates groups based on # of students" do
-      skip "FOO-3810 (10/6/2023)"
-      enroll_more_students
-      get "/courses/#{@course.id}/groups#new"
-      replace_and_proceed f("#new-group-set-name"), "Groups of 2"
-      force_click('[data-testid="group-structure-selector"]')
-      force_click('[data-testid="group-structure-students-per-group"]')
-      f('[data-testid="num-students-per-group"]').send_keys("2")
-      f('button[data-testid="group-set-save"]').click
-      run_jobs
-      wait_for_ajaximations
-      expect(ff("li.group").size).to eq 3
     end
 
     it "edits a student group" do
@@ -422,6 +372,220 @@ describe "people" do
       wait_for_ajaximations
       expect(f(".conclude_enrollment_link")).to be_displayed
     end
+
+    it "does not show selection checkboxes for teachers when allow_assign_to_differentiation_tags setting is OFF" do
+      Account.default.settings[:allow_assign_to_differentiation_tags] = { value: false }
+      Account.default.save!
+      Account.default.reload
+      get "/courses/#{@course.id}/users/"
+      expect(f("body")).not_to contain_jqcss("input[id^='select-user-']")
+    end
+
+    it "shows selection checkboxes for teachers when the allow_assign_to_differentiation_tags setting is ON" do
+      Account.default.settings[:allow_assign_to_differentiation_tags] = { value: true }
+      Account.default.save!
+      Account.default.reload
+      get "/courses/#{@course.id}/users/"
+      expect(f("body")).to contain_jqcss("input[id^='select-user-']")
+    end
+
+    context "modernized people page" do
+      before :once do
+        @course = Course.create!(name: "Course - Modernized People Page")
+        @course.root_account.enable_feature!(:people_page_modernization)
+      end
+
+      context "column sorting" do
+        before :once do
+          @section_a = @course.course_sections.create!(name: "Section A")
+          @section_b = @course.course_sections.create!(name: "Section B")
+          @section_c = @course.course_sections.create!(name: "Section C")
+
+          # Add ObserverEnrollment to tests after EGG-633 is merged
+          @users = [
+            { name: "Alice", section: @section_a, last_activity: Time.zone.parse("2025-07-18 10:00:00"), role: "StudentEnrollment", total_activity_time: 100 },
+            { name: "Bob", section: @section_b, last_activity: Time.zone.parse("2025-07-19 10:00:00"), role: "StudentEnrollment", total_activity_time: 200 },
+            { name: "Charlie", section: @section_c, last_activity: Time.zone.parse("2025-07-17 10:00:00"), role: "StudentEnrollment", total_activity_time: 150 },
+            { name: "Dana", section: @section_a, last_activity: Time.zone.parse("2025-07-16 10:00:00"), role: "TaEnrollment", total_activity_time: 50 },
+            { name: "Eve", section: @section_b, last_activity: Time.zone.parse("2025-07-15 10:00:00"), role: "DesignerEnrollment", total_activity_time: 75 },
+            { name: "Tom", section: @section_a, last_activity: Time.zone.parse("2025-07-20 10:00:00"), role: "TeacherEnrollment", total_activity_time: 250 }
+          ]
+
+          @users.each do |info|
+            user = User.create!(name: info[:name])
+            user.pseudonyms.create!(unique_id: "#{info[:name]}@example.com", password: "fakepassword", password_confirmation: "fakepassword", sis_user_id: "#{info[:name]}_sis_id")
+            enrollment = @course.enroll_user(user, info[:role], section: info[:section])
+            enrollment.workflow_state = "active"
+            enrollment.last_activity_at = info[:last_activity]
+            enrollment.total_activity_time = info[:total_activity_time]
+            enrollment.save!
+          end
+
+          @teacher = User.create!(name: "Test Teacher")
+          @teacher.pseudonyms.create!(unique_id: "teacher@example.com", password: "fakepassword", password_confirmation: "fakepassword", sis_user_id: "Teacher_sis_id")
+          teacher_enrollment = @course.enroll_teacher(@teacher)
+          teacher_enrollment.accept!
+          # Set teacher's last_activity_at to an early date so they sort consistently
+          teacher_enrollment.last_activity_at = Time.zone.parse("2025-07-10 10:00:00")
+          teacher_enrollment.total_activity_time = 0
+          teacher_enrollment.save!
+        end
+
+        around do |example|
+          # Freeze time for entire test to prevent last_activity_at from being updated to current time
+          Timecop.freeze(Time.zone.parse("2025-07-10 10:00:00")) do
+            example.run
+          end
+        end
+
+        before do
+          user_session(@teacher)
+          get "/courses/#{@course.id}/users"
+          wait_for_ajaximations
+        end
+
+        def column_values(data_testid)
+          cells = driver.find_elements(:css, "td[data-testid^='#{data_testid}']")
+          cells.map(&:text)
+        end
+
+        def sorted?(values, direction = :asc, case_sensitive: true)
+          sorted = if case_sensitive
+                     values.sort
+                   else
+                     values.sort_by(&:downcase)
+                   end
+          sorted.reverse! if direction == :desc
+          values == sorted
+        end
+
+        def roles_sorted?(values, direction = :asc)
+          role_priorities = { "Teacher" => 1, "TA" => 2, "Student" => 3, "Observer" => 4, "Designer" => 5 }
+          sorted = values.sort_by do |role|
+            [role_priorities[role] || 6, role] if direction == :desc
+          end
+          sorted.reverse! if direction == :desc
+          values == sorted
+        end
+
+        def last_activity_sorted?(values, direction = :asc)
+          date_values = values.map { |date_str| Time.zone.parse(date_str) }
+          sorted = date_values.sort
+          sorted.reverse! if direction == :desc
+          date_values == sorted
+        end
+
+        def expect_sortable_column(column_id, data_id, first_order = :asc, second_order = :desc, compare_sorted_fn = nil, case_sensitive: true)
+          f("th[data-testid='header-#{column_id}']").click
+          wait_for_ajaximations
+          values = column_values("#{data_id}-user-")
+          if compare_sorted_fn
+            expect(compare_sorted_fn.call(values, first_order)).to be true
+          else
+            expect(sorted?(values, first_order, case_sensitive:)).to be true
+          end
+
+          f("th[data-testid='header-#{column_id}']").click
+          wait_for_ajaximations
+          values = column_values("#{data_id}-user-")
+          if compare_sorted_fn
+            expect(compare_sorted_fn.call(values, second_order)).to be true
+          else
+            expect(sorted?(values, second_order, case_sensitive:)).to be true
+          end
+        end
+
+        it "sorts Name column asc/desc" do
+          compare_sorted_names = lambda do |values, direction|
+            # remove avatar initials to get the user name
+            names = values.map { |item| item.split("\n", 2)[1] }
+            sorted?(names, direction)
+          end
+
+          # default sort is by name asc; that's why we first check for desc sort
+          expect_sortable_column("name", "name", :desc, :asc, compare_sorted_names)
+        end
+
+        it "sorts Login ID column asc/desc" do
+          # Login IDs are sorted case-insensitively
+          expect_sortable_column("login_id", "login-id", :asc, :desc, nil, case_sensitive: false)
+        end
+
+        it "sorts SIS ID column asc/desc" do
+          # SIS IDs are sorted case-insensitively
+          expect_sortable_column("sis_id", "sis-id", :asc, :desc, nil, case_sensitive: false)
+        end
+
+        it "sorts Section column asc/desc" do
+          expect_sortable_column("section_name", "section-name")
+        end
+
+        it "sorts Role column asc/desc" do
+          compare_sorted_roles = ->(values, direction) { roles_sorted?(values, direction) }
+          expect_sortable_column("role", "role", :asc, :desc, compare_sorted_roles)
+        end
+
+        it "sorts Last Activity column asc/desc" do
+          compare_sorted_last_activity = ->(values, direction) { last_activity_sorted?(values, direction) }
+          expect_sortable_column("last_activity_at", "last-activity", :desc, :asc, compare_sorted_last_activity)
+        end
+
+        it "sorts Total Activity column asc/desc" do
+          expect_sortable_column("total_activity_time", "total-activity")
+        end
+
+        context "with multiple values per column" do
+          before :once do
+            @section_d = @course.course_sections.create!(name: "Section D")
+            @section_e = @course.course_sections.create!(name: "Section E")
+
+            @users1 = [
+              { name: "Alice", section: @section_b, last_activity: Time.zone.parse("2025-07-19 10:00:00"), role: "StudentEnrollment" },
+              { name: "Alice", section: @section_c, last_activity: Time.zone.parse("2025-07-20 10:00:00"), role: "StudentEnrollment" },
+              { name: "Bob", section: @section_a, last_activity: Time.zone.parse("2025-07-18 10:00:00"), role: "TaEnrollment" },
+              { name: "Bob", section: @section_c, last_activity: Time.zone.parse("2025-07-20 10:00:00"), role: "TeacherEnrollment" },
+              { name: "Bob", section: @section_d, last_activity: Time.zone.parse("2025-07-17 10:00:00"), role: "DesignerEnrollment" },
+            ]
+
+            @users1.each do |info|
+              user = User.find_by(name: info[:name])
+              enrollment = @course.enroll_user(user, info[:role], section: info[:section])
+              enrollment.workflow_state = "active"
+              enrollment.last_activity_at = info[:last_activity]
+              enrollment.save!
+            end
+          end
+
+          let(:multivalue_sorted?) do
+            lambda do |values, direction|
+              # take only the first value as this is how multi value sorting works
+              selected_values = values.map { |item| item.split("\n")[0] }
+              sorted?(selected_values, direction)
+            end
+          end
+
+          it "sorts Section column with multiple values asc/desc" do
+            expect_sortable_column("section_name", "section-name", :asc, :desc, multivalue_sorted?)
+          end
+
+          it "sorts Role column with multiple values asc/desc" do
+            compare_sorted_roles = lambda do |values, direction|
+              selected_values = values.map { |item| item.split("\n")[0] }
+              roles_sorted?(selected_values, direction)
+            end
+            expect_sortable_column("role", "role", :asc, :desc, compare_sorted_roles)
+          end
+
+          it "sorts Last Activity column with multiple values asc/desc" do
+            compare_sorted_last_activity = lambda do |values, direction|
+              selected_values = values.map { |item| item.split("\n")[0] }
+              last_activity_sorted?(selected_values, direction)
+            end
+            expect_sortable_column("last_activity_at", "last-activity", :desc, :asc, compare_sorted_last_activity)
+          end
+        end
+      end
+    end
   end
 
   context "people as a TA" do
@@ -433,24 +597,21 @@ describe "people" do
       user_session @ta
     end
 
-    it "validates that the TA cannot delete / conclude or reset course" do
-      @course.root_account.disable_feature!(:granular_permissions_manage_courses)
+    it "does not show selection checkboxes for tas even when allow_assign_to_differentiation_tags setting is ON (they do not have differentiation tag permission by default)" do
+      Account.default.settings[:allow_assign_to_differentiation_tags] = { value: true }
+      Account.default.save!
+      Account.default.reload
+      get "/courses/#{@course.id}/users/"
+      expect(f("body")).not_to contain_jqcss("input[id^='select-user-']")
+    end
+
+    it "validates that the TA cannot delete or reset course" do
       get "/courses/#{@course.id}/settings"
       expect(f("#content")).not_to contain_css(".delete_course_link")
       expect(f("#content")).not_to contain_css(".reset_course_content_button")
       get "/courses/#{@course.id}/confirm_action?event=conclude"
       expect(f("#unauthorized_message")).to include_text("Access Denied")
     end
-
-    it "validates that the TA cannot delete or reset course (granular permissions)" do
-      @course.root_account.enable_feature!(:granular_permissions_manage_courses)
-      get "/courses/#{@course.id}/settings"
-      expect(f("#content")).not_to contain_css(".delete_course_link")
-      expect(f("#content")).not_to contain_css(".reset_course_content_button")
-    end
-
-    # TODO: reimplement per CNVS-29609, but make sure we're testing at the right level
-    it "should validate that a TA cannot rename a teacher"
 
     it "includes login id column if the user has :view_user_logins, even if they don't have :manage_students" do
       RoleOverride.create!(context: Account.default, permission: "manage_students", role: ta_role, enabled: false)
@@ -567,7 +728,7 @@ describe "people" do
       f(".StudentEnrollment .icon-more").click
       fln("Edit Sections").click
       CoursePeople.select_from_section_autocomplete("section2")
-      ff(".ui-button-text")[1].click
+      f("[data-testid='save-button']").click
       wait_for_ajaximations
       expect(ff(".StudentEnrollment")[0]).to include_text("section2")
     end
@@ -580,7 +741,7 @@ describe "people" do
       f(".StudentEnrollment .icon-more").click
       fln("Edit Sections").click
       find_button("Remove user from section2").click
-      ff(".ui-button-text")[1].click
+      f("[data-testid='save-button']").click
       wait_for_ajaximations
       expect(ff(".StudentEnrollment")[0]).not_to include_text("section2")
     end
@@ -592,7 +753,7 @@ describe "people" do
       f(".DesignerEnrollment .icon-more").click
       fln("Edit Sections").click
       CoursePeople.select_from_section_autocomplete("section2")
-      ff(".ui-button-text")[1].click
+      f("[data-testid='save-button']").click
       wait_for_ajaximations
       expect(ff(".DesignerEnrollment")[0]).to include_text("section2")
     end
@@ -608,9 +769,8 @@ describe "people" do
       get "/courses/#{@course.id}/users"
       f(".ObserverEnrollment .icon-more").click
       fln("Link to Students").click
-      fln("Remove linked student #{@student1.name}", f("#token_#{@student1.id}")).click
-      f(".ui-dialog-buttonset .btn-primary").click
-      wait_for_ajax_requests
+      f("[data-testid='observee-tag-#{@student1.id}'").click
+      f("[aria-label='Update']").click
       expect(@observer.enrollments.not_deleted.map(&:associated_user_id)).not_to include @student1.id
       expect(@observer.enrollments.not_deleted.map(&:associated_user_id)).to include @student2.id
     end
@@ -630,7 +790,7 @@ describe "people" do
       CoursePeople.select_from_section_autocomplete("section2")
       find_button("Remove user from section2")
       expect(find_button("Remove user from section2")).not_to be_nil
-      f(".ui-dialog-buttonset .btn-primary").click
+      f("[data-testid='save-button']").click
       wait_for_ajaximations
 
       ff(".icon-more")[1].click
@@ -714,19 +874,22 @@ describe "people" do
 
       open_role_dialog(@teacher)
 
-      expect(fj("#edit_roles #role_id option:selected")).to include_text("Teacher")
-      expect(f("#edit_roles #role_id option[value='#{student_role.id}']")).to be_present
-      expect(f("#edit_roles #role_id option[value='#{observer_role.id}']")).to be_present
+      f("[data-testid='edit-roles-select']").click
+      teacher_option = f("[data-testid='Teacher-option']")
+      expect(teacher_option.attribute("aria-selected")).to eq "true"
+      expect(f("[data-testid='Observer-option']")).to be_present
+      expect(f("[data-testid='Student-option']")).to be_present
     end
 
     it "does not let users change to a type they don't have permission to manage" do
-      @course.root_account.role_overrides.create!(role: admin_role, permission: "manage_students", enabled: false)
+      @course.root_account.role_overrides.create!(role: admin_role, permission: "add_student_to_course", enabled: false)
 
       get "/courses/#{@course.id}/users"
 
       open_role_dialog(@teacher)
-      expect(f("#edit_roles #role_id option[value='#{ta_role.id}']")).to be_present
-      expect(f("#content")).not_to contain_css("#edit_roles #role_id option[value='#{student_role.id}']")
+      f("[data-testid='edit-roles-select']").click
+      expect(f("[data-testid='TA-option']")).to be_present
+      expect(f("body")).not_to contain_css("[data-testid='Student-option']")
     end
 
     it "retains the same enrollment state" do
@@ -739,10 +902,10 @@ describe "people" do
       get "/courses/#{@course.id}/users"
 
       open_role_dialog(@teacher)
-      click_option("#edit_roles #role_id", role.id.to_s, :value)
-      f(".ui-dialog-buttonpane .btn-primary").click
+      click_option("[data-testid='edit-roles-select']", role.id.to_s, :value)
+      f("[data-testid='update-roles']").click
       wait_for_ajaximations
-      assert_flash_notice_message "Role successfully updated"
+      expect_instui_flash_message "Successfully updated roles"
 
       expect(f("#user_#{@teacher.id}")).to include_text(role_name)
       @enrollment.reload
@@ -759,10 +922,10 @@ describe "people" do
       get "/courses/#{@course.id}/users"
 
       open_role_dialog(@teacher)
-      click_option("#edit_roles #role_id", ta_role.id.to_s, :value)
-      f(".ui-dialog-buttonpane .btn-primary").click
+      click_option("[data-testid='edit-roles-select']", ta_role.id.to_s, :value)
+      f("[data-testid='update-roles']").click
       wait_for_ajaximations
-      assert_flash_notice_message "Role successfully updated"
+      expect_instui_flash_message "Successfully updated roles"
 
       expect(@enrollment.reload).to be_deleted
       expect(enrollment2.reload).to be_deleted
@@ -780,13 +943,13 @@ describe "people" do
       get "/courses/#{@course.id}/users"
 
       open_role_dialog(@teacher)
-      click_option("#edit_roles #role_id", ta_role.id.to_s, :value)
-      f(".ui-dialog-buttonpane .btn-primary").click
+      click_option("[data-testid='edit-roles-select']", ta_role.id.to_s, :value)
+      f("[data-testid='update-roles']").click
       wait_for_ajaximations
-      assert_flash_notice_message "Role successfully updated"
+      expect_instui_flash_message "Successfully updated roles"
 
       expect(@enrollment.reload).to be_deleted
-      expect(enrollment2.reload).to_not be_deleted
+      expect(enrollment2.reload).not_to be_deleted
     end
 
     it "works with multiple enrollments in one section" do
@@ -797,10 +960,10 @@ describe "people" do
 
       open_role_dialog(@teacher)
       expect(f("#edit_roles")).to include_text("This user has multiple roles") # warn them that both roles will be removed
-      click_option("#edit_roles #role_id", student_role.id.to_s, :value)
-      f(".ui-dialog-buttonpane .btn-primary").click
+      click_option("[data-testid='edit-roles-select']", student_role.id.to_s, :value)
+      f("[data-testid='update-roles']").click
       wait_for_ajaximations
-      assert_flash_notice_message "Role successfully updated"
+      expect_instui_flash_message "Successfully updated roles"
 
       expect(@enrollment.reload).to be_deleted
       expect(enrollment2.reload).to be_deleted
@@ -843,6 +1006,34 @@ describe "people" do
 
       expect_new_page_load { group_link.click }
       expect(driver.current_url).to include("/courses/#{@course.id}/groups")
+    end
+
+    it "navigates to groups page using right arrow key", custom_timeout: 30 do
+      user_session(@teacher)
+
+      get "/courses/#{@course.id}/users"
+
+      everyone_tab = f(".collectionViewItems > li:first-child")
+      everyone_tab.click
+      expect_new_page_load { everyone_tab.send_keys(:arrow_right) }
+      expect(driver.current_url).to include("/courses/#{@course.id}/groups")
+    end
+
+    it "navigates to users page using left arrow key from group tab", custom_timeout: 30 do
+      user_session(@teacher)
+
+      GroupCategory.create(name: "Test Group", context: @course)
+      get "/courses/#{@course.id}/groups"
+      wait_for_ajaximations
+
+      # Click on the first group category tab
+      group_tab = f(".collectionViewItems > li:nth-child(2)")
+      group_tab.click
+      wait_for_ajaximations
+
+      # Press left arrow to navigate back to users page
+      expect_new_page_load { group_tab.send_keys(:arrow_left) }
+      expect(driver.current_url).to include("/courses/#{@course.id}/users")
     end
 
     context "student tray" do
@@ -910,6 +1101,61 @@ describe "people" do
     Account.default.role_overrides.create!(permission: "remove_student_from_course", enabled: false, role: admin_role)
     refresh_page
 
-    expect(f("#courses")).to_not contain_css(".unenroll_link")
+    expect(f("#courses")).not_to contain_css(".unenroll_link")
+  end
+
+  context "Differentiation Tags" do
+    context "Differentiation tags Tray" do
+      before :once do
+        course_with_teacher active_user: true, active_course: true, active_enrollment: true, name: "Mrs. Commanderson"
+        @student = create_user("student@test.com")
+        enroll_student(@student)
+        Account.default.settings[:allow_assign_to_differentiation_tags] = { value: true }
+        Account.default.save!
+        Account.default.reload
+      end
+
+      before do
+        user_session @teacher
+      end
+
+      it "renders the Manage Tags Button if the setting is on" do
+        get "/courses/#{@course.id}/users"
+        expect(fj("button:contains('Manage Tags')")).to be_displayed
+      end
+
+      it "does not render the Manage Tags Button if the setting is off" do
+        Account.default.settings[:allow_assign_to_differentiation_tags] = { value: false }
+        Account.default.save!
+        Account.default.reload
+        get "/courses/#{@course.id}/users"
+        expect(f("body")).not_to contain_jqcss("button:contains('Manage Tags')")
+      end
+
+      it "does not render the Manage Tags Button if the user does not have permissions (as a TA)" do
+        course_with_ta(active_all: true)
+        user_session @ta
+        get "/courses/#{@course.id}/users"
+        expect(f("body")).not_to contain_jqcss("button:contains('Manage Tags')")
+      end
+
+      it "opens the Tray when the Manage Tags Button is clicked" do
+        get "/courses/#{@course.id}/users"
+        fj("button:contains('Manage Tags')").click
+        expect(fj("h2:contains('Manage Tags')")).to be_displayed
+      end
+
+      it "closes the Tray when the close button is clicked" do
+        get "/courses/#{@course.id}/users"
+        fj("button:contains('Manage Tags')").click
+        wait_for_ajaximations
+        expect(fj("h2:contains('Manage Tags')")).to be_displayed
+        fj("button:contains('Close Differentiation Tag Tray')").click
+        wait_for_ajaximations
+        expect(f("body")).not_to contain_jqcss("h2:contains('Manage Tags')")
+        # Verify that focus returns to the element that opened the Tray
+        check_element_has_focus(fj("button:contains('Manage Tags')"))
+      end
+    end
   end
 end

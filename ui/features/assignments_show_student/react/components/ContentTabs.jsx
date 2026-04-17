@@ -17,9 +17,9 @@
  */
 
 import {Assignment} from '@canvas/assignments/graphql/student/Assignment'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 
-import LoadingIndicator from '@canvas/loading-indicator'
+import {LoadingIndicator} from '@instructure/platform-loading-indicator'
 import React, {lazy, Suspense} from 'react'
 import SubmissionManager from './SubmissionManager'
 import {Submission} from '@canvas/assignments/graphql/student/Submission'
@@ -27,14 +27,15 @@ import {Tabs} from '@instructure/ui-tabs'
 import {View} from '@instructure/ui-view'
 import PropTypes from 'prop-types'
 
-const I18n = useI18nScope('assignments_2')
+const I18n = createI18nScope('assignments_2')
 
-const RubricTab = lazy(() =>
-  import(
-    /* webpackChunkName: "RubricTab" */
-    /* webpackPrefetch: true */
-    './RubricTab'
-  )
+const RubricTab = lazy(
+  () =>
+    import(
+      /* webpackChunkName: "RubricTab" */
+      /* webpackPrefetch: true */
+      './RubricTab'
+    ),
 )
 
 ContentTabs.propTypes = {

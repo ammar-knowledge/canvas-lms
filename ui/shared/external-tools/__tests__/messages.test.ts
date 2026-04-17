@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
  *
@@ -23,7 +22,11 @@ import {
   handleExternalContentMessages,
   postMessageExternalContentReady,
   postMessageExternalContentCancel,
-  Service,
+  type Service,
+  type ExternalContentReady,
+  type ExternalContentReadyInnerData,
+  type Lti1p1ContentItem,
+  type MessageHandlerCleanupFunction,
 } from '../messages'
 
 describe('1.1 content item messages', () => {
@@ -32,13 +35,16 @@ describe('1.1 content item messages', () => {
       DEEP_LINKING_POST_MESSAGE_ORIGIN: 'http://canvas.test',
     }
 
-    function sendPostMessage(data, origin = env.DEEP_LINKING_POST_MESSAGE_ORIGIN) {
+    function sendPostMessage(
+      data: Record<string, unknown>,
+      origin = env.DEEP_LINKING_POST_MESSAGE_ORIGIN,
+    ) {
       fireEvent(
         window,
         new MessageEvent('message', {
           data,
           origin,
-        })
+        }),
       )
     }
 
@@ -49,17 +55,27 @@ describe('1.1 content item messages', () => {
     const externalContentReady = (props = {}) => ({
       subject: EXTERNAL_CONTENT_READY,
       contentItems: [{url: 'test'}],
-      service: 'equella',
+      service: 'external_tool_dialog',
       service_id: '1',
       ...props,
     })
 
-    let ready: () => void
+    const LtiDeepLinkingResponse = (props = {}) => ({
+      subject: 'LtiDeepLinkingResponse',
+      contentItems: [{url: 'test'}],
+      service: 'external_tool_dialog',
+      service_id: '1',
+      ...props,
+    })
+
+    let ready: (data: ExternalContentReady) => void
+    let onDeepLinkingResponse: (data: unknown) => void
     let cancel: () => void
-    let remove: () => void | undefined
+    let remove: MessageHandlerCleanupFunction | undefined
     beforeEach(() => {
-      ready = jest.fn()
-      cancel = jest.fn()
+      ready = vi.fn()
+      cancel = vi.fn()
+      onDeepLinkingResponse = vi.fn()
     })
 
     afterEach(() => {
@@ -74,6 +90,16 @@ describe('1.1 content item messages', () => {
 
       sendPostMessage(externalContentCancel())
       expect(cancel).toHaveBeenCalled()
+    })
+
+    it('calls onDeepLinkingResponse handler on LtiDeepLinkingResponse event', () => {
+      remove = handleExternalContentMessages({
+        onDeepLinkingResponse,
+        env,
+      })
+
+      sendPostMessage(LtiDeepLinkingResponse())
+      expect(onDeepLinkingResponse).toHaveBeenCalled()
     })
 
     it('calls ready handler on externalContentReady event', () => {
@@ -140,36 +166,45 @@ describe('1.1 content item messages', () => {
   })
 
   describe('sending messages', () => {
-    let originalEnv
+    let originalEnv: typeof window.ENV
 
     beforeEach(() => {
       originalEnv = window.ENV
-      window.ENV = {...ENV, DEEP_LINKING_POST_MESSAGE_ORIGIN: 'http://canvas.test'}
+      window.ENV = {...window.ENV, DEEP_LINKING_POST_MESSAGE_ORIGIN: 'http://canvas.test'}
     })
     afterEach(() => (window.ENV = originalEnv))
 
     describe('postMessageExternalContentReady', () => {
       it('posts message to window', () => {
-        const window = {postMessage: jest.fn()}
-        const eventData = {
-          contentItems: [{url: 'test'}],
-          service: 'equella',
+        const postMessageFn = vi.fn()
+        const mockWindow: Window = Object.assign(Object.create(Window.prototype), {
+          postMessage: postMessageFn,
+        })
+        const contentItem: Lti1p1ContentItem = {url: 'test', '@type': 'FileItem'}
+        const service: Service = 'external_tool_dialog'
+        const eventData: ExternalContentReadyInnerData = {
+          contentItems: [contentItem],
+          service,
+          service_id: '1',
         }
-        postMessageExternalContentReady(window, eventData)
-        expect(window.postMessage).toHaveBeenCalledWith(
+        postMessageExternalContentReady(mockWindow, eventData)
+        expect(postMessageFn).toHaveBeenCalledWith(
           {subject: 'externalContentReady', ...eventData},
-          'http://canvas.test'
+          'http://canvas.test',
         )
       })
     })
 
     describe('postMessageExternalContentCancel', () => {
       it('posts message to window', () => {
-        const window = {postMessage: jest.fn()}
-        postMessageExternalContentCancel(window)
-        expect(window.postMessage).toHaveBeenCalledWith(
+        const postMessageFn = vi.fn()
+        const mockWindow: Window = Object.assign(Object.create(Window.prototype), {
+          postMessage: postMessageFn,
+        })
+        postMessageExternalContentCancel(mockWindow)
+        expect(postMessageFn).toHaveBeenCalledWith(
           {subject: 'externalContentCancel'},
-          'http://canvas.test'
+          'http://canvas.test',
         )
       })
     })

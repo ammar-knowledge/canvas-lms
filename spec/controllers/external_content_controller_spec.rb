@@ -29,7 +29,7 @@ describe ExternalContentController do
     it "gets a context for external_tool_dialog" do
       c = course_factory
       get :success, params: { service: "external_tool_dialog", course_id: c.id }
-      expect(assigns[:context]).to_not be_nil
+      expect(assigns[:context]).not_to be_nil
     end
   end
 
@@ -79,7 +79,7 @@ describe ExternalContentController do
         post(:success, params:)
 
         data = controller.js_env[:retrieved_data]
-        expect(data).to_not be_nil
+        expect(data).not_to be_nil
         expect(data.first).to be_a(IMS::LTI::Models::ContentItems::ContentItem)
 
         expect(data.first.id).to eq("http://lti-tool-provider-example.dev/messages/blti")
@@ -115,15 +115,15 @@ describe ExternalContentController do
         post(:success, params:)
         env = controller.js_env
 
-        expect(env[:message]).to eq('{"html"=>"msg somehtml"}')
-        expect(env[:log]).to eq('{"html"=>"log somehtml"}')
-        expect(env[:error_message]).to eq('{"html"=>"errormsg somehtml"}')
-        expect(env[:error_log]).to eq('{"html"=>"errorlog somehtml"}')
+        expect(env[:message]).to eq(%({"html" => "msg somehtml"}))
+        expect(env[:log]).to eq(%({"html" => "log somehtml"}))
+        expect(env[:error_message]).to eq(%({"html" => "errormsg somehtml"}))
+        expect(env[:error_log]).to eq(%({"html" => "errorlog somehtml"}))
         expect(env[:lti_response_messages]).to eq(
-          lti_msg: '{"html"=>"msg somehtml"}',
-          lti_log: '{"html"=>"log somehtml"}',
-          lti_errormsg: '{"html"=>"errormsg somehtml"}',
-          lti_errorlog: '{"html"=>"errorlog somehtml"}'
+          lti_msg: %({"html" => "msg somehtml"}),
+          lti_log: %({"html" => "log somehtml"}),
+          lti_errormsg: %({"html" => "errormsg somehtml"}),
+          lti_errorlog: %({"html" => "errorlog somehtml"})
         )
       end
 
@@ -179,7 +179,7 @@ describe ExternalContentController do
 
         context "when returning from a non-internal service" do
           it "does not set the DEEP_LINKING_POST_MESSAGE_ORIGIN value in jsenv" do
-            expect(controller).not_to receive(:js_env).with({ DEEP_LINKING_POST_MESSAGE_ORIGIN: "http://test.com" }, true)
+            expect(controller).not_to receive(:js_env).with({ DEEP_LINKING_POST_MESSAGE_ORIGIN: "http://test.com" }, overwrite: true)
             subject
           end
         end
@@ -193,7 +193,7 @@ describe ExternalContentController do
           it "sets the DEEP_LINKING_POST_MESSAGE_ORIGIN value in jsenv" do
             allow(controller).to receive(:js_env)
             subject
-            expect(controller).to have_received(:js_env).with({ DEEP_LINKING_POST_MESSAGE_ORIGIN: "http://test.com" }, true)
+            expect(controller).to have_received(:js_env).with({ DEEP_LINKING_POST_MESSAGE_ORIGIN: "http://test.com" }, overwrite: true)
           end
 
           context "when the tool has a domain and not a url" do
@@ -212,7 +212,7 @@ describe ExternalContentController do
             it "sets the DEEP_LINKING_POST_MESSAGE_ORIGIN value in jsenv" do
               allow(controller).to receive(:js_env)
               subject
-              expect(controller).to have_received(:js_env).with({ DEEP_LINKING_POST_MESSAGE_ORIGIN: "https://test.com" }, true)
+              expect(controller).to have_received(:js_env).with({ DEEP_LINKING_POST_MESSAGE_ORIGIN: "https://test.com" }, overwrite: true)
             end
           end
         end
@@ -418,7 +418,7 @@ describe ExternalContentController do
     let(:expected_oembed_uri) { "#{endpoint}&url=#{CGI.escape(url)}&format=json" }
     let(:oembed_token) { "" }
     let(:params) { { endpoint:, url: } }
-    let(:success_double) { double("success", body: oembed_resource.to_json) }
+    let(:success_double) { instance_double(Net::HTTPSuccess, body: oembed_resource.to_json) }
     let(:tool) { external_tool_model }
     let(:url) { "https://www.test.edu/new_actionicons/oembed-endpoint" }
     let(:user) { user_model }
@@ -448,7 +448,7 @@ describe ExternalContentController do
       let(:iss) { tool.consumer_key }
       let(:jti) { SecureRandom.uuid }
       let(:params) { { oembed_token: } }
-      let(:sub) { Lti::Asset.opaque_identifier_for(user) }
+      let(:sub) { Lti::V1p1::Asset.opaque_identifier_for(user) }
 
       context "and an active user session" do
         before { user_session(user) }

@@ -18,7 +18,6 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative "../../spec_helper"
 require_relative "../views_helper"
 require_relative "../../selenium/helpers/groups_common"
 
@@ -38,7 +37,7 @@ describe "gradebooks/speed_grader" do
 
     @group_category = @course.group_categories.create!(name: "Test Group Set")
     @group = @course.groups.create!(name: "a group", group_category: @group_category)
-    add_user_to_group(@user, @group, true)
+    add_user_to_group(@user, @group, is_leader: true)
     @assignment = @course.assignments.create!(assignment_valid_attributes.merge(
                                                 group_category: @group_category,
                                                 grade_group_students_individually: true
@@ -85,6 +84,38 @@ describe "gradebooks/speed_grader" do
     expect(rendered).to include '<div id="post-assignment-grades-tray"></div>'
   end
 
+  describe "submission stickers" do
+    it "includes the mount point when assignment enhancements and stickers flags are enabled" do
+      @course.enable_feature!(:assignments_2_student)
+      @course.enable_feature!(:submission_stickers)
+      render(template: "gradebooks/speed_grader", locals:)
+      expect(rendered).to include '<div id="submission_sticker_mount_point"></div>'
+    end
+
+    it "does not include the mount point when the assignment type is not supported by assignment enhancements" do
+      @course.enable_feature!(:assignments_2_student)
+      @course.enable_feature!(:submission_stickers)
+      @assignment.update!(submission_types: "wiki_page")
+      @course.wiki_pages.create!(title: "Page 1", assignment: @assignment)
+      render(template: "gradebooks/speed_grader", locals:)
+      expect(rendered).not_to include '<div id="submission_sticker_mount_point"></div>'
+    end
+
+    it "does not include the mount point when assignment enhancements is disabled" do
+      @course.disable_feature!(:assignments_2_student)
+      @course.enable_feature!(:submission_stickers)
+      render(template: "gradebooks/speed_grader", locals:)
+      expect(rendered).not_to include '<div id="submission_sticker_mount_point"></div>'
+    end
+
+    it "does not include the mount point when submission stickers is disabled" do
+      @course.enable_feature!(:assignments_2_student)
+      @course.disable_feature!(:submission_stickers)
+      render(template: "gradebooks/speed_grader", locals:)
+      expect(rendered).not_to include '<div id="submission_sticker_mount_point"></div>'
+    end
+  end
+
   it "includes a mount point for editing submission status" do
     render(template: "gradebooks/speed_grader", locals:)
     expect(rendered).to include '<div id="speed_grader_edit_status_mount_point"></div>'
@@ -109,9 +140,27 @@ describe "gradebooks/speed_grader" do
   end
 
   it "renders the plagiarism resubmit button if the assignment has a plagiarism tool" do
-    allow_any_instance_of(Assignment).to receive(:assignment_configuration_tool_lookup_ids) { [1] }
+    @assignment.assignment_configuration_tool_lookups.create!(
+      tool_product_code: "turnitin-lti",
+      tool_vendor_code: "turnitin.com",
+      tool_resource_type_code: "resource-type-code",
+      tool_type: "Lti::MessageHandler"
+    )
+
     render(template: "gradebooks/speed_grader", locals:)
     expect(rendered).to include "<div id='plagiarism_platform_info_container'>"
+  end
+
+  it "does not render the plagiarism resubmit button when CPF has been migrated" do
+    @assignment.assignment_configuration_tool_lookups.create!(
+      tool_product_code: "turnitin-lti",
+      tool_vendor_code: "turnitin.com",
+      tool_resource_type_code: "resource-type-code",
+      tool_type: "Lti::MessageHandler"
+    )
+    allow_any_instance_of(AssignmentConfigurationToolLookup).to receive(:migrated?).and_return(true)
+    render(template: "gradebooks/speed_grader", locals:)
+    expect(rendered).not_to include "<div id='plagiarism_platform_info_container'>"
   end
 
   describe "submission comments form" do

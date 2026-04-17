@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2017 - present Instructure, Inc.
  *
@@ -21,7 +20,7 @@ import type {Assignment} from '../../api'
 import replaceTags from '@canvas/util/replaceTags'
 
 class DownloadSubmissionsDialogManager {
-  assignment: Assignment
+  assignment: Pick<Assignment, 'id' | 'submission_types' | 'has_submitted_submissions'>
 
   downloadUrl: string
 
@@ -30,9 +29,9 @@ class DownloadSubmissionsDialogManager {
   submissionsDownloading: (assignmentId: string) => void
 
   constructor(
-    assignment: Assignment,
-    downloadUrlTemplate,
-    submissionsDownloading: (assignmentId: string) => void
+    assignment: Pick<Assignment, 'id' | 'submission_types' | 'has_submitted_submissions'>,
+    downloadUrlTemplate: string,
+    submissionsDownloading: (assignmentId: string) => void,
   ) {
     this.assignment = assignment
     this.downloadUrl = replaceTags(downloadUrlTemplate, 'assignment_id', assignment.id)
@@ -48,11 +47,12 @@ class DownloadSubmissionsDialogManager {
     )
   }
 
-  showDialog(cb) {
+  showDialog(cb: () => void) {
     this.submissionsDownloading(this.assignment.id)
 
-    // @ts-expect-error
-    INST.downloadSubmissions(this.downloadUrl, cb)
+    ;(
+      window as unknown as {INST: {downloadSubmissions: (url: string, cb: () => void) => void}}
+    ).INST.downloadSubmissions(this.downloadUrl, cb)
   }
 }
 

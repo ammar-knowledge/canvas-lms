@@ -1,4 +1,3 @@
-// @ts-nocheck
 /*
  * Copyright (C) 2022 - present Instructure, Inc.
  *
@@ -18,12 +17,14 @@
  */
 
 import type {Capability} from '@instructure/updown'
-import {shouldPolyfill as spfGCL} from '@formatjs/intl-getcanonicallocales/should-polyfill'
+// As of Dec 23, 2025, Firefox is the only major browser that doesn't
+// fully support Intl.Locale. Once they support a few of the final properties,
+// we can safely remove all of these polyfills.
 import {shouldPolyfill as spfL} from '@formatjs/intl-locale/should-polyfill'
+// As of Dec 23, 2025, Firefox is the only major browser that doesn't
+// fully support Intl.PluralRules. Once they support a few of the final properties,
+// we can safely remove all of these polyfills.
 import {shouldPolyfill as spfPR} from '@formatjs/intl-pluralrules/should-polyfill'
-import {shouldPolyfill as spfNF} from '@formatjs/intl-numberformat/should-polyfill'
-import {shouldPolyfill as spfDTF} from '@formatjs/intl-datetimeformat/should-polyfill'
-import {shouldPolyfill as spfRTF} from '@formatjs/intl-relativetimeformat/should-polyfill'
 import {oncePerPage} from '@instructure/updown'
 import {captureException} from '@sentry/browser'
 
@@ -33,6 +34,10 @@ declare const ENV: {
 
 const FORMAT_JS_DIR = '/dist/@formatjs'
 
+// TODO:  FOO-4658  to research and generally clean this up the right way.
+// Short-circuiting this factored-out funcion for now until we get to the bottom
+// of the pathname mapping issue.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function localeDataFor(sys: string, locale: string): string {
   return `${FORMAT_JS_DIR}/intl-${sys}/locale-data/${locale}.js`
 }
@@ -58,6 +63,7 @@ function polyfillerFactory({
   polyfill,
   localeLoader,
 }: PolyfillerArgs): Capability {
+  // @ts-expect-error
   const subsys = Intl[subsysName]
   const native = subsys
   const nativeName = 'Native' + subsysName
@@ -87,8 +93,9 @@ function polyfillerFactory({
     const fallback = locales[0] ?? 'en'
 
     try {
-      /* eslint-disable no-await-in-loop */ // it's actually fine in for-loops
+      // it's actually fine in for-loops
       for (const locale of locales) {
+        // @ts-expect-error
         const nativeSupport = Intl[subsysName].supportedLocalesOf([locale])
         if (nativeSupport.length > 0)
           return {subsys: subsysName, locale: nativeSupport[0], source: 'native'}
@@ -97,12 +104,13 @@ function polyfillerFactory({
         if (!doable || doable === 'en') continue
         await polyfill()
         if (typeof doable === 'string') await localeLoader(doable)
+        // @ts-expect-error
         Intl[nativeName] = native
         const retval: PolyfillerUpValue = {subsys: subsysName, locale, source: 'polyfill'}
         if (typeof doable === 'string') retval.loaded = doable
         return retval
       }
-      /* eslint-enable no-await-in-loop */
+
       return {subsys: subsysName, locale: fallback, error: 'polyfill unavailable'}
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e)
@@ -112,7 +120,9 @@ function polyfillerFactory({
 
   function down(): void {
     if (subsysName) {
+      // @ts-expect-error
       delete Intl[nativeName]
+      // @ts-expect-error
       Intl[subsysName] = native
     }
   }
@@ -127,12 +137,6 @@ function polyfillerFactory({
 }
 
 const subsystems: {[subsys: string]: Capability} = {
-  getcanonicallocales: polyfillerFactory({
-    subsysName: 'getCanonicalLocales',
-    should: spfGCL,
-    polyfill: () => import('@formatjs/intl-getcanonicallocales/polyfill'),
-  }),
-
   locale: polyfillerFactory({
     subsysName: 'Locale',
     should: spfL,
@@ -143,33 +147,7 @@ const subsystems: {[subsys: string]: Capability} = {
     subsysName: 'PluralRules',
     should: spfPR,
     polyfill: () => import('@formatjs/intl-pluralrules/polyfill-force'),
-    // rspack doesn't know that localeDataFor returns a string, so it throws a warning. Interpolating
-    // the string fixes the warning.
-    localeLoader: (l: string) => import(`${localeDataFor('pluralrules', l)}`),
-  }),
-
-  datetimeformat: polyfillerFactory({
-    subsysName: 'DateTimeFormat',
-    should: spfDTF,
-    polyfill: async () => {
-      await import('@formatjs/intl-datetimeformat/polyfill-force')
-      await import('@formatjs/intl-datetimeformat/add-all-tz')
-    },
-    localeLoader: (l: string) => import(`${localeDataFor('datetimeformat', l)}`),
-  }),
-
-  numberformat: polyfillerFactory({
-    subsysName: 'NumberFormat',
-    should: spfNF,
-    polyfill: () => import('@formatjs/intl-numberformat/polyfill-force'),
-    localeLoader: (l: string) => import(`${localeDataFor('numberformat', l)}`),
-  }),
-
-  relativetimeformat: polyfillerFactory({
-    subsysName: 'RelativeTimeFormat',
-    should: spfRTF,
-    polyfill: () => import('@formatjs/intl-relativetimeformat/polyfill-force'),
-    localeLoader: (l: string) => import(`${localeDataFor('relativetimeformat', l)}`),
+    localeLoader: (l: string) => import('@formatjs/intl-pluralrules/locale-data/' + l),
   }),
 }
 
@@ -179,14 +157,13 @@ function polyfillUp(...polyfills: unknown[]) {
     const r = polyfillResult as PolyfillerUpValue
     if (r.error) {
       const errorMessage = `${r.subsys} polyfill for locale "${r.locale}" failed: ${r.error}`
-      // eslint-disable-next-line no-console
+
       console.error(errorMessage)
       captureException(
-        new Error(`${r.subsys} polyfill for locale "${r.locale}" failed: ${r.error}`)
+        new Error(`${r.subsys} polyfill for locale "${r.locale}" failed: ${r.error}`),
       )
     }
     if (r.source === 'polyfill')
-      // eslint-disable-next-line no-console
       console.info(`${r.subsys} polyfilled "${r.loaded}" for locale "${r.locale}"`)
   })
 }
@@ -196,27 +173,12 @@ function polyfillUp(...polyfills: unknown[]) {
 
 const level1: Capability = {
   up: polyfillUp,
-  requires: [subsystems.getcanonicallocales],
-}
-
-const level2: Capability = {
-  up: polyfillUp,
-  requires: [level1, subsystems.locale],
-}
-
-const level3: Capability = {
-  up: polyfillUp,
-  requires: [level2, subsystems.pluralrules],
-}
-
-const level4: Capability = {
-  up: polyfillUp,
-  requires: [level3, subsystems.numberformat],
+  requires: [subsystems.locale],
 }
 
 const IntlPolyfills: Capability = {
   up: polyfillUp,
-  requires: [level4, subsystems.datetimeformat, subsystems.relativetimeformat],
+  requires: [level1, subsystems.pluralrules],
 }
 
 export default IntlPolyfills

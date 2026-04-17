@@ -1,0 +1,290 @@
+# frozen_string_literal: true
+
+#
+# Copyright (C) 2025 - present Instructure, Inc.
+#
+# This file is part of Canvas.
+#
+# Canvas is free software: you can redistribute it and/or modify it under
+# the terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, version 3 of the License.
+#
+# Canvas is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License along
+# with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+
+require_relative "../../lti_1_3_tool_configuration_spec_helper"
+
+describe Lti::CreateRegistrationService do
+  # see also spec/controllers/lti/registrations_controller_spec.rb "POST create"
+  # and spec/controllers/lti/tool_configurations_api_controller_spec.rb "POST create"
+  subject do
+    described_class.call(
+      account:,
+      created_by:,
+      registration_params:,
+      configuration_params:,
+      unified_tool_id:,
+      overlay_params:,
+      developer_key_params:
+    )
+  end
+
+  # brings in a valid internal lti configuration
+  include_context "lti_1_3_tool_configuration_spec_helper"
+
+  let_once(:account) { account_model }
+  let_once(:created_by) { user_model }
+  let(:registration_params) do
+    {
+      name: "Foo bar baz",
+      admin_nickname: "who named this tool",
+      vendor: "acme",
+      description: "looney man",
+      lock_deploying: true,
+      workflow_state:
+    }
+  end
+  let(:configuration_params) do
+    internal_lti_configuration.merge(scopes: [*TokenScopes::LTI_SCOPES.keys.slice(0..3)])
+  end
+  let(:unified_tool_id) { nil }
+  let(:developer_key_params) { {} }
+  let(:overlay_params) { {} }
+  let(:workflow_state) { "active" }
+
+  it "creates the expected objects with the expected values" do
+    expect { subject }
+      .to change { Lti::Registration.count }
+      .by(1)
+      .and change { DeveloperKey.count }
+      .by(1)
+      .and change { Lti::ToolConfiguration.count }
+      .by(1)
+      .and change { Lti::RegistrationAccountBinding.count }
+      .by(1)
+      .and change { ContextExternalTool.count }
+      .by(1)
+
+    expect(Lti::Registration.last.attributes.with_indifferent_access).to include(
+      **registration_params
+    )
+
+    expect(Lti::ToolConfiguration.last.internal_lti_configuration.with_indifferent_access)
+      .to eql(configuration_params.with_indifferent_access)
+  end
+
+  it "defaults lock_deploying to true" do
+    registration_params.delete(:lock_deploying)
+    expect(subject.lock_deploying).to be true
+  end
+
+  it "uses lock_deploying if provided" do
+    registration_params[:lock_deploying] = false
+    expect(subject.lock_deploying).to be false
+  end
+
+  it "infers properties on the developer key from the tool configuration" do
+    subject
+
+    expect(DeveloperKey.last.scopes).to eql(configuration_params[:scopes])
+    expect(DeveloperKey.last.redirect_uris).to eql([configuration_params[:target_link_uri]])
+  end
+
+  context "with nil workflow_state" do
+    let(:registration_params) { super().merge(workflow_state: nil) }
+
+    it "defaults the workflow_state to active" do
+      expect(subject.workflow_state).to eq("active")
+    end
+  end
+
+  context "creating a site admin registration" do
+    let(:account) { Account.site_admin }
+
+    it "sets the developer key's account to nil and makes it invisible by default" do
+      subject
+
+      expect(DeveloperKey.last.visible).to be false
+      expect(DeveloperKey.last.account).to be_nil
+    end
+  end
+
+  # TEMPORARY: This test verifies temporary behavior. Remove this when we revert the temporary changes.
+  context "with overlay params specified" do
+    let(:overlay_params) do
+      {
+        title: "Overlaid Title",
+        disabled_scopes: [TokenScopes::LTI_SCOPES.keys[0]],
+        placements: {
+          course_navigation: {
+            text: "Overlaid Text"
+          }
+        }
+      }
+    end
+
+    it "does not create an overlay (merges into configuration instead)" do
+      expect { subject }.not_to change { Lti::Overlay.count }
+    end
+
+    it "merges overlay into the configuration" do
+      subject
+
+      config = Lti::ToolConfiguration.last
+      expect(config.title).to eq("Overlaid Title")
+      expect(config.scopes).not_to include(TokenScopes::LTI_SCOPES.keys[0])
+
+      # Verify placement overlay was applied
+      course_nav = config.placements.find { |p| p["placement"] == "course_navigation" }
+      expect(course_nav["text"]).to eq("Overlaid Text") if course_nav
+    end
+
+    it "uses the scopes from the overlay when creating the developer key" do
+      subject
+      expect(DeveloperKey.last.scopes).not_to include(TokenScopes::LTI_SCOPES.keys[0])
+    end
+  end
+
+  context "with developer_key_params defined" do
+    let(:developer_key_params) do
+      {
+        # Explicitly different than the configuration_params scopes
+        scopes: [TokenScopes::LTI_SCOPES.keys.last],
+        test_cluster_only: true,
+      }
+    end
+
+    it "uses the values from the parameters when creating the developer key" do
+      subject
+      expect(DeveloperKey.last.scopes).to eql(developer_key_params[:scopes])
+      expect(DeveloperKey.last.test_cluster_only).to be true
+    end
+
+    context "with an disallowed param included" do
+      let(:developer_key_params) do
+        {
+          oidc_initiation_url: "https://example.com/redirection"
+        }
+      end
+
+      it "ignores the invalid param" do
+        subject
+        expect(DeveloperKey.last.oidc_initiation_url).not_to eql(developer_key_params[:oidc_initiation_url])
+      end
+    end
+  end
+
+  context "with workflow_state in registration_params" do
+    context "when workflow_state is inactive" do
+      let(:registration_params) { super().merge(workflow_state: "inactive") }
+      let(:course) { course_model(account:) }
+
+      it "creates the registration with workflow_state inactive" do
+        expect(subject.workflow_state).to eq("inactive")
+      end
+
+      it "sets the registration account binding to off" do
+        expect { subject }.to change { Lti::RegistrationAccountBinding.count }.by(1)
+
+        expect(Lti::RegistrationAccountBinding.last.workflow_state).to eql("off")
+      end
+
+      it "tool is not available even with available context control" do
+        registration = subject
+        deployment = registration.deployments.first
+
+        # Tool should not be available when binding is off
+        expect(Lti::ContextToolFinder.all_tools_for(course))
+          .not_to include(deployment)
+
+        # Try to make it available at course level via context control
+        Lti::ContextControl.create!(
+          course:,
+          deployment:,
+          workflow_state: "available"
+        )
+
+        # Tool should still not be available because binding is off
+        expect(Lti::ContextToolFinder.all_tools_for(course))
+          .not_to include(deployment)
+      end
+    end
+
+    context "when workflow_state is active" do
+      let(:registration_params) { super().merge(workflow_state: "active") }
+
+      it "creates the registration with workflow_state active" do
+        subject
+        expect(subject.workflow_state).to eq("active")
+      end
+
+      it "sets the registration account binding to on" do
+        expect { subject }.to change { Lti::RegistrationAccountBinding.count }.by(1)
+
+        expect(Lti::RegistrationAccountBinding.last.workflow_state).to eql("on")
+      end
+    end
+  end
+
+  context "with a unified_tool_id" do
+    let(:unified_tool_id) { "1234567890" }
+
+    it "sets the unified_tool_id on the tool config" do
+      expect { subject }.to change { Lti::ToolConfiguration.count }.by(1)
+
+      expect(Lti::ToolConfiguration.last.unified_tool_id).to eql(unified_tool_id)
+    end
+
+    it "sets the unified_tool_id on the deployment" do
+      subject
+      expect(ContextExternalTool.last.unified_tool_id).to eql(unified_tool_id)
+    end
+  end
+
+  context "with invalid configuration_params" do
+    let(:configuration_params) do
+      {
+        not: :valid
+      }
+    end
+
+    it "raises an error" do
+      expect { subject }.to raise_error(ActiveRecord::RecordInvalid)
+    end
+  end
+
+  # TEMPORARY: With overlay merging, validation happens earlier and raises ArgumentError
+  context "with invalid overlay params" do
+    let(:overlay_params) do
+      {
+        disabled_scopes: "wrong!!"
+      }
+    end
+
+    it "raises an error" do
+      expect { subject }.to raise_error(ArgumentError, /Invalid overlay parameters/)
+    end
+  end
+
+  context "with a non-user passed in" do
+    let(:created_by) { "foobarbaz" }
+
+    it "raises an error" do
+      expect { subject }.to raise_error(ArgumentError)
+    end
+  end
+
+  context "with a non-account passed in" do
+    let(:account) { "foobarbaz" }
+
+    it "raises an error" do
+      expect { subject }.to raise_error(ArgumentError)
+    end
+  end
+end

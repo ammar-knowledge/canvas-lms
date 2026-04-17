@@ -16,7 +16,7 @@
 // with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import $ from 'jquery'
-import {assignIn, map} from 'lodash'
+import {assignIn, map} from 'es-toolkit/compat'
 import Backbone from '@canvas/backbone'
 import template from '../jst/index.handlebars'
 import htmlEscape from '@instructure/html-escape'
@@ -57,7 +57,7 @@ export default class ComboBox {
     const itemList = map(this.items, this._buildOption)
     // We can't use a spread here because xsslint doesn't like it.
     // xsslint safeString.identifier itemList
-    this.$menu.append.apply(this.$menu, itemList) // eslint-disable-line prefer-spread
+    this.$menu.append.apply(this.$menu, itemList)
 
     // set initial selection
     if (opts.selected != null) {

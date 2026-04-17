@@ -34,7 +34,7 @@ if (update_url) {
       let secondsSinceLastEvent = 0
       const intervalInSeconds = 60 * 5
 
-      $(document).bind('page_view_update_url_received', (event, new_update_url) => {
+      $(document).bind('page_view_update_url_received', (_event, new_update_url) => {
         update_url = new_update_url
       })
 
@@ -77,7 +77,7 @@ if (update_url) {
             navigator.sendBeacon(update_url, formData)
           }
         },
-        false
+        false,
       )
 
       let eventInTime = false

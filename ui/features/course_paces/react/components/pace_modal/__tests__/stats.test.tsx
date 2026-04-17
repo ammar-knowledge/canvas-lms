@@ -39,8 +39,8 @@ const defaultProps = {
   weekendsDisabled: false,
   compression: 0,
   setStartDate: () => {},
-  compressDates: jest.fn(),
-  uncompressDates: jest.fn(),
+  compressDates: vi.fn(),
+  uncompressDates: vi.fn(),
   responsiveSize: 'large' as ResponsiveSizes,
   appliedPace: PACE_CONTEXTS_DEFAULT_STATE.selectedContext?.applied_pace!,
 }
@@ -50,15 +50,23 @@ describe('pace modal stats', () => {
     const {getByText, getByTestId} = render(<PaceModalStats {...defaultProps} />)
 
     expect(getByText('Start Date')).toBeInTheDocument()
-    expect(getByText('Determined by course start date')).toBeInTheDocument()
+    expect(
+      getByText(
+        'Determined by course start date. Changing this date will not save, but you can view the effects of a new start date by changing the date here.',
+      ),
+    ).toBeInTheDocument()
     expect(getByText('End Date')).toBeInTheDocument()
-    expect(getByText('Determined by course end date')).toBeInTheDocument()
+    expect(
+      getByText(
+        'Determined by course end date. Changing this date will not save, but you can view the effects of a new end date by changing the date here.',
+      ),
+    ).toBeInTheDocument()
 
     expect(getByTestId('colored-assignments-section').textContent).toBe(
-      `Assignments${defaultProps.assignments}`
+      `Assignments${defaultProps.assignments}`,
     )
     expect(getByTestId('colored-duration-section').textContent).toBe(
-      `Time to complete${defaultProps.paceDuration.weeks} weeks, ${defaultProps.paceDuration.days} days`
+      `Time to complete${defaultProps.paceDuration.weeks} weeks, ${defaultProps.paceDuration.days} days`,
     )
   })
 
@@ -71,15 +79,23 @@ describe('pace modal stats', () => {
     const {getByText, getByTestId} = render(<PaceModalStats {...defaultProps} coursePace={cpace} />)
 
     expect(getByText('Start Date')).toBeInTheDocument()
-    expect(getByText('Determined by course start date')).toBeInTheDocument()
+    expect(
+      getByText(
+        'Determined by course start date. Changing this date will not save, but you can view the effects of a new start date by changing the date here.',
+      ),
+    ).toBeInTheDocument()
     expect(getByText('End Date')).toBeInTheDocument()
-    expect(getByText('Determined by course end date')).toBeInTheDocument()
+    expect(
+      getByText(
+        'Determined by course end date. Changing this date will not save, but you can view the effects of a new end date by changing the date here.',
+      ),
+    ).toBeInTheDocument()
 
     expect(getByTestId('colored-assignments-section').textContent).toBe(
-      `Assignments${defaultProps.assignments}`
+      `Assignments${defaultProps.assignments}`,
     )
     expect(getByTestId('colored-duration-section').textContent).toBe(
-      `Time to complete${defaultProps.paceDuration.weeks} weeks, ${defaultProps.paceDuration.days} days`
+      `Time to complete${defaultProps.paceDuration.weeks} weeks, ${defaultProps.paceDuration.days} days`,
     )
   })
 
@@ -89,7 +105,7 @@ describe('pace modal stats', () => {
         {...defaultProps}
         coursePace={STUDENT_PACE}
         appliedPace={PACE_CONTEXTS_STUDENTS_RESPONSE.pace_contexts[0]?.applied_pace!}
-      />
+      />,
     )
 
     expect(getByText('Start Date')).toBeInTheDocument()
@@ -98,10 +114,10 @@ describe('pace modal stats', () => {
     expect(getByText('Student enrollment date')).toBeInTheDocument()
 
     expect(getByTestId('colored-assignments-section').textContent).toBe(
-      `Assignments${defaultProps.assignments}`
+      `Assignments${defaultProps.assignments}`,
     )
     expect(getByTestId('colored-duration-section').textContent).toBe(
-      `Time to complete${defaultProps.paceDuration.weeks} weeks, ${defaultProps.paceDuration.days} days`
+      `Time to complete${defaultProps.paceDuration.weeks} weeks, ${defaultProps.paceDuration.days} days`,
     )
   })
 
@@ -115,10 +131,10 @@ describe('pace modal stats', () => {
     const end = getByTestId('coursepace-end-date')
     expect(within(end).getByText(/Not Specified/)).toBeInTheDocument()
     expect(getByTestId('colored-assignments-section').textContent).toBe(
-      `Assignments${defaultProps.assignments}`
+      `Assignments${defaultProps.assignments}`,
     )
     expect(getByTestId('colored-duration-section').textContent).toBe(
-      `Time to complete${defaultProps.paceDuration.weeks} weeks, ${defaultProps.paceDuration.days} days`
+      `Time to complete${defaultProps.paceDuration.weeks} weeks, ${defaultProps.paceDuration.days} days`,
     )
   })
 
@@ -134,10 +150,10 @@ describe('pace modal stats', () => {
     expect(within(end).getByText('Determined by course pace')).toBeInTheDocument()
 
     expect(getByTestId('colored-assignments-section').textContent).toBe(
-      `Assignments${defaultProps.assignments}`
+      `Assignments${defaultProps.assignments}`,
     )
     expect(getByTestId('colored-duration-section').textContent).toBe(
-      `Time to complete${defaultProps.paceDuration.weeks} weeks, ${defaultProps.paceDuration.days} days`
+      `Time to complete${defaultProps.paceDuration.weeks} weeks, ${defaultProps.paceDuration.days} days`,
     )
   })
 
@@ -147,21 +163,13 @@ describe('pace modal stats', () => {
     expect(defaultProps.uncompressDates).toHaveBeenCalled()
   })
 
-  describe('with course_paces_for_students enabled', () => {
-    beforeAll(() => {
-      window.ENV.FEATURES = {course_paces_for_students: true}
-    })
+  it("shows course end date for student if start date is all that's given", () => {
+    const cpace = {...STUDENT_PACE, end_date: null}
+    const {getByTestId, getByText} = render(<PaceModalStats {...defaultProps} coursePace={cpace} />)
 
-    it("shows course end date for student if start date is all that's given", () => {
-      const cpace = {...STUDENT_PACE, end_date: null}
-      const {getByTestId, getByText} = render(
-        <PaceModalStats {...defaultProps} coursePace={cpace} />
-      )
-
-      expect(getByText('Start Date')).toBeInTheDocument()
-      expect(getByText('End Date')).toBeInTheDocument()
-      const end = getByTestId('coursepace-end-date')
-      expect(within(end).getByText('Wed, Jun 1, 2022')).toBeInTheDocument()
-    })
+    expect(getByText('Start Date')).toBeInTheDocument()
+    expect(getByText('End Date')).toBeInTheDocument()
+    const end = getByTestId('coursepace-end-date')
+    expect(within(end).getByText('Wed, Jun 1, 2022')).toBeInTheDocument()
   })
 })

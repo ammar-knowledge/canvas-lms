@@ -107,7 +107,7 @@ describe('RoleTrayTableRow', () => {
     const node1 = getByText("it's a fruit")
     const node2 = getByText('banana')
 
-    expect(allSpans.length).toEqual(2)
+    expect(allSpans).toHaveLength(2)
     expect(node1).toBeInTheDocument()
     expect(node2).toBeInTheDocument()
   })
@@ -139,7 +139,7 @@ describe('RoleTrayTableRow', () => {
   })
 
   it('renders a checkbox for a granular permission', () => {
-    const {container, debug} = renderRoleTrayTableRow({
+    const {container} = renderRoleTrayTableRow({
       title: 'banana',
       roleId: '1',
       props: {
@@ -148,7 +148,6 @@ describe('RoleTrayTableRow', () => {
         },
       },
     })
-    debug()
     const node = container.querySelector('input.mocked-permissioncheckbox')
 
     expect(node).toBeInTheDocument()

@@ -59,7 +59,9 @@ describe CC::Importer::Canvas::CourseSettings do
        show_public_context_messages
        show_total_grade_as_points
        syllabus_course_summary
-       usage_rights_required].each do |boolean_field|
+       usage_rights_required
+       conditional_release
+       hide_sections_on_course_users_page].each do |boolean_field|
       describe boolean_field do
         context "when #{boolean_field} is true" do
           let(:mock_html_meta) do
@@ -103,6 +105,38 @@ describe CC::Importer::Canvas::CourseSettings do
           end
         end
       end
+    end
+  end
+
+  describe "#convert_nav_menu_links" do
+    subject(:converter) { CourseSettingConverterTestClass.new }
+
+    it "returns empty array when doc is nil" do
+      expect(converter.convert_nav_menu_links(nil)).to eq []
+    end
+
+    it "parses nav menu link nodes into hashes" do
+      doc = Nokogiri::XML(<<~XML)
+        <navMenuLinks>
+          <navMenuLink identifier="abc123">
+            <label>My Link</label>
+            <url>https://example.com</url>
+          </navMenuLink>
+          <navMenuLink identifier="linktwo">
+            <label>My Link2</label>
+            <url>https://example.com/2</url>
+          </navMenuLink>
+        </navMenuLinks>
+      XML
+
+      result = converter.convert_nav_menu_links(doc)
+      expect(result.length).to eq 2
+      expect(result.first).to eq(
+        "migration_id" => "abc123",
+        "label" => "My Link",
+        "url" => "https://example.com"
+      )
+      expect(result.pluck("migration_id")).to eq %w[abc123 linktwo]
     end
   end
 end

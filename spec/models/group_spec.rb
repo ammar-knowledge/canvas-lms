@@ -109,6 +109,17 @@ describe Group do
     end
   end
 
+  it "does not create new group if Horizon course" do
+    context = course_model
+    group_category = context.group_categories.create(name: "worldCup")
+    @course.account.enable_feature!(:horizon_course_setting)
+    @course.update!(horizon_course: true)
+    @course.save!
+    expect do
+      Group.create!(name: "group1", group_category:, context:)
+    end.to raise_error(ActiveRecord::RecordInvalid)
+  end
+
   describe "#grading_standard_or_default" do
     context "when the Group belongs to a Course" do
       it "returns the grading scheme being used by the course, if one exists" do
@@ -130,7 +141,7 @@ describe Group do
     end
   end
 
-  context "#peer_groups" do
+  describe "#peer_groups" do
     it "finds all peer groups" do
       context = course_model
       group_category = context.group_categories.create(name: "worldCup")
@@ -249,10 +260,11 @@ describe Group do
   it "grants manage permissions for associated objects to group managers" do
     e = course_with_teacher(active_course: true)
     course = e.context
-    course.root_account.disable_feature!(:granular_permissions_manage_groups)
     teacher = e.user
     group = course.groups.create
-    expect(course.grants_right?(teacher, :manage_groups)).to be_truthy
+    expect(course.grants_right?(teacher, :manage_groups_add)).to be_truthy
+    expect(course.grants_right?(teacher, :manage_groups_manage)).to be_truthy
+    expect(course.grants_right?(teacher, :manage_groups_delete)).to be_truthy
     expect(group.grants_right?(teacher, :manage_wiki_create)).to be_truthy
     expect(group.grants_right?(teacher, :manage_wiki_update)).to be_truthy
     expect(group.grants_right?(teacher, :manage_wiki_delete)).to be_truthy
@@ -262,31 +274,6 @@ describe Group do
     expect(group.wiki.grants_right?(teacher, :update_page)).to be_truthy
     attachment = group.attachments.build
     expect(attachment.grants_right?(teacher, :create)).to be_truthy
-  end
-
-  context "with granular permissions enabled" do
-    before do
-      @course.root_account.enable_feature!(:granular_permissions_manage_groups)
-    end
-
-    it "grants manage permissions for associated objects to group managers" do
-      e = course_with_teacher(active_course: true)
-      course = e.context
-      teacher = e.user
-      group = course.groups.create
-      expect(course.grants_right?(teacher, :manage_groups_add)).to be_truthy
-      expect(course.grants_right?(teacher, :manage_groups_manage)).to be_truthy
-      expect(course.grants_right?(teacher, :manage_groups_delete)).to be_truthy
-      expect(group.grants_right?(teacher, :manage_wiki_create)).to be_truthy
-      expect(group.grants_right?(teacher, :manage_wiki_update)).to be_truthy
-      expect(group.grants_right?(teacher, :manage_wiki_delete)).to be_truthy
-      expect(group.grants_right?(teacher, :manage_files_add)).to be_truthy
-      expect(group.grants_right?(teacher, :manage_files_edit)).to be_truthy
-      expect(group.grants_right?(teacher, :manage_files_delete)).to be_truthy
-      expect(group.wiki.grants_right?(teacher, :update_page)).to be_truthy
-      attachment = group.attachments.build
-      expect(attachment.grants_right?(teacher, :create)).to be_truthy
-    end
   end
 
   it "does not allow a concluded student to participate" do
@@ -449,27 +436,27 @@ describe Group do
     end
   end
 
-  context "#full?" do
+  describe "#full?" do
     it "returns true when category group_limit has been met" do
-      @group.group_category = @course.group_categories.build(name: "foo")
-      @group.group_category.group_limit = 1
+      @group.group_category = @course.group_categories.build(name: "foo", group_limit: 1)
       @group.add_user user_model, "accepted"
+      @group.association(:participating_users).reset
       expect(@group).to be_full
     end
 
     it "returns true when max_membership has been met" do
-      @group.group_category = @course.group_categories.build(name: "foo")
-      @group.group_category.group_limit = 0
+      @group.group_category = @course.group_categories.build(name: "foo", group_limit: 0)
       @group.max_membership = 1
       @group.add_user user_model, "accepted"
+      @group.association(:participating_users).reset
       expect(@group).to be_full
     end
 
     it "returns false when max_membership has not been met" do
-      @group.group_category = @course.group_categories.build(name: "foo")
-      @group.group_category.group_limit = 0
+      @group.group_category = @course.group_categories.build(name: "foo", group_limit: 0)
       @group.max_membership = 2
       @group.add_user user_model, "accepted"
+      @group.association(:participating_users).reset
       expect(@group).not_to be_full
     end
 
@@ -477,9 +464,9 @@ describe Group do
       # no category
       expect(@group).not_to be_full
       # not full
-      @group.group_category = @course.group_categories.build(name: "foo")
-      @group.group_category.group_limit = 2
+      @group.group_category = @course.group_categories.build(name: "foo", group_limit: 2)
       @group.add_user user_model, "accepted"
+      @group.association(:participating_users).reset
       expect(@group).not_to be_full
     end
   end
@@ -672,6 +659,83 @@ describe Group do
     end
   end
 
+  describe ".ids_hidden_by_section_restriction" do
+    before :once do
+      course_with_teacher(active_all: true)
+      @section1 = @course.default_section
+      @section2 = @course.course_sections.create!
+    end
+
+    it "hides a group whose members are only in a different section" do
+      viewer = @section1.enroll_user(user_model, "StudentEnrollment").user
+      other = @section2.enroll_user(user_model, "StudentEnrollment").user
+      group = @course.groups.create!
+      group.add_user(other)
+
+      hidden = Group.ids_hidden_by_section_restriction([group.id], viewer, @course)
+      expect(hidden).to include(group.id)
+    end
+
+    it "never hides a group the user is a member of" do
+      viewer = @section1.enroll_user(user_model, "StudentEnrollment").user
+      other = @section2.enroll_user(user_model, "StudentEnrollment").user
+      group = @course.groups.create!
+      group.add_user(other)
+      group.add_user(viewer)
+
+      hidden = Group.ids_hidden_by_section_restriction([group.id], viewer, @course)
+      expect(hidden).not_to include(group.id)
+    end
+
+    it "does not hide an empty group" do
+      viewer = @section1.enroll_user(user_model, "StudentEnrollment").user
+      group = @course.groups.create!
+
+      hidden = Group.ids_hidden_by_section_restriction([group.id], viewer, @course)
+      expect(hidden).not_to include(group.id)
+    end
+
+    it "does not hide a group with members in the same section" do
+      viewer = @section1.enroll_user(user_model, "StudentEnrollment").user
+      same_section = @section1.enroll_user(user_model, "StudentEnrollment").user
+      group = @course.groups.create!
+      group.add_user(same_section)
+
+      hidden = Group.ids_hidden_by_section_restriction([group.id], viewer, @course)
+      expect(hidden).not_to include(group.id)
+    end
+
+    it "returns an empty Set for empty input" do
+      viewer = @section1.enroll_user(user_model, "StudentEnrollment").user
+
+      hidden = Group.ids_hidden_by_section_restriction([], viewer, @course)
+      expect(hidden).to eq(Set.new)
+    end
+
+    it "does not hide a group when the viewer shares a section via a second enrollment" do
+      viewer = user_model
+      @course.enroll_user(viewer, "StudentEnrollment", section: @section1, enrollment_state: "active")
+      @course.enroll_user(viewer, "StudentEnrollment", section: @section2, enrollment_state: "active", allow_multiple_enrollments: true)
+      other = @section2.enroll_user(user_model, "StudentEnrollment").user
+      group = @course.groups.create!
+      group.add_user(other)
+
+      hidden = Group.ids_hidden_by_section_restriction([group.id], viewer, @course)
+      expect(hidden).not_to include(group.id)
+    end
+
+    it "excludes members with inactive enrollments from the section check" do
+      viewer = @section1.enroll_user(user_model, "StudentEnrollment").user
+      other = @section1.enroll_user(user_model, "StudentEnrollment").user
+      group = @course.groups.create!
+      group.add_user(other)
+      Enrollment.where(user_id: other.id, course_id: @course.id).update_all(workflow_state: "inactive")
+
+      hidden = Group.ids_hidden_by_section_restriction([group.id], viewer, @course)
+      expect(hidden).not_to include(group.id)
+    end
+  end
+
   context "tabs_available" do
     before :once do
       course_with_teacher(active_course: true)
@@ -769,6 +833,7 @@ describe Group do
         # should reload
         account.default_group_storage_quota = 20.decimal_megabytes
         account.save!
+        run_jobs
         @group = Group.find(@group.id)
 
         expect(@group.quota).to eq 20.decimal_megabytes
@@ -893,6 +958,20 @@ describe Group do
       expect(users.length).to eq 1
       expect(users.first.id).to eq @user.id
     end
+
+    it "includes pending_active students when course has not started yet" do
+      course_with_student(active_all: true)
+      @course.start_at = 1.week.from_now
+      @course.conclude_at = 2.weeks.from_now
+      @course.restrict_enrollments_to_course_dates = true
+      @course.save!
+
+      group = @course.groups.create(name: "test_group")
+      group.add_user(@student, "accepted")
+
+      users = group.participating_users_in_context
+      expect(users).to include(@student)
+    end
   end
 
   describe "usage_rights_required" do
@@ -933,6 +1012,278 @@ describe Group do
         expect(map.dig(assignment.id, second_student.id)).to eq second_group.id
 
         expect(Group.ids_by_student_by_assignment([first_student.id], [])).to be_empty
+      end
+    end
+  end
+
+  describe "non_collaborative groups" do
+    before do
+      @course = Course.create!(name: "Test Course")
+      @teacher = User.create!(name: "Teacher")
+      @student = User.create!(name: "Student")
+      teacher_in_course(course: @course, user: @teacher, active_all: true)
+      student_in_course(course: @course, user: @student, active_all: true)
+
+      @non_collaborative_category = GroupCategory.create!(name: "Non-Collaborative Category", context: @course, non_collaborative: true)
+      @collaborative_category = GroupCategory.create!(name: "Collaborative Category", context: @course, non_collaborative: false)
+    end
+
+    it "can filter out collaborative and noncollaborative groups" do
+      non_collaborative_group = Group.create(context: @course, group_category: @non_collaborative_category, name: "Non-Collaborative Group")
+      collaborative_group = Group.create(context: @course, group_category: @collaborative_category, name: "Collaborative Group")
+
+      expect(Group.non_collaborative).to eq [non_collaborative_group]
+      expect(Group.collaborative).to include(collaborative_group)
+      expect(Group.collaborative).not_to include(non_collaborative_group)
+    end
+
+    it "non_collaborative can be set on creation but cannot be changed afterwards" do
+      # Set non_collaborative on creation
+      group = Group.create(context: @course, group_category: @non_collaborative_category, name: "Test Group")
+      expect(group).to be_valid
+      expect(group.non_collaborative).to be true
+
+      # Attempt to change non_collaborative
+      group.non_collaborative = false
+      group.save
+      expect(group.reload.non_collaborative).to be true
+
+      # Attempt to change non_collaborative using update
+      group.update(non_collaborative: false)
+      expect(group.reload.non_collaborative).to be true
+
+      # Create a group without setting non_collaborative
+      another_group = Group.create(context: @course, group_category: @collaborative_category, name: "Another Test Group")
+      expect(another_group).to be_valid
+      expect(another_group.non_collaborative).to be false
+
+      # Attempt to set non_collaborative after creation
+      another_group.non_collaborative = true
+      another_group.save
+      expect(another_group.reload.non_collaborative).to be false
+    end
+
+    it "must belong to a course" do
+      course_group = Group.new(context: @course, group_category: @non_collaborative_category, name: "Course Group")
+      expect(course_group).to be_valid
+
+      account_group = Group.new(context: @account, group_category: @non_collaborative_category, name: "Account Group")
+      expect(account_group).not_to be_valid
+      expect(account_group.errors[:base]).to include("Non-collaborative groups must belong to a course")
+    end
+
+    it "cannot have a leader" do
+      group_with_leader = Group.new(context: @course, group_category: @non_collaborative_category, name: "Group with Leader", leader: @student)
+      expect(group_with_leader).not_to be_valid
+      expect(group_with_leader.errors[:base]).to include("Non-collaborative groups cannot have a leader")
+
+      group_without_leader = Group.new(context: @course, group_category: @non_collaborative_category, name: "Group without Leader")
+      expect(group_without_leader).to be_valid
+    end
+
+    it "must match the non_collaborative status of its category" do
+      mismatched_group = Group.new(context: @course, name: "Mismatched Group", group_category: @collaborative_category, non_collaborative: true)
+      expect(mismatched_group).not_to be_valid
+      expect(mismatched_group.errors[:base]).to include("Group non_collaborative status must match its category")
+
+      matched_group = Group.new(context: @course, name: "Matched Group", group_category: @non_collaborative_category, non_collaborative: true)
+      expect(matched_group).to be_valid
+    end
+
+    it "sets non_collaborative to true if the group_category is non_collaborative" do
+      group = Group.create!(name: "Non-Collaborative Group", group_category: @non_collaborative_category, context: @course)
+      expect(group.non_collaborative).to be_truthy
+    end
+
+    it "sets non_collaborative to false if the group_category is collaborative" do
+      group = Group.create!(name: "Collaborative Group", group_category: @collaborative_category, context: @course)
+      expect(group.non_collaborative).to be_falsey
+    end
+
+    context "permissions" do
+      before do
+        @group = Group.create!(context: @course, group_category: @non_collaborative_category, name: "Test Group", non_collaborative: true)
+        @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
+        @course.account.save!
+        @course.account.reload
+        allow(@course).to receive(:grants_any_right?).with(@teacher, anything, *RoleOverride::GRANULAR_MANAGE_TAGS_PERMISSIONS).and_return(true)
+      end
+
+      it "grants correct permissions to default teachers in non-collaborative groups" do
+        expect(@group.check_policy(@teacher)).to include(
+          :read,
+          :read_roster,
+          :read_files,
+          :send_messages,
+          :send_messages_all,
+          :manage,
+          :allow_course_admin_actions,
+          :manage_students,
+          :update,
+          :read_as_admin,
+          :read_sis,
+          :view_user_logins,
+          :read_email_addresses,
+          :delete,
+          :create
+        )
+      end
+
+      it "checks send_messages permission correctly" do
+        allow(@course).to receive(:grants_right?).and_return(true)
+        allow(@course).to receive(:grants_right?).with(@teacher, anything, :send_messages).and_return(false)
+        expect(@group.check_policy(@teacher)).not_to include(:send_messages)
+      end
+
+      it "checks send_messages_all permission correctly" do
+        allow(@course).to receive(:grants_right?).and_return(true)
+        allow(@course).to receive(:grants_right?).with(@teacher, anything, :send_messages_all).and_return(false)
+        expect(@group.check_policy(@teacher)).not_to include(:send_messages_all)
+      end
+
+      it "checks update and manage permissions correctly" do
+        allow(@course).to receive(:grants_right?).and_return(true)
+        allow(@course).to receive(:grants_right?).with(anything, anything, :manage_tags_manage).and_return(false)
+
+        expect(@group.check_policy(@teacher)).not_to include(:manage, :update, :allow_course_admin_actions, :manage_students)
+      end
+
+      it "checks delete permission correctly" do
+        allow(@course).to receive(:grants_right?).and_return(true)
+        allow(@course).to receive(:grants_right?).with(@teacher, anything, :manage_tags_delete).and_return(false)
+        expect(@group.check_policy(@teacher)).not_to include(:delete)
+      end
+
+      it "checks create permission correctly" do
+        allow(@course).to receive(:grants_right?).and_return(true)
+        allow(@course).to receive(:grants_right?).with(@teacher, anything, :manage_tags_add).and_return(false)
+        expect(@group.check_policy(@teacher)).not_to include(:create)
+      end
+
+      it "does not grant permissions to users without manage_groups or manage_groups_manage" do
+        user = User.create!(name: "Random User")
+        expect(@group.check_policy(user)).to be_empty
+      end
+
+      it "does not grant permissions to a student" do
+        expect(@group.check_policy(@student)).to be_empty
+      end
+
+      it "does not grant permissions to a student who is a group member" do
+        @group.add_user(@student)
+        expect(@group.reload.check_policy(@student)).to be_empty
+      end
+    end
+
+    context "differentiation tag validations" do
+      before do
+        @c1 = GroupCategory.where(non_collaborative: true).last
+        @c2 = GroupCategory.create!(context: @course, name: "Category 2", non_collaborative: true)
+        @c3 = GroupCategory.create!(context: @course, name: "Category 3", non_collaborative: true)
+        @c4 = GroupCategory.create!(context: @course, name: "Category 4", non_collaborative: true)
+        10.times do |i|
+          Group.create!(context: @course, group_category: @c1, name: "Group #{i}", non_collaborative: true)
+          Group.create!(context: @course, group_category: @c2, name: "Group #{i + 10}", non_collaborative: true)
+          Group.create!(context: @course, group_category: @c3, name: "Group #{i + 20}", non_collaborative: true)
+          Group.create!(context: @course, group_category: @c4, name: "Group #{i + 30}", non_collaborative: true)
+        end
+        @course.account.settings[:allow_assign_to_differentiation_tags] = { value: true }
+        @course.account.save!
+        @course.account.reload
+      end
+
+      it "reaching the tag limit and removing a tag allows to create another" do
+        expect(@c4.max_diff_tag_validation_count).to eq GroupCategory.MAX_DIFFERENTIATION_TAG_PER_COURSE
+
+        Group.where(group_category: @c4).last.delete
+        group = Group.create!(context: @course, group_category: @c4, name: "Group 40", non_collaborative: true)
+
+        expect(group).to be_valid
+        expect(group.errors).to be_empty
+      end
+
+      it "does not allow to create a tag variant after the limit" do
+        expect(@c4.max_diff_tag_validation_count).to eq GroupCategory.MAX_DIFFERENTIATION_TAG_PER_COURSE
+
+        Group.where(group_category: @c3).last.delete
+        group = Group.create(context: @course, group_category: @c4, name: "Group 40", non_collaborative: true)
+
+        expect(group).not_to be_valid
+        expect(group.errors[:base]).to include("Variant limit reached for tag")
+      end
+
+      it "does not allow to move a tag to a tag set that has reached the variant limit" do
+        # c1 already has 10 variants (the limit)
+        expect(Group.active.non_collaborative.where(group_category_id: @c1.id).count).to eq Group.MAX_VARIANTS_PER_TAG_CATEGORY
+
+        # Try to move a tag from c2 to c1
+        group_to_move = Group.where(group_category: @c2).first
+        group_to_move.group_category = @c1
+
+        expect(group_to_move).not_to be_valid
+        expect(group_to_move.errors[:base]).to include("Variant limit reached for tag")
+      end
+
+      it "leaves out soft deleted tags" do
+        expect(@c4.max_diff_tag_validation_count).to eq GroupCategory.MAX_DIFFERENTIATION_TAG_PER_COURSE
+        GroupCategory.last.update(deleted_at: Time.zone.now)
+        # Each group category has 10 groups so setting a category as deleted will reduce the count by 10
+        expect(@c4.max_diff_tag_validation_count).to eq 30
+
+        tag = GroupCategory.create(context: @course, name: "Category 5", non_collaborative: true)
+        expect(tag).to be_valid
+        expect(tag.errors).to be_empty
+      end
+    end
+  end
+
+  describe "#block_content_editor_enabled?" do
+    context "when context is a Course" do
+      before do
+        @course_context_group = Group.create!(name: "Course Group", context: @course)
+      end
+
+      it "delegates to the course's block_content_editor_enabled? method and returns true" do
+        allow(@course).to receive(:block_content_editor_enabled?).and_return(true)
+
+        expect(@course_context_group.block_content_editor_enabled?).to be true
+        expect(@course).to have_received(:block_content_editor_enabled?)
+      end
+
+      it "delegates to the course's block_content_editor_enabled? method and returns false" do
+        allow(@course).to receive(:block_content_editor_enabled?).and_return(false)
+
+        expect(@course_context_group.block_content_editor_enabled?).to be false
+        expect(@course).to have_received(:block_content_editor_enabled?)
+      end
+    end
+
+    context "when context is not a Course" do
+      before do
+        @account = account_model
+        @account_context_group = Group.create!(name: "Account Group", context: @account)
+      end
+
+      it "returns false" do
+        expect(@account_context_group.block_content_editor_enabled?).to be false
+      end
+
+      it "does not call any methods on the context" do
+        allow(@account).to receive(:block_content_editor_enabled?).and_return(true)
+
+        expect(@account_context_group.block_content_editor_enabled?).to be false
+        expect(@account).not_to have_received(:block_content_editor_enabled?)
+      end
+    end
+
+    context "when context is nil" do
+      before do
+        @group_without_context = Group.new(name: "Group Without Context")
+        @group_without_context.context = nil
+      end
+
+      it "returns false" do
+        expect(@group_without_context.block_content_editor_enabled?).to be false
       end
     end
   end

@@ -17,30 +17,27 @@
  */
 
 import {fireEvent, render, waitFor} from '@testing-library/react'
-import useFetchApi from '@canvas/use-fetch-api-hook'
 import React from 'react'
 import MicrosoftSyncAccountSettings from '../MicrosoftSyncAccountSettings'
-import doFetchApi from '@canvas/do-fetch-api-effect'
+import {setupServer} from 'msw/node'
+import {http, HttpResponse} from 'msw'
 
-jest.mock('@canvas/use-fetch-api-hook')
-jest.mock('@canvas/do-fetch-api-effect')
+const server = setupServer()
 
-const defaultUseFetchMock = ({loading, success}) => {
-  loading(false)
-  success({
-    microsoft_sync_enabled: false,
-    microsoft_sync_tenant: '',
-    microsoft_sync_login_attribute: 'email',
-    microsoft_sync_remote_attribute: 'userPrincipalName',
-    microsoft_sync_login_attribute_suffix: '',
-  })
+const defaultSettings = {
+  microsoft_sync_enabled: false,
+  microsoft_sync_tenant: '',
+  microsoft_sync_login_attribute: 'email',
+  microsoft_sync_remote_attribute: 'userPrincipalName',
+  microsoft_sync_login_attribute_suffix: '',
 }
-const defaultDoFetchApiMock = () => {}
 
 // Helpers methods for quickly setting up and fetching things from the test document.
-const setup = (useFetchApiMock = defaultUseFetchMock, doFetchApiMock = defaultDoFetchApiMock) => {
-  doFetchApi.mockImplementation(doFetchApiMock)
-  useFetchApi.mockImplementationOnce(useFetchApiMock)
+const setup = (settingsResponse = defaultSettings, putHandler = null) => {
+  server.use(
+    http.get('/api/v1/accounts/5/settings', () => HttpResponse.json(settingsResponse)),
+    http.put('/api/v1/accounts/5', putHandler || (() => HttpResponse.json({success: true}))),
+  )
   return render(<MicrosoftSyncAccountSettings />)
 }
 
@@ -75,10 +72,12 @@ const getLookupFieldSelector = ({container}) => {
 }
 
 describe('MicrosoftSyncAccountSettings', () => {
+  beforeAll(() => server.listen())
+  afterAll(() => server.close())
+
   beforeEach(() => {
-    doFetchApi.mockClear()
-    useFetchApi.mockClear()
     window.ENV = {
+      CONTEXT_BASE_URL: '/accounts/5',
       MICROSOFT_SYNC: {
         CLIENT_ID: '12345',
         REDIRECT_URI: 'https://www.instructure.com',
@@ -89,104 +88,114 @@ describe('MicrosoftSyncAccountSettings', () => {
 
   afterEach(() => {
     window.ENV = {}
+    server.resetHandlers()
   })
 
   describe('basic rendering tests', () => {
-    it('renders a spinner when loading', () => {
-      const container = setup(({loading}) => loading(true))
+    it('renders a spinner when loading', async () => {
+      server.use(
+        http.get('/api/v1/accounts/5/settings', async () => {
+          await new Promise(() => {}) // Never resolve to keep loading
+        }),
+      )
+      const container = render(<MicrosoftSyncAccountSettings />)
 
       expect(container.getByText(/Loading Microsoft Teams Sync settings/i)).toBeInTheDocument()
     })
 
-    it("doesn't render the spinner when not loading", () => {
+    it("doesn't render the spinner when not loading", async () => {
       const container = setup()
 
-      expect(
-        container.queryByText(/Loading Microsoft Teams Sync settings/i)
-      ).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(
+          container.queryByText(/Loading Microsoft Teams Sync settings/i),
+        ).not.toBeInTheDocument()
+      })
     })
 
-    it('renders without errors', () => {
+    it('renders without errors', async () => {
       const container = setup()
 
+      await waitFor(() => {
+        expect(
+          container.queryByText(/Loading Microsoft Teams Sync settings/i),
+        ).not.toBeInTheDocument()
+      })
       expect(container).toBeTruthy()
       expect(container.error).toBeFalsy()
     })
 
-    it('loads the login attribute selector with the value from the API', () => {
-      const container = setup(({loading, success}) => {
-        loading(false)
-        success({
-          microsoft_sync_tenant: 'testtenant.com',
-          microsoft_sync_login_attribute: 'sis_user_id',
-          microsoft_sync_enabled: true,
-        })
+    it('loads the login attribute selector with the value from the API', async () => {
+      const container = setup({
+        microsoft_sync_tenant: 'testtenant.com',
+        microsoft_sync_login_attribute: 'sis_user_id',
+        microsoft_sync_enabled: true,
       })
-      expect(getLoginAttributeSelector(container).title).toMatch(/sis user id/i)
+      await waitFor(() => {
+        expect(getLoginAttributeSelector(container).title).toMatch(/sis user id/i)
+      })
     })
 
-    it('loads the remote login attribute selector with the value from the API', () => {
-      const container = setup(({loading, success}) => {
-        loading(false)
-        success({
-          microsoft_sync_tenant: 'testtenant.com',
-          microsoft_sync_remote_attribute: 'mailNickname',
-          microsoft_sync_enabled: true,
-        })
+    it('loads the remote login attribute selector with the value from the API', async () => {
+      const container = setup({
+        microsoft_sync_tenant: 'testtenant.com',
+        microsoft_sync_remote_attribute: 'mailNickname',
+        microsoft_sync_enabled: true,
       })
-      expect(getLookupFieldSelector(container).title).toMatch(/email alias/i)
+      await waitFor(() => {
+        expect(getLookupFieldSelector(container).title).toMatch(/email alias/i)
+      })
     })
 
-    it('loads the login attribute suffix with the value from the API', () => {
-      const container = setup(({loading, success}) => {
-        loading(false)
-        success({
-          microsoft_sync_tenant: 'testtenant.com',
-          microsoft_sync_login_attribute_suffix: '@hello.example.com',
-          microsoft_sync_enabled: true,
-        })
+    it('loads the login attribute suffix with the value from the API', async () => {
+      const container = setup({
+        microsoft_sync_tenant: 'testtenant.com',
+        microsoft_sync_login_attribute_suffix: '@hello.example.com',
+        microsoft_sync_enabled: true,
       })
-      expect(getSuffixInput(container).value).toEqual('@hello.example.com')
+      await waitFor(() => {
+        expect(getSuffixInput(container).value).toEqual('@hello.example.com')
+      })
     })
   })
 
   describe('error handling', () => {
-    it('displays an error message when it fails to fetch settings', () => {
-      const container = setup(({loading, error}) => {
-        loading(false)
-        error('fetch failed')
-      })
+    it('displays an error message when it fails to fetch settings', async () => {
+      server.use(
+        http.get('/api/v1/accounts/5/settings', () => new HttpResponse(null, {status: 500})),
+      )
+      const container = render(<MicrosoftSyncAccountSettings />)
 
-      expect(
-        container.getByText(/Unable to fetch current Microsoft Teams Sync settings/i)
-      ).toBeInTheDocument()
+      await waitFor(() => {
+        expect(
+          container.getByText(/Unable to fetch current Microsoft Teams Sync settings/i),
+        ).toBeInTheDocument()
+      })
     })
 
     it('informs the user if it was unable to toggle sync', async () => {
       const container = setup(
-        ({success, loading}) => {
-          loading(false)
-          success({
-            microsoft_sync_enabled: false,
-            microsoft_sync_tenant: 'testtenant.com',
-            microsoft_sync_login_attribute: 'email',
-          })
+        {
+          microsoft_sync_enabled: false,
+          microsoft_sync_tenant: 'testtenant.com',
+          microsoft_sync_login_attribute: 'email',
         },
-        () => {
-          throw new Error('test failure!')
-        }
+        () => new HttpResponse(null, {status: 500}),
       )
+
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
 
       fireEvent.click(getToggle(container))
 
       const errMsg = await container.findByText(
-        /Unable to update Microsoft Teams Sync settings. Please try again. If the issue persists, please contact support/i
+        /Unable to update Microsoft Teams Sync settings. Please try again. If the issue persists, please contact support/i,
       )
       expect(errMsg).toBeInTheDocument()
-      expect(doFetchApi).toHaveBeenCalledTimes(1)
       expect(getToggle(container)).not.toBeChecked()
       expect(
-        container.queryByText('Microsoft Teams Sync settings updated!')
+        container.queryByText('Microsoft Teams Sync settings updated!'),
       ).not.toBeInTheDocument()
     })
   })
@@ -194,11 +203,14 @@ describe('MicrosoftSyncAccountSettings', () => {
   describe('client-side validation', () => {
     it("doesn't let a user enable sync without a tenant", async () => {
       const container = setup()
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
 
       fireEvent.click(getToggle(container))
 
       const errMsg = await container.findByText(
-        /to toggle microsoft teams sync you need to input a tenant domain\./i
+        /to toggle microsoft teams sync you need to input a tenant domain\./i,
       )
       expect(errMsg).toBeInTheDocument()
       expect(getToggle(container)).not.toBeChecked()
@@ -206,39 +218,48 @@ describe('MicrosoftSyncAccountSettings', () => {
 
     it("doesn't let the user enable sync without a valid tenant", async () => {
       const container = setup()
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
 
       fireEvent.input(getTextInput(container), {target: {value: 'garbage_input_with_$$.com'}})
       fireEvent.click(getToggle(container))
       const errMsg = await container.findByText(/Please provide a valid tenant domain/i)
       expect(errMsg).toBeInTheDocument()
-      expect(doFetchApi).toHaveBeenCalledTimes(0)
     })
 
     it("doesn't let the user update settings with a blank tenant", async () => {
       const container = setup()
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
 
       fireEvent.click(getUpdateButton(container))
 
       const errorMessage = await container.findByText(
-        /to toggle microsoft teams sync you need to input a tenant domain/i
+        /to toggle microsoft teams sync you need to input a tenant domain/i,
       )
       expect(errorMessage).toBeInTheDocument()
-      expect(doFetchApi).toHaveBeenCalledTimes(0)
     })
 
     it("doesn't let the user update settings without a valid tenant", async () => {
       const container = setup()
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
       fireEvent.input(getTextInput(container), {target: {value: 'garbage_input_with_$$.com'}})
 
       fireEvent.click(getUpdateButton(container))
 
       const errMsg = await container.findByText(/please provide a valid tenant domain/i)
       expect(errMsg).toBeInTheDocument()
-      expect(doFetchApi).toHaveBeenCalledTimes(0)
     })
 
     it('clears tenant validation error on text change', async () => {
       const container = setup()
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
       fireEvent.input(getTextInput(container), {target: {value: 'garbage_input_with_$$.com'}})
       fireEvent.click(getUpdateButton(container))
       fireEvent.input(getTextInput(container), {target: {value: 'garbage_input_with_$$.co'}})
@@ -248,6 +269,9 @@ describe('MicrosoftSyncAccountSettings', () => {
 
     it("doesn't let the user update settings with a suffix that is too long", async () => {
       const container = setup()
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
 
       fireEvent.input(getSuffixInput(container), {
         target: {
@@ -258,15 +282,17 @@ describe('MicrosoftSyncAccountSettings', () => {
       fireEvent.click(getUpdateButton(container))
 
       const errorMessage = await container.findByText(
-        /A suffix cannot be longer than 255 characters\. Please use a shorter suffix and try again\./i
+        /A suffix cannot be longer than 255 characters\. Please use a shorter suffix and try again\./i,
       )
 
       expect(errorMessage).toBeInTheDocument()
-      expect(doFetchApi).toHaveBeenCalledTimes(0)
     })
 
     it("doesn't let the user update settings with an invalid suffix", async () => {
       const container = setup()
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
 
       fireEvent.input(getSuffixInput(container), {
         target: {
@@ -277,59 +303,51 @@ describe('MicrosoftSyncAccountSettings', () => {
       fireEvent.click(getUpdateButton(container))
 
       const errorMessage = await container.findByText(
-        /a suffix cannot have any tabs or spaces\. please remove them and try again\./i
+        /a suffix cannot have any tabs or spaces\. please remove them and try again\./i,
       )
 
       expect(errorMessage).toBeInTheDocument()
-      expect(doFetchApi).toHaveBeenCalledTimes(0)
     })
 
     it('does let the user update settings with an empty suffix', async () => {
-      const container = setup(({loading, success}) => {
-        loading(false)
-        success({
-          microsoft_sync_enabled: true,
-          microsoft_sync_login_attribute: 'sis_user_id',
-          microsoft_sync_tenant: 'canvastest2.onmicrosoft.com',
-        })
+      const container = setup({
+        microsoft_sync_enabled: true,
+        microsoft_sync_login_attribute: 'sis_user_id',
+        microsoft_sync_tenant: 'canvastest2.onmicrosoft.com',
+      })
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
       })
 
       fireEvent.click(getUpdateButton(container))
 
       expect(
-        await container.findByText(/microsoft teams sync settings updated/i)
+        await container.findByText(/microsoft teams sync settings updated/i),
       ).toBeInTheDocument()
-      expect(doFetchApi).toHaveBeenCalledTimes(1)
     })
 
-    it('does not show a Microsoft admin consent link if disabled', () => {
-      const container = setup(
-        ({loading, success}) => {
-          loading(false)
-          success({
-            microsoft_sync_tenant: 'testtenant.com',
-            microsoft_sync_login_attribute: 'sis_user_id',
-            microsoft_sync_enabled: false,
-          })
-        },
-        () => {}
-      )
+    it('does not show a Microsoft admin consent link if disabled', async () => {
+      const container = setup({
+        microsoft_sync_tenant: 'testtenant.com',
+        microsoft_sync_login_attribute: 'sis_user_id',
+        microsoft_sync_enabled: false,
+      })
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
 
       expect(container.queryByText(/Grant tenant access/)).not.toBeInTheDocument()
     })
 
-    it('does not show a Microsoft admin consent link if tenant empty', () => {
-      const container = setup(
-        ({loading, success}) => {
-          loading(false)
-          success({
-            microsoft_sync_tenant: '',
-            microsoft_sync_login_attribute: 'sis_user_id',
-            microsoft_sync_enabled: true,
-          })
-        },
-        () => {}
-      )
+    it('does not show a Microsoft admin consent link if tenant empty', async () => {
+      const container = setup({
+        microsoft_sync_tenant: '',
+        microsoft_sync_login_attribute: 'sis_user_id',
+        microsoft_sync_enabled: true,
+      })
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
 
       expect(container.queryByText(/Grant tenant access/)).not.toBeInTheDocument()
     })
@@ -344,7 +362,15 @@ describe('MicrosoftSyncAccountSettings', () => {
         microsoft_sync_login_attribute_suffix: '@example.com',
         microsoft_sync_remote_attribute: 'userPrincipalName',
       }
-      const container = setup()
+      let capturedBody = null
+      const container = setup(defaultSettings, async ({request}) => {
+        capturedBody = await request.json()
+        return HttpResponse.json({success: true})
+      })
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
+
       fireEvent.input(getTextInput(container), {
         target: {value: expectedValues.microsoft_sync_tenant},
       })
@@ -358,16 +384,17 @@ describe('MicrosoftSyncAccountSettings', () => {
 
       const success = await container.findByText(/microsoft teams sync settings updated/i)
 
-      const params = doFetchApi.mock.calls.pop()[0]
-
       expect(getToggle(container)).not.toBeDisabled()
       expect(getUpdateButton(container)).not.toBeDisabled()
       expect(success).toBeInTheDocument()
-      expect(params.body.account.settings).toEqual(expectedValues)
+      expect(capturedBody.account.settings).toEqual(expectedValues)
     })
 
     it('updates settings with valid settings', async () => {
       const container = setup()
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
 
       fireEvent.input(getTextInput(container), {target: {value: 'canvastest2.onmicrosoft.com'}})
       fireEvent.input(getSuffixInput(container), {target: {value: '@example.com'}})
@@ -380,75 +407,86 @@ describe('MicrosoftSyncAccountSettings', () => {
       expect(getToggle(container)).not.toBeDisabled()
       expect(getUpdateButton(container)).not.toBeDisabled()
       expect(success).toBeInTheDocument()
-      expect(doFetchApi).toHaveBeenCalledTimes(1)
     })
 
-    it('disables the UI when updating settings', () => {
-      const stallNetwork = () => {
-        return new Promise(() => {})
-      }
-      const container = setup(({loading, success}) => {
-        loading(false)
-        success({
-          microsoft_sync_tenant: 'testtenant.com',
-          microsoft_sync_login_attribute: 'email',
-          microsoft_sync_enabled: true,
-        })
-      }, stallNetwork)
+    it('disables the UI when updating settings', async () => {
+      server.use(
+        http.put('/api/v1/accounts/5', async () => {
+          await new Promise(() => {}) // Never resolve
+        }),
+      )
+      const container = setup({
+        microsoft_sync_tenant: 'testtenant.com',
+        microsoft_sync_login_attribute: 'email',
+        microsoft_sync_enabled: true,
+      })
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
+
       fireEvent.click(getUpdateButton(container))
 
-      expect(getToggle(container)).toBeDisabled()
-      expect(getUpdateButton(container)).toBeDisabled()
+      await waitFor(() => {
+        expect(getToggle(container)).toBeDisabled()
+        expect(getUpdateButton(container)).toBeDisabled()
+      })
     })
 
-    it('disables the UI when toggling sync', () => {
-      const stallNetwork = () => {
-        return new Promise(() => {})
-      }
-      const container = setup(({loading, success}) => {
-        loading(false)
-        success({
-          microsoft_sync_tenant: 'testtenant.com',
-          microsoft_sync_login_attribute: 'email',
-          microsoft_sync_enabled: true,
-        })
-      }, stallNetwork)
+    it('disables the UI when toggling sync', async () => {
+      server.use(
+        http.put('/api/v1/accounts/5', async () => {
+          await new Promise(() => {}) // Never resolve
+        }),
+      )
+      const container = setup({
+        microsoft_sync_tenant: 'testtenant.com',
+        microsoft_sync_login_attribute: 'email',
+        microsoft_sync_enabled: true,
+      })
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
+
       fireEvent.click(getToggle(container))
 
-      expect(getToggle(container)).toBeDisabled()
-      expect(getUpdateButton(container)).toBeDisabled()
+      await waitFor(() => {
+        expect(getToggle(container)).toBeDisabled()
+        expect(getUpdateButton(container)).toBeDisabled()
+      })
     })
 
     it('lets the user select a login attribute', async () => {
       const attr = /email/i
-      const container = setup(({loading, success}) => {
-        loading(false)
-        success({
-          microsoft_sync_tenant: 'testtenant.com',
-          microsoft_sync_login_attribute: 'sis_user_id',
-          microsoft_sync_enabled: true,
-        })
+      const container = setup({
+        microsoft_sync_tenant: 'testtenant.com',
+        microsoft_sync_login_attribute: 'sis_user_id',
+        microsoft_sync_enabled: true,
       })
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
+
       fireEvent.click(getLoginAttributeSelector(container))
       fireEvent.click(container.getByText(attr))
       fireEvent.click(getToggle(container))
+
       await waitFor(() => {
-        expect(doFetchApi).toHaveBeenCalledTimes(1)
         expect(getLoginAttributeSelector(container).title).toMatch(attr)
+        expect(container.queryByText(/microsoft teams sync settings updated/i)).toBeInTheDocument()
       })
     })
 
     it('lets the user select an Active Directory Lookup Attribute option', async () => {
       const expectedField = /mailNickname/i
-      const container = setup(({loading, success}) => {
-        loading(false)
-        success({
-          microsoft_sync_tenant: 'testtenant.com',
-          microsoft_sync_login_attribute: 'sis_user_id',
-          microsoft_sync_enabled: false,
-          microsoft_sync_login_attribute_suffix: '@example.com',
-          microsoft_sync_remote_attribute: 'userPrincipalName',
-        })
+      const container = setup({
+        microsoft_sync_tenant: 'testtenant.com',
+        microsoft_sync_login_attribute: 'sis_user_id',
+        microsoft_sync_enabled: false,
+        microsoft_sync_login_attribute_suffix: '@example.com',
+        microsoft_sync_remote_attribute: 'userPrincipalName',
+      })
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
       })
 
       fireEvent.click(getLookupFieldSelector(container))
@@ -457,27 +495,24 @@ describe('MicrosoftSyncAccountSettings', () => {
       fireEvent.click(getToggle(container))
 
       await waitFor(() => {
-        expect(doFetchApi).toHaveBeenCalledTimes(1)
         expect(getLookupFieldSelector(container).title).toMatch(expectedField)
+        expect(container.queryByText(/microsoft teams sync settings updated/i)).toBeInTheDocument()
       })
     })
 
-    it('shows a Microsoft admin consent link', () => {
-      const container = setup(
-        ({loading, success}) => {
-          loading(false)
-          success({
-            microsoft_sync_tenant: 'testtenant.com',
-            microsoft_sync_login_attribute: 'sis_user_id',
-            microsoft_sync_enabled: true,
-          })
-        },
-        () => {}
-      )
+    it('shows a Microsoft admin consent link', async () => {
+      const container = setup({
+        microsoft_sync_tenant: 'testtenant.com',
+        microsoft_sync_login_attribute: 'sis_user_id',
+        microsoft_sync_enabled: true,
+      })
+      await waitFor(() => {
+        expect(container.queryByText(/Loading/i)).not.toBeInTheDocument()
+      })
 
       const anchorTag = container.getByText(/Grant tenant access/)
       expect(anchorTag.href).toEqual(
-        'https://login.microsoftonline.com/testtenant.com/adminconsent?client_id=12345&redirect_uri=https%3A%2F%2Fwww.instructure.com'
+        'https://login.microsoftonline.com/testtenant.com/adminconsent?client_id=12345&redirect_uri=https%3A%2F%2Fwww.instructure.com',
       )
     })
   })

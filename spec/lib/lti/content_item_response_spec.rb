@@ -24,7 +24,10 @@ describe Lti::ContentItemResponse do
   let_once(:assign1) { context.assignments.create!(name: "A1") }
   let_once(:assign2) { context.assignments.create!(name: "A2") }
   let(:controller) do
-    controller_mock = double("controller")
+    # Trigger lazy definition of route helper methods on ApplicationController
+    # so that instance_double can verify against them
+    ApplicationController.new.respond_to?(:api_v1_course_content_exports_url)
+    controller_mock = instance_double(ApplicationController)
     allow(controller_mock).to receive_messages(api_v1_course_content_exports_url: "api_export_url", file_download_url: "file_download_url")
     controller_mock
   end
@@ -196,11 +199,11 @@ describe Lti::ContentItemResponse do
         .and_call_original
     end
 
-    context "when commons_new_quizzes feature flag is enabled" do
+    context "when new_quizzes_media_type feature flag is enabled" do
       before do
         allow(Account.site_admin)
           .to receive(:feature_enabled?)
-          .with(:commons_new_quizzes)
+          .with(:new_quizzes_media_type)
           .and_return(true)
       end
 
@@ -227,11 +230,11 @@ describe Lti::ContentItemResponse do
       end
     end
 
-    context "when commons_new_quizzes feature flag is disabled" do
+    context "when new_quizzes_media_type feature flag is disabled" do
       before do
         allow(Account.site_admin)
           .to receive(:feature_enabled?)
-          .with(:commons_new_quizzes)
+          .with(:new_quizzes_media_type)
           .and_return(false)
       end
 

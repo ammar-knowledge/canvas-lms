@@ -18,26 +18,26 @@
 
 import React from 'react'
 import PropTypes from 'prop-types'
-import {useScope as useI18nScope} from '@canvas/i18n'
+import {useScope as createI18nScope} from '@canvas/i18n'
 import $ from 'jquery'
 import customPropTypes from '../modules/customPropTypes'
 import Folder from '../../backbone/models/Folder'
 import File from '../../backbone/models/File'
 import filesEnv from '../modules/filesEnv'
-import { dateString, timeString} from '@canvas/datetime/date-functions'
-import { renderDatetimeField } from '@canvas/datetime/jquery/DatetimeField'
-import { mergeTimeAndDate } from '@instructure/moment-utils'
+import {dateString, timeString} from '@canvas/datetime/date-functions'
+import {renderDatetimeField} from '@canvas/datetime/jquery/DatetimeField'
+import {mergeTimeAndDate, parse} from '@instructure/moment-utils'
 import classnames from 'classnames'
 
-const I18n = useI18nScope('restrict_student_access')
+const I18n = createI18nScope('restrict_student_access')
 
 const allAreEqual = (models, fields) =>
   models.every(model =>
     fields.every(
       attribute =>
         models[0].get(attribute) === model.get(attribute) ||
-        (!models[0].get(attribute) && !model.get(attribute))
-    )
+        (!models[0].get(attribute) && !model.get(attribute)),
+    ),
   )
 
 class RestrictedRadioButtons extends React.Component {
@@ -75,7 +75,7 @@ class RestrictedRadioButtons extends React.Component {
       text: I18n.t('Publish'),
       selectedOptionKey: 'published',
       iconClasses: 'icon-publish icon-Solid RestrictedRadioButtons__publish_icon',
-      onChange() {
+      onChange: () => {
         this.updateBtnEnable()
         this.setState({selectedOption: 'published'})
       },
@@ -85,7 +85,7 @@ class RestrictedRadioButtons extends React.Component {
       text: I18n.t('Unpublish'),
       selectedOptionKey: 'unpublished',
       iconClasses: 'icon-unpublish RestrictedRadioButtons__icon',
-      onChange() {
+      onChange: () => {
         this.updateBtnEnable()
         this.setState({selectedOption: 'unpublished'})
       },
@@ -95,7 +95,7 @@ class RestrictedRadioButtons extends React.Component {
       selectedOptionKey: 'link_only',
       text: I18n.t('Only available with link'),
       iconClasses: 'icon-line icon-off RestrictedRadioButtons__icon',
-      onChange() {
+      onChange: () => {
         this.updateBtnEnable()
         this.setState({selectedOption: 'link_only'})
       },
@@ -105,7 +105,7 @@ class RestrictedRadioButtons extends React.Component {
       selectedOptionKey: 'date_range',
       text: I18n.t('Schedule availability'),
       iconClasses: 'icon-line icon-calendar-month RestrictedRadioButtons__icon',
-      onChange() {
+      onChange: () => {
         this.updateBtnEnable()
         this.setState({selectedOption: 'date_range'})
       },
@@ -113,22 +113,39 @@ class RestrictedRadioButtons extends React.Component {
   ]
 
   componentDidMount() {
-    renderDatetimeField($(this.unlock_at), {dateOnly: true})
+    const unlockDate = this.state.unlock_at ? parse(this.state.unlock_at) : undefined
+    const lockDate = this.state.lock_at ? parse(this.state.lock_at) : undefined
+
+    renderDatetimeField($(this.unlock_at), {dateOnly: true, time: unlockDate})
     renderDatetimeField($(this.unlock_at_time), {timeOnly: true})
-    renderDatetimeField($(this.lock_at), {dateOnly: true})
+
+    renderDatetimeField($(this.lock_at), {dateOnly: true, time: lockDate})
     renderDatetimeField($(this.lock_at_time), {timeOnly: true})
   }
 
   extractFormValues = () => {
-    const unlock_at_datetime = $(this.unlock_at_time).val() && $(this.unlock_at).data('unfudged-date') ? mergeTimeAndDate($(this.unlock_at_time).val(), $(this.unlock_at).data('unfudged-date')) : ''
-    const lock_at_datetime = $(this.lock_at_time).val() && $(this.lock_at).data('unfudged-date') ? mergeTimeAndDate($(this.lock_at_time).val(), $(this.lock_at).data('unfudged-date')) : ''
+    let unlock_at_datetime = ''
+    let lock_at_datetime = ''
+
+    if (this.state.selectedOption === 'date_range') {
+      unlock_at_datetime = $(this.unlock_at).data('unfudged-date') || ''
+      if ($(this.unlock_at_time).val()) {
+        unlock_at_datetime =
+          mergeTimeAndDate($(this.unlock_at_time).val(), $(this.unlock_at).data('unfudged-date')) ||
+          ''
+      }
+
+      lock_at_datetime = $(this.lock_at).data('unfudged-date') || ''
+      if ($(this.lock_at_time).val()) {
+        lock_at_datetime =
+          mergeTimeAndDate($(this.lock_at_time).val(), $(this.lock_at).data('unfudged-date')) || ''
+      }
+    }
+
     const opts = {
       hidden: this.state.selectedOption === 'link_only',
-      unlock_at:
-        (this.state.selectedOption === 'date_range' && unlock_at_datetime) ||
-        '',
-      lock_at:
-        (this.state.selectedOption === 'date_range' && lock_at_datetime) || '',
+      unlock_at: (this.state.selectedOption === 'date_range' && unlock_at_datetime) || '',
+      lock_at: (this.state.selectedOption === 'date_range' && lock_at_datetime) || '',
       locked: this.state.selectedOption === 'unpublished',
     }
 
@@ -157,21 +174,20 @@ class RestrictedRadioButtons extends React.Component {
 
   renderPermissionOptions = () => (
     <div>
-      <label className="control-label label-offline" htmlFor="availabilitySelector">
+      <label id="availability-label" className="control-label label-offline">
         <b>{I18n.t('Availability:')}</b>
       </label>
-      <div>
+      <div role="radiogroup" aria-labelledby="availability-label">
         {this.permissionOptions.map((option, index) => (
-          // eslint-disable-next-line react/no-array-index-key
           <div className="radio" key={index}>
-            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+            {}
             <label>
               <input
                 ref={e => (this[option.ref] = e)}
                 type="radio"
                 name="permissions"
                 checked={this.isPermissionChecked(option)}
-                onChange={option.onChange.bind(this)}
+                onChange={option.onChange}
               />
               <i className={option.iconClasses} aria-hidden={true} />
               {option.text}
@@ -183,15 +199,12 @@ class RestrictedRadioButtons extends React.Component {
   )
 
   renderDatePickers = () => {
-    const styleObj = classnames(
-      "RestrictedRadioButtons__dates_wrapper",
-      {"RestrictedRadioButtons__dates_wrapper_hidden": this.state.selectedOption !== 'date_range'}
-    )
+    const styleObj = classnames('RestrictedRadioButtons__dates_wrapper', {
+      RestrictedRadioButtons__dates_wrapper_hidden: this.state.selectedOption !== 'date_range',
+    })
     return (
       <div className={styleObj}>
-        <label
-          htmlFor="dateSelectInput"
-        >
+        <label htmlFor="dateSelectInput">
           <b>{I18n.t('Available From')}</b>
         </label>
         <div className="dateSelectInputContainer controls">
@@ -206,9 +219,7 @@ class RestrictedRadioButtons extends React.Component {
             aria-label={I18n.t('Available From Date')}
           />
         </div>
-        <label
-          htmlFor="timeSelectInput"
-        >
+        <label htmlFor="timeSelectInput">
           <b>{I18n.t('From Time')}</b>
         </label>
         <div className="dateSelectInputContainer controls">
@@ -262,7 +273,7 @@ class RestrictedRadioButtons extends React.Component {
   renderVisibilityOptions = () => {
     const equal = allAreEqual(
       this.props.models.filter(model => model instanceof File),
-      ['visibility_level']
+      ['visibility_level'],
     )
 
     return (

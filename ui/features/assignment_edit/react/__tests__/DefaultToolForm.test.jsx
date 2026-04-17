@@ -29,13 +29,14 @@ const renderComponent = (props = {}) => {
     courseId: 1,
     toolName: 'Awesome Tool',
     previouslySelected: false,
+    hideErrors: vi.fn(),
   }
   return render(<DefaultToolForm {...defaultProps} {...props} />)
 }
 
 describe('DefaultToolForm', () => {
   beforeEach(() => {
-    jest.spyOn(axios, 'get').mockResolvedValue({data: []})
+    vi.spyOn(axios, 'get').mockResolvedValue({data: []})
   })
 
   it('renders a button to launch the tool', () => {
@@ -44,7 +45,7 @@ describe('DefaultToolForm', () => {
   })
 
   it('launches the tool when the button is clicked', async () => {
-    SelectContentDialog.Events.onContextExternalToolSelect = jest.fn()
+    SelectContentDialog.Events.onContextExternalToolSelect = vi.fn()
     const wrapper = renderComponent()
     await userEvent.click(wrapper.getByRole('button', {name: 'Add Content'}))
     expect(SelectContentDialog.Events.onContextExternalToolSelect).toHaveBeenCalled()
@@ -86,8 +87,8 @@ describe('DefaultToolForm', () => {
 
       await waitFor(() =>
         expect(
-          wrapper.getByText('The tool is not installed in the course or account')
-        ).toBeInTheDocument()
+          wrapper.getByText('The tool is not installed in the course or account'),
+        ).toBeInTheDocument(),
       )
     })
   })

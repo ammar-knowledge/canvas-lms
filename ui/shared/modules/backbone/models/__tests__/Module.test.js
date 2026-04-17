@@ -18,20 +18,29 @@
 
 import Module from '../Module'
 import ModuleItemCollection from '../../collections/ModuleItemCollection'
-import sinon from 'sinon'
+import {http, HttpResponse} from 'msw'
+import {setupServer} from 'msw/node'
 
 const ok = value => expect(value).toBeTruthy()
 const equal = (value, expected) => expect(value).toEqual(expected)
 
-let server
+const server = setupServer(
+  http.get('/api/v1/courses/:courseId/modules/:moduleId/items', () => {
+    return HttpResponse.json([])
+  }),
+)
 
 describe('Module', () => {
-  beforeEach(() => {
-    server = sinon.fakeServer.create()
+  beforeAll(() => {
+    server.listen()
+  })
+
+  afterAll(() => {
+    server.close()
   })
 
   afterEach(() => {
-    server.restore()
+    server.resetHandlers()
   })
 
   test('should build an itemCollection from items', () => {
@@ -44,21 +53,21 @@ describe('Module', () => {
     equal(mod.itemCollection.length, 2, 'incorrect item length')
   })
 
-  test('should build an itemCollection and fetch if items are not passed', function () {
+  test('should build an itemCollection and fetch if items are not passed', async () => {
     const mod = new Module({
       id: 3,
       course_id: 4,
     })
     ok(mod.itemCollection instanceof ModuleItemCollection, 'itemCollection is not built')
-    mod.itemCollection.fetch({
-      success() {
-        equal(mod.itemCollection.length, 1, 'incorrect item length')
-      },
-    })
-    return server.respond('GET', mod.itemCollection.url(), [
-      200,
-      {'Content-Type': 'application/json'},
-      JSON.stringify({id: 2}),
-    ])
+
+    // Override the default handler with specific test data
+    server.use(
+      http.get('/api/v1/courses/:courseId/modules/:moduleId/items', () => {
+        return HttpResponse.json([{id: 2}])
+      }),
+    )
+
+    await mod.itemCollection.fetch()
+    equal(mod.itemCollection.length, 1, 'incorrect item length')
   })
 })

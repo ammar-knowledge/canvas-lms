@@ -30,6 +30,7 @@ class ConditionalReleaseEditor {
   constructor(options = {}) {
     this.rootReducer = createRootReducer()
     this.store = options.store || createReduxStore(this.rootReducer)
+    this.readOnly = options.readOnly || false
 
     initActors(this.store)
 
@@ -61,9 +62,9 @@ class ConditionalReleaseEditor {
     targetRoot = targetRoot || targetDomNode
     ReactDom.render(
       <Provider store={this.store}>
-        <EditorView appElement={targetRoot} />
+        <EditorView appElement={targetRoot} readOnly={this.readOnly} />
       </Provider>,
-      targetDomNode
+      targetDomNode,
     )
   }
 
@@ -108,7 +109,7 @@ class ConditionalReleaseEditor {
     const errors = this.getErrors()
     if (errors.length > 0) {
       const index = errors[0].index
-      document.querySelectorAll('.cr-percent-input__input')[index].focus()
+      document.querySelectorAll('.cr-percent-input')[index].querySelectorAll('input')[0].focus()
     }
   }
 }

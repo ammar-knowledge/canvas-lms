@@ -20,8 +20,21 @@ $dark-blue: #edf4fc;
 $green: #f5fbf7;
 $highlight-blue: #00b5fe;
 
+
+.page_header_container {
+  @include page_header_container;
+
+  .collab-page_header {
+    @include page_header;
+  }
+
+  .actions_buttons-container {
+    @include action_buttons_container;
+  }
+}
+
 .collaborations-header {
-  display: block;
+  display: flex;
   overflow: hidden;
   margin-bottom: 14px;
 
@@ -31,6 +44,28 @@ $highlight-blue: #00b5fe;
   }
   .add_collaboration_link {
     float: direction(right);
+  }
+}
+
+#new_collaboration, .edit_collaboration {
+  .ic-Input {
+    max-width: 28.75rem;
+  }
+
+  textarea.ic-Input {
+    height: 126px;
+  }
+}
+
+#new_collaboration {
+  margin-top: 0.625rem;
+
+  .collaboration_type_descriptions {
+    margin-bottom: 1.125rem;
+  }
+
+  #collaborate_authorize_google_docs {
+    margin-top: 1.25rem;
   }
 }
 
@@ -63,30 +98,6 @@ $highlight-blue: #00b5fe;
   .description {
     margin-bottom: 5px;
   }
-
-  .edit_collaboration {
-    .header, .content, .footer {
-      margin: 0;
-      padding: 0;
-    }
-
-    .header {
-      input[name='collaboration[title]'] {
-        width: 300px;
-      }
-    }
-
-    .content {
-      label {
-        margin-bottom: 0;
-      }
-      textarea {
-        display: block;
-        height: 50px;
-        width: 400px;
-      }
-    }
-  }
 }
 
 .collaborator-picker {
@@ -100,6 +111,24 @@ $highlight-blue: #00b5fe;
   .list-wrapper li {
     position: relative;
 
+    button {
+      background: none;
+      border: none;
+      color: var(--ic-link-color);
+      cursor: pointer;
+      display: block;
+      font: inherit;
+      padding: 8px 6px;
+      text-align: direction(left);
+      text-decoration: none;
+      width: 100%;
+
+      &:hover, &:focus {
+        color: var(--ic-link-color-darkened-10);
+        text-decoration: underline;
+      }
+    }
+
     .icon-end, .icon-add {
       display: none;
       position: absolute;
@@ -108,7 +137,7 @@ $highlight-blue: #00b5fe;
     }
 
     &:hover .icon-end, &:hover .icon-add,
-    a:focus .icon-end, a:focus .icon-add {
+    button:focus .icon-end, button:focus .icon-add {
       display: block;
     }
   }
@@ -157,37 +186,70 @@ $highlight-blue: #00b5fe;
     background: $dark-blue;
   }
 
-  > a {
+  > a, > button {
+    background: none;
     border: none;
+    color: var(--ic-link-color);
+    cursor: pointer;
+    display: block;
+    font: inherit;
     padding: 0;
-  }
+    text-align: direction(left);
+    text-decoration: none;
+    width: 100%;
 
-  > a:hover { background: none; }
+    &:hover, &:focus {
+      background: none;
+      color: var(--ic-link-color-darkened-10);
+      text-decoration: underline;
+    }
+  }
 }
 
 .members-list-wrapper {
   li {
     background: $green;
 
-    &:hover, &:hover a, a:focus {
+    &:hover, &:hover a, &:hover button, a:focus, button:focus {
       background: none;
       color: #b72d1e;
       outline: 0;
     }
 
+    button {
+      background: none;
+      border: none;
+      color: var(--ic-link-color);
+      cursor: pointer;
+      display: block;
+      font: inherit;
+      padding: 0;
+      text-align: direction(left);
+      text-decoration: none;
+      width: 100%;
+
+      &:hover, &:focus {
+        text-decoration: underline;
+      }
+    }
   }
 
-  a { cursor: pointer; }
+  a, button { cursor: pointer; }
 
   .remove-button {
     display: none;
   }
 
-  .remove-button a {
+  .remove-button button {
+    background: none;
+    border: none;
     color: #333;
     cursor: pointer;
     display: block;
+    font: inherit;
+    padding: 0;
     text-align: center;
+    width: 100%;
   }
 
   .member-instructions {

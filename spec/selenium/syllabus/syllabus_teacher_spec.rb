@@ -106,6 +106,19 @@ describe "course syllabus" do
       expect(page_main_content).to contain_css(mini_calendar_css)
     end
 
+    it "hides course summary and misc. elements for horizon courses", :ignore_js_errors do
+      @course1.account.enable_feature!(:horizon_course_setting)
+      @course1.horizon_course = true
+      @course1.save!
+      visit_syllabus_page(@course1.id)
+      expect(element_exists?(syllabus_container_css)).to be_falsey
+      expect(element_exists?(mini_calendar_css)).to be_falsey
+
+      edit_syllabus_button.click
+      wait_for_dom_ready
+      expect(element_exists?(show_summary_chkbox_css)).to be_falsey
+    end
+
     context "in a paced course" do
       before do
         @course1.enable_course_paces = true
@@ -121,11 +134,30 @@ describe "course syllabus" do
         visit_syllabus_page(@course1.id)
         expect(course_pacing_notice).to be_displayed
       end
+    end
 
-      it "does not shows the course pacing notice when feature is off on account" do
-        @course1.account.disable_feature!(:course_paces)
+    context "timezone information accessibility" do
+      it "displays timezone information in InstUI tooltip" do
+        @course1.time_zone = "America/Denver"
+        @course1.save!
+        @teacher1.time_zone = "America/New_York"
+        @teacher1.save!
+        @assignment1.due_at = Time.zone.parse("2024-01-15 23:59:00")
+        @assignment1.save!
+
         visit_syllabus_page(@course1.id)
-        expect(element_exists?(course_pacing_notice_selector)).to be_falsey
+        wait_for_dom_ready
+
+        due_date_cell = f(".dates")
+        tooltip_trigger = due_date_cell.find_element(:css, ".tooltip-time-mount span")
+
+        driver.action.move_to(tooltip_trigger).perform
+        wait_for_ajaximations
+
+        tooltip = f("[role='tooltip']")
+        expect(tooltip).to be_displayed
+        expect(tooltip.text).to include("Local:")
+        expect(tooltip.text).to include("Course:")
       end
     end
   end

@@ -23,7 +23,7 @@ require_relative "../views_helper"
 describe "users/user_dashboard" do
   it "renders" do
     course_with_student
-    view_context
+    view_context(@course, @user)
     assign(:courses, [@course])
     assign(:enrollments, [@enrollment])
     assign(:group_memberships, [])
@@ -37,7 +37,7 @@ describe "users/user_dashboard" do
 
   it "shows announcements to users with no enrollments" do
     user_factory
-    view_context
+    view_context(@user)
     assign(:courses, [])
     assign(:enrollments, [])
     assign(:group_memberships, [])
@@ -51,13 +51,13 @@ describe "users/user_dashboard" do
                                                        subject: "My Global Announcement",
                                                        account: Account.default)])
     render "users/user_dashboard"
-    expect(response.body).to match(/My\sGlobal\sAnnouncement/)
-    expect(response.body).to match(/(This\sis\sa\smessage\sfrom\s<b>Default\sAccount)/)
+    expect(rendered).to match(/My Global Announcement/)
+    expect(rendered).to match(/This is an announcement from <b>Default Account/)
   end
 
   it "shows announcements (site_admin) to users with no enrollments" do
     user_factory
-    view_context
+    view_context(@user)
     assign(:courses, [])
     assign(:enrollments, [])
     assign(:group_memberships, [])
@@ -71,6 +71,6 @@ describe "users/user_dashboard" do
                                                        subject: "My Global Announcement",
                                                        account: Account.site_admin)])
     render "users/user_dashboard"
-    expect(response.body).to match(/(This\sis\sa\smessage\sfrom\s<b>Canvas\sAdministration)/)
+    expect(rendered).to match(/This is an announcement from <b>Canvas Administration/)
   end
 end

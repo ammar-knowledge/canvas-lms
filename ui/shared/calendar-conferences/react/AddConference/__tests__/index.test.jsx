@@ -20,7 +20,7 @@
 import React from 'react'
 import {render, fireEvent, act, within} from '@testing-library/react'
 import AddConference from '../index'
-import {destroyContainer} from '@canvas/alerts/react/FlashAlert'
+import {destroyContainer} from '@instructure/platform-alerts'
 
 const pluginConference = {
   conference_type: 'SecretConference',
@@ -79,14 +79,14 @@ describe('AddConference', () => {
 
       describe('success', () => {
         it('creates a plugin style conference when pressed', async () => {
-          const setConference = jest.fn()
+          const setConference = vi.fn()
           await launchPlugin({setConference})
           expect(setConference).toHaveBeenCalledWith(pluginConference)
         })
       })
 
       it('sets inputRef', async () => {
-        const inputRef = jest.fn()
+        const inputRef = vi.fn()
         await launchPlugin({inputRef})
         expect(inputRef).toHaveBeenCalled()
       })
@@ -107,7 +107,7 @@ describe('AddConference', () => {
                 subject: 'LtiDeepLinkingResponse',
                 content_items,
               },
-            })
+            }),
           )
         })
       }
@@ -139,7 +139,7 @@ describe('AddConference', () => {
       })
 
       it('calls set conference callback when complete', () => {
-        const setConference = jest.fn()
+        const setConference = vi.fn()
         const {queryByTitle} = launchLTI({setConference})
 
         postMessage([{title: 'MyLink', text: 'My description', type: 'link'}])
@@ -154,7 +154,7 @@ describe('AddConference', () => {
       })
 
       it('provides a default title if none available', () => {
-        const setConference = jest.fn()
+        const setConference = vi.fn()
         launchLTI({setConference})
 
         postMessage([{type: 'link'}])
@@ -183,21 +183,21 @@ describe('AddConference', () => {
       })
 
       it('accepts HTML responses', () => {
-        const setConference = jest.fn()
+        const setConference = vi.fn()
         launchLTI({setConference})
         postMessage([{type: 'html'}])
         expect(setConference).toHaveBeenCalled()
       })
 
       it('does not accept LtiLink responses', () => {
-        const setConference = jest.fn()
+        const setConference = vi.fn()
         launchLTI({setConference})
         postMessage([{type: 'ltiLink'}])
         expect(setConference).not.toHaveBeenCalled()
       })
 
       it('receives launch settings via Deep Linking response', () => {
-        const setConference = jest.fn()
+        const setConference = vi.fn()
         launchLTI({setConference})
 
         const content_item = {
@@ -240,7 +240,7 @@ describe('AddConference', () => {
     it('renders the current conference type as selected if it exists', () => {
       const currentConferenceType = conferenceTypes[1]
       const {getByRole} = render(
-        <AddConference {...getProps({conferenceTypes, currentConferenceType})} />
+        <AddConference {...getProps({conferenceTypes, currentConferenceType})} />,
       )
       const select = getByRole('combobox')
       expect(select.value).toEqual('Foo Conference')
@@ -248,9 +248,9 @@ describe('AddConference', () => {
 
     it('creates a new conference if another conference type is selected', async () => {
       const currentConferenceType = conferenceTypes[1]
-      const setConference = jest.fn()
+      const setConference = vi.fn()
       const {getByRole, findByText} = render(
-        <AddConference {...getProps({conferenceTypes, currentConferenceType, setConference})} />
+        <AddConference {...getProps({conferenceTypes, currentConferenceType, setConference})} />,
       )
       const select = getByRole('combobox')
       act(() => {
@@ -265,9 +265,9 @@ describe('AddConference', () => {
 
     it('does no clear the current conference if the same type is selected', async () => {
       const currentConferenceType = conferenceTypes[1]
-      const setConference = jest.fn()
+      const setConference = vi.fn()
       const {getByRole, findByText} = render(
-        <AddConference {...getProps({conferenceTypes, currentConferenceType, setConference})} />
+        <AddConference {...getProps({conferenceTypes, currentConferenceType, setConference})} />,
       )
       const select = getByRole('combobox')
       act(() => {
@@ -281,7 +281,7 @@ describe('AddConference', () => {
     })
 
     it('sets inputRef', async () => {
-      const inputRef = jest.fn()
+      const inputRef = vi.fn()
       render(<AddConference {...getProps({conferenceTypes, inputRef})} />)
       expect(inputRef).toHaveBeenCalled()
     })
