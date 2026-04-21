@@ -57,10 +57,10 @@ describe PageView::Pv4Client do
   end
 
   describe "auth argument validation" do
-    it "raises ArgumentError when neither requestor_user nor access_token is given" do
+    it "raises ArgumentError when requestor user is absent" do
       bad_client = PageView::Pv4Client.new("http://pv4/")
       stub_http_request("page_views" => [pv4_object])
-      expect { bad_client.fetch(user) }.to raise_error(ArgumentError, /requestor_user or access_token/)
+      expect { bad_client.fetch(user) }.to raise_error(ArgumentError, /requestor_user must be provided/)
     end
   end
 
@@ -243,16 +243,19 @@ describe PageView::Pv4Client do
 
     before do
       allow(CanvasSecurity::ServicesJwt).to receive(:for_user).and_return(jwt_token)
+      allow(HostUrl).to receive(:default_host).and_return("canvas.instructure.com")
     end
 
     it_behaves_like "pv4 client"
-  end
 
-  context "with access_token auth" do
-    let(:access_token) { "test_access_token_abc123" }
-    let(:client) { PageView::Pv4Client.new("http://pv4/", access_token) }
-    let(:expected_token) { access_token }
+    it "uses the Canvas instance domain for JWT generation" do
+      canvas_domain = "canvas.example.com"
+      allow(HostUrl).to receive(:default_host).and_return(canvas_domain)
+      stub_http_request("page_views" => [pv4_object])
 
-    it_behaves_like "pv4 client"
+      client.fetch(user)
+
+      expect(CanvasSecurity::ServicesJwt).to have_received(:for_user).with(canvas_domain, user, encrypt: false, base64: false)
+    end
   end
 end
