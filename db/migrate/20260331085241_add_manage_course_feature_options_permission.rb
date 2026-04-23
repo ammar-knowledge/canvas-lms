@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 #
-# Copyright (C) 2014 - present Instructure, Inc.
+# Copyright (C) 2026 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -17,13 +17,12 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-module Lti
-  def self.table_name_prefix
-    "lti_"
+class AddManageCourseFeatureOptionsPermission < ActiveRecord::Migration[8.0]
+  tag :postdeploy
+
+  def up
+    DataFixup::AddRoleOverridesForNewPermission
+      .delay_if_production(priority: Delayed::LOW_PRIORITY)
+      .run(:manage_courses_admin, :manage_course_feature_options)
   end
-
-  V1P3 = "1.3"
-  V1P1 = "1.1"
-
-  class LocalAppNotFound < StandardError; end
 end
