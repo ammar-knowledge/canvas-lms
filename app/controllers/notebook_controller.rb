@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 #
-# Copyright (C) 2025 - present Instructure, Inc.
+# Copyright (C) 2026 - present Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -16,21 +16,10 @@
 #
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
+#
 
-require_relative "resource_data_factory"
-
-module AccessibilityChecker
-  module BatchDataFactory
-    include ResourceDataFactory
-
-    def create_paginated_content(course, count: 25)
-      count.times do |i|
-        create_page_with(
-          course,
-          :missing_alt_text,
-          title: "Paginated Page #{i + 1}"
-        )
-      end
-    end
+class NotebookController < ApplicationController
+  def index
+    render status: :not_found, template: "shared/errors/404_message"
   end
 end

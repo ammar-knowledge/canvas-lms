@@ -112,6 +112,7 @@ type Account implements LegacyIDInterface & Node {
     Returns the first _n_ elements from the list.
     """
     first: Int
+    hasTagsInState: String
 
     """
     Returns the last _n_ elements from the list.
@@ -9615,6 +9616,7 @@ type QuizSubmission implements LegacyIDInterface & Timestamped {
   score: Float
   startedAt: DateTime
   updatedAt: DateTime
+  versionNumber: Int
   workflowState: String!
 }
 
