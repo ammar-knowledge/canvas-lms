@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+#
 # Copyright (C) 2026 - present Instructure, Inc.
 #
 # This file is part of Canvas.
@@ -16,12 +17,10 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
-class RemovePseudonymSuspendedByAdminNotification < ActiveRecord::Migration[8.0]
+class DataFixupRecalculateAdminEnrollmentStatesForCourseDatesRegression < ActiveRecord::Migration[8.0]
   tag :postdeploy
 
-  def change
-    if Shard.current.default?
-      Notification.where(name: "Pseudonym Suspended By Admin").delete_all
-    end
+  def up
+    DataFixup::RecalculateAdminEnrollmentStatesForCourseDatesRegression.new.run_later
   end
 end
