@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2025 - present Instructure, Inc.
+ * Copyright (C) 2026 - present Instructure, Inc.
  *
  * This file is part of Canvas.
  *
@@ -16,8 +16,6 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import ready from '@instructure/ready'
-
-ready(() => {
-  import('./react')
-})
+export {CanvasNotebookApi} from './api/CanvasNotebookApi'
+export {notebookTranslations, notebookTranslate} from './react/notebookTranslations'
+export {HIGHLIGHT_THEME, CARD_THEME} from './themes'
